@@ -1,11 +1,269 @@
 {
   "FT.CREATE": {
     "summary": "Creates an index with the given spec",
+    "complexity": [
+      "O(K) at creation where K is the number of fields,",
+      "O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace"],
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "data_type",
+        "command": "ON",
+        "type": "enum",
+        "enum": [
+          "HASH", "JSON"
+        ],
+        "optional": true
+      },
+      {
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "count",
+            "type": "integer",
+            "command":"PREFIX"
+          },
+          {
+            "name": "prefix",
+            "type": "string",
+            "multiple": true
+          }
+        ]
+      },
+      {
+        "name": "default_lang",
+        "type": "string",
+        "command":"LANGUAGE",
+        "optional": true
+      },
+      {
+        "name": "lang_attribute",
+        "type": "string",
+        "command":"LANGUAGE_FIELD",
+        "optional": true
+      },
+      {
+        "name": "default_score",
+        "type": "double",
+        "command":"SCORE",
+        "optional": true
+      },
+      {
+        "name": "score_attribute",
+        "type": "string",
+        "command":"SCORE_FIELD",
+        "optional": true
+      },
+      {
+        "name": "payload_attribute",
+        "type": "string",
+        "command":"PAYLOAD_FIELD",
+        "optional": true
+      },
+      {
+          "name": "maxtextfields",
+          "type": "enum",
+          "enum": [
+              "MAXTEXTFIELDS"
+          ],
+          "optional": true
+      },
+      {
+        "name": "seconds",
+        "type": "double",
+        "command":"TEMPORARY",
+        "optional": true
+      },
+      {
+        "name": "nooffsets",
+        "type": "enum",
+        "enum": [
+            "NOOFFSETS"
+        ],
+        "optional": true
+      },
+      {
+        "name": "nohl",
+        "type": "enum",
+        "enum": [
+            "NOHL"
+        ],
+        "optional": true
+      },
+      {
+        "name": "nofields",
+        "type": "enum",
+        "enum": [
+            "NOFIELDS"
+        ],
+        "optional": true
+      },
+      {
+        "name": "nofreqs",
+        "type": "enum",
+        "enum": [
+            "NOFREQS"
+        ],
+        "optional": true
+      },
+      {
+        "type": "block",
+        "optional": true,
+        "command":"STOPWORDS",
+        "block": [
+          {
+            "name": "count",
+            "type": "integer"
+          },
+          {
+            "multiple": true,
+            "name": "stopword",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "name": "schema",
+        "type": "enum",
+        "enum": [
+            "SCHEMA"
+        ]
+      },
+      {
+        "name": "field",
+        "type": "block",
+        "multiple": true,
+        "block": [
+          {
+            "name": "field_name",
+            "type": "string"
+          },
+          {
+            "name": "alias",
+            "type": "string",
+            "command": "AS",
+            "optional": true
+          },
+          {
+            "name": "field_type",
+            "type": "enum",
+            "enum": [
+              "TEXT", "TAG", "NUMERIC", "GEO"
+            ]
+          },
+          {
+            "name": "sortable",
+            "type": "block",
+            "optional": true,
+            "block": [
+              {
+                "name": "sortable",
+                "type": "enum",
+                "enum": [ 
+                  "SORTABLE"
+                ]
+              },
+              {
+                "name": "UNF",
+                "type": "enum",
+                "enum": [ 
+                  "UNF"
+                ],
+                "optional": true
+              }
+            ]
+          },
+          {
+            "name": "noindex",
+            "type": "enum",
+            "optional": true,
+            "enum": [
+              "NOINDEX"
+            ]
+          }
+        ]
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.INFO": {
+    "summary": "Returns information and statistics on the index",
     "complexity": "O(1)",
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.EXPLAIN": {
+    "summary": "Returns the execution plan for a complex query",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "query",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.EXPLAINCLI": {
+    "summary": "Returns the execution plan for a complex query",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "query",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.ALTER": {
+    "summary": "Adds a new field to the index",
+    "complexity": "O(N) where N is the number of keys in the keyspace",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "schema",
+        "type": "enum",
+        "enum": [
+          "SCHEMA"
+        ]
+      },
+      {
+        "name": "add",
+        "type": "enum",
+        "enum": [
+          "ADD"
+        ]
+      },
+      {
+        "name": "field",
+        "type": "string"
+      },
+      {
+        "name": "options",
+        "type": "string"
       }
     ],
     "since": "1.0.0",
@@ -13,14 +271,14 @@
   },
   "FT.DROPINDEX": {
     "summary": "Deletes the index",
-    "complexity": "O(N)",
+    "complexity": "O(1) or O(N) if documents are deleted, where N is the number of keys in the keyspace",
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
-        "name": "deletedocs",
+        "name": "delete docs",
         "type": "enum",
         "enum": [
           "DD"
@@ -29,6 +287,879 @@
       }
     ],
     "since": "2.0.0",
+    "group": "search"
+  },
+  "FT.ALIASADD": {
+    "summary": "Adds an alias to the index",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "alias",
+        "type": "string"
+      },
+      {
+        "name": "index",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.ALIASUPDATE": {
+    "summary": "Adds or updates an alias to the index",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "alias",
+        "type": "string"
+      },
+      {
+        "name": "index",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.ALIASDEL": {
+    "summary": "Deletes an alias from the index",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "alias",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.TAGVALS": {
+    "summary": "Returns the distinct tags indexed in a Tag field",
+    "complexity": "O(N)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "field_name",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.SUGADD": {
+    "summary": "Adds a suggestion string to an auto-complete suggestion dictionary",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "key",
+        "type": "string"
+      },
+      {
+        "name": "string",
+        "type": "string"
+      },
+      {
+        "name": "score",
+        "type": "double"
+      },
+      {
+        "name": "increment score",
+        "type": "enum",
+        "enum": [
+          "INCR"
+        ],
+        "optional": true
+      },
+      {
+          "name": "payload",
+          "command": "PAYLOAD",
+          "type": "string",
+          "optional": true
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.SUGGET": {
+    "summary": "Gets completion suggestions for a prefix",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "key",
+        "type": "string"
+      },
+      {
+        "name": "prefix",
+        "type": "string"
+      },
+      {
+        "name": "fuzzy",
+        "type": "enum",
+        "enum": [
+          "FUZZY"
+        ],
+        "optional": true
+      },
+      {
+        "name": "withscores",
+        "type": "enum",
+        "enum": [
+          "WITHSCORES"
+        ],
+        "optional": true
+      },
+      {
+        "name": "withpayloads",
+        "type": "enum",
+        "enum": [
+          "WITHPAYLOADS"
+        ],
+        "optional": true
+      },
+      {
+          "name": "max",
+          "command": "MAX",
+          "type": "integer",
+          "optional": true
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.SUGDEL": {
+    "summary": "Deletes a string from a suggestion index",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "key",
+        "type": "string"
+      },
+      {
+        "name": "string",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.SUGLEN": {
+    "summary": "Gets the size of an auto-complete suggestion dictionary",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "key",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.SYNUPDATE": {
+    "summary": "Creates or updates a synonym group with additional terms",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "synonym_group_id",
+        "type": "string"
+      },
+      {
+        "name": "skipinitialscan",
+        "type": "enum",
+        "enum": [
+          "SKIPINITIALSCAN"
+        ],
+        "optional": true
+      },
+      {
+        "name": "term",
+        "type": "string",
+        "multiple": true
+      }
+    ],
+    "since": "1.2.0",
+    "group": "search"
+  },
+  "FT.SYNDUMP": {
+    "summary": "Dumps the contents of a synonym group",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      }
+    ],
+    "since": "1.2.0",
+    "group": "search"
+  },
+  "FT.SPELLCHECK": {
+    "summary": "Performs spelling correction on a query, returning suggestions for misspelled terms",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "query",
+        "type": "string"
+      },
+      {
+          "name": "distance",
+          "command": "DISTANCE",
+          "type": "integer",
+          "optional": true
+      },
+      {
+        "name": "terms",
+        "command": "TERMS",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "inclusion",
+            "type": "enum",
+            "enum": [
+              "INCLUDE", "EXCLUDE"
+            ]
+          },
+          {
+            "name": "dictionary",
+            "type": "string"
+          },
+          {
+            "name": "terms",
+            "type": "string",
+            "multiple": true,
+            "optional": true
+          }
+        ]
+      }
+    ],
+    "since": "1.4.0",
+    "group": "search"
+  },
+  "FT.DICTADD": {
+    "summary": "Adds terms to a dictionary",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "dict",
+        "type": "string"
+      },
+      {
+        "name": "term",
+        "type": "string",
+        "multiple": true
+      }
+    ],
+    "since": "1.4.0",
+    "group": "search"
+  },
+  "FT.DICTDEL": {
+    "summary": "Deletes terms from a dictionary",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "dict",
+        "type": "string"
+      },
+      {
+        "name": "term",
+        "type": "string",
+        "multiple": true
+      }
+    ],
+    "since": "1.4.0",
+    "group": "search"
+  },
+  "FT.DICTDUMP": {
+    "summary": "Dumps all terms in the given dictionary",
+    "complexity": "O(N), where N is the size of the dictionary",
+    "arguments": [
+      {
+        "name": "dict",
+        "type": "string"
+      }
+    ],
+    "since": "1.4.0",
+    "group": "search"
+  },
+  "FT._LIST": {
+    "summary": "Returns a list of all existing indexes",
+    "complexity": "O(1)",
+    "since": "2.0.0",
+    "group": "search"
+  },
+  "FT.CONFIG SET": {
+    "summary": "Sets runtime configuration options",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "option",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.CONFIG GET": {
+    "summary": "Retrieves runtime configuration options",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "option",
+        "type": "string"
+      },
+      {
+        "name": "value",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.CONFIG HELP": {
+    "summary": "Help description of runtime configuration options",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "option",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.SEARCH": {
+    "summary": "Searches the index with a textual query, returning either documents or just ids",
+    "complexity": "O(N)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "query",
+        "type": "string"
+      },
+      {
+        "name": "nocontent",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "NOCONTENT"
+        ]
+      },
+      {
+        "name": "verbatim",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "VERBATIM"
+        ]
+      },
+      {
+        "name": "nostopwords",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "NOSTOPWORDS"
+        ]
+      },
+      {
+        "name": "withscores",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "WITHSCORES"
+        ]
+      },
+      {
+        "name": "withpayloads",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "WITHPAYLOADS"
+        ]
+      },
+      {
+        "name": "withsortkeys",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "WITHSORTKEYS"
+        ]
+      },
+      {
+        "name": "filter",
+        "type": "block",
+        "optional": true,
+        "multiple": true,
+        "block": [
+          {
+            "name": "numeric_field",
+            "type": "string",
+            "command":"FILTER"
+          },
+          {
+            "name": "min",
+            "type": "double"
+          },
+          {
+            "name": "max",
+            "type": "double"
+          }
+        ]
+      },
+      {
+        "name": "geo_filter",
+        "type": "block",
+        "optional": true,
+        "multiple": true,
+        "block": [
+          {
+            "name": "geo_field",
+            "type": "string",
+            "command":"GEOFILTER"
+          },
+          {
+            "name": "lon",
+            "type": "double"
+          },
+          {
+            "name": "lat",
+            "type": "double"
+          },
+          {
+            "name": "radius",
+            "type": "double"
+          },
+          {
+            "name": "radius_type",
+            "type": "enum",
+            "enum": [
+              "m", "km", "mi", "ft"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "in_keys",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "count",
+            "type": "string",
+            "command":"INKEYS"
+          },
+          {
+            "name": "key",
+            "type": "string",
+            "multiple": true
+          }
+        ]
+      },
+      {
+        "name": "in_fields",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "count",
+            "type": "string",
+            "command":"INFIELDS"
+          },
+          {
+            "name": "field",
+            "type": "string",
+            "multiple": true
+          }
+        ]
+      },
+      {
+        "name": "return",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "count",
+            "type": "string",
+            "command":"RETURN"
+          },
+          {
+            "name": "field",
+            "type": "string",
+            "multiple": true
+          }
+        ]
+      },
+      {
+        "name": "summarize",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "summarize",
+            "type": "enum",
+            "enum": [
+              "SUMMARIZE"
+            ]
+          },
+          {
+            "name": "fields",
+            "type": "block",
+            "optional": true,
+            "block": [
+              {
+                "name": "count",
+                "type": "string",
+                "command":"FIELDS"
+              },
+              {
+                "name": "field",
+                "type": "string",
+                "multiple": true
+              }
+            ]
+          },
+          {
+            "name": "num",
+            "type": "integer",
+            "command":"FRAGS",
+            "optional": true
+          },
+          {
+            "name": "fragsize",
+            "type": "integer",
+            "command":"LEN",
+            "optional": true
+          },
+          {
+            "name": "separator",
+            "type": "string",
+            "command":"SEPARATOR",
+            "optional": true
+          }
+        ]
+      },
+      {
+        "name": "highlight",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "highlight",
+            "type": "enum",
+            "enum": [
+              "HIGHLIGHT"
+            ]
+          },
+          {
+            "name": "fields",
+            "type": "block",
+            "optional": true,
+            "block": [
+              {
+                "name": "count",
+                "type": "string",
+                "command":"FIELDS"
+              },
+              {
+                "name": "field",
+                "type": "string",
+                "multiple": true
+              }
+            ]
+          },
+          {
+            "name": "tags",
+            "type": "block",
+            "optional": true,
+            "block": [
+              {
+                "name": "tags",
+                "type": "enum",
+                "enum": [
+                  "TAGS"
+                ]
+              },
+              {
+                "name": ["open", "close"],
+                "type": ["string", "string"]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "slop",
+        "type": "integer",
+        "optional": true,
+        "command":"SLOP"
+      },
+      {
+        "name": "tags",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "INORDER"
+        ]
+      },
+      {
+        "name": "language",
+        "type": "string",
+        "optional": true,
+        "command":"LANGUAGE"
+      },
+      {
+        "name": "expander",
+        "type": "string",
+        "optional": true,
+        "command":"EXPANDER"
+      },
+      {
+        "name": "scorer",
+        "type": "string",
+        "optional": true,
+        "command":"SCORER"
+      },
+      {
+        "name": "explainscore",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "EXPLAINSCORE"
+        ]
+      },
+      {
+        "name": "payload",
+        "type": "string",
+        "optional": true,
+        "command":"PAYLOAD"
+      },
+      {
+        "name": "sortby",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "sortby",
+            "type": "string",
+            "command":"SORTBY"
+          },
+          {
+            "name": "order",
+            "type": "enum",
+            "optional": true,
+            "enum": [
+              "ASC", "DESC"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "limit",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "limit",
+            "type": "enum",
+            "enum": [
+              "LIMIT"
+            ]
+          },
+          {
+            "name": ["offset", "num"],
+            "type": ["integer", "integer"]
+          }
+        ]
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+
+  "FT.AGGREGATE": {
+    "summary": "Adds terms to a dictionary",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "query",
+        "type": "string"
+      },
+      {
+        "name": "verbatim",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "VERBATIM"
+        ]
+      },
+      {
+        "name": "load",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "count",
+            "type": "string",
+            "command":"LOAD"
+          },
+          {
+            "name": "field",
+            "type": "string",
+            "multiple": true
+          }
+        ]
+      },
+      {
+        "name": "loadall",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "LOAD *"
+        ]
+      },
+      {
+        "name": "groupby",
+        "type": "block",
+        "optional": true,
+        "multiple": true,
+        "block" : [
+          {
+            "name": "nargs",
+            "type": "integer",
+            "command":"GROUPBY"
+          },
+          {
+            "name": "property",
+            "type": "string",
+            "multiple": true
+          },
+          {
+            "name": "reduce",
+            "type": "block",
+            "optional": true,
+            "multiple": true,
+            "block" : [
+              {
+                "name": "function",
+                "type": "string",
+                "command":"REDUCE"
+              },
+              {
+                "name": "nargs",
+                "type": "integer"
+              },
+              {
+                "name": "arg",
+                "type": "string",
+                "multiple": true
+              },
+              {
+                "name": "name",
+                "type": "string",
+                "command":"AS",
+                "optional": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "sortby",
+        "type": "block",
+        "optional": true,
+        "block" : [
+          {
+            "name": "nargs",
+            "type": "integer",
+            "command":"SORTBY"
+          },
+          {
+            "name": "fields",
+            "type": "block",
+            "optional": true,
+            "multiple": true,
+            "block" : [
+              {
+                "name": "property",
+                "type": "string"
+              },
+              {
+                "name": "order",
+                "type": "enum",
+                "enum": [
+                  "ASC", "DESC"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "num",
+            "type": "integer",
+            "command":"MAX",
+            "optional": true
+          }
+        ]
+      },
+      {
+        "name": "apply",
+        "type": "block",
+        "optional": true,
+        "multiple": true,
+        "block" : [
+          {
+            "name": "expression",
+            "type": "string",
+            "command":"APPLY"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "command":"AS"
+          }
+        ]
+      },
+      {
+        "name": "limit",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "limit",
+            "type": "enum",
+            "enum": [
+              "LIMIT"
+            ]
+          },
+          {
+            "name": ["offset", "num"],
+            "type": ["integer", "integer"]
+          }
+        ]
+      },
+      {
+        "name": "filter",
+        "type": "string",
+        "optional": true,
+        "command":"FILTER"
+      }
+    ],
+    "since": "1.1.0",
     "group": "search"
   }
 }

@@ -3,8 +3,9 @@ from collections import Iterable
 import time
 from packaging import version
 from functools import wraps
-
 import signal
+import platform
+
 from includes import *
 
 
@@ -88,6 +89,15 @@ def numver_to_version(numver):
     v = numver
     v = "%d.%d.%d" % (int(v/10000), int(v/100)%100, v%100)
     return version.parse(v)
+
+def arch_int_bits():
+  arch = platform.machine()
+  if arch == 'x86_64':
+    return 128
+  elif arch == 'aarch64':
+    return 64
+  else:
+    return 64
 
 module_ver = None
 def module_version_at_least(env, ver):

@@ -1,5 +1,5 @@
-#ifndef __GEO_INDEX_H__
-#define __GEO_INDEX_H__
+
+#pragma once
 
 #include "redisearch.h"
 #include "redismodule.h"
@@ -7,7 +7,7 @@
 #include "index_iterator.h"
 #include "search_ctx.h"
 #include "query_error.h"
-#include "dep/geo/rs_geo.h"
+#include "rs_geo.h"
 #include "numeric_index.h"
 
 typedef struct geoIndex {
@@ -59,5 +59,3 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf);
 #define INVALID_GEOHASH -1.0
 double calcGeoHash(double lon, double lat);
 int isWithinRadius(const GeoFilter *gf, double d, double *distance);
-
-#endif

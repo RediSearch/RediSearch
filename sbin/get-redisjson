@@ -14,12 +14,15 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		get-redisjson [--help|help]
 
 		Argument variables:
-		OSNICK=nick     Get binaries for given osnick
-		BRANCH=name     Use given branch
-		REPO_PATH=dir   Get binaries from given repo path
-		FORCE=1         Download module even if already present
-		NOP=1           No operation
-		HELP=1          Show help
+		OSNICK=nick        Get binaries for given `nick`
+		BRANCH=name        Use given branch
+		REPO_PATH=dir      Get binary artifacts from given repo `dir`
+		BINROOT=dir        On Build, place module .so in `dir`/RedisJSON
+		BUILD=0            Do not build if unable to download
+		FORCE=1            Download module even if already present
+		MODULE_FILE=file   Write module path into `file`
+		NOP=1              No operation
+		HELP=1             Show help
 
 	END
 	exit 0
@@ -36,9 +39,14 @@ arch="$($READIES/bin/platform --arch)"
 if [[ ! -z $REPO_PATH ]]; then
 	platform="$($READIES/bin/platform -t)"
 else
-	if [[ $os != linux && $os != macos || $arch != x64 ]]; then
-		eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
-		exit 1
+	if [[ $os != linux && $os != macos ]]; then
+		if [[ BUILD == 0 ]]; then
+			eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
+			exit 1
+		fi
+		echo "Cannot match binary artifacts - building RedisJSON from source."
+		$ROOT/sbin/build-redisjson
+		exit $?
 	fi
 
 	dist="$($READIES/bin/platform --dist)"
@@ -78,6 +86,10 @@ MOD_RAMP="rejson.${platform}.$BRANCH.zip"
 
 DEST_REJSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
 
+if [[ -n $MODULE_FILE ]]; then
+	echo "${DEST_REJSON_DIR}/rejson.so" > $MODULE_FILE
+fi
+
 if [[ $FORCE != 1 && -d $DEST_REJSON_DIR && -f $DEST_REJSON_DIR/rejson.so ]]; then
 	echo "RedisJSON is in ${DEST_REJSON_DIR}:"
 	$OP du -ah --apparent-size $DEST_REJSON_DIR
@@ -92,6 +104,15 @@ if [[ -z $REPO_PATH ]]; then
 	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
 		echo "Download RedisJSON [$MOD_S3_URL/$MOD_RAMP] ..."
 		$OP wget -q -P $WORK_DIR $MOD_S3_URL/$MOD_RAMP
+		if [[ $NOP != 1 && $? != 0 ]]; then
+			if [[ BUILD == 0 ]]; then
+				eprint "Cannot download binary artifacts - build RedisJSON and set REPO_PATH"
+				exit 1
+			fi
+			echo "Cannot download binary artifacts - building RedisJSON from source."
+			$ROOT/sbin/build-redisjson
+			exit $?
+		fi
 	fi
 else
 	F_MOD_RAMP="${REPO_PATH}/artifacts/snapshots/${MOD_RAMP}"

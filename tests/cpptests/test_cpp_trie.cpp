@@ -1,6 +1,8 @@
-#include <gtest/gtest.h>
-#include <trie/trie.h>
-#include <trie/trie_type.h>
+
+#include "gtest/gtest.h"
+#include "trie/trie.h"
+#include "trie/trie_type.h"
+
 #include <set>
 #include <string>
 

@@ -1,10 +1,10 @@
 #ifndef RS_REDUCER_H_
 #define RS_REDUCER_H_
 
-#include <redisearch.h>
-#include <result_processor.h>
-#include <dep/triemap/triemap.h>
-#include <util/block_alloc.h>
+#include "redisearch.h"
+#include "result_processor.h"
+#include "triemap/triemap.h"
+#include "util/block_alloc.h"
 #include "query_error.h"
 
 #ifdef __cplusplus
