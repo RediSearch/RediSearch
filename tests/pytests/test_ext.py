@@ -15,7 +15,7 @@ else:
 def testExt(env):
     if env.env == 'existing-env':
         env.skip()
-    
+
     if os.path.isabs(EXTPATH):
         ext_path = EXTPATH
     else:
