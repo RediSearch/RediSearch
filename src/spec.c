@@ -1371,7 +1371,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
   // Load vector specific options
   if (encver >= INDEX_VECSIM_VERSION && FIELD_IS(f, INDEXFLD_T_VECTOR)) {
-    if (VecSim_RdbLoad(rdb, &f->vecSimParams, encver) != REDISMODULE_OK) {
+    if (VecSim_RdbLoad(rdb, &f->vecSimParams) != REDISMODULE_OK) {
       goto fail;
     }
   }

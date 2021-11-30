@@ -186,7 +186,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   }
 }
 
-int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams, int encver) {
+int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   vecsimParams->type = LoadUnsigned_IOError(rdb, goto fail);
   vecsimParams->size = LoadUnsigned_IOError(rdb, goto fail);
   vecsimParams->metric = LoadUnsigned_IOError(rdb, goto fail);
