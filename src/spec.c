@@ -1319,7 +1319,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveUnsigned(rdb, f->tagFlags);
     RedisModule_SaveStringBuffer(rdb, &f->tagSep, 1);
   }
-  if (FIELD_IS(f, INDEXFLD_T_VECTOR) || (f->options & FieldSpec_Dynamic)) {
+  if (FIELD_IS(f, INDEXFLD_T_VECTOR)) {
     VecSim_RdbSave(rdb, &f->vecSimParams);
   }
 }
@@ -1370,8 +1370,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     RedisModule_Free(s);
   }
   // Load vector specific options
-  if (encver >= INDEX_VECSIM_VERSION ||
-      FIELD_IS(f, INDEXFLD_T_VECTOR) || (f->options & FieldSpec_Dynamic)) {
+  if (encver >= INDEX_VECSIM_VERSION && FIELD_IS(f, INDEXFLD_T_VECTOR)) {
     if (VecSim_RdbLoad(rdb, &f->vecSimParams, encver) != REDISMODULE_OK) {
       goto fail;
     }
