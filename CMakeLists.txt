@@ -1,10 +1,24 @@
 
 get_filename_component(RS_DIR ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
+if(NOT DEFINED root)
+	set(root ${RS_DIR})
+endif()
 message("# search root: " ${RS_DIR})
 message("# search binroot: " ${binroot})
 
 include(build/cmake/common.cmake)
+
+#----------------------------------------------------------------------------------------------
+
+if (NOT DEFINED VECSIM_ARCH)
+	set(VECSIM_ARCH "native")
+endif()
+message("RediSearch/VecSim VECSIM_ARCH: " ${VECSIM_ARCH})
+
+set(RS_VECSIM_SO_FLAGS "-lstdc++")
+
+#----------------------------------------------------------------------------------------------
 
 option(RS_BUILD_STATIC "Build a static library" OFF)
 # RS_BUILD_COORDINATOR
@@ -31,7 +45,7 @@ include(build/cmake/redisearch_debug.cmake)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${RS_EXE_FLAGS}")
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS}")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS} ${RS_VECSIM_SO_FLAGS}")
 
 if (NOT RS_MODULE_NAME)
     set(RS_MODULE_NAME "search")
@@ -51,12 +65,38 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${PROJECT_SOURCE_DIR}/deps)
+include_directories(${PROJECT_SOURCE_DIR}/deps/VectorSimilarity/src)
 include_directories(${PROJECT_SOURCE_DIR})
 
 add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
+
+#----------------------------------------------------------------------------------------------
+
+include (ExternalProject)
+ExternalProject_Add (VectorSimilarity
+	SOURCE_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
+	PREFIX          ${binroot}/VectorSimilarity
+	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${binroot}/VectorSimilarity -Dbinroot:string=${binroot}
+	CMAKE_ARGS      -DCMAKE_BUILD_TYPE:string=${CMAKE_BUILD_TYPE} -DVECSIM_STATIC:BOOL=ON
+	CMAKE_ARGS      -DVECSIM_ARCH:string=${VECSIM_ARCH}
+)
+
+ExternalProject_Get_Property (VectorSimilarity install_dir)
+set(VectorSimilarity_bindir ${install_dir})
+message("RediSearch/VecSim bindir: ${VectorSimilarity_bindir}")
+
+include_directories (${VectorSimilarity_bindir}/include)
+
+add_library (vecsim STATIC IMPORTED)
+set_target_properties (vecsim PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/libVectorSimilarity.a)
+
+add_library (vecsim-spaces STATIC IMPORTED)
+set_target_properties (vecsim-spaces PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/libVectorSimilaritySpaces.a)
+
+#----------------------------------------------------------------------------------------------
 
 file(GLOB RS_SRC
     "src/*.c"
@@ -74,6 +114,7 @@ file(GLOB RS_SRC
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
     "deps/miniz/*.c"
+    "deps/base64/*.c"
     "deps/thpool/*.c"
     "deps/triemap/*.c"
     "deps/geohash/*.c")
@@ -114,17 +155,21 @@ elseif (RS_BUILD_STATIC)
 
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_link_libraries(redisearch dl m)
+    set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     set_target_properties(redisearch PROPERTIES PREFIX "")
     set_target_properties(redisearch PROPERTIES SUFFIX ".so")
+    add_ldflags(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     set(RS_TEST_MODULE redisearchS)
     set(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch>)
 
 else() # OSS RediSearch
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    target_link_libraries(redisearch dl m)
+    target_link_libraries(redisearch dl m vecsim vecsim-spaces)
+    set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     set_target_properties(redisearch PROPERTIES PREFIX "")
     set_target_properties(redisearch PROPERTIES SUFFIX ".so")
+    add_ldflags(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     if (APPLE)
         set_target_properties(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
@@ -136,6 +181,8 @@ else() # OSS RediSearch
             COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
             COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
     endif()
+	
+	add_dependencies(redisearch VectorSimilarity)
 endif()
 
 #----------------------------------------------------------------------------------------------

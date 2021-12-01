@@ -53,6 +53,7 @@ typedef struct RSIdxOptions RSIndexOptions;
 #define RSFLDTYPE_NUMERIC 0x02
 #define RSFLDTYPE_GEO 0x04
 #define RSFLDTYPE_TAG 0x08
+#define RSFLDTYPE_VECTOR 0x10
 
 #define RSFLDOPT_NONE 0x00
 #define RSFLDOPT_SORTABLE 0x01
@@ -141,6 +142,8 @@ MODULE_API_FUNC(RSFieldID, RediSearch_CreateField)
   RediSearch_CreateField(idx, name, RSFLDTYPE_TAG, RSFLDOPT_NONE)
 #define RediSearch_CreateGeoField(idx, name) \
   RediSearch_CreateField(idx, name, RSFLDTYPE_GEO, RSFLDOPT_NONE)
+#define RediSearch_CreateVectorField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_VECTOR, RSFLDOPT_NONE)
 
 MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSIndex* sp, RSFieldID fs, double w);
 MODULE_API_FUNC(void, RediSearch_TagFieldSetSeparator)(RSIndex* sp, RSFieldID fs, char sep);

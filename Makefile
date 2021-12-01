@@ -58,6 +58,7 @@ make build         # compile and link
   COORD=1|oss|rlec   # build coordinator (1|oss: Open Source, rlec: Enterprise)
   STATIC=1           # build as static lib
   LITE=1             # build RediSearchLight
+  VECSIM_ARCH=arch   # architecture for VecSim build
   DEBUG=1            # build for debugging
   NO_TESTS=1         # disable unit tests
   WHY=1              # explain CMake decisions (in /tmp/cmake-why)
@@ -252,13 +253,25 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
+ifeq ($(SAN),)
+ifneq ($(findstring centos,$(OSNICK)),)
+VECSIM_ARCH ?= skylake-avx512
+else
+VECSIM_ARCH ?= x86-64-v4
+endif
+else
+VECSIM_ARCH ?= native
+endif
+
+CMAKE_VECSIM=-DVECSIM_ARCH=$(VECSIM_ARCH)
+
 CMAKE_FLAGS=\
 	-Wno-dev \
 	-DGIT_SHA=$(GIT_SHA) \
 	-DGIT_VERSPEC=$(GIT_VERSPEC) \
 	-DRS_MODULE_NAME=$(RAMP_MODULE_NAME)
 
-CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC)  $(CMAKE_COORD) \
+CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_VECSIM) \
 	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
 
 #----------------------------------------------------------------------------------------------
@@ -303,6 +316,19 @@ else
 MAKE_J:=-j$(shell nproc)
 endif
 
+define SETUP_LIBSTDCXX
+ifeq ($$(OSNICK),centos7)
+ifeq ($$(wildcard $$(BINDIR)/libstdc++.so.6.0.25),)
+set -e ;\
+cd $$(BINDIR) ;\
+wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$$(OS)-$$(ARCH).tgz ;\
+tar xzf libstdc.tgz ;\
+rm libstdc.tgz ;\
+ln -sf libstdc++.so.6.0.25 libstdc++.so.6
+endif
+endif
+endef
+
 ifeq ($(FORCE),1)
 .PHONY: __force
 
@@ -318,6 +344,7 @@ endif
 
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
+	$(SHOW)$(call SETUP_LIBSTDCXX)
 ifneq ($(DRY_RUN),1)
 	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
 #	$(SHOW)[ -f $(TARGET) ] && touch $(TARGET)
@@ -385,6 +412,11 @@ setup:
 
 fetch:
 	-git submodule update --init --recursive
+ifeq ($(wildcard $(ROOT)/deps/VectorSimilarity/.git),)
+	cd deps; git clone --recursive https://github.com/RedisLabsModules/VectorSimilarity.git
+else
+	-cd deps/VectorSimilarity; git pull --recurse-submodules
+endif
 
 #----------------------------------------------------------------------------------------------
 
