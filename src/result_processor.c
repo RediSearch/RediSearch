@@ -291,7 +291,7 @@ typedef struct {
     const RLookupKey **keys;
     size_t nkeys;
     uint64_t ascendMap;
-    
+
     // Load key that are missing from sortables
     const RLookupKey **loadKeys;
     size_t nLoadKeys;
