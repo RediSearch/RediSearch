@@ -1,5 +1,6 @@
-#ifndef __QUERY_NODE_H__
-#define __QUERY_NODE_H__
+
+#pragma once
+
 #include <stdlib.h>
 #include "redisearch.h"
 #include "query_error.h"
@@ -186,5 +187,3 @@ int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status
 
 typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
 int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx, int reverse);
-
-#endif

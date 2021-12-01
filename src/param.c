@@ -1,6 +1,7 @@
-#include <assert.h>
 #include "param.h"
 #include "rmalloc.h"
+
+#include <assert.h>
 
 void Param_FreeInternal(Param *param) {
   if (param->name) {
@@ -44,4 +45,3 @@ void Param_DictFree(dict *d) {
   dictReleaseIterator(iter);
   dictRelease(d);
 }
-

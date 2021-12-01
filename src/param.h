@@ -1,7 +1,10 @@
+
 #pragma once
-#include <stddef.h>
+
 #include "query_error.h"
 #include "util/dict.h"
+
+#include <stddef.h>
 
 typedef enum {
   PARAM_NONE = 0,

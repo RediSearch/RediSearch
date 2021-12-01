@@ -110,23 +110,20 @@ static int one_not_null(void *a, void *b, void *out) {
 }
 
 void setup_trace(QueryParseCtx *ctx) {
-  #ifdef PARSER_DEBUG
+#ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
   ctx->trace_log = fopen("/tmp/lemon_query.log", "w");
   RSQueryParser_Trace(ctx->trace_log, "tr: ");
-  #endif
+#endif
 }
-
 
 void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
     QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %.*s",
-      msg, tok->pos, tok->len, tok->s);
+      "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
     QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %f",
-      msg, tok->pos, tok->numval);
+      "%s at offset %d near %f", msg, tok->pos, tok->numval);
   } else {
     QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "%s at offset %d", msg, tok->pos);
   }

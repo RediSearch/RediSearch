@@ -513,7 +513,7 @@ static void srDtor(void *p) {
 }
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascmap, struct timespec *timeout, SortByType sortByType) {
+                                      uint64_t ascmap, SortByType sortByType) {
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
   ret->sortbyType = sortByType;
   switch (sortByType) {
@@ -548,8 +548,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, struct timespec *timeout) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0, timeout, SORTBY_SCORE);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
+  return RPSorter_NewByFields(maxresults, NULL, 0, 0, SORTBY_SCORE);
 }
 
 void SortAscMap_Dump(uint64_t tt, size_t n) {

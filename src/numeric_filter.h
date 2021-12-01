@@ -1,5 +1,6 @@
-#ifndef __NUMERIC_FILTER_H__
-#define __NUMERIC_FILTER_H__
+
+#pragma once
+
 #include "redisearch.h"
 #include "search_ctx.h"
 #include "rmutil/args.h"
@@ -49,5 +50,4 @@ static inline int NumericFilter_Match(const NumericFilter *f, double score) {
 
 #ifdef __cplusplus
 }
-#endif
 #endif

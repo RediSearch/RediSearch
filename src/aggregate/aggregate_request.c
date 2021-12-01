@@ -645,7 +645,6 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc != AC_OK) {
-#ifdef DISABLE_LOAD_ALL_PR2243
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
     if (rc != AC_OK || strcmp(s, "*")) {
@@ -653,10 +652,6 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
       return REDISMODULE_ERR;  
     }
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
-#else
-    QERR_MKBADARGS_AC(status, "LOAD", rc);
-    return REDISMODULE_ERR;  
-#endif // DISABLE_LOAD_ALL_PR2243
   }
 
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
@@ -969,7 +964,6 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_NOINCREF);
       if (!sortkeys[ii]) {
         // check if key is a vector
-        // for POC
         if (nkeys == 1 && spec && spec->flags & Index_HasVecSim) {
           // we check if field contains "_score"
           int keystrlen = strlen(keystr) - 6;
@@ -989,13 +983,13 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         }
         if (!sortkeys[ii]) {
           QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema",
-                                keystr);
+                                 keystr);
           return NULL;
         }
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, &req->timeoutTime, sortbyType);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
     up = pushRP(req, rp, up);
   }
 
