@@ -316,18 +316,18 @@ else
 MAKE_J:=-j$(shell nproc)
 endif
 
+ifeq ($(OSNICK),centos7)
+ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
 define SETUP_LIBSTDCXX
-ifeq ($$(OSNICK),centos7)
-ifeq ($$(wildcard $$(BINDIR)/libstdc++.so.6.0.25),)
 set -e ;\
 cd $$(BINDIR) ;\
 wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$$(OS)-$$(ARCH).tgz ;\
 tar xzf libstdc.tgz ;\
 rm libstdc.tgz ;\
 ln -sf libstdc++.so.6.0.25 libstdc++.so.6
-endif
-endif
 endef
+endif
+endif
 
 ifeq ($(FORCE),1)
 .PHONY: __force
@@ -344,7 +344,7 @@ endif
 
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
-	$(SHOW)$(call SETUP_LIBSTDCXX)
+	$(SHOW)$(SETUP_LIBSTDCXX)
 ifneq ($(DRY_RUN),1)
 	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
 #	$(SHOW)[ -f $(TARGET) ] && touch $(TARGET)

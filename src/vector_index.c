@@ -1,6 +1,6 @@
 #include "vector_index.h"
 #include "list_reader.h"
-#include "dep/base64/base64.h"
+#include "base64/base64.h"
 #include "query_param.h"
 
 // taken from parser.c
