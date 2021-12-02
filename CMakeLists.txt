@@ -8,15 +8,7 @@ message("# search root: " ${RS_DIR})
 message("# search binroot: " ${binroot})
 
 include(build/cmake/common.cmake)
-
-#----------------------------------------------------------------------------------------------
-
-if (NOT DEFINED VECSIM_ARCH)
-	set(VECSIM_ARCH "native")
-endif()
-message("RediSearch/VecSim VECSIM_ARCH: " ${VECSIM_ARCH})
-
-set(RS_VECSIM_SO_FLAGS "-lstdc++")
+include(${RS_DIR}/build/vecsim/vecsim.cmake)
 
 #----------------------------------------------------------------------------------------------
 
@@ -72,29 +64,6 @@ add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
-
-#----------------------------------------------------------------------------------------------
-
-include (ExternalProject)
-ExternalProject_Add (VectorSimilarity
-	SOURCE_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
-	PREFIX          ${binroot}/VectorSimilarity
-	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${binroot}/VectorSimilarity -Dbinroot:string=${binroot}
-	CMAKE_ARGS      -DCMAKE_BUILD_TYPE:string=${CMAKE_BUILD_TYPE} -DVECSIM_STATIC:BOOL=ON
-	CMAKE_ARGS      -DVECSIM_ARCH:string=${VECSIM_ARCH}
-)
-
-ExternalProject_Get_Property (VectorSimilarity install_dir)
-set(VectorSimilarity_bindir ${install_dir})
-message("RediSearch/VecSim bindir: ${VectorSimilarity_bindir}")
-
-include_directories (${VectorSimilarity_bindir}/include)
-
-add_library (vecsim STATIC IMPORTED)
-set_target_properties (vecsim PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/libVectorSimilarity.a)
-
-add_library (vecsim-spaces STATIC IMPORTED)
-set_target_properties (vecsim-spaces PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/libVectorSimilaritySpaces.a)
 
 #----------------------------------------------------------------------------------------------
 
@@ -165,7 +134,7 @@ elseif (RS_BUILD_STATIC)
 
 else() # OSS RediSearch
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    target_link_libraries(redisearch dl m vecsim vecsim-spaces)
+    target_link_libraries(redisearch ${VECSIM_LIBS} dl m)
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     set_target_properties(redisearch PROPERTIES PREFIX "")
     set_target_properties(redisearch PROPERTIES SUFFIX ".so")
