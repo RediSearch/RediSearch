@@ -1,5 +1,4 @@
 #include "redismodule.h"
-#include "spec.h"
 #include "inverted_index.h"
 #include "cursor.h"
 
@@ -100,18 +99,7 @@ static const char *getSpecTypeNames(int idx) {
   }
 }
 
-/* FT.INFO {index}
- *  Provide info and stats about an index
- */
-int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
-  if (argc < 2) return RedisModule_WrongArity(ctx);
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (sp == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  }
-
+void replyIndexInfo(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   int n = 0;
 
@@ -237,5 +225,21 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_ReplySetArrayLength(ctx, n);
+}
+
+/* FT.INFO {index}
+ *  Provide info and stats about an index
+ */
+int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RedisModule_AutoMemory(ctx);
+  if (argc < 2) return RedisModule_WrongArity(ctx);
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  if (sp == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  replyIndexInfo(ctx, sp);
+
   return REDISMODULE_OK;
 }

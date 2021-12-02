@@ -217,8 +217,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   InvertedIndex_Free(idx);
 }
 
-INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
-
 InvertedIndex *createIndex(int size, int idStep) {
   InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1);
 

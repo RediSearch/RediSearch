@@ -114,6 +114,8 @@ MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
 
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
+MODULE_API_FUNC(void, RediSearch_ReplyWithIndexInfo)(RedisModuleCtx*, RSIndex*);
+
 /** Handle Stopwords list */
 MODULE_API_FUNC(int, RediSearch_StopwordsList_Contains)(RSIndex* idx, const char *term, size_t len);
 

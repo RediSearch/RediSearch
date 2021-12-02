@@ -15,6 +15,7 @@
 #include "rwlock.h"
 #include "fork_gc.h"
 #include "module.h"
+#include "info_command.h"
 
 int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
@@ -59,6 +60,10 @@ void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec_FreeInternals(sp);
   RWLOCK_RELEASE();
+}
+
+void RediSearch_ReplyWithIndexInfo(RedisModuleCtx *ctx, IndexSpec *sp) {
+  replyIndexInfo(ctx, sp);
 }
 
 char **RediSearch_IndexGetStopwords(IndexSpec* sp, size_t *size) {
