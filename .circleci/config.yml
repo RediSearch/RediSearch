@@ -136,11 +136,6 @@ commands:
           redis_version: <<parameters.redis_version>>
           getredis_params: <<parameters.getredis_params>>
       - run:
-          name: Fetch
-          shell: /bin/bash -l -eo pipefail
-          command: |
-            make fetch SHOW=1
-      - run:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
           command: |

@@ -260,7 +260,7 @@ else
 VECSIM_ARCH ?= x86-64-v4
 endif
 else
-VECSIM_ARCH ?= native
+VECSIM_ARCH ?= skylake-avx512
 endif
 
 CMAKE_VECSIM=-DVECSIM_ARCH=$(VECSIM_ARCH)
@@ -412,11 +412,6 @@ setup:
 
 fetch:
 	-git submodule update --init --recursive
-ifeq ($(wildcard $(ROOT)/deps/VectorSimilarity/.git),)
-	cd deps; git clone --recursive https://github.com/RedisLabsModules/VectorSimilarity.git
-else
-	-cd deps/VectorSimilarity; git pull --recurse-submodules
-endif
 
 #----------------------------------------------------------------------------------------------
 

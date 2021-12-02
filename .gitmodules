@@ -10,3 +10,6 @@
 [submodule "deps/libuv"]
 	path = deps/libuv
 	url = https://github.com/libuv/libuv.git
+[submodule "deps/VectorSimilarity"]
+	path = deps/VectorSimilarity
+	url = https://github.com/RedisLabsModules/VectorSimilarity.git
