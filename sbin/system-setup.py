@@ -22,7 +22,7 @@ class RediSearchSetup(paella.Setup):
         self.pip_install("setuptools --upgrade")
 
         self.run("%s/bin/enable-utf8" % READIES)
-        self.install("git gawk lcov jq openssl rsync unzip")
+        self.install("git gawk jq openssl rsync unzip")
 
     def linux_first(self):
         self.install("patch")
@@ -33,16 +33,20 @@ class RediSearchSetup(paella.Setup):
         self.install("libtool m4 automake libssl-dev")
         self.install("python-dev")
 
-        if self.platform.is_arm() and self.dist == 'ubuntu' and self.os_version[0] < 20:
-            self.install("python-gevent")
+        if self.platform.is_arm():
+            if self.dist == 'ubuntu' and self.os_version[0] < 20:
+                self.install("python-gevent")
+            else:
+                self.install("libffi-dev")
 
     def redhat_compat(self):
         self.install("redhat-lsb-core")
+        self.run("%s/bin/getepel" % READIES)
         self.install("libatomic")
 
         self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake openssl-devel")
-        self.install("python-devel")
+        self.install("python2-devel")
 
         if self.platform.is_arm():
             self.install("python-gevent")

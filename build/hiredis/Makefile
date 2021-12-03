@@ -2,7 +2,7 @@
 ROOT=../..
 include $(ROOT)/deps/readies/mk/main
 
-define HELP
+define HELPTEXT
 make build    # configure and compile
 make clean    # clean generated sbinaries
   ALL=1       # remote entire binary directory

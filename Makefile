@@ -5,7 +5,7 @@ else
 DRY_RUN:=
 endif
 
-ifneq ($(filter coverage,$(MAKECMDGOALS)),)
+ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
 COV=1
 endif
 
@@ -271,7 +271,7 @@ MK_CUSTOM_CLEAN=1
 
 MISSING_DEPS:=
 ifeq ($(wildcard $(LIBUV)),)
-MISSING_DEPS += $(LIBUV) $(HIREDIS)
+MISSING_DEPS += $(LIBUV)
 endif
 ifeq ($(wildcard $(HIREDIS)),)
 MISSING_DEPS += $(HIREDIS)
@@ -399,23 +399,12 @@ endif
 
 export REJSON ?= 1
 
-ifeq ($(TESTDEBUG),1)
-override CTEST_ARGS += --debug
-endif
-
-CTEST_ARGS += --output-on-failure
-
-
 ifneq ($(SAN),)
 export ASAN_OPTIONS=detect_odr_violation=0
 endif
 
-ifeq ($(COV),1)
-# CTEST_ARGS += --output-on-failure
-endif
-
-ifeq ($(VG),1)
-# CTEST_ARGS += --output-on-failure
+ifeq ($(TESTDEBUG),1)
+override CTEST_ARGS.debug += --debug
 endif
 
 ifneq ($(SLOW),1)
@@ -429,12 +418,20 @@ endif
 endif # SLOW
 
 ifneq ($(CTEST_PARALLEL),)
-override CTEST_ARGS += -j$(CTEST_PARALLEL)
+CTEST_ARGS.parallel += -j$(CTEST_PARALLEL)
 endif
 
-override CTEST_ARGS += --timeout 15000
+override CTEST_ARGS += \
+	--output-on-failure \
+	--timeout 15000 \
+	$(CTEST.debug) \
+	$(CTEST.parallel)
 
-FLOW_TESTS_ARGS=\
+CTESTS_DEFS += \
+	BINROOT=$(BINROOT)
+
+override FLOW_TESTS_ARGS+=\
+	BINROOT=$(BINROOT) \
 	VG=$(VALGRIND) VG_LEAKS=0
 
 ifeq ($(EXT),1)
@@ -444,16 +441,26 @@ endif
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
 test:
+ifneq ($(SAN),)
+	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
+endif
 ifneq ($(TEST),)
-	$(SHOW)set -e; cd $(BINRDIR); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
-	$(SHOW)set -e; cd $(BINDIR); ctest $(CTEST_ARGS)
+ifeq ($(ARCH),arm64v8)
+	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+else
+	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) ctest $(CTEST_ARGS)
+endif
 ifeq ($(COORD),oss)
 	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 endif
 endif
 
 pytest:
+ifneq ($(SAN),)
+	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
+endif
 	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
@@ -539,21 +546,44 @@ benchmark:
 
 #----------------------------------------------------------------------------------------------
 
-COV_EXCLUDE += \
-    'deps/*' \
-	'tests/*' \
-	'coord/tests/*'
+COV_EXCLUDE_DIRS += \
+    deps \
+	tests \
+	coord/tests
+
+COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
+
+ifneq ($(REJSON_PATH),)
+export REJSON_PATH
+else
+REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXX)
+endif
 
 coverage:
+ifeq ($(REJSON_PATH),)
+	$(SHOW)MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
+endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-	$(SHOW)$(MAKE) test COV=1
-	$(SHOW)$(MAKE) test COORD=oss COV=1 CTEST_PARALLEL=1
+ifneq ($(REJSON_PATH),)
+	-$(SHOW)$(MAKE) test COV=1
+	-$(SHOW)$(MAKE) test COORD=oss COV=1
+else
+	-$(SHOW)$(MAKE) test COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
+	-$(SHOW)$(MAKE) test COORD=oss COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
+endif
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+
+# CTEST_PARALLEL=8
+
+show-cov:
+	$(SHOW)lcov -l $(COV_INFO)
 
 upload-cov:
 	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
+
+.PHONY: coverage show-cov upload-cov
 
 #----------------------------------------------------------------------------------------------
 
@@ -577,7 +607,11 @@ platform:
 # 	@docker run -it -v $(PWD):/build --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(shell $(ROOT)/deps/readies/bin/platform --docker) bash
 # endif
 
+ifneq ($(wildcard /w/*),)
+SANBOX_ARGS += -v /w:/w
+endif
+
 sanbox:
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined redisfab/clang:13-x64-bullseye bash
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:13-x64-bullseye bash
 
 .PHONY: box sanbox

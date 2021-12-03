@@ -178,6 +178,8 @@ def testRename(env):
 
 def testCopy(env):
     env.skipOnCluster()
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
     conn = getConnectionByEnv(env)
 
     conn.execute_command('ft.create', 'things', 'SCHEMA', 'name', 'text')
