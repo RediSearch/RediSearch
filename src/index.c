@@ -1779,7 +1779,6 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   case QN_UNION : unionTypeStr = "UNION"; break;
   case QN_FUZZY : unionTypeStr = "FUZZY"; break;
   case QN_PREFIX : unionTypeStr = "PREFIX"; break;
-  case QN_VECTOR : unionTypeStr = "VECTOR"; break;
   case QN_NUMERIC : unionTypeStr = "NUMERIC"; break;
   case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
   default:
@@ -1916,8 +1915,8 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
-    case LIST_ITERATOR:       { printListIt(ctx, root, 0, 0, depth, limited);                break; }
-    default:          { RS_LOG_ASSERT(0, "nope");   break; }
+    case LIST_ITERATOR:       { printListIt(ctx, root, counter, cpuTime, depth, limited);       break; }
+    case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
 
