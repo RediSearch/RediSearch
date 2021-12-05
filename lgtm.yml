@@ -1,0 +1,8 @@
+path_classifiers:
+  library:
+    - deps/**
+  test:
+    - tests/**
+  docs:
+    - docs/**
+    
