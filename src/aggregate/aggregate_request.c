@@ -928,6 +928,8 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
   return pushRP(req, groupRP, rpUpstream);
 }
 
+#define _SCORE_LEN 6
+
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up) {
   ResultProcessor *rp = NULL;
@@ -966,15 +968,15 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         // check if key is a vector
         if (nkeys == 1 && spec && spec->flags & Index_HasVecSim) {
           // we check if field contains "_score"
-          int keystrlen = strlen(keystr) - 6;
+          int keystrlen = strlen(keystr) - _SCORE_LEN;
           if (keystrlen > 0 && !strcmp(keystr + keystrlen, "_score")) {
-            char buf[keystrlen + 1];
+            char buf[keystrlen + 1 + _SCORE_LEN];
             strncpy(buf, keystr, keystrlen);
             buf[keystrlen] = '\0';
             const FieldSpec *vecField = IndexSpec_GetField(spec, buf, strlen(buf));
             if (vecField && vecField->types == INDEXFLD_T_VECTOR) {
               strcpy(buf + keystrlen, "_score");
-              buf[keystrlen + 6] = '\0';
+              buf[keystrlen + _SCORE_LEN] = '\0';
               sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_OCREAT);
               sortbyType = SORTBY_DISTANCE;
               // astp->sortAscMap = 0; // forcing ascending sort on vector distance
