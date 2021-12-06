@@ -411,6 +411,11 @@ int IndexSpec_CreateTextId(const IndexSpec *sp) {
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError *status,
                                        int isNew) {
+  if (ac->offset == ac->argc) {
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Please provided parameters for fields");
+    return 0;
+  }
+
   if (sp->spcache) {
     IndexSpecCache_Decref(sp->spcache);
     sp->spcache = NULL;
