@@ -640,8 +640,8 @@ int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len
 }
 
 void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
-  infoField->name = specField->name;
-  infoField->path = specField->path;
+  infoField->name = rm_strdup(specField->name);
+  infoField->path = rm_strdup(specField->path);
   if (specField->types == INDEXFLD_T_FULLTEXT) {
     infoField->types.text = true;
     infoField->textWeight = specField->ftWeight;
@@ -691,7 +691,6 @@ const struct RSIdxInfo *RediSearch_IndexInfo(RSIndex* sp) {
   info->docTableSize = sp->docs.memsize;
   info->sortablesSize = sp->docs.sortablesSize;
   info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
-  // info->invertedBlocks = TotalIIBlocks;
   info->numTerms = sp->stats.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;
@@ -719,6 +718,10 @@ const struct RSIdxInfo *RediSearch_IndexInfo(RSIndex* sp) {
 }
 
 void RediSearch_IndexInfoFree(const struct RSIdxInfo *info) {
+  for (int i = 0; i < info->numFields; ++i) {
+    rm_free(info->fields[i].name);
+    rm_free(info->fields[i].path);
+  }
   rm_free((void *)info->fields);
   RediSearch_StopwordsList_Free(info->stopwords, info->stopwordsLen);
   rm_free((void *)info);

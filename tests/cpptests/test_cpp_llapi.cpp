@@ -963,7 +963,6 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info->numRecords, 7);
   ASSERT_EQ(info->invertedSize, 32);
   ASSERT_EQ(info->invertedCap, 0);
-  // ASSERT_EQ(info->invertedBlocks, 7);
   ASSERT_EQ(info->skipIndexesSize, 0);
   ASSERT_EQ(info->scoreIndexesSize, 0);
   ASSERT_EQ(info->offsetVecsSize, 5);
