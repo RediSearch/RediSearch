@@ -4,6 +4,7 @@
 #include "redismodule.h"
 #include "stemmer.h"
 #include <limits.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
