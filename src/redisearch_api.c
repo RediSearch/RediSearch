@@ -65,6 +65,13 @@ char **RediSearch_IndexGetStopwords(IndexSpec* sp, size_t *size) {
   return GetStopWordsList(sp->stopwords, size);
 }
 
+void RediSearch_StopwordsList_Free(char **list, size_t size) {
+  for (int i = 0; i < size; ++i) {
+    rm_free(list[i]);
+  }
+  rm_free(list);
+}
+
 double RediSearch_IndexGetScore(IndexSpec* sp) {
   if (sp->rule) {
     return sp->rule->score_default;
@@ -630,4 +637,89 @@ void RediSearch_SetCriteriaTesterThreshold(size_t num) {
 
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
   return StopWordList_Contains(idx->stopwords, term, len);
+}
+
+void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
+  infoField->name = specField->name;
+  infoField->path = specField->path;
+  if (specField->types == INDEXFLD_T_FULLTEXT) {
+    infoField->types.text = true;
+    infoField->textWeight = specField->ftWeight;
+  }
+  if (specField->types == INDEXFLD_T_NUMERIC) {
+    infoField->types.numeric = true;
+  }
+  if (specField->types == INDEXFLD_T_TAG) {
+    infoField->types.tag = true;
+    infoField->tagSeperator = specField->tagSep;
+    infoField->tagCaseSensitive = specField->tagFlags & TagField_CaseSensitive ? 1 : 0;
+  }
+  if (specField->types == INDEXFLD_T_GEO) {
+    infoField->types.geo = true;
+  }
+
+  if (FieldSpec_IsSortable(specField)) {
+    infoField->sortable = true;
+  }
+  if (FieldSpec_IsNoStem(specField)) {
+    infoField->noStem = true;
+  }
+  if (FieldSpec_IsPhonetics(specField)) {
+    infoField->phonetic = true;
+  }
+  if (!FieldSpec_IsIndexable(specField)) {
+    infoField->noIndex = true;
+  }
+}
+
+const struct RSIdxInfo *RediSearch_IndexInfo(RSIndex* sp) {
+  struct RSIdxInfo *info = rm_calloc(1, sizeof(*info));
+  info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
+  if (sp->rule) {
+    info->score = sp->rule->score_default;
+    info->lang = sp->rule->lang_default;
+  }
+
+  info->numFields = sp->numFields;
+  info->fields = rm_calloc(sp->numFields, sizeof(*info->fields));
+  for (int i = 0; i < info->numFields; ++i) {
+    RediSearch_FieldInfo(&info->fields[i], &sp->fields[i]);
+  }
+
+  info->numDocuments = sp->stats.numDocuments;
+  info->maxDocId = sp->docs.maxDocId;
+  info->docTableSize = sp->docs.memsize;
+  info->sortablesSize = sp->docs.sortablesSize;
+  info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
+  info->invertedBlocks = TotalIIBlocks;
+  info->numTerms = sp->stats.numTerms;
+  info->numRecords = sp->stats.numRecords;
+  info->invertedSize = sp->stats.invertedSize;
+  info->invertedCap = sp->stats.invertedCap;
+  info->skipIndexesSize = sp->stats.skipIndexesSize;
+  info->scoreIndexesSize = sp->stats.scoreIndexesSize;
+  info->offsetVecsSize = sp->stats.offsetVecsSize;
+  info->offsetVecRecords = sp->stats.offsetVecRecords;
+  info->termsSize = sp->stats.termsSize;
+  info->indexingFailures = sp->stats.indexingFailures;
+
+  if (sp->gc) {
+    // LLAPI always uses ForkGC
+    ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
+
+    info->totalCollected = gcStats.totalCollected;
+    info->numCycles = gcStats.numCycles;
+    info->totalMSRun = gcStats.totalMSRun;
+    info->lastRunTimeMs = gcStats.lastRunTimeMs;
+  }
+
+  info->stopwords = RediSearch_IndexGetStopwords(sp, &info->stopwordsLen);
+
+  return info;
+}
+
+void RediSearch_IndexInfoFree(const struct RSIdxInfo *info) {
+  rm_free((void *)info->fields);
+  RediSearch_StopwordsList_Free(info->stopwords, info->stopwordsLen);
+  rm_free((void *)info);
 }

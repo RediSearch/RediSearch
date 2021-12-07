@@ -851,9 +851,7 @@ TEST_F(LLApiTest, testStopwords) {
   ASSERT_EQ(size, 2);
   ASSERT_STRCASEEQ(list[0], words[0]);
   ASSERT_STRCASEEQ(list[1], words[1]);
-  rm_free(list[0]);
-  rm_free(list[1]);
-  rm_free(list);
+  RediSearch_StopwordsList_Free(list, 2);
 
   RediSearch_FreeIndexOptions(options);
   RediSearch_DropIndex(index);
@@ -889,6 +887,95 @@ TEST_F(LLApiTest, testGetters) {
   ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
   ASSERT_EQ(d->score, (float)RediSearch_IndexGetScore(index));
   RediSearch_FreeDocument(d);
+
+  RediSearch_FreeIndexOptions(opt);
+  RediSearch_DropIndex(index);  
+}
+
+TEST_F(LLApiTest, testInfo) {
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetGCPolicy(opt, GC_POLICY_FORK);
+  opt->score = 3.141;
+  opt->lang = RS_LANG_YIDDISH;
+
+  RSIndex* index = RediSearch_CreateIndex("index", opt);
+
+  RSFieldID fieldID;
+  fieldID = RediSearch_CreateField(index, "ft1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+  RediSearch_TextFieldSetWeight(index, fieldID, 2.3);
+  RediSearch_CreateField(index, "ft2", RSFLDTYPE_FULLTEXT, RSFLDOPT_TXTNOSTEM | RSFLDOPT_TXTPHONETIC);
+  RediSearch_CreateField(index, "n1", RSFLDTYPE_NUMERIC, RSFLDOPT_SORTABLE | RSFLDOPT_NOINDEX);
+  fieldID = RediSearch_CreateField(index, "tg1", RSFLDTYPE_TAG, RSFLDOPT_NONE);
+  RediSearch_TagFieldSetSeparator(index, fieldID, '.');
+  RediSearch_TagFieldSetCaseSensitive(index, fieldID, 1);
+
+  const char *docKey = "doc1";
+  Document* d = RediSearch_CreateDocumentSimple(docKey);
+  RediSearch_DocumentAddFieldCString(d, "ft1", "hello", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldCString(d, "ft2", "world", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldNumber(d, "n1", 42, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, "tg1", "tag", RSFLDTYPE_TAG);
+  RediSearch_SpecAddDocument(index, d);
+
+  docKey = "doc2";
+  d = RediSearch_CreateDocumentSimple(docKey);
+  RediSearch_DocumentAddFieldCString(d, "ft1", "redis", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldCString(d, "ft2", "labs", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldNumber(d, "n1", 42, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, "tg1", "fulltext", RSFLDTYPE_TAG);
+  RediSearch_SpecAddDocument(index, d);
+
+  const RSIdxInfo *info = RediSearch_IndexInfo(index);
+
+  ASSERT_EQ(info->gcPolicy, GC_POLICY_FORK);
+  ASSERT_EQ(info->score, 3.141);
+  ASSERT_EQ(info->lang, RS_LANG_YIDDISH);
+
+  // fields stats
+  ASSERT_EQ(info->numFields, 4);
+  ASSERT_STREQ(info->fields[0].path, "ft1");
+  ASSERT_EQ(info->fields[0].types.text, true);
+  ASSERT_EQ(info->fields[0].types.tag, false);
+  ASSERT_EQ(info->fields[0].types.numeric, false);
+  ASSERT_EQ(info->fields[0].types.geo, false);
+  ASSERT_EQ(info->fields[0].textWeight, 2.3);
+
+  ASSERT_STREQ(info->fields[1].path, "ft2");
+  ASSERT_EQ(info->fields[1].phonetic, true);
+  ASSERT_EQ(info->fields[1].noStem, true);
+
+  ASSERT_STREQ(info->fields[2].path, "n1");
+  ASSERT_EQ(info->fields[2].types.numeric, true);
+  ASSERT_EQ(info->fields[2].sortable, true);
+  ASSERT_EQ(info->fields[2].noIndex, true);
+
+  ASSERT_STREQ(info->fields[3].path, "tg1");
+  ASSERT_EQ(info->fields[3].types.tag, true);
+  ASSERT_EQ(info->fields[3].tagSeperator, '.');
+  ASSERT_EQ(info->fields[3].tagCaseSensitive, 1);
+
+  // common stats
+  ASSERT_EQ(info->numDocuments, 2);
+  ASSERT_EQ(info->maxDocId, 2);
+  ASSERT_EQ(info->docTableSize, 172);
+  ASSERT_EQ(info->sortablesSize, 48);
+  ASSERT_EQ(info->docTrieSize, 87);
+  ASSERT_EQ(info->numTerms, 7);
+  ASSERT_EQ(info->numRecords, 9);
+  ASSERT_EQ(info->invertedSize, 44);
+  ASSERT_EQ(info->invertedCap, 0);
+  ASSERT_EQ(info->invertedBlocks, 9);
+  ASSERT_EQ(info->skipIndexesSize, 0);
+  ASSERT_EQ(info->scoreIndexesSize, 0);
+  ASSERT_EQ(info->offsetVecsSize, 7);
+  ASSERT_EQ(info->offsetVecRecords, 7);
+  ASSERT_EQ(info->termsSize, 33);
+  ASSERT_EQ(info->indexingFailures, 0);
+
+  // stopwords stats
+  ASSERT_EQ(info->stopwordsLen, 33);
+
+  RediSearch_IndexInfoFree(info);
 
   RediSearch_FreeIndexOptions(opt);
   RediSearch_DropIndex(index);  
