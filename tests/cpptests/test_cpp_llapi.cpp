@@ -903,26 +903,26 @@ TEST_F(LLApiTest, testInfo) {
   RSFieldID fieldID;
   fieldID = RediSearch_CreateField(index, "ft1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
   RediSearch_TextFieldSetWeight(index, fieldID, 2.3);
-  RediSearch_CreateField(index, "ft2", RSFLDTYPE_FULLTEXT, RSFLDOPT_TXTNOSTEM | RSFLDOPT_TXTPHONETIC);
+  RediSearch_CreateField(index, "ft2", RSFLDTYPE_FULLTEXT, RSFLDOPT_TXTNOSTEM);
   RediSearch_CreateField(index, "n1", RSFLDTYPE_NUMERIC, RSFLDOPT_SORTABLE | RSFLDOPT_NOINDEX);
   fieldID = RediSearch_CreateField(index, "tg1", RSFLDTYPE_TAG, RSFLDOPT_NONE);
   RediSearch_TagFieldSetSeparator(index, fieldID, '.');
   RediSearch_TagFieldSetCaseSensitive(index, fieldID, 1);
 
-  const char *docKey = "doc1";
-  Document* d = RediSearch_CreateDocumentSimple(docKey);
+  const char *docKey1 = "doc1";
+  Document* d = RediSearch_CreateDocumentSimple(docKey1);
   RediSearch_DocumentAddFieldCString(d, "ft1", "hello", RSFLDTYPE_FULLTEXT);
   RediSearch_DocumentAddFieldCString(d, "ft2", "world", RSFLDTYPE_FULLTEXT);
   RediSearch_DocumentAddFieldNumber(d, "n1", 42, RSFLDTYPE_DEFAULT);
-  RediSearch_DocumentAddFieldCString(d, "tg1", "tag", RSFLDTYPE_TAG);
+  RediSearch_DocumentAddFieldCString(d, "tg1", "tag1", RSFLDTYPE_TAG);
   RediSearch_SpecAddDocument(index, d);
 
-  docKey = "doc2";
-  d = RediSearch_CreateDocumentSimple(docKey);
+  const char *docKey2 = "doc2";
+  d = RediSearch_CreateDocumentSimple(docKey2);
   RediSearch_DocumentAddFieldCString(d, "ft1", "redis", RSFLDTYPE_FULLTEXT);
   RediSearch_DocumentAddFieldCString(d, "ft2", "labs", RSFLDTYPE_FULLTEXT);
   RediSearch_DocumentAddFieldNumber(d, "n1", 42, RSFLDTYPE_DEFAULT);
-  RediSearch_DocumentAddFieldCString(d, "tg1", "fulltext", RSFLDTYPE_TAG);
+  RediSearch_DocumentAddFieldCString(d, "tg1", "tag2", RSFLDTYPE_TAG);
   RediSearch_SpecAddDocument(index, d);
 
   const RSIdxInfo *info = RediSearch_IndexInfo(index);
@@ -941,7 +941,6 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info->fields[0].textWeight, 2.3);
 
   ASSERT_STREQ(info->fields[1].path, "ft2");
-  ASSERT_EQ(info->fields[1].phonetic, true);
   ASSERT_EQ(info->fields[1].noStem, true);
 
   ASSERT_STREQ(info->fields[2].path, "n1");
@@ -960,16 +959,16 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info->docTableSize, 172);
   ASSERT_EQ(info->sortablesSize, 48);
   ASSERT_EQ(info->docTrieSize, 87);
-  ASSERT_EQ(info->numTerms, 7);
-  ASSERT_EQ(info->numRecords, 9);
-  ASSERT_EQ(info->invertedSize, 44);
+  ASSERT_EQ(info->numTerms, 5);
+  ASSERT_EQ(info->numRecords, 7);
+  ASSERT_EQ(info->invertedSize, 32);
   ASSERT_EQ(info->invertedCap, 0);
-  ASSERT_EQ(info->invertedBlocks, 9);
+  ASSERT_EQ(info->invertedBlocks, 7);
   ASSERT_EQ(info->skipIndexesSize, 0);
   ASSERT_EQ(info->scoreIndexesSize, 0);
-  ASSERT_EQ(info->offsetVecsSize, 7);
-  ASSERT_EQ(info->offsetVecRecords, 7);
-  ASSERT_EQ(info->termsSize, 33);
+  ASSERT_EQ(info->offsetVecsSize, 5);
+  ASSERT_EQ(info->offsetVecRecords, 5);
+  ASSERT_EQ(info->termsSize, 24);
   ASSERT_EQ(info->indexingFailures, 0);
 
   // stopwords stats
