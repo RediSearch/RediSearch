@@ -12,12 +12,20 @@ set(RS_VECSIM_SO_FLAGS "-lstdc++")
 #----------------------------------------------------------------------------------------------
 
 include (ExternalProject)
+
+if (USE_ASAN)
+	set(VECSIM_SAN_ARGS -DUSE_ASAN=ON)
+elseif(USE_MSAN)
+	set(VECSIM_SAN_ARGS -DUSE_MSAN=ON)
+endif()
+
 ExternalProject_Add (VectorSimilarity
 	SOURCE_DIR      ${root}/deps/VectorSimilarity/src
 	PREFIX          ${binroot}/VectorSimilarity
 	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${binroot}/VectorSimilarity -Dbinroot:string=${binroot}
 	CMAKE_ARGS      -DCMAKE_BUILD_TYPE:string=${CMAKE_BUILD_TYPE} -DVECSIM_STATIC:BOOL=ON
 	CMAKE_ARGS      -DVECSIM_ARCH:string=${VECSIM_ARCH}
+	CMAKE_ARGS      ${VECSIM_SAN_ARGS} -DBUILD_TESTS=OFF
 )
 
 ExternalProject_Get_Property (VectorSimilarity install_dir)

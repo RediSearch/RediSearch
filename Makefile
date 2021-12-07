@@ -253,6 +253,10 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
+#----------------------------------------------------------------------------------------------
+
+ifeq ($(ARCH),x64)
+
 ifeq ($(SAN),)
 ifneq ($(findstring centos,$(OSNICK)),)
 VECSIM_ARCH ?= skylake-avx512
@@ -264,6 +268,14 @@ VECSIM_ARCH ?= skylake-avx512
 endif
 
 CMAKE_VECSIM=-DVECSIM_ARCH=$(VECSIM_ARCH)
+
+else # ARCH != x64
+
+CMAKE_VECSIM=
+
+endif # ARCH
+
+#----------------------------------------------------------------------------------------------
 
 CMAKE_FLAGS=\
 	-Wno-dev \
