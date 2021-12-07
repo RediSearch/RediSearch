@@ -691,7 +691,7 @@ const struct RSIdxInfo *RediSearch_IndexInfo(RSIndex* sp) {
   info->docTableSize = sp->docs.memsize;
   info->sortablesSize = sp->docs.sortablesSize;
   info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
-  info->invertedBlocks = TotalIIBlocks;
+  // info->invertedBlocks = TotalIIBlocks;
   info->numTerms = sp->stats.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;

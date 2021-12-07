@@ -132,7 +132,7 @@ struct RSIdxInfo {
   size_t numRecords;
   size_t invertedSize;
   size_t invertedCap;
-  size_t invertedBlocks;
+  // size_t invertedBlocks;
   size_t skipIndexesSize;
   size_t scoreIndexesSize;
   size_t offsetVecsSize;
