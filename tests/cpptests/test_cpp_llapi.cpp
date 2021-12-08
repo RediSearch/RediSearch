@@ -908,6 +908,8 @@ TEST_F(LLApiTest, testInfo) {
   fieldID = RediSearch_CreateField(index, "tg1", RSFLDTYPE_TAG, RSFLDOPT_NONE);
   RediSearch_TagFieldSetSeparator(index, fieldID, '.');
   RediSearch_TagFieldSetCaseSensitive(index, fieldID, 1);
+  RediSearch_CreateField(index, "dynamic1", RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
+                                            RSFLDTYPE_TAG | RSFLDTYPE_GEO, RSFLDOPT_NONE);
 
   const char *docKey1 = "doc1";
   Document* d = RediSearch_CreateDocumentSimple(docKey1);
@@ -932,26 +934,29 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info->lang, RS_LANG_YIDDISH);
 
   // fields stats
-  ASSERT_EQ(info->numFields, 4);
+  ASSERT_EQ(info->numFields, 5);
   ASSERT_STREQ(info->fields[0].path, "ft1");
-  ASSERT_EQ(info->fields[0].types.text, true);
-  ASSERT_EQ(info->fields[0].types.tag, false);
-  ASSERT_EQ(info->fields[0].types.numeric, false);
-  ASSERT_EQ(info->fields[0].types.geo, false);
+  ASSERT_EQ(info->fields[0].types, RSFLDTYPE_FULLTEXT);
+  ASSERT_EQ(info->fields[0].options, RSFLDOPT_NONE);
   ASSERT_EQ(info->fields[0].textWeight, 2.3);
 
   ASSERT_STREQ(info->fields[1].path, "ft2");
-  ASSERT_EQ(info->fields[1].noStem, true);
+  ASSERT_TRUE(info->fields[1].options & RSFLDOPT_TXTNOSTEM);
+  ASSERT_EQ(info->fields[1].types, RSFLDTYPE_FULLTEXT);
 
   ASSERT_STREQ(info->fields[2].path, "n1");
-  ASSERT_EQ(info->fields[2].types.numeric, true);
-  ASSERT_EQ(info->fields[2].sortable, true);
-  ASSERT_EQ(info->fields[2].noIndex, true);
+  ASSERT_EQ(info->fields[2].types, RSFLDTYPE_NUMERIC);
+  ASSERT_TRUE(info->fields[2].options & RSFLDOPT_SORTABLE);
+  ASSERT_TRUE(info->fields[2].options & RSFLDOPT_NOINDEX);
 
   ASSERT_STREQ(info->fields[3].path, "tg1");
-  ASSERT_EQ(info->fields[3].types.tag, true);
+  ASSERT_EQ(info->fields[3].types, RSFLDTYPE_TAG);
   ASSERT_EQ(info->fields[3].tagSeperator, '.');
   ASSERT_EQ(info->fields[3].tagCaseSensitive, 1);
+
+  ASSERT_STREQ(info->fields[4].path, "dynamic1");
+  ASSERT_EQ(info->fields[4].types, (RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
+                                    RSFLDTYPE_TAG | RSFLDTYPE_GEO));
 
   // common stats
   ASSERT_EQ(info->numDocuments, 2);
@@ -969,9 +974,6 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info->offsetVecRecords, 5);
   ASSERT_EQ(info->termsSize, 24);
   ASSERT_EQ(info->indexingFailures, 0);
-
-  // stopwords stats
-  ASSERT_EQ(info->stopwordsLen, 33);
 
   RediSearch_IndexInfoFree(info);
 
