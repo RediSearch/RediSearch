@@ -4,7 +4,6 @@
 #include "redismodule.h"
 #include "stemmer.h"
 #include <limits.h>
-#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -94,27 +93,18 @@ struct RSIdxOptions {
 struct RSIdxField {
   char *path;
   char *name;
-  struct {
-    bool text;
-    bool tag;
-    bool numeric;
-    bool geo;
-  } types;
+
+  int types;
+  int options;
+
   double textWeight;
   char tagSeperator;
-  bool tagCaseSensitive;
-
-  bool sortable;
-  bool noStem;
-  bool phonetic;
-  bool noIndex;
+  int tagCaseSensitive;
 };
 
 struct RSIdxInfo {
   // spec params
   int gcPolicy;
-  char **stopwords;
-  size_t stopwordsLen;
   double score;
   RSLanguage lang;
 

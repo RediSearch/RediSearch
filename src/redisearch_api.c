@@ -642,33 +642,33 @@ int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len
 void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
   infoField->name = rm_strdup(specField->name);
   infoField->path = rm_strdup(specField->path);
-  if (specField->types == INDEXFLD_T_FULLTEXT) {
-    infoField->types.text = true;
+  if (specField->types & INDEXFLD_T_FULLTEXT) {
+    infoField->types |= RSFLDTYPE_FULLTEXT;
     infoField->textWeight = specField->ftWeight;
   }
-  if (specField->types == INDEXFLD_T_NUMERIC) {
-    infoField->types.numeric = true;
+  if (specField->types & INDEXFLD_T_NUMERIC) {
+    infoField->types |= RSFLDTYPE_NUMERIC;
   }
-  if (specField->types == INDEXFLD_T_TAG) {
-    infoField->types.tag = true;
+  if (specField->types & INDEXFLD_T_TAG) {
+    infoField->types |= RSFLDTYPE_TAG;
     infoField->tagSeperator = specField->tagSep;
     infoField->tagCaseSensitive = specField->tagFlags & TagField_CaseSensitive ? 1 : 0;
   }
-  if (specField->types == INDEXFLD_T_GEO) {
-    infoField->types.geo = true;
+  if (specField->types & INDEXFLD_T_GEO) {
+    infoField->types |= RSFLDTYPE_GEO;
   }
 
   if (FieldSpec_IsSortable(specField)) {
-    infoField->sortable = true;
+    infoField->options |= RSFLDOPT_SORTABLE;
   }
   if (FieldSpec_IsNoStem(specField)) {
-    infoField->noStem = true;
+    infoField->options |= RSFLDOPT_TXTNOSTEM;
   }
   if (FieldSpec_IsPhonetics(specField)) {
-    infoField->phonetic = true;
+    infoField->options |= RSFLDOPT_TXTPHONETIC;
   }
   if (!FieldSpec_IsIndexable(specField)) {
-    infoField->noIndex = true;
+    infoField->options |= RSFLDOPT_NOINDEX;
   }
 }
 
@@ -712,8 +712,6 @@ const struct RSIdxInfo *RediSearch_IndexInfo(RSIndex* sp) {
     info->lastRunTimeMs = gcStats.lastRunTimeMs;
   }
 
-  info->stopwords = RediSearch_IndexGetStopwords(sp, &info->stopwordsLen);
-
   return info;
 }
 
@@ -723,6 +721,5 @@ void RediSearch_IndexInfoFree(const struct RSIdxInfo *info) {
     rm_free(info->fields[i].path);
   }
   rm_free((void *)info->fields);
-  RediSearch_StopwordsList_Free(info->stopwords, info->stopwordsLen);
   rm_free((void *)info);
 }
