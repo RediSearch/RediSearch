@@ -1006,7 +1006,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   rm_free(fieldName);
 
   //printf("empty %ld, number of ranges %ld\n", rt->emptyLeaves, rt->numRanges);
-  if (rt && rt->emptyLeaves >= rt->numRanges / 2) {
+  if (RSGlobalConfig.forkGCCleanNumericEmptyNodes &&
+      rt && rt->emptyLeaves >= rt->numRanges / 2) {
     hasLock = 1;
     if (!FGC_lock(gc, rctx)) {
       return FGC_PARENT_ERROR;
