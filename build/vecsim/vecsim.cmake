@@ -2,9 +2,6 @@
 if (NOT DEFINED __VECSIM__)
 set(__VECSIM__ 1)
 
-if (NOT DEFINED VECSIM_MARCH)
-	set(VECSIM_MARCH "native")
-endif()
 message("RediSearch/VecSim VECSIM_MARCH: " ${VECSIM_MARCH})
 
 set(RS_VECSIM_SO_FLAGS "-lstdc++")
