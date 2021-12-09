@@ -927,55 +927,60 @@ TEST_F(LLApiTest, testInfo) {
   RediSearch_DocumentAddFieldCString(d, "tg1", "tag2", RSFLDTYPE_TAG);
   RediSearch_SpecAddDocument(index, d);
 
-  const RSIdxInfo *info = RediSearch_IndexInfo(index);
+  // test invalid option
+  RSIdxInfo info = { .version = 0 };
+  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);  
 
-  ASSERT_EQ(info->gcPolicy, GC_POLICY_FORK);
-  ASSERT_EQ(info->score, 3.141);
-  ASSERT_EQ(info->lang, RS_LANG_YIDDISH);
+  info = { .version = RS_INFO_CURRENT };
+  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_OK);
+
+  ASSERT_EQ(info.gcPolicy, GC_POLICY_FORK);
+  ASSERT_EQ(info.score, 3.141);
+  ASSERT_EQ(info.lang, RS_LANG_YIDDISH);
 
   // fields stats
-  ASSERT_EQ(info->numFields, 5);
-  ASSERT_STREQ(info->fields[0].path, "ft1");
-  ASSERT_EQ(info->fields[0].types, RSFLDTYPE_FULLTEXT);
-  ASSERT_EQ(info->fields[0].options, RSFLDOPT_NONE);
-  ASSERT_EQ(info->fields[0].textWeight, 2.3);
+  ASSERT_EQ(info.numFields, 5);
+  ASSERT_STREQ(info.fields[0].path, "ft1");
+  ASSERT_EQ(info.fields[0].types, RSFLDTYPE_FULLTEXT);
+  ASSERT_EQ(info.fields[0].options, RSFLDOPT_NONE);
+  ASSERT_EQ(info.fields[0].textWeight, 2.3);
 
-  ASSERT_STREQ(info->fields[1].path, "ft2");
-  ASSERT_TRUE(info->fields[1].options & RSFLDOPT_TXTNOSTEM);
-  ASSERT_EQ(info->fields[1].types, RSFLDTYPE_FULLTEXT);
+  ASSERT_STREQ(info.fields[1].path, "ft2");
+  ASSERT_TRUE(info.fields[1].options & RSFLDOPT_TXTNOSTEM);
+  ASSERT_EQ(info.fields[1].types, RSFLDTYPE_FULLTEXT);
 
-  ASSERT_STREQ(info->fields[2].path, "n1");
-  ASSERT_EQ(info->fields[2].types, RSFLDTYPE_NUMERIC);
-  ASSERT_TRUE(info->fields[2].options & RSFLDOPT_SORTABLE);
-  ASSERT_TRUE(info->fields[2].options & RSFLDOPT_NOINDEX);
+  ASSERT_STREQ(info.fields[2].path, "n1");
+  ASSERT_EQ(info.fields[2].types, RSFLDTYPE_NUMERIC);
+  ASSERT_TRUE(info.fields[2].options & RSFLDOPT_SORTABLE);
+  ASSERT_TRUE(info.fields[2].options & RSFLDOPT_NOINDEX);
 
-  ASSERT_STREQ(info->fields[3].path, "tg1");
-  ASSERT_EQ(info->fields[3].types, RSFLDTYPE_TAG);
-  ASSERT_EQ(info->fields[3].tagSeperator, '.');
-  ASSERT_EQ(info->fields[3].tagCaseSensitive, 1);
+  ASSERT_STREQ(info.fields[3].path, "tg1");
+  ASSERT_EQ(info.fields[3].types, RSFLDTYPE_TAG);
+  ASSERT_EQ(info.fields[3].tagSeperator, '.');
+  ASSERT_EQ(info.fields[3].tagCaseSensitive, 1);
 
-  ASSERT_STREQ(info->fields[4].path, "dynamic1");
-  ASSERT_EQ(info->fields[4].types, (RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
+  ASSERT_STREQ(info.fields[4].path, "dynamic1");
+  ASSERT_EQ(info.fields[4].types, (RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
                                     RSFLDTYPE_TAG | RSFLDTYPE_GEO));
 
   // common stats
-  ASSERT_EQ(info->numDocuments, 2);
-  ASSERT_EQ(info->maxDocId, 2);
-  ASSERT_EQ(info->docTableSize, 172);
-  ASSERT_EQ(info->sortablesSize, 48);
-  ASSERT_EQ(info->docTrieSize, 87);
-  ASSERT_EQ(info->numTerms, 5);
-  ASSERT_EQ(info->numRecords, 7);
-  ASSERT_EQ(info->invertedSize, 32);
-  ASSERT_EQ(info->invertedCap, 0);
-  ASSERT_EQ(info->skipIndexesSize, 0);
-  ASSERT_EQ(info->scoreIndexesSize, 0);
-  ASSERT_EQ(info->offsetVecsSize, 5);
-  ASSERT_EQ(info->offsetVecRecords, 5);
-  ASSERT_EQ(info->termsSize, 24);
-  ASSERT_EQ(info->indexingFailures, 0);
+  ASSERT_EQ(info.numDocuments, 2);
+  ASSERT_EQ(info.maxDocId, 2);
+  ASSERT_EQ(info.docTableSize, 172);
+  ASSERT_EQ(info.sortablesSize, 48);
+  ASSERT_EQ(info.docTrieSize, 87);
+  ASSERT_EQ(info.numTerms, 5);
+  ASSERT_EQ(info.numRecords, 7);
+  ASSERT_EQ(info.invertedSize, 32);
+  ASSERT_EQ(info.invertedCap, 0);
+  ASSERT_EQ(info.skipIndexesSize, 0);
+  ASSERT_EQ(info.scoreIndexesSize, 0);
+  ASSERT_EQ(info.offsetVecsSize, 5);
+  ASSERT_EQ(info.offsetVecRecords, 5);
+  ASSERT_EQ(info.termsSize, 24);
+  ASSERT_EQ(info.indexingFailures, 0);
 
-  RediSearch_IndexInfoFree(info);
+  RediSearch_IndexInfoFree(&info);
 
   RediSearch_FreeIndexOptions(opt);
   RediSearch_DropIndex(index);  

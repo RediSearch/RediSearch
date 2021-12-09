@@ -102,7 +102,12 @@ struct RSIdxField {
   int tagCaseSensitive;
 };
 
-struct RSIdxInfo {
+#define RS_INFO_CURRENT 1
+#define RS_INFO_INIT 1
+
+typedef struct RSIdxInfo {
+  uint64_t version;
+
   // spec params
   int gcPolicy;
   double score;
@@ -134,7 +139,7 @@ struct RSIdxInfo {
   size_t numCycles;
   long long totalMSRun;
   long long lastRunTimeMs;
-};
+} RSIdxInfo;
 
 /**
  * Allocate an index options struct. This structure can be used to set global
@@ -303,8 +308,13 @@ MODULE_API_FUNC(double, RediSearch_ResultsIteratorGetScore)(const RSResultsItera
 
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* options, int policy);
 
-MODULE_API_FUNC(const struct RSIdxInfo *, RediSearch_IndexInfo)(RSIndex* sp);
-MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(const struct RSIdxInfo *info);
+/**
+ * Return an info struct
+ * @param sp the index
+ * @param info a pointer to RSIdxInfo struct with `.version = RS_INFO_CURRENT`
+ */
+MODULE_API_FUNC(int, RediSearch_IndexInfo)(RSIndex* sp, RSIdxInfo *info);
+MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
 
 #define RS_XAPIFUNC(X)               \
   X(GetCApiVersion)                  \

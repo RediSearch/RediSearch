@@ -672,13 +672,20 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
   }
 }
 
-const struct RSIdxInfo *RediSearch_IndexInfo(RSIndex* sp) {
-  struct RSIdxInfo *info = rm_calloc(1, sizeof(*info));
+int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
+  if (info->version < RS_INFO_INIT || info->version > RS_INFO_CURRENT) {
+    return REDISEARCH_ERR;
+  }
+
   RWLOCK_ACQUIRE_READ();
+
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
   if (sp->rule) {
     info->score = sp->rule->score_default;
     info->lang = sp->rule->lang_default;
+  } else {
+    info->score = DEFAULT_SCORE;
+    info->lang = DEFAULT_LANGUAGE;
   }
 
   info->numFields = sp->numFields;
@@ -712,15 +719,16 @@ const struct RSIdxInfo *RediSearch_IndexInfo(RSIndex* sp) {
     info->totalMSRun = gcStats.totalMSRun;
     info->lastRunTimeMs = gcStats.lastRunTimeMs;
   }
+
   RWLOCK_RELEASE();
-  return info;
+
+  return REDISEARCH_OK;
 }
 
-void RediSearch_IndexInfoFree(const struct RSIdxInfo *info) {
+void RediSearch_IndexInfoFree(RSIdxInfo *info) {
   for (int i = 0; i < info->numFields; ++i) {
     rm_free(info->fields[i].name);
     rm_free(info->fields[i].path);
   }
   rm_free((void *)info->fields);
-  rm_free((void *)info);
 }
