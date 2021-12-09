@@ -674,6 +674,7 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
 
 const struct RSIdxInfo *RediSearch_IndexInfo(RSIndex* sp) {
   struct RSIdxInfo *info = rm_calloc(1, sizeof(*info));
+  RWLOCK_ACQUIRE_READ();
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
   if (sp->rule) {
     info->score = sp->rule->score_default;
@@ -711,7 +712,7 @@ const struct RSIdxInfo *RediSearch_IndexInfo(RSIndex* sp) {
     info->totalMSRun = gcStats.totalMSRun;
     info->lastRunTimeMs = gcStats.lastRunTimeMs;
   }
-
+  RWLOCK_RELEASE();
   return info;
 }
 
