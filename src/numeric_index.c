@@ -419,7 +419,7 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
 
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
   NRN_AddRv rv = {.numRanges = 0,
-                  .changed = 0 }; 
+                  .changed = 0 };
   NumericRangeNode_RemoveChild(&t->root, &rv);
   return rv;
 }
