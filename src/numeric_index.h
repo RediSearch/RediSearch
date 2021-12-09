@@ -56,6 +56,7 @@ typedef struct rtNode {
 
 typedef struct {
   int sz;
+  int numRanges;
   int numRecords;
   uint32_t changed;
 } NRN_AddRv;
@@ -75,6 +76,8 @@ typedef struct {
   uint32_t revisionId;
 
   uint32_t uniqueId;
+
+  size_t emptyLeaves;
 
 } NumericRangeTree;
 
@@ -108,6 +111,9 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max);
 
 /* Recursively free a node and its children */
 void NumericRangeNode_Free(NumericRangeNode *n);
+
+/* Recursively trim empty nodes from tree  */
+NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
 
 /* Create a new tree */
 NumericRangeTree *NewNumericRangeTree();
