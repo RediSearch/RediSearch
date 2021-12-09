@@ -1011,16 +1011,15 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     if (!FGC_lock(gc, rctx)) {
       return FGC_PARENT_ERROR;
     }
-
-    NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
-
+    if (RSGlobalConfig.forkGCCleanNumericEmptyNodes) {
+      NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
+      rt->numRanges += rv.numRanges;
+      rt->emptyLeaves = 0;
+    }
     if (hasLock) {
       FGC_unlock(gc, rctx);
       hasLock = 0;
     }
-
-    rt->numRanges += rv.numRanges;
-    rt->emptyLeaves += rv.numRanges;
   }
   //printf("removed %d\n", rv.numRanges);
 

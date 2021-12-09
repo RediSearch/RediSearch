@@ -10,7 +10,7 @@ import math
 def testEmptyNumericLeakIncrease(env):
     # test numeric field which updates with increasing value
     env.skipOnCluster()
-    env.expect('ft.config', 'set', 'FORK_GC_RUN_INTERVAL', 1000).ok()
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').ok()
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
@@ -38,7 +38,7 @@ def testEmptyNumericLeakCenter(env):
     # the value increases and reach `repeat * docs`
     # check that no empty node are left
     env.skipOnCluster()
-    env.expect('ft.config', 'set', 'FORK_GC_RUN_INTERVAL', 1000).ok()
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').ok()
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
