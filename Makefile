@@ -259,15 +259,15 @@ ifeq ($(ARCH),x64)
 
 ifeq ($(SAN),)
 ifneq ($(findstring centos,$(OSNICK)),)
-VECSIM_ARCH ?= skylake-avx512
+VECSIM_MARCH ?= skylake-avx512
 else
-VECSIM_ARCH ?= x86-64-v4
+VECSIM_MARCH ?= x86-64-v4
 endif
 else
-VECSIM_ARCH ?= skylake-avx512
+VECSIM_MARCH ?= skylake-avx512
 endif
 
-CMAKE_VECSIM=-DVECSIM_ARCH=$(VECSIM_ARCH)
+CMAKE_MVECSIM=-DVECSIM_ARCH=$(VECSIM_MARCH)
 
 else # ARCH != x64
 
