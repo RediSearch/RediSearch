@@ -58,7 +58,7 @@ make build         # compile and link
   COORD=1|oss|rlec   # build coordinator (1|oss: Open Source, rlec: Enterprise)
   STATIC=1           # build as static lib
   LITE=1             # build RediSearchLight
-  VECSIM_ARCH=arch   # architecture for VecSim build
+  VECSIM_MARCH=arch  # architecture for VecSim build
   DEBUG=1            # build for debugging
   NO_TESTS=1         # disable unit tests
   WHY=1              # explain CMake decisions (in /tmp/cmake-why)
@@ -267,7 +267,7 @@ else
 VECSIM_MARCH ?= skylake-avx512
 endif
 
-CMAKE_MVECSIM=-DVECSIM_ARCH=$(VECSIM_MARCH)
+CMAKE_MVECSIM=-DVECSIM_MARCH=$(VECSIM_MARCH)
 
 else # ARCH != x64
 

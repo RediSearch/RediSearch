@@ -2,10 +2,10 @@
 if (NOT DEFINED __VECSIM__)
 set(__VECSIM__ 1)
 
-if (NOT DEFINED VECSIM_ARCH)
-	set(VECSIM_ARCH "native")
+if (NOT DEFINED VECSIM_MARCH)
+	set(VECSIM_MARCH "native")
 endif()
-message("RediSearch/VecSim VECSIM_ARCH: " ${VECSIM_ARCH})
+message("RediSearch/VecSim VECSIM_MARCH: " ${VECSIM_MARCH})
 
 set(RS_VECSIM_SO_FLAGS "-lstdc++")
 
@@ -27,7 +27,7 @@ ExternalProject_Add (VectorSimilarity
 	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${binroot}/VectorSimilarity -Dbinroot:string=${binroot}
 	CMAKE_ARGS      -DCMAKE_BUILD_TYPE:string=${CMAKE_BUILD_TYPE} -DVECSIM_STATIC:bool=ON
 	CMAKE_ARGS      -DOS:string=${OS} -DARCH:string=${ARCH} -DOSNICK:string=${OSNICK}
-	CMAKE_ARGS      -DVECSIM_ARCH:string=${VECSIM_ARCH}
+	CMAKE_ARGS      -DVECSIM_MARCH:string=${VECSIM_MARCH}
 	CMAKE_ARGS      -DBUILD_TESTS:bool=OFF
 	CMAKE_ARGS      ${VECSIM_SAN_ARGS}
 )
