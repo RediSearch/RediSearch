@@ -102,8 +102,8 @@ struct RSIdxField {
   int tagCaseSensitive;
 };
 
-#define RS_INFO_CURRENT 1
-#define RS_INFO_INIT 1
+#define RS_INFO_CURRENT_VERSION 1
+#define RS_INFO_INIT_VERSION 1
 
 typedef struct RSIdxInfo {
   uint64_t version;

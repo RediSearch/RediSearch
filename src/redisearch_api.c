@@ -673,7 +673,7 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
 }
 
 int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
-  if (info->version < RS_INFO_INIT || info->version > RS_INFO_CURRENT) {
+  if (info->version < RS_INFO_INIT_VERSION || info->version > RS_INFO_CURRENT_VERSION) {
     return REDISEARCH_ERR;
   }
 

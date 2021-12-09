@@ -931,7 +931,7 @@ TEST_F(LLApiTest, testInfo) {
   RSIdxInfo info = { .version = 0 };
   ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);  
 
-  info = { .version = RS_INFO_CURRENT };
+  info = { .version = RS_INFO_CURRENT_VERSION };
   ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_OK);
 
   ASSERT_EQ(info.gcPolicy, GC_POLICY_FORK);
