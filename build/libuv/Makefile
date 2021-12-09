@@ -4,7 +4,7 @@ include $(ROOT)/deps/readies/mk/main
 
 MK.configure=1
 
-define HELP
+define HELPTEXT
 make build    # configure and compile
 make clean    # clean generated sbinaries
   ALL=1       # remote entire binary directory
