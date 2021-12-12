@@ -358,4 +358,5 @@ def test_2370(env):
 
 def test_MOD1907(env):
   # Test FT.CREATE w/o fields parameters
-  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Please provided parameters for fields')
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Fields arguments are missing')
+  env.expect('FT.CREATE', 'idx', 'STOPWORDS', 0, 'SCHEMA').error().contains('Fields arguments are missing')
