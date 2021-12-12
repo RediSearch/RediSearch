@@ -77,7 +77,7 @@ def testSynonymWithMultipleDocs(env):
     env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
     env.assertEqual(res[3], 'doc2')
     env.assertEqual(set(res[4]), set(['title', 'she is a girl', 'body', 'the child sister']))
-    
+
 
 def testSynonymUpdate(env):
     r = env
