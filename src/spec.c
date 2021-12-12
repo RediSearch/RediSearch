@@ -418,25 +418,25 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
         return 0;
       }
     } else {
-      QERR_MKBADARGS_FMT(status, "bad parameter for algorithm %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
+      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
       return 0;
     }
     numParam++;
   }
   if (expNumParam > numParam) {
-    QERR_MKBADARGS_FMT(status, "expected %d parameters but got %d", expNumParam, numParam);
+    QERR_MKBADARGS_FMT(status, "Expected %d parameters but got %d", expNumParam, numParam);
     return 0;
   }
   if (!mandtype) {
-    QERR_MKBADARGS_FMT(status, "missing mandatory parameter %s",VECSIM_TYPE);
-    return 0;
-  }
-  if (!mandmetric) {
-    QERR_MKBADARGS_FMT(status, "missing mandatory parameter %s",VECSIM_DISTANCE_METRIC);
+    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_TYPE);
     return 0;
   }
   if (!mandsize) {
-    QERR_MKBADARGS_FMT(status, "missing mandatory parameter %s",VECSIM_DIM);
+    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_DIM);
+    return 0;
+  }
+  if (!mandmetric) {
+    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_DISTANCE_METRIC);
     return 0;
   }
   return 1;
@@ -488,25 +488,25 @@ static int parseVectorField_bf(FieldSpec *fs, ArgsCursor *ac, QueryError *status
         return 0;
       }
     } else {
-      QERR_MKBADARGS_FMT(status, "bad parameter for algorithm %s: %s", VECSIM_ALGORITHM_BF, AC_GetStringNC(ac, NULL));
+      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm %s: %s", VECSIM_ALGORITHM_BF, AC_GetStringNC(ac, NULL));
       return 0;
     }
     numParam++;
   }
   if (expNumParam > numParam) {
-    QERR_MKBADARGS_FMT(status, "expected %d parameters but got %d", expNumParam, numParam);
+    QERR_MKBADARGS_FMT(status, "Expected %d parameters but got %d", expNumParam, numParam);
     return 0;
   }
   if (!mandtype) {
-    QERR_MKBADARGS_FMT(status, "missing mandatory parameter %s",VECSIM_TYPE);
-    return 0;
-  }
-  if (!mandmetric) {
-    QERR_MKBADARGS_FMT(status, "missing mandatory parameter %s",VECSIM_DISTANCE_METRIC);
+    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_TYPE);
     return 0;
   }
   if (!mandsize) {
-    QERR_MKBADARGS_FMT(status, "missing mandatory parameter %s",VECSIM_DIM);
+    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_DIM);
+    return 0;
+  }
+  if (!mandmetric) {
+    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_DISTANCE_METRIC);
     return 0;
   }
   return 1;
@@ -529,10 +529,13 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vecSimParams.algo = VecSimAlgo_BF;
     fs->vecSimParams.bfParams.initialCapacity = 1000;
+    fs->vecSimParams.bfParams.blockSize = BF_DEFAULT_BLOCK_SIZE;
     return parseVectorField_bf(fs, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vecSimParams.algo = VecSimAlgo_HNSWLIB;
     fs->vecSimParams.hnswParams.initialCapacity = 1000;
+    fs->vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
+    fs->vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     return parseVectorField_hnsw(fs, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vecsim algorithm", AC_ERR_ENOENT);
