@@ -1,0 +1,7 @@
+*.json
+# *.txt
+*.csv
+datasets/*.rdb
+*.rdb
+binaries
+profile_*

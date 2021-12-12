@@ -1,6 +1,7 @@
-ADD_LIBRARY(example_extension SHARED example.c)
 
-SET_TARGET_PROPERTIES(example_extension PROPERTIES PREFIX "lib")
-SET_TARGET_PROPERTIES(example_extension PROPERTIES SUFFIX ".so")
+add_library(example_extension SHARED example.c)
 
-SET_TARGET_PROPERTIES(example_extension PROPERTIES COMPILE_FLAGS "-fvisibility=default")
+set_target_properties(example_extension PROPERTIES PREFIX "lib")
+set_target_properties(example_extension PROPERTIES SUFFIX ".so")
+
+set_target_properties(example_extension PROPERTIES COMPILE_FLAGS "-fvisibility=default")

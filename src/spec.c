@@ -1738,15 +1738,16 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, sp, &status);
+
+  dictDelete(legacySpecRules, sp->name);
+  SchemaRuleArgs_Free(rule_args);
+
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
                            sp->name, QueryError_GetError(&status));
     IndexSpec_Free(sp);
     return NULL;
   }
-
-  SchemaRuleArgs_Free(rule_args);
-  dictDelete(legacySpecRules, sp->name);
 
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
@@ -1883,21 +1884,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
 
-    if (legacySpecRules) {
-      dictIterator *iter = dictGetIterator(legacySpecRules);
-      dictEntry *entry = NULL;
-      while ((entry = dictNext(iter))) {
-        char *indexName = dictGetKey(entry);
-        SchemaRuleArgs *rule_args = dictGetVal(entry);
-        RedisModule_Log(ctx, "warning", "Index %s was defined for upgrade but was not found",
-                        indexName);
-        SchemaRuleArgs_Free(rule_args);
-      }
-      dictReleaseIterator(iter);
-      dictEmpty(legacySpecRules, NULL);
-      dictRelease(legacySpecRules);
-      legacySpecRules = NULL;
-    }
+    LegacySchemaRulesArgs_Free(ctx);
 
     if (hasLegacyIndexes || CompareVestions(redisVersion, noScanVersion) < 0) {
       Indexes_ScanAndReindex();

@@ -65,6 +65,13 @@ char **RediSearch_IndexGetStopwords(IndexSpec* sp, size_t *size) {
   return GetStopWordsList(sp->stopwords, size);
 }
 
+void RediSearch_StopwordsList_Free(char **list, size_t size) {
+  for (int i = 0; i < size; ++i) {
+    rm_free(list[i]);
+  }
+  rm_free(list);
+}
+
 double RediSearch_IndexGetScore(IndexSpec* sp) {
   if (sp->rule) {
     return sp->rule->score_default;
@@ -630,4 +637,98 @@ void RediSearch_SetCriteriaTesterThreshold(size_t num) {
 
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
   return StopWordList_Contains(idx->stopwords, term, len);
+}
+
+void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
+  infoField->name = rm_strdup(specField->name);
+  infoField->path = rm_strdup(specField->path);
+  if (specField->types & INDEXFLD_T_FULLTEXT) {
+    infoField->types |= RSFLDTYPE_FULLTEXT;
+    infoField->textWeight = specField->ftWeight;
+  }
+  if (specField->types & INDEXFLD_T_NUMERIC) {
+    infoField->types |= RSFLDTYPE_NUMERIC;
+  }
+  if (specField->types & INDEXFLD_T_TAG) {
+    infoField->types |= RSFLDTYPE_TAG;
+    infoField->tagSeperator = specField->tagSep;
+    infoField->tagCaseSensitive = specField->tagFlags & TagField_CaseSensitive ? 1 : 0;
+  }
+  if (specField->types & INDEXFLD_T_GEO) {
+    infoField->types |= RSFLDTYPE_GEO;
+  }
+
+  if (FieldSpec_IsSortable(specField)) {
+    infoField->options |= RSFLDOPT_SORTABLE;
+  }
+  if (FieldSpec_IsNoStem(specField)) {
+    infoField->options |= RSFLDOPT_TXTNOSTEM;
+  }
+  if (FieldSpec_IsPhonetics(specField)) {
+    infoField->options |= RSFLDOPT_TXTPHONETIC;
+  }
+  if (!FieldSpec_IsIndexable(specField)) {
+    infoField->options |= RSFLDOPT_NOINDEX;
+  }
+}
+
+int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
+  if (info->version < RS_INFO_INIT_VERSION || info->version > RS_INFO_CURRENT_VERSION) {
+    return REDISEARCH_ERR;
+  }
+
+  RWLOCK_ACQUIRE_READ();
+
+  info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
+  if (sp->rule) {
+    info->score = sp->rule->score_default;
+    info->lang = sp->rule->lang_default;
+  } else {
+    info->score = DEFAULT_SCORE;
+    info->lang = DEFAULT_LANGUAGE;
+  }
+
+  info->numFields = sp->numFields;
+  info->fields = rm_calloc(sp->numFields, sizeof(*info->fields));
+  for (int i = 0; i < info->numFields; ++i) {
+    RediSearch_FieldInfo(&info->fields[i], &sp->fields[i]);
+  }
+
+  info->numDocuments = sp->stats.numDocuments;
+  info->maxDocId = sp->docs.maxDocId;
+  info->docTableSize = sp->docs.memsize;
+  info->sortablesSize = sp->docs.sortablesSize;
+  info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
+  info->numTerms = sp->stats.numTerms;
+  info->numRecords = sp->stats.numRecords;
+  info->invertedSize = sp->stats.invertedSize;
+  info->invertedCap = sp->stats.invertedCap;
+  info->skipIndexesSize = sp->stats.skipIndexesSize;
+  info->scoreIndexesSize = sp->stats.scoreIndexesSize;
+  info->offsetVecsSize = sp->stats.offsetVecsSize;
+  info->offsetVecRecords = sp->stats.offsetVecRecords;
+  info->termsSize = sp->stats.termsSize;
+  info->indexingFailures = sp->stats.indexingFailures;
+
+  if (sp->gc) {
+    // LLAPI always uses ForkGC
+    ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
+
+    info->totalCollected = gcStats.totalCollected;
+    info->numCycles = gcStats.numCycles;
+    info->totalMSRun = gcStats.totalMSRun;
+    info->lastRunTimeMs = gcStats.lastRunTimeMs;
+  }
+
+  RWLOCK_RELEASE();
+
+  return REDISEARCH_OK;
+}
+
+void RediSearch_IndexInfoFree(RSIdxInfo *info) {
+  for (int i = 0; i < info->numFields; ++i) {
+    rm_free(info->fields[i].name);
+    rm_free(info->fields[i].path);
+  }
+  rm_free((void *)info->fields);
 }

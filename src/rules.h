@@ -2,7 +2,7 @@
 #pragma once
 
 #include "query_error.h"
-#include "dep/triemap/triemap.h"
+#include "triemap/triemap.h"
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
@@ -55,6 +55,7 @@ typedef struct SchemaRule {
  * only if the entire SchemaRuleArgs is heap allocated.
  */
 void SchemaRuleArgs_Free(SchemaRuleArgs *args);
+void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx);
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, struct IndexSpec *spec, QueryError *status);
 void SchemaRule_Free(SchemaRule *);

@@ -42,6 +42,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'UNION_ITERATOR_HEAP').res[0][0] =='UNION_ITERATOR_HEAP'
     assert env.expect('ft.config', 'get', '_NUMERIC_COMPRESS').res[0][0] =='_NUMERIC_COMPRESS'
     assert env.expect('ft.config', 'get', '_NUMERIC_RANGES_PARENTS').res[0][0] =='_NUMERIC_RANGES_PARENTS'
+    assert env.expect('ft.config', 'get', 'RAW_DOCID_ENCODING').res[0][0] =='RAW_DOCID_ENCODING'
 '''
 
 Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
@@ -178,3 +179,22 @@ def testInitConfig(env):
     test_arg_str('MAXSEARCHRESULTS', '-1', 'unlimited')
     test_arg_str('MAXAGGREGATERESULTS', '100', '100')
     test_arg_str('MAXAGGREGATERESULTS', '-1', 'unlimited')
+    test_arg_str('RAW_DOCID_ENCODING', 'false', 'false')
+    test_arg_str('RAW_DOCID_ENCODING', 'true', 'true')
+
+def testImmutable(env):
+    env.skipOnCluster()
+
+    env.expect('ft.config', 'set', 'EXTLOAD').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'SAFEMODE').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'CONCURRENT_WRITE_MODE').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'NOGC').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'INDEX_THREADS').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'SEARCH_THREADS').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'FRISOINI').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'GC_POLICY').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'NO_MEM_POOLS').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'PARTIAL_INDEXED_DOCS').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains('Not modifiable at runtime')

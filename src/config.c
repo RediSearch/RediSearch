@@ -347,6 +347,10 @@ CONFIG_BOOLEAN_GETTER(getPrintProfileClock, printProfileClock, 0)
 CONFIG_BOOLEAN_SETTER(setIndexNoSchemaMatch, indexNoSchemaMatch)
 CONFIG_BOOLEAN_GETTER(getIndexNoSchemaMatch, indexNoSchemaMatch, 0)
 
+// RAW_DOCID_ENCODING
+CONFIG_BOOLEAN_SETTER(setRawDocIDEncoding, invertedIndexRawDocidEncoding)
+CONFIG_BOOLEAN_GETTER(getRawDocIDEncoding, invertedIndexRawDocidEncoding, 0)
+
 CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   size_t maxDepthRange;
   int acrc = AC_GetSize(ac, &maxDepthRange, AC_F_GE0);
@@ -665,6 +669,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable indexing of documents w/o a match to the index schema.",
          .setValue = setIndexNoSchemaMatch,
          .getValue = getIndexNoSchemaMatch},
+        {.name = "RAW_DOCID_ENCODING",
+         .helpText = "Disable compression for DocID inverted index. Boost CPU performance.",
+         .setValue = setRawDocIDEncoding,
+         .getValue = getRawDocIDEncoding,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "_NUMERIC_RANGES_PARENTS",
          .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs " 
                      "for `x` generations.",

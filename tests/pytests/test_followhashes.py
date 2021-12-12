@@ -178,6 +178,8 @@ def testRename(env):
 
 def testCopy(env):
     env.skipOnCluster()
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
     conn = getConnectionByEnv(env)
 
     conn.execute_command('ft.create', 'things', 'SCHEMA', 'name', 'text')
@@ -547,13 +549,9 @@ def createExpire(env, N):
   env.flush()
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
-  with conn.pipeline(transaction=True) as pl:
-    for i in range(N):
-      pl.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
-    pl.execute()
-    for i in range(N):
-      pl.execute_command('PEXPIRE', 'doc%d' % i, '100')
-    pl.execute()
+  for i in range(N):
+    conn.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
+    conn.execute_command('PEXPIRE', 'doc%d' % i, '100')
   conn.execute_command('HSET', 'foo', 'txt1', 'hello', 'n', 0)
   conn.execute_command('HSET', 'bar', 'txt1', 'hello', 'n', 20)
   waitForIndex(env, 'idx')
@@ -568,7 +566,6 @@ def createExpire(env, N):
     res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}
   env.assertEqual(res, {})
 
-@no_msan
 def testExpiredDuringSearch(env):
   N = 100
   createExpire(env, N)
@@ -578,14 +575,13 @@ def testExpiredDuringSearch(env):
 
   createExpire(env, N)
   res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '200')
-  env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'], 
+  env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'],
                                                                'foo', ['txt1', 'hello', 'n', '0']]))
 
-@no_msan
 def testExpiredDuringAggregate(env):
   N = 100
   res = [1L, ['txt1', 'hello', 'COUNT', '2']]
-  
+
   createExpire(env, N)
   _res = env.cmd('FT.AGGREGATE idx hello*')
   env.assertGreater(len(_res), 2)

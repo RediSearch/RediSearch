@@ -889,8 +889,6 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
   return pushRP(req, groupRP, rpUpstream);
 }
 
-#define DEFAULT_LIMIT 10
-
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up) {
   ResultProcessor *rp = NULL;
