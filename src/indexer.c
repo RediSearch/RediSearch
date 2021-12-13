@@ -3,9 +3,12 @@
 #include "numeric_index.h"
 #include "inverted_index.h"
 #include "geo_index.h"
+#include "vector_index.h"
 #include "index.h"
 #include "redis_index.h"
 #include "rmutil/rm_assert.h"
+
+extern RedisModuleCtx *RSDummyContext;
 
 #include <unistd.h>
 static void Indexer_FreeInternal(DocumentIndexer *indexer);
@@ -250,6 +253,17 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx
       aCtx->oldMd = dmd;
       if (sctx->spec->gc) {
         GCContext_OnDelete(sctx->spec->gc);
+      }
+      if (spec->flags & Index_HasVecSim) {
+        for (int i = 0; i < spec->numFields; ++i) {
+          if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
+            RedisModuleString * rmstr = RedisModule_CreateString(RSDummyContext, spec->fields[i].name, strlen(spec->fields[i].name));
+            VecSimIndex *vecsim = OpenVectorIndex(sctx, rmstr);
+            VecSimIndex_DeleteVector(vecsim, dmd->id);
+            RedisModule_FreeString(RSDummyContext, rmstr);
+            // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
+          }
+        }
       }
     }
   }

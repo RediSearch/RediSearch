@@ -381,7 +381,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "suggestion"
   },
   "FT.SUGGET": {
     "summary": "Gets completion suggestions for a prefix",
@@ -427,7 +427,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "suggestion"
   },
   "FT.SUGDEL": {
     "summary": "Deletes a string from a suggestion index",
@@ -443,7 +443,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "suggestion"
   },
   "FT.SUGLEN": {
     "summary": "Gets the size of an auto-complete suggestion dictionary",
@@ -455,7 +455,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "suggestion"
   },
   "FT.SYNUPDATE": {
     "summary": "Creates or updates a synonym group with additional terms",
@@ -1157,6 +1157,68 @@
         "type": "string",
         "optional": true,
         "command":"FILTER"
+      },
+      {
+        "name": "cursor",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "withcursor",
+            "type": "enum",
+            "enum": ["WITHCURSOR"]
+          },
+          {
+            "name": "read_size",
+            "type": "integer",
+            "optional": true,
+            "command":"COUNT"
+          },
+          {
+            "name": "idle_time",
+            "type": "integer",
+            "optional": true,
+            "command":"MAXIDLE"
+          }
+        ]
+      }
+    ],
+    "since": "1.1.0",
+    "group": "search"
+  },
+  "FT.CURSOR READ": {
+    "summary": "Reads from a cursor",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "cursor_id",
+        "type": "integer"
+      },
+      {
+        "name": "read size",
+        "type": "integer",
+        "optional": true,
+        "command":"COUNT"
+      }
+    ],
+    "since": "1.1.0",
+    "group": "search"
+  },
+  "FT.CURSOR DEL": {
+    "summary": "Deletes a cursor",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "cursor_id",
+        "type": "integer"
       }
     ],
     "since": "1.1.0",
