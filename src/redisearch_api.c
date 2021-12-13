@@ -114,6 +114,10 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
     fs->types |= INDEXFLD_T_GEO;
     numTypes++;
   }
+  if (types & RSFLDTYPE_VECTOR) {
+    fs->types |= INDEXFLD_T_VECTOR;
+    numTypes++;
+  }
   if (types & RSFLDTYPE_TAG) {
     fs->types |= INDEXFLD_T_TAG;
     numTypes++;
@@ -471,7 +475,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL);
+  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, &status);
   if (!it->internal) {
     goto end;
   }
