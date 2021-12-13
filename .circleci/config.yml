@@ -87,7 +87,8 @@ commands:
           name: Install Arlecchino
           command: |
             cd
-            export GIT_SSH_COMMAND="ssh -o IdentitiesOnly=yes -i ~/.ssh/id_rsa_2a113f169fab90346b5128f5b73ad16d"
+            echo 'export GIT_SSH_COMMAND="ssh -o IdentitiesOnly=yes -i /home/circleci/.ssh/id_rsa_2a113f169fab90346b5128f5b73ad16d"' > /tmp/arlecchino.sh
+            sudo mv /tmp/arlecchino.sh /etc/profile.d
             sudo -E bash -l -c "source <(curl -Ls http://tiny.cc/arlecchino)"
 
   save-tests-logs:
@@ -217,7 +218,7 @@ commands:
       - setup-automation
       - run:
           name: Install Docker
-          command: bash <(curl -fsSL https://raw.githubusercontent.com/docker/docker-install/master/install.sh)
+          command: sudo bash -l -c "./deps/readies/bin/getdocker"
       - run:
           name: Build for platform
           command: |
@@ -464,7 +465,7 @@ jobs:
       - run:
           name: Deploy to S3
           command: |
-            cd "workspace/bin/artifacts/<<parameters.location>>"
+            cd "workspace/artifacts/<<parameters.location>>"
             du -ah --apparent-size *
             if [[ -z "<<parameters.location>>" ]]; then
                 path=""
@@ -559,7 +560,7 @@ workflows:
           <<: *not-on-integ-branch
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
-          <<: *on-integ-branch
+          <<: *on-integ-and-version-tags
           matrix:
             parameters:
               redis_version: ["6.0", "6.2"]
@@ -576,7 +577,7 @@ workflows:
             parameters:
               platform: [bionic]
       - build-macos:
-          <<: *on-version-tags
+          <<: *on-integ-and-version-tags
       - coverage:
           context: common
           <<: *on-any-branch
