@@ -570,8 +570,7 @@ workflows:
             parameters:
               platform: [focal, bionic, xenial, centos7, centos8]
       - build-arm-platforms:
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
@@ -585,7 +584,7 @@ workflows:
           name: sanitize-<< matrix.san-type >>
           matrix:
             parameters:
-              san-type: [address, memory]
+              san-type: [address] # [address, memory]
           <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
