@@ -255,6 +255,7 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   ret->params = p->params;
   p->gf = NULL;
   p->params = NULL;
+  rm_free(p);
   return ret;
 }
 
@@ -266,6 +267,7 @@ QueryNode *NewVectorNode(QueryParam *p) {
   ret->params = p->params;
   p->vf = NULL;
   p->params = NULL;
+  rm_free(p);
   return ret;
 }
 
