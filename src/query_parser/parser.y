@@ -135,6 +135,11 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %default_type { QueryToken }
 %default_destructor { }
 
+// Notice about the %destructor directive:
+// If a non-terminal is used by C-code, e.g., expr(A)
+// then %destructor code will bot be called for it
+// (C-code is responsible for destroying it)
+
 %type expr { QueryNode * } 
 %destructor expr { QueryNode_Free($$); }
 
