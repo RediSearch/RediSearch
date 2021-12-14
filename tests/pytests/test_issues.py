@@ -105,7 +105,7 @@ def test_MOD_865(env):
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
   for i in range(129):
     args_list.extend([i, 'TEXT'])
-  env.expect(*args_list).error().contains('Schema is limited to 128 TEXT fields')
+  env.expect(*args_list).error().contains('Schema is limited to {} TEXT fields'.format(arch_int_bits()))
   env.expect('FT.DROPINDEX', 'idx')
 
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
@@ -355,3 +355,8 @@ def test_2370(env):
   env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '10', '10').equal([2L])
   # missing fields
   env.expect('FT.SEARCH', 'idx', '*').equal([2L, 'doc1', ['t1', 'foo', 't2', 'bar'], 'doc2', ['t1', 'baz']])
+
+def test_MOD1907(env):
+  # Test FT.CREATE w/o fields parameters
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Fields arguments are missing')
+  env.expect('FT.CREATE', 'idx', 'STOPWORDS', 0, 'SCHEMA').error().contains('Fields arguments are missing')

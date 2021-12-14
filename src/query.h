@@ -29,6 +29,7 @@ extern "C" {
  */
 typedef struct QueryAST {
   size_t numTokens;
+  size_t numParams;
   QueryNode *root;
   // User data and length, for use by scorers
   const void *udata;
@@ -84,7 +85,7 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
  * @return an iterator.
  */
 IndexIterator *QAST_Iterate(const QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, ConcurrentSearchCtx *conc);
+                            RedisSearchCtx *sctx, ConcurrentSearchCtx *conc, QueryError *status);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly
@@ -97,6 +98,9 @@ IndexIterator *QAST_Iterate(const QueryAST *ast, const RSSearchOptions *options,
  */
 int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
                 QueryError *status);
+
+int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status);
+int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status);
 
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */

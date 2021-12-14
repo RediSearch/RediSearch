@@ -26,6 +26,13 @@ def testGeoFtAdd(env):
   env.expect('FT.ADD', 'idx', 'geo3', '1', 'FIELDS', 'g', '"1.23,4.56"').ok() # this is an error and won't index
   env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]').equal([1L, 'geo2', ['g', '1.23,4.56']])
 
+def testGeoLong(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE idx SCHEMA g GEO').ok()
+  conn.execute_command('HSET', 'geo', 'g',  '1.2345678901234567890,4.5678901234567890')
+  env.expect('FT.SEARCH', 'idx', '*').equal([1L, 'geo', ['g', '1.2345678901234567890,4.5678901234567890']])
+  env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 2 km]').equal([1L, 'geo', ['g', '1.2345678901234567890,4.5678901234567890']])
+
 def testGeoDistanceSimple(env):
   env.skipOnCluster()
   env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo', 'hq', 'geo').ok()

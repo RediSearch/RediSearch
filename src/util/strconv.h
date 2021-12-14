@@ -32,8 +32,8 @@ static int ParseInteger(const char *arg, long long *val) {
 /* Parse string into double, returning 1 on success, 0 otherwise */
 static int ParseDouble(const char *arg, double *d) {
   char *e;
-  *d = strtod(arg, &e);
   errno = 0;
+  *d = strtod(arg, &e);
 
   if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
       *e != '\0') {
@@ -64,6 +64,27 @@ static char *strtolower(char *str) {
     p++;
   }
   return str;
+}
+
+// strndup + lowercase in one pass!
+static char *rm_strdupcase(const char *s, size_t len) {
+  char *ret = rm_strndup(s, len);
+  char *dst = ret;
+  char *src = dst;
+  while (*src) {
+    // unescape
+    if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
+      ++src;
+      continue;
+    }
+    *dst = tolower(*src);
+    ++dst;
+    ++src;
+
+  }
+  *dst = '\0';
+
+  return ret;
 }
 
 #endif

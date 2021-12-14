@@ -5,7 +5,7 @@ else
 DRY_RUN:=
 endif
 
-ifneq ($(filter coverage,$(MAKECMDGOALS)),)
+ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
 COV=1
 endif
 
@@ -58,6 +58,7 @@ make build         # compile and link
   COORD=1|oss|rlec   # build coordinator (1|oss: Open Source, rlec: Enterprise)
   STATIC=1           # build as static lib
   LITE=1             # build RediSearchLight
+  VECSIM_MARCH=arch  # architecture for VecSim build
   DEBUG=1            # build for debugging
   NO_TESTS=1         # disable unit tests
   WHY=1              # explain CMake decisions (in /tmp/cmake-why)
@@ -252,13 +253,40 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
+#----------------------------------------------------------------------------------------------
+
+ifeq ($(ARCH),x64)
+
+ifeq ($(SAN),)
+ifneq ($(findstring centos,$(OSNICK)),)
+VECSIM_MARCH ?= skylake-avx512
+else
+VECSIM_MARCH ?= x86-64-v4
+endif
+else
+VECSIM_MARCH ?= skylake-avx512
+endif
+
+CMAKE_VECSIM=-DVECSIM_MARCH=$(VECSIM_MARCH)
+
+else # ARCH != x64
+
+CMAKE_VECSIM=
+
+endif # ARCH
+
+#----------------------------------------------------------------------------------------------
+
 CMAKE_FLAGS=\
 	-Wno-dev \
 	-DGIT_SHA=$(GIT_SHA) \
 	-DGIT_VERSPEC=$(GIT_VERSPEC) \
-	-DRS_MODULE_NAME=$(RAMP_MODULE_NAME)
+	-DRS_MODULE_NAME=$(RAMP_MODULE_NAME) \
+	-DOS=$(OS) \
+	-DOSNICK=$(OSNICK) \
+	-DARCH=$(ARCH)
 
-CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC)  $(CMAKE_COORD) \
+CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_VECSIM) \
 	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
 
 #----------------------------------------------------------------------------------------------
@@ -271,7 +299,7 @@ MK_CUSTOM_CLEAN=1
 
 MISSING_DEPS:=
 ifeq ($(wildcard $(LIBUV)),)
-MISSING_DEPS += $(LIBUV) $(HIREDIS)
+MISSING_DEPS += $(LIBUV)
 endif
 ifeq ($(wildcard $(HIREDIS)),)
 MISSING_DEPS += $(HIREDIS)
@@ -303,6 +331,19 @@ else
 MAKE_J:=-j$(shell nproc)
 endif
 
+ifeq ($(OSNICK),centos7)
+ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
+define SETUP_LIBSTDCXX
+set -e ;\
+cd $$(BINDIR) ;\
+wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$$(OS)-$$(ARCH).tgz ;\
+tar xzf libstdc.tgz ;\
+rm libstdc.tgz ;\
+ln -sf libstdc++.so.6.0.25 libstdc++.so.6
+endef
+endif
+endif
+
 ifeq ($(FORCE),1)
 .PHONY: __force
 
@@ -318,6 +359,7 @@ endif
 
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
+	$(SHOW)$(SETUP_LIBSTDCXX)
 ifneq ($(DRY_RUN),1)
 	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
 #	$(SHOW)[ -f $(TARGET) ] && touch $(TARGET)
@@ -399,23 +441,12 @@ endif
 
 export REJSON ?= 1
 
-ifeq ($(TESTDEBUG),1)
-override CTEST_ARGS += --debug
-endif
-
-CTEST_ARGS += --output-on-failure
-
-
 ifneq ($(SAN),)
 export ASAN_OPTIONS=detect_odr_violation=0
 endif
 
-ifeq ($(COV),1)
-# CTEST_ARGS += --output-on-failure
-endif
-
-ifeq ($(VG),1)
-# CTEST_ARGS += --output-on-failure
+ifeq ($(TESTDEBUG),1)
+override CTEST_ARGS.debug += --debug
 endif
 
 ifneq ($(SLOW),1)
@@ -429,12 +460,20 @@ endif
 endif # SLOW
 
 ifneq ($(CTEST_PARALLEL),)
-override CTEST_ARGS += -j$(CTEST_PARALLEL)
+CTEST_ARGS.parallel += -j$(CTEST_PARALLEL)
 endif
 
-override CTEST_ARGS += --timeout 15000
+override CTEST_ARGS += \
+	--output-on-failure \
+	--timeout 15000 \
+	$(CTEST.debug) \
+	$(CTEST.parallel)
 
-FLOW_TESTS_ARGS=\
+CTESTS_DEFS += \
+	BINROOT=$(BINROOT)
+
+override FLOW_TESTS_ARGS+=\
+	BINROOT=$(BINROOT) \
 	VG=$(VALGRIND) VG_LEAKS=0
 
 ifeq ($(EXT),1)
@@ -444,17 +483,29 @@ endif
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
 test:
+ifneq ($(SAN),)
+	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
+endif
 ifneq ($(TEST),)
-	$(SHOW)set -e; cd $(BINRDIR); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
-	$(SHOW)set -e; cd $(BINDIR); ctest $(CTEST_ARGS)
+ifeq ($(ARCH),arm64v8)
+	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+else
+	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) ctest $(CTEST_ARGS)
+endif
 ifeq ($(COORD),oss)
 	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 endif
 endif
 
 pytest:
+ifneq ($(SAN),)
+	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
+endif
 	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+
+#----------------------------------------------------------------------------------------------
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args
@@ -463,14 +514,29 @@ GDB_CMD=
 endif
 
 c_tests:
-	$(SHOW)find $(abspath $(BINROOT)/tests/ctests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
+ifeq ($(COORD),)
+ifeq ($(TEST),)
+	$(SHOW)set -e ;\
+	cd tests/ctests ;\
+	find $(abspath $(BINROOT)/search/tests/ctests) -name "test_*" -type f -executable -print0 | xargs -0 -n1 bash -c
+else
+	$(SHOW)set -e ;\
+	cd tests/ctests ;\
+	${GDB_CMD} $(BINROOT)/search/tests/ctests/$(TEST)
+endif
+else ifeq ($(COORD),oss)
+ifeq ($(TEST),)
+	$(SHOW)set -e; find $(abspath $(BINROOT)/coord-oss/tests/unit) -name "test_*" -type f -executable -print0 | xargs -0 -n1 bash -c
+else
+	$(SHOW)${GDB_CMD} $(BINROOT)/coord-oss/tests/unit/$(TEST)
+endif
+endif
 
 cpp_tests:
 ifeq ($(TEST),)
-	$(SHOW)find $(abspath $(BINROOT)/tests/cpptests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
+	$(SHOW)$(BINROOT)/search/tests/cpptests/rstest
 else
-	$(SHOW)set -e ;\
-	$(GDB_CMD) $(abspath $(BINROOT)/tests/cpptests/$(TEST)) --gtest_filter=$(TEST)
+	$(SHOW)$(GDB_CMD) $(abspath $(BINROOT)/search/tests/cpptests/rstest) --gtest_filter=$(TEST)
 endif
 
 .PHONY: test pytest c_tests cpp_tests
@@ -539,21 +605,44 @@ benchmark:
 
 #----------------------------------------------------------------------------------------------
 
-COV_EXCLUDE += \
-    'deps/*' \
-	'tests/*' \
-	'coord/tests/*'
+COV_EXCLUDE_DIRS += \
+    deps \
+	tests \
+	coord/tests
+
+COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
+
+ifneq ($(REJSON_PATH),)
+export REJSON_PATH
+else
+REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXX)
+endif
 
 coverage:
+ifeq ($(REJSON_PATH),)
+	$(SHOW)MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
+endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-	$(SHOW)$(MAKE) test COV=1
-	$(SHOW)$(MAKE) test COORD=oss COV=1 CTEST_PARALLEL=1
+ifneq ($(REJSON_PATH),)
+	-$(SHOW)$(MAKE) test COV=1
+	-$(SHOW)$(MAKE) test COORD=oss COV=1
+else
+	-$(SHOW)$(MAKE) test COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
+	-$(SHOW)$(MAKE) test COORD=oss COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
+endif
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+
+# CTEST_PARALLEL=8
+
+show-cov:
+	$(SHOW)lcov -l $(COV_INFO)
 
 upload-cov:
 	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
+
+.PHONY: coverage show-cov upload-cov
 
 #----------------------------------------------------------------------------------------------
 
@@ -577,7 +666,11 @@ platform:
 # 	@docker run -it -v $(PWD):/build --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(shell $(ROOT)/deps/readies/bin/platform --docker) bash
 # endif
 
+ifneq ($(wildcard /w/*),)
+SANBOX_ARGS += -v /w:/w
+endif
+
 sanbox:
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined redisfab/clang:13-x64-bullseye bash
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:13-x64-bullseye bash
 
 .PHONY: box sanbox
