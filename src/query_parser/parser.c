@@ -1365,14 +1365,13 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 10: /* attribute ::= ATTRIBUTE COLON param_term */
 {
-  const char * value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  const char *value = yymsp[0].minor.yy0.s;
   size_t value_len = yymsp[0].minor.yy0.len;
   if (yymsp[0].minor.yy0.type == QT_PARAM_TERM) {
     size_t found_value_len;
     const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
     if (found_value) {
-      rm_free((char*)value);
-      value = rm_strndup(found_value, found_value_len);
+      value = found_value;
       value_len = found_value_len;
     }
   }

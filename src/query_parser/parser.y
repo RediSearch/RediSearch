@@ -311,14 +311,13 @@ expr(A) ::= LP expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
-  const char * value = rm_strndup(C.s, C.len);
+  const char *value = C.s;
   size_t value_len = C.len;
   if (C.type == QT_PARAM_TERM) {
     size_t found_value_len;
     const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
     if (found_value) {
-      rm_free((char*)value);
-      value = rm_strndup(found_value, found_value_len);
+      value = found_value;
       value_len = found_value_len;
     }
   }
