@@ -243,6 +243,7 @@ QueryNode *NewNumericNode(QueryParam *p) {
   ret->params = p->params;
   p->nf = NULL;
   p->params = NULL;
+  rm_free(p);
   return ret;
 }
 
