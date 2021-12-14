@@ -43,7 +43,16 @@ static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
 }
 
 static void QueryVectorNode_Free(QueryVectorNode *vn) {
-  if (vn->vf) rm_free(vn->vf);
+  if (vn->vf) {
+    if (vn->vf->vector) {
+      rm_free(vn->vf->vector); 
+    }
+    if (vn->vf->property) {
+      rm_free(vn->vf->property); 
+    }
+    rm_free(vn->vf);
+    vn->vf = NULL;
+  }
 }
 
 void QueryNode_Free(QueryNode *n) {
