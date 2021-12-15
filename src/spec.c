@@ -376,6 +376,11 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "vecsim number of parameters", rc);
     return 0;
+  } else if (expNumParam % 2) {
+    QERR_MKBADARGS_FMT(status, "Bad arguments for vecsim number of parameters: got %d but expected even number (arguments comes in key-value pairs)", expNumParam);
+    return 0;
+  } else {
+    expNumParam /= 2;
   }
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
@@ -424,7 +429,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     numParam++;
   }
   if (expNumParam > numParam) {
-    QERR_MKBADARGS_FMT(status, "Expected %d parameters but got %d", expNumParam, numParam);
+    QERR_MKBADARGS_FMT(status, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
     return 0;
   }
   if (!mandtype) {
@@ -456,6 +461,11 @@ static int parseVectorField_bf(FieldSpec *fs, ArgsCursor *ac, QueryError *status
   if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "vecsim number of parameters", rc);
     return 0;
+  } else if (expNumParam % 2) {
+    QERR_MKBADARGS_FMT(status, "Bad arguments for vecsim number of parameters: got %d but expected even number (arguments comes in key-value pairs)", expNumParam);
+    return 0;
+  } else {
+    expNumParam /= 2;
   }
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
@@ -494,7 +504,7 @@ static int parseVectorField_bf(FieldSpec *fs, ArgsCursor *ac, QueryError *status
     numParam++;
   }
   if (expNumParam > numParam) {
-    QERR_MKBADARGS_FMT(status, "Expected %d parameters but got %d", expNumParam, numParam);
+    QERR_MKBADARGS_FMT(status, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
     return 0;
   }
   if (!mandtype) {
