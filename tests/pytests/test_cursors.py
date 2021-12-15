@@ -116,7 +116,7 @@ def testCapacities(env):
 def testTimeout(env):
     # currently this test is only valid on one shard because coordinator creates more cursor which are not clean
     # with the same timeout
-    env.skipOnCluster() 
+    env.skipOnCluster()
     loadDocs(env, idx='idx1')
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]

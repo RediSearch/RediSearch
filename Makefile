@@ -440,10 +440,16 @@ endif
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
-test:
 ifneq ($(SAN),)
+REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+
+$(REJSON_SO):
 	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
+else
+REJSON_SO=
 endif
+
+test: $(REJSON_SO)
 ifneq ($(TEST),)
 	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
@@ -457,11 +463,10 @@ ifeq ($(COORD),oss)
 endif
 endif
 
-pytest:
-ifneq ($(SAN),)
-	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
-endif
+pytest: $(REJSON_SO)
 	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+
+#----------------------------------------------------------------------------------------------
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args
@@ -470,14 +475,29 @@ GDB_CMD=
 endif
 
 c_tests:
-	$(SHOW)find $(abspath $(BINROOT)/tests/ctests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
+ifeq ($(COORD),)
+ifeq ($(TEST),)
+	$(SHOW)set -e ;\
+	cd tests/ctests ;\
+	find $(abspath $(BINROOT)/search/tests/ctests) -name "test_*" -type f -executable -print0 | xargs -0 -n1 bash -c
+else
+	$(SHOW)set -e ;\
+	cd tests/ctests ;\
+	${GDB_CMD} $(BINROOT)/search/tests/ctests/$(TEST)
+endif
+else ifeq ($(COORD),oss)
+ifeq ($(TEST),)
+	$(SHOW)set -e; find $(abspath $(BINROOT)/coord-oss/tests/unit) -name "test_*" -type f -executable -print0 | xargs -0 -n1 bash -c
+else
+	$(SHOW)${GDB_CMD} $(BINROOT)/coord-oss/tests/unit/$(TEST)
+endif
+endif
 
 cpp_tests:
 ifeq ($(TEST),)
-	$(SHOW)find $(abspath $(BINROOT)/tests/cpptests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
+	$(SHOW)$(BINROOT)/search/tests/cpptests/rstest
 else
-	$(SHOW)set -e ;\
-	$(GDB_CMD) $(abspath $(BINROOT)/tests/cpptests/$(TEST)) --gtest_filter=$(TEST)
+	$(SHOW)$(GDB_CMD) $(abspath $(BINROOT)/search/tests/cpptests/rstest) --gtest_filter=$(TEST)
 endif
 
 .PHONY: test pytest c_tests cpp_tests
