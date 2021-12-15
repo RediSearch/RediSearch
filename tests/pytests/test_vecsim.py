@@ -11,7 +11,7 @@ import numpy as np
 
 def test_sanity(env):
     conn = getConnectionByEnv(env)
-    vecsim_type = ['BF', 'HNSW']
+    vecsim_type = ['FLAT', 'HNSW']
     for vs_type in vecsim_type:
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'INT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
         conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
@@ -66,7 +66,7 @@ def test_sanity(env):
 def testEscape(env):
     conn = getConnectionByEnv(env)
 
-    vecsim_type = ['BF', 'HNSW']
+    vecsim_type = ['FLAT', 'HNSW']
     for vs_type in vecsim_type:
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'INT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
         conn.execute_command('HSET', 'a', 'v', '////////')
@@ -95,7 +95,7 @@ def testEscape(env):
 
 def testDel(env):
     conn = getConnectionByEnv(env)
-    vecsim_type = ['BF', 'HNSW']
+    vecsim_type = ['FLAT', 'HNSW']
     for vs_type in vecsim_type:
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'INT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
 
@@ -143,7 +143,7 @@ def testDelReuse(env):
 
     def test_query_empty(env):
         conn = getConnectionByEnv(env)
-        vecsim_type = ['BF', 'HNSW']
+        vecsim_type = ['FLAT', 'HNSW']
         for vs_type in vecsim_type:
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'INT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
             env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
@@ -227,24 +227,24 @@ def testDelReuseLarge(env):
 def testCreate(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EFCONSTRUCTION', '200')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'FLOAT32', 'SIZE', '1024', 'METRIC', 'IP', 'ALGORITHM', 'HNSW', 'M', '16', 'EF CONSTRUCTION', '200']]
+    conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'M', '16', 'EF_CONSTRUCTION', '200']]
     assertInfoField(env, 'idx1', 'attributes', info)
 
-    conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT64', 'DIM', '4096', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10', 'M', '32', 'EFCONSTRUCTION', '100')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'FLOAT64', 'SIZE', '4096', 'METRIC', 'L2', 'ALGORITHM', 'HNSW', 'M', '32', 'EF CONSTRUCTION', '100']]
+    conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT64', 'DIM', '4096', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10', 'M', '32', 'EF_CONSTRUCTION', '100')
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'HNSW', 'TYPE', 'FLOAT64', 'DIM', '4096', 'DISTANCE_METRIC', 'L2', 'M', '32', 'EF_CONSTRUCTION', '100']]
     assertInfoField(env, 'idx2', 'attributes', info)
 
-    conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'INITIAL_CAP', '10', 'M', '64', 'EFCONSTRUCTION', '400')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'COSINE', 'ALGORITHM', 'HNSW', 'M', '64', 'EF CONSTRUCTION', '400']]
+    conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'INITIAL_CAP', '10', 'M', '64', 'EF_CONSTRUCTION', '400')
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'HNSW', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'M', '64', 'EF_CONSTRUCTION', '400']]
     assertInfoField(env, 'idx3', 'attributes', info)
 
     conn.execute_command('FT.CREATE', 'idx4', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'COSINE', 'ALGORITHM', 'HNSW', 'M', '16', 'EF CONSTRUCTION', '200']]
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'HNSW', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'M', '16', 'EF_CONSTRUCTION', '200']]
     assertInfoField(env, 'idx4', 'attributes', info)
 
-    conn.execute_command('FT.CREATE', 'idx5', 'SCHEMA', 'v', 'VECTOR', 'BF', '6', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'COSINE', 'ALGORITHM', 'BF']]
+    conn.execute_command('FT.CREATE', 'idx5', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE')
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'FLAT', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE']]
     assertInfoField(env, 'idx5', 'attributes', info)
 
 def testErrors(env):
@@ -252,31 +252,31 @@ def testErrors(env):
     conn = getConnectionByEnv(env)
     # missing init args
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR').error().contains('Bad arguments for vecsim algorithm')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'BF').error().contains('Bad arguments for vecsim number of parameters')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'BF', '6').error().contains('Expected 6 parameters but got 0')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'BF', '0').error().contains('Missing mandatory parameter TYPE')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'BF', '1').error().contains('expected even number')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'BF', '2', 'TYPE', 'FLOAT32').error().contains('Missing mandatory parameter DIM')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'BF', '4', 'TYPE', 'FLOAT32', 'DIM', '1024').error().contains('Missing mandatory parameter DISTANCE_METRIC')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT').error().contains('Bad arguments for vecsim number of parameters')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6').error().contains('Expected 6 parameters but got 0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '0').error().contains('Missing mandatory parameter TYPE')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '1').error().contains('expected even number')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '2', 'TYPE', 'FLOAT32').error().contains('Missing mandatory parameter DIM')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '4', 'TYPE', 'FLOAT32', 'DIM', '1024').error().contains('Missing mandatory parameter DISTANCE_METRIC')
 
     # invalid init args
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'DOUBLE', 'DIM', '1024', 'DISTANCE_METRIC', 'IP').error().contains('Bad arguments for vecsim type')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', 'str', 'DISTANCE_METRIC', 'IP').error().contains('Bad arguments for vecsim dim')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'REDIS').error().contains('Bad arguments for vecsim metric')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'REDIS', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP').error().contains('Bad arguments for vecsim algorithm')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'BF', '10', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', 'str', 'BLOCKSIZE', '16') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', 'str', 'BLOCKSIZE', '16') \
         .error().contains('Bad arguments for vecsim initial cap')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'BF', '10', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'BLOCKSIZE', 'str') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'BLOCKSIZE', 'str') \
         .error().contains('Bad arguments for vecsim blocksize')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', 'str', 'M', '16', 'EFCONSTRUCTION', '200') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', 'str', 'M', '16', 'EF_CONSTRUCTION', '200') \
         .error().contains('Bad arguments for vecsim initial cap')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', 'str', 'EFCONSTRUCTION', '200') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', 'str', 'EF_CONSTRUCTION', '200') \
         .error().contains('Bad arguments for vecsim m')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EFCONSTRUCTION', 'str') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EF_CONSTRUCTION', 'str') \
         .error().contains('Bad arguments for vecsim ef')
 
     # test wrong query word
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EFCONSTRUCTION', '200')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh REDIS 4]').error().contains('Invalid Vector similarity type')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK str]').error().contains('Syntax error')
 
