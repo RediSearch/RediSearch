@@ -176,6 +176,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
           REPLY_KVSTR(nn, VECSIM_DISTANCE_METRIC, VecSimMetric_ToString(fs->vecSimParams.hnswParams.metric));
           REPLY_KVNUM(nn, VECSIM_M, fs->vecSimParams.hnswParams.M);
           REPLY_KVNUM(nn, VECSIM_EFCONSTRUCTION, fs->vecSimParams.hnswParams.efConstruction);
+          REPLY_KVNUM(nn, VECSIM_EFRUNTIME, fs->vecSimParams.hnswParams.efRuntime);
         }
       }      
     }

@@ -546,6 +546,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     fs->vecSimParams.hnswParams.initialCapacity = 1000;
     fs->vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
     fs->vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
+    fs->vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     return parseVectorField_hnsw(fs, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vecsim algorithm", AC_ERR_ENOENT);
