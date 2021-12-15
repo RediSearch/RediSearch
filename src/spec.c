@@ -385,19 +385,19 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &fs->vecSimParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(ac, &fs->vecSimParams.hnswParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vecsim type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &fs->vecSimParams.size, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.dim, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vecsim dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &fs->vecSimParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(ac, &fs->vecSimParams.hnswParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vecsim metric", rc);
         return 0;
       }
@@ -470,19 +470,19 @@ static int parseVectorField_bf(FieldSpec *fs, ArgsCursor *ac, QueryError *status
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &fs->vecSimParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(ac, &fs->vecSimParams.bfParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vecsim type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &fs->vecSimParams.size, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vecSimParams.bfParams.dim, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vecsim dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &fs->vecSimParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(ac, &fs->vecSimParams.bfParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vecsim metric", rc);
         return 0;
       }
