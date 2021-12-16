@@ -169,6 +169,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
           REPLY_KVSTR(nn, VECSIM_TYPE, VecSimType_ToString(fs->vecSimParams.bfParams.type));
           REPLY_KVNUM(nn, VECSIM_DIM, fs->vecSimParams.bfParams.dim);
           REPLY_KVSTR(nn, VECSIM_DISTANCE_METRIC, VecSimMetric_ToString(fs->vecSimParams.bfParams.metric));
+          REPLY_KVNUM(nn, VECSIM_BLOCKSIZE, fs->vecSimParams.bfParams.blockSize);
           break;
         case VecSimAlgo_HNSWLIB: {
           REPLY_KVSTR(nn, VECSIM_TYPE, VecSimType_ToString(fs->vecSimParams.hnswParams.type));

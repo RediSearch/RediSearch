@@ -328,17 +328,17 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
   if ((rc = AC_GetString(ac, &typeStr, &len, 0)) != AC_OK) {
     return rc;
   }
+  // Uncomment these when support for other type is added.
   if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len)) 
     *type = VecSimType_FLOAT32;
-  else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len)) 
-    *type = VecSimType_FLOAT64;
-  else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len)) 
-    *type = VecSimType_INT32;
-  else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len)) 
-    *type = VecSimType_INT64;
-  else {
+  // else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len)) 
+  //   *type = VecSimType_FLOAT64;
+  // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len)) 
+  //   *type = VecSimType_INT32;
+  // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len)) 
+  //   *type = VecSimType_INT64;
+  else
     return AC_ERR_ENOENT;
-  }
   return AC_OK;
 }
 
@@ -357,9 +357,8 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
     *metric = VecSimMetric_L2;
   else if (!strncasecmp(VECSIM_METRIC_COSINE, metricStr, len)) 
     *metric = VecSimMetric_Cosine;
-  else {
+  else
     return AC_ERR_ENOENT;
-  }
   return AC_OK;
 }
 
@@ -374,10 +373,10 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   // Get number of parameters
   size_t expNumParam, numParam = 0;
   if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "vecsim number of parameters", rc);
+    QERR_MKBADARGS_AC(status, "vector similarity number of parameters", rc);
     return 0;
   } else if (expNumParam % 2) {
-    QERR_MKBADARGS_FMT(status, "Bad arguments for vecsim number of parameters: got %d but expected even number (arguments comes in key-value pairs)", expNumParam);
+    QERR_MKBADARGS_FMT(status, "Bad number of arguments for vector similarity index: got %d but expected even number (as algorithm parameters should be submitted as named arguments)", expNumParam);
     return 0;
   } else {
     expNumParam /= 2;
@@ -386,40 +385,40 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
       if ((rc = parseVectorField_GetType(ac, &fs->vecSimParams.hnswParams.type)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim type", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
       if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.dim, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim dim", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
       if ((rc = parseVectorField_GetMetric(ac, &fs->vecSimParams.hnswParams.metric)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim metric", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index metric", rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
       if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.initialCapacity, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim initial cap", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index initial cap", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
       if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.M, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim m", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index m", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFCONSTRUCTION)) {
       if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.efConstruction, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim efConstruction", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index efConstruction", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
       if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.efRuntime, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim efRuntime", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
         return 0;
       }
     } else {
@@ -433,22 +432,22 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     return 0;
   }
   if (!mandtype) {
-    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_TYPE);
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_HNSW, VECSIM_TYPE);
     return 0;
   }
   if (!mandsize) {
-    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_DIM);
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_HNSW, VECSIM_DIM);
     return 0;
   }
   if (!mandmetric) {
-    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_DISTANCE_METRIC);
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC);
     return 0;
   }
   return 1;
   
 }
 
-static int parseVectorField_bf(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
 
   // BF mandatory params.
@@ -459,10 +458,10 @@ static int parseVectorField_bf(FieldSpec *fs, ArgsCursor *ac, QueryError *status
   // Get number of parameters
   size_t expNumParam, numParam = 0;
   if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "vecsim number of parameters", rc);
+    QERR_MKBADARGS_AC(status, "vector similarity number of parameters", rc);
     return 0;
   } else if (expNumParam % 2) {
-    QERR_MKBADARGS_FMT(status, "Bad arguments for vecsim number of parameters: got %d but expected even number (arguments comes in key-value pairs)", expNumParam);
+    QERR_MKBADARGS_FMT(status, "Bad number of arguments for vector similarity index: got %d but expected even number as algorithm parameters (should be submitted as named arguments)", VECSIM_ALGORITHM_BF, expNumParam);
     return 0;
   } else {
     expNumParam /= 2;
@@ -471,30 +470,30 @@ static int parseVectorField_bf(FieldSpec *fs, ArgsCursor *ac, QueryError *status
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
       if ((rc = parseVectorField_GetType(ac, &fs->vecSimParams.bfParams.type)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim type", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity FLAT index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
       if ((rc = AC_GetSize(ac, &fs->vecSimParams.bfParams.dim, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim dim", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity FLAT index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
       if ((rc = parseVectorField_GetMetric(ac, &fs->vecSimParams.bfParams.metric)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim metric", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity FLAT index metric", rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
       if ((rc = AC_GetSize(ac, &fs->vecSimParams.bfParams.initialCapacity, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim initial cap", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity FLAT index initial cap", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_BLOCKSIZE)) {
       if ((rc = AC_GetSize(ac, &fs->vecSimParams.bfParams.blockSize, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vecsim blocksize", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity FLAT index blocksize", rc);
         return 0;
       }
     } else {
@@ -508,15 +507,15 @@ static int parseVectorField_bf(FieldSpec *fs, ArgsCursor *ac, QueryError *status
     return 0;
   }
   if (!mandtype) {
-    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_TYPE);
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_BF, VECSIM_TYPE);
     return 0;
   }
   if (!mandsize) {
-    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_DIM);
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_BF, VECSIM_DIM);
     return 0;
   }
   if (!mandmetric) {
-    QERR_MKBADARGS_FMT(status, "Missing mandatory parameter %s", VECSIM_DISTANCE_METRIC);
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_BF, VECSIM_DISTANCE_METRIC);
     return 0;
   }
   return 1;
@@ -533,14 +532,14 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   size_t len;
   int rc;
   if ((rc = AC_GetString(ac, &algStr, &len, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "vecsim algorithm", rc);
+    QERR_MKBADARGS_AC(status, "vector similarity algorithm", rc);
     return 0;
   }
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vecSimParams.algo = VecSimAlgo_BF;
     fs->vecSimParams.bfParams.initialCapacity = 1000;
     fs->vecSimParams.bfParams.blockSize = BF_DEFAULT_BLOCK_SIZE;
-    return parseVectorField_bf(fs, ac, status);
+    return parseVectorField_flat(fs, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vecSimParams.algo = VecSimAlgo_HNSWLIB;
     fs->vecSimParams.hnswParams.initialCapacity = 1000;
@@ -549,7 +548,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     fs->vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     return parseVectorField_hnsw(fs, ac, status);
   } else {
-    QERR_MKBADARGS_AC(status, "vecsim algorithm", AC_ERR_ENOENT);
+    QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
     return 0;
   }
 }

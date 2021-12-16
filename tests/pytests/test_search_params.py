@@ -45,7 +45,7 @@ def test_geo(env):
 def test_param_errors(env):
     conn = getConnectionByEnv(env)
 
-    env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TAG', 'g', 'GEO', 'num', 'NUMERIC', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'INT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2'))
+    env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TAG', 'g', 'GEO', 'num', 'NUMERIC', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2'))
     waitForIndex(env, 'idx')
     env.assertEqual(conn.execute_command('HSET', 'key1', 'foo', 'PARAMS', 'bar', 'PARAMS'), 2L)
 
@@ -313,7 +313,7 @@ def test_vector(env):
 
     args = ['SORTBY', 'v_score', 'ASC', 'RETURN', 1, 'v_score', 'LIMIT', 0, 2]
 
-    env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE INT32 DIM 2 DISTANCE_METRIC L2').ok()
+    env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
     conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
     conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
