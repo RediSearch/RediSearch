@@ -160,18 +160,15 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
 
   // proceed to the next child or add a new child for the current char
   char *childKeys = __trieMapNode_childKey(n, 0);
-  for (tm_len_t i = 0; i < n->numChildren; i++) {
-
-    if (str[offset] == childKeys[i]) {
-      TrieMapNode *child = __trieMapNode_children(n)[i];
-      rv = TrieMapNode_Add(&child, str + offset, len - offset, value, cb);
-      __trieMapNode_children(n)[i] = child;
-      //      *__trieMapNode_childKey(n, i) = child->str[0];
-
-      return rv;
-    }
+  char c = str[offset];
+  char *ptr = memchr(childKeys, c, n->numChildren);
+  if (ptr != NULL) {
+    const size_t char_offset = ptr - childKeys;
+    TrieMapNode *child = __trieMapNode_children(n)[char_offset];
+    rv = TrieMapNode_Add(&child, str + offset, len - offset, value, cb);
+    __trieMapNode_children(n)[char_offset] = child;
+    return rv;
   }
-
   *np = __trieMapNode_AddChild(n, str, offset, len, value);
   return ++rv;
 }
@@ -255,14 +252,10 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       //   }
 
       // } else {
-      tm_len_t nc = n->numChildren;
-
-      while (i < nc) {
-        if (c == childKeys[i]) {
-          nextChild = __trieMapNode_children(n)[i];
-          break;
-        }
-        ++i;
+      char *ptr = memchr(childKeys, c, n->numChildren);
+      if (ptr != NULL) {
+        const size_t char_offset = ptr - childKeys;
+        nextChild = __trieMapNode_children(n)[char_offset];
       }
       n = nextChild;
     } else {
@@ -310,14 +303,10 @@ int TrieMapNode_FindPrefixes(TrieMapNode *node, const char *str, tm_len_t len,
     TrieMapNode *nextChild = NULL;
     char *childKeys = __trieMapNode_childKey(node, 0);
     char c = str[offset];
-    tm_len_t nc = node->numChildren;
-
-    while (i < nc) {
-      if (str[offset] == childKeys[i]) {
-        nextChild = __trieMapNode_children(node)[i];
-        break;
-      }
-      ++i;
+    char *ptr = memchr(childKeys, c, node->numChildren);
+    if (ptr != NULL) {
+      const size_t char_offset = ptr - childKeys;
+      nextChild = __trieMapNode_children(node)[char_offset];
     }
     node = nextChild;
   }
@@ -359,16 +348,11 @@ TrieMapNode *TrieMapNode_FindNode(TrieMapNode *n, char *str, tm_len_t len, tm_le
 
       char *childKeys = __trieMapNode_childKey(n, 0);
       char c = str[offset];
-
-      while (i < n->numChildren) {
-        if (str[offset] == childKeys[i]) {
-          nextChild = __trieMapNode_children(n)[i];
-          break;
-        }
-        ++i;
+      char *ptr = memchr(childKeys, c, n->numChildren);
+      if (ptr != NULL) {
+        const size_t char_offset = ptr - childKeys;
+        nextChild = __trieMapNode_children(n)[char_offset];
       }
-
-      // we couldn't find a matching child
       n = nextChild;
     } else {
       return NULL;
