@@ -1,10 +1,13 @@
-#include <util/minmax.h>
-#include <rmutil/sds.h>
-#include <util/block_alloc.h>
-#include <aggregate/expr/expression.h>
-#include <ctype.h>
-#include <util/arr.h>
+
+#include "util/minmax.h"
+#include "util/block_alloc.h"
+#include "aggregate/expr/expression.h"
+#include "util/arr.h"
 #include "function.h"
+
+#include "rmutil/sds.h"
+
+#include <ctype.h>
 #include <err.h>
 
 #define STRING_BLOCK_SIZE 512
@@ -188,7 +191,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
 
     RSValue *arg = RSValue_Dereference(argv[argix++]);
     if (type == 's') {
-      if (arg->t == RSValue_Null) {
+      if (arg == RS_NullVal()) {
         // write null value
         out = sdscat(out, "(null)");
         continue;

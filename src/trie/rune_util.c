@@ -1,8 +1,10 @@
-#include "../dep/libnu/libnu.h"
+
+#include "libnu/libnu.h"
 #include "rune_util.h"
+#include "rmalloc.h"
+
 #include <stdlib.h>
 #include <string.h>
-#include "rmalloc.h"
 
 // The maximum size we allow converting to at once
 #define MAX_RUNESTR_LEN 1024

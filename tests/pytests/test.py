@@ -2044,9 +2044,13 @@ def testIssue446(env):
 
 def testTimeout(env):
     env.skipOnCluster()
+    if VALGRIND:
+        env.skip()
+
     num_range = 1000
     env.cmd('ft.config', 'set', 'timeout', '1')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
+
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT')
     for i in range(num_range):
         env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i))
@@ -2055,9 +2059,9 @@ def testTimeout(env):
 
     env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
-                .contains('Timeout limit was reached')
+       .contains('Timeout limit was reached')
 
-    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1000)
+    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
     env.assertEqual(res[0], num_range)
 
     # test erroneous params
@@ -2065,32 +2069,31 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
-
     # check no time w/o sorter/grouper
     res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
-                                        'LOAD', 1, 't',
-                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
-                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
+                  'LOAD', 1, 't',
+                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
     env.assertEqual(res[0], 1L)
 
     # test grouper
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
-                                        'LOAD', 1, 't',
-                                        'GROUPBY', 1, '@t',
-                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
-                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
-                                        .contains('Timeout limit was reached')
+               'LOAD', 1, 't',
+               'GROUPBY', 1, '@t',
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+       .contains('Timeout limit was reached')
 
     # test sorter
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
-                                        'LOAD', 1, 't',
-                                        'SORTBY', 1, '@t',
-                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
-                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
-                                        .contains('Timeout limit was reached')
+               'LOAD', 1, 't',
+               'SORTBY', 1, '@t',
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+       .contains('Timeout limit was reached')
 
     # test cursor
     res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
@@ -2102,7 +2105,6 @@ def testTimeout(env):
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
         l += (len(r) - 1)
     env.assertEqual(l, 1000)
-
 
     # restore old configuration
     env.cmd('ft.config', 'set', 'timeout', '500')
@@ -2294,6 +2296,7 @@ def testIssue621(env):
 # 127.0.0.1:6379> ft.add foo "ft:foo/two" 1 FIELDS bar "four five six"
 # Could not connect to Redis at 127.0.0.1:6379: Connection refused
 
+@unstable
 def testPrefixDeletedExpansions(env):
     env.skipOnCluster()
 
@@ -2362,7 +2365,7 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-    
+
     expected_res = sorted([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
     actual_res = sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
     env.assertEqual(expected_res, actual_res)
@@ -2409,12 +2412,13 @@ def testIssue_848(env):
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2L, 'doc1', ['test1', 'foo'], 'doc2', ['test2', 'bar', 'test1', 'foo']])
 
 def testMod_309(env):
+    n = 10000 if VALGRIND else 100000
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     conn = getConnectionByEnv(env)
-    for i in range(100000):
+    for i in range(n):
         conn.execute_command('HSET', 'doc%d'%i, 'test', 'foo')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
-    env.assertEqual(len(res), 100001)
+    env.assertEqual(len(res), n + 1)
 
     # test with cursor
     env.skipOnCluster()
@@ -2424,7 +2428,7 @@ def testMod_309(env):
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
         l += len(r) - 1
-    env.assertEqual(l, 100000)
+    env.assertEqual(l, n)
 
 def testIssue_865(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', '1', 'TEXT', 'SORTABLE').equal('OK')
@@ -3271,7 +3275,7 @@ def testSchemaWithAs(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt', 'hello')
   conn.execute_command('HSET', 'b', 'foo', 'world')
-  
+
   for _ in env.retry_with_rdb_reload():
     env.expect('ft.search idx @txt:hello').equal([0L])
     env.expect('ft.search idx @txt:world').equal([0L])
@@ -3298,7 +3302,7 @@ def testSchemaWithAs(env):
     env.expect('ft.search idx hello RETURN 1 not_exist').equal([1L, 'a', []])
 
     env.expect('ft.search idx hello RETURN 3 txt as as').error().contains('Alias for RETURN cannot be `AS`')
-    
+
     # LOAD for FT.AGGREGATE
     # for path - can rename
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@txt').equal([1L, ['txt', 'hello']])
@@ -3307,7 +3311,7 @@ def testSchemaWithAs(env):
     # for name - cannot rename
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@foo').equal([1L, ['foo', 'hello']])
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1L, ['foo1', 'hello']])
-    
+
     # for for not in schema - can rename
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@not_in_schema').equal([1L, ['not_in_schema', '42']])
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@not_in_schema', 'AS', 'NIS').equal([1L, ['NIS', '42']])
@@ -3320,7 +3324,7 @@ def testSchemaWithAs_Alter(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt', 'hello')
   conn.execute_command('HSET', 'b', 'foo', 'world')
-  
+
   # FT.ALTER
   conn.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'foo', 'AS', 'bar', 'TEXT')
   waitForIndex(env, 'idx')
@@ -3330,7 +3334,7 @@ def testSchemaWithAs_Alter(env):
 
 def testSchemaWithAs_Duplicates(env):
     conn = getConnectionByEnv(env)
-    
+
     conn.execute_command('HSET', 'a', 'txt', 'hello')
 
     # Error if field name is duplicated
@@ -3349,7 +3353,7 @@ def testMod1407(env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'limit', 'TEXT', 'LimitationTypeID', 'TAG', 'LimitationTypeDesc', 'TEXT').ok()
-    
+
     conn.execute_command('HSET', 'doc1', 'limit', 'foo1', 'LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1')
     conn.execute_command('HSET', 'doc2', 'limit', 'foo2', 'LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2')
 
@@ -3369,13 +3373,13 @@ def testMod1452(env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    
+
     conn.execute_command('HSET', 'doc1', 't', 'foo')
 
     # here we only check that its not crashing
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'foo', 'REDUCE', 'FIRST_VALUE', 3, '@not_exists', 'BY', '@foo')
 
-
+@no_msan
 def test_mod1548(env):
     conn = getConnectionByEnv(env)
 
@@ -3399,56 +3403,9 @@ def test_mod1548(env):
     res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
     env.assertEqual(res, [2L, 'prod:1', [], 'prod:2', []])
 
-def testSearchMultiSortBy(env):
+def test_empty_field_name(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'msb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
-    conn.execute_command('hset', 'doc1', 't1', 'a', 't2', 'a')
-    conn.execute_command('hset', 'doc2', 't1', 'a', 't2', 'b')
-    conn.execute_command('hset', 'doc3', 't1', 'a', 't2', 'c')  
-    conn.execute_command('hset', 'doc4', 't1', 'b', 't2', 'a')
-    conn.execute_command('hset', 'doc5', 't1', 'b', 't2', 'b')
-    conn.execute_command('hset', 'doc6', 't1', 'b', 't2', 'c')  
-    conn.execute_command('hset', 'doc7', 't1', 'c', 't2', 'a')
-    conn.execute_command('hset', 'doc8', 't1', 'c', 't2', 'b')
-    conn.execute_command('hset', 'doc9', 't1', 'c', 't2', 'c')
 
-    # t1 ASC t2 ASC
-    res = [9L, 'doc1', ['t1', 'a', 't2', 'a'], 'doc2', ['t1', 'a', 't2', 'b'], 'doc3', ['t1', 'a', 't2', 'c'],
-               'doc4', ['t1', 'b', 't2', 'a'], 'doc5', ['t1', 'b', 't2', 'b'], 'doc6', ['t1', 'b', 't2', 'c'],
-               'doc7', ['t1', 'c', 't2', 'a'], 'doc8', ['t1', 'c', 't2', 'b'], 'doc9', ['t1', 'c', 't2', 'c']]
-    env.expect('FT.SEARCH', 'msb_idx', '*',
-                'MSORTBY', '4', '@t1', 'ASC', '@t2', 'ASC').equal(res)
-
-    # t1 DESC t2 ASC
-    res = [9L, 'doc7', ['t1', 'c', 't2', 'a'], 'doc8', ['t1', 'c', 't2', 'b'], 'doc9', ['t1', 'c', 't2', 'c'],
-               'doc4', ['t1', 'b', 't2', 'a'], 'doc5', ['t1', 'b', 't2', 'b'], 'doc6', ['t1', 'b', 't2', 'c'],
-               'doc1', ['t1', 'a', 't2', 'a'], 'doc2', ['t1', 'a', 't2', 'b'], 'doc3', ['t1', 'a', 't2', 'c']]
-    env.expect('FT.SEARCH', 'msb_idx', '*',
-                'MSORTBY', '4', '@t1', 'DESC', '@t2', 'ASC').equal(res)
-
-    # t2 ASC t1 ASC
-    res = [9L, 'doc1', ['t2', 'a', 't1', 'a'], 'doc4', ['t2', 'a', 't1', 'b'], 'doc7', ['t2', 'a', 't1', 'c'],
-               'doc2', ['t2', 'b', 't1', 'a'], 'doc5', ['t2', 'b', 't1', 'b'], 'doc8', ['t2', 'b', 't1', 'c'],
-               'doc3', ['t2', 'c', 't1', 'a'], 'doc6', ['t2', 'c', 't1', 'b'], 'doc9', ['t2', 'c', 't1', 'c']]
-    env.expect('FT.SEARCH', 'msb_idx', '*',
-                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'ASC').equal(res)
-
-    # t2 ASC t1 DESC
-    res = [9L, 'doc7', ['t2', 'a', 't1', 'c'], 'doc4', ['t2', 'a', 't1', 'b'], 'doc1', ['t2', 'a', 't1', 'a'],
-               'doc8', ['t2', 'b', 't1', 'c'], 'doc5', ['t2', 'b', 't1', 'b'], 'doc2', ['t2', 'b', 't1', 'a'],
-               'doc9', ['t2', 'c', 't1', 'c'], 'doc6', ['t2', 'c', 't1', 'b'], 'doc3', ['t2', 'c', 't1', 'a']]
-    env.expect('FT.SEARCH', 'msb_idx', '*',
-                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'DESC').equal(res)
-
-    # check error if both sortby and multisortby are used
-    env.expect('FT.SEARCH', 'msb_idx', '*',
-                'SORTBY', 't1',
-                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'DESC') \
-                .error() \
-                .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
-
-    env.expect('FT.SEARCH', 'msb_idx', '*',
-                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'DESC',
-                'SORTBY', 't1') \
-                .error() \
-                .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()
+    conn.execute_command('hset', 'doc1', '', 'foo')
+    env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['', 'foo']])

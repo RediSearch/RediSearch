@@ -29,6 +29,7 @@ struct RSSortingVector;
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
+#define REDISEARCH_UNINITIALIZED -1
 
 #define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
 do {                                                                                    \
@@ -46,6 +47,9 @@ typedef enum {
   DocumentType_Json,
   DocumentType_None,
 } DocumentType;
+
+#define isSpecHash(spec) (spec->rule && spec->rule->type == DocumentType_Hash)
+#define isSpecJson(spec) (spec->rule && spec->rule->type == DocumentType_Json)
 
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector
@@ -109,7 +113,7 @@ typedef struct RSDocumentMetadata_s {
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */
-struct RSQuery;
+struct QueryParseCtx;
 
 /* Forward declaration of the opaque query node object */
 struct RSQueryNode;
@@ -248,7 +252,8 @@ typedef enum {
   RSResultType_Intersection = 0x2,
   RSResultType_Term = 0x4,
   RSResultType_Virtual = 0x8,
-  RSResultType_Numeric = 0x10
+  RSResultType_Numeric = 0x10,
+  RSResultType_Distance = 0x20,
 } RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union)

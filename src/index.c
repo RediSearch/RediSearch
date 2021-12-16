@@ -837,7 +837,9 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
       return rc;
     } else if (rc == INDEXREAD_OK) {
       // YAY! found!
-      AggregateResult_AddChild(ic->base.current, res);
+      if (res) {
+        AggregateResult_AddChild(ic->base.current, res);
+      }
       ic->lastDocId = docId;
 
       ++nfound;
@@ -1340,7 +1342,9 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (rc == INDEXREAD_OK) {
       found = 1;
     }
-    nc->nextRealId = nc->base.current->docId;
+    if (nc->base.current) {
+      nc->nextRealId = nc->base.current->docId;
+    }
   }
 
   if (found) {
@@ -1452,13 +1456,14 @@ static void OI_Rewind(void *ctx) {
   OptionalMatchContext *nc = ctx;
   nc->lastDocId = 0;
   nc->virt->docId = 0;
+  nc->nextRealId = 0;
   if (nc->child) {
     nc->child->Rewind(nc->child->ctx);
   }
 }
 
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
-  OptionalMatchContext *nc = rm_malloc(sizeof(*nc));
+  OptionalMatchContext *nc = rm_calloc(1, sizeof(*nc));
   nc->virt = NewVirtualResult(weight);
   nc->virt->fieldMask = RS_FIELDMASK_ALL;
   nc->virt->freq = 1;
@@ -1880,6 +1885,7 @@ PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL", 1);
 PRINT_PROFILE_SINGLE(printWildcardIt, DummyIterator, "WILDCARD", 0);
 PRINT_PROFILE_SINGLE(printIdListIt, DummyIterator, "ID-LIST", 0);
 PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "EMPTY", 0);
+PRINT_PROFILE_SINGLE(printListIt, DummyIterator, "LIST", 0);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
@@ -1909,7 +1915,8 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
-    default:          { RS_LOG_ASSERT(0, "nope");   break; }
+    case LIST_ITERATOR:       { printListIt(ctx, root, counter, cpuTime, depth, limited);       break; }
+    case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
 
@@ -1943,6 +1950,7 @@ void Profile_AddIters(IndexIterator **root) {
       break;
     case WILDCARD_ITERATOR:
     case READ_ITERATOR:
+    case LIST_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
       break;

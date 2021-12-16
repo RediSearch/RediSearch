@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include "redismodule.h"
 #include "util/fnv.h"
-#include "dep/triemap/triemap.h"
+#include "triemap/triemap.h"
 #include "sortable.h"
 #include "rmalloc.h"
 #include "spec.h"
@@ -323,6 +323,14 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     }
 
     md->flags |= Document_Deleted;
+
+    t->memsize -= sizeof(RSDocumentMetadata) + sdsAllocSize(md->keyPtr);
+    if (md->payload) {
+      t->memsize -= md->payload->len + sizeof(RSPayload);
+    }
+    if (md->sortVector) {
+      t->sortablesSize -= RSSortingVector_GetMemorySize(md->sortVector);
+    }
 
     DocTable_DmdUnchain(t, md);
     DocIdMap_Delete(&t->dim, s, n);

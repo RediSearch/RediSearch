@@ -97,6 +97,8 @@ typedef struct {
   size_t numericTreeMaxDepthRange;
   // reply with time on profile
   int printProfileClock;
+  // disable compression for inverted index DocIdsOnly
+  int invertedIndexRawDocidEncoding;
 } RSConfig;
 
 typedef enum {
@@ -165,7 +167,6 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
-#define DEFAULT_TIMEOUT_LIMIT 100
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -181,7 +182,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
-    .printProfileClock = 1,                                                                       \
+    .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                                   \
   }
 
 #define REDIS_ARRAY_LIMIT 7

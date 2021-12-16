@@ -10,8 +10,8 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 |----------|---------|--------|---------|-------|
 |Python | [redisearch-py][redisearch-py-url] | [Redis Inc][redisearch-py-author] | BSD | [![redisearch-py-stars]][redisearch-py-url] |
 | Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis Inc][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
-| Java (Lettuce client library) | [lettusearch][lettusearch-url] | [Redis Inc][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url]|
-| Java | [spring-redisearch][spring-redisearch-url] | [Redis Inc][spring-redisearch-author] | Apache-2.0 | [![spring-redisearch-stars]][spring-redisearch-url]|
+| Java (Lettuce client library) | [LettuceMod][lettucemod-url] | [Redis Inc][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
+| Java | [Spring LettuceMod][lettucemod-url] | [Redis Labs][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
 | Go | [redisearch-go][redisearch-go-url] | [Redis Inc][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] | 
 | JavaScript | [RedRediSearch][RedRediSearch-url] | [Kyle J. Davis][RedRediSearch-author] | MIT |[![RedRediSearch-stars]][RedRediSearch-url]|
@@ -33,9 +33,9 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [JRediSearch-author]: https://redis.com
 [JRediSearch-stars]: https://img.shields.io/github/stars/RediSearch/JRediSearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
-[lettusearch-url]: https://github.com/RediSearch/lettusearch
-[lettusearch-author]: https://redis.com
-[lettusearch-stars]: https://img.shields.io/github/stars/RediSearch/lettusearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[lettucemod-url]: https://github.com/redis-developer/lettucemod
+[lettucemod-author]: https://redis.com
+[lettucemod-stars]: https://img.shields.io/github/stars/redis-developer/lettucemod.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [spring-redisearch-url]: https://github.com/RediSearch/spring-redisearch
 [spring-redisearch-author]: https://redis.com

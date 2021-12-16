@@ -69,7 +69,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
     const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
-    if (!fs || !f->text) {
+    if (!fs || (isSpecHash(sp) && !f->text)) {
       aCtx->fspecs[i].name = NULL;
       aCtx->fspecs[i].path = NULL;
       aCtx->fspecs[i].types = 0;
@@ -494,6 +494,34 @@ FIELD_BULK_INDEXER(numericIndexer) {
   return 0;
 }
 
+FIELD_PREPROCESSOR(vectorPreprocessor) {
+  // TODO: check input validity
+  size_t len;
+  fdata->vector = RedisModule_StringPtrLen(field->text, &len);
+  fdata->vecLen = len;
+  aCtx->fwIdx->maxFreq++;
+  return 0;
+}
+
+FIELD_BULK_INDEXER(vectorIndexer) {
+  VecSimIndex *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
+  if (!rt) {
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_VECTOR);
+    rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
+        OpenVectorIndex(ctx, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
+    if (!rt) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
+      return -1;
+    }
+  }
+  // TODO: change return value to NRN_AddRv
+  int rv = VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);
+  // TODO: update size statistics but put in a separate field to distinguise from inverted indexes
+  // ctx->spec->stats.invertedSize += rt->size * sizeof(double) * 2;
+  ctx->spec->stats.numRecords++;
+  return 0;
+}
+
 FIELD_PREPROCESSOR(geoPreprocessor) {
   size_t len;
   const char *str = NULL;
@@ -538,7 +566,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
   if (fdata->tags == NULL) {
     return 0;
   }
-  if (FieldSpec_IsSortable(fs) && aCtx->spec->rule->type == DocumentType_Hash) {
+  if (FieldSpec_IsSortable(fs) && isSpecHash(aCtx->spec)) {
     size_t fl;
     const char *str = DocumentField_GetValueCStr(field, &fl);
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
@@ -569,7 +597,9 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_FULLTEXT] = fulltextPreprocessor,
     [IXFLDPOS_NUMERIC] = numericPreprocessor,
     [IXFLDPOS_GEO] = geoPreprocessor,
-    [IXFLDPOS_TAG] = tagPreprocessor};
+    [IXFLDPOS_TAG] = tagPreprocessor,
+    [IXFLDPOS_VECTOR] = vectorPreprocessor,
+    };
 
 int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
@@ -585,6 +615,9 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
         case IXFLDPOS_NUMERIC:
         case IXFLDPOS_GEO:
           rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          break;
+        case IXFLDPOS_VECTOR:
+          rc = vectorIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;

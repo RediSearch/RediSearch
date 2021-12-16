@@ -176,6 +176,38 @@ def testRename(env):
     env.cmd('SET foo bar')
     env.cmd('RENAME foo fubu')
 
+def testCopy(env):
+    env.skipOnCluster()
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('ft.create', 'things', 'SCHEMA', 'name', 'text')
+    env.expect('FT.SEARCH', 'things', 'foo').equal([0L])
+
+    conn.execute_command('hset', '1', 'name', 'foo')
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
+
+    # copy key to a non existing key
+    env.expect('COPY', '1', '2').equal(1L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([2L, '1', ['name', 'foo'], '2', ['name', 'foo']])
+
+    conn.execute_command('hset', '2', 'name', 'bar')
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
+
+    # copy key to an existing key
+    env.expect('COPY', '1', '2').equal(0L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
+
+    # copy key to an existing key with replace
+    env.expect('COPY', '1', '2', 'REPLACE').equal(1L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([2L, '1', ['name', 'foo'], '2', ['name', 'foo']])
+
+    # replace with non hash key
+    conn.execute_command('set', '3', 'foo')
+    env.expect('COPY', '3', '1', 'REPLACE').equal(1L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '2', ['name', 'foo']])
+
 def testFlush(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
@@ -543,13 +575,13 @@ def testExpiredDuringSearch(env):
 
   createExpire(env, N)
   res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '200')
-  env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'], 
+  env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'],
                                                                'foo', ['txt1', 'hello', 'n', '0']]))
 
 def testExpiredDuringAggregate(env):
   N = 100
   res = [1L, ['txt1', 'hello', 'COUNT', '2']]
-  
+
   createExpire(env, N)
   _res = env.cmd('FT.AGGREGATE idx hello*')
   env.assertGreater(len(_res), 2)
@@ -566,7 +598,7 @@ def testExpiredDuringAggregate(env):
 def testSkipInitialScan(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'a', 'test', 'hello', 'text', 'world')
-    
+
     # Regular
     env.expect('FT.CREATE idx SCHEMA test TEXT').ok()
     waitForIndex(env, 'idx')
@@ -595,7 +627,7 @@ def testWrongFieldType(env):
     res_actual = env.cmd('FT.INFO idx')
     res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
     env.assertEqual(str(res_actual['hash_indexing_failures']), '1')
-    
+
 def testDocIndexedInTwoIndexes():
     env = Env(moduleArgs='MAXDOCTABLESIZE 50')
     env.skipOnCluster()

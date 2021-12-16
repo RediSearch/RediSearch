@@ -1,5 +1,5 @@
 #include "test_util.h"
-#include "../../src/synonym_map.h"
+#include "src/synonym_map.h"
 #include "rmutil/alloc.h"
 
 int testSynonymMapAddGetId() {

@@ -14,15 +14,14 @@ import gevent.server
 import gevent.socket
 import time
 
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, TimeLimit
+from common import *
 from includes import *
 
 CREATE_INDICES_TARGET_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
-IS_SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
-OS = os.getenv('OS')
+SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
@@ -42,7 +41,7 @@ RDBS_EXPECTED_INDICES = [
 
 RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
-if (not IS_CODE_COVERAGE) and (not IS_SANITIZER) and IS_SHORT_READ_FULL_TEST:
+if not CODE_COVERAGE and SANITIZER == '' and SHORT_READ_FULL_TEST:
     RDBS.extend(RDBS_COMPATIBILITY)
     RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
 
@@ -194,7 +193,14 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
 
 
 def testCreateIndexRdbFiles(env):
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
+
+@no_msan
+def testCreateIndexRdbFilesWithJSON(env):
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
     create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
     create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
 
@@ -368,7 +374,6 @@ class ShardMock:
         self.env = env
         self.new_conns = gevent.queue.Queue()
 
-
     def _handle_conn(self, sock, client_addr):
         conn = Connection(sock)
         self.new_conns.put(conn)
@@ -395,7 +400,7 @@ class ShardMock:
 
     def StartListening(self, port, attempts=1):
         for i in range(1, attempts + 1):
-            self.stream_server = gevent.server.StreamServer(('localhost', port), self._handle_conn)
+            self.stream_server = gevent.server.StreamServer(('127.0.0.1', port), self._handle_conn)
             try:
                 self.stream_server.start()
             except Exception as e:
@@ -411,7 +416,6 @@ class ShardMock:
 
 
 class Debug:
-
     def __init__(self, enabled=False):
         self.enabled = enabled
         self.clear()
@@ -450,16 +454,19 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-
+@no_msan
 def testShortReadSearch(env):
-    if IS_CODE_COVERAGE:
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
+
+    if CODE_COVERAGE or SANITIZER:
         env.skip()  # FIXME: enable coverage test
 
     env.skipOnCluster()
     if env.env.endswith('existing-env') and os.environ.get('CI'):
         env.skip()
 
-    if OS == 'macos':
+    if OSNICK == 'macos':
         env.skip()
 
     seed = str(time.time())
@@ -512,7 +519,6 @@ def sendShortReads(env, rdb_file, expected_index):
 @Debug(False)
 def runShortRead(env, data, total_len, expected_index):
     with ShardMock(env) as shardMock:
-
         # For debugging: if adding breakpoints in redis,
         # In order to avoid closing the connection, uncomment the following line
         # res = env.cmd('CONFIG', 'SET', 'timeout', '0')
@@ -520,7 +526,7 @@ def runShortRead(env, data, total_len, expected_index):
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
         res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
-        res = env.cmd('replicaof', 'localhost', shardMock.server_port)
+        res = env.cmd('replicaof', '127.0.0.1', shardMock.server_port)
         env.assertTrue(res)
         conn = shardMock.GetConnection()
         # Perform hand-shake with replica

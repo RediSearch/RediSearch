@@ -118,6 +118,38 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
+static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
+  ArgsCursor paramsArgs = {0};
+  int rv = AC_GetVarArgs(ac, &paramsArgs);
+  if (rv != AC_OK) {
+    QERR_MKBADARGS_AC(status, "PARAMS", rv);
+    return REDISMODULE_ERR;
+  }
+  if (req->searchopts.params) {
+    QueryError_SetError(status, QUERY_EADDARGS,"Multiple PARAMS are not allowed. Parameters can be defined only once");
+    return REDISMODULE_ERR;
+  }
+  if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
+    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
+    return REDISMODULE_ERR;
+  }
+
+  dict *params = Param_DictCreate();
+  size_t value_len;
+  while (!AC_IsAtEnd(&paramsArgs)) {
+    const char *param = AC_GetStringNC(&paramsArgs, NULL);
+    const char *value = AC_GetStringNC(&paramsArgs, &value_len);
+    // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
+    if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
+      Param_DictFree(params);
+      return REDISMODULE_ERR;
+    }
+  }
+  req->searchopts.params = params;
+
+  return REDISMODULE_OK;
+}
+
 static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
   // This handles the common arguments that are not stateful
@@ -159,11 +191,6 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "MSORTBY")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
-    if ((parseSortby(arng, ac, status, 0)) != REDISMODULE_OK) {
-      return ARG_ERROR;
-    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
@@ -181,6 +208,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->reqflags |= QEXEC_F_TYPED;
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     req->reqflags |= QEXEC_F_SENDRAWIDS;
+  } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
+    if (parseParams(req, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
   } else {
     return ARG_UNKNOWN;
   }
@@ -784,6 +815,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  QAST_EvalParams(ast, opts, status);
   applyGlobalFilters(opts, ast, sctx);
 
   if (!(opts->flags & Search_Verbatim)) {
@@ -793,8 +825,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc);
-  RS_LOG_ASSERT(req->rootiter, "QAST_Iterate failed");
+  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, status);
+  if (QueryError_HasError(status))
+    return REDISMODULE_ERR;
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
     Profile_AddIters(&req->rootiter);
@@ -803,8 +836,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err,
-                                     struct timespec *timeout) {
+static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err) {
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
@@ -816,7 +848,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
     dstkeys[ii] = RLookup_GetKey(&gstp->lookup, fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties, timeout);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -868,7 +900,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
                                    QueryError *status) {
   AGGPlan *pln = &req->ap;
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status, &req->timeoutTime);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status);
 
   if (!groupRP) {
     return NULL;
@@ -896,13 +928,15 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
   return pushRP(req, groupRP, rpUpstream);
 }
 
-#define DEFAULT_LIMIT 10
+#define _SCORE_LEN 6
 
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up) {
   ResultProcessor *rp = NULL;
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
+  IndexSpec *spec = req->sctx ? req->sctx->spec : NULL; // check for sctx?
+  SortByType sortbyType = SORTBY_FIELD;
 
   if (!astp) {
     astp = &astp_s;
@@ -928,21 +962,42 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
 
     for (size_t ii = 0; ii < nkeys; ++ii) {
-      sortkeys[ii] = RLookup_GetKey(lk, astp->sortKeys[ii], RLOOKUP_F_NOINCREF);
+      const char *keystr = astp->sortKeys[ii];
+      sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_NOINCREF);
       if (!sortkeys[ii]) {
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema",
-                               astp->sortKeys[ii]);
-        return NULL;
+        // check if key is a vector
+        if (nkeys == 1 && spec && spec->flags & Index_HasVecSim) {
+          // we check if field contains "_score"
+          int keystrlen = strlen(keystr) - _SCORE_LEN;
+          if (keystrlen > 0 && !strcmp(keystr + keystrlen, "_score")) {
+            char buf[keystrlen + 1 + _SCORE_LEN];
+            strncpy(buf, keystr, keystrlen);
+            buf[keystrlen] = '\0';
+            const FieldSpec *vecField = IndexSpec_GetField(spec, buf, strlen(buf));
+            if (vecField && vecField->types == INDEXFLD_T_VECTOR) {
+              strcpy(buf + keystrlen, "_score");
+              buf[keystrlen + _SCORE_LEN] = '\0';
+              sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_OCREAT);
+              sortbyType = SORTBY_DISTANCE;
+              // astp->sortAscMap = 0; // forcing ascending sort on vector distance
+            }
+          }
+        }
+        if (!sortkeys[ii]) {
+          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema",
+                                 keystr);
+          return NULL;
+        }
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, &req->timeoutTime);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, sortbyType);
     up = pushRP(req, rp, up);
   }
 
   // No sort? then it must be sort by score, which is the default.
   if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit, &req->timeoutTime);
+    rp = RPSorter_NewByScore(limit);
     up = pushRP(req, rp, up);
   }
 
@@ -1271,6 +1326,9 @@ void AREQ_Free(AREQ *req) {
     array_free(req->searchopts.legacy.filters);
   }
   rm_free(req->searchopts.inids);
+  if (req->searchopts.params) {
+    Param_DictFree(req->searchopts.params);
+  }
   FieldList_Free(&req->outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);
