@@ -70,8 +70,11 @@ typedef struct {
 } DocTable;
 
 /* increasing the ref count of the given dmd */
-#define DMD_Incref(md) \
-  if (md) ++md->ref_count;
+#define DMD_Incref(md)                                                       \
+  if (md) {                                                                  \
+    RS_LOG_ASSERT(md->ref_count < (1 << 16))                                 \
+    ++md->ref_count;                                                         \
+  }
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
   for (size_t i = 0; i < dt->cap; ++i) {                                     \
