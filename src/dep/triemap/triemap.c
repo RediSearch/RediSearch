@@ -160,10 +160,11 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
   }
 
   // proceed to the next child or add a new child for the current char
+  char *childKeys = __trieMapNode_childKey(n, 0);
   for (tm_len_t i = 0; i < n->numChildren; i++) {
-    TrieMapNode *child = __trieMapNode_children(n)[i];
 
-    if (str[offset] == child->str[0]) {
+    if (str[offset] == childKeys[i]) {
+      TrieMapNode *child = __trieMapNode_children(n)[i];
       rv = TrieMapNode_Add(&child, str + offset, len - offset, value, cb);
       __trieMapNode_children(n)[i] = child;
       //      *__trieMapNode_childKey(n, i) = child->str[0];
@@ -258,7 +259,7 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       tm_len_t nc = n->numChildren;
 
       while (i < nc) {
-        if (str[offset] == childKeys[i]) {
+        if (c == childKeys[i]) {
           nextChild = __trieMapNode_children(n)[i];
           break;
         }
