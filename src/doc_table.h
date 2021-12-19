@@ -9,6 +9,7 @@
 #include "byte_offsets.h"
 #include "rmutil/sds.h"
 #include "util/dict.h"
+#include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
