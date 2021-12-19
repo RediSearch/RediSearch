@@ -1065,6 +1065,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
   Extensions_Free();
+  Numeric_Free();
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();
   mempool_free_global();

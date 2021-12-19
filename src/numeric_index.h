@@ -37,7 +37,7 @@ typedef struct {
 
   u_int16_t card;
   uint32_t splitCard;
-  CardinalityValue *values;
+  //CardinalityValue *values;
   InvertedIndex *entries;
 } NumericRange;
 
@@ -139,6 +139,9 @@ void NumericIndexType_Free(void *value);
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
+
+void Numeric_Init();
+void Numeric_Free();
 
 #ifdef __cplusplus
 }

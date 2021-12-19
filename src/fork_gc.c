@@ -857,7 +857,7 @@ error:
   memset(ninfo, 0, sizeof(*ninfo));
   return FGC_CHILD_ERROR;
 }
-
+/*
 static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
   khash_t(cardvals) *kh = kh_init(cardvals);
   int added;
@@ -909,7 +909,7 @@ static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
   }
   r->unique_sum = uniqueSum;
   r->card = array_len(r->values);
-}
+}*/
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   NumericRangeNode *currNode = ninfo->node;
@@ -925,7 +925,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   //   NumericRangeTree_DeleteNode(rt, (currNode->range->minVal + currNode->range->maxVal) / 2);
   // }
 
-  resetCardinality(ninfo, currNode);
+  //resetCardinality(ninfo, currNode);
 }
 
 static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {

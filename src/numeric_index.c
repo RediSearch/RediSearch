@@ -13,10 +13,24 @@
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
 
+double *cardValueArr;
+RSIndexResult *cardResultArr;
+
 typedef struct {
   IndexIterator *it;
   uint32_t lastRevId;
 } NumericUnionCtx;
+
+void Numeric_Init() {
+  cardValueArr = rm_malloc(NR_MAXRANGE_SIZE * sizeof(*cardValueArr));
+  cardResultArr = rm_malloc(NR_MAXRANGE_SIZE * sizeof(*cardResultArr));
+}
+
+void Numeric_Free() {
+  rm_free(cardValueArr);
+  rm_free(cardResultArr);
+}
+
 
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
@@ -49,41 +63,79 @@ int NumericRange_Overlaps(NumericRange *n, double min, double max) {
   return rc;
 }
 
+/*
+static inline void checkCardinality(NumericRange *n, double value) {
+  // check if value exists and increase appearance
+  uint32_t arrlen = array_len(n->values);
+  for (int i = 0; i < arrlen; i++) {
+    if (n->values[i].value == value) {
+      n->values[i].appearances++;
+      return;
+    }
+  }
+
+  // add new value to cardinality values
+  CardinalityValue val = {.value = value, .appearances = 1};
+  n->values = array_append(n->values, val);
+  n->unique_sum += value;
+  ++n->card;
+} */
+
 size_t NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
 
   int add = 0;
   if (checkCard) {
-    add = 1;
-    size_t card = n->card;
-    for (int i = 0; i < array_len(n->values); i++) {
-
-      if (n->values[i].value == value) {
-        add = 0;
-        n->values[i].appearances++;
-        break;
-      }
-    }
+    // checkCardinality(n, value);
   }
   if (n->minVal == NF_NEGATIVE_INFINITY || value < n->minVal) n->minVal = value;
   if (n->maxVal == NF_INFINITY || value > n->maxVal) n->maxVal = value;
-  if (add) {
-    if (n->card < n->splitCard) {
-      CardinalityValue val = {.value = value, .appearances = 1};
-      n->values = array_append(n->values, val);
-      n->unique_sum += value;
-    }
-    ++n->card;
-  }
 
   size_t size = InvertedIndex_WriteNumericEntry(n->entries, docId, value);
   n->invertedIndexSize += size;
   return size;
 }
 
+typedef int (*CompareFunc)(const void *a, const void *b);
+static int cmpCard(double *dbl1, double *dbl2) {
+  if (*dbl1 > *dbl2) return 1;
+  if (*dbl1 < *dbl2) return -1;
+  return 0;
+}
+
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
                           NRN_AddRv *rv) {
+  int i = 0;
+  RSIndexResult *res = NULL;
 
-  double split = (n->unique_sum) / (double)n->card;
+  // read all results
+  IndexReader *ir = NewNumericReader(NULL, n->entries, NULL ,0, 0);
+  while (INDEXREAD_OK == IR_Read(ir, &res)) {
+    cardResultArr[i] = *res;
+    cardValueArr[i++] = res->num.value;
+  }
+  IR_Free(ir);
+
+  // sort values and get split value
+  qsort(cardValueArr, i, sizeof(double), (CompareFunc)cmpCard);
+  /*
+  // calculate cardinality. exit if too low
+  int card = 0;
+  for (int j = 0; j < i; ++j) {
+    if (cardValueArr[j] != cardValueArr[j + 1]) {
+      ++card;
+    }
+  }
+  if (card < n->splitCard) {
+    n->card = card;
+    return NAN;
+  }*/
+
+  int idx = i / 2;
+  double split = cardValueArr[idx];
+  // for edge case
+  while (split == n->minVal) {
+    split = cardValueArr[++idx];
+  }
 
   // printf("split point :%f\n", split);
   *lp = NewLeafNode(n->entries->numDocs / 2 + 1, n->minVal, split,
@@ -91,14 +143,11 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
   *rp = NewLeafNode(n->entries->numDocs / 2 + 1, split, n->maxVal,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
-  RSIndexResult *res = NULL;
-  IndexReader *ir = NewNumericReader(NULL, n->entries, NULL ,0, 0);
-  while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    rv->sz += NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
-                               res->num.value, 1);
+  for (int j = 0; j < i; ++j){
+    rv->sz += NumericRange_Add(cardResultArr[j].num.value < split ? (*lp)->range : (*rp)->range, cardResultArr[j].docId,
+                               cardResultArr[j].num.value, 1);
     ++rv->numRecords;
   }
-  IR_Free(ir);
 
   // printf("Splitting node %p %f..%f, card %d size %d\n", n, n->minVal, n->maxVal, n->card,
   //        n->entries->numDocs);
@@ -123,7 +172,7 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
       .unique_sum = 0,
       .card = 0,
       .splitCard = splitCard,
-      .values = array_new(CardinalityValue, 1),
+      //.values = array_new(CardinalityValue, 1),
       //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
       .entries = NewInvertedIndex(Index_StoreNumeric, 1),
       .invertedIndexSize = 0,
@@ -139,7 +188,7 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
   rv->sz -= temp->invertedIndexSize;
   rv->numRecords -= temp->entries->numDocs;
   InvertedIndex_Free(temp->entries);
-  array_free(temp->values);
+  // array_free(temp->values);
   rm_free(temp);
 
   rv->numRanges--;
@@ -202,7 +251,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
   // n->range->minVal,
   //        n->range->maxVal, card, n->range->entries->numDocs);
-  if (card >= n->range->splitCard || (n->range->entries->numDocs > NR_MAXRANGE_SIZE && card > 1)) {
+  if (n->range->entries->numDocs > MIN(NR_MAXRANGE_SIZE, n->range->splitCard) && n->range->minVal != n->range->maxVal) {
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
@@ -278,7 +327,7 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
   if (!n) return;
   if (n->range) {
     InvertedIndex_Free(n->range->entries);
-    array_free(n->range->values);
+    // array_free(n->range->values);
     rm_free(n->range);
     n->range = NULL;
   }

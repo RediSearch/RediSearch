@@ -150,7 +150,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Init extension mechanism
   Extensions_Init();
-
+  Numeric_Init();
   Indexes_Init(ctx);
 
   if (RSGlobalConfig.concurrentMode) {
