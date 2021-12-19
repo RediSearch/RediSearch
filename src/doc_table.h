@@ -73,7 +73,7 @@ typedef struct {
 /* increasing the ref count of the given dmd */
 #define DMD_Incref(md)                                                       \
   if (md) {                                                                  \
-    RS_LOG_ASSERT(md->ref_count < (1 << 16))                                 \
+    RS_LOG_ASSERT(md->ref_count < (1 << 16), "overflow of dmd ref_count");   \
     ++md->ref_count;                                                         \
   }
 
