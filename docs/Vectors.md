@@ -139,6 +139,6 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
     EF_RUNTIME 20
     ```
 
-## Querying vector fields
+<!-- ## Querying vector fields
 
-TO BE ADDED
+TO BE ADDED -->
