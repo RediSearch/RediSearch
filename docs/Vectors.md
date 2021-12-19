@@ -10,7 +10,7 @@ At present, the key functionalites offered are:
 
     * FLAT - Brute-force index.
 
-    * HNSW - Modified version of nmslib/hnswlib which is the author's implementation of Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs.
+    * HNSW - Modified version of [nmslib/hnswlib](https://github.com/nmslib/hnswlib) which is the author's implementation of [Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs](https://arxiv.org/ftp/arxiv/papers/1603/1603.09320.pdf).
 
 * Realtime vector update/delete - triggering update of the index.
 
@@ -51,7 +51,7 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
     FT.CREATE my_idx SCHEMA vec_field VECTOR FLAT 6 TYPE FLOAT32 DIM 128 DISTANCE_METRIC L2
     ```
 
-    Here we pass 3 parameters for the index (TYPE, DIM, DISTANCE_METRIC) but `count` the total number of attributes (6).
+    Here we pass 3 parameters for the index (TYPE, DIM, DISTANCE_METRIC), and `count` counts the total number of attributes (6).
 
 * `{attribute_name} {attribute_value}`
 
