@@ -43,7 +43,16 @@ static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
 }
 
 static void QueryVectorNode_Free(QueryVectorNode *vn) {
-  if (vn->vf) rm_free(vn->vf);
+  if (vn->vf) {
+    if (vn->vf->vector) {
+      rm_free(vn->vf->vector); 
+    }
+    if (vn->vf->property) {
+      rm_free(vn->vf->property); 
+    }
+    rm_free(vn->vf);
+    vn->vf = NULL;
+  }
 }
 
 void QueryNode_Free(QueryNode *n) {
@@ -243,6 +252,7 @@ QueryNode *NewNumericNode(QueryParam *p) {
   ret->params = p->params;
   p->nf = NULL;
   p->params = NULL;
+  rm_free(p);
   return ret;
 }
 
@@ -254,6 +264,7 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   ret->params = p->params;
   p->gf = NULL;
   p->params = NULL;
+  rm_free(p);
   return ret;
 }
 
@@ -265,6 +276,7 @@ QueryNode *NewVectorNode(QueryParam *p) {
   ret->params = p->params;
   p->vf = NULL;
   p->params = NULL;
+  rm_free(p);
   return ret;
 }
 
