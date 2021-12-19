@@ -89,6 +89,7 @@ make pytest        # run python tests (tests/pytests)
   EXT=1              # External (existing) environment
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
+  VG_LEAKS=0         # do not search leaks with Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
 make c_tests       # run C tests (from tests/ctests)
