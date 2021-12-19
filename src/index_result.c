@@ -78,6 +78,20 @@ RSIndexResult *NewVirtualResult(double weight) {
   return res;
 }
 
+RSIndexResult *NewDistanceResult() {
+  RSIndexResult *res = rm_new(RSIndexResult);
+
+  *res = (RSIndexResult){.type = RSResultType_Distance,
+                         .docId = 0,
+                         .isCopy = 0,
+                         .fieldMask = RS_FIELDMASK_ALL,
+                         .freq = 1,
+                         .weight = 1,
+
+                         .num = (RSNumericRecord){.value = 0}};
+  return res;
+}
+
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
   RSIndexResult *ret = rm_new(RSIndexResult);
   *ret = *src;

@@ -98,11 +98,14 @@ bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, do
   return true;
 }
 
+extern RedisModuleCtx *RSDummyContext;
+
 int parseGeo(const char *c, size_t len, double *lon, double *lat) {
-  if (len > 31) {
+  // pretect the heap from a large string. 128 is sufficient
+  if (len > 128) {
+    RedisModule_Log(RSDummyContext, "warning", "Geo string cannot be longer than 128 bytes");
     return REDISMODULE_ERR;
   }
-
   char str[len + 1];
   memcpy(str, c, len + 1);
   char *pos = strpbrk(str, " ,");

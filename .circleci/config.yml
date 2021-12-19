@@ -585,7 +585,7 @@ workflows:
           name: sanitize-<< matrix.san-type >>
           matrix:
             parameters:
-              san-type: [address, memory]
+              san-type: [address] # [address, memory]
           <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never

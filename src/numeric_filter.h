@@ -1,9 +1,11 @@
-#ifndef __NUMERIC_FILTER_H__
-#define __NUMERIC_FILTER_H__
+
+#pragma once
+
 #include "redisearch.h"
 #include "search_ctx.h"
 #include "rmutil/args.h"
 #include "query_error.h"
+#include "query_node.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,7 +25,11 @@ typedef struct NumericFilter {
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax);
 NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status);
+int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
+
+int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
+                     QueryError *status);
 
 /*
 A numeric index allows indexing of documents by numeric ranges, and intersection
@@ -44,5 +50,4 @@ static inline int NumericFilter_Match(const NumericFilter *f, double score) {
 
 #ifdef __cplusplus
 }
-#endif
 #endif
