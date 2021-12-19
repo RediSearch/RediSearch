@@ -1,6 +1,5 @@
 #include "rules.h"
 #include "aggregate/expr/expression.h"
-#include "spec.h"
 #include "json.h"
 #include "rdb.h"
 
@@ -133,6 +132,34 @@ error:
   return NULL;
 }
 
+void RSExpr_GetProperties(RSExpr *e, char ***props);
+
+void SchemaRule_FilterFields(SchemaRule *rule) {
+  // if filter exist, check which fields should be loaded
+  char **properties = array_new(char *, 8);
+  IndexSpec *spec = rule->spec;
+  RSExpr_GetProperties(rule->filter_exp, &properties);
+  int propLen = array_len(properties);
+  if (array_len(properties) > 0) {
+    rule->filter_fields = properties;
+    rule->filter_fields_index = rm_calloc(propLen, sizeof(int));
+    for (int i = 0; i < propLen; ++i) {
+      for (int j = 0; j < spec->numFields; ++j) {
+        FieldSpec *fs = spec->fields + j;
+        if (!strcmp(properties[i], fs->name) || !strcmp(properties[i], fs->path)) {
+          rule->filter_fields_index[i] = j;
+          break;
+        }
+        // no match was found
+        rule->filter_fields_index[i] = -1;
+      }
+    }
+  } else {
+    array_free(properties);
+  }
+  
+}
+
 void SchemaRule_Free(SchemaRule *rule) {
   SchemaPrefixes_RemoveSpec(rule->spec);
 
@@ -144,6 +171,8 @@ void SchemaRule_Free(SchemaRule *rule) {
     ExprAST_Free((RSExpr *)rule->filter_exp);
   }
   array_free_ex(rule->prefixes, rm_free(*(char **)ptr));
+  array_free_ex(rule->filter_fields, rm_free(*(char **)ptr));
+  array_free_ex(rule->filter_fields_index, NULL);
   rm_free((void *)rule);
 }
 

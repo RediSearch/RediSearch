@@ -749,6 +749,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     goto failure;
   }
 
+  if (spec->rule->filter_exp) {
+    SchemaRule_FilterFields(spec->rule);
+  }
+
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
@@ -2230,8 +2234,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       if (!r) {
         // load hash only if required
         r = EvalCtx_Create();
-        // Add support for JSON filter
-        EvalCtx_AddHash(r, ctx, keyToReadData);
+
+        RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
+
         RSValue *keyRSV = RS_RedisStringVal(key);
         EvalCtx_Set(r, UNDERSCORE_KEY, keyRSV);
       }

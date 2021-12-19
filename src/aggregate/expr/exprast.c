@@ -112,6 +112,7 @@ void RSArgList_Free(RSArgList *l) {
   }
   rm_free(l);
 }
+
 void RSExpr_Free(RSExpr *e) {
   if (!e) return;
   switch (e->t) {
@@ -137,6 +138,32 @@ void RSExpr_Free(RSExpr *e) {
       RSExpr_Free(e->inverted.child);
   }
   rm_free(e);
+}
+
+void RSExpr_GetProperties(RSExpr *e, char ***props) {
+  if (!e) return;
+  switch (e->t) {
+    case RSExpr_Property:
+      *props = array_append(*props, rm_strdup(e->property.key));
+      break;
+    case RSExpr_Literal:
+      break;
+    case RSExpr_Function:
+      for (size_t ii = 0; ii < e->func.args->len; ii++) {
+        RSExpr_GetProperties(e->func.args->args[ii], props);
+      }
+      break;
+    case RSExpr_Op:
+      RSExpr_GetProperties(e->op.left, props);
+      RSExpr_GetProperties(e->op.right, props);
+      break;
+    case RSExpr_Predicate:
+      RSExpr_GetProperties(e->pred.left, props);
+      RSExpr_GetProperties(e->pred.right, props);
+      break;
+    case RSExpr_Inverted:
+      RSExpr_GetProperties(e->inverted.child, props);
+  }
 }
 
 void RSExpr_Print(const RSExpr *e) {
