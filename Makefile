@@ -260,6 +260,8 @@ ifeq ($(ARCH),x64)
 ifeq ($(SAN),)
 ifneq ($(findstring centos,$(OSNICK)),)
 VECSIM_MARCH ?= skylake-avx512
+else ifneq ($(findstring xenial,$(OSNICK)),)
+VECSIM_MARCH ?= skylake-avx512
 else
 VECSIM_MARCH ?= x86-64-v4
 endif
@@ -335,8 +337,8 @@ ifeq ($(OSNICK),centos7)
 ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
 define SETUP_LIBSTDCXX
 set -e ;\
-cd $$(BINDIR) ;\
-wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$$(OS)-$$(ARCH).tgz ;\
+cd $(BINDIR) ;\
+wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$(OS)-$(ARCH).tgz ;\
 tar xzf libstdc.tgz ;\
 rm libstdc.tgz ;\
 ln -sf libstdc++.so.6.0.25 libstdc++.so.6
