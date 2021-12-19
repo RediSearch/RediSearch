@@ -163,15 +163,21 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
     }
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      REPLY_KVSTR(nn, "TYPE", VecSimType_ToString(fs->vecSimParams.type));
-      REPLY_KVNUM(nn, "SIZE", fs->vecSimParams.size);
-      REPLY_KVSTR(nn, "METRIC", VecSimMetric_ToString(fs->vecSimParams.metric));
       REPLY_KVSTR(nn, "ALGORITHM", VecSimAlgorithm_ToString(fs->vecSimParams.algo));
       switch (fs->vecSimParams.algo) {
-        case VecSimAlgo_BF: break;
+        case VecSimAlgo_BF:
+          REPLY_KVSTR(nn, VECSIM_TYPE, VecSimType_ToString(fs->vecSimParams.bfParams.type));
+          REPLY_KVNUM(nn, VECSIM_DIM, fs->vecSimParams.bfParams.dim);
+          REPLY_KVSTR(nn, VECSIM_DISTANCE_METRIC, VecSimMetric_ToString(fs->vecSimParams.bfParams.metric));
+          REPLY_KVNUM(nn, VECSIM_BLOCKSIZE, fs->vecSimParams.bfParams.blockSize);
+          break;
         case VecSimAlgo_HNSWLIB: {
-          REPLY_KVNUM(nn, "M", fs->vecSimParams.hnswParams.M);
-          REPLY_KVNUM(nn, "EF CONSTRUCTION", fs->vecSimParams.hnswParams.efConstruction);
+          REPLY_KVSTR(nn, VECSIM_TYPE, VecSimType_ToString(fs->vecSimParams.hnswParams.type));
+          REPLY_KVNUM(nn, VECSIM_DIM, fs->vecSimParams.hnswParams.dim);
+          REPLY_KVSTR(nn, VECSIM_DISTANCE_METRIC, VecSimMetric_ToString(fs->vecSimParams.hnswParams.metric));
+          REPLY_KVNUM(nn, VECSIM_M, fs->vecSimParams.hnswParams.M);
+          REPLY_KVNUM(nn, VECSIM_EFCONSTRUCTION, fs->vecSimParams.hnswParams.efConstruction);
+          REPLY_KVNUM(nn, VECSIM_EFRUNTIME, fs->vecSimParams.hnswParams.efRuntime);
         }
       }      
     }
