@@ -208,6 +208,7 @@ def query_vector(env, idx, query_vec):
                                 'SORTBY', 'vector_score', 'ASC', 'RETURN', 1, 'vector_score', 'LIMIT', 0, 5)
 
 def testDelReuseLarge(env):
+    BB()
     conn = getConnectionByEnv(env)
     INDEX_NAME = 'items'
     prefix = 'item'
