@@ -52,7 +52,8 @@ class RediSearchSetup(paella.Setup):
             self.install("python-gevent")
 
     def archlinux(self):
-        self.install("gcc-libs")
+        self.run("%s/bin/getgcc --modern" % READIES)
+        self.install("libtool m4 automake")
 
     def fedora(self):
         self.install("libatomic")
@@ -61,6 +62,7 @@ class RediSearchSetup(paella.Setup):
 
     def macos(self):
         self.install_gnu_utils()
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("pkg-config")
         self.install("libtool m4 automake")
 
