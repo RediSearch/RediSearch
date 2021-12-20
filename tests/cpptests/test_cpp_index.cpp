@@ -1014,7 +1014,7 @@ TEST_F(IndexTest, testDocTable) {
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
-  ASSERT_EQ(10251, (int)dt.memsize);
+  ASSERT_EQ(71, (int)dt.memsize);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};

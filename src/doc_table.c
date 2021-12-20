@@ -324,7 +324,7 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     md->flags |= Document_Deleted;
 
     t->memsize -= sizeof(RSDocumentMetadata) + sdsAllocSize(md->keyPtr);
-    if (md->payload) {
+    if (hasPayload(md->flags)) {
       t->memsize -= md->payload->len + sizeof(RSPayload);
     }
     if (md->sortVector) {
