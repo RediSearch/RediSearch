@@ -596,7 +596,6 @@ workflows:
           name: deploy-snapshot
           location: snapshots
           context: common
-          when: always
           <<: *on-integ-branch
           requires:
             - build-platforms
