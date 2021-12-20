@@ -8,7 +8,7 @@
 ```
   FT.CREATE {index}
     [ON {data_type}]
-       [PREFIX {count} {prefix} [{prefix} ..]
+       [PREFIX {count} {prefix} [{prefix} ...]
        [FILTER {filter}]
        [LANGUAGE {default_lang}]
        [LANGUAGE_FIELD {lang_attribute}]
@@ -18,8 +18,8 @@
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {identifier} [AS {attribute}]
-        [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE]
-        [SORTABLE [UNF]] [NOINDEX]] ...
+        [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE] [SORTABLE [UNF]] [NOINDEX]] |
+        [VECTOR {algorithm} {count} [{attribute_name} {attribute_value} ...]] ...
 ```
 
 #### Description
@@ -191,6 +191,10 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
     * **GEO**
 
       Allows geographic range queries against the value in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
+
+    * **VECTOR**
+
+      Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](Vectors.md).
 
     #### Field Options
 
