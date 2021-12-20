@@ -13,8 +13,8 @@ import paella
 #----------------------------------------------------------------------------------------------
 
 class RediSearchSetup(paella.Setup):
-    def __init__(self, nop=False):
-        paella.Setup.__init__(self, nop)
+    def __init__(self, args):
+        paella.Setup.__init__(self, args.nop)
 
     def common_first(self):
         self.install_downloaders()
@@ -29,7 +29,7 @@ class RediSearchSetup(paella.Setup):
 
     def debian_compat(self):
         self.install("libatomic1")
-        self.run("%s/bin/getgcc" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake libssl-dev")
         self.install("python-dev")
 
@@ -56,7 +56,7 @@ class RediSearchSetup(paella.Setup):
 
     def fedora(self):
         self.install("libatomic")
-        self.run("%s/bin/getgcc" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("openssl-devel")
 
     def macos(self):
@@ -87,4 +87,4 @@ parser = argparse.ArgumentParser(description='Set up system for build.')
 parser.add_argument('-n', '--nop', action="store_true", help='no operation')
 args = parser.parse_args()
 
-RediSearchSetup(nop = args.nop).setup()
+RediSearchSetup(args).setup()

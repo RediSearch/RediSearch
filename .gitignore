@@ -21,4 +21,5 @@
 .cproject
 VSCODE.DB*
 callgrind.out.*
+**/.ipynb_checkpoints/
 /1/

@@ -39,7 +39,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		REDIS_SERVER=path     Redis Server command
 		REDIS_VERBOSE=1       (legacy) Verbose ouput
 		CONFIG_FILE=file      Path to config file
-		EXISTING_ENV=1        Run the tests on existing env
+		EXT|EXISTING_ENV=1    Run the tests on existing env
 		RLEC_PORT=n           Port of RLEC database (default: 12000)
 
 		COV=1				  Run with coverage analysis
@@ -81,6 +81,7 @@ export PYTHONPATH
 MODULE="${MODULE:-$1}"
 shift
 
+[[ $EXT == 1 ]] && EXISTING_ENV=1
 [[ $COORD == 1 ]] && COORD=oss
 
 if [[ -z $MODULE ]]; then
@@ -162,7 +163,7 @@ if [[ -n $SAN ]]; then
 
 elif [[ $VG == 1 ]]; then
 	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg}
-	if ! command -v $REDIS_SERVER > /dev/null; then
+	if ! is_command $REDIS_SERVER; then
 		echo Building Redis for Valgrind ...
 		$READIES/bin/getredis -v 6 --valgrind --suffix vg
 	fi
@@ -183,7 +184,7 @@ else
 	REDIS_SERVER=${REDIS_SERVER:-redis-server}
 fi
 
-if ! command -v $REDIS_SERVER > /dev/null; then
+if ! is_command $REDIS_SERVER; then
 	echo "Cannot find $REDIS_SERVER. Aborting."
 	exit 1
 fi

@@ -177,3 +177,7 @@ def unstable(f):
             return
         return f(env, *args, **kwargs)
     return wrapper
+
+def to_dict(res):
+    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return d

@@ -1,5 +1,5 @@
-#ifndef RS_RESULT_PROCESSOR_H_
-#define RS_RESULT_PROCESSOR_H_
+
+#pragma once
 
 #include "redisearch.h"
 #include "sortable.h"
@@ -15,6 +15,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 /********************************************************************************
  * Result Processor Chain
  *
@@ -192,6 +193,12 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *itr, struct timespec timeout
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs);
 
+typedef enum {
+  SORTBY_FIELD,
+  SORTBY_SCORE,
+  SORTBY_DISTANCE,
+} SortByType;
+
 /** Functions abstracting the sortmap. Hides the bitwise logic */
 #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
 #define SORTASCMAP_MAXFIELDS 8
@@ -201,7 +208,7 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 void SortAscMap_Dump(uint64_t v, size_t n);
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap);
+                                      uint64_t ascendingMap, SortByType sortByType);
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
@@ -288,9 +295,9 @@ static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
     durationNS = INT32_MAX;
   }
 
-  struct timespec now;
+  struct timespec now = { .tv_sec = 0, .tv_nsec = 0 };
   struct timespec duration = { .tv_sec = durationNS / 1000,
-                              .tv_nsec = ((durationNS % 1000) * 1000000) };
+                               .tv_nsec = ((durationNS % 1000) * 1000000) };
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
   rs_timeradd(&now, &duration, timeout);
   //printf("sec %ld ms %ld\n", now.tv_sec, now.tv_nsec);
@@ -307,4 +314,3 @@ const char *RPTypeToString(ResultProcessorType type);
 #ifdef __cplusplus
 }
 #endif
-#endif  // !RS_RESULT_PROCESSOR_H_
