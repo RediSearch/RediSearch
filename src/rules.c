@@ -387,6 +387,7 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
     rule->lang_default = lang_default;
     sp->rule = rule;
   }
+  SchemaRule_FilterFields(rule);
 
 cleanup:
   if (args.type) {

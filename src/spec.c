@@ -1717,6 +1717,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
   }
+  
 
   //    DocTable_RdbLoad(&sp->docs, rdb, encver);
   sp->terms = NewTrie();
