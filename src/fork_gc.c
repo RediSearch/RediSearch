@@ -820,7 +820,8 @@ static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len) {
     *tgt = NULL;
     return REDISMODULE_OK;
   }
-  *tgt = rm_malloc(sizeof(**tgt) * *len); // should be *len?
+  *tgt = array_new(CardinalityValue, *len);
+  // *tgt = rm_malloc(sizeof(**tgt) * *len); // should be *len?
   int rc = FGC_recvFixed(fgc, *tgt, *len);
   if (rc == REDISMODULE_OK) {
     *len /= sizeof(**tgt);
@@ -884,8 +885,9 @@ static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
   CardinalityValue *cardVals = info->cardVals;
 
   NumericRange *r = currNone->range;
-  rm_free(r->values);
+  array_free(r->values);
   r->values = cardVals;
+  
 
   size_t n = array_len(r->values);
   double minVal = DBL_MAX, maxVal = -DBL_MIN, uniqueSum = 0;
