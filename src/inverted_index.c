@@ -1274,9 +1274,6 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     // and not write anything, so the reader will advance but the writer won't.
     // this will close the "hole" in the index
     if (!docExists) {
-      if (params->RepairCallback) {
-        params->RepairCallback(res, blk, params->arg);
-      }
       if (!frags++) {
         // First invalid doc; copy everything prior to this to the repair
         // buffer
@@ -1285,6 +1282,9 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
       params->bytesCollected += sz;
       isLastValid = 0;
     } else {
+      if (params->RepairCallback) {
+        params->RepairCallback(res, blk, params->arg);
+      }
       // Valid document, but we're rewriting the block:
       if (frags) {
 

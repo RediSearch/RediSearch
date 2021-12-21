@@ -10,6 +10,7 @@
 #include "util/misc.h"
 //#include "tests/time_sample.h"
 #define NR_EXPONENT 4
+#define NR_CARD_CHECK 10
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
 
@@ -50,6 +51,14 @@ int NumericRange_Overlaps(NumericRange *n, double min, double max) {
 }
 
 static inline void checkCardinality(NumericRange *n, double value) {
+  // skip
+  if (n->cardCheck-- != 0) {
+    return;
+  }
+  // random number with average of 10.5
+  // n->cardCheck = ((int)(&value) & 0x0111) + 7; imposible to test
+  n->cardCheck = NR_CARD_CHECK; 
+
   // check if value exists and increase appearance
   uint32_t arrlen = array_len(n->values);
   for (int i = 0; i < arrlen; i++) {
@@ -203,7 +212,8 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
   // n->range->minVal,
   //        n->range->maxVal, card, n->range->entries->numDocs);
-  if (card >= n->range->splitCard || (n->range->entries->numDocs > NR_MAXRANGE_SIZE && card > 1)) {
+  if (card * NR_CARD_CHECK >= n->range->splitCard || 
+      (n->range->entries->numDocs > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);

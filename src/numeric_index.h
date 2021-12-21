@@ -36,6 +36,7 @@ typedef struct {
   size_t invertedIndexSize;
 
   u_int16_t card;
+  u_int16_t cardCheck;
   uint32_t splitCard;
   CardinalityValue *values;
   InvertedIndex *entries;

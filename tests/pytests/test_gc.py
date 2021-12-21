@@ -26,9 +26,7 @@ def testBasicGC(env):
 
     env.assertEqual(env.cmd('ft.del', 'idx', 'doc0'), 1)
 
-    for i in range(100):
-        # gc is random so we need to do it long enough times for it to work
-        forceInvokeGC(env, 'idx')
+    forceInvokeGC(env, 'idx')
 
     # check that the gc collected the deleted docs
     env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [long(i) for i in range(2, 102)])
