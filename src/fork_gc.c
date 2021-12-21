@@ -406,6 +406,10 @@ static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
   n = kh_size(kh);
   size_t nsent = 0;
 
+  double minVal = DBL_MAX;
+  double maxVal = DBL_MIN;
+  double uniqueSum = 0;
+
   FGC_SEND_VAR(gc, n);
   for (khiter_t it = kh_begin(kh); it != kh_end(kh); ++it) {
     if (!kh_exist(kh, it)) {
@@ -416,7 +420,14 @@ static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
     CardinalityValue cu = {.value = u.d48, .appearances = count};
     FGC_SEND_VAR(gc, cu);
     nsent++;
+
+    if (cu.value < minVal) minVal = cu.value;
+    if (cu.value > maxVal) maxVal = cu.value;
+    uniqueSum += cu.value;
   }
+  FGC_SEND_VAR(gc, minVal);
+  FGC_SEND_VAR(gc, maxVal);
+  FGC_SEND_VAR(gc, uniqueSum);
   RS_LOG_ASSERT(nsent == n, "Not all hashes has been sent");
 }
 
@@ -809,9 +820,13 @@ typedef struct {
 
   CardinalityValue *cardVals;
   size_t numCardVals;
+  double minVal;
+  double maxVal;
+  double uniqueSum;
 } NumGcInfo;
 
-static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len) {
+static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len,
+                        double *minVal, double *maxVal, double *uniqueSum) {
   if (FGC_recvFixed(fgc, len, sizeof(*len)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -821,12 +836,22 @@ static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len) {
     return REDISMODULE_OK;
   }
   *tgt = array_new(CardinalityValue, *len);
-  // *tgt = rm_malloc(sizeof(**tgt) * *len); // should be *len?
-  int rc = FGC_recvFixed(fgc, *tgt, *len);
-  if (rc == REDISMODULE_OK) {
-    *len /= sizeof(**tgt);
+
+  if (FGC_recvFixed(fgc, *tgt, *len) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
   }
-  return rc;
+  *len /= sizeof(**tgt);
+
+  if (FGC_recvFixed(fgc, minVal, sizeof(*minVal)) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  if (FGC_recvFixed(fgc, maxVal, sizeof(*maxVal)) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  if (FGC_recvFixed(fgc, uniqueSum, sizeof(*uniqueSum)) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
 }
 
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
@@ -841,13 +866,8 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
     goto error;
   }
 
-  //if (recvCardvals(gc, &ninfo->restBlockDeleted, &ninfo->nrestBlockDel) != REDISMODULE_OK) {
-  //  goto error;
-  //}
-  //if (recvCardvals(gc, &ninfo->lastBlockDeleted, &ninfo->nlastBlockDel) != REDISMODULE_OK) {
-  //  goto error;
-  //}
-  if (recvCardvals(gc, &ninfo->cardVals, &ninfo->numCardVals) != REDISMODULE_OK) {
+  if (recvCardvals(gc, &ninfo->cardVals, &ninfo->numCardVals,
+                       &ninfo->minVal, &ninfo->maxVal, &ninfo->uniqueSum) != REDISMODULE_OK) {
     goto error;
   }
   return FGC_COLLECTED;
@@ -862,44 +882,20 @@ error:
 }
 
 static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
-  /*
-  khash_t(cardvals) *kh = kh_init(cardvals);
-  int added;
-  for (size_t ii = 0; ii < info->nrestBlockDel; ++ii) {
-    numUnion u = {info->restBlockDeleted[ii].value};
-    khiter_t it = kh_put(cardvals, kh, u.u64, &added);
-    kh_val(kh, it) = info->restBlockDeleted[ii].appearances;
-  }
-  if (!info->idxbufs.lastBlockIgnored) {
-    for (size_t ii = 0; ii < info->nlastBlockDel; ++ii) {
-      numUnion u = {info->lastBlockDeleted[ii].value};
-      khiter_t it = kh_put(cardvals, kh, u.u64, &added);
-      if (!added) {
-        kh_val(kh, it) += info->lastBlockDeleted[ii].appearances;
-      } else {
-        kh_val(kh, it) = info->lastBlockDeleted[ii].appearances;
-      }
-    }
-  }*/
-
   CardinalityValue *cardVals = info->cardVals;
 
   NumericRange *r = currNone->range;
   array_free(r->values);
   r->values = cardVals;
   
-
-  size_t n = array_len(r->values);
-  double minVal = DBL_MAX, maxVal = -DBL_MIN, uniqueSum = 0;
-
   // we can only update the min and the max value if the node is a leaf.
   // otherwise the min and the max also represent its children values and
   // we can not change it.
   if (NumericRangeNode_IsLeaf(currNone)) {
-    r->minVal = minVal;
-    r->maxVal = maxVal;
+    r->minVal = info->minVal;
+    r->maxVal = info->maxVal;
   }
-  r->unique_sum = uniqueSum;
+  r->unique_sum = info->uniqueSum;
   r->card = array_len(r->values);
 }
 
