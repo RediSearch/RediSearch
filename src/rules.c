@@ -172,7 +172,7 @@ void SchemaRule_Free(SchemaRule *rule) {
   }
   array_free_ex(rule->prefixes, rm_free(*(char **)ptr));
   array_free_ex(rule->filter_fields, rm_free(*(char **)ptr));
-  array_free_ex(rule->filter_fields_index, NULL);
+  rm_free(rule->filter_fields_index);
   rm_free((void *)rule);
 }
 
