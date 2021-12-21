@@ -713,4 +713,21 @@ def testIssue1571WithRename(env):
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', 'foo*')), toSortedFlatList([1L, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']]))
     env.expect('ft.search', 'idx2', 'foo*').equal([0L])
 
+@no_msan
+def testIdxFieldJson(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'idx1',
+            'ON', 'JSON',
+            'PREFIX', 1, 'doc',
+            'FILTER', '@indexName=="idx1"',
+            'SCHEMA', '$.name', 'AS', 'name', 'text', '$.indexName', 'AS', 'indexName', 'text')
+    env.cmd('ft.create', 'idx2',
+            'ON', 'JSON',
+            'FILTER', '@indexName=="idx2"',
+            'SCHEMA', '$.name', 'AS', 'name', 'text', '$.indexName', 'AS', 'indexName', 'text')
 
+    env.execute_command('JSON.SET', 'doc:1', '$', r'{"name":"foo", "indexName":"idx1"}')
+    env.execute_command('JSON.SET', 'doc:2', '$', r'{"name":"bar", "indexName":"idx2"}')
+
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', '*')), toSortedFlatList([1L, '$', 'doc:1', '{"name":"foo","indexName":"idx1"}']))
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', '*')), toSortedFlatList([1L, '$', 'doc:2', '{"name":"bar","indexName":"idx2"}']))

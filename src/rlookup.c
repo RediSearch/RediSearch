@@ -660,7 +660,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, Sc
 
   // create rlookupkeys
   int nkeys = array_len(rule->filter_fields);
-  const RLookupKey **keys = rm_malloc(nkeys * sizeof(*keys));
+  RLookupKey **keys = rm_malloc(nkeys * sizeof(*keys));
   for (int i = 0; i < nkeys; ++i) {
     int idx = rule->filter_fields_index[i];
     if (idx == -1) {
@@ -669,12 +669,13 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, Sc
     }
     FieldSpec *fs = spec->fields + idx;
     keys[i] = createNewKey(it, fs->name, strlen(fs->name), 0, it->rowlen++);
+    keys[i]->path = fs->path;
   }
 
   // load
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = spec };
   struct QueryError status = {0}; // TODO
-  RLookupLoadOptions opt = {.keys = keys,
+  RLookupLoadOptions opt = {.keys = (const RLookupKey **)keys,
                             .nkeys = nkeys,
                             .sctx = &sctx,
                             .keyPtr = keyptr,
