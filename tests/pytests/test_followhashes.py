@@ -731,3 +731,15 @@ def testIdxFieldJson(env):
 
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', '*')), toSortedFlatList([1L, '$', 'doc:1', '{"name":"foo","indexName":"idx1"}']))
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', '*')), toSortedFlatList([1L, '$', 'doc:2', '{"name":"bar","indexName":"idx2"}']))
+
+def testFilterStartWith(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'things',
+            'ON', 'JSON',
+            'FILTER', 'startswith(@__key, "thing:")',
+            'SCHEMA', '$.name', 'AS', 'name', 'text')
+
+    env.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['name', 'foo']])

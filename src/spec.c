@@ -2236,9 +2236,6 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         r = EvalCtx_Create();
 
         RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
-
-        RSValue *keyRSV = RS_RedisStringVal(key);
-        EvalCtx_Set(r, UNDERSCORE_KEY, keyRSV);
       }
 
       if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
