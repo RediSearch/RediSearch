@@ -174,16 +174,20 @@ def testProfileNumeric(env):
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
-  conn.execute_command('hset', '1', 'n', '1.2')
-  conn.execute_command('hset', '2', 'n', '1.5')
-  conn.execute_command('hset', '3', 'n', '8.2')
-  conn.execute_command('hset', '4', 'n', '6.7')
-  conn.execute_command('hset', '5', 'n', '-14')
+  for i in range(10000):
+    conn.execute_command('hset', i, 'n', 50 - float(i % 1000) / 10)
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[0,100]', 'nocontent')
-  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 4L, 'Child iterators',
-                    ['Type', 'NUMERIC', 'Term', '-14 - 1.35', 'Counter', 1L, 'Size', 2L],
-                    ['Type', 'NUMERIC', 'Term', '1.35 - 8.2', 'Counter', 3L, 'Size', 3L]]]
+
+  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 5010L, 'Child iterators',
+                    ['Type', 'NUMERIC', 'Term', '-2.9 - 14.4', 'Counter', 1450L, 'Size', 1740L],
+                    ['Type', 'NUMERIC', 'Term', '14.5 - 30.7', 'Counter', 1630L, 'Size', 1630L],
+                    ['Type', 'NUMERIC', 'Term', '30.8 - 38', 'Counter', 730L, 'Size', 730L],
+                    ['Type', 'NUMERIC', 'Term', '38.1 - 44.6', 'Counter', 660L, 'Size', 660L],
+                    ['Type', 'NUMERIC', 'Term', '44.7 - 46.7', 'Counter', 210L, 'Size', 210L],
+                    ['Type', 'NUMERIC', 'Term', '46.8 - 48.5', 'Counter', 180L, 'Size', 180L],
+                    ['Type', 'NUMERIC', 'Term', '48.6 - 50', 'Counter', 150L, 'Size', 150L]]]
+                    
   env.assertEqual(actual_res[1][3], expected_res)
 
 def testProfileTag(env):
