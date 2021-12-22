@@ -2362,6 +2362,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
           specOp->op = SpecOp_Del;
         }
       }
+      QueryError_ClearError(r->ee.err);
     }
 
     if (r) {
