@@ -140,7 +140,7 @@ make sanbox        # create container with CLang Sanitizer
 
 `make build COORD=oss` will build OSS RediSearch Coordinator.
 
-`make build STATIC=1` will build
+`make build STATIC=1` will build as a static lib
 
 Notes:
 
