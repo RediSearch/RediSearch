@@ -89,6 +89,7 @@ make pytest        # run python tests (tests/pytests)
   EXT=1              # External (existing) environment
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
+  VG_LEAKS=0         # do not search leaks with Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
 make c_tests       # run C tests (from tests/ctests)
@@ -260,6 +261,8 @@ ifeq ($(ARCH),x64)
 ifeq ($(SAN),)
 ifneq ($(findstring centos,$(OSNICK)),)
 VECSIM_MARCH ?= skylake-avx512
+else ifneq ($(findstring xenial,$(OSNICK)),)
+VECSIM_MARCH ?= skylake-avx512
 else
 VECSIM_MARCH ?= x86-64-v4
 endif
@@ -335,8 +338,8 @@ ifeq ($(OSNICK),centos7)
 ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
 define SETUP_LIBSTDCXX
 set -e ;\
-cd $$(BINDIR) ;\
-wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$$(OS)-$$(ARCH).tgz ;\
+cd $(BINDIR) ;\
+wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$(OS)-$(ARCH).tgz ;\
 tar xzf libstdc.tgz ;\
 rm libstdc.tgz ;\
 ln -sf libstdc++.so.6.0.25 libstdc++.so.6
@@ -482,10 +485,16 @@ endif
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
-test:
 ifneq ($(SAN),)
+REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+
+$(REJSON_SO):
 	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
+else
+REJSON_SO=
 endif
+
+test: $(REJSON_SO)
 ifneq ($(TEST),)
 	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
@@ -499,10 +508,7 @@ ifeq ($(COORD),oss)
 endif
 endif
 
-pytest:
-ifneq ($(SAN),)
-	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
-endif
+pytest: $(REJSON_SO)
 	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
