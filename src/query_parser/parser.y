@@ -135,6 +135,11 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %default_type { QueryToken }
 %default_destructor { }
 
+// Notice about the %destructor directive:
+// If a non-terminal is used by C-code, e.g., expr(A)
+// then %destructor code will bot be called for it
+// (C-code is responsible for destroying it)
+
 %type expr { QueryNode * } 
 %destructor expr { QueryNode_Free($$); }
 
@@ -306,7 +311,7 @@ expr(A) ::= LP expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
-  const char * value = rm_strndup(C.s, C.len);
+  const char *value = rm_strndup(C.s, C.len);
   size_t value_len = C.len;
   if (C.type == QT_PARAM_TERM) {
     size_t found_value_len;
@@ -317,7 +322,7 @@ attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
       value_len = found_value_len;
     }
   }
-  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(value, value_len), .vallen = value_len };
+  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = value, .vallen = value_len };
 }
 
 attribute_list(A) ::= attribute(B) . {

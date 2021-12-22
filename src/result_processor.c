@@ -401,7 +401,9 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
         }
       }
     } else if (self->sortbyType == SORTBY_DISTANCE){
-      RLookup_WriteKey(self->fieldcmp.keys[0], &h->rowdata, RS_NumVal(h->indexResult->num.value));
+      RSValue *rsv = RS_NumVal(h->indexResult->num.value);
+      RLookup_WriteKey(self->fieldcmp.keys[0], &h->rowdata, rsv);
+      RSValue_Decref(rsv);
     } else {
       RS_LOG_ASSERT(0, "oops");
     }
