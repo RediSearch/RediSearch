@@ -45,6 +45,10 @@ endif # SAN
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(wildcard $(ROOT)/deps/readies),)
+$(shell git submodule update --init --recursive)
+endif
+
 ROOT=.
 include deps/readies/mk/main
 
@@ -74,13 +78,13 @@ make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
 make test          # run all tests (via ctest)
-  COORD=1|oss|rlec   # test coordinator
+  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=regex         # run tests that match regex
   TESTDEBUG=1        # be very verbose (CTest-related)
   CTEST_ARG=...      # pass args to CTest
   CTEST_PARALLEL=n   # run tests in give parallelism
 make pytest        # run python tests (tests/pytests)
-  COORD=1|oss|rlec   # test coordinator
+  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
   REJSON=1|0         # also load RedisJSON module
@@ -567,7 +571,7 @@ benchmark:
 #----------------------------------------------------------------------------------------------
 
 COV_EXCLUDE_DIRS += \
-    deps \
+	deps \
 	tests \
 	coord/tests
 
