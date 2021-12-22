@@ -138,7 +138,7 @@ make docker_push
 
 `make build COORD=oss` will build OSS RediSearch Coordinator.
 
-`make build STATIC=1` will build
+`make build STATIC=1` will build as a static lib
 
 To enable unit tests, add ```TEST=1```.
 Note that RediSearch uses [CMake](https://cmake.org) as its build system. ```make build``` will invoke both CMake and the subsequent make command that's required to complete the build.
