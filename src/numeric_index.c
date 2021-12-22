@@ -8,6 +8,7 @@
 #include <math.h>
 #include "redismodule.h"
 #include "util/misc.h"
+#include "util/ksort.h"
 //#include "tests/time_sample.h"
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
@@ -102,6 +103,8 @@ static int cmpCard(double *dbl1, double *dbl2) {
   return 0;
 }
 
+KSORT_INIT_GENERIC(double);
+
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
                           NRN_AddRv *rv) {
   int i = 0;
@@ -114,33 +117,26 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
     cardValueArr[i++] = res->num.value;
   }
   IR_Free(ir);
-
+/*
   // sort values and get split value
   qsort(cardValueArr, i, sizeof(double), (CompareFunc)cmpCard);
-  /*
-  // calculate cardinality. exit if too low
-  int card = 0;
-  for (int j = 0; j < i; ++j) {
-    if (cardValueArr[j] != cardValueArr[j + 1]) {
-      ++card;
-    }
-  }
-  if (card < n->splitCard) {
-    n->card = card;
-    return NAN;
-  }*/
-
   int idx = i / 2;
   double split = cardValueArr[idx];
   // for edge case
   while (split == n->minVal) {
     split = cardValueArr[++idx];
   }
+*/
+  double split = ks_ksmall(double, i, cardValueArr, i / 2);
+  // TODO: add optimization to check for cardinality and enlarge splitCard if not enough
+  /* if(****) {
+    return NAN;
+  }*/
 
   // printf("split point :%f\n", split);
-  *lp = NewLeafNode(n->entries->numDocs / 2 + 1, n->minVal, split,
+  *lp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
-  *rp = NewLeafNode(n->entries->numDocs / 2 + 1, split, n->maxVal,
+  *rp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
   for (int j = 0; j < i; ++j){
@@ -156,7 +152,7 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
   return split;
 }
 
-NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard) {
+NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
 
   NumericRangeNode *n = rm_malloc(sizeof(NumericRangeNode));
   n->left = NULL;
@@ -167,8 +163,8 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
   n->range = rm_malloc(sizeof(NumericRange));
 
   *n->range = (NumericRange){
-      .minVal = min,
-      .maxVal = max,
+      .minVal = __DBL_MAX__,
+      .maxVal = __DBL_MIN__,
       .unique_sum = 0,
       .card = 0,
       .splitCard = splitCard,
@@ -255,13 +251,15 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
-    rv.numRanges += 2;
-    if (RSGlobalConfig.numericTreeMaxDepthRange == 0) {
-      removeRange(n, &rv);
+    if (split != NAN) {
+      rv.numRanges += 2;
+      if (RSGlobalConfig.numericTreeMaxDepthRange == 0) {
+        removeRange(n, &rv);
+      }
+      n->value = split;
+      n->maxDepth = 1;
+      rv.changed = 1;
     }
-    n->value = split;
-    n->maxDepth = 1;
-    rv.changed = 1;
   }
 
   return rv;
@@ -344,7 +342,7 @@ uint16_t numericTreesUniqueId = 0;
 NumericRangeTree *NewNumericRangeTree() {
   NumericRangeTree *ret = rm_malloc(sizeof(NumericRangeTree));
 
-  ret->root = NewLeafNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
+  ret->root = NewLeafNode(2, 2);
   ret->numEntries = 0;
   ret->numRanges = 1;
   ret->revisionId = 0;

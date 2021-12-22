@@ -31,7 +31,7 @@ TEST_F(RangeTest, testRangeTree) {
 
     NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000));
   }
-  ASSERT_EQ(t->numRanges, 16);
+  ASSERT_EQ(t->numRanges, 40);
   ASSERT_EQ(t->numEntries, 50000);
 
   struct {
@@ -136,7 +136,7 @@ TEST_F(RangeTest, testRangeIterator) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, 14);
+  ASSERT_EQ(t->numRanges, 60);
   ASSERT_EQ(t->numEntries, N);
   NumericRangeTree_Free(t);
 }

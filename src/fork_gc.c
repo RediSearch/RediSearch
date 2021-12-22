@@ -13,7 +13,6 @@
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include "rwlock.h"
-#include "util/khash.h"
 #include <float.h>
 #include "module.h"
 #include "rmutil/rm_assert.h"
@@ -318,40 +317,10 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   FGC_sendTerminator(gc);
 }
 
-KHASH_MAP_INIT_INT64(cardvals, size_t)
-
-typedef struct {
-  const IndexBlock *lastblk;
-  khash_t(cardvals) * delLast;
-  khash_t(cardvals) * delRest;
-} numCbCtx;
-
 typedef union {
   uint64_t u64;
   double d48;
 } numUnion;
-
-static void countDeleted(const RSIndexResult *r, const IndexBlock *blk, void *arg) {
-  numCbCtx *ctx = arg;
-  khash_t(cardvals) *ht = NULL;
-  if (blk == ctx->lastblk) {
-    if ((ht = ctx->delLast) == NULL) {
-      ht = ctx->delLast = kh_init(cardvals);
-    }
-  } else if ((ht = ctx->delRest) == NULL) {
-    ht = ctx->delRest = kh_init(cardvals);
-  }
-  RS_LOG_ASSERT(ht, "cardvals should not be NULL");
-  int added = 0;
-  numUnion u = {r->num.value};
-  khiter_t it = kh_put(cardvals, ht, u.u64, &added);
-  if (!added) {
-    // i.e. already existed
-    kh_val(ht, it)++;
-  } else {
-    kh_val(ht, it) = 0;
-  }
-}
 
 typedef struct {
   int type;
@@ -395,29 +364,6 @@ static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fiel
   return FGC_COLLECTED;
 }
 
-static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
-  size_t n = 0;
-  if (!kh) {
-    FGC_SEND_VAR(gc, n);
-    return;
-  }
-  n = kh_size(kh);
-  size_t nsent = 0;
-
-  FGC_SEND_VAR(gc, n);
-  for (khiter_t it = kh_begin(kh); it != kh_end(kh); ++it) {
-    if (!kh_exist(kh, it)) {
-      continue;
-    }
-    numUnion u = {kh_key(kh, it)};
-    size_t count = kh_val(kh, it);
-    CardinalityValue cu = {.value = u.d48, .appearances = count};
-    FGC_SEND_VAR(gc, cu);
-    nsent++;
-  }
-  RS_LOG_ASSERT(nsent == n, "Not all hashes has been sent");
-}
-
 static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
   FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
@@ -438,23 +384,9 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       if (!currNode->range) {
         continue;
       }
-      numCbCtx nctx = {0};
       InvertedIndex *idx = currNode->range->entries;
-      nctx.lastblk = idx->blocks + idx->size - 1;
-      IndexRepairParams params = {.RepairCallback = countDeleted, .arg = &nctx};
       header.curPtr = currNode;
-      bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
-
-      if (repaired) {
-        sendKht(gc, nctx.delRest);
-        sendKht(gc, nctx.delLast);
-      }
-      if (nctx.delRest) {
-        kh_destroy(cardvals, nctx.delRest);
-      }
-      if (nctx.delLast) {
-        kh_destroy(cardvals, nctx.delLast);
-      }
+      bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, NULL);
     }
 
     if (header.sentFieldName) {
@@ -803,30 +735,11 @@ cleanup:
 typedef struct {
   // Node in the tree that was GC'd
   NumericRangeNode *node;
-  CardinalityValue *lastBlockDeleted;
-  CardinalityValue *restBlockDeleted;
   size_t nlastBlockDel;
   size_t nrestBlockDel;
   InvIdxBuffers idxbufs;
   MSG_IndexInfo info;
 } NumGcInfo;
-
-static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len) {
-  if (FGC_recvFixed(fgc, len, sizeof(*len)) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  *len *= sizeof(**tgt);
-  if (!*len) {
-    *tgt = NULL;
-    return REDISMODULE_OK;
-  }
-  *tgt = rm_malloc(sizeof(**tgt) * *len);
-  int rc = FGC_recvFixed(fgc, *tgt, *len);
-  if (rc == REDISMODULE_OK) {
-    *len /= sizeof(**tgt);
-  }
-  return rc;
-}
 
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
   if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
@@ -839,77 +752,14 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
   if (FGC_recvInvIdx(gc, &ninfo->idxbufs, &ninfo->info) != REDISMODULE_OK) {
     goto error;
   }
-
-  if (recvCardvals(gc, &ninfo->restBlockDeleted, &ninfo->nrestBlockDel) != REDISMODULE_OK) {
-    goto error;
-  }
-  if (recvCardvals(gc, &ninfo->lastBlockDeleted, &ninfo->nlastBlockDel) != REDISMODULE_OK) {
-    goto error;
-  }
-
   return FGC_COLLECTED;
 
 error:
   printf("Error receiving numeric index!\n");
   freeInvIdx(&ninfo->idxbufs, &ninfo->info);
-  rm_free(ninfo->lastBlockDeleted);
-  rm_free(ninfo->restBlockDeleted);
   memset(ninfo, 0, sizeof(*ninfo));
   return FGC_CHILD_ERROR;
 }
-/*
-static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
-  khash_t(cardvals) *kh = kh_init(cardvals);
-  int added;
-  for (size_t ii = 0; ii < info->nrestBlockDel; ++ii) {
-    numUnion u = {info->restBlockDeleted[ii].value};
-    khiter_t it = kh_put(cardvals, kh, u.u64, &added);
-    kh_val(kh, it) = info->restBlockDeleted[ii].appearances;
-  }
-  if (!info->idxbufs.lastBlockIgnored) {
-    for (size_t ii = 0; ii < info->nlastBlockDel; ++ii) {
-      numUnion u = {info->lastBlockDeleted[ii].value};
-      khiter_t it = kh_put(cardvals, kh, u.u64, &added);
-      if (!added) {
-        kh_val(kh, it) += info->lastBlockDeleted[ii].appearances;
-      } else {
-        kh_val(kh, it) = info->lastBlockDeleted[ii].appearances;
-      }
-    }
-  }
-
-  NumericRange *r = currNone->range;
-  size_t n = array_len(r->values);
-  double minVal = DBL_MAX, maxVal = -DBL_MIN, uniqueSum = 0;
-
-  for (size_t ii = 0; ii < array_len(r->values); ++ii) {
-  reeval:;
-    numUnion u = {r->values[ii].value};
-    khiter_t it = kh_get(cardvals, kh, u.u64);
-    if (it != kh_end(kh) && (r->values[ii].appearances -= kh_val(kh, it)) == 0) {
-      // delet this
-      size_t isLast = array_len(r->values) == ii + 1;
-      array_del_fast(r->values, ii);
-      if (!isLast) {
-        goto reeval;
-      }
-    } else {
-      minVal = MIN(minVal, r->values[ii].value);
-      maxVal = MAX(maxVal, r->values[ii].value);
-      uniqueSum += r->values[ii].value;
-    }
-  }
-  kh_destroy(cardvals, kh);
-  // we can only update the min and the max value if the node is a leaf.
-  // otherwise the min and the max also represent its children values and
-  // we can not change it.
-  if (NumericRangeNode_IsLeaf(currNone)) {
-    r->minVal = minVal;
-    r->maxVal = maxVal;
-  }
-  r->unique_sum = uniqueSum;
-  r->card = array_len(r->values);
-}*/
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   NumericRangeNode *currNode = ninfo->node;
@@ -919,13 +769,6 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
 
   currNode->range->invertedIndexSize -= info->nbytesCollected;
   FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
-
-  // TODO: fix for NUMERIC similar to TAG fix PR#2269
-  // if (currNode->range->entries->numDocs == 0) {
-  //   NumericRangeTree_DeleteNode(rt, (currNode->range->minVal + currNode->range->maxVal) / 2);
-  // }
-
-  //resetCardinality(ninfo, currNode);
 }
 
 static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
@@ -993,9 +836,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       FGC_unlock(gc, rctx);
       hasLock = 0;
     }
-
-    rm_free(ninfo.restBlockDeleted);
-    rm_free(ninfo.lastBlockDeleted);
   }
 
   rm_free(fieldName);
