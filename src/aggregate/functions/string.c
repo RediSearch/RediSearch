@@ -324,9 +324,10 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue *result, RSValue **argv,
   RSValue *pref = RSValue_Dereference(argv[1]);
   
   const char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
-  const char *p_pref = (char *)RSValue_StringPtrLen(pref, NULL);
+  size_t n;
+  const char *p_pref = (char *)RSValue_StringPtrLen(pref, &n);
   result->t = RSValue_Number;
-  result->numval = strcmp(p_pref, p_str) == 0;
+  result->numval = strncmp(p_pref, p_str, n) == 0;
   return EXPR_EVAL_OK;
 }
 

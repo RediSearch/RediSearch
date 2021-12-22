@@ -438,7 +438,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
     if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
-      rsv = RS_StringVal(keyPtr, strlen(keyPtr));
+      rsv = RS_StringVal(rm_strdup(keyPtr), strlen(keyPtr));
     } else {
       return REDISMODULE_OK;
     }
@@ -683,5 +683,6 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, Sc
                             .status = &status,
                             .noSortables = 1,
                             .mode = RLOOKUP_LOAD_KEYLIST };
-  return loadIndividualKeys(it, dst, &opt);
-}
+  int rv = loadIndividualKeys(it, dst, &opt);
+  rm_free(keys);
+  return rv;}

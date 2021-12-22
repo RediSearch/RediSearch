@@ -742,4 +742,4 @@ def testFilterStartWith(env):
     env.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
 
     env.expect('ft.search', 'things', 'foo') \
-       .equal([1L, 'thing:bar', ['name', 'foo']])
+       .equal([1L, 'thing:bar', ['$', '{"name":"foo","indexName":"idx1"}']])
