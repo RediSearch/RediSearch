@@ -45,6 +45,10 @@ endif # SAN
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(wildcard $(ROOT)/deps/readies),)
+$(shell git submodule update --init --recursive)
+endif
+
 ROOT=.
 include deps/readies/mk/main
 
