@@ -70,7 +70,9 @@ commands:
       - setup-automation
       - run:
           name: System setup
-          command: ./sbin/system-setup.py
+          command: |
+            ./sbin/system-setup.py
+            bash -l -c "python2 -m pip list"
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
