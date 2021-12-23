@@ -726,8 +726,8 @@ def testIdxFieldJson(env):
             'FILTER', '@indexName=="idx2"',
             'SCHEMA', '$.name', 'AS', 'name', 'text', '$.indexName', 'AS', 'indexName', 'text')
 
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"name":"foo", "indexName":"idx1"}')
-    env.execute_command('JSON.SET', 'doc:2', '$', r'{"name":"bar", "indexName":"idx2"}')
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"name":"foo", "indexName":"idx1"}')
+    conn.execute_command('JSON.SET', 'doc:2', '$', r'{"name":"bar", "indexName":"idx2"}')
 
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', '*')), toSortedFlatList([1L, '$', 'doc:1', '{"name":"foo","indexName":"idx1"}']))
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', '*')), toSortedFlatList([1L, '$', 'doc:2', '{"name":"bar","indexName":"idx2"}']))
@@ -739,7 +739,7 @@ def testFilterStartWith(env):
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', '$.name', 'AS', 'name', 'text')
 
-    env.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
+    conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
 
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['$', '{"name":"foo","indexName":"idx1"}']])
