@@ -1394,6 +1394,25 @@ def testNumericRange(env):
             'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
 
+def testNotIter(env):
+    conn = getConnectionByEnv(env)
+    env.assertOk(conn.execute_command(
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))
+
+    for i in xrange(8):
+        conn.execute_command('HSET', 'doc%d' % i, 'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i)
+
+    print (env.execute_command('ft.search', 'idx', '*', 'verbatim', "nocontent"))
+    res = env.execute_command(
+        'ft.search', 'idx', '-@score:[2 4]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    res = env.execute_command(
+        'ft.search', 'idx', 'hello kitty -@score:[2 4]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
 def testPayload(env):
     r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'PAYLOAD_FIELD', '__payload', 'schema', 'f', 'text').ok()
