@@ -1095,7 +1095,10 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   // Get the child's last read docId
-  t_docId childId = nc->child->LastDocId(nc->child->ctx);
+  t_docId childId = 0;
+  if (docId != 1 && docId != nc->maxDocId) {
+    childId = nc->child->LastDocId(nc->child->ctx);
+  }
 
   // If the child is ahead of the skipto id, it means the child doesn't have this id.
   // So we are okay!
@@ -1204,6 +1207,7 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
 
     // read the next entry from the child
     if (nc->child->Read(nc->child->ctx, &cr) == INDEXREAD_EOF) {
+      cr->docId++;
       break;
     }
   }
