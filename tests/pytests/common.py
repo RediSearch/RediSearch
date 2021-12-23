@@ -184,7 +184,7 @@ def to_dict(res):
 
 
 def get_redis_memory_in_mb(env):
-    return float(env.cmd('info', 'memory')['used_memory'])/1000000
+    return float(env.cmd('info', 'memory')['used_memory'])/0x100000
 
 def get_redisearch_index_memory(env, index_key):
     return float(index_info(env, index_key)["inverted_sz_mb"])
