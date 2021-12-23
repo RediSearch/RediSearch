@@ -181,3 +181,10 @@ def unstable(f):
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
+
+
+def get_redis_memory_in_mb(env):
+    return float(env.cmd('info', 'memory')['used_memory'])/1000000
+
+def get_redisearch_index_memory(env, index_key):
+    return float(index_info(env, index_key)["inverted_sz_mb"])

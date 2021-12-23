@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 import base64
-import unittest
-from includes import *
-from common import *
-from time import sleep
-from RLTest import Env
 import random
 import string
+import unittest
+from time import sleep
+
 import numpy as np
+from RLTest import Env
+
+from common import *
+from includes import *
+
 
 def test_sanity(env):
     conn = getConnectionByEnv(env)
@@ -327,3 +330,72 @@ def test_with_fields(env):
                     'NOCONTENT')
     env.assertEqual(res[1::2], res_nocontent[1:])
     env.assertEqual('t', res[2][2])
+
+
+
+
+def test_memory_info(env):
+    # This test flow adds two vectors and deletes them. The test checks for memory increase in Redis and RediSearch upon insertion and decrease upon delete.
+    conn = getConnectionByEnv(env)
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    index_key = 'idx'
+    vector_field = 'v'
+
+    # Create index. Flat index implementation will free memory when deleting vectors, so it is a good candidate for this test with respect to memory consumption.
+    conn.execute_command('FT.CREATE', index_key, 'SCHEMA', vector_field, 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'BLOCK_SiZE', '1')
+    # Verify redis memory >= redisearch index memory
+    redis_memory = get_redis_memory_in_mb(env)
+    redisearch_memory = get_redisearch_index_memory(env, index_key=index_key)
+    env.assertLessEqual(redisearch_memory, redis_memory)
+    vector = np.float32(np.random.random((1, dimension)))
+
+    # Add vector.
+    conn.execute_command('HSET', 1, vector_field, vector.tobytes())
+    # Verify current memory readings > previous memory readings.
+    cur_redis_memory = get_redis_memory_in_mb(env)
+    env.assertLessEqual(redis_memory, cur_redis_memory)
+    cur_redisearch_memory = get_redisearch_index_memory(env, index_key=index_key)
+    env.assertLessEqual(redisearch_memory, cur_redisearch_memory)
+    redis_memory = cur_redis_memory
+    redisearch_memory = cur_redisearch_memory
+    # Verify redis memory >= redisearch index memory
+    env.assertLessEqual(redisearch_memory, redis_memory)
+
+    # Add vector.
+    conn.execute_command('HSET', 2, vector_field, vector.tobytes())
+    # Verify current memory readings > previous memory readings.
+    cur_redis_memory = get_redis_memory_in_mb(env)
+    env.assertLessEqual(redis_memory, cur_redis_memory)
+    cur_redisearch_memory = get_redisearch_index_memory(env, index_key=index_key)
+    env.assertLessEqual(redisearch_memory, cur_redisearch_memory)
+    redis_memory = cur_redis_memory
+    redisearch_memory = cur_redisearch_memory
+    # Verify redis memory >= redisearch index memory
+    env.assertLessEqual(redisearch_memory, redis_memory)
+
+    # Delete vector
+    conn.execute_command('DEL', 2)
+    # Verify current memory readings < previous memory readings.
+    cur_redis_memory = get_redis_memory_in_mb(env)
+    env.assertLessEqual(cur_redis_memory, redis_memory)
+    cur_redisearch_memory = get_redisearch_index_memory(env, index_key=index_key)
+    env.assertLessEqual(cur_redisearch_memory, redisearch_memory)
+    redis_memory = cur_redis_memory
+    redisearch_memory = cur_redisearch_memory
+    # Verify redis memory >= redisearch index memory
+    env.assertLessEqual(redisearch_memory, redis_memory)
+
+    # Delete vector
+    conn.execute_command('DEL', 1)
+    # Verify current memory readings < previous memory readings.
+    cur_redis_memory = get_redis_memory_in_mb(env)
+    env.assertLessEqual(cur_redis_memory, redis_memory)
+    cur_redisearch_memory = get_redisearch_index_memory(env, index_key=index_key)
+    env.assertLessEqual(cur_redisearch_memory, redisearch_memory)
+    redis_memory = cur_redis_memory
+    redisearch_memory = cur_redisearch_memory
+    # Verify redis memory >= redisearch index memory
+    env.assertLessEqual(redisearch_memory, redis_memory)
+
+
