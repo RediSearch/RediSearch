@@ -171,9 +171,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       RedisModuleString *keyName = RedisModule_CreateString(ctx, fs->name, strlen(fs->name));
-      KeysDictValue *kdv = dictFetchValue(sp->keysDict, keyName);
+      // RediSearch initializes index in lazy manner. This will guarantee that the index is created upon the first touch.
+      VecSimIndex* index =  OpenVectorIndex(sp, keyName);
       RedisModule_FreeString(ctx, keyName);
-      VecSimIndex* index = (VecSimIndex*)kdv->p;
       VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(index);
       while(VecSimInfoIterator_HasNextField(infoIter)) {
         VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);

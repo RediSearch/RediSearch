@@ -21,9 +21,8 @@ void unescape(char *s, size_t *sz) {
   }
 }
 
-static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
+static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
                                              int write) {
-  IndexSpec *spec = ctx->spec;
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
@@ -51,29 +50,29 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
   switch (indexInfo.algo)
   {
     case VecSimAlgo_BF:
-      ctx->spec->stats.invertedSize = indexInfo.bfInfo.memory;
+      spec->stats.invertedSize = indexInfo.bfInfo.memory;
       break;
     case VecSimAlgo_HNSWLIB:
-      ctx->spec->stats.invertedSize = indexInfo.hnswInfo.memory;
+      spec->stats.invertedSize = indexInfo.hnswInfo.memory;
       break;
     default:
       break;
   }
-  dictAdd(ctx->spec->keysDict, keyName, kdv);
+  dictAdd(spec->keysDict, keyName, kdv);
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
   return kdv->p;
 }
 
-VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
+VecSimIndex *OpenVectorIndex(IndexSpec *spec,
                             RedisModuleString *keyName) {
-  return openVectorKeysDict(ctx, keyName, 1);
+  return openVectorKeysDict(spec, keyName, 1);
 }
 
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   VecSimQueryResult *result;
   // TODO: change Dict to hold strings
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vf->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
+  VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
   if (!vecsim) {
     return NULL;
