@@ -11,6 +11,13 @@
     n += 2;                                        \
   } while (0)
 
+#define REPLY_KVINT(n, k, v)                       \
+  do {                                             \
+    RedisModule_ReplyWithSimpleString(ctx, (k));   \
+    RedisModule_ReplyWithLongLong(ctx, (long long)(v)); \
+    n += 2;                                        \
+  } while (0)
+
 #define REPLY_KVSTR(n, k, v)                     \
   do {                                           \
     RedisModule_ReplyWithSimpleString(ctx, (k)); \
@@ -163,23 +170,32 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
     }
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      REPLY_KVSTR(nn, "ALGORITHM", VecSimAlgorithm_ToString(fs->vecSimParams.algo));
-      switch (fs->vecSimParams.algo) {
-        case VecSimAlgo_BF:
-          REPLY_KVSTR(nn, VECSIM_TYPE, VecSimType_ToString(fs->vecSimParams.bfParams.type));
-          REPLY_KVNUM(nn, VECSIM_DIM, fs->vecSimParams.bfParams.dim);
-          REPLY_KVSTR(nn, VECSIM_DISTANCE_METRIC, VecSimMetric_ToString(fs->vecSimParams.bfParams.metric));
-          REPLY_KVNUM(nn, VECSIM_BLOCKSIZE, fs->vecSimParams.bfParams.blockSize);
+      RedisModuleString *keyName = RedisModule_CreateString(ctx, fs->name, strlen(fs->name));
+      KeysDictValue *kdv = dictFetchValue(sp->keysDict, keyName);
+      RedisModule_FreeString(ctx, keyName);
+      VecSimIndex* index = (VecSimIndex*)kdv->p;
+      VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(index);
+      while(VecSimInfoIterator_HasNextField(infoIter)) {
+        VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
+        switch (infoField->fieldType)
+        {
+        case INFOFIELD_STRING:
+          REPLY_KVSTR(nn, infoField->fieldName, infoField->stringValue);
           break;
-        case VecSimAlgo_HNSWLIB: {
-          REPLY_KVSTR(nn, VECSIM_TYPE, VecSimType_ToString(fs->vecSimParams.hnswParams.type));
-          REPLY_KVNUM(nn, VECSIM_DIM, fs->vecSimParams.hnswParams.dim);
-          REPLY_KVSTR(nn, VECSIM_DISTANCE_METRIC, VecSimMetric_ToString(fs->vecSimParams.hnswParams.metric));
-          REPLY_KVNUM(nn, VECSIM_M, fs->vecSimParams.hnswParams.M);
-          REPLY_KVNUM(nn, VECSIM_EFCONSTRUCTION, fs->vecSimParams.hnswParams.efConstruction);
-          REPLY_KVNUM(nn, VECSIM_EFRUNTIME, fs->vecSimParams.hnswParams.efRuntime);
+        case INFOFIELD_FLOAT64:
+          REPLY_KVNUM(nn, infoField->fieldName, infoField->floatingPointValue);
+          break;
+        case INFOFIELD_INT64:
+          REPLY_KVINT(nn, infoField->fieldName, infoField->integerValue);
+          break;
+        case INFOFIELD_UINT64:
+          REPLY_KVINT(nn, infoField->fieldName, infoField->uintegerValue);
+          break;
+        default:
+          break;
         }
-      }      
+      }
+      VecSimInfoIterator_Free(infoIter);     
     }
     if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
