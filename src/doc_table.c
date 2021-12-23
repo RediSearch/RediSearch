@@ -323,8 +323,11 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
 
     md->flags |= Document_Deleted;
 
-    t->memsize -= sizeof(RSDocumentMetadata) + sdsAllocSize(md->keyPtr);
-    if (hasPayload(md->flags)) {
+    t->memsize -= sdsAllocSize(md->keyPtr);
+    if (!hasPayload(md->flags)) {
+      t->memsize -= sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
+    } else {
+      t->memsize -= sizeof(RSDocumentMetadata);
       t->memsize -= md->payload->len + sizeof(RSPayload);
     }
     if (md->sortVector) {
