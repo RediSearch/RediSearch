@@ -21,8 +21,9 @@ void unescape(char *s, size_t *sz) {
   }
 }
 
-static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
+static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
+  IndexSpec *spec = ctx->spec;
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
@@ -63,16 +64,16 @@ static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyNa
   return kdv->p;
 }
 
-VecSimIndex *OpenVectorIndex(IndexSpec *spec,
+VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
                             RedisModuleString *keyName) {
-  return openVectorKeysDict(spec, keyName, 1);
+  return openVectorKeysDict(ctx, keyName, 1);
 }
 
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   VecSimQueryResult *result;
   // TODO: change Dict to hold strings
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vf->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
+  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
   if (!vecsim) {
     return NULL;

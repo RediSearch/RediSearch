@@ -169,34 +169,6 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       sprintf(buf, "%c", fs->tagSep);
       REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
     }
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      RedisModuleString *keyName = RedisModule_CreateString(ctx, fs->name, strlen(fs->name));
-      // RediSearch initializes index in lazy manner. This will guarantee that the index is created upon the first touch.
-      VecSimIndex* index =  OpenVectorIndex(sp, keyName);
-      RedisModule_FreeString(ctx, keyName);
-      VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(index);
-      while(VecSimInfoIterator_HasNextField(infoIter)) {
-        VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
-        switch (infoField->fieldType)
-        {
-        case INFOFIELD_STRING:
-          REPLY_KVSTR(nn, infoField->fieldName, infoField->stringValue);
-          break;
-        case INFOFIELD_FLOAT64:
-          REPLY_KVNUM(nn, infoField->fieldName, infoField->floatingPointValue);
-          break;
-        case INFOFIELD_INT64:
-          REPLY_KVINT(nn, infoField->fieldName, infoField->integerValue);
-          break;
-        case INFOFIELD_UINT64:
-          REPLY_KVINT(nn, infoField->fieldName, infoField->uintegerValue);
-          break;
-        default:
-          break;
-        }
-      }
-      VecSimInfoIterator_Free(infoIter);     
-    }
     if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
       ++nn;

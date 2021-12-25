@@ -508,7 +508,7 @@ FIELD_BULK_INDEXER(vectorIndexer) {
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_VECTOR);
     rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
-        OpenVectorIndex(ctx->spec, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
+        OpenVectorIndex(ctx, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
       return -1;

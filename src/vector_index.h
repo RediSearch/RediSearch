@@ -47,7 +47,7 @@ typedef struct VectorFilter {
 } VectorFilter;
 
 // TODO: remove idxKey from all OpenFooIndex functions
-VecSimIndex *OpenVectorIndex(IndexSpec *spec,
+VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf);
