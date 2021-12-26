@@ -1,9 +1,12 @@
-#ifndef RS_AGGREGATE_TOKEN_H_
-#define RS_AGGREGATE_TOKEN_H_
-#include <stdlib.h>
+#pragma once
+
 #include "expression.h"
-/* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
-typedef struct {
+
+#include <stdlib.h>
+
+// A query-specific tokenizer, that reads symbols like quots, pipes, etc
+
+struct RSExprParseCtx {
   const char *raw;
   size_t len;
   char *pos;
@@ -12,16 +15,14 @@ typedef struct {
 
   RSExpr *root;
   int ok;
+};
 
-} RSExprParseCtx;
+// A token in the process of parsing a query.
+// Unlike the document tokenizer,  it works iteratively and is not callback based.
 
-/* A token in the process of parsing a query. Unlike the document tokenizer,  it
-works iteratively and is not callback based.  */
-typedef struct {
+struct RSExprToken {
   const char *s;
   int len;
   int pos;
   double numval;
-} RSExprToken;
-
-#endif
+};

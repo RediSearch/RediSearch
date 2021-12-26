@@ -150,7 +150,7 @@ void Grouper::extractGroups(const RSValue **xarr, size_t xpos, size_t xlen, size
   }
 
   // get the value
-  const RSValue *v = RSValue_Dereference(xarr[xpos]);
+  const RSValue *v = xarr[xpos]->Dereference();
   // regular value - just move one step -- increment XPOS
   if (v->t != RSValue_Array) {
     hval = RSValue_Hash(v, hval);

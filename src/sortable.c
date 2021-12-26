@@ -170,7 +170,7 @@ size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
     if (!v->values[i]) continue;
     sum += sizeof(RSValue);
 
-    RSValue *val = RSValue_Dereference(v->values[i]);
+    RSValue *val = v->values[i]->Dereference();
     if (val && RSValue_IsString(val)) {
       size_t sz;
       RSValue_StringPtrLen(val, &sz);

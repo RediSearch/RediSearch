@@ -20,13 +20,13 @@
 
 %token_type { RSExprToken }
 %default_type {RSExpr *}
-%default_destructor {RSExpr_Free($$); }
+%default_destructor { delete $$; }
 
 %type number {double}
 %destructor number {} 
 
 %type arglist { RSArgList * }
-%destructor arglist {RSArgList_Free($$); }
+%destructor arglist { delete $$; }
 
 %include {
 #include "token.h"
@@ -36,8 +36,7 @@
 
 }
 
-%syntax_error {  
-
+%syntax_error {
     rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     ctx->ok = 0;
 }   
@@ -95,5 +94,5 @@ expr(A) ::= SYMBOL(B) . {
 arglist(A) ::= . [ARGLIST] { A = RS_NewArgList(NULL); }
 arglist(A) ::= expr(B) . [ARGLIST] { A = RS_NewArgList(B); }
 arglist(A) ::= arglist(B) COMMA expr(C) . [ARGLIST] { 
-    A = RSArgList_Append(B, C);
+    A = B.Append(C);
 }

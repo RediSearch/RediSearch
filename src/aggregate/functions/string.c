@@ -56,7 +56,7 @@ static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, si
                               QueryError *err) {
 
   VALIDATE_ARGS("lower", 1, 1, err);
-  RSValue *val = RSValue_Dereference(argv[0]);
+  RSValue *val = argv[0]->Dereference();
   if (!RSValue_IsString(val)) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
@@ -64,7 +64,7 @@ static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, si
 
   size_t sz = 0;
   char *p = (char *)RSValue_StringPtrLen(val, &sz);
-  char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
+  char *np = ctx->UnalignedAlloc(sz + 1);
   for (size_t i = 0; i < sz; i++) {
     np[i] = tolower(p[i]);
   }
@@ -80,7 +80,7 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, si
                               QueryError *err) {
   VALIDATE_ARGS("upper", 1, 1, err);
 
-  RSValue *val = RSValue_Dereference(argv[0]);
+  RSValue *val = argv[0]->Dereference();
   if (!RSValue_IsString(val)) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
@@ -88,7 +88,7 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, si
 
   size_t sz = 0;
   char *p = (char *)RSValue_StringPtrLen(val, &sz);
-  char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
+  char *np = ctx->UnalignedAlloc(sz + 1);
   for (size_t i = 0; i < sz; i++) {
     np[i] = toupper(p[i]);
   }
@@ -114,8 +114,8 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, siz
     return EXPR_EVAL_ERR;
   }
 
-  int offset = (int)RSValue_Dereference(argv[1])->numval;
-  int len = (int)RSValue_Dereference(argv[2])->numval;
+  int offset = (int)(argv[1]->Dereference())->numval;
+  int len = (int)(argv[2]->Dereference())->numval;
 
   // for negative offsets we count from the end of the string
   if (offset < 0) {
@@ -130,7 +130,7 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, siz
     len = sz - offset;
   }
 
-  char *dup = ExprEval_Strndup(ctx, &str[offset], len);
+  char *dup = ctx->Strndup(&str[offset], len);
   RSValue_SetConstString(result, dup, len);
   return EXPR_EVAL_OK;
 }
@@ -204,7 +204,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
       goto error;
     }
 
-    RSValue *arg = RSValue_Dereference(argv[argix++]);
+    RSValue *arg = argv[argix++]->Dereference();
     if (type == 's') {
       if (arg->t == RSValue_Null) {
         // write null value
@@ -324,14 +324,14 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
 
 //---------------------------------------------------------------------------------------------
 
-int ExprEval::func_exists(RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
+int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("exists", 1, 1, err);
 
   result->t = RSValue_Number;
   if (argv[0]->t != RSValue_Null) {
     result->numval = 1;                       
   } else {
-    err->ClearError();
+    ctx->err->ClearError();
     result->numval = 0;
   }
   return EXPR_EVAL_OK;

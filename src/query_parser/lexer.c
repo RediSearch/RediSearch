@@ -17,7 +17,7 @@
 #define RSQuery_ParseAlloc RSQueryParser_Alloc
 #define RSQuery_ParseFree RSQueryParser_Free
 
-void RSQuery_Parse(void *yyp, int yymajor, QueryToken yyminor, QueryParseCtx *ctx);
+void RSQuery_Parse(void *yyp, int yymajor, QueryToken yyminor, QueryParse *ctx);
 void *RSQuery_ParseAlloc(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree(void *p, void (*freeProc)(void *));
 
@@ -163,7 +163,7 @@ static const int query_en_main = 8;
 
 /* #line 239 "lexer.rl" */
 
-QueryNode *RSQuery_ParseRaw(QueryParseCtx *q) {
+QueryNode *RSQuery_ParseRaw(QueryParse *q) {
   void *pParser = RSQuery_ParseAlloc(rm_malloc);
 
   

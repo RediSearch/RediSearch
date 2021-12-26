@@ -697,47 +697,45 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   // Try to parser the expression first, fail if we can't
-  RSExpr *e = ExprAST_Parse(expr, strlen(expr), status);
-  if (!e) {
-    return REDISMODULE_ERR;
-  }
+  try {
+    RSExpr e(expr, strlen(expr), status);
 
-  if (status->HasError()) {
-    RSExpr_Free(e);
-    return REDISMODULE_ERR;
-  } 
+    if (status->HasError()) {
+      RSExpr_Free(e);
+      return REDISMODULE_ERR;
+    } 
 
-  RLookupRow row = {0};
-  IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
-  RLookup lookup_s(spcache);
-  if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
-    goto done;
-  }
+    RLookupRow row = {0};
+    IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
+    RLookup lookup_s(spcache);
+    if (e.GetLookupKeys(&lookup_s, status) == EXPR_EVAL_ERR) {
+      goto done;
+    }
 
-  RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
-  if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
-    // printf("Couldn't load document!\n");
-    goto done;
-  }
+    RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
+    if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
+      // printf("Couldn't load document!\n");
+      goto done;
+    }
 
-  ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
-  RSValue rv;
-  if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
-    // printf("Eval not OK!!! SAD!!\n");
-    goto done;
-  }
+    ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = &e};
+    RSValue rv;
+    if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
+      // printf("Eval not OK!!! SAD!!\n");
+      goto done;
+    }
 
-  *result = rv.BoolTest();
-  rv.RSValue_Clear();
-  rc = REDISMODULE_OK;
+    *result = rv.BoolTest();
+    rv.RSValue_Clear();
+    rc = REDISMODULE_OK;
 
-// Clean up:
+  // Clean up:
 done:
-  if (e) {
-    ExprAST_Free(e);
+    RLookupRow_Cleanup(&row);
+    return rc;
+  } catch (...) {
+    return REDISMODULE_ERR;
   }
-  RLookupRow_Cleanup(&row);
-  return rc;
 }
 
 //---------------------------------------------------------------------------------------------

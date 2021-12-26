@@ -406,12 +406,12 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
 
 //---------------------------------------------------------------------------------------------
 
-char *PLN_GroupStep::getReducerAlias(const char *func, const ArgsCursor *args) {
+char *PLN_Reducer::getAlias(const char *func) {
   sds out = sdsnew("__generated_alias");
   out = sdscat(out, func);
   // only put parentheses if we actually have args
   char buf[255];
-  ArgsCursor tmp = *args;
+  ArgsCursor tmp = args;
   while (!AC_IsAtEnd(&tmp)) {
     size_t l;
     const char *s = AC_GetStringNC(&tmp, &l);
@@ -438,14 +438,39 @@ char *PLN_GroupStep::getReducerAlias(const char *func, const ArgsCursor *args) {
 //---------------------------------------------------------------------------------------------
 
 PLN_GroupStep::~PLN_GroupStep() {
-  if (reducers) {
-    size_t nreducers = array_len(reducers);
-    for (size_t ii = 0; ii < nreducers; ++ii) {
-      PLN_Reducer *gr = reducers + ii;
-      rm_free(gr->alias);
-    }
-    array_free(reducers);
+  if (!reducers) return;
+  size_t nreducers = array_len(reducers);
+  for (size_t ii = 0; ii < nreducers; ++ii) {
+    PLN_Reducer *gr = &reducers[ii];
+    gr->~PLN_Reducer();
   }
+  array_free(reducers);
+}
+
+//---------------------------------------------------------------------------------------------
+
+PLN_Reducer::PLN_Reducer(const char *name_, const ArgsCursor *ac) {
+  name = name_; //@@ owership
+  int rv = AC_GetVarArgs(ac, &args);
+  if (rv != AC_OK) throw BadArgsError(rv, name);
+
+  const char *_alias = NULL;
+  // See if there is an alias
+  if (AC_AdvanceIfMatch(ac, "AS")) {
+    rv = AC_GetString(ac, &_alias, NULL, 0);
+    if (rv != AC_OK) {
+      throw BadArgsError(rv, "AS");
+    }
+  }
+  if (_alias == NULL) {
+    alias = getAlias(name);
+  } else {
+    alias = rm_strdup(_alias);
+  }
+}
+
+PLN_Reducer::~PLN_Reducer() {
+  rm_free(alias);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -454,40 +479,20 @@ PLN_GroupStep::~PLN_GroupStep() {
  * Adds a reducer (with its arguments) to the group step
  * @param gstp the group step
  * @param name the name of the reducer
- * @param ac arguments to the reducer; if an alias is used, it is provided
- *  here as well.
+ * @param ac arguments to the reducer; if an alias is used, it is provided here as well.
  */
 
 int PLN_GroupStep::AddReducer(const char *name, ArgsCursor *ac, QueryError *status) {
-  // Just a list of functions..
   PLN_Reducer *gr = array_ensure_tail(&reducers, PLN_Reducer);
-
-  gr->name = name;
-  int rv = AC_GetVarArgs(ac, &gr->args);
-  if (rv != AC_OK) {
-    QERR_MKBADARGS_AC(status, name, rv);
-    goto error;
+  try {
+    new (gr) PLN_Reducer(name, ac);
+  } catch (const QueryError &x) {
+    array_pop(reducers);
+    *status = x;
+    return REDISMODULE_ERR;
   }
 
-  const char *alias = NULL;
-  // See if there is an alias
-  if (AC_AdvanceIfMatch(ac, "AS")) {
-    rv = AC_GetString(ac, &alias, NULL, 0);
-    if (rv != AC_OK) {
-      QERR_MKBADARGS_AC(status, "AS", rv);
-      goto error;
-    }
-  }
-  if (alias == NULL) {
-    gr->alias = getReducerAlias(name, &gr->args);
-  } else {
-    gr->alias = rm_strdup(alias);
-  }
   return REDISMODULE_OK;
-
-error:
-  array_pop(reducers);
-  return REDISMODULE_ERR;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -540,9 +545,7 @@ error:
 //---------------------------------------------------------------------------------------------
 
 PLN_MapFilterStep::~PLN_MapFilterStep() {
-  if (parsedExpr) {
-    ExprAST_Free(parsedExpr);
-  }
+  delete parsedExpr;
   if (shouldFreeRaw) {
     rm_free((char *)rawExpr);
   }
@@ -674,7 +677,7 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
   query = AC_GetStringNC(&ac, NULL);
   
   if (parseQueryArgs(&ac, &searchopts, &ap, status) != REDISMODULE_OK) {
-    goto error;
+    return REDISMODULE_ERR;
   }
 
   int hasLoad = 0;
@@ -686,37 +689,34 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
     if (rv == ARG_HANDLED) {
       continue;
     } else if (rv == ARG_ERROR) {
-      goto error;
+      return REDISMODULE_ERR;
     }
 
     if (AC_AdvanceIfMatch(&ac, "GROUPBY")) {
       if (!ensureExtendedMode("GROUPBY", status)) {
-        goto error;
+        return REDISMODULE_ERR;
       }
       if (parseGroupby(&ac, status) != REDISMODULE_OK) {
-        goto error;
+        return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(&ac, "APPLY")) {
       if (handleApplyOrFilter(&ac, true, status) != REDISMODULE_OK) {
-        goto error;
+        return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(&ac, "LOAD")) {
       if (handleLoad(&ac, status) != REDISMODULE_OK) {
-        goto error;
+        return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(&ac, "FILTER")) {
       if (handleApplyOrFilter(&ac, false, status) != REDISMODULE_OK) {
-        goto error;
+        return REDISMODULE_ERR;
       }
     } else {
       status->FmtUnknownArg(&ac, "<main>");
-      goto error;
+      return REDISMODULE_ERR;
     }
   }
   return REDISMODULE_OK;
-
-error:
-  return REDISMODULE_ERR;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1124,12 +1124,12 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
         PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)step;
         // Ensure the lookups can actually find what they need
         RLookup *curLookup = pln->GetLookup(step, AGPLN_GETLOOKUP_PREV);
-        mstp->parsedExpr = ExprAST_Parse(mstp->rawExpr, strlen(mstp->rawExpr), status);
+        mstp->parsedExpr = new RSExpr(mstp->rawExpr, strlen(mstp->rawExpr), status);
         if (!mstp->parsedExpr) {
           goto error;
         }
 
-        if (!ExprAST_GetLookupKeys(mstp->parsedExpr, curLookup, status)) {
+        if (!mstp->parsedExpr->GetLookupKeys(curLookup, status)) {
           goto error;
         }
 

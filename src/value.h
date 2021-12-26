@@ -92,6 +92,12 @@ struct RSValue {
   const RSValue *RSValue::Dereference() const;
   bool BoolTest() const;
   bool IsNull() const;
+
+  void SetNumber(double n);
+  void SetString(char *str, size_t len);
+  void SetSDS(sds s);
+  void SetConstString(const char *str, size_t len);
+
 };
 
 #pragma pack()
@@ -102,12 +108,12 @@ struct RSValue {
 // and doesn't free the actual value object
 void RSValue_Free(RSValue *v);
 
-static inline RSValue *RSValue_IncrRef(RSValue *v) {
+inline RSValue *RSValue::IncrRef(RSValue *v) {
   ++v->refcount;
   return v;
 }
 
-void RSValue::Decref() {
+inline void RSValue::Decref() {
   if (!--refcount) {
     RSValue_Free(this);
   }
@@ -127,11 +133,6 @@ static RSValue RS_StaticValue(RSValueType t) {
 #endif
   return v;
 }
-
-void RSValue_SetNumber(RSValue *v, double n);
-void RSValue_SetString(RSValue *v, char *str, size_t len);
-void RSValue_SetSDS(RSValue *v, sds s);
-void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
@@ -240,7 +241,7 @@ int RSValue_ToNumber(const RSValue *v, double *d);
 
 // Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 
-static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
+inline uint64_t RSValue::Hash(const RSValue *v, uint64_t hval) {
   switch (v->t) {
     case RSValue_Reference:
       return RSValue_Hash(v->ref, hval);

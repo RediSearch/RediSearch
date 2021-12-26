@@ -6,6 +6,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#if 0
 // Expression type enum
 enum RSExprType {
   RSExpr_Literal,   // Literal constant expression
@@ -15,15 +16,41 @@ enum RSExprType {
   RSExpr_Predicate, // Predicate expression, e.g. @foo == 3
   RSExpr_Inverted   // NOT expression, i.e. !(....)
 };
+#endif
 
 //---------------------------------------------------------------------------------------------
 
-struct RSExpr;
+struct RSExpr : Object {
+/*
+  RSExprType t;
+  union {
+    RSExprOp op;
+    RSValue literal;
+    RSFunctionExpr func;
+    RSPredicate pred;
+    RSLookupExpr property;
+    RSInverted inverted;
+  };
+*/
+  RSExpr() {}
+  RSExpr(const char *e, size_t n, QueryError *status);
+  virtual ~RSExpr() {}
 
-struct RSExprOp {
+  int GetLookupKeys(RLookup *lookup, QueryError *err);
+  virtual void Print() const;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RSExprOp : public RSExpr {
+  RSExprOp(unsigned char op, RSExpr *left, RSExpr *right);
+  ~RSExprOp();
+
   unsigned char op;
   struct RSExpr *left;
   struct RSExpr *right;
+
+  virtual void Print() const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -43,45 +70,103 @@ extern const char *RSConditionStrings[];
 
 //---------------------------------------------------------------------------------------------
 
-struct RSPredicate {
+struct RSPredicate : public RSExpr {
+  RSPredicate(RSCondition cond, RSExpr *left, RSExpr *right);
+  ~RSPredicate();
+
   struct RSExpr *left;
   struct RSExpr *right;
   RSCondition cond;
-};
 
-struct RSInverted {
-  struct RSExpr *child;
-};
-
-struct RSArgList {
-  size_t len;
-  struct RSExpr *args[];
-};
-
-struct RSFunctionExpr {
-  const char *name;
-  RSArgList *args;
-  RSFunction Call;
-};
-
-struct RSLookupExpr {
-  const char *key;
-  const RLookupKey *lookupKey;
-};
-
-struct RSExpr {
-  RSExprType t;
-  union {
-    RSExprOp op;
-    RSValue literal;
-    RSFunctionExpr func;
-    RSPredicate pred;
-    RSLookupExpr property;
-    RSInverted inverted;
-  };
+  virtual void Print() const;
 };
 
 //---------------------------------------------------------------------------------------------
+
+struct RSInverted : public RSExpr {
+  RSInverted(RSExpr *child);
+  ~RSInverted();
+
+  struct RSExpr *child;
+
+  virtual void Print() const;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RSArgList {
+  RSArgList(RSExpr *e);
+  ~RSArgList();
+
+  RSArgList *Append(RSExpr *e = 0);
+
+  //size_t len;
+  //RSExpr *args[];
+  arrayof(RSExpr*) args;
+
+  size_t length() const { return array_len(args); }
+  const RSExpr *operator[](int i) const { return args[i]; }
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RSFunctionExpr : public RSExpr {
+  RSFunctionExpr(const char *str, size_t len, RSArgList *args, RSFunction cb);
+  ~RSFunctionExpr();
+
+  const char *name;
+  RSArgList *args;
+  RSFunction Call;
+
+  virtual void Print() const;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RSLookupExpr : public RSExpr {
+  RSLookupExpr(const char *str, size_t len);
+  ~RSLookupExpr();
+
+  const char *key;
+  const RLookupKey *lookupKey;
+
+  virtual void Print() const;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RSLiteral : public RSExpr {
+  RSLiteral();
+  virtual ~RSLiteral();
+
+  RSValue literal;
+
+  virtual void Print() const;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RSNumberLiteral : public RSLiteral {
+  RSNumberLiteral(double n);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RSStringLiteral : public RSLiteral {
+  RSStringLiteral(const char *str, size_t len);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RSNullLiteral : public RSLiteral {
+  RSNullLiteral();
+};
+
+//---------------------------------------------------------------------------------------------
+
+RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Expression execution context/evaluator. I need to refactor this into something
 // nicer, but I think this will do.
@@ -112,32 +197,13 @@ protected:
   int evalInternal(const RSExpr *e, RSValue *res);
 };
 
+//---------------------------------------------------------------------------------------------
+
 #define EXPR_EVAL_ERR 0
 #define EXPR_EVAL_OK 1
 #define EXPR_EVAL_NULL 2
 
-//---------------------------------------------------------------------------------------------
-
-/**
- * Scan through the expression and generate any required lookups for the keys.
- * @param root Root iterator for scan start
- * @param lookup The lookup registry which will store the keys
- * @param err If this fails, EXPR_EVAL_ERR is returned, and this variable contains
- *  the error.
- */
-int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
-
-void ExprAST_Free(RSExpr *expr);
-void ExprAST_Print(const RSExpr *expr);
-RSExpr * ExprAST_Parse(const char *e, size_t n, QueryError *status);
-
-// Parse an expression string, returning a prased expression tree on success. On failure (syntax
-// err, etc) we set and error in err, and return NULL
-RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
-
-void RSExpr_Free(RSExpr *e);
-
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // ResultProcessor type which evaluates expressions
 
@@ -146,24 +212,13 @@ struct RPEvaluator : ResultProcessor {
   RSValue *val;
   const RLookupKey *outkey;
 
-  RPEvaluator(const RSExpr *ast, const RLookup *lookup, const RLookupKey *dstkey);
+  RPEvaluator(const char *name, const RSExpr *ast, const RLookup *lookup, const RLookupKey *dstkey);
   virtual ~RPEvaluator();
 
   virtual int Next(SearchResult *res);
 };
 
-/**
- * Creates a new result processor in the form of a projector. The projector will
- * execute the expression in `ast` and write the result of that expression to the
- * appropriate place.
- * 
- * @param ast the parsed expression
- * @param lookup the lookup registry that contains the keys to search for
- * @param dstkey the target key (in lookup) to store the result.
- * 
- * @note The ast needs to be paired with the appropriate RLookupKey objects. This
- * can be done by calling EXPR_GetLookupKeys()
- */
+//---------------------------------------------------------------------------------------------
 
 struct RPProjector : RPEvaluator {
   RPProjector(const RSExpr *ast, const RLookup *lookup, const RLookupKey *dstkey);
@@ -171,16 +226,7 @@ struct RPProjector : RPEvaluator {
   virtual int Next(SearchResult *res);
 };
 
-/**
- * Creates a new result processor in the form of a filter. The filter will
- * execute the expression in `ast` on each upstream result. If the expression
- * evaluates to false, the result will not be propagated to the next processor.
- * 
- * @param ast the parsed expression
- * @param lookup lookup used to find the key for the value
- * 
- * See notes for RPProjector.
- */
+//---------------------------------------------------------------------------------------------
 
 struct RPFilter : RPEvaluator {
   RPFilter(const RSExpr *ast, const RLookup *lookup);

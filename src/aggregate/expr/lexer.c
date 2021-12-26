@@ -18,7 +18,7 @@ void *RSExprParser_ParseAlloc(void *(*mallocProc)(size_t));
 void RSExprParser_ParseFree(void *p, void (*freeProc)(void *));
 
 
-/* #line 247 "lexer.rl" */
+/* #line 258 "lexer.rl" */
 
 
 
@@ -157,9 +157,7 @@ static const int expr_error = 0;
 static const int expr_en_main = 13;
 
 
-/* #line 250 "lexer.rl" */
-
-
+/* #line 261 "lexer.rl" */
 
 RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
   RSExprParseCtx ctx = {
@@ -169,14 +167,13 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
     .root = NULL,
     .ok = 1,
   };
-  void *pParser = RSExprParser_ParseAlloc(rm_malloc);
-
+  void *parser = RSExprParser_ParseAlloc(rm_malloc);
   
   int cs, act;
   const char* ts = ctx.raw;
   const char* te = ctx.raw + ctx.len;
   
-/* #line 180 "lexer.c" */
+/* #line 177 "lexer.c" */
 	{
 	cs = expr_start;
 	ts = 0;
@@ -184,20 +181,16 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
 	act = 0;
 	}
 
-/* #line 268 "lexer.rl" */
-#ifdef __cplusplus
+/* #line 276 "lexer.rl" */
+
   RSExprToken tok = {s: 0, len: 0, pos: 0, numval: 0};
-#else
-  RSExprToken tok = {.len = 0, .pos = 0, .s = 0, .numval = 0};
-#endif
   
-  //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
   const char* p = ctx.raw;
   const char* pe = ctx.raw + ctx.len;
   const char* eof = pe;
   
   
-/* #line 197 "lexer.c" */
+/* #line 194 "lexer.c" */
 	{
 	int _klen;
 	unsigned int _trans;
@@ -218,7 +211,7 @@ _resume:
 /* #line 1 "NONE" */
 	{ts = p;}
 	break;
-/* #line 218 "lexer.c" */
+/* #line 215 "lexer.c" */
 		}
 	}
 
@@ -289,31 +282,31 @@ _eof_trans:
 	{te = p+1;}
 	break;
 	case 3:
-/* #line 67 "lexer.rl" */
+/* #line 66 "lexer.rl" */
 	{act = 2;}
 	break;
 	case 4:
-/* #line 87 "lexer.rl" */
+/* #line 86 "lexer.rl" */
 	{act = 4;}
 	break;
 	case 5:
-/* #line 115 "lexer.rl" */
+/* #line 114 "lexer.rl" */
 	{act = 7;}
 	break;
 	case 6:
-/* #line 186 "lexer.rl" */
+/* #line 194 "lexer.rl" */
 	{act = 17;}
 	break;
 	case 7:
-/* #line 231 "lexer.rl" */
+/* #line 242 "lexer.rl" */
 	{act = 23;}
 	break;
 	case 8:
-/* #line 244 "lexer.rl" */
+/* #line 255 "lexer.rl" */
 	{act = 25;}
 	break;
 	case 9:
-/* #line 87 "lexer.rl" */
+/* #line 86 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     tok.s = ts;
@@ -327,7 +320,7 @@ _eof_trans:
   }}
 	break;
 	case 10:
-/* #line 99 "lexer.rl" */
+/* #line 98 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, LP, tok, &ctx);
@@ -337,7 +330,7 @@ _eof_trans:
   }}
 	break;
 	case 11:
-/* #line 107 "lexer.rl" */
+/* #line 106 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, RP, tok, &ctx);
@@ -347,7 +340,7 @@ _eof_trans:
   }}
 	break;
 	case 12:
-/* #line 129 "lexer.rl" */
+/* #line 130 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, LE, tok, &ctx);  
@@ -357,7 +350,7 @@ _eof_trans:
   }}
 	break;
 	case 13:
-/* #line 143 "lexer.rl" */
+/* #line 146 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, GE, tok, &ctx);  
@@ -367,7 +360,7 @@ _eof_trans:
   }}
 	break;
 	case 14:
-/* #line 150 "lexer.rl" */
+/* #line 154 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, EQ, tok, &ctx);  
@@ -377,7 +370,7 @@ _eof_trans:
   }}
 	break;
 	case 15:
-/* #line 164 "lexer.rl" */
+/* #line 170 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, NE, tok, &ctx);  
@@ -387,7 +380,7 @@ _eof_trans:
   }}
 	break;
 	case 16:
-/* #line 171 "lexer.rl" */
+/* #line 178 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, AND, tok, &ctx);  
@@ -397,7 +390,7 @@ _eof_trans:
   }}
 	break;
 	case 17:
-/* #line 178 "lexer.rl" */
+/* #line 186 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, OR, tok, &ctx);  
@@ -407,7 +400,7 @@ _eof_trans:
   }}
 	break;
 	case 18:
-/* #line 193 "lexer.rl" */
+/* #line 202 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, MOD, tok, &ctx);  
@@ -417,7 +410,7 @@ _eof_trans:
   }}
 	break;
 	case 19:
-/* #line 200 "lexer.rl" */
+/* #line 210 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, POW, tok, &ctx);  
@@ -427,7 +420,7 @@ _eof_trans:
   }}
 	break;
 	case 20:
-/* #line 207 "lexer.rl" */
+/* #line 218 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, DIVIDE, tok, &ctx);  
@@ -437,7 +430,7 @@ _eof_trans:
   }}
 	break;
 	case 21:
-/* #line 215 "lexer.rl" */
+/* #line 226 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, TIMES, tok, &ctx);    
@@ -447,7 +440,7 @@ _eof_trans:
   }}
 	break;
 	case 22:
-/* #line 222 "lexer.rl" */
+/* #line 234 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, COMMA, tok, &ctx);  
@@ -457,9 +450,8 @@ _eof_trans:
   }}
 	break;
 	case 23:
-/* #line 231 "lexer.rl" */
+/* #line 242 "lexer.rl" */
 	{te = p+1;{
-
     tok.len = te-ts;
     tok.s = ts;
     tok.numval = 0;
@@ -472,15 +464,15 @@ _eof_trans:
   }}
 	break;
 	case 24:
-/* #line 243 "lexer.rl" */
+/* #line 254 "lexer.rl" */
 	{te = p+1;}
 	break;
 	case 25:
-/* #line 244 "lexer.rl" */
+/* #line 255 "lexer.rl" */
 	{te = p+1;}
 	break;
 	case 26:
-/* #line 245 "lexer.rl" */
+/* #line 256 "lexer.rl" */
 	{te = p+1;}
 	break;
 	case 27:
@@ -495,11 +487,10 @@ _eof_trans:
     if (!ctx.ok) {
       {p++; goto _out; }
     }
-    
   }}
 	break;
 	case 28:
-/* #line 77 "lexer.rl" */
+/* #line 76 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-ctx.raw;
     tok.len = te - ts;
@@ -511,7 +502,7 @@ _eof_trans:
   }}
 	break;
 	case 29:
-/* #line 115 "lexer.rl" */
+/* #line 114 "lexer.rl" */
 	{te = p;p--;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, MINUS, tok, &ctx);  
@@ -531,7 +522,7 @@ _eof_trans:
   }}
 	break;
 	case 31:
-/* #line 136 "lexer.rl" */
+/* #line 138 "lexer.rl" */
 	{te = p;p--;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, GT, tok, &ctx);  
@@ -541,7 +532,7 @@ _eof_trans:
   }}
 	break;
 	case 32:
-/* #line 157 "lexer.rl" */
+/* #line 162 "lexer.rl" */
 	{te = p;p--;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, NOT, tok, &ctx);  
@@ -551,7 +542,7 @@ _eof_trans:
   }}
 	break;
 	case 33:
-/* #line 186 "lexer.rl" */
+/* #line 194 "lexer.rl" */
 	{te = p;p--;{ 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, PLUS, tok, &ctx);  
@@ -561,7 +552,7 @@ _eof_trans:
   }}
 	break;
 	case 34:
-/* #line 244 "lexer.rl" */
+/* #line 255 "lexer.rl" */
 	{te = p;p--;}
 	break;
 	case 35:
@@ -576,11 +567,10 @@ _eof_trans:
     if (!ctx.ok) {
       {p++; goto _out; }
     }
-    
   }}
 	break;
 	case 36:
-/* #line 244 "lexer.rl" */
+/* #line 255 "lexer.rl" */
 	{{p = ((te))-1;}}
 	break;
 	case 37:
@@ -630,7 +620,6 @@ _eof_trans:
 	break;
 	case 23:
 	{{p = ((te))-1;}
-
     tok.len = te-ts;
     tok.s = ts;
     tok.numval = 0;
@@ -648,7 +637,7 @@ _eof_trans:
 	}
 	}
 	break;
-/* #line 648 "lexer.c" */
+/* #line 641 "lexer.c" */
 		}
 	}
 
@@ -661,7 +650,7 @@ _again:
 /* #line 1 "NONE" */
 	{ts = 0;}
 	break;
-/* #line 661 "lexer.c" */
+/* #line 654 "lexer.c" */
 		}
 	}
 
@@ -681,16 +670,15 @@ _again:
 	_out: {}
 	}
 
-/* #line 276 "lexer.rl" */
+/* #line 284 "lexer.rl" */
   
-
   if (ctx.ok) {
-    RSExprParser_Parse(pParser, 0, tok, &ctx);
+    RSExprParser_Parse(parser, 0, tok, &ctx);
   } else if (ctx.root) {
     RSExpr_Free(ctx.root);
     ctx.root = NULL;
   }
-  RSExprParser_ParseFree(pParser, rm_free);
+  RSExprParser_ParseFree(parser, rm_free);
   if (err) {
     *err = ctx.errorMsg;
   }

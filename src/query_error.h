@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdexcept>
 
 #include "rmutil/args.h"
@@ -70,12 +71,27 @@ struct QueryError {
   void SetCode(QueryErrorCode code);
   void MaybeSetCode(QueryErrorCode code);
   void SetErrorFmt(QueryErrorCode code, const char *fmt, ...);
+  void SetErrorFmtArgs(QueryErrorCode code, const char *fmt, va_list args);
   void ClearError();
 
   void FmtUnknownArg(ArgsCursor *ac, const char *name);
 
   // Return true if the object has an error set
   bool HasError() const { return code != QUERY_OK; }
+};
+
+class BadArgsError : public QueryError {
+public:
+	BadArgsError(int rv, const char *name) {
+		SetErrorFmt(QUERY_EPARSEARGS, "Bad arguments for %s: %s", name, AC_Strerror(rv));
+	}
+
+	BadArgsError(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+		SetErrorFmtArgs(QUERY_EPARSEARGS, fmt, args);
+    va_end(args);
+	}
 };
 
 //---------------------------------------------------------------------------------------------

@@ -1,13 +1,12 @@
-#ifndef EXPRAST_H
-#define EXPRAST_H
+#pragma once
 
 #include "expression.h"
-#ifdef __cplusplus
-extern "C" {
-#endif
-/**
- * TODO: All of this belongs inside the parsing code. This is just AST stuff
- */
+#include "util/arr.h"
+
+// TODO: All of this belongs inside the parsing code. This is just AST stuff
+
+#if 0
+
 RSArgList *RS_NewArgList(RSExpr *e);
 void RSArgList_Free(RSArgList *l);
 RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e);
@@ -20,7 +19,5 @@ RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb);
 RSExpr *RS_NewProp(const char *str, size_t len);
 RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right);
 RSExpr *RS_NewInverted(RSExpr *child);
-#ifdef __cplusplus
-}
-#endif
-#endif
+
+#endif // 0

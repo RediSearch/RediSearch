@@ -542,7 +542,7 @@ static void yy_destructor(
     case 26: /* program */
     case 27: /* expr */
 {
-RSExpr_Free((yypminor->yy19)); 
+ delete (yypminor->yy19); 
 }
       break;
     case 24: /* number */
@@ -552,7 +552,7 @@ RSExpr_Free((yypminor->yy19));
       break;
     case 25: /* arglist */
 {
-RSArgList_Free((yypminor->yy46)); 
+ delete (yypminor->yy46); 
 }
       break;
 /********* End destructor definitions *****************************************/
@@ -1079,7 +1079,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 26: /* arglist ::= arglist COMMA expr */
 { 
-    yylhsminor.yy46 = RSArgList_Append(yymsp[-2].minor.yy46, yymsp[0].minor.yy19);
+    yylhsminor.yy46 = yymsp[-2].minor.yy46.Append(yymsp[0].minor.yy19);
 }
   yymsp[-2].minor.yy46 = yylhsminor.yy46;
         break;
@@ -1143,7 +1143,6 @@ static void yy_syntax_error(
   RSExprParser_ParseCTX_FETCH
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
-  
 
     rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     ctx->ok = 0;

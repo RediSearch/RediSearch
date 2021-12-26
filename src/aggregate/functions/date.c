@@ -1,13 +1,17 @@
-#include <util/minmax.h>
-#include <util/array.h>
-#include <util/block_alloc.h>
-#include <aggregate/expr/expression.h>
+
+#include "util/minmax.h"
+#include "util/array.h"
+#include "util/block_alloc.h"
+#include "aggregate/expr/expression.h"
+
 #include <ctype.h>
 
 #include "function.h"
 
 #define ISOFMT "%FT%TZ"
 #define ISOFMT_LEN sizeof(ISOFMT) - 1
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // TIME(propert, [fmt_string])
 static int timeFormat(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
@@ -39,21 +43,24 @@ static int timeFormat(ExprEval *ctx, RSValue *result, RSValue **argv, size_t arg
   }
 
   // Finally, allocate a buffer to store the time!
-  char *buf = ExprEval_Strndup(ctx, timebuf, rv);
+  char *buf = ctx->Strndup(timebuf, rv);
 
   // It will be released by the block allocator destruction, so we refer to it is a static string so
   // the value ref counter will not release it
   RSValue_SetConstString(result, buf, rv);
   return EXPR_EVAL_OK;
+
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
-
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_OK;
 }
 
-/* Fast alternative to mktime which is dog slow. From:
-https://gmbabar.wordpress.com/2010/12/01/mktime-slow-use-custom-function/ */
+//---------------------------------------------------------------------------------------------
+
+// Fast alternative to mktime which is dog slow. From:
+// https://gmbabar.wordpress.com/2010/12/01/mktime-slow-use-custom-function
+
 time_t fast_timegm(const struct tm *ltm) {
   // elapsed days until the beginning of every month
   const int mon_days[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
@@ -70,6 +77,8 @@ time_t fast_timegm(const struct tm *ltm) {
 
   return (tdays * 86400) + (ltm->tm_hour * 3600) + (ltm->tm_min * 60) + ltm->tm_sec;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int func_hour(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("hour", 1, 1, err);
@@ -95,6 +104,8 @@ err:
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int func_minute(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                        QueryError *err) {
   VALIDATE_ARGS("minute", 1, 1, err);
@@ -112,7 +123,10 @@ err:
   return EXPR_EVAL_OK;
 }
 
-/* Round timestamp to its day start */
+//---------------------------------------------------------------------------------------------
+
+// Round timestamp to its day start
+
 static int func_day(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("day", 1, 1, err);
 
@@ -137,6 +151,8 @@ err:
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int func_dayofmonth(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                            QueryError *err) {
   VALIDATE_ARGS("dayofmonth", 1, 1, err);
@@ -157,6 +173,8 @@ err:
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int func_dayofweek(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                           QueryError *err) {
@@ -179,6 +197,8 @@ err:
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int func_dayofyear(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                           QueryError *err) {
   VALIDATE_ARGS("dayofyear", 1, 1, err);
@@ -200,6 +220,8 @@ err:
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int func_year(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("year", 1, 1, err);
 
@@ -219,7 +241,10 @@ err:
   return EXPR_EVAL_OK;
 }
 
-/* Round a timestamp to the beginning of the month */
+//---------------------------------------------------------------------------------------------
+
+// Round a timestamp to the beginning of the month
+
 static int func_month(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                       QueryError *err) {
   VALIDATE_ARGS("month", 1, 1, err);
@@ -245,6 +270,8 @@ err:
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int func_monthofyear(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                             QueryError *err) {
   VALIDATE_ARGS("monthofyear", 1, 1, err);
@@ -264,6 +291,8 @@ err:
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int parseTime(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("parse_time", 2, 2, err);
@@ -301,6 +330,8 @@ err:
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RegisterDateFunctions() {
   RSFunctionRegistry_RegisterFunction("timefmt", timeFormat, RSValue_String);
   RSFunctionRegistry_RegisterFunction("parse_time", parseTime, RSValue_Number);
@@ -315,3 +346,5 @@ void RegisterDateFunctions() {
   RSFunctionRegistry_RegisterFunction("dayofweek", func_dayofweek, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("dayofyear", func_dayofyear, RSValue_Number);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

@@ -1,29 +1,37 @@
+
 #include "exprast.h"
+
 #include <ctype.h>
 
-#define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 
-RSArgList *RS_NewArgList(RSExpr *e) {
-  RSArgList *ret = rm_malloc(arglist_sizeof(e ? 1 : 0));
-  ret->len = e ? 1 : 0;
-  if (e) ret->args[0] = e;
-  return ret;
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+// #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
+
+RSArgList::RSArgList(RSExpr *e) {
+  args = array_new(RSExpr*, e ? 1 : 0);
+  if (e) args[0] = e;
 }
 
-RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e) {
-  l = rm_realloc(l, arglist_sizeof(l->len + 1));
-  l->args[l->len++] = e;
-  return l;
+RSArgList *RSArgList::Append(RSExpr *e) {
+  *array_ensure_tail(&args, RSExpr*) = e;
+  return this;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+#if 0
 static RSExpr *newExpr(RSExprType t) {
   RSExpr *e = rm_calloc(1, sizeof(*e));
   e->t = t;
   return e;
 }
+#endif
+
+//---------------------------------------------------------------------------------------------
 
 // unquote and unescape a stirng literal, and return a cleaned copy of it
-char *unescpeStringDup(const char *s, size_t sz) {
+static char *unescpeStringDup(const char *s, size_t sz) {
 
   char *dst = rm_malloc(sz);
   char *dstStart = dst;
@@ -40,154 +48,155 @@ char *unescpeStringDup(const char *s, size_t sz) {
   *dst = '\0';
   return dstStart;
 }
-RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
-  RSExpr *e = newExpr(RSExpr_Literal);
-  e->literal = RS_StaticValue(RSValue_String);
-  e->literal.strval.str = unescpeStringDup(str, len);
-  e->literal.strval.len = strlen(e->literal.strval.str);
-  e->literal.strval.stype = RSString_Malloc;
-  return e;
+
+//---------------------------------------------------------------------------------------------
+
+RSStringLiteral::RSStringLiteral(const char *str, size_t len) {
+  literal = RS_StaticValue(RSValue_String);
+  literal.strval.str = unescpeStringDup(str, len);
+  literal.strval.len = strlen(literal.strval.str);
+  literal.strval.stype = RSString_Malloc;
 }
 
-RSExpr *RS_NewNullLiteral() {
-  RSExpr *e = newExpr(RSExpr_Literal);
-  RSValue_MakeReference(&e->literal, RS_NullVal());
-  return e;
+//---------------------------------------------------------------------------------------------
+
+RSNullLiteral::RSNullLiteral() {
+  RSValue_MakeReference(&literal, RS_NullVal());
 }
 
-RSExpr *RS_NewNumberLiteral(double n) {
-  RSExpr *e = newExpr(RSExpr_Literal);
+//---------------------------------------------------------------------------------------------
 
-  e->literal = RS_StaticValue(RSValue_Number);
-  e->literal.numval = n;
-  return e;
+RSNumberLiteral::RSNumberLiteral(double n) {
+  literal = RS_StaticValue(RSValue_Number);
+  literal.numval = n;
 }
 
-RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right) {
-  RSExpr *e = newExpr(RSExpr_Op);
-  e->op.op = op;
-  e->op.left = left;
-  e->op.right = right;
-  return e;
+//---------------------------------------------------------------------------------------------
+
+RSExprOp::RSExprOp(unsigned char op_, RSExpr *left, RSExpr *right) {
+  op = op_;
+  left = left;
+  right = right;
 }
 
-RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
-  RSExpr *e = newExpr(RSExpr_Predicate);
-  e->pred.cond = cond;
-  e->pred.left = left;
-  e->pred.right = right;
-  // e->pred = (RSPredicate){
-  //     .cond = cond,
-  //     .left = left,
-  //     .right = right,
-  // };
-  return e;
+//---------------------------------------------------------------------------------------------
+
+RSPredicate::RSPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
+  cond = cond;
+  left = left;
+  right = right;
 }
 
-RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) {
-  RSExpr *e = newExpr(RSExpr_Function);
-  e->func.args = args;
-  e->func.name = rm_strndup(str, len);
-  e->func.Call = cb;
-  return e;
+//---------------------------------------------------------------------------------------------
+
+RSFunctionExpr::RSFunctionExpr(const char *str, size_t len, RSArgList *args_, RSFunction cb) {
+  args = args_; // @@ ownership
+  name = rm_strndup(str, len);
+  Call = cb;
 }
 
-RSExpr *RS_NewProp(const char *str, size_t len) {
-  RSExpr *e = newExpr(RSExpr_Property);
-  e->property.key = rm_strndup(str, len);
-  e->property.lookupKey = NULL;
-  return e;
+//---------------------------------------------------------------------------------------------
+
+RSLookupExpr::RSLookupExpr(const char *str, size_t len) {
+  key = rm_strndup(str, len);
+  lookupKey = NULL;
 }
 
-RSExpr *RS_NewInverted(RSExpr *child) {
-  RSExpr *e = newExpr(RSExpr_Inverted);
-  e->inverted.child = child;
-  return e;
+//---------------------------------------------------------------------------------------------
+
+RSInverted::RSInverted(RSExpr *child) {
+  child = child;
 }
 
-void RSArgList_Free(RSArgList *l) {
-  if (!l) return;
-  for (size_t i = 0; i < l->len; i++) {
-    RSExpr_Free(l->args[i]);
-  }
-  rm_free(l);
-}
-void RSExpr_Free(RSExpr *e) {
-  if (!e) return;
-  switch (e->t) {
-    case RSExpr_Literal:
-      e->literal.Clear();
-      break;
-    case RSExpr_Function:
-      rm_free((char *)e->func.name);
-      RSArgList_Free(e->func.args);
-      break;
-    case RSExpr_Op:
-      RSExpr_Free(e->op.left);
-      RSExpr_Free(e->op.right);
-      break;
-    case RSExpr_Predicate:
-      RSExpr_Free(e->pred.left);
-      RSExpr_Free(e->pred.right);
-      break;
-    case RSExpr_Property:
-      rm_free((char *)e->property.key);
-      break;
-    case RSExpr_Inverted:
-      RSExpr_Free(e->inverted.child);
-  }
-  rm_free(e);
-}
+//---------------------------------------------------------------------------------------------
 
-void RSExpr_Print(const RSExpr *e) {
-  if (!e) {
-    printf("NULL");
-    return;
-  }
-  switch (e->t) {
-    case RSExpr_Literal:
-      RSValue_Print(&e->literal);
-      break;
-    case RSExpr_Function:
-      printf("%s(", e->func.name);
-      for (size_t i = 0; e->func.args != NULL && i < e->func.args->len; i++) {
-        RSExpr_Print(e->func.args->args[i]);
-        if (i < e->func.args->len - 1) printf(", ");
-      }
-      printf(")");
-      break;
-    case RSExpr_Op:
-      printf("(");
-      RSExpr_Print(e->op.left);
-      printf(" %c ", e->op.op);
-      RSExpr_Print(e->op.right);
-      printf(")");
-      break;
-
-    case RSExpr_Predicate:
-      printf("(");
-      RSExpr_Print(e->pred.left);
-      printf(" %s ", RSConditionStrings[e->pred.cond]);
-      RSExpr_Print(e->pred.right);
-      printf(")");
-
-      break;
-    case RSExpr_Property:
-      printf("@%s", e->property.key);
-      break;
-    case RSExpr_Inverted:
-      printf("!");
-      RSExpr_Print(e->inverted.child);
-      break;
+RSArgList::~RSArgList() {
+  size_t len = array_len(args);
+  for (size_t i = 0; i < len; i++) {
+    delete args[i];
   }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+RSExprOp::~RSExprOp() {
+  delete left;
+  delete right;
+}
+
+RSPredicate::~RSPredicate() {
+  delete left;
+  delete right;
+}
+
+RSInverted::~RSInverted() {
+  delete child;
+}
+
+RSFunctionExpr::~RSFunctionExpr() {
+  rm_free((char *)name);
+  delete args;
+}
+
+RSLookupExpr::~RSLookupExpr() {
+  rm_free((char *)key);
+}
+
+RSLiteral::~RSLiteral() {
+  literal.Clear();
+}
+
+//---------------------------------------------------------------------------------------------
+
+void RSExprOp::Print() const {
+  printf("(");
+  left->Print();
+  printf(" %c ", op);
+  right->Print();
+  printf(")");
+}
+
+void RSPredicate::Print() const {
+  printf("(");
+  left->Print();
+  printf(" %s ", RSConditionStrings[cond]);
+  right->Print();
+  printf(")");
+}
+
+void RSInverted::Print() const {
+  printf("!");
+  child->Print();
+}
+
+void RSFunctionExpr::Print() const {
+  printf("%s(", name);
+  for (size_t i = 0; args != NULL && i < args->length(); i++) {
+    (*args[i])->Print();
+    if (i < args->length() - 1) printf(", ");
+  }
+  printf(")");
+}
+
+void RSLookupExpr::Print() const {
+  printf("@%s", key);
+}
+
+void RSLiteral::Print() const {
+  literal.Print();
+}
+
+//---------------------------------------------------------------------------------------------
+
+#if 0
+// @@ used in unit tests
 
 void ExprAST_Free(RSExpr *e) {
-  RSExpr_Free(e);
+  delete e;
 }
 
 void ExprAST_Print(const RSExpr *e) {
-  RSExpr_Print(e);
+  e->Print(e);
 }
 
 RSExpr *ExprAST_Parse(const char *e, size_t n, QueryError *status) {
@@ -201,3 +210,7 @@ RSExpr *ExprAST_Parse(const char *e, size_t n, QueryError *status) {
   rm_free(errtmp);
   return ret;
 }
+
+#endif // 0
+
+///////////////////////////////////////////////////////////////////////////////////////////////

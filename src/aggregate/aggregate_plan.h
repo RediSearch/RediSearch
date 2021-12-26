@@ -143,21 +143,28 @@ struct PLN_LoadStep : PLN_BaseStep {
 };
 
 //---------------------------------------------------------------------------------------------
-
 // Group step - group by properties and reduce by several reducers
+
+// Group step single reducer, a function and its args
+struct PLN_Reducer {
+  PLN_Reducer(const char *name, const ArgsCursor *args);
+  ~PLN_Reducer();
+
+  const char *name;  // Name of function
+  char *alias;       // Output key
+  ArgsCursor args;
+
+protected:
+  char *getAlias(const char *func);
+};
+
+//---------------------------------------------------------------------------------------------
 
 struct PLN_GroupStep : PLN_BaseStep {
   std::unique_ptr<RLookup> lookup;
 
   const char **properties;
   size_t nproperties;
-
-  // Group step single reducer, a function and its args
-  struct PLN_Reducer {
-    const char *name;  // Name of function
-    char *alias;       // Output key
-    ArgsCursor args;
-  };
 
   PLN_Reducer *reducers;
   int idx;
@@ -166,14 +173,11 @@ struct PLN_GroupStep : PLN_BaseStep {
   virtual ~PLN_GroupStep();
 
   int AddReducer(const char *name, ArgsCursor *ac, QueryError *status);
-  char *getReducerAlias(const char *func, const ArgsCursor *args);
 
   ResultProcessor *buildRP(RLookup *srclookup, QueryError *err);
 
   virtual void Dump() const;
 };
-
-typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
 
 //---------------------------------------------------------------------------------------------
 

@@ -61,7 +61,6 @@ main := |*
     if (!ctx.ok) {
       fbreak;
     }
-    
   };
 
   property => {
@@ -119,6 +118,7 @@ main := |*
       fbreak;
     }
   };
+
   lt =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, LT, tok, &ctx);  
@@ -126,6 +126,7 @@ main := |*
       fbreak;
     }
   };
+
   le =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, LE, tok, &ctx);  
@@ -133,6 +134,7 @@ main := |*
       fbreak;
     }
   };
+
   gt =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, GT, tok, &ctx);  
@@ -140,20 +142,23 @@ main := |*
       fbreak;
     }
   };
-   ge =>  { 
+
+  ge =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, GE, tok, &ctx);  
     if (!ctx.ok) {
       fbreak;
     }
   };
-   eq =>  { 
+
+  eq =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, EQ, tok, &ctx);  
     if (!ctx.ok) {
       fbreak;
     }
   };
+
   not =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, NOT, tok, &ctx);  
@@ -161,21 +166,24 @@ main := |*
       fbreak;
     }
   };
-   ne =>  { 
+
+  ne =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, NE, tok, &ctx);  
     if (!ctx.ok) {
       fbreak;
     }
   };
-   land =>  { 
+
+  land =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, AND, tok, &ctx);  
     if (!ctx.ok) {
       fbreak;
     }
   };
-    lor =>  { 
+
+  lor =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, OR, tok, &ctx);  
     if (!ctx.ok) {
@@ -190,6 +198,7 @@ main := |*
       fbreak;
     }
   };
+
   mod =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, MOD, tok, &ctx);  
@@ -197,6 +206,7 @@ main := |*
       fbreak;
     }
   };
+
   pow =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, POW, tok, &ctx);  
@@ -204,6 +214,7 @@ main := |*
       fbreak;
     }
   };
+
   div =>  { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, DIVIDE, tok, &ctx);  
@@ -219,6 +230,7 @@ main := |*
       fbreak;
     }
   }; 
+
   comma => { 
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, COMMA, tok, &ctx);  
@@ -227,9 +239,7 @@ main := |*
     }
   };
 
-
   string_literal => {
-
     tok.len = te-ts;
     tok.s = ts;
     tok.numval = 0;
@@ -240,6 +250,7 @@ main := |*
       fbreak;
     }
   };
+
   space;
   punct;
   cntrl;
@@ -247,8 +258,6 @@ main := |*
 }%%
 
 %% write data;
-
-
 
 RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
   RSExprParseCtx ctx = {
@@ -258,34 +267,28 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
     .root = NULL,
     .ok = 1,
   };
-  void *pParser = RSExprParser_ParseAlloc(rm_malloc);
-
+  void *parser = RSExprParser_ParseAlloc(rm_malloc);
   
   int cs, act;
   const char* ts = ctx.raw;
   const char* te = ctx.raw + ctx.len;
   %% write init;
-#ifdef __cplusplus
+
   RSExprToken tok = {s: 0, len: 0, pos: 0, numval: 0};
-#else
-  RSExprToken tok = {.len = 0, .pos = 0, .s = 0, .numval = 0};
-#endif
   
-  //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
   const char* p = ctx.raw;
   const char* pe = ctx.raw + ctx.len;
   const char* eof = pe;
   
   %% write exec;
   
-
   if (ctx.ok) {
-    RSExprParser_Parse(pParser, 0, tok, &ctx);
+    RSExprParser_Parse(parser, 0, tok, &ctx);
   } else if (ctx.root) {
     RSExpr_Free(ctx.root);
     ctx.root = NULL;
   }
-  RSExprParser_ParseFree(pParser, rm_free);
+  RSExprParser_ParseFree(parser, rm_free);
   if (err) {
     *err = ctx.errorMsg;
   }

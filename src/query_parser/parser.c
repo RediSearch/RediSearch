@@ -176,10 +176,10 @@ typedef union {
 #ifndef YYSTACKDEPTH
 #define YYSTACKDEPTH 100
 #endif
-#define RSQueryParser_ARG_SDECL  QueryParseCtx *ctx ;
-#define RSQueryParser_ARG_PDECL , QueryParseCtx *ctx 
+#define RSQueryParser_ARG_SDECL  QueryParse *ctx ;
+#define RSQueryParser_ARG_PDECL , QueryParse *ctx 
 #define RSQueryParser_ARG_PARAM ,ctx 
-#define RSQueryParser_ARG_FETCH  QueryParseCtx *ctx =yypParser->ctx ;
+#define RSQueryParser_ARG_FETCH  QueryParse *ctx =yypParser->ctx ;
 #define RSQueryParser_ARG_STORE yypParser->ctx =ctx ;
 #define RSQueryParser_CTX_SDECL
 #define RSQueryParser_CTX_PDECL

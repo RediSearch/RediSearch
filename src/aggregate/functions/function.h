@@ -16,7 +16,7 @@
 
 #define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                 \
   {                                                                                            \
-    RSValue *dref = RSValue_Dereference(args[idx]);                                            \
+    RSValue *dref = args[idx]->Dereference();                                                  \
     if (!verifier(dref, varg)) {                                                               \
       err->SetErrorFmt(QUERY_EPARSEARGS,                                                       \
           "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref->t, \
