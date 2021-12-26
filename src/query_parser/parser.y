@@ -22,6 +22,10 @@
 %left ORX.
 %left ARROW.
 
+%right STAR.
+%right TOP_K.
+%right AS.
+
 %token_type {QueryToken}  
 
 %name RSQueryParser_
@@ -164,12 +168,24 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %type tag_list { QueryNode *}
 %destructor tag_list { QueryNode_Free($$); }
 
-//%type 
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
 
 %type vector_filter { QueryParam *}
 %destructor vector_filter { QueryParam_Free($$); }
+
+%type vector_query { QueryNode *}
+%destructor vector_query { QueryNode_Free($$); }
+
+%type vector_command { QueryNode *}
+%destructor vector_command { QueryNode_Free($$); }
+
+%type vector_attribute { VectorQueryParam }
+%destructor vector_attribute { rm_free((char*)$$.value); }
+
+%type vector_attribute_list { VectorQueryParam *}
+%destructor vector_attribute_list { array_free_ex($$, rm_free((char*)((VectorQueryParam*)ptr )->value));
+                                    array_free_ex($$, rm_free((char*)((VectorQueryParam*)ptr )->name)); }
 
 %type modifierlist { Vector* }
 %destructor modifierlist { 
@@ -191,8 +207,8 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 query ::= expr(A) . { 
   setup_trace(ctx);
   ctx->root = A;
- 
 }
+
 query ::= . {
   ctx->root = NULL;
 }
@@ -342,7 +358,7 @@ attribute_list(A) ::= . {
     A = NULL;
 }
 
-expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
+expr(A) ::= expr(B) ARROW LB attribute_list(C) RB . {
 
     if (B && C) {
         QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
@@ -473,7 +489,7 @@ expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX
 
 
 /////////////////////////////////////////////////////////////////
-// Field Modidiers
+// Field Modifiers
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
@@ -499,6 +515,7 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
 /////////////////////////////////////////////////////////////////
 // Tag Lists - curly braces separated lists of words
 /////////////////////////////////////////////////////////////////
+
 expr(A) ::= modifier(B) COLON tag_list(C) . {
     if (!C) {
         A= NULL;
@@ -573,6 +590,7 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 /////////////////////////////////////////////////////////////////
 // Numeric Ranges
 /////////////////////////////////////////////////////////////////
+
 expr(A) ::= modifier(B) COLON numeric_range(C). {
   if (C) {
     // we keep the capitalization as is
@@ -648,6 +666,10 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
   }
 }
 
+/////////////////////////////////////////////////////////////////
+// Vector Queries
+/////////////////////////////////////////////////////////////////
+
 expr(A) ::= modifier(B) COLON vector_filter(C). {
   // we keep the capitalization as is
   if (C) {
@@ -658,13 +680,78 @@ expr(A) ::= modifier(B) COLON vector_filter(C). {
   }
 }
 
+// expr(A) ::= expr(B) ARROW LSQB vector_query(C) RSQB . {} // main parse, hybrid case.
+
+// TODO: add optimisation for "*=>[]" queries - vecsim search as the entire query. set order=BY_SCORE
+expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as subquery case.
+  switch (B->vn.vf->type) {
+    case VECSIM_QT_TOPK:
+      B->vn.vf->topk.runType = VECSIM_RUN_KNN;
+      B->vn.vf->topk.order = BY_ID;
+      break;
+    case VECSIM_QT_INVALID:
+      break; // can't happen here
+  }
+  A = B;
+}
+
+vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_field(D) . { // how we get vector field query
+  if (D.s != NULL) {
+    B->vn.vf->scoreField = rm_strndup(D.s, D.len);
+  }
+  B->vn.vf->paramNum = array_len(C);
+  B->vn.vf->params = C;
+  A = B;
+}
+
+// we can also have AS field. need to save the new-field-name for SORTBY later
+vector_score_field(A) ::= AS param_term(B) . {
+  A = B;
+}
+
+vector_score_field(A) ::= . {
+  A.s = NULL;
+}
+
+vector_command(A) ::= TOP_K param_num(B) modifier(C) ATTRIBUTE(D) . { // every vector query will have basic command and vector_attribute_list params.
+  D.type = QT_PARAM_VEC;
+  QueryParam *qp = NewVectorFilterQueryParam_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
+  qp->vf->property = rm_strndup(C.s, C.len);
+  A = NewVectorNode(qp);
+}
+
+vector_attribute(A) ::= TERM(B) param_any(C) . {
+  const char *value = rm_strndup(C.s, C.len);
+  const char *name = rm_strndup(B.s, B.len);
+  size_t value_len = C.len;
+  if (C.type == QT_PARAM_TERM) {
+    size_t found_value_len;
+    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
+    if (found_value) {
+      rm_free((char*)value);
+      value = rm_strndup(found_value, found_value_len);
+      value_len = found_value_len;
+    }
+  }
+  A = (VectorQueryParam){ .name = name, .namelen = B.len, .value = value, .vallen = value_len };
+}
+
+vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C) . {
+  if (B == NULL) {
+    B = array_new(VectorQueryParam, 1);
+  }
+  A = array_append(B, C);
+}
+
+vector_attribute_list(A) ::= . {
+    A = NULL;
+}
 
 vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [NUMBER] {
   // Update token types to be more specific if possible
   // and detect syntax errors
   QueryToken *badToken = NULL;
   if (B.type == QT_TERM) {
-    B.type = QT_VEC;
     // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
     //  Equal signs are currently considered as punct (punctuation) and are not included in a
     //  term, But in base64 encoding, it is used as padding to extend the string to a length
@@ -682,7 +769,7 @@ vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [NUMBER] 
   }
 
   if (C.type == QT_PARAM_ANY) {
-    C.type = QT_PARAM_VEC_SIM_TYPE;
+    C.type = QT_PARAM_VEC;
   } else if (!badToken && C.type != QT_TERM) {
     badToken = &C;
   }
@@ -694,7 +781,7 @@ vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [NUMBER] 
   }
 
   if (!badToken) {
-    A = NewVectorFilterQueryParam_WithParams(ctx, &B, &C, &D);
+    A = NewVectorFilterQueryParam_WithParams(ctx, 0, &C, &D);
   } else {
     reportSyntaxError(ctx->status, badToken, "Syntax error");
     A = NULL;
@@ -704,6 +791,7 @@ vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [NUMBER] 
 /////////////////////////////////////////////////////////////////
 // Primitives - numbers and strings
 /////////////////////////////////////////////////////////////////
+
 num(A) ::= NUMBER(B). {
     A.num = B.numval;
     A.inclusive = 1;
@@ -745,6 +833,17 @@ param_term(A) ::= NUMBER(B). {
 param_term(A) ::= ATTRIBUTE(B). {
   A = B;
   A.type = QT_PARAM_TERM;
+}
+
+param_num(A) ::= num(B). {
+  A.numval = B.num;
+  A.inclusive = B.inclusive;
+  A.type = QT_NUMERIC;
+}
+
+param_num(A) ::= ATTRIBUTE(B). {
+  A = B;
+  A.type = QT_PARAM_NUMERIC;
 }
 
 //For generic parameter (param_any) its `type` could be refined by other rules which may have more accurate semantics,

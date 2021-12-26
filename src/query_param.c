@@ -38,27 +38,21 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
   return ret;
 }
 
-QueryParam *NewVectorFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *vec, QueryToken *type, QueryToken *value) {
+// TODO: to be more generic, consider using variadic function, or use different functions for each command
+QueryParam *NewVectorFilterQueryParam_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec) {
   QueryParam *ret = NewQueryParam(QP_VEC_FILTER);
   VectorFilter *vf = rm_calloc(1, sizeof(*vf));
-  VectorFilter_InitValues(vf);
   ret->vf = vf;
-  int prevNumParams = q->numParams;
-  QueryParam_InitParams(ret, 3);
-  QueryParam_SetParam(q, &ret->params[0], &vf->vector, &vf->vecLen, vec);
-  assert (type->type != QT_TERM_CASE);
-  if (type->type == QT_TERM) {
-    vf->type = VectorFilter_ParseType(type->s, type->len);
-  } else {
-    QueryParam_SetParam(q, &ret->params[1], &vf->type, NULL, type);
-  }
-  QueryParam_SetParam(q, &ret->params[2], &vf->value, NULL, value);
-  if (prevNumParams == q->numParams) {
-    // No parameters were used - need to validate now
-    if (!VectorFilter_Validate(vf, q->status)) {
+  vf->type = type;
+  switch (type) {
+    case VECSIM_QT_TOPK:
+      QueryParam_InitParams(ret, 2);
+      QueryParam_SetParam(q, &ret->params[0], &vf->topk.value, NULL, value);
+      QueryParam_SetParam(q, &ret->params[1], &vf->topk.vector, &vf->topk.vecLen, vec);
+      break;
+    default:
       QueryParam_Free(ret);
       return NULL;
-    }
   }
   return ret;
 }
@@ -109,15 +103,6 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     *(double *)target_value = source->numval;
     return false; // done
 
-  case QT_VEC:
-    target_param->type = PARAM_NONE;
-    char *data = rm_malloc(source->len);
-    memcpy(data, source->s, source->len);
-    *(void**)target_value = data;
-    assert(target_len);
-    *target_len = source->len;
-    return false; // done
-
   case QT_PARAM_ANY:
     type = PARAM_ANY;
     break;
@@ -141,9 +126,6 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     break;
   case QT_PARAM_GEO_COORD:
     type = PARAM_GEO_COORD;
-    break;
-  case QT_PARAM_VEC_SIM_TYPE:
-    type = PARAM_VEC_SIM_TYPE;
     break;
   case QT_PARAM_VEC:
     type = PARAM_VEC;
@@ -209,10 +191,6 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_GEO_UNIT:
       *(GeoDistance*)param->target = GeoDistance_Parse(val);
-      return 1;
-
-    case PARAM_VEC_SIM_TYPE:
-      *(VectorQueryType*)param->target = VectorFilter_ParseType(val, strlen(val));
       return 1;
 
     case PARAM_VEC: {

@@ -21,7 +21,6 @@ typedef enum {
   QT_TERM,
   QT_TERM_CASE,
   QT_NUMERIC,
-  QT_VEC,
   // Parameterized types
   QT_PARAM_ANY,
   QT_PARAM_TERM,
@@ -31,7 +30,6 @@ typedef enum {
   QT_PARAM_NUMERIC_MAX_RANGE,
   QT_PARAM_GEO_COORD,
   QT_PARAM_GEO_UNIT,
-  QT_PARAM_VEC_SIM_TYPE,
   QT_PARAM_VEC
 } QueryTokenType;
 
