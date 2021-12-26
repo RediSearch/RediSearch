@@ -1095,6 +1095,8 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   // Get the child's last read docId
+  // if lastDocId is 0, Read & Skipto weren't called yet and child lastId
+  // might not be be updated (ex. NUMERIC filter) (PR-2440)
   t_docId childId = 0;
   if (nc->lastDocId != 0) {
     childId = nc->child->LastDocId(nc->child->ctx);
