@@ -851,9 +851,7 @@ TEST_F(LLApiTest, testStopwords) {
   ASSERT_EQ(size, 2);
   ASSERT_STRCASEEQ(list[0], words[0]);
   ASSERT_STRCASEEQ(list[1], words[1]);
-  rm_free(list[0]);
-  rm_free(list[1]);
-  rm_free(list);
+  RediSearch_StopwordsList_Free(list, 2);
 
   RediSearch_FreeIndexOptions(options);
   RediSearch_DropIndex(index);
@@ -889,6 +887,100 @@ TEST_F(LLApiTest, testGetters) {
   ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
   ASSERT_EQ(d->score, (float)RediSearch_IndexGetScore(index));
   RediSearch_FreeDocument(d);
+
+  RediSearch_FreeIndexOptions(opt);
+  RediSearch_DropIndex(index);  
+}
+
+TEST_F(LLApiTest, testInfo) {
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetGCPolicy(opt, GC_POLICY_FORK);
+  opt->score = 3.141;
+  opt->lang = RS_LANG_YIDDISH;
+
+  RSIndex* index = RediSearch_CreateIndex("index", opt);
+
+  RSFieldID fieldID;
+  fieldID = RediSearch_CreateField(index, "ft1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+  RediSearch_TextFieldSetWeight(index, fieldID, 2.3);
+  RediSearch_CreateField(index, "ft2", RSFLDTYPE_FULLTEXT, RSFLDOPT_TXTNOSTEM);
+  RediSearch_CreateField(index, "n1", RSFLDTYPE_NUMERIC, RSFLDOPT_SORTABLE | RSFLDOPT_NOINDEX);
+  fieldID = RediSearch_CreateField(index, "tg1", RSFLDTYPE_TAG, RSFLDOPT_NONE);
+  RediSearch_TagFieldSetSeparator(index, fieldID, '.');
+  RediSearch_TagFieldSetCaseSensitive(index, fieldID, 1);
+  RediSearch_CreateField(index, "dynamic1", RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
+                                            RSFLDTYPE_TAG | RSFLDTYPE_GEO, RSFLDOPT_NONE);
+
+  const char *docKey1 = "doc1";
+  Document* d = RediSearch_CreateDocumentSimple(docKey1);
+  RediSearch_DocumentAddFieldCString(d, "ft1", "hello", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldCString(d, "ft2", "world", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldNumber(d, "n1", 42, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, "tg1", "tag1", RSFLDTYPE_TAG);
+  RediSearch_SpecAddDocument(index, d);
+
+  const char *docKey2 = "doc2";
+  d = RediSearch_CreateDocumentSimple(docKey2);
+  RediSearch_DocumentAddFieldCString(d, "ft1", "redis", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldCString(d, "ft2", "labs", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldNumber(d, "n1", 42, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, "tg1", "tag2", RSFLDTYPE_TAG);
+  RediSearch_SpecAddDocument(index, d);
+
+  // test invalid option
+  RSIdxInfo info = { .version = 0 };
+  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);  
+
+  info = { .version = RS_INFO_CURRENT_VERSION };
+  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_OK);
+
+  ASSERT_EQ(info.gcPolicy, GC_POLICY_FORK);
+  ASSERT_EQ(info.score, 3.141);
+  ASSERT_EQ(info.lang, RS_LANG_YIDDISH);
+
+  // fields stats
+  ASSERT_EQ(info.numFields, 5);
+  ASSERT_STREQ(info.fields[0].path, "ft1");
+  ASSERT_EQ(info.fields[0].types, RSFLDTYPE_FULLTEXT);
+  ASSERT_EQ(info.fields[0].options, RSFLDOPT_NONE);
+  ASSERT_EQ(info.fields[0].textWeight, 2.3);
+
+  ASSERT_STREQ(info.fields[1].path, "ft2");
+  ASSERT_TRUE(info.fields[1].options & RSFLDOPT_TXTNOSTEM);
+  ASSERT_EQ(info.fields[1].types, RSFLDTYPE_FULLTEXT);
+
+  ASSERT_STREQ(info.fields[2].path, "n1");
+  ASSERT_EQ(info.fields[2].types, RSFLDTYPE_NUMERIC);
+  ASSERT_TRUE(info.fields[2].options & RSFLDOPT_SORTABLE);
+  ASSERT_TRUE(info.fields[2].options & RSFLDOPT_NOINDEX);
+
+  ASSERT_STREQ(info.fields[3].path, "tg1");
+  ASSERT_EQ(info.fields[3].types, RSFLDTYPE_TAG);
+  ASSERT_EQ(info.fields[3].tagSeperator, '.');
+  ASSERT_EQ(info.fields[3].tagCaseSensitive, 1);
+
+  ASSERT_STREQ(info.fields[4].path, "dynamic1");
+  ASSERT_EQ(info.fields[4].types, (RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
+                                    RSFLDTYPE_TAG | RSFLDTYPE_GEO));
+
+  // common stats
+  ASSERT_EQ(info.numDocuments, 2);
+  ASSERT_EQ(info.maxDocId, 2);
+  ASSERT_EQ(info.docTableSize, 140);
+  ASSERT_EQ(info.sortablesSize, 48);
+  ASSERT_EQ(info.docTrieSize, 87);
+  ASSERT_EQ(info.numTerms, 5);
+  ASSERT_EQ(info.numRecords, 7);
+  ASSERT_EQ(info.invertedSize, 32);
+  ASSERT_EQ(info.invertedCap, 0);
+  ASSERT_EQ(info.skipIndexesSize, 0);
+  ASSERT_EQ(info.scoreIndexesSize, 0);
+  ASSERT_EQ(info.offsetVecsSize, 5);
+  ASSERT_EQ(info.offsetVecRecords, 5);
+  ASSERT_EQ(info.termsSize, 24);
+  ASSERT_EQ(info.indexingFailures, 0);
+
+  RediSearch_IndexInfoFree(&info);
 
   RediSearch_FreeIndexOptions(opt);
   RediSearch_DropIndex(index);  

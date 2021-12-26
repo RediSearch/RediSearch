@@ -67,6 +67,7 @@ void MRCommand_AppendArgsAtPos(MRCommand *cmd, int pos, int num, ...);
 /** Copy from an argument of an existing command */
 void MRCommand_AppendFrom(MRCommand *cmd, const MRCommand *srcCmd, size_t srcidx);
 void MRCommand_Append(MRCommand *cmd, const char *s, size_t len);
+void MRCommand_AppendRstr(MRCommand *cmd, RedisModuleString *rmstr);
 
 /** Set the prefix of the command (i.e {prefix}.{command}) to a given prefix. If the command has a
  * module style prefx it gets replaced with the new prefix. If it doesn't, we prepend the prefix to

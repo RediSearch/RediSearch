@@ -2,8 +2,9 @@
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "rmutil/vector.h"
+#include "query_param.h"
 
-static int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
+int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
                             QueryError *status) {
   if (isMin && !strcasecmp(s, "-inf")) {
     *target = NF_NEGATIVE_INFINITY;

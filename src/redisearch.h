@@ -68,6 +68,8 @@ typedef enum {
   Document_HasOffsetVector = 0x08,
 } RSDocumentFlags;
 
+#define hasPayload(x) (x & Document_HasPayload)
+
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
  *
@@ -95,22 +97,23 @@ typedef struct RSDocumentMetadata_s {
 
   /* Document flags  */
   RSDocumentFlags flags : 8;
+  // Type of source document. Hash or JSON.
+  DocumentType type : 8;
 
-  /* Optional user payload */
-  RSPayload *payload;
+  uint32_t ref_count : 16;
 
   struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   DLLIST2_node llnode;
-  uint32_t ref_count;
 
-  // Type of source document. Hash or JSON.
-  DocumentType type;
+  /* Optional user payload */
+  RSPayload *payload;
+
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */
-struct RSQuery;
+struct QueryParseCtx;
 
 /* Forward declaration of the opaque query node object */
 struct RSQueryNode;
@@ -249,7 +252,8 @@ typedef enum {
   RSResultType_Intersection = 0x2,
   RSResultType_Term = 0x4,
   RSResultType_Virtual = 0x8,
-  RSResultType_Numeric = 0x10
+  RSResultType_Numeric = 0x10,
+  RSResultType_Distance = 0x20,
 } RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union)
