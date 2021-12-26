@@ -966,7 +966,7 @@ TEST_F(LLApiTest, testInfo) {
   // common stats
   ASSERT_EQ(info.numDocuments, 2);
   ASSERT_EQ(info.maxDocId, 2);
-  ASSERT_EQ(info.docTableSize, 172);
+  ASSERT_EQ(info.docTableSize, 140);
   ASSERT_EQ(info.sortablesSize, 48);
   ASSERT_EQ(info.docTrieSize, 87);
   ASSERT_EQ(info.numTerms, 5);
