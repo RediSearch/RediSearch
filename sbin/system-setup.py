@@ -13,15 +13,13 @@ import paella
 #----------------------------------------------------------------------------------------------
 
 class RediSearchSetup(paella.Setup):
-    def __init__(self, nop=False):
-        paella.Setup.__init__(self, nop)
+    def __init__(self, args):
+        paella.Setup.__init__(self, args.nop)
 
     def common_first(self):
         self.install_downloaders()
-        self.pip_install("wheel")
-        self.pip_install("setuptools --upgrade")
 
-        self.run("%s/bin/enable-utf8" % READIES)
+        self.run("%s/bin/enable-utf8" % READIES, sudo=self.os != 'macos')
         self.install("git gawk jq openssl rsync unzip")
 
     def linux_first(self):
@@ -29,7 +27,7 @@ class RediSearchSetup(paella.Setup):
 
     def debian_compat(self):
         self.install("libatomic1")
-        self.run("%s/bin/getgcc" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES, sudo=True)
         self.install("libtool m4 automake libssl-dev")
         self.install("python-dev")
 
@@ -41,10 +39,10 @@ class RediSearchSetup(paella.Setup):
 
     def redhat_compat(self):
         self.install("redhat-lsb-core")
-        self.run("%s/bin/getepel" % READIES)
+        self.run("%s/bin/getepel" % READIES, sudo=True)
         self.install("libatomic")
 
-        self.run("%s/bin/getgcc --modern" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES, sudo=True)
         self.install("libtool m4 automake openssl-devel")
         self.install("python2-devel")
 
@@ -52,15 +50,17 @@ class RediSearchSetup(paella.Setup):
             self.install("python-gevent")
 
     def archlinux(self):
-        self.install("gcc-libs")
+        self.run("%s/bin/getgcc --modern" % READIES, sudo=True)
+        self.install("libtool m4 automake")
 
     def fedora(self):
         self.install("libatomic")
-        self.run("%s/bin/getgcc" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES, sudo=True)
         self.install("openssl-devel")
 
     def macos(self):
         self.install_gnu_utils()
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("pkg-config")
         self.install("libtool m4 automake")
 
@@ -68,7 +68,8 @@ class RediSearchSetup(paella.Setup):
         self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
     def common_last(self):
-        self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES))
+        self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),
+                 sudo=self.os != 'macos')
         self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall".format(PYTHON=self.python, READIES=READIES))
         if self.dist != "arch":
             self.install("lcov")
@@ -87,4 +88,4 @@ parser = argparse.ArgumentParser(description='Set up system for build.')
 parser.add_argument('-n', '--nop', action="store_true", help='no operation')
 args = parser.parse_args()
 
-RediSearchSetup(nop = args.nop).setup()
+RediSearchSetup(args).setup()

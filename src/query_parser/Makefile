@@ -1,3 +1,3 @@
 SRCUTIL := $(abspath ../../srcutil)
-PARSER_SYMBOL_PREFIX := RSQuery
+PARSER_SYMBOL_PREFIX := QueryParseCtx
 include $(SRCUTIL)/make-parser.mk

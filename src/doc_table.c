@@ -9,7 +9,6 @@
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
-#include "rmutil/rm_assert.h"
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
@@ -121,7 +120,7 @@ int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, 
   }
 
   /* If we already have metadata - clean up the old data */
-  if (dmd->payload) {
+  if (hasPayload(dmd->flags)) {
     /* Free the old payload */
     if (dmd->payload->data) {
       rm_free((void *)dmd->payload->data);
@@ -193,40 +192,47 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   }
   t_docId docId = ++t->maxDocId;
 
-  /* Copy the payload since it's probably an input string not retained */
-  RSPayload *dpl = NULL;
+  RSDocumentMetadata *dmd;
   if (payload && payloadSize) {
-
-    dpl = rm_malloc(sizeof(RSPayload));
-    dpl->data = rm_calloc(1, payloadSize + 1);
-    memcpy(dpl->data, payload, payloadSize);
-    dpl->len = payloadSize;
+    dmd = rm_calloc(1, sizeof(*dmd));
     flags |= Document_HasPayload;
-    t->memsize += payloadSize + sizeof(RSPayload);
+    t->memsize += sizeof(RSDocumentMetadata);
+  } else {
+    size_t leanSize = sizeof(*dmd) - sizeof(RSPayload *);
+    dmd = rm_calloc(1, leanSize);
+    t->memsize += leanSize;
   }
 
   sds keyPtr = sdsnewlen(s, n);
-
-  RSDocumentMetadata *dmd = rm_calloc(1, sizeof(*dmd));
   dmd->keyPtr = keyPtr;
   dmd->score = score;
   dmd->flags = flags;
-  dmd->payload = dpl;
   dmd->maxFreq = 1;
   dmd->id = docId;
   dmd->sortVector = NULL;
   dmd->type = type;
 
+  if (hasPayload(flags)) {
+    /* Copy the payload since it's probably an input string not retained */
+    RSPayload *dpl = rm_malloc(sizeof(RSPayload));
+    dpl->data = rm_calloc(1, payloadSize + 1);
+    memcpy(dpl->data, payload, payloadSize);
+    dpl->len = payloadSize;
+    t->memsize += payloadSize + sizeof(RSPayload);
+
+    dmd->payload = dpl;
+  }
+
   DocTable_Set(t, docId, dmd);
   ++t->size;
-  t->memsize += sizeof(RSDocumentMetadata) + sdsAllocSize(keyPtr);
+  t->memsize += sdsAllocSize(keyPtr);
   DocIdMap_Put(&t->dim, s, n, docId);
   return dmd;
 }
 
 RSPayload *DocTable_GetPayload(DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_Get(t, docId);
-  return dmd ? dmd->payload : NULL;
+  return (dmd && hasPayload(dmd->flags)) ? dmd->payload : NULL;
 }
 
 /* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table.
@@ -253,7 +259,7 @@ inline float DocTable_GetScore(DocTable *t, t_docId docId) {
 }
 
 void DMD_Free(RSDocumentMetadata *md) {
-  if (md->payload) {
+  if (hasPayload(md->flags)) {
     rm_free(md->payload->data);
     rm_free(md->payload);
     md->flags &= ~Document_HasPayload;
@@ -317,8 +323,11 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
 
     md->flags |= Document_Deleted;
 
-    t->memsize -= sizeof(RSDocumentMetadata) + sdsAllocSize(md->keyPtr);
-    if (md->payload) {
+    t->memsize -= sdsAllocSize(md->keyPtr);
+    if (!hasPayload(md->flags)) {
+      t->memsize -= sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
+    } else {
+      t->memsize -= sizeof(RSDocumentMetadata);
       t->memsize -= md->payload->len + sizeof(RSPayload);
     }
     if (md->sortVector) {
@@ -365,7 +374,7 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
       RedisModule_SaveUnsigned(rdb, dmd->len);
       RedisModule_SaveFloat(rdb, dmd->score);
       if (dmd->flags & Document_HasPayload) {
-        if (dmd->payload) {
+        if (hasPayload(dmd->flags)) {
           // save an extra space for the null terminator to make the payload null terminated on
           RedisModule_SaveStringBuffer(rdb, dmd->payload->data, dmd->payload->len + 1);
         } else {
@@ -441,9 +450,9 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
 
     dmd->score = RedisModule_LoadFloat(rdb);
-    dmd->payload = NULL;
     // read payload if set
-    if ((dmd->flags & Document_HasPayload)) {
+    if (hasPayload(dmd->flags)) {
+      dmd->payload = NULL;
       if (!(dmd->flags & Document_Deleted)) {
         dmd->payload = rm_malloc(sizeof(RSPayload));
         dmd->payload->data = RedisModule_LoadStringBuffer(rdb, &dmd->payload->len);

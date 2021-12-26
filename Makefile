@@ -45,6 +45,10 @@ endif # SAN
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(wildcard $(ROOT)/deps/readies),)
+$(shell git submodule update --init --recursive)
+endif
+
 ROOT=.
 include deps/readies/mk/main
 
@@ -58,6 +62,7 @@ make build         # compile and link
   COORD=1|oss|rlec   # build coordinator (1|oss: Open Source, rlec: Enterprise)
   STATIC=1           # build as static lib
   LITE=1             # build RediSearchLight
+  VECSIM_MARCH=arch  # architecture for VecSim build
   DEBUG=1            # build for debugging
   NO_TESTS=1         # disable unit tests
   WHY=1              # explain CMake decisions (in /tmp/cmake-why)
@@ -74,13 +79,13 @@ make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
 make test          # run all tests (via ctest)
-  COORD=1|oss|rlec   # test coordinator
+  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=regex         # run tests that match regex
   TESTDEBUG=1        # be very verbose (CTest-related)
   CTEST_ARG=...      # pass args to CTest
   CTEST_PARALLEL=n   # run tests in give parallelism
 make pytest        # run python tests (tests/pytests)
-  COORD=1|oss|rlec   # test coordinator
+  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
   REJSON=1|0         # also load RedisJSON module
@@ -88,6 +93,7 @@ make pytest        # run python tests (tests/pytests)
   EXT=1              # External (existing) environment
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
+  VG_LEAKS=0         # do not search leaks with Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
 make c_tests       # run C tests (from tests/ctests)
@@ -252,13 +258,44 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
+#----------------------------------------------------------------------------------------------
+
+ifeq ($(ARCH),x64)
+
+ifeq ($(SAN),)
+ifneq ($(findstring centos,$(OSNICK)),)
+VECSIM_MARCH ?= skylake-avx512
+else ifneq ($(findstring xenial,$(OSNICK)),)
+VECSIM_MARCH ?= skylake-avx512
+else ifneq ($(findstring macos,$(OS)),)
+VECSIM_MARCH ?= skylake-avx512
+else
+VECSIM_MARCH ?= x86-64-v4
+endif
+else
+VECSIM_MARCH ?= skylake-avx512
+endif
+
+CMAKE_VECSIM=-DVECSIM_MARCH=$(VECSIM_MARCH)
+
+else # ARCH != x64
+
+CMAKE_VECSIM=
+
+endif # ARCH
+
+#----------------------------------------------------------------------------------------------
+
 CMAKE_FLAGS=\
 	-Wno-dev \
 	-DGIT_SHA=$(GIT_SHA) \
 	-DGIT_VERSPEC=$(GIT_VERSPEC) \
-	-DRS_MODULE_NAME=$(RAMP_MODULE_NAME)
+	-DRS_MODULE_NAME=$(RAMP_MODULE_NAME) \
+	-DOS=$(OS) \
+	-DOSNICK=$(OSNICK) \
+	-DARCH=$(ARCH)
 
-CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC)  $(CMAKE_COORD) \
+CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_VECSIM) \
 	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
 
 #----------------------------------------------------------------------------------------------
@@ -303,6 +340,19 @@ else
 MAKE_J:=-j$(shell nproc)
 endif
 
+ifeq ($(OSNICK),centos7)
+ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
+define SETUP_LIBSTDCXX
+set -e ;\
+cd $(BINDIR) ;\
+wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$(OS)-$(ARCH).tgz ;\
+tar xzf libstdc.tgz ;\
+rm libstdc.tgz ;\
+ln -sf libstdc++.so.6.0.25 libstdc++.so.6
+endef
+endif
+endif
+
 ifeq ($(FORCE),1)
 .PHONY: __force
 
@@ -318,6 +368,7 @@ endif
 
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
+	$(SHOW)$(SETUP_LIBSTDCXX)
 ifneq ($(DRY_RUN),1)
 	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
 #	$(SHOW)[ -f $(TARGET) ] && touch $(TARGET)
@@ -440,10 +491,16 @@ endif
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
-test:
 ifneq ($(SAN),)
+REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+
+$(REJSON_SO):
 	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
+else
+REJSON_SO=
 endif
+
+test: $(REJSON_SO)
 ifneq ($(TEST),)
 	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
@@ -457,11 +514,10 @@ ifeq ($(COORD),oss)
 endif
 endif
 
-pytest:
-ifneq ($(SAN),)
-	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
-endif
+pytest: $(REJSON_SO)
 	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+
+#----------------------------------------------------------------------------------------------
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args
@@ -470,14 +526,29 @@ GDB_CMD=
 endif
 
 c_tests:
-	$(SHOW)find $(abspath $(BINROOT)/tests/ctests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
+ifeq ($(COORD),)
+ifeq ($(TEST),)
+	$(SHOW)set -e ;\
+	cd tests/ctests ;\
+	find $(abspath $(BINROOT)/search/tests/ctests) -name "test_*" -type f -executable -print0 | xargs -0 -n1 bash -c
+else
+	$(SHOW)set -e ;\
+	cd tests/ctests ;\
+	${GDB_CMD} $(BINROOT)/search/tests/ctests/$(TEST)
+endif
+else ifeq ($(COORD),oss)
+ifeq ($(TEST),)
+	$(SHOW)set -e; find $(abspath $(BINROOT)/coord-oss/tests/unit) -name "test_*" -type f -executable -print0 | xargs -0 -n1 bash -c
+else
+	$(SHOW)${GDB_CMD} $(BINROOT)/coord-oss/tests/unit/$(TEST)
+endif
+endif
 
 cpp_tests:
 ifeq ($(TEST),)
-	$(SHOW)find $(abspath $(BINROOT)/tests/cpptests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
+	$(SHOW)$(BINROOT)/search/tests/cpptests/rstest
 else
-	$(SHOW)set -e ;\
-	$(GDB_CMD) $(abspath $(BINROOT)/tests/cpptests/$(TEST)) --gtest_filter=$(TEST)
+	$(SHOW)$(GDB_CMD) $(abspath $(BINROOT)/search/tests/cpptests/rstest) --gtest_filter=$(TEST)
 endif
 
 .PHONY: test pytest c_tests cpp_tests
@@ -547,7 +618,7 @@ benchmark:
 #----------------------------------------------------------------------------------------------
 
 COV_EXCLUDE_DIRS += \
-    deps \
+	deps \
 	tests \
 	coord/tests
 

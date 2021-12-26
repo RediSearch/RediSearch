@@ -227,6 +227,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
   double ret = 0;
   switch (r->type) {
     case RSResultType_Term:
+    case RSResultType_Distance:
     case RSResultType_Numeric:
     case RSResultType_Virtual:
       ret = r->freq;
@@ -292,7 +293,7 @@ static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSInde
                                     const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   // the strings must be of the same length > 0
-  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
+  if (!hasPayload(dmd->flags) || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
     EXPLAIN(scrExp, "Payloads provided to scorer vary in length");
     return 0;
   }

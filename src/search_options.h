@@ -7,6 +7,7 @@
 #include "geo_index.h"
 #include "config.h"
 #include "rlookup.h"
+#include "util/dict.h"
 
 typedef enum {
   // No summaries
@@ -94,6 +95,7 @@ typedef struct {
   size_t nids;
 
   const StopWordList *stopwords;
+  dict *params;
 
   /** Legacy options */
   struct {

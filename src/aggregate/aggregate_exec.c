@@ -64,7 +64,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
   if (options & QEXEC_F_SEND_PAYLOADS) {
     count++;
-    if (dmd && dmd->payload) {
+    if (dmd && hasPayload(dmd->flags)) {
       RedisModule_ReplyWithStringBuffer(outctx, dmd->payload->data, dmd->payload->len);
     } else {
       RedisModule_ReplyWithNull(outctx);
