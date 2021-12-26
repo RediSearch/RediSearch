@@ -171,9 +171,6 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
 
-%type vector_filter { QueryParam *}
-%destructor vector_filter { QueryParam_Free($$); }
-
 %type vector_query { QueryNode *}
 %destructor vector_query { QueryNode_Free($$); }
 
@@ -184,8 +181,8 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %destructor vector_attribute { rm_free((char*)$$.value); }
 
 %type vector_attribute_list { VectorQueryParam *}
-%destructor vector_attribute_list { array_free_ex($$, rm_free((char*)((VectorQueryParam*)ptr )->value));
-                                    array_free_ex($$, rm_free((char*)((VectorQueryParam*)ptr )->name)); }
+%destructor vector_attribute_list { array_free_ex($$, {rm_free((char*)((VectorQueryParam*)ptr )->value);
+                                                       rm_free((char*)((VectorQueryParam*)ptr )->name);});}
 
 %type modifierlist { Vector* }
 %destructor modifierlist { 
@@ -670,17 +667,7 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 // Vector Queries
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= modifier(B) COLON vector_filter(C). {
-  // we keep the capitalization as is
-  if (C) {
-      C->vf->property = rm_strndup(B.s, B.len);
-      A = NewVectorNode(C);
-  } else {
-      A = NewQueryNode(QN_NULL);
-  }
-}
-
-// expr(A) ::= expr(B) ARROW LSQB vector_query(C) RSQB . {} // main parse, hybrid case.
+// expr(A) ::= expr(B) ARROW LSQB vector_query(C) RSQB. {} // main parse, hybrid case.
 
 // TODO: add optimisation for "*=>[]" queries - vecsim search as the entire query. set order=BY_SCORE
 expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as subquery case.
@@ -695,7 +682,7 @@ expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsi
   A = B;
 }
 
-vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_field(D) . { // how we get vector field query
+vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_field(D). { // how we get vector field query
   if (D.s != NULL) {
     B->vn.vf->scoreField = rm_strndup(D.s, D.len);
   }
@@ -705,7 +692,7 @@ vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_fiel
 }
 
 // we can also have AS field. need to save the new-field-name for SORTBY later
-vector_score_field(A) ::= AS param_term(B) . {
+vector_score_field(A) ::= AS param_term(B). {
   A = B;
 }
 
@@ -713,14 +700,14 @@ vector_score_field(A) ::= . {
   A.s = NULL;
 }
 
-vector_command(A) ::= TOP_K param_num(B) modifier(C) ATTRIBUTE(D) . { // every vector query will have basic command and vector_attribute_list params.
+vector_command(A) ::= TOP_K param_num(B) modifier(C) ATTRIBUTE(D). { // every vector query will have basic command and vector_attribute_list params.
   D.type = QT_PARAM_VEC;
   QueryParam *qp = NewVectorFilterQueryParam_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
   qp->vf->property = rm_strndup(C.s, C.len);
   A = NewVectorNode(qp);
 }
 
-vector_attribute(A) ::= TERM(B) param_any(C) . {
+vector_attribute(A) ::= TERM(B) param_any(C). {
   const char *value = rm_strndup(C.s, C.len);
   const char *name = rm_strndup(B.s, B.len);
   size_t value_len = C.len;
@@ -736,7 +723,7 @@ vector_attribute(A) ::= TERM(B) param_any(C) . {
   A = (VectorQueryParam){ .name = name, .namelen = B.len, .value = value, .vallen = value_len };
 }
 
-vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C) . {
+vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C). {
   if (B == NULL) {
     B = array_new(VectorQueryParam, 1);
   }
@@ -745,47 +732,6 @@ vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C) . {
 
 vector_attribute_list(A) ::= . {
     A = NULL;
-}
-
-vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [NUMBER] {
-  // Update token types to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-  if (B.type == QT_TERM) {
-    // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
-    //  Equal signs are currently considered as punct (punctuation) and are not included in a
-    //  term, But in base64 encoding, it is used as padding to extend the string to a length
-    //  which is a multiple of 3.
-    size_t len = B.len;
-    int remainder = len % 3;
-    if (remainder == 1 && *((B.s) + len) == '=' && *((B.s) + len + 1) == '=')
-      B.len = len + 2;
-    else if (remainder == 2 && *((B.s) + len) == '=')
-      B.len = len + 1;
-  } else if (B.type == QT_PARAM_ANY) {
-    B.type = QT_PARAM_VEC;
-  } else {
-    badToken = &B;
-  }
-
-  if (C.type == QT_PARAM_ANY) {
-    C.type = QT_PARAM_VEC;
-  } else if (!badToken && C.type != QT_TERM) {
-    badToken = &C;
-  }
-
-  if (D.type == QT_PARAM_ANY) {
-    D.type = QT_PARAM_NUMERIC;
-  } else if (!badToken && D.type != QT_NUMERIC) {
-    badToken = &D;
-  }
-
-  if (!badToken) {
-    A = NewVectorFilterQueryParam_WithParams(ctx, 0, &C, &D);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Syntax error");
-    A = NULL;
-  }
 }
 
 /////////////////////////////////////////////////////////////////
