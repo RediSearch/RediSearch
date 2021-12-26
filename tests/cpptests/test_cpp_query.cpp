@@ -207,6 +207,11 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
 
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB AS score]", ctx);
+  assertInvalidQuery("*=>[TOPK $K @vec_field $BLOB]", ctx);
+  assertInvalidQuery("*=>[TOP_K $K @vec_field BLOB]", ctx);
+
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
 
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
