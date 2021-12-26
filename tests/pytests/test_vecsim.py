@@ -338,6 +338,8 @@ def get_vecsim_memory(env, index_key, field_name):
 
 
 def test_memory_info(env):
+    # Skip on cluster as FT.DEBUG not supported.
+    env.skipOnCluster()
     # This test flow adds two vectors and deletes them. The test checks for memory increase in Redis and RediSearch upon insertion and decrease upon delete.
     conn = getConnectionByEnv(env)
     conn = getConnectionByEnv(env)
