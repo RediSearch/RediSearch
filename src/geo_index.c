@@ -3,6 +3,8 @@
 #include "rmutil/util.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "query_node.h"
+#include "query_param.h"
 
 static double extractUnitFactor(GeoDistance unit);
 
@@ -110,6 +112,16 @@ GeoDistance GeoDistance_Parse(const char *s) {
   return GEO_DISTANCE_INVALID;
 }
 
+GeoDistance GeoDistance_Parse_Buffer(const char *s, size_t len) {
+  char buf[16] = {0};
+  if (len < 16) {
+    memcpy(buf, s, len);
+  } else {
+    strcpy(buf, "INVALID");
+  }
+  return GeoDistance_Parse(buf);
+}
+
 const char *GeoDistance_ToString(GeoDistance d) {
 #define X(c, val)              \
   if (d == GEO_DISTANCE_##c) { \
@@ -121,7 +133,7 @@ const char *GeoDistance_ToString(GeoDistance d) {
 }
 
 /* Create a geo filter from parsed strings and numbers */
-GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit) {
+GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len) {
   GeoFilter *gf = rm_malloc(sizeof(*gf));
   *gf = (GeoFilter){
       .lon = lon,
@@ -129,16 +141,33 @@ GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit)
       .radius = radius,
   };
   if (unit) {
-    gf->unitType = GeoDistance_Parse(unit);
+    gf->unitType = GeoDistance_Parse_Buffer(unit, unit_len);
   } else {
     gf->unitType = GEO_DISTANCE_KM;
   }
   return gf;
 }
 
+int GeoFilter_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+  if (node->params) {
+    int resolved = 0;
+
+    for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
+      int res = QueryParam_Resolve(&node->params[i], params, status);
+      if (res < 0)
+        return REDISMODULE_ERR;
+      else if (res > 0)
+        resolved = 1;
+    }
+    if (resolved && !GeoFilter_Validate(node->gn.gf, status))
+        return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 /* Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
  * sane, unit is valid. Return 1 if valid, 0 if not, and set the error string into err */
-int GeoFilter_Validate(GeoFilter *gf, QueryError *status) {
+int GeoFilter_Validate(const GeoFilter *gf, QueryError *status) {
   if (gf->unitType == GEO_DISTANCE_INVALID) {
     QERR_MKSYNTAXERR(status, "Invalid GeoFilter unit");
     return 0;

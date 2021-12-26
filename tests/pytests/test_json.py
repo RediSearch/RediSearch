@@ -100,7 +100,7 @@ def testSearchUpdatedContent(env):
     plain_int_res_val_3 = str(int(plain_int_val_3) + int(int_incrby_3))
     env.expect('json.set', 'doc:1', '$.n', plain_int_val_3).ok()
     # test JSON.NUMINCRBY
-    env.expect('json.numincrby', 'doc:1', '$.n', int_incrby_3).equal(plain_int_res_val_3)
+    env.expect('json.numincrby', 'doc:1', '$.n', int_incrby_3).equal('[' + plain_int_res_val_3 + ']')
 
     expected = [1L, 'doc:1', ['$', json.loads(r'{"t":"hescelosaurus","n":' + plain_int_res_val_3 + '}')]]
     res = env.cmd('ft.search', 'idx1', 'he*')
@@ -256,7 +256,7 @@ def testToggle(env):
                '$.boolT', 'AS', 'boolT', 'TAG').ok()
     env.expect('JSON.SET', 'doc:1', '$', r'{"boolT":false}').ok()
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"boolT":false}']])
-    env.expect('JSON.TOGGLE','doc:1','$.boolT').equal('true')
+    env.expect('JSON.TOGGLE','doc:1','$.boolT').equal([1L])
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"boolT":true}']])
 
 @no_msan
@@ -275,49 +275,54 @@ def testStrappend(env):
     env.expect('ft.search', 'idx', 'Redis').equal([0L])
 
 @no_msan
-def testArrappend(env):
-    # JSON.ARRAPPEND
-    # FIXME: Currently unsupported
-    pass
+def testArrayCommands(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                         'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG')
 
-@no_msan
-def testArrInsert(env):
-    # JSON.ARRINSERT
-    # FIXME: Currently unsupported
-    pass
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag":["foo"]}'))
+    env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.tag', '"bar"'), [2L])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","bar"]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [2L])
+    res = [1L, 'doc:1', ['$', '{"tag":["foo","bar"]}']]
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{bar}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), [0L])
 
-@no_msan
-@skip
-def testArrpop(env):
-    # TODO: array cannot be indexed yet
+    # use JSON.ARRINSERT
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.tag', '2', '"baz"'), [3L])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","bar","baz"]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [3L])
+    res = [1L, 'doc:1', ['$', '{"tag":["foo","bar","baz"]}']] 
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{bar}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
 
-    # JSON.ARRPOP
-    env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TAG')
-    env.expect('JSON.SET', 'doc:1', '$', '{"t":["foo", "bar", "back"]}').ok()
+    # use JSON.ARRPOP
+    env.assertEqual(conn.execute_command('JSON.ARRPOP', 'doc:1', '$.tag', '1'), ['"bar"'])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","baz"]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [2L])
+    res = [1L, 'doc:1', ['$', '{"tag":["foo","baz"]}']]
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{bar}'), [0L])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
 
-    # FIXME: Enable the following line: Should we search in array content? Need TAG for that?
-    #env.expect('FT.SEARCH', 'idx1', 'ba*', 'RETURN', '1', 'labelT').equal([1L, 'doc:1', ['labelT', '"bar"']])
+    # use JSON.ARRTRIM
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.tag', '0', '"1"'), [3L])
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.tag', '0', '"2"'), [4L])
+    env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.tag', '"3"', '"4"'), [6L])
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [6L])
 
-    # FIXME: Why aggregate 'ba*' returns zero results?
-    # env.expect('FT.AGGREGATE', 'idx1', 'ba*', 'LOAD', '3', '@$.t', 'AS', 't').equal([1L, ['t', '["foo","bar","back"]']])
-
-    env.expect('FT.SEARCH', 'idx1', '*').equal([1L, 'doc:1', ['$', '{"t":["foo","bar","back"]}']])
-    env.expect('FT.AGGREGATE', 'idx1', '*', 'LOAD', '3', '@$.t', 'AS', 't').equal([1L, ['t', '["foo","bar","back"]']])
-
-    env.expect('JSON.ARRPOP', 'doc:1', '$.t').equal('"back"')
-    env.expect('FT.SEARCH', 'idx1', '*').equal([1L, 'doc:1', ['$', '{"t":["foo","bar"]}']])
-    env.expect('JSON.ARRPOP', 'doc:1', '$.t', 0).equal('"foo"')
-    env.expect('FT.SEARCH', 'idx1', '*').equal([1L, 'doc:1', ['$', '{"t":["bar"]}']])
+    env.assertEqual(conn.execute_command('JSON.ARRTRIM', 'doc:1', '$.tag', '2', '3'), [2L])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","baz"]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [2L])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{1}'), [0L])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
 
 @no_msan
 def testRootValues(env):
     # Search all JSON types as a top-level element
-    # FIXME:
-    pass
-
-@no_msan
-def testArrtrim(env):
-    # json.arrtrim
     # FIXME:
     pass
 
@@ -495,6 +500,13 @@ def testDemo(env):
 
     env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '1', '$.name') \
         .equal([1L, 'A:SFO', ['$.name', 'San Francisco International Airport']])
+
+    expected_res = [1L, ['iata', 'SFO', '$', '{"iata":"SFO","name":"San Francisco International Airport","location":"-122.375,37.6189995"}']]
+    res = env.cmd('FT.AGGREGATE', 'airports', 'sfo', 'LOAD', '1', '$', 'SORTBY', '1', '@iata')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
+    res =env.cmd('FT.AGGREGATE', 'airports', 'sfo', 'SORTBY', '1', '@iata', 'LOAD', '1', '$')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
 @no_msan
 def testIndexSeparation(env):
@@ -735,3 +747,30 @@ def testNotExistField(env):
     conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
     conn.execute_command('JSON.SET', 'doc1', '$', '{"t":"foo"}')
     env.expect('FT.SEARCH', 'idx1', '*', 'RETURN', 1, 'name').equal([1L, 'doc1', []])
+
+@no_msan
+def testScoreField(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'permits1', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$._score', 'AS', '_score', 'NUMERIC', '$.description', 'AS', 'description', 'TEXT')
+    conn.execute_command('FT.CREATE', 'permits2', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$.description', 'AS', 'description', 'TEXT')
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit1', '$', r'{"_score":0.8, "description":"Fix the facade"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit2', '$', r'{"_score":0.7, "description":"Fix the facade"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit3', '$', r'{"_score":0.9, "description":"Fix the facade"}'))
+
+    res = [3L, 'tst:permit3', ['$', '{"_score":0.9,"description":"Fix the facade"}'],
+               'tst:permit1', ['$', '{"_score":0.8,"description":"Fix the facade"}'],
+               'tst:permit2', ['$', '{"_score":0.7,"description":"Fix the facade"}']]
+    env.expect('FT.SEARCH', 'permits1', '*').equal(res)
+    env.expect('FT.SEARCH', 'permits2', '*').equal(res)
+    env.expect('FT.SEARCH', 'permits1', 'facade').equal(res)
+    env.expect('FT.SEARCH', 'permits2', 'facade').equal(res)
+
+@no_msan
+def testMOD1853(env):
+    # test numeric with 0 value
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.sid', 'AS', 'sid', 'NUMERIC')
+    env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"sid":0}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"sid":1}'))
+    res = [2L, 'json1', ['sid', '0', '$', '{"sid":0}'], 'json2', ['sid', '1', '$', '{"sid":1}']]
+    env.expect('FT.SEARCH', 'idx', '@sid:[0 1]', 'SORTBY', 'sid').equal(res)

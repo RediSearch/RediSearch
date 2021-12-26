@@ -103,11 +103,13 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
+#define __STRINGIFY(x) #x
+#define STRINGIFY(x) __STRINGIFY(x)
+
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 #define DICT_INITIAL_SIZE 5
 #define DEFAULT_LEV_DISTANCE 1
 #define MAX_LEV_DISTANCE 100
-#define STRINGIFY(s) #s
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1060,10 +1062,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
   }
-  if (legacySpecRules) {
-    dictRelease(legacySpecRules);
-    legacySpecRules = NULL;
-  }
+  LegacySchemaRulesArgs_Free(RSDummyContext);
 
   Extensions_Free();
   StopWordList_FreeGlobals();

@@ -1,12 +1,14 @@
-#include <gtest/gtest.h>
-#include <aggregate/aggregate.h>
+
+#include "gtest/gtest.h"
+#include "aggregate/aggregate.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
 #include "spec.h"
 #include "common.h"
-#include <module.h>
-#include <version.h>
+#include "module.h"
+#include "version.h"
+
 #include <vector>
 #include <array>
 #include <iostream>
@@ -154,9 +156,7 @@ TEST_F(AggTest, testGroupBy) {
   RLookupKey *score_out = RLookup_GetKey(&rk_out, "SCORE", RLOOKUP_F_OCREAT);
   RLookupKey *count_out = RLookup_GetKey(&rk_out, "COUNT", RLOOKUP_F_OCREAT);
 
-  struct timespec timeout;
-  updateTimeout(&timeout, 1000);
-  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1, &timeout);
+  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1);
   ASSERT_TRUE(gr != NULL);
 
   ArgsCursor args = {0};
@@ -201,11 +201,7 @@ TEST_F(AggTest, testGroupSplit) {
   gen.kvalue = RLookup_GetKey(&lk_in, "value", RLOOKUP_F_OCREAT);
   RLookupKey *val_out = RLookup_GetKey(&lk_out, "value", RLOOKUP_F_OCREAT);
   RLookupKey *count_out = RLookup_GetKey(&lk_out, "COUNT", RLOOKUP_F_OCREAT);
-
-  struct timespec timeout;
-  updateTimeout(&timeout, 1000);
-  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1, &timeout);
-
+  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1);
   ArgsCursor args = {0};
   ReducerOptions opt = {0};
   opt.args = &args;

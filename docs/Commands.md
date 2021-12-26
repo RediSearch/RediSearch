@@ -8,7 +8,7 @@
 ```
   FT.CREATE {index}
     [ON {data_type}]
-       [PREFIX {count} {prefix} [{prefix} ..]
+       [PREFIX {count} {prefix} [{prefix} ...]
        [FILTER {filter}]
        [LANGUAGE {default_lang}]
        [LANGUAGE_FIELD {lang_attribute}]
@@ -18,8 +18,8 @@
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {identifier} [AS {attribute}]
-        [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE]
-        [SORTABLE [UNF]] [NOINDEX]] ...
+        [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE] [SORTABLE [UNF]] [NOINDEX]] |
+        [VECTOR {algorithm} {count} [{attribute_name} {attribute_value} ...]] ...
 ```
 
 #### Description
@@ -192,6 +192,10 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
       Allows geographic range queries against the value in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
 
+    * **VECTOR**
+
+      Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](Vectors.md).
+
     #### Field Options
 
     * **SORTABLE**
@@ -313,6 +317,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [PAYLOAD {payload}]
   [SORTBY {attribute} [ASC|DESC]]
   [LIMIT offset num]
+  [PARAMS {nargs} {name} {value} ... ]
 ```
 
 #### Description
@@ -443,6 +448,8 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 !!! tip
     `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
 
+* **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the query string by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
+
 #### Complexity
 
 O(n) for single word queries. `n` is the number of the results in the result set. Finding all the documents that have a specific term is O(1), however, a scan on all those documents is needed to load the documents data from redis hashes and return them.
@@ -532,6 +539,7 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
   `identifier` is either an attribute name (for hashes and JSON) or a JSON Path expression for (JSON).
   `property` is the optional name used in the result. It is not provided, the `identifier` is used.
   This should be avoided as a general rule of thumb.
+  If `*` is used as `nargs`, all attributes in a document are loaded.
   Attributes needed for aggregations should be stored as **SORTABLE**,
   where they are available to the aggregation pipeline with very low latency. LOAD hurts the
   performance of aggregate queries considerably, since every processed record needs to execute the
