@@ -1048,12 +1048,12 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
     }
   }
 
+ok:
   // make sure we did not overflow
   if (nc->base.current->docId > nc->maxDocId) {
     return INDEXREAD_EOF;
   }
 
-ok:
   // Set the next entry and return ok
   nc->lastDocId = nc->base.current->docId;
   if (hit) *hit = nc->base.current;
