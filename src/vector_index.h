@@ -29,21 +29,40 @@
   QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
 
 typedef enum {
-  VECTOR_SIM_INVALID = 0,
-  VECTOR_SIM_TOPK = 1,
+  VECSIM_QT_INVALID = 0,
+  VECSIM_QT_TOPK = 1,
 } VectorQueryType;
 
-typedef struct VectorFilter {
-  char *property;                 // name of field
-  void *vector;                   // vector data
-  size_t vecLen;                  // vector length
-  VectorQueryType type;           // TOPK
-  bool isBase64;                  // uses base64 strings
-  long long efRuntime;            // efRuntime
-  double value;                   // can hold int for TOPK or double for RANGE.
+typedef enum {
+  VECSIM_RUN_KNN = 0,
+  VECSIM_RUN_BATCH = 1,
+} VectorQueryRunType;
 
-  VecSimQueryResult *results;     // array for K results
-  int resultsLen;                 // length of array
+typedef struct {
+  const char *name;
+  size_t namelen;
+  const char *value;
+  size_t vallen;
+} VectorQueryParam;
+
+typedef struct VectorFilter {
+  char *property;                     // name of field
+  char *scoreField;                   // name of score field
+  union {
+    struct {
+      void *vector;                   // query vector data
+      size_t vecLen;                  // vector length
+      size_t value;                   // can hold int for TOPK or double for RANGE.
+      VectorQueryRunType runType;     // specify how to run the query
+      VecSimQueryResult_Order order;  // specify the result order.
+    } topk;
+  };
+  VectorQueryType type;               // vector similarity query type
+  VectorQueryParam *params;           // generic params for the query
+  size_t paramNum;                    // num of params
+
+  VecSimQueryResult *results;         // array for results
+  int resultsLen;                     // length of array
 } VectorFilter;
 
 // TODO: remove idxKey from all OpenFooIndex functions
@@ -52,8 +71,6 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
 
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf);
 
-void VectorFilter_InitValues(VectorFilter *vf);
-VectorQueryType VectorFilter_ParseType(const char *s, size_t len);
 int VectorFilter_Validate(const VectorFilter *vf, QueryError *status);
 int VectorFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void VectorFilter_Free(VectorFilter *vf);

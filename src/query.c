@@ -44,13 +44,7 @@ static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
 
 static void QueryVectorNode_Free(QueryVectorNode *vn) {
   if (vn->vf) {
-    if (vn->vf->vector) {
-      rm_free(vn->vf->vector); 
-    }
-    if (vn->vf->property) {
-      rm_free(vn->vf->property); 
-    }
-    rm_free(vn->vf);
+    VectorFilter_Free(vn->vf);
     vn->vf = NULL;
   }
 }
@@ -1380,41 +1374,6 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     }
     // qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
     //                                          will be enable if field was declared phonetic
-
-  } else if (STR_EQCASE(attr->name, attr->namelen, "base64")) {
-    if (qn->type != QN_VECTOR) {
-      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Attribute %s requires vector node",
-                             attr->name);
-      return 0;
-    }
-
-    // Apply base64 for vector similarity : true|false
-    int b;
-    if (qn->type != QN_VECTOR || !ParseBoolean(attr->value, &b)) {
-      MK_INVALID_VALUE();
-      return 0;
-    }
-    if (b) {
-      // The query string will be converted back to regular string
-      qn->vn.vf->isBase64 = true;
-    } else {
-      qn->vn.vf->isBase64 = false;
-    }
-
-  } else if (STR_EQCASE(attr->name, attr->namelen, "efRuntime")) {
-    if (qn->type != QN_VECTOR) {
-      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Attribute %s requires vector node",
-                             attr->name);
-      return 0;
-    }
-
-    // Apply base64 for vector similarity: [1...INF]
-    long long val;
-    if (!ParseInteger(attr->value, &val) || val < 1) {
-      MK_INVALID_VALUE();
-      return 0;
-    }
-    qn->vn.vf->efRuntime = val;
 
   } else {
     QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,

@@ -16,7 +16,6 @@ typedef enum {
   PARAM_NUMERIC_MAX_RANGE,
   PARAM_GEO_COORD,
   PARAM_GEO_UNIT,
-  PARAM_VEC_SIM_TYPE,
   PARAM_VEC,
 } ParamType;
 
