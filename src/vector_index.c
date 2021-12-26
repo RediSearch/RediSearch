@@ -58,56 +58,42 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
 }
 
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
-  VecSimQueryResult *result;
-  // TODO: change Dict to hold strings
-  RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vf->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
-  RedisModule_FreeString(ctx->redisCtx, key);
-  if (!vecsim) {
-    return NULL;
-  }
+//   VecSimQueryResult *result;
+//   // TODO: change Dict to hold strings
+//   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vf->property);
+//   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
+//   RedisModule_FreeString(ctx->redisCtx, key);
+//   if (!vecsim) {
+//     return NULL;
+//   }
 
-  size_t outLen;
-  unsigned char *vector = vf->vector;
-  switch (vf->type) {
-    case VECTOR_SIM_TOPK:
-      if (vf->isBase64) {
-        unescape((char *)vector, &vf->vecLen);
-        vector = base64_decode(vector, vf->vecLen, &outLen);
-      }
+//   size_t outLen;
+//   unsigned char *vector = vf->vector;
+//   switch (vf->type) {
+//     case VECSIM_QT_TOPK:
+//       if (vf->isBase64) {
+//         unescape((char *)vector, &vf->vecLen);
+//         vector = base64_decode(vector, vf->vecLen, &outLen);
+//       }
       
-      VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = vf->efRuntime};
-      vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value, &qParams, BY_ID );
-      vf->resultsLen = VecSimQueryResult_Len(vf->results);
-      if (vf->isBase64) {
-        rm_free(vector);
-      }
-      break;
+//       VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = vf->efRuntime};
+//       vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value, &qParams, BY_ID );
+//       vf->resultsLen = VecSimQueryResult_Len(vf->results);
+//       if (vf->isBase64) {
+//         rm_free(vector);
+//       }
+//       break;
 
-    case VECTOR_SIM_INVALID:
-      return NULL;
-  }
+//     case VECSIM_QT_INVALID:
+//       return NULL;
+//   }
 
-  return NewListIterator(vf->results, vf->resultsLen);
-}
-
-void VectorFilter_InitValues(VectorFilter *vf) {
-  vf->efRuntime = HNSW_DEFAULT_EF_RT;
-}
-
-
-VectorQueryType VectorFilter_ParseType(const char *s, size_t len) {
-  if (!strncasecmp(s, "TOPK", len)) {
-    return VECTOR_SIM_TOPK;
-  } else if (!strncasecmp(s, "RANGE", len)) {
-    return VECTOR_SIM_TOPK;
-  } else {
-    return VECTOR_SIM_INVALID;
-  }
+//   return NewListIterator(vf->results, vf->resultsLen);
+  return NULL;
 }
 
 int VectorFilter_Validate(const VectorFilter *vf, QueryError *status) {
-    if (vf->type == VECTOR_SIM_INVALID) {
+    if (vf->type == VECSIM_QT_INVALID) {
       QERR_MKSYNTAXERR(status, "Invalid Vector similarity type");
       return 0;
     }
@@ -134,7 +120,19 @@ int VectorFilter_EvalParams(dict *params, QueryNode *node, QueryError *status) {
 
 void VectorFilter_Free(VectorFilter *vf) {
   if (vf->property) rm_free((char *)vf->property);
-  if (vf->vector) rm_free(vf->vector);
+  if (vf->scoreField) rm_free((char *)vf->scoreField);
+  switch (vf->type) {
+    case VECSIM_QT_TOPK:
+      rm_free(vf->topk.vector);
+      break;
+    case VECSIM_QT_INVALID:
+      break;
+  }
+  for (int i = 0; i < vf->paramNum; i++) {
+    rm_free((char *)vf->params[i].name);
+    rm_free((char *)vf->params[i].value);
+  }
+  array_free(vf->params);
   rm_free(vf);
 }
 
