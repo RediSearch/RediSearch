@@ -128,7 +128,7 @@ void VectorFilter_Free(VectorFilter *vf) {
     case VECSIM_QT_INVALID:
       break;
   }
-  for (int i = 0; i < vf->paramNum; i++) {
+  for (int i = 0; i < array_len(vf->params); i++) {
     rm_free((char *)vf->params[i].name);
     rm_free((char *)vf->params[i].value);
   }

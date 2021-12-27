@@ -59,7 +59,6 @@ typedef struct VectorFilter {
   };
   VectorQueryType type;               // vector similarity query type
   VectorQueryParam *params;           // generic params for the query
-  size_t paramNum;                    // num of params
 
   VecSimQueryResult *results;         // array for results
   int resultsLen;                     // length of array

@@ -677,7 +677,7 @@ expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsi
       B->vn.vf->topk.order = BY_ID;
       break;
     case VECSIM_QT_INVALID:
-      break; // can't happen here
+      break; // can't happen here. just to silence warnings.
   }
   A = B;
 }
@@ -686,8 +686,14 @@ vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_fiel
   if (D.s != NULL) {
     B->vn.vf->scoreField = rm_strndup(D.s, D.len);
   }
-  B->vn.vf->paramNum = array_len(C);
   B->vn.vf->params = C;
+  A = B;
+}
+
+vector_query(A) ::= vector_command(B) vector_score_field(D). { // how we get vector field query
+  if (D.s != NULL) {
+    B->vn.vf->scoreField = rm_strndup(D.s, D.len);
+  }
   A = B;
 }
 
@@ -707,7 +713,7 @@ vector_command(A) ::= TOP_K param_num(B) modifier(C) ATTRIBUTE(D). { // every ve
   A = NewVectorNode(qp);
 }
 
-vector_attribute(A) ::= TERM(B) param_any(C). {
+vector_attribute(A) ::= TERM(B) param_term(C). {
   const char *value = rm_strndup(C.s, C.len);
   const char *name = rm_strndup(B.s, B.len);
   size_t value_len = C.len;
@@ -724,14 +730,12 @@ vector_attribute(A) ::= TERM(B) param_any(C). {
 }
 
 vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C). {
-  if (B == NULL) {
-    B = array_new(VectorQueryParam, 1);
-  }
   A = array_append(B, C);
 }
 
-vector_attribute_list(A) ::= . {
-    A = NULL;
+vector_attribute_list(A) ::= vector_attribute(C). {
+  A = array_new(VectorQueryParam, 1);
+  A = array_append(A, C);
 }
 
 /////////////////////////////////////////////////////////////////

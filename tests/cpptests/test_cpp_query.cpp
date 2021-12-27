@@ -209,6 +209,8 @@ TEST_F(QueryTest, testParser) {
 
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]", ctx);
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB AS score]", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x 5 AS score]", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB foo bar x 5]", ctx);
   assertInvalidQuery("*=>[TOPK $K @vec_field $BLOB]", ctx);
   assertInvalidQuery("*=>[TOP_K $K @vec_field BLOB]", ctx);
 
