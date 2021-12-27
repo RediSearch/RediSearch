@@ -206,6 +206,7 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("@tag:{foo | bar} => {$great: 0.5;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
+  assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
 
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]", ctx);
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB AS score]", ctx);
@@ -213,8 +214,14 @@ TEST_F(QueryTest, testParser) {
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB foo bar x 5]", ctx);
   assertInvalidQuery("*=>[TOPK $K @vec_field $BLOB]", ctx);
   assertInvalidQuery("*=>[TOP_K $K @vec_field BLOB]", ctx);
+  assertInvalidQuery("*=>[TOP_K $K vec_field $BLOB]", ctx);
+  assertInvalidQuery("*=>[TOP_K K @vec_field $BLOB]", ctx);
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB $EF ef foo bar x 5 AS score]", ctx);
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x 5 AS ]", ctx);
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x]", ctx);
 
-  assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]=>{$weight: 0.5; $slop: 2}", ctx);
+  assertValidQuery("*=>[TOP_K $K1 @vec_field $BLOB1] OR *=>[TOP_K $K2 @vec_field $BLOB2]", ctx);
 
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;

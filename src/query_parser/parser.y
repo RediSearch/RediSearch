@@ -6,6 +6,7 @@
 %left MINUS.
 %left NUMBER.
 %left STOPWORD.
+%left STAR.
 
 %left TERMLIST.
 %left TERM.
@@ -22,7 +23,6 @@
 %left ORX.
 %left ARROW.
 
-%right STAR.
 %right TOP_K.
 %right AS.
 
@@ -682,28 +682,28 @@ expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsi
   A = B;
 }
 
-vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_field(D). { // how we get vector field query
-  if (D.s != NULL) {
-    B->vn.vf->scoreField = rm_strndup(D.s, D.len);
-  }
+// Vector query opt. 1 - full query.
+vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D). {
+  B->vn.vf->scoreField = rm_strndup(D.s, D.len);
   B->vn.vf->params = C;
   A = B;
 }
 
-vector_query(A) ::= vector_command(B) vector_score_field(D). { // how we get vector field query
-  if (D.s != NULL) {
-    B->vn.vf->scoreField = rm_strndup(D.s, D.len);
-  }
+// Vector query opt. 2 - score field only, no params.
+vector_query(A) ::= vector_command(B) AS param_term(D). { // how we get vector field query
+  B->vn.vf->scoreField = rm_strndup(D.s, D.len);
   A = B;
 }
 
-// we can also have AS field. need to save the new-field-name for SORTBY later
-vector_score_field(A) ::= AS param_term(B). {
+// Vector query opt. 3 - no score field, params only.
+vector_query(A) ::= vector_command(B) vector_attribute_list(C). { // how we get vector field query
+  B->vn.vf->params = C;
   A = B;
 }
 
-vector_score_field(A) ::= . {
-  A.s = NULL;
+// Vector query opt. 4 - no score field and no params.
+vector_query(A) ::= vector_command(B). { // how we get vector field query
+  A = B;
 }
 
 vector_command(A) ::= TOP_K param_num(B) modifier(C) ATTRIBUTE(D). { // every vector query will have basic command and vector_attribute_list params.
