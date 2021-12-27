@@ -582,15 +582,15 @@ workflows:
               platform: [bionic]
       - build-macos:
           <<: *on-integ-and-version-tags
-      - coverage:
-          context: common
-          <<: *on-any-branch
-      - sanitize:
-          name: sanitize-<< matrix.san-type >>
-          matrix:
-            parameters:
-              san-type: [address] # [address, memory]
-          <<: *on-any-branch
+#      - coverage:
+#          context: common
+#          <<: *on-any-branch
+#      - sanitize:
+#          name: sanitize-<< matrix.san-type >>
+#          matrix:
+#            parameters:
+#              san-type: [address] # [address, memory]
+#          <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
       - benchmark:
