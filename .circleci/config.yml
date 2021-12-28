@@ -567,13 +567,11 @@ workflows:
             parameters:
               redis_version: ["6.0", "6.2"]
       - build-platforms:
-          #@@<<: *on-integ-and-version-tags
-          <<: *not-on-integ-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              #@@platform: [focal, bionic, xenial, centos7, centos8, bullseye]
-              platform: [bionic]
+              platform: [focal, bionic, xenial, centos7, centos8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -582,15 +580,15 @@ workflows:
               platform: [bionic]
       - build-macos:
           <<: *on-integ-and-version-tags
-#      - coverage:
-#          context: common
-#          <<: *on-any-branch
-#      - sanitize:
-#          name: sanitize-<< matrix.san-type >>
-#          matrix:
-#            parameters:
-#              san-type: [address] # [address, memory]
-#          <<: *on-any-branch
+      - coverage:
+          context: common
+          <<: *on-any-branch
+      - sanitize:
+          name: sanitize-<< matrix.san-type >>
+          matrix:
+            parameters:
+              san-type: [address] # [address, memory]
+          <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
       - benchmark:
