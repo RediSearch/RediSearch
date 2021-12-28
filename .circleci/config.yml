@@ -188,7 +188,7 @@ commands:
     steps:
       - early-returns
       - setup-executor
-      - checkout
+      - checkout-all
       - setup-automation
       - run:
           name: Build for platform

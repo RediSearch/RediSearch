@@ -45,8 +45,8 @@ endif # SAN
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(wildcard $(ROOT)/deps/readies),)
-$(shell git submodule update --init --recursive)
+ifeq ($(wildcard $(ROOT)/deps/readies/*),)
+$(info $(shell git submodule update --init --recursive &> /dev/null))
 endif
 
 ROOT=.
