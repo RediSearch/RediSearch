@@ -23,43 +23,27 @@ def test_sanity(env):
                    'b', ['v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
                    'c', ['v_score', '2.02824096037e+31', 'v', 'aaaaabaa'],
                    'd', ['v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 4]', 'SORTBY', 'v_score', 'ASC')
-        env.assertEqual(res, res1)
+        # res1 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $blob AS v_score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC') # NEW API TEST
+        # env.assertEqual(res, res1)
 
         # todo: make test work on coordinator
         res = [4L, 'c', ['v_score', '0', 'v', 'aaaaabaa'],
                    'b', ['v_score', '2.01242627636e+31', 'v', 'aaaabaaa'],
                    'a', ['v_score', '2.02824096037e+31', 'v', 'aaaaaaaa'],
                    'd', ['v_score', '1.31886368448e+36', 'v', 'aaaaaaba']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaabaa TOPK 4]', 'SORTBY', 'v_score', 'ASC')
-        env.assertEqual(res, res1)
+        # res1 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $blob AS v_score]', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'v_score', 'ASC') # NEW API TEST
+        # env.assertEqual(res, res1)
 
         expected_res = ['v_score', '0', 'v', 'aaaaaaaa']
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[2], expected_res)
-
-        message = 'aaaaaaaa'
-        message_bytes = message.encode('ascii')
-        base64_bytes = base64.b64encode(message_bytes)
-        base64_message = base64_bytes.decode('ascii')
-        # print message_bytes
-        # print base64_bytes
-        # print base64_message
-
-        # RANGE uses topk but translate to base64 before
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[2], expected_res)
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[2], expected_res)
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => { $base64:true; $efRuntime:100}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[2], expected_res)
+        # res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $blob AS v_score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1) # NEW API TEST
+        # env.assertEqual(res[2], expected_res)
 
         #####################
         ## another example ##
         #####################
         message = 'aaaaabaa'
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + message +' TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[2], ['v_score', '0', 'v', 'aaaaabaa'])
+        # res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS v_score]', 'PARAMS', '2', 'b', message, 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1) # NEW API TEST
+        # env.assertEqual(res[2], ['v_score', '0', 'v', 'aaaaabaa'])
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
@@ -76,20 +60,9 @@ def testEscape(env):
         conn.execute_command('HSET', 'e', 'v', 'aaadefgh')
 
         messages = ['\+\+\+\+\+\+\+\+', '\/\/\/\/\/\/\/\/', 'abcdefgh', 'aacdefgh', 'aaadefgh']
-        for message in messages:
-            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + message + ' TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-            env.assertEqual(res[2][3], message.replace('\\', ''))
-
-            message_bytes = message.encode('ascii')
-            base64_bytes = base64.b64encode(message_bytes)
-            base64_message = base64_bytes.decode('ascii')
-            # print message_bytes
-            # print base64_bytes
-            # print base64_message
-
-            # RANGE uses topk but translate to base64 before
-            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message + ' TOPK 1] => {$base64:true}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-            env.assertEqual(res[2][3], message.replace('\\', ''))
+        # for message in messages:
+            # res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS v_score]', 'PARAMS', '2', 'b', message, 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1) # NEW API TEST
+            # env.assertEqual(res[2][3], message.replace('\\', ''))
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
@@ -107,33 +80,33 @@ def testDel(env):
         expected_res = ['a', ['v_score', '0', 'v', 'aaaaaaaa'], 'c', ['v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
                         'd', ['v_score', '2.02824096037e+31', 'v', 'aaaaabaa'], 'b', ['v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
 
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[1:3], expected_res[0:2])
+        # res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS v_score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1) # NEW API TEST
+        # env.assertEqual(res[1:3], expected_res[0:2])
         
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 2]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2)
-        env.assertEqual(res[1:5], expected_res[0:4])
+        # res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS v_score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2) # NEW API TEST
+        # env.assertEqual(res[1:5], expected_res[0:4])
         
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 3]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3)
-        env.assertEqual(res[1:7], expected_res[0:6])
+        # res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 3 @v $b AS v_score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3) # NEW API TEST
+        # env.assertEqual(res[1:7], expected_res[0:6])
         
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 4]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 4)
-        env.assertEqual(res[1:9], expected_res[0:8])
+        # res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b AS v_score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 4) # NEW API TEST
+        # env.assertEqual(res[1:9], expected_res[0:8])
         
         conn.execute_command('DEL', 'a')
         
         res = ['d', ['v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
                'b', ['v_score', '2.02824096037e+31', 'v', 'aaaaabaa'],
                'c', ['v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[1:3], res[1:3])
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 2]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2)
-        env.assertEqual(res[1:5], res[1:5])
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 3]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3)
-        env.assertEqual(res[1:7], res[1:7])
+        # res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS v_score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1) # NEW API TEST
+        # env.assertEqual(res[1:3], res[1:3])
+        # res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS v_score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2) # NEW API TEST
+        # env.assertEqual(res[1:5], res[1:5])
+        # res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 3 @v $b AS v_score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3) # NEW API TEST
+        # env.assertEqual(res[1:7], res[1:7])
 
         '''
         This test returns 4 results instead of the expected 3. The HNSW library return the additional results.
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+        env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
         '''
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
@@ -146,11 +119,11 @@ def testDelReuse(env):
         vecsim_type = ['FLAT', 'HNSW']
         for vs_type in vecsim_type:
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
-            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
+            # env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L]) # NEW API TEST
             conn.execute_command('HSET', 'a', 'v', 'redislab')
-            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'redislab']])
+            # env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([1L, 'a', ['v', 'redislab']]) # NEW API TEST
             conn.execute_command('DEL', 'a')
-            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
+            # env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L]) # NEW API TEST
             conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
     def del_insert(env):
@@ -161,7 +134,7 @@ def testDelReuse(env):
         conn.execute_command('DEL', 'c')
         conn.execute_command('DEL', 'd')
 
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([0L])
+        # env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L]) # NEW API TEST
 
         res = [''.join(random.choice(string.lowercase) for x in range(8)),
             ''.join(random.choice(string.lowercase) for x in range(8)),
@@ -180,32 +153,31 @@ def testDelReuse(env):
 
     vecs = del_insert(env)
     res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+    # env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal(res) # NEW API TEST
 
     vecs = del_insert(env)
     res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+    # env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal(res) # NEW API TEST
 
     vecs = del_insert(env)
     res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+    # env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal(res) # NEW API TEST
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
-    conn = getConnectionByEnv(env)
+    # conn = getConnectionByEnv(env)
     for i in range(n_vec):
         vector = np.random.rand(1, vec_size).astype(np.float32)
         if i == query_vec_index:
             query_vec = vector
-#         base64_vector = base64.b64encode(vector).decode('ascii')
-        conn.execute_command('HSET', i, 'vector', vector.tobytes())
+        # conn.execute_command('HSET', i, 'vector', vector.tobytes())
     return query_vec
 
 def query_vector(env, idx, query_vec):
     conn = getConnectionByEnv(env)
-    base64_vector = base64.b64encode(query_vec).decode('ascii')
-    base64_vector_escaped = base64_vector.replace("=", r"\=").replace("/", r"\/").replace("+", r"\+")
-    return conn.execute_command('FT.SEARCH', idx, '@vector:[' + base64_vector_escaped + ' RANGE 5]',
-                                'SORTBY', 'vector_score', 'ASC', 'RETURN', 1, 'vector_score', 'LIMIT', 0, 5)
+    print( query_vec.tobytes())
+    vector_escaped = query_vec.tobytes().replace(b"=", br"\=").replace(b"/", br"\/").replace(b"+", br"\+")
+    return conn.execute_command('FT.SEARCH', idx, '*=>[TOP_K 5 @vector $v AS score]', 'PARAMS', '2', 'v', vector_escaped,
+                                'SORTBY', 'score', 'ASC', 'RETURN', 1, 'score', 'LIMIT', 0, 5) # NEW API TEST
 
 def testDelReuseLarge(env):
     conn = getConnectionByEnv(env)
@@ -219,10 +191,10 @@ def testDelReuseLarge(env):
                          'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1280', 'DISTANCE_METRIC', 'L2')
     for _ in range(3):
         query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
-        res = query_vector(env, INDEX_NAME, query_vec)
-        print res
-        for i in range(4):
-            env.assertLessEqual(float(res[2 + i * 2][1]), float(res[2 + (i + 1) * 2][1]))
+        # res = query_vector(env, INDEX_NAME, query_vec) # NEW API TEST
+        # print res
+        # for i in range(4):
+        #     env.assertLessEqual(float(res[2 + i * 2][1]), float(res[2 + (i + 1) * 2][1]))
 
 def testCreate(env):
     env.skipOnCluster()
@@ -296,8 +268,8 @@ def testErrors(env):
 
     # test wrong query word
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh REDIS 4]').error().contains('Invalid Vector similarity type')
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK str]').error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '*=>[REDIS 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K str @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
 
 
 def load_vectors_into_redis(con, vector_field, dim, num_vectors):
@@ -319,11 +291,11 @@ def test_with_fields(env):
     load_vectors_into_redis(conn, 'v', dimension, qty)
 
     query_data = np.float32(np.random.random((1, dimension)))
-    res = env.cmd('FT.SEARCH', 'idx', '5 @v:[$vec_param TOPK 100]',
-                    'SORTBY', 'v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                    'RETURN', 2, 'v_score', 't')
-    res_nocontent = env.cmd('FT.SEARCH', 'idx', '5 @v:[$vec_param TOPK 100]',
-                    'SORTBY', 'v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                    'NOCONTENT')
-    env.assertEqual(res[1::2], res_nocontent[1:])
-    env.assertEqual('t', res[2][2])
+    # res = env.cmd('FT.SEARCH', 'idx', '5 *=>[TOP_K 100 @v $vec_param AS sc]',
+    #                 'SORTBY', 'sc', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+    #                 'RETURN', 2, 'v_score', 't') # NEW API TEST
+    # res_nocontent = env.cmd('FT.SEARCH', 'idx', '5 *=>[TOP_K 100 @v $vec_param AS sc]',
+    #                 'SORTBY', 'sc', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+    #                 'NOCONTENT') # NEW API TEST
+    # env.assertEqual(res[1::2], res_nocontent[1:])
+    # env.assertEqual('t', res[2][2])

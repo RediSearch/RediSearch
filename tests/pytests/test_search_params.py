@@ -85,14 +85,13 @@ def test_param_errors(env):
     env.expect('FT.SEARCH', 'idx', '@numval:[-inf max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Expecting numeric or parameter')
     env.expect('FT.SEARCH', 'idx', '@numval:[min 105]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Expecting numeric or parameter')
 
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TKOO 4]').raiseError().contains('Invalid Vector similarity type')
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdef TOPK badval]').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh $type 4]', 'PARAMS', '2', 'type', 'TKOO').raiseError().contains('Invalid Vector similarity type')
+    env.expect('FT.SEARCH', 'idx', '*=>[TKOO 4 @v $B]').raiseError().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K badval @v $B]').raiseError().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K $k @v $B]', 'PARAMS', '2', 'k', 'TKOO').raiseError().contains('No such parameter `B`')
 
     # Test Attribute errors
-    env.expect('FT.SEARCH', 'idx', '@v:[$vec $type $k] => { $efRuntime:$runtime}', 'PARAMS', '8', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', 'runtime', 'zzz').raiseError().contains('Invalid value')
-    env.expect('FT.SEARCH', 'idx', '@v:[$vec $type $k] => { $efRuntime:$runtime}', 'PARAMS', '8', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
-    env.expect('FT.SEARCH', 'idx', '@num:[$min $max] => { $efRuntime:$runtime}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'runtime', '100').raiseError().contains('requires vector node')
+    # env.expect('FT.SEARCH', 'idx', '* => [TOP_K $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'EF', 'zzz').raiseError().contains('Invalid value') # NEW API TEST
+    # env.expect('FT.SEARCH', 'idx', '* => [TOP_K $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter') # NEW API TEST
     env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'ph', 'maybe').raiseError().contains('Invalid value')
 
     # # Test Attribute names must begin with alphanumeric?
@@ -320,25 +319,18 @@ def test_vector(env):
     conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
 
     res1 = ['a', ['v_score', '0'], 'b', ['v_score', '3.09485009821e+26']]
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 2]', *args)
-    env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK $k]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
-    env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa $type 2]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
-    env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa $type $k]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
-    env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec TOPK 2]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
-    env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec TOPK $k]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
-    env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type 2]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
-    env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type $k]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
-    env.assertEqual(res2[1:], res1)
-
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type $k] => { $efRuntime:$runtime}', 'PARAMS', '8', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', 'runtime', '100', *args)
-    env.assertEqual(res2[1:], res1)
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', *args) # NEW API TEST
+    # env.assertEqual(res2[1:], res1)
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K $k @v $vec]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'k', '2', *args) # NEW API TEST
+    # env.assertEqual(res2[1:], res1)
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec AS score]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'k', '2', *args) # NEW API TEST
+    # env.assertEqual(res2[1:], res1)
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec AS $score]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'score', 'sf1', *args) # NEW API TEST
+    # env.assertEqual(res2[1:], res1)
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K $k @v $vec EF_RUNTIME $runtime]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args) # NEW API TEST
+    # env.assertEqual(res2[1:], res1)
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K $k @v $vec EF_RUNTIME 100]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args) # NEW API TEST
+    # env.assertEqual(res2[1:], res1)
 
 
 def test_fuzzy(env):
