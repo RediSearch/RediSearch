@@ -1,5 +1,4 @@
-#ifndef __RS_LANGUAGE_H__
-#define __RS_LANGUAGE_H__
+#pragma once
 #include <stdlib.h>
 
 #ifdef __cplusplus
@@ -47,5 +46,4 @@ const char *RSLanguage_ToString(RSLanguage language);
 
 #ifdef __cplusplus
 }
-#endif
 #endif
