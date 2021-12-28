@@ -29,8 +29,7 @@
   QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
 
 typedef enum {
-  VECSIM_QT_INVALID = 0,
-  VECSIM_QT_TOPK = 1,
+  VECSIM_QT_TOPK,
 } VectorQueryType;
 
 typedef enum {
@@ -43,9 +42,10 @@ typedef struct {
   size_t namelen;
   const char *value;
   size_t vallen;
+  bool isParam;
 } VectorQueryParam;
 
-typedef struct VectorFilter {
+typedef struct VectorQuery {
   char *property;                     // name of field
   char *scoreField;                   // name of score field
   union {
@@ -62,17 +62,17 @@ typedef struct VectorFilter {
 
   VecSimQueryResult *results;         // array for results
   int resultsLen;                     // length of array
-} VectorFilter;
+} VectorQuery;
 
 // TODO: remove idxKey from all OpenFooIndex functions
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf);
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq);
 
-int VectorFilter_Validate(const VectorFilter *vf, QueryError *status);
-int VectorFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
-void VectorFilter_Free(VectorFilter *vf);
+int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
+int VectorQuery_Resolve(VectorQueryParam *param, dict *params, QueryError *status);
+void VectorQuery_Free(VectorQuery *vq);
 
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);

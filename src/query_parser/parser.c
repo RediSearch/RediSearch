@@ -1732,35 +1732,33 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 52: /* expr ::= STAR ARROW LSQB vector_query RSQB */
 { // main parse, simple vecsim search as subquery case.
-  switch (yymsp[-1].minor.yy53->vn.vf->type) {
+  switch (yymsp[-1].minor.yy53->vn.vq->type) {
     case VECSIM_QT_TOPK:
-      yymsp[-1].minor.yy53->vn.vf->topk.runType = VECSIM_RUN_KNN;
-      yymsp[-1].minor.yy53->vn.vf->topk.order = BY_ID;
+      yymsp[-1].minor.yy53->vn.vq->topk.runType = VECSIM_RUN_KNN;
+      yymsp[-1].minor.yy53->vn.vq->topk.order = BY_ID;
       break;
-    case VECSIM_QT_INVALID:
-      break; // can't happen here. just to silence warnings.
   }
   yymsp[-4].minor.yy53 = yymsp[-1].minor.yy53;
 }
         break;
       case 53: /* vector_query ::= vector_command vector_attribute_list AS param_term */
 {
-  yymsp[-3].minor.yy53->vn.vf->scoreField = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-  yymsp[-3].minor.yy53->vn.vf->params = yymsp[-2].minor.yy101;
+  yymsp[-3].minor.yy53->vn.vq->scoreField = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  yymsp[-3].minor.yy53->vn.vq->params = yymsp[-2].minor.yy101;
   yylhsminor.yy53 = yymsp[-3].minor.yy53;
 }
   yymsp[-3].minor.yy53 = yylhsminor.yy53;
         break;
       case 54: /* vector_query ::= vector_command AS param_term */
 { // how we get vector field query
-  yymsp[-2].minor.yy53->vn.vf->scoreField = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  yymsp[-2].minor.yy53->vn.vq->scoreField = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
   yylhsminor.yy53 = yymsp[-2].minor.yy53;
 }
   yymsp[-2].minor.yy53 = yylhsminor.yy53;
         break;
       case 55: /* vector_query ::= vector_command vector_attribute_list */
 { // how we get vector field query
-  yymsp[-1].minor.yy53->vn.vf->params = yymsp[0].minor.yy101;
+  yymsp[-1].minor.yy53->vn.vq->params = yymsp[0].minor.yy101;
   yylhsminor.yy53 = yymsp[-1].minor.yy53;
 }
   yymsp[-1].minor.yy53 = yylhsminor.yy53;
@@ -1772,28 +1770,21 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy53 = yylhsminor.yy53;
         break;
       case 57: /* vector_command ::= TOP_K param_num modifier ATTRIBUTE */
-{ // every vector query will have basic command and vector_attribute_list params.
+{
   yymsp[0].minor.yy0.type = QT_PARAM_VEC;
-  QueryParam *qp = NewVectorFilterQueryParam_WithParams(ctx, VECSIM_QT_TOPK, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
-  qp->vf->property = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-3].minor.yy53 = NewVectorNode(qp);
+  yymsp[-3].minor.yy53 = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
+  yymsp[-3].minor.yy53->vn.vq->property = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
 }
         break;
       case 58: /* vector_attribute ::= TERM param_term */
 {
   const char *value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
   const char *name = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  size_t value_len = yymsp[0].minor.yy0.len;
-  if (yymsp[0].minor.yy0.type == QT_PARAM_TERM) {
-    size_t found_value_len;
-    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
-    if (found_value) {
-      rm_free((char*)value);
-      value = rm_strndup(found_value, found_value_len);
-      value_len = found_value_len;
-    }
-  }
-  yylhsminor.yy87 = (VectorQueryParam){ .name = name, .namelen = yymsp[-1].minor.yy0.len, .value = value, .vallen = value_len };
+  yylhsminor.yy87 = (VectorQueryParam){ .name = name, .namelen = yymsp[-1].minor.yy0.len, .value = value, .vallen = yymsp[0].minor.yy0.len };
+  if (yymsp[0].minor.yy0.type == QT_PARAM_TERM)
+    yylhsminor.yy87.isParam = true;
+  else // if yymsp[0].minor.yy0.type == QT_TERM
+    yylhsminor.yy87.isParam = false;
 }
   yymsp[-1].minor.yy87 = yylhsminor.yy87;
         break;

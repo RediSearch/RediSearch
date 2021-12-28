@@ -43,9 +43,9 @@ static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
 }
 
 static void QueryVectorNode_Free(QueryVectorNode *vn) {
-  if (vn->vf) {
-    VectorFilter_Free(vn->vf);
-    vn->vf = NULL;
+  if (vn->vq) {
+    VectorQuery_Free(vn->vq);
+    vn->vq = NULL;
   }
 }
 
@@ -262,15 +262,22 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   return ret;
 }
 
-QueryNode *NewVectorNode(QueryParam *p) {
-  assert(p->type == QP_VEC_FILTER);
+// TODO: to be more generic, consider using variadic function, or use different functions for each command
+QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec) {
   QueryNode *ret = NewQueryNode(QN_VECTOR);
-  // Move data and params pointers
-  ret->vn.vf = p->vf;
-  ret->params = p->params;
-  p->vf = NULL;
-  p->params = NULL;
-  rm_free(p);
+  VectorQuery *vq = rm_calloc(1, sizeof(*vq));
+  ret->vn.vq = vq;
+  vq->type = type;
+  switch (type) {
+    case VECSIM_QT_TOPK:
+      QueryNode_InitParams(ret, 2);
+      QueryNode_SetParam(q, &ret->params[0], NULL, NULL, vec);
+      QueryNode_SetParam(q, &ret->params[1], &vq->topk.k, NULL, value);
+      break;
+    default:
+      QueryNode_Free(ret);
+      return NULL;
+  }
   return ret;
 }
 
@@ -623,12 +630,12 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryVectorNode *node) {
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->vf->property, strlen(node->vf->property));
+      IndexSpec_GetField(q->sctx->spec, node->vq->property, strlen(node->vq->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     return NULL;
   }
 
-  return NewVectorIterator(q->sctx, node->vf);
+  return NewVectorIterator(q->sctx, node->vq);
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
@@ -1033,7 +1040,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
       res = GeoFilter_EvalParams(params, n, status);
       break;
     case QN_VECTOR:
-      res = VectorFilter_EvalParams(params, n, status);
+      res = VectorQuery_EvalParams(params, n, status);
       break;
     case QN_TOKEN:
     case QN_NUMERIC:
@@ -1233,7 +1240,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_VECTOR:
       // TODO: add vector query params
       s = sdscat(s, "VECTOR { ");
-      VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(qs->vn.vf->results);
+      VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(qs->vn.vq->results);
       VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
       while (res) {
         s = sdscatprintf(s, "[%lu,%lf]", VecSimQueryResult_GetId(res), VecSimQueryResult_GetScore(res));

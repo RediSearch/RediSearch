@@ -671,33 +671,31 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 
 // TODO: add optimisation for "*=>[]" queries - vecsim search as the entire query. set order=BY_SCORE
 expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as subquery case.
-  switch (B->vn.vf->type) {
+  switch (B->vn.vq->type) {
     case VECSIM_QT_TOPK:
-      B->vn.vf->topk.runType = VECSIM_RUN_KNN;
-      B->vn.vf->topk.order = BY_ID;
+      B->vn.vq->topk.runType = VECSIM_RUN_KNN;
+      B->vn.vq->topk.order = BY_ID;
       break;
-    case VECSIM_QT_INVALID:
-      break; // can't happen here. just to silence warnings.
   }
   A = B;
 }
 
 // Vector query opt. 1 - full query.
 vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D). {
-  B->vn.vf->scoreField = rm_strndup(D.s, D.len);
-  B->vn.vf->params = C;
+  B->vn.vq->scoreField = rm_strndup(D.s, D.len);
+  B->vn.vq->params = C;
   A = B;
 }
 
 // Vector query opt. 2 - score field only, no params.
 vector_query(A) ::= vector_command(B) AS param_term(D). { // how we get vector field query
-  B->vn.vf->scoreField = rm_strndup(D.s, D.len);
+  B->vn.vq->scoreField = rm_strndup(D.s, D.len);
   A = B;
 }
 
 // Vector query opt. 3 - no score field, params only.
 vector_query(A) ::= vector_command(B) vector_attribute_list(C). { // how we get vector field query
-  B->vn.vf->params = C;
+  B->vn.vq->params = C;
   A = B;
 }
 
@@ -706,36 +704,31 @@ vector_query(A) ::= vector_command(B). { // how we get vector field query
   A = B;
 }
 
-vector_command(A) ::= TOP_K param_num(B) modifier(C) ATTRIBUTE(D). { // every vector query will have basic command and vector_attribute_list params.
+// Every vector query will have basic command part. Right now we only have TOP_K command.
+// It is this rule's job to create the new vector node for the query.
+vector_command(A) ::= TOP_K param_num(B) modifier(C) ATTRIBUTE(D). {
   D.type = QT_PARAM_VEC;
-  QueryParam *qp = NewVectorFilterQueryParam_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
-  qp->vf->property = rm_strndup(C.s, C.len);
-  A = NewVectorNode(qp);
+  A = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
+  A->vn.vq->property = rm_strndup(C.s, C.len);
 }
 
 vector_attribute(A) ::= TERM(B) param_term(C). {
   const char *value = rm_strndup(C.s, C.len);
   const char *name = rm_strndup(B.s, B.len);
-  size_t value_len = C.len;
-  if (C.type == QT_PARAM_TERM) {
-    size_t found_value_len;
-    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
-    if (found_value) {
-      rm_free((char*)value);
-      value = rm_strndup(found_value, found_value_len);
-      value_len = found_value_len;
-    }
-  }
-  A = (VectorQueryParam){ .name = name, .namelen = B.len, .value = value, .vallen = value_len };
+  A = (VectorQueryParam){ .name = name, .namelen = B.len, .value = value, .vallen = C.len };
+  if (C.type == QT_PARAM_TERM)
+    A.isParam = true;
+  else // if C.type == QT_TERM
+    A.isParam = false;
 }
 
 vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C). {
   A = array_append(B, C);
 }
 
-vector_attribute_list(A) ::= vector_attribute(C). {
+vector_attribute_list(A) ::= vector_attribute(B). {
   A = array_new(VectorQueryParam, 1);
-  A = array_append(A, C);
+  A = array_append(A, B);
 }
 
 /////////////////////////////////////////////////////////////////

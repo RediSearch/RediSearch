@@ -38,25 +38,6 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
   return ret;
 }
 
-// TODO: to be more generic, consider using variadic function, or use different functions for each command
-QueryParam *NewVectorFilterQueryParam_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec) {
-  QueryParam *ret = NewQueryParam(QP_VEC_FILTER);
-  VectorFilter *vf = rm_calloc(1, sizeof(*vf));
-  ret->vf = vf;
-  vf->type = type;
-  switch (type) {
-    case VECSIM_QT_TOPK:
-      QueryParam_InitParams(ret, 2);
-      QueryParam_SetParam(q, &ret->params[0], &vf->topk.k, NULL, value);
-      QueryParam_SetParam(q, &ret->params[1], &vf->topk.vector, &vf->topk.vecLen, vec);
-      break;
-    default:
-      QueryParam_Free(ret);
-      return NULL;
-  }
-  return ret;
-}
-
 void QueryParam_Free(QueryParam *p) {
   switch (p->type) {
     case QP_GEO_FILTER:
@@ -64,9 +45,6 @@ void QueryParam_Free(QueryParam *p) {
       break;
     case QP_NUMERIC_FILTER:
       NumericFilter_Free(p->nf);
-      break;
-    case QP_VEC_FILTER:
-      VectorFilter_Free(p->vf);
       break;
   }
   size_t n = QueryParam_NumParams(p);

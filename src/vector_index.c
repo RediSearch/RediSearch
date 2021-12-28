@@ -57,7 +57,7 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   return openVectorKeysDict(ctx, keyName, 1);
 }
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq) {
 //   VecSimQueryResult *result;
 //   // TODO: change Dict to hold strings
 //   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vf->property);
@@ -92,48 +92,49 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   return NULL;
 }
 
-int VectorFilter_Validate(const VectorFilter *vf, QueryError *status) {
-    if (vf->type == VECSIM_QT_INVALID) {
-      QERR_MKSYNTAXERR(status, "Invalid Vector similarity type");
-      return 0;
-    }
-    return 1;
-}
-
-int VectorFilter_EvalParams(dict *params, QueryNode *node, QueryError *status) {
-  if (node->params) {
-    int resolved = 0;
-
-    for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
-      int res = QueryParam_Resolve(&node->params[i], params, status);
-      if (res < 0)
-        return REDISMODULE_ERR;
-      else if (res > 0)
-        resolved = 1;
-    }
-    if (resolved && !VectorFilter_Validate(node->vn.vf, status)) {
+int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+  for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
+    int res = QueryParam_Resolve(&node->params[i], params, status);
+    if (res < 0)
       return REDISMODULE_ERR;
-    }
+  }
+  for (size_t i = 0; i < QueryNode_NumParams(node->vn.vq); i++) {
+    int res = VectorQuery_Resolve(&node->vn.vq->params[i], params, status);
+    if (res < 0)
+      return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
 
-void VectorFilter_Free(VectorFilter *vf) {
-  if (vf->property) rm_free((char *)vf->property);
-  if (vf->scoreField) rm_free((char *)vf->scoreField);
-  switch (vf->type) {
+int VectorQuery_Resolve(VectorQueryParam *param, dict *params, QueryError *status) {
+  if (!param->isParam) {
+    return 0;
+  }
+  size_t val_len;
+  const char *val = Param_DictGet(params, param->value, &val_len, status);
+  if (!val) {
+    return -1;
+  }
+  rm_free((char *)param->value);
+  param->value = rm_strndup(val, val_len);
+  param->vallen = val_len;
+  return 1;
+}
+
+void VectorQuery_Free(VectorQuery *vq) {
+  if (vq->property) rm_free((char *)vq->property);
+  if (vq->scoreField) rm_free((char *)vq->scoreField);
+  switch (vq->type) {
     case VECSIM_QT_TOPK:
-      rm_free(vf->topk.vector);
-      break;
-    case VECSIM_QT_INVALID:
+      rm_free(vq->topk.vector);
       break;
   }
-  for (int i = 0; i < array_len(vf->params); i++) {
-    rm_free((char *)vf->params[i].name);
-    rm_free((char *)vf->params[i].value);
+  for (int i = 0; i < array_len(vq->params); i++) {
+    rm_free((char *)vq->params[i].name);
+    rm_free((char *)vq->params[i].value);
   }
-  array_free(vf->params);
-  rm_free(vf);
+  array_free(vq->params);
+  rm_free(vq);
 }
 
 const char *VecSimType_ToString(VecSimType type) {

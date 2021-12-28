@@ -97,7 +97,7 @@ typedef struct {
 } QueryGeofilterNode;
 
 typedef struct {
-  struct VectorFilter *vf;
+  struct VectorQuery *vq;
 } QueryVectorNode;
 
 typedef struct {
