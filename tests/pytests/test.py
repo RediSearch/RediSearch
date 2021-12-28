@@ -2162,6 +2162,24 @@ def testTimeout(env):
     env.cmd('ft.config', 'set', 'timeout', '500')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', 200)
 
+def testTimeoutOnSorter(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.config', 'set', 'timeout', '1')
+    pl = conn.pipeline()
+
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric', 'SORTABLE')
+
+    elements = 1024 * 64
+    for i in range(elements):
+        pl.execute_command('hset', i, 'n', i)
+        if i % 10000 == 0:
+            pl.execute()
+    pl.execute()
+
+    res = env.cmd('ft.search', 'idx', '*', 'SORTBY', 'n', 'DESC')
+    env.assertGreater(elements, res[0])
+
 def testAlias(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc1', 'schema', 't1', 'text')
