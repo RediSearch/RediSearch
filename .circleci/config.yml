@@ -555,11 +555,13 @@ on-integ-and-version-tags: &on-integ-and-version-tags
 
 workflows:
   version: 2
-  default-flow:
+  pr-flow:
     jobs:
       - build-linux-debian:
           name: build
           <<: *not-on-integ-branch
+  integration-flow:
+    jobs:
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           <<: *on-integ-and-version-tags
