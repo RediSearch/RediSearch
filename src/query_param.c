@@ -47,7 +47,7 @@ QueryParam *NewVectorFilterQueryParam_WithParams(struct QueryParseCtx *q, Vector
   switch (type) {
     case VECSIM_QT_TOPK:
       QueryParam_InitParams(ret, 2);
-      QueryParam_SetParam(q, &ret->params[0], &vf->topk.value, NULL, value);
+      QueryParam_SetParam(q, &ret->params[0], &vf->topk.k, NULL, value);
       QueryParam_SetParam(q, &ret->params[1], &vf->topk.vector, &vf->topk.vecLen, vec);
       break;
     default:

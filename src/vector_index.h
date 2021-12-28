@@ -52,13 +52,13 @@ typedef struct VectorFilter {
     struct {
       void *vector;                   // query vector data
       size_t vecLen;                  // vector length
-      size_t value;                   // can hold int for TOPK or double for RANGE.
+      size_t k;                       // number of vectors to return
       VectorQueryRunType runType;     // specify how to run the query
       VecSimQueryResult_Order order;  // specify the result order.
     } topk;
   };
   VectorQueryType type;               // vector similarity query type
-  VectorQueryParam *params;           // generic params for the query
+  VectorQueryParam *params;           // generic query params array, for the vecsim library to check
 
   VecSimQueryResult *results;         // array for results
   int resultsLen;                     // length of array
