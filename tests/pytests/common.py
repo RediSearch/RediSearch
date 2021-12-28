@@ -188,3 +188,6 @@ def get_redis_memory_in_mb(env):
 
 def get_redisearch_index_memory(env, index_key):
     return float(index_info(env, index_key)["inverted_sz_mb"])
+
+def get_redisearch_vector_index_memory(env, index_key):
+    return float(index_info(env, index_key)["vector_index_sz_mb"])

@@ -51,10 +51,10 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
   switch (indexInfo.algo)
   {
     case VecSimAlgo_BF:
-      spec->stats.invertedSize += indexInfo.bfInfo.memory;
+      spec->stats.vectorIndexSize += indexInfo.bfInfo.memory;
       break;
     case VecSimAlgo_HNSWLIB:
-      spec->stats.invertedSize += indexInfo.hnswInfo.memory;
+      spec->stats.vectorIndexSize += indexInfo.hnswInfo.memory;
       break;
     default:
       break;

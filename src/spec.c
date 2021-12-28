@@ -2249,7 +2249,7 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
           continue;
         }
         VecSimIndex *vecsim = kdv->p;
-        spec->stats.invertedSize += VecSimIndex_DeleteVector(vecsim, id);
+        spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, id);
       }
     }
   }
