@@ -581,7 +581,8 @@ workflows:
             parameters:
               platform: [bionic]
       - build-macos:
-          <<: *on-integ-and-version-tags
+          #@@ <<: *on-integ-and-version-tags
+          <<: *on-any-branch
       - coverage:
           context: common
           <<: *on-any-branch
