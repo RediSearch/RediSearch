@@ -1379,7 +1379,7 @@ def testNumericRange(env):
         env.assertEqual(100, res[0])
 
         res = r.execute_command(
-            'ft.search', 'idx', 'hello kitty  @score:[0 50]', "nocontent")
+            'ft.search', 'idx', 'hello kitty @score:[0 50]', "nocontent")
         env.assertEqual(51, res[0])
         res = r.execute_command(
             'ft.search', 'idx', 'hello kitty @score:[(0 (50]', 'verbatim', "nocontent")
@@ -1393,6 +1393,58 @@ def testNumericRange(env):
         res = r.execute_command(
             'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
+
+def testNotIter(env):
+    conn = getConnectionByEnv(env)
+    env.assertOk(conn.execute_command(
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))
+
+    for i in xrange(8):
+        conn.execute_command('HSET', 'doc%d' % i, 'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i)
+
+    # middle shunk
+    res = env.execute_command(
+        'ft.search', 'idx', '-@score:[2 4]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    res = env.execute_command(
+        'ft.search', 'idx', 'hello kitty -@score:[2 4]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    # start chunk
+    res = env.execute_command(
+        'ft.search', 'idx', '-@score:[0 2]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    res = env.execute_command(
+        'ft.search', 'idx', 'hello kitty -@score:[0 2]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    # end chunk
+    res = env.execute_command(
+        'ft.search', 'idx', '-@score:[5 7]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    res = env.execute_command(
+        'ft.search', 'idx', 'hello kitty -@score:[5 7]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    # whole chunk
+    res = env.execute_command(
+        'ft.search', 'idx', '-@score:[0 7]', 'verbatim', "nocontent")
+    env.assertEqual(0, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    res = env.execute_command(
+        'ft.search', 'idx', 'hello kitty -@score:[0 7]', 'verbatim', "nocontent")
+    env.assertEqual(0, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
 
 def testPayload(env):
     r = env
