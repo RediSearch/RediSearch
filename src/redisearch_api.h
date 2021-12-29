@@ -2,7 +2,6 @@
 #define SRC_REDISEARCH_API_H_
 
 #include "redismodule.h"
-#include "stemmer.h"
 #include <limits.h>
 
 #ifdef __cplusplus
@@ -88,7 +87,7 @@ struct RSIdxOptions {
   char **stopwords;
   int stopwordsLen;
   double score;
-  RSLanguage lang;
+  const char *lang;
 };
 
 struct RSIdxField {
@@ -112,7 +111,7 @@ typedef struct RSIdxInfo {
   // spec params
   int gcPolicy;
   double score;
-  RSLanguage lang;
+  const char *lang;
 
   // fields params
   struct RSIdxField *fields;
@@ -157,6 +156,9 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGetValueCallback)
 (RSIndexOptions* opts, RSGetValueCallback cb, void* ctx);
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetStopwords)
 (RSIndexOptions* opts, const char **stopwords, int stopwordsLen);
+MODULE_API_FUNC(int, RediSearch_IndexOptionsSetScore)(RSIndexOptions*, double);
+MODULE_API_FUNC(int, RediSearch_IndexOptionsSetLanguage)(RSIndexOptions*, const char *);
+MODULE_API_FUNC(int, RediSearch_ValidateLanguage)(const char*);
 
 /** Set flags modifying index creation. */
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetFlags)(RSIndexOptions* opts, uint32_t flags);
@@ -324,6 +326,9 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
   X(CreateIndexOptions)              \
   X(IndexOptionsSetGetValueCallback) \
   X(IndexOptionsSetFlags)            \
+  X(IndexOptionsSetScore)            \
+  X(IndexOptionsSetLanguage)         \
+  X(ValidateLanguage)                \
   X(FreeIndexOptions)                \
   X(CreateIndex)                     \
   X(DropIndex)                       \
