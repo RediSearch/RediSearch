@@ -876,8 +876,8 @@ TEST_F(LLApiTest, testGetters) {
 
   // test custom language and score
   RSIndexOptions *opt = RediSearch_CreateIndexOptions();
-  opt->score = 0.42;
-  opt->lang = RS_LANG_YIDDISH;
+  RediSearch_IndexOptionsSetScore(opt, 0.42);
+  RediSearch_IndexOptionsSetLanguage(opt, "YIDDISH");
 
   index = RediSearch_CreateIndex("index", opt);
   ASSERT_EQ(0.42, RediSearch_IndexGetScore(index));
@@ -895,8 +895,8 @@ TEST_F(LLApiTest, testGetters) {
 TEST_F(LLApiTest, testInfo) {
   RSIndexOptions *opt = RediSearch_CreateIndexOptions();
   RediSearch_IndexOptionsSetGCPolicy(opt, GC_POLICY_FORK);
-  opt->score = 3.141;
-  opt->lang = RS_LANG_YIDDISH;
+  RediSearch_IndexOptionsSetScore(opt, 0.141);
+  RediSearch_IndexOptionsSetLanguage(opt, "YIDDISH");
 
   RSIndex* index = RediSearch_CreateIndex("index", opt);
 
@@ -935,8 +935,8 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_OK);
 
   ASSERT_EQ(info.gcPolicy, GC_POLICY_FORK);
-  ASSERT_EQ(info.score, 3.141);
-  ASSERT_EQ(info.lang, RS_LANG_YIDDISH);
+  ASSERT_EQ(info.score, 0.141);
+  EXPECT_STRCASEEQ(info.lang, "YIDDISH");
 
   // fields stats
   ASSERT_EQ(info.numFields, 5);
@@ -984,4 +984,33 @@ TEST_F(LLApiTest, testInfo) {
 
   RediSearch_FreeIndexOptions(opt);
   RediSearch_DropIndex(index);  
+}
+
+TEST_F(LLApiTest, testLanguage) {
+  ASSERT_EQ(REDISEARCH_OK, RediSearch_ValidateLanguage("Hindi"));
+  ASSERT_EQ(REDISEARCH_ERR, RediSearch_ValidateLanguage("Hebrew"));
+
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+
+  ASSERT_EQ(REDISEARCH_ERR, RediSearch_IndexOptionsSetLanguage(opt, NULL));
+  ASSERT_STRCASEEQ(opt->lang, NULL);
+  ASSERT_EQ(REDISEARCH_ERR, RediSearch_IndexOptionsSetLanguage(opt, "HEBREW"));
+  ASSERT_STRCASEEQ(opt->lang, NULL);
+  ASSERT_EQ(REDISEARCH_OK, RediSearch_IndexOptionsSetLanguage(opt, "YIDDISH"));
+  ASSERT_STRCASEEQ(opt->lang, "YIDDISH");
+  RediSearch_FreeIndexOptions(opt);
+}
+
+TEST_F(LLApiTest, testScore) {
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+
+  ASSERT_EQ(REDISEARCH_ERR, RediSearch_IndexOptionsSetScore(opt, 5));
+  ASSERT_EQ(opt->score, 0);
+  ASSERT_EQ(REDISEARCH_ERR, RediSearch_IndexOptionsSetScore(opt, -5));
+  ASSERT_EQ(opt->score, 0);
+  ASSERT_EQ(REDISEARCH_OK, RediSearch_IndexOptionsSetScore(opt, 1));
+  ASSERT_EQ(opt->score, 1);
+  ASSERT_EQ(REDISEARCH_OK, RediSearch_IndexOptionsSetScore(opt, 0.5));
+  ASSERT_EQ(opt->score, 0.5);
+  RediSearch_FreeIndexOptions(opt);
 }
