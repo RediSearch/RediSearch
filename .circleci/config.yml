@@ -556,6 +556,7 @@ on-integ-and-version-tags: &on-integ-and-version-tags
 workflows:
   version: 2
   default-flow:
+    jobs:
       - build-linux-debian:
           name: build
           <<: *not-on-integ-branch
@@ -578,8 +579,7 @@ workflows:
             parameters:
               platform: [bionic]
       - build-macos:
-          #@@ <<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
       - coverage:
           context: common
           <<: *on-any-branch
