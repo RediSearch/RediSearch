@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 import base64
-import unittest
-from includes import *
-from common import *
-from time import sleep
-from RLTest import Env
 import random
 import string
+import unittest
+from time import sleep
+
 import numpy as np
+from RLTest import Env
+
+from common import *
+from includes import *
+
 
 def test_sanity(env):
     conn = getConnectionByEnv(env)
@@ -228,8 +231,9 @@ def testCreate(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10']]
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR']]
     assertInfoField(env, 'idx1', 'attributes', info)
+    env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx1", "v"), ['ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIMENSION', 1024L, 'METRIC', 'IP', 'INDEX_SIZE', 0L, 'M', 16L, 'EF_CONSTRUCTION', 200L, 'EF_RUNTIME', 10L, 'MAX_LEVEL', -1L, 'ENTRYPOINT', -1L, 'MEMORY', 43228L])
 
     # Uncomment these tests when support for FLOAT64, INT32, INT64, is added.
     # Trying to run these tests right now will cause 'Bad arguments for vector similarity HNSW index type' error
@@ -327,3 +331,96 @@ def test_with_fields(env):
                     'NOCONTENT')
     env.assertEqual(res[1::2], res_nocontent[1:])
     env.assertEqual('t', res[2][2])
+
+
+def get_vecsim_memory(env, index_key, field_name):
+    return float(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
+
+
+def test_memory_info(env):
+    # Skip on cluster as FT.DEBUG not supported.
+    env.skipOnCluster()
+    # This test flow adds two vectors and deletes them. The test checks for memory increase in Redis and RediSearch upon insertion and decrease upon delete.
+    conn = getConnectionByEnv(env)
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    index_key = 'idx'
+    vector_field = 'v'
+
+    # Create index. Flat index implementation will free memory when deleting vectors, so it is a good candidate for this test with respect to memory consumption.
+    conn.execute_command('FT.CREATE', index_key, 'SCHEMA', vector_field, 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'BLOCK_SiZE', '1')
+    # Verify redis memory >= redisearch index memory
+    vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+    redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
+    redis_memory = get_redis_memory_in_mb(env)
+    env.assertLessEqual(redisearch_memory, redis_memory)
+    env.assertEqual(redisearch_memory, vecsim_memory)
+    vector = np.float32(np.random.random((1, dimension)))
+
+    # Add vector.
+    conn.execute_command('HSET', 1, vector_field, vector.tobytes())
+    # Verify current memory readings > previous memory readings.
+    cur_redis_memory = get_redis_memory_in_mb(env)
+    env.assertLessEqual(redis_memory, cur_redis_memory)
+    cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
+    env.assertLessEqual(redisearch_memory, cur_redisearch_memory)
+    cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+    env.assertLessEqual(vecsim_memory, cur_vecsim_memory)
+    redis_memory = cur_redis_memory
+    redisearch_memory = cur_redisearch_memory
+    vecsim_memory = cur_vecsim_memory
+    # Verify redis memory >= redisearch index memory
+    env.assertLessEqual(redisearch_memory, redis_memory)
+    #verify vecsim memory == redisearch memory
+    env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
+
+    # Add vector.
+    conn.execute_command('HSET', 2, vector_field, vector.tobytes())
+    # Verify current memory readings > previous memory readings.
+    cur_redis_memory = get_redis_memory_in_mb(env)
+    env.assertLessEqual(redis_memory, cur_redis_memory)
+    cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
+    env.assertLessEqual(redisearch_memory, cur_redisearch_memory)
+    cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+    env.assertLessEqual(vecsim_memory, cur_vecsim_memory)
+    redis_memory = cur_redis_memory
+    redisearch_memory = cur_redisearch_memory
+    vecsim_memory = cur_vecsim_memory
+    # Verify redis memory >= redisearch index memory
+    env.assertLessEqual(redisearch_memory, redis_memory)
+    #verify vecsim memory == redisearch memory
+    env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
+
+    # Delete vector
+    conn.execute_command('DEL', 2)
+    # Verify current memory readings < previous memory readings.
+    cur_redis_memory = get_redis_memory_in_mb(env)
+    env.assertLessEqual(cur_redis_memory, redis_memory)
+    cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
+    env.assertLessEqual(cur_redisearch_memory, redisearch_memory)
+    cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+    env.assertLessEqual(cur_vecsim_memory, vecsim_memory)
+    redis_memory = cur_redis_memory
+    redisearch_memory = cur_redisearch_memory
+    vecsim_memory = cur_vecsim_memory
+    # Verify redis memory >= redisearch index memory
+    env.assertLessEqual(redisearch_memory, redis_memory)
+    #verify vecsim memory == redisearch memory
+    env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
+
+    # Delete vector
+    conn.execute_command('DEL', 1)
+    # Verify current memory readings < previous memory readings.
+    cur_redis_memory = get_redis_memory_in_mb(env)
+    env.assertLessEqual(cur_redis_memory, redis_memory)
+    cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
+    env.assertLessEqual(cur_redisearch_memory, redisearch_memory)
+    cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+    env.assertLessEqual(cur_vecsim_memory, vecsim_memory)
+    redis_memory = cur_redis_memory
+    redisearch_memory = cur_redisearch_memory
+    vecsim_memory = cur_vecsim_memory
+    # Verify redis memory >= redisearch index memory
+    env.assertLessEqual(redisearch_memory, redis_memory)
+    #verify vecsim memory == redisearch memory
+    env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)

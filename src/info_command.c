@@ -11,6 +11,13 @@
     n += 2;                                        \
   } while (0)
 
+#define REPLY_KVINT(n, k, v)                       \
+  do {                                             \
+    RedisModule_ReplyWithSimpleString(ctx, (k));   \
+    RedisModule_ReplyWithLongLong(ctx, (long long)(v)); \
+    n += 2;                                        \
+  } while (0)
+
 #define REPLY_KVSTR(n, k, v)                     \
   do {                                           \
     RedisModule_ReplyWithSimpleString(ctx, (k)); \
@@ -162,25 +169,6 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       sprintf(buf, "%c", fs->tagSep);
       REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
     }
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      REPLY_KVSTR(nn, "ALGORITHM", VecSimAlgorithm_ToString(fs->vecSimParams.algo));
-      switch (fs->vecSimParams.algo) {
-        case VecSimAlgo_BF:
-          REPLY_KVSTR(nn, VECSIM_TYPE, VecSimType_ToString(fs->vecSimParams.bfParams.type));
-          REPLY_KVNUM(nn, VECSIM_DIM, fs->vecSimParams.bfParams.dim);
-          REPLY_KVSTR(nn, VECSIM_DISTANCE_METRIC, VecSimMetric_ToString(fs->vecSimParams.bfParams.metric));
-          REPLY_KVNUM(nn, VECSIM_BLOCKSIZE, fs->vecSimParams.bfParams.blockSize);
-          break;
-        case VecSimAlgo_HNSWLIB: {
-          REPLY_KVSTR(nn, VECSIM_TYPE, VecSimType_ToString(fs->vecSimParams.hnswParams.type));
-          REPLY_KVNUM(nn, VECSIM_DIM, fs->vecSimParams.hnswParams.dim);
-          REPLY_KVSTR(nn, VECSIM_DISTANCE_METRIC, VecSimMetric_ToString(fs->vecSimParams.hnswParams.metric));
-          REPLY_KVNUM(nn, VECSIM_M, fs->vecSimParams.hnswParams.M);
-          REPLY_KVNUM(nn, VECSIM_EFCONSTRUCTION, fs->vecSimParams.hnswParams.efConstruction);
-          REPLY_KVNUM(nn, VECSIM_EFRUNTIME, fs->vecSimParams.hnswParams.efRuntime);
-        }
-      }      
-    }
     if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
       ++nn;
@@ -202,6 +190,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "num_terms", sp->stats.numTerms);
   REPLY_KVNUM(n, "num_records", sp->stats.numRecords);
   REPLY_KVNUM(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
+  REPLY_KVNUM(n, "vector_index_sz_mb", sp->stats.vectorIndexSize / (float)0x100000);
   REPLY_KVNUM(n, "total_inverted_index_blocks", TotalIIBlocks);
   // REPLY_KVNUM(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
