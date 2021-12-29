@@ -47,7 +47,19 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
   // create new vector data structure
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = VecSimIndex_New(&fieldSpec->vecSimParams);
-  dictAdd(ctx->spec->keysDict, keyName, kdv);
+  VecSimIndexInfo indexInfo = VecSimIndex_Info(kdv->p);
+  switch (indexInfo.algo)
+  {
+    case VecSimAlgo_BF:
+      spec->stats.vectorIndexSize += indexInfo.bfInfo.memory;
+      break;
+    case VecSimAlgo_HNSWLIB:
+      spec->stats.vectorIndexSize += indexInfo.hnswInfo.memory;
+      break;
+    default:
+      break;
+  }
+  dictAdd(spec->keysDict, keyName, kdv);
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
   return kdv->p;
 }
