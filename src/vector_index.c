@@ -1,6 +1,5 @@
 #include "vector_index.h"
 #include "list_reader.h"
-#include "base64/base64.h"
 #include "query_param.h"
 
 // taken from parser.c
@@ -58,37 +57,23 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
 }
 
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq) {
-//   VecSimQueryResult *result;
-//   // TODO: change Dict to hold strings
-//   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vf->property);
-//   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
-//   RedisModule_FreeString(ctx->redisCtx, key);
-//   if (!vecsim) {
-//     return NULL;
-//   }
+  // TODO: change Dict to hold strings
+  RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
+  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
+  RedisModule_FreeString(ctx->redisCtx, key);
+  if (!vecsim) {
+    return NULL;
+  }
 
-//   size_t outLen;
-//   unsigned char *vector = vf->vector;
-//   switch (vf->type) {
-//     case VECSIM_QT_TOPK:
-//       if (vf->isBase64) {
-//         unescape((char *)vector, &vf->vecLen);
-//         vector = base64_decode(vector, vf->vecLen, &outLen);
-//       }
-      
-//       VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = vf->efRuntime};
-//       vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value, &qParams, BY_ID );
-//       vf->resultsLen = VecSimQueryResult_Len(vf->results);
-//       if (vf->isBase64) {
-//         rm_free(vector);
-//       }
-//       break;
+  switch (vq->type) {
+    case VECSIM_QT_TOPK:;
+      VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = HNSW_DEFAULT_EF_RT};
+      vq->results = VecSimIndex_TopKQuery(vecsim, vq->topk.vector, vq->topk.k, &qParams, vq->topk.order );
+      vq->resultsLen = VecSimQueryResult_Len(vq->results);
+      break;
+  }
 
-//     case VECSIM_QT_INVALID:
-//       return NULL;
-//   }
-
-//   return NewListIterator(vf->results, vf->resultsLen);
+  return NewListIterator(vq->results, vq->resultsLen);
   return NULL;
 }
 
@@ -126,7 +111,7 @@ void VectorQuery_Free(VectorQuery *vq) {
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
     case VECSIM_QT_TOPK:
-      rm_free(vq->topk.vector);
+      // no need to free the vector as we pointes to the query dictionary 
       break;
   }
   for (int i = 0; i < array_len(vq->params); i++) {

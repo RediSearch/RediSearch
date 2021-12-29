@@ -172,10 +172,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       return 1;
 
     case PARAM_VEC: {
-      char *blob = rm_malloc(val_len);
-      memcpy(blob, val, val_len);  // FIXME: if the same value can be shared among multiple $param
-                                   // usages (is it read-only?) - reuse it
-      *(char **)param->target = blob;
+      *(char **)param->target = val;
       *param->target_len = val_len;
       return 1;
     }

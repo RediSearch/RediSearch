@@ -271,7 +271,7 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
   switch (type) {
     case VECSIM_QT_TOPK:
       QueryNode_InitParams(ret, 2);
-      QueryNode_SetParam(q, &ret->params[0], NULL, NULL, vec);
+      QueryNode_SetParam(q, &ret->params[0], &vq->topk.vector, &vq->topk.vecLen, vec);
       QueryNode_SetParam(q, &ret->params[1], &vq->topk.k, NULL, value);
       break;
     default:

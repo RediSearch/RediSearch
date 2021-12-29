@@ -52,7 +52,7 @@ typedef struct VectorQuery {
     struct {
       void *vector;                   // query vector data
       size_t vecLen;                  // vector length
-      size_t k;                       // number of vectors to return
+      double k;                       // number of vectors to return
       VectorQueryRunType runType;     // specify how to run the query
       VecSimQueryResult_Order order;  // specify the result order.
     } topk;
