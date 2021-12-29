@@ -23,7 +23,7 @@ def test_sanity(env):
                    'b', ['v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
                    'c', ['v_score', '2.02824096037e+31', 'v', 'aaaaabaa'],
                    'd', ['v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC') # NEW API TEST
+        res1 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC')
         env.assertEqual(res, res1)
 
         # todo: make test work on coordinator
@@ -31,18 +31,18 @@ def test_sanity(env):
                    'b', ['v_score', '2.01242627636e+31', 'v', 'aaaabaaa'],
                    'a', ['v_score', '2.02824096037e+31', 'v', 'aaaaaaaa'],
                    'd', ['v_score', '1.31886368448e+36', 'v', 'aaaaaaba']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'v_score', 'ASC') # NEW API TEST
+        res1 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'v_score', 'ASC')
         env.assertEqual(res, res1)
 
         expected_res = ['v_score', '0', 'v', 'aaaaaaaa']
-        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1) # NEW API TEST
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[2], expected_res)
 
         #####################
         ## another example ##
         #####################
         message = 'aaaaabaa'
-        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS score]', 'PARAMS', '2', 'b', message, 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1) # NEW API TEST
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS score]', 'PARAMS', '2', 'b', message, 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[2], ['v_score', '0', 'v', 'aaaaabaa'])
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
@@ -61,7 +61,7 @@ def testEscape(env):
 
         messages = ['\+\+\+\+\+\+\+\+', '\/\/\/\/\/\/\/\/', 'abcdefgh', 'aacdefgh', 'aaadefgh']
         for message in messages:
-            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS score]', 'PARAMS', '2', 'b', message, 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1) # NEW API TEST
+            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS score]', 'PARAMS', '2', 'b', message, 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
             env.assertEqual(res[2][3], message.replace('\\', ''))
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
@@ -80,16 +80,16 @@ def testDel(env):
         expected_res = ['a', ['v_score', '0', 'v', 'aaaaaaaa'], 'c', ['v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
                         'd', ['v_score', '2.02824096037e+31', 'v', 'aaaaabaa'], 'b', ['v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
 
-        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1) # NEW API TEST
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[1:3], expected_res[0:2])
         
-        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2) # NEW API TEST
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2)
         env.assertEqual(res[1:5], expected_res[0:4])
         
-        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 3 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3) # NEW API TEST
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 3 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3)
         env.assertEqual(res[1:7], expected_res[0:6])
         
-        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 4) # NEW API TEST
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 4)
         env.assertEqual(res[1:9], expected_res[0:8])
         
         conn.execute_command('DEL', 'a')
@@ -97,11 +97,11 @@ def testDel(env):
         res = ['d', ['v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
                'b', ['v_score', '2.02824096037e+31', 'v', 'aaaaabaa'],
                'c', ['v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
-        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1) # NEW API TEST
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[1:3], res[1:3])
-        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2) # NEW API TEST
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2)
         env.assertEqual(res[1:5], res[1:5])
-        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 3 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3) # NEW API TEST
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 3 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3)
         env.assertEqual(res[1:7], res[1:7])
 
         '''
@@ -119,11 +119,11 @@ def testDelReuse(env):
         vecsim_type = ['FLAT', 'HNSW']
         for vs_type in vecsim_type:
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
-            env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L]) # NEW API TEST
+            env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L])
             conn.execute_command('HSET', 'a', 'v', 'redislab')
-            env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([1L, 'a', ['v', 'redislab']]) # NEW API TEST
+            env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([1L, 'a', ['v', 'redislab']])
             conn.execute_command('DEL', 'a')
-            env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L]) # NEW API TEST
+            env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L])
             conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
     def del_insert(env):
@@ -134,7 +134,7 @@ def testDelReuse(env):
         conn.execute_command('DEL', 'c')
         conn.execute_command('DEL', 'd')
 
-        env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L]) # NEW API TEST
+        env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L])
 
         res = [''.join(random.choice(string.lowercase) for x in range(8)),
             ''.join(random.choice(string.lowercase) for x in range(8)),
@@ -153,15 +153,15 @@ def testDelReuse(env):
 
     vecs = del_insert(env)
     res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
-    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal(res) # NEW API TEST
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal(res)
 
     vecs = del_insert(env)
     res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
-    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal(res) # NEW API TEST
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal(res)
 
     vecs = del_insert(env)
     res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
-    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal(res) # NEW API TEST
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal(res)
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
     conn = getConnectionByEnv(env)
@@ -175,7 +175,7 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
 def query_vector(env, idx, query_vec):
     conn = getConnectionByEnv(env)
     return conn.execute_command('FT.SEARCH', idx, '*=>[TOP_K 5 @vector $v AS score]', 'PARAMS', '2', 'v', query_vec.tobytes(),
-                                'SORTBY', 'vector_score', 'ASC', 'RETURN', 1, 'vector_score', 'LIMIT', 0, 5) # NEW API TEST
+                                'SORTBY', 'vector_score', 'ASC', 'RETURN', 1, 'vector_score', 'LIMIT', 0, 5)
 
 def testDelReuseLarge(env):
     conn = getConnectionByEnv(env)
@@ -189,7 +189,7 @@ def testDelReuseLarge(env):
                          'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1280', 'DISTANCE_METRIC', 'L2')
     for _ in range(3):
         query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
-        res = query_vector(env, INDEX_NAME, query_vec) # NEW API TEST
+        res = query_vector(env, INDEX_NAME, query_vec)
         for i in range(4):
             env.assertLessEqual(float(res[2 + i * 2][1]), float(res[2 + (i + 1) * 2][1]))
 
@@ -290,9 +290,9 @@ def test_with_fields(env):
     query_data = np.float32(np.random.random((1, dimension)))
     res = env.cmd('FT.SEARCH', 'idx', '5 *=>[TOP_K 100 @v $vec_param AS score]',
                     'SORTBY', 'v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                    'RETURN', 2, 'v_score', 't') # NEW API TEST
+                    'RETURN', 2, 'v_score', 't')
     res_nocontent = env.cmd('FT.SEARCH', 'idx', '5 *=>[TOP_K 100 @v $vec_param AS score]',
                     'SORTBY', 'v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                    'NOCONTENT') # NEW API TEST
+                    'NOCONTENT')
     env.assertEqual(res[1::2], res_nocontent[1:])
     env.assertEqual('t', res[2][2])
