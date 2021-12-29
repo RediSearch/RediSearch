@@ -37,6 +37,12 @@ typedef enum {
   VECSIM_RUN_BATCH = 1,
 } VectorQueryRunType;
 
+// This struct always hold parameter name and value as allocated string.
+// First, the parser creates the param, and hold the key-name and value as they appear in the query,
+// and marks if the value is the literal value or an attribute name.
+// Second, in the parameters evaluation step, if a param was marked as an attribute, we try to resolve it,
+// and free its old value and replace it with the actual value if we succeed.
+// It is the VecSim library job to resolve this strings-key-value params (array) into a VecSimQueryParams struct.
 typedef struct {
   const char *name;
   size_t namelen;
@@ -52,7 +58,7 @@ typedef struct VectorQuery {
     struct {
       void *vector;                   // query vector data
       size_t vecLen;                  // vector length
-      double k;                       // number of vectors to return
+      size_t k;                       // number of vectors to return
       VectorQueryRunType runType;     // specify how to run the query
       VecSimQueryResult_Order order;  // specify the result order.
     } topk;
@@ -71,7 +77,7 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
-int VectorQuery_Resolve(VectorQueryParam *param, dict *params, QueryError *status);
+int VectorQuery_ParamResolve(VectorQueryParam *param, dict *params, QueryError *status);
 void VectorQuery_Free(VectorQuery *vq);
 
 const char *VecSimType_ToString(VecSimType type);

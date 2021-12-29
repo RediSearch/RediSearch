@@ -74,24 +74,25 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq) {
   }
 
   return NewListIterator(vq->results, vq->resultsLen);
-  return NULL;
 }
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
   for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
     int res = QueryParam_Resolve(&node->params[i], params, status);
-    if (res < 0)
+    if (res < 0) {
       return REDISMODULE_ERR;
+    }
   }
   for (size_t i = 0; i < QueryNode_NumParams(node->vn.vq); i++) {
-    int res = VectorQuery_Resolve(&node->vn.vq->params[i], params, status);
-    if (res < 0)
+    int res = VectorQuery_ParamResolve(&node->vn.vq->params[i], params, status);
+    if (res < 0) {
       return REDISMODULE_ERR;
+    }
   }
   return REDISMODULE_OK;
 }
 
-int VectorQuery_Resolve(VectorQueryParam *param, dict *params, QueryError *status) {
+int VectorQuery_ParamResolve(VectorQueryParam *param, dict *params, QueryError *status) {
   if (!param->isParam) {
     return 0;
   }
@@ -110,8 +111,8 @@ void VectorQuery_Free(VectorQuery *vq) {
   if (vq->property) rm_free((char *)vq->property);
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
-    case VECSIM_QT_TOPK:
-      // no need to free the vector as we pointes to the query dictionary 
+    case VECSIM_QT_TOPK: // no need to free the vector as we pointes to the query dictionary
+    default:
       break;
   }
   for (int i = 0; i < array_len(vq->params); i++) {

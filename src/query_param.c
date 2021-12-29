@@ -81,6 +81,11 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     *(double *)target_value = source->numval;
     return false; // done
 
+  case QT_SIZE:
+    target_param->type = PARAM_NONE;
+    *(size_t *)target_value = (size_t)source->numval;
+    return false; // done
+
   case QT_PARAM_ANY:
     type = PARAM_ANY;
     break;
@@ -107,6 +112,9 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     break;
   case QT_PARAM_VEC:
     type = PARAM_VEC;
+    break;
+  case QT_PARAM_SIZE:
+    type = PARAM_SIZE;
     break;
   }
   target_param->type = type;
@@ -150,6 +158,14 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
       if (!ParseDouble(val, (double*)param->target)) {
+        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
+        val, param->name);
+        return -1;
+      }
+      return 1;
+
+    case PARAM_SIZE:
+      if (!ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
         QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
         val, param->name);
         return -1;

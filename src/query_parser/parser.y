@@ -5,9 +5,10 @@
 %left COLON.
 %left MINUS.
 %left NUMBER.
+%left SIZE.
 %left STOPWORD.
 %left STAR.
-
+ 
 %left TERMLIST.
 %left TERM.
 %left PREFIX.
@@ -706,7 +707,7 @@ vector_query(A) ::= vector_command(B). { // how we get vector field query
 
 // Every vector query will have basic command part. Right now we only have TOP_K command.
 // It is this rule's job to create the new vector node for the query.
-vector_command(A) ::= TOP_K param_num(B) modifier(C) ATTRIBUTE(D). {
+vector_command(A) ::= TOP_K param_size(B) modifier(C) ATTRIBUTE(D). {
   D.type = QT_PARAM_VEC;
   A = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
   A->vn.vq->property = rm_strndup(C.s, C.len);
@@ -716,10 +717,12 @@ vector_attribute(A) ::= TERM(B) param_term(C). {
   const char *value = rm_strndup(C.s, C.len);
   const char *name = rm_strndup(B.s, B.len);
   A = (VectorQueryParam){ .name = name, .namelen = B.len, .value = value, .vallen = C.len };
-  if (C.type == QT_PARAM_TERM)
+  if (C.type == QT_PARAM_TERM) {
     A.isParam = true;
-  else // if C.type == QT_TERM
+  }
+  else { // if C.type == QT_TERM
     A.isParam = false;
+  }
 }
 
 vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C). {
@@ -734,6 +737,11 @@ vector_attribute_list(A) ::= vector_attribute(B). {
 /////////////////////////////////////////////////////////////////
 // Primitives - numbers and strings
 /////////////////////////////////////////////////////////////////
+
+num(A) ::= SIZE(B). {
+    A.num = B.numval;
+    A.inclusive = 1;
+}
 
 num(A) ::= NUMBER(B). {
     A.num = B.numval;
@@ -758,6 +766,10 @@ term(A) ::= NUMBER(B) . {
     A = B; 
 }
 
+term(A) ::= SIZE(B). {
+    A = B; 
+}
+
 ///////////////////////////////////////////////////////////////////////////////////
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
@@ -773,20 +785,25 @@ param_term(A) ::= NUMBER(B). {
   A.type = QT_TERM;
 }
 
+param_term(A) ::= SIZE(B). {
+  A = B;
+  // Number is treated as a term here
+  A.type = QT_TERM;
+}
+
 param_term(A) ::= ATTRIBUTE(B). {
   A = B;
   A.type = QT_PARAM_TERM;
 }
 
-param_num(A) ::= num(B). {
-  A.numval = B.num;
-  A.inclusive = B.inclusive;
-  A.type = QT_NUMERIC;
+param_size(A) ::= SIZE(B). {
+  A = B;
+  A.type = QT_SIZE;
 }
 
-param_num(A) ::= ATTRIBUTE(B). {
+param_size(A) ::= ATTRIBUTE(B). {
   A = B;
-  A.type = QT_PARAM_NUMERIC;
+  A.type = QT_PARAM_SIZE;
 }
 
 //For generic parameter (param_any) its `type` could be refined by other rules which may have more accurate semantics,
