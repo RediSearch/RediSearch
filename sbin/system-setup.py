@@ -13,8 +13,8 @@ import paella
 #----------------------------------------------------------------------------------------------
 
 class RediSearchSetup(paella.Setup):
-    def __init__(self, nop=False):
-        paella.Setup.__init__(self, nop)
+    def __init__(self, args):
+        paella.Setup.__init__(self, args.nop)
 
     def common_first(self):
         self.install_downloaders()
@@ -88,4 +88,4 @@ parser = argparse.ArgumentParser(description='Set up system for build.')
 parser.add_argument('-n', '--nop', action="store_true", help='no operation')
 args = parser.parse_args()
 
-RediSearchSetup(nop = args.nop).setup()
+RediSearchSetup(args).setup()

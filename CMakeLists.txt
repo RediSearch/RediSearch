@@ -58,6 +58,8 @@ add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
 
+#----------------------------------------------------------------------------------------------
+
 file(GLOB RS_SRC
     "src/*.c"
     "src/aggregate/*.c"

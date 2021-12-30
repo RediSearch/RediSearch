@@ -1,5 +1,8 @@
 
 get_filename_component(RS_DIR ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
+if(NOT DEFINED root)
+	set(root ${RS_DIR})
+endif()
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 message("# coord root: " ${RS_DIR})
 message("# coord binroot: " ${binroot})
