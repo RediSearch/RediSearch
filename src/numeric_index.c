@@ -9,6 +9,7 @@
 #include "redismodule.h"
 #include "util/misc.h"
 #include "util/ksort.h"
+#include "util/khash.h"
 //#include "tests/time_sample.h"
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
@@ -104,17 +105,21 @@ static int cmpCard(double *dbl1, double *dbl2) {
 }
 
 KSORT_INIT_GENERIC(double);
+KHASH_SET_INIT_INT64(cardvals);
 
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
                           NRN_AddRv *rv) {
   int i = 0;
+  int added;
   RSIndexResult *res = NULL;
+  khash_t(cardvals) *kh = kh_init(cardvals);
 
   // read all results
   IndexReader *ir = NewNumericReader(NULL, n->entries, NULL ,0, 0);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     cardResultArr[i] = *res;
     cardValueArr[i++] = res->num.value;
+    kh_put(cardvals, kh, res->num.value, &added);
   }
   IR_Free(ir);
 /*
@@ -127,6 +132,13 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
     split = cardValueArr[++idx];
   }
 */
+  n->card = i / kh_size(kh);
+  kh_destroy(cardvals, kh);
+
+  if (n->card < 4) {
+    return NF_NEGATIVE_INFINITY;
+  }
+
   double split = ks_ksmall(double, i, cardValueArr, i / 2);
   // TODO: add optimization to check for cardinality and enlarge splitCard if not enough
   /* if(****) {
@@ -138,6 +150,8 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
   *rp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
+  (*lp)->range->card = n->card;
+  (*rp)->range->card = n->card;  
 
   for (int j = 0; j < i; ++j){
     rv->sz += NumericRange_Add(cardResultArr[j].num.value < split ? (*lp)->range : (*rp)->range, cardResultArr[j].docId,
@@ -166,7 +180,7 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
       .minVal = __DBL_MAX__,
       .maxVal = __DBL_MIN__,
       .unique_sum = 0,
-      .card = 0,
+      .card = 1,
       .splitCard = splitCard,
       //.values = array_new(CardinalityValue, 1),
       //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
@@ -247,11 +261,11 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
   // n->range->minVal,
   //        n->range->maxVal, card, n->range->entries->numDocs);
-  if (n->range->entries->numDocs > MIN(NR_MAXRANGE_SIZE, n->range->splitCard) && n->range->minVal != n->range->maxVal) {
+  if (n->range->entries->numDocs > MIN(NR_MAXRANGE_SIZE, n->range->splitCard * n->range->card) && n->range->minVal != n->range->maxVal) {
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
-    if (split != NAN) {
+    if (split != NF_NEGATIVE_INFINITY) {
       rv.numRanges += 2;
       if (RSGlobalConfig.numericTreeMaxDepthRange == 0) {
         removeRange(n, &rv);
@@ -552,7 +566,7 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->range) {
     *sz += sizeof(NumericRange);
-    *sz += n->range->card * sizeof(double);
+    // *sz += n->range->card * sizeof(double);
     if (n->range->entries) {
       *sz += InvertedIndex_MemUsage(n->range->entries);
     }
