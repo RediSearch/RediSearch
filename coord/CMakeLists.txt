@@ -33,8 +33,6 @@ project(RSCoordinator)
 include(${RS_DIR}/build/cmake/redisearch_cflags.cmake)
 include(${RS_DIR}/build/cmake/redisearch_debug.cmake)
 
-# include(${RS_DIR}/build/vecsim/vecsim.cmake)
-
 #----------------------------------------------------------------------------------------------
 
 add_definitions(-DREDISMODULE_EXPERIMENTAL_API)
@@ -67,7 +65,7 @@ include_directories(${LIBUV_INCLUDE_DIR})
 include_directories(${RS_DIR}/deps)
 include_directories(${RS_DIR}/src)
 include_directories(${RS_DIR})
-# include_directories(${RS_DIR}/deps/VectorSimilarity/src)
+include_directories(${RS_DIR}/deps/VectorSimilarity/src)
 if (APPLE)
     include_directories(/usr/local/opt/openssl/include)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
@@ -76,6 +74,8 @@ endif()
 add_subdirectory(${RS_DIR} search)
 add_subdirectory(src/rmr)
 add_subdirectory(src)
+option(VECSIM_STATIC "Build as static library" ON)
+option(BUILD_TESTS "Build tests" OFF)
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
@@ -103,7 +103,7 @@ macro(MODULE_TARGET TYPE)
 
     set(_moduleName module-${SUFFIX})
     add_library(${_moduleName} SHARED ${FINAL_OBJECTS} src/build-info/info-${SUFFIX}.c)
-    target_link_libraries(${_moduleName} redisearch-${SUFFIX} ${LIBUV_LIBS} ${HIREDIS_LIBS} ${SSL_LIBS})
+    target_link_libraries(${_moduleName} redisearch-${SUFFIX} VectorSimilarity ${LIBUV_LIBS} ${HIREDIS_LIBS} ${SSL_LIBS})
 
     target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
     
@@ -126,7 +126,7 @@ if (RS_BUILD_COORD_OSS)
 	enable_testing()
 
 	add_library(testdeps STATIC ${FINAL_OBJECTS})
-	target_link_libraries(testdeps ${LIBUV_LIBS} redisearch-oss redismock vecsim vecsim-spaces ${HIREDIS_LIBS} ${SSL_LIBS} dl)
+	target_link_libraries(testdeps ${LIBUV_LIBS} redisearch-oss redismock VectorSimilarity ${HIREDIS_LIBS} ${SSL_LIBS} dl)
 
 	add_subdirectory(src/rmr/test)
 	add_subdirectory(tests/unit)
