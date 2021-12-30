@@ -38,26 +38,21 @@ First, enter `RediSearch` directory.
 
 If you have ```gnu make``` installed, you can execute,
 
-On Linux:
-```
-sudo make setup
-```
-On macOS:
 ```
 make setup
 ```
-
-Alternatively, invoke the following (with `sudo` for Linux):
+Alternatively, invoke the following:
 
 ```
 ./deps/readies/bin/getpy2
 ./system-setup.py
 ```
-Note that ```system-setup.py``` **will install various packages on your system** using the native package manager and pip.
+Note that ```system-setup.py``` **will install various packages on your system** using the native package manager and pip. It will invoke `sudo` on its own, prompting for permission.
 
 If you prefer to avoid that, you can:
 
 * Review `system-setup.py` and install packages manually,
+* Use `system-setup.py --nop` to display installation commands without executing them,
 * Use an isolated environment like explained above,
 * Use a Python virtual environment, as Python installations are known to be sensitive when not used in isolation: `python2 -m virtualenv venv; . ./venv/bin/activate`
 
@@ -66,32 +61,100 @@ As a rule of thumb, you're better off running the latest Redis version.
 
 If your OS has a Redis 6.x package, you can install it using the OS package manager.
 
-Otherwise, you can invoke ```sudo ./deps/readies/bin/getredis```.
-Skip `sudo` on macOS.
+Otherwise, you can invoke ```./deps/readies/bin/getredis```.
 
 ## Getting help
-```make help``` provides a quick summary of the development features.
+```make help``` provides a quick summary of the development features:
+
+```
+make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
+make fetch         # download and prepare dependant modules
+
+make build         # compile and link
+  COORD=1|oss|rlec   # build coordinator (1|oss: Open Source, rlec: Enterprise)
+  STATIC=1           # build as static lib
+  LITE=1             # build RediSearchLight
+  VECSIM_MARCH=arch  # architecture for VecSim build
+  DEBUG=1            # build for debugging
+  NO_TESTS=1         # disable unit tests
+  WHY=1              # explain CMake decisions (in /tmp/cmake-why)
+  FORCE=1            # Force CMake rerun (default)
+  CMAKE_ARGS=...     # extra arguments to CMake
+  VG=1               # build for Valgrind
+  SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SLOW=1             # do not parallelize build (for diagnostics)
+make parsers       # build parsers code
+make clean         # remove build artifacts
+  ALL=1              # remove entire artifacts directory
+
+make run           # run redis with RediSearch
+  GDB=1              # invoke using gdb
+
+make test          # run all tests (via ctest)
+  COORD=1|oss|rlec   # test coordinator
+  TEST=regex         # run tests that match regex
+  TESTDEBUG=1        # be very verbose (CTest-related)
+  CTEST_ARG=...      # pass args to CTest
+  CTEST_PARALLEL=n   # run tests in give parallelism
+make pytest        # run python tests (tests/pytests)
+  COORD=1|oss|rlec   # test coordinator
+  TEST=name          # e.g. TEST=test:testSearch
+  RLTEST_ARGS=...    # pass args to RLTest
+  REJSON=1|0         # also load RedisJSON module
+  REJSON_PATH=path   # use RedisJSON module at `path`
+  EXT=1              # External (existing) environment
+  GDB=1              # RLTest interactive debugging
+  VG=1               # use Valgrind
+  VG_LEAKS=0         # do not search leaks with Valgrind
+  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
+  ONLY_STABLE=1      # skip unstable tests
+make c_tests       # run C tests (from tests/ctests)
+make cpp_tests     # run C++ tests (from tests/cpptests)
+  TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
+
+make callgrind     # produce a call graph
+  REDIS_ARGS="args"
+
+make pack          # create installation packages
+  COORD=rlec         # pack RLEC coordinator ('redisearch' package)
+  LITE=1             # pack RediSearchLight ('redisearch-light' package)
+make deploy        # copy packages to S3
+make release       # release a version
+
+make docs          # create documentation
+make deploydocs    # deploy documentation
+
+make platform      # build for specified platform
+  OSNICK=nick        # platform to build for (default: host platform)
+  TEST=1             # run tests after build
+  PACK=1             # create package
+  ARTIFACTS=1        # copy artifacts to host
+
+make box           # create container with volumen mapping into /search
+  OSNICK=nick        # platform spec
+make sanbox        # create container with CLang Sanitizer
+```
 
 ## Building from source
 ```make build``` will build RediSearch.
-To enable unit tests, add ```TEST=1```.
-Note that RediSearch uses [CMake](https://cmake.org) as its build system. ```make build``` will invoke both CMake and the subsequent make command that's required to complete the build.
-Use ```make clean``` to remove built artifacts. ```make clean ALL=1``` will remove the entire ```RediSearch/build``` directory.
 
-### Diagnosing CMake
-To get a glimpse into CMake decesion process, add ```WHY=1``` to the build command.
-CMake stores its intermediate files in ```RediSearch/build```.
-Afterwards, one can use:
-```
-cd build
-make -n
-```
-or:
-```
-cd build
-make V=1
-```
-to further diagnose the build process.
+`make build COORD=oss` will build OSS RediSearch Coordinator.
+
+`make build STATIC=1` will build as a static lib
+
+Notes:
+
+* Binary files are placed under `bin`, according to platform and build variant.
+
+* RediSearch uses [CMake](https://cmake.org) as its build system. ```make build``` will invoke both CMake and the subsequent make command that's required to complete the build.
+
+
+Use ```make clean``` to remove built artifacts. ```make clean ALL=1``` will remove the entire bin subdirectory.
+
+### Diagnosing build process
+`make build` will build in parallel by default.
+
+For purposes of build diagnosis, `make build SLOW=1 VERBOSE=1` can be used to examine compilation commands.
 
 ## Running Redis with RediSearch
 The following will run ```redis``` and load RediSearch module.

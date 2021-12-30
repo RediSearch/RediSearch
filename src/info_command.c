@@ -1,12 +1,20 @@
 #include "redismodule.h"
 #include "spec.h"
 #include "inverted_index.h"
+#include "vector_index.h"
 #include "cursor.h"
 
 #define REPLY_KVNUM(n, k, v)                       \
   do {                                             \
     RedisModule_ReplyWithSimpleString(ctx, (k));   \
     RedisModule_ReplyWithDouble(ctx, (double)(v)); \
+    n += 2;                                        \
+  } while (0)
+
+#define REPLY_KVINT(n, k, v)                       \
+  do {                                             \
+    RedisModule_ReplyWithSimpleString(ctx, (k));   \
+    RedisModule_ReplyWithLongLong(ctx, (long long)(v)); \
     n += 2;                                        \
   } while (0)
 
@@ -91,9 +99,10 @@ static const char *getSpecTypeNames(int idx) {
   switch (idx) {
   case IXFLDPOS_FULLTEXT: return SPEC_TEXT_STR;
   case IXFLDPOS_TAG:      return SPEC_TAG_STR;
-  case IXFLDPOS_NUMERIC:  return NUMERIC_STR;
-  case IXFLDPOS_GEO:      return GEO_STR;
-  
+  case IXFLDPOS_NUMERIC:  return SPEC_NUMERIC_STR;
+  case IXFLDPOS_GEO:      return SPEC_GEO_STR;
+  case IXFLDPOS_VECTOR:   return SPEC_VECTOR_STR;
+
   default:
     RS_LOG_ASSERT(0, "oops");
     break;
@@ -181,6 +190,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "num_terms", sp->stats.numTerms);
   REPLY_KVNUM(n, "num_records", sp->stats.numRecords);
   REPLY_KVNUM(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
+  REPLY_KVNUM(n, "vector_index_sz_mb", sp->stats.vectorIndexSize / (float)0x100000);
   REPLY_KVNUM(n, "total_inverted_index_blocks", TotalIIBlocks);
   // REPLY_KVNUM(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 

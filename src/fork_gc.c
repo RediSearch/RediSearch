@@ -933,6 +933,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   size_t fieldNameLen;
   char *fieldName = NULL;
   uint64_t rtUniqueId;
+  NumericRangeTree *rt = NULL;
   FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
   if (status == FGC_DONE) {
     return FGC_DONE;
@@ -963,7 +964,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
     RedisModuleString *keyName =
         IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+    rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {
       status = FGC_PARENT_ERROR;
@@ -976,6 +977,10 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
+
+    if (ninfo.node->range->entries->numDocs == 0) {
+      rt->emptyLeaves++;
+    }
 
   loop_cleanup:
     if (sctx) {
@@ -999,6 +1004,25 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   }
 
   rm_free(fieldName);
+
+  //printf("empty %ld, number of ranges %ld\n", rt->emptyLeaves, rt->numRanges);
+  if (rt && rt->emptyLeaves >= rt->numRanges / 2) {
+    hasLock = 1;
+    if (!FGC_lock(gc, rctx)) {
+      return FGC_PARENT_ERROR;
+    }
+    if (RSGlobalConfig.forkGCCleanNumericEmptyNodes) {
+      NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
+      rt->numRanges += rv.numRanges;
+      rt->emptyLeaves = 0;
+    }
+    if (hasLock) {
+      FGC_unlock(gc, rctx);
+      hasLock = 0;
+    }
+  }
+  //printf("removed %d\n", rv.numRanges);
+
   return status;
 }
 
@@ -1176,7 +1200,10 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   pid_t ppid_before_fork = getpid();
 
   TimeSampler_Start(&ts);
-  pipe(gc->pipefd);  // create the pipe
+  int rc = pipe(gc->pipefd);  // create the pipe
+  if (rc == -1) {
+    return 1;
+  }
 
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
     // If we are not in key space we still need to acquire the GIL to use the fork api

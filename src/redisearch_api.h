@@ -2,7 +2,6 @@
 #define SRC_REDISEARCH_API_H_
 
 #include "redismodule.h"
-#include "stemmer.h"
 #include <limits.h>
 
 #ifdef __cplusplus
@@ -53,6 +52,7 @@ typedef struct RSIdxOptions RSIndexOptions;
 #define RSFLDTYPE_NUMERIC 0x02
 #define RSFLDTYPE_GEO 0x04
 #define RSFLDTYPE_TAG 0x08
+#define RSFLDTYPE_VECTOR 0x10
 
 #define RSFLDOPT_NONE 0x00
 #define RSFLDOPT_SORTABLE 0x01
@@ -87,8 +87,59 @@ struct RSIdxOptions {
   char **stopwords;
   int stopwordsLen;
   double score;
-  RSLanguage lang;
+  const char *lang;
 };
+
+struct RSIdxField {
+  char *path;
+  char *name;
+
+  int types;
+  int options;
+
+  double textWeight;
+  char tagSeperator;
+  int tagCaseSensitive;
+};
+
+#define RS_INFO_CURRENT_VERSION 1
+#define RS_INFO_INIT_VERSION 1
+
+typedef struct RSIdxInfo {
+  uint64_t version;
+
+  // spec params
+  int gcPolicy;
+  double score;
+  const char *lang;
+
+  // fields params
+  struct RSIdxField *fields;
+  size_t numFields;
+
+  // stats
+  size_t numDocuments;
+  size_t maxDocId;
+  size_t docTableSize;
+  size_t sortablesSize;
+  size_t docTrieSize;
+  size_t numTerms;
+  size_t numRecords;
+  size_t invertedSize;
+  size_t invertedCap;
+  size_t skipIndexesSize;
+  size_t scoreIndexesSize;
+  size_t offsetVecsSize;
+  size_t offsetVecRecords;
+  size_t termsSize;
+  size_t indexingFailures;
+
+  // gc stats
+  size_t totalCollected;
+  size_t numCycles;
+  long long totalMSRun;
+  long long lastRunTimeMs;
+} RSIdxInfo;
 
 /**
  * Allocate an index options struct. This structure can be used to set global
@@ -105,6 +156,9 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGetValueCallback)
 (RSIndexOptions* opts, RSGetValueCallback cb, void* ctx);
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetStopwords)
 (RSIndexOptions* opts, const char **stopwords, int stopwordsLen);
+MODULE_API_FUNC(int, RediSearch_IndexOptionsSetScore)(RSIndexOptions*, double);
+MODULE_API_FUNC(int, RediSearch_IndexOptionsSetLanguage)(RSIndexOptions*, const char *);
+MODULE_API_FUNC(int, RediSearch_ValidateLanguage)(const char*);
 
 /** Set flags modifying index creation. */
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetFlags)(RSIndexOptions* opts, uint32_t flags);
@@ -116,6 +170,7 @@ MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
 /** Handle Stopwords list */
 MODULE_API_FUNC(int, RediSearch_StopwordsList_Contains)(RSIndex* idx, const char *term, size_t len);
+MODULE_API_FUNC(void, RediSearch_StopwordsList_Free)(char **list, size_t size);
 
 /** Getter functions */
 MODULE_API_FUNC(char **, RediSearch_IndexGetStopwords)(RSIndex*, size_t*);
@@ -141,6 +196,8 @@ MODULE_API_FUNC(RSFieldID, RediSearch_CreateField)
   RediSearch_CreateField(idx, name, RSFLDTYPE_TAG, RSFLDOPT_NONE)
 #define RediSearch_CreateGeoField(idx, name) \
   RediSearch_CreateField(idx, name, RSFLDTYPE_GEO, RSFLDOPT_NONE)
+#define RediSearch_CreateVectorField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_VECTOR, RSFLDOPT_NONE)
 
 MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSIndex* sp, RSFieldID fs, double w);
 MODULE_API_FUNC(void, RediSearch_TagFieldSetSeparator)(RSIndex* sp, RSFieldID fs, char sep);
@@ -256,15 +313,28 @@ MODULE_API_FUNC(double, RediSearch_ResultsIteratorGetScore)(const RSResultsItera
 
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* options, int policy);
 
+/**
+ * Return an info struct
+ * @param sp the index
+ * @param info a pointer to RSIdxInfo struct with `.version = RS_INFO_CURRENT`
+ */
+MODULE_API_FUNC(int, RediSearch_IndexInfo)(RSIndex* sp, RSIdxInfo *info);
+MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
+
 #define RS_XAPIFUNC(X)               \
   X(GetCApiVersion)                  \
   X(CreateIndexOptions)              \
   X(IndexOptionsSetGetValueCallback) \
   X(IndexOptionsSetFlags)            \
+  X(IndexOptionsSetScore)            \
+  X(IndexOptionsSetLanguage)         \
+  X(ValidateLanguage)                \
   X(FreeIndexOptions)                \
   X(CreateIndex)                     \
   X(DropIndex)                       \
   X(IndexGetStopwords)               \
+  X(StopwordsList_Contains)          \
+  X(StopwordsList_Free)              \
   X(IndexGetScore)                   \
   X(IndexGetLanguage)                \
   X(CreateField)                     \
@@ -299,6 +369,8 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
   X(IterateQuery)                    \
   X(ResultsIteratorGetScore)         \
   X(IndexOptionsSetGCPolicy)         \
+  X(IndexInfo)                       \
+  X(IndexInfoFree)                   \
   X(SetCriteriaTesterThreshold)
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \

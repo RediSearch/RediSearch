@@ -24,6 +24,7 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "module.h"
+#include "query_internal.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 #define UNION_QUICK_EXIT(q) (q)->opts->quickExit
@@ -42,7 +43,18 @@ static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
   if (lx->end) rm_free(lx->end);
 }
 
-// void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
+static void QueryVectorNode_Free(QueryVectorNode *vn) {
+  if (vn->vf) {
+    if (vn->vf->vector) {
+      rm_free(vn->vf->vector); 
+    }
+    if (vn->vf->property) {
+      rm_free(vn->vf->property); 
+    }
+    rm_free(vn->vf);
+    vn->vf = NULL;
+  }
+}
 
 void QueryNode_Free(QueryNode *n) {
   if (!n) return;
@@ -53,6 +65,14 @@ void QueryNode_Free(QueryNode *n) {
     }
     array_free(n->children);
     n->children = NULL;
+  }
+
+  if (n->params) {
+    for (size_t ii = 0; ii < QueryNode_NumParams(n); ++ii) {
+      Param_FreeInternal(&n->params[ii]);
+    }
+    array_free(n->params);
+    n->params = NULL;
   }
 
   switch (n->type) {
@@ -76,6 +96,9 @@ void QueryNode_Free(QueryNode *n) {
     case QN_LEXRANGE:
       QueryLexRangeNode_Free(&n->lxrng);
       break;
+    case QN_VECTOR:
+      QueryVectorNode_Free(&n->vn);
+      break;
     case QN_WILDCARD:
     case QN_IDS:
       break;
@@ -90,6 +113,10 @@ void QueryNode_Free(QueryNode *n) {
       break;
   }
   rm_free(n);
+}
+
+void RangeNumber_Free(RangeNumber *r) {
+  rm_free(r);
 }
 
 QueryNode *NewQueryNode(QueryNodeType type) {
@@ -130,30 +157,80 @@ QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
   return ret;
 }
 
-QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
-  QueryNode *ret = NewQueryNode(QN_PREFIX);
+QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
+  QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
-  ret->pfx = (QueryPrefixNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
+  if (qt->type == QT_TERM || qt->type == QT_TERM_CASE || qt->type == QT_NUMERIC) {
+    char *s;
+    size_t len;
+    if (qt->type == QT_TERM) {
+      s = rm_strdupcase(qt->s, qt->len);
+      len = strlen(s);
+    } else {
+      s = rm_strndup(qt->s, qt->len);
+      len = qt->len;
+    }
+    ret->tn = (QueryTokenNode){.str = s, .len = len, .expanded = 0, .flags = 0};
+  } else {
+    ret->tn = (QueryTokenNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0};
+    QueryNode_InitParams(ret, 1);
+    QueryNode_SetParam(q, &ret->params[0], &ret->tn.str, &ret->tn.len, qt);
+  }
   return ret;
 }
 
-QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist) {
+void QueryNode_InitParams(QueryNode *n, size_t num) {
+  n->params = array_newlen(Param, num);
+  memset(n->params, 0, sizeof(*n->params) * num);
+}
+
+bool QueryNode_SetParam(QueryParseCtx *q, Param *target_param, void *target_value,
+                        size_t *target_len, QueryToken *source) {
+    return QueryParam_SetParam(
+      q, target_param, target_value, target_len,
+      source); //FIXME: Move to a common location for QueryNode and QueryParam
+}
+
+QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
+  QueryNode *ret = NewQueryNode(QN_PREFIX);
+  q->numTokens++;
+  if (qt->type == QT_TERM) {
+    char *s = rm_strdupcase(qt->s, qt->len);
+    ret->pfx = (QueryPrefixNode){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
+  } else {
+    assert (qt->type == QT_PARAM_TERM);
+    QueryNode_InitParams(ret, 1);
+    QueryNode_SetParam(q, &ret->params[0], &ret->pfx.str, &ret->pfx.len, qt);
+  }
+  return ret;
+}
+
+QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist) {
   QueryNode *ret = NewQueryNode(QN_FUZZY);
   q->numTokens++;
 
-  ret->fz = (QueryFuzzyNode){
+  if (qt->type == QT_TERM) {
+    char *s = rm_strdupcase(qt->s, qt->len);
+    ret->fz = (QueryFuzzyNode){
       .tok =
           (RSToken){
-              .str = (char *)s,
-              .len = len,
-              .expanded = 0,
-              .flags = 0,
-          },
+            .str = (char *)s,
+            .len = strlen(s),
+            .expanded = 0,
+            .flags = 0,
+            },
       .maxDist = maxDist,
-  };
+    };
+  } else {
+    ret->fz.maxDist = maxDist;
+    assert (qt->type == QT_PARAM_TERM);
+    QueryNode_InitParams(ret, 1);
+    QueryNode_SetParam(q, &ret->params[0], &ret->fz.tok.str, &ret->fz.tok.len, qt);
+  }
   return ret;
 }
+
 
 QueryNode *NewPhraseNode(int exact) {
   QueryNode *ret = NewQueryNode(QN_PHRASE);
@@ -169,16 +246,38 @@ QueryNode *NewTagNode(const char *field, size_t len) {
   return ret;
 }
 
-QueryNode *NewNumericNode(const NumericFilter *flt) {
+QueryNode *NewNumericNode(QueryParam *p) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);
-  ret->nn = (QueryNumericNode){.nf = (NumericFilter *)flt};
-
+  // Move data and params pointers
+  ret->nn.nf = p->nf;
+  ret->params = p->params;
+  p->nf = NULL;
+  p->params = NULL;
+  rm_free(p);
   return ret;
 }
 
-QueryNode *NewGeofilterNode(const GeoFilter *flt) {
+QueryNode *NewGeofilterNode(QueryParam *p) {
+  assert(p->type == QP_GEO_FILTER);
   QueryNode *ret = NewQueryNode(QN_GEO);
-  ret->gn.gf = flt;
+  // Move data and params pointers
+  ret->gn.gf = p->gf;
+  ret->params = p->params;
+  p->gf = NULL;
+  p->params = NULL;
+  rm_free(p);
+  return ret;
+}
+
+QueryNode *NewVectorNode(QueryParam *p) {
+  assert(p->type == QP_VEC_FILTER);
+  QueryNode *ret = NewQueryNode(QN_VECTOR);
+  // Move data and params pointers
+  ret->vn.vf = p->vf;
+  ret->params = p->params;
+  p->vf = NULL;
+  p->params = NULL;
+  rm_free(p);
   return ret;
 }
 
@@ -327,6 +426,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
   return NewUnionIterator(its, itsSz, q->docTable, UNION_QUICK_EXIT(q), opts->weight, type, str);
 }
+
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them */
 static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -510,25 +610,33 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
                              q->docTable->maxDocId, qn->opts.weight);
 }
 
-static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *node) {
+static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
+      IndexSpec_GetField(q->sctx->spec, node->nn.nf->fieldName, strlen(node->nn.nf->fieldName));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
-
-  return NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_NUMERIC);
+  return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC);
 }
 
-static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node,
+static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
                                               double weight) {
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->gf->property, strlen(node->gf->property));
+      IndexSpec_GetField(q->sctx->spec, node->gn.gf->property, strlen(node->gn.gf->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
+  return NewGeoRangeIterator(q->sctx, node->gn.gf);
+}
 
-  return NewGeoRangeIterator(q->sctx, node->gf);
+static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryVectorNode *node) {
+  const FieldSpec *fs =
+      IndexSpec_GetField(q->sctx->spec, node->vf->property, strlen(node->vf->property));
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+    return NULL;
+  }
+
+  return NewVectorIterator(q->sctx, node->vf);
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
@@ -807,11 +915,13 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
     case QN_NUMERIC:
-      return Query_EvalNumericNode(q, &n->nn);
+      return Query_EvalNumericNode(q, n);
     case QN_OPTIONAL:
       return Query_EvalOptionalNode(q, n);
     case QN_GEO:
-      return Query_EvalGeofilterNode(q, &n->gn, n->opts.weight);
+      return Query_EvalGeofilterNode(q, n, n->opts.weight);
+    case QN_VECTOR:
+      return Query_EvalVectorNode(q, &n->vn);
     case QN_IDS:
       return Query_EvalIdFilterNode(q, &n->fn);
     case QN_WILDCARD:
@@ -836,8 +946,18 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .len = dst->nquery,
                          .sctx = (RedisSearchCtx *)sctx,
                          .opts = opts,
-                         .status = status};
+                         .status = status,
+#ifdef PARSER_DEBUG
+                         .trace_log = NULL
+#endif
+  };
   dst->root = RSQuery_ParseRaw(&qpCtx);
+
+#ifdef PARSER_DEBUG
+  if (qpCtx.trace_log != NULL) {
+    fclose(qpCtx.trace_log);
+  }
+#endif
   // printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, QueryError_HasError(status),
   //  dst->root);
   if (!dst->root) {
@@ -855,17 +975,19 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
     return REDISMODULE_ERR;
   }
   dst->numTokens = qpCtx.numTokens;
+  dst->numParams = qpCtx.numParams;
   return REDISMODULE_OK;
 }
 
 IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            ConcurrentSearchCtx *conc) {
+                            ConcurrentSearchCtx *conc, QueryError *status) {
   QueryEvalCtx qectx = {
       .conc = conc,
       .opts = opts,
       .numTokens = qast->numTokens,
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
+      .status = status,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
@@ -879,6 +1001,7 @@ void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
   q->numTokens = 0;
+  q->numParams = 0;
   rm_free(q->query);
   q->nquery = 0;
   q->query = NULL;
@@ -904,6 +1027,55 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
+}
+
+int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status) {
+  if (!q || !q->root || q->numParams == 0)
+    return REDISMODULE_OK;
+  QueryNode_EvalParams(opts->params, q->root, status);
+  return REDISMODULE_OK;
+}
+
+int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
+  int withChildren = 1;
+  int res = REDISMODULE_OK;
+  switch(n->type) {
+    case QN_GEO:
+      res = GeoFilter_EvalParams(params, n, status);
+      break;
+    case QN_VECTOR:
+      res = VectorFilter_EvalParams(params, n, status);
+      break;
+    case QN_TOKEN:
+    case QN_NUMERIC:
+    case QN_TAG:
+    case QN_PHRASE:
+    case QN_NOT:
+    case QN_PREFIX:
+    case QN_LEXRANGE:
+    case QN_FUZZY:
+    case QN_OPTIONAL:
+    case QN_IDS:
+    case QN_WILDCARD:
+      res = QueryNode_EvalParamsCommon(params, n, status);
+      break;
+    case QN_UNION:
+      // no immediately owned params to resolve
+      assert(n->params == NULL);
+      break;
+    case QN_NULL:
+      withChildren = 0;
+      break;
+  }
+  // Handle children
+  if (withChildren && res == REDISMODULE_OK) {
+    for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+      res = QueryNode_EvalParams(params, n->children[ii], status);
+      if (res == REDISMODULE_ERR)
+        break;
+    }
+  }
+  return res;
 }
 
 /* Set the field mask recursively on a query node. This is called by the parser to handle
@@ -942,6 +1114,17 @@ void QueryNode_ClearChildren(QueryNode *n, int shouldFree) {
   if (QueryNode_NumChildren(n)) {
     array_clear(n->children);
   }
+}
+
+int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status) {
+  if (node->params) {
+    for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
+      int res = QueryParam_Resolve(&node->params[i], params, status);
+      if (res < 0)
+        return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
 }
 
 /* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
@@ -1057,6 +1240,17 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       for (int i = 0; i < qs->fn.len; i++) {
         s = sdscatprintf(s, "%llu,", (unsigned long long)qs->fn.ids[i]);
       }
+      break;
+    case QN_VECTOR:
+      // TODO: add vector query params
+      s = sdscat(s, "VECTOR { ");
+      VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(qs->vn.vf->results);
+      VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
+      while (res) {
+        s = sdscatprintf(s, "[%lu,%lf]", VecSimQueryResult_GetId(res), VecSimQueryResult_GetScore(res));
+        res = VecSimQueryResult_IteratorNext(iter);
+      }
+      VecSimQueryResult_IteratorFree(iter);
       break;
     case QN_WILDCARD:
 
@@ -1191,6 +1385,41 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     }
     // qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
     //                                          will be enable if field was declared phonetic
+
+  } else if (STR_EQCASE(attr->name, attr->namelen, "base64")) {
+    if (qn->type != QN_VECTOR) {
+      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Attribute %s requires vector node",
+                             attr->name);
+      return 0;
+    }
+
+    // Apply base64 for vector similarity : true|false
+    int b;
+    if (qn->type != QN_VECTOR || !ParseBoolean(attr->value, &b)) {
+      MK_INVALID_VALUE();
+      return 0;
+    }
+    if (b) {
+      // The query string will be converted back to regular string
+      qn->vn.vf->isBase64 = true;
+    } else {
+      qn->vn.vf->isBase64 = false;
+    }
+
+  } else if (STR_EQCASE(attr->name, attr->namelen, "efRuntime")) {
+    if (qn->type != QN_VECTOR) {
+      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Attribute %s requires vector node",
+                             attr->name);
+      return 0;
+    }
+
+    // Apply base64 for vector similarity: [1...INF]
+    long long val;
+    if (!ParseInteger(attr->value, &val) || val < 1) {
+      MK_INVALID_VALUE();
+      return 0;
+    }
+    qn->vn.vf->efRuntime = val;
 
   } else {
     QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,

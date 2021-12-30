@@ -18,6 +18,7 @@ uint64_t TotalIIBlocks = 0;
 
 // The number of entries in each index block. A new block will be created after every N entries
 #define INDEX_BLOCK_SIZE 100
+#define INDEX_BLOCK_SIZE_DOCID_ONLY 1000
 
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
@@ -206,6 +207,11 @@ ENCODER(encodeFreqsOffsets) {
 // 8. Encode only the doc ids
 ENCODER(encodeDocIdsOnly) {
   return WriteVarint(delta, bw);
+}
+
+// 9. Encode only the doc ids
+ENCODER(encodeRawDocIdsOnly) {
+  return Buffer_Write(bw, &delta, 4);
 }
 
 /**
@@ -399,7 +405,11 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 
     // 0. docid only
     case Index_DocIdsOnly:
-      return encodeDocIdsOnly;
+      if (RSGlobalConfig.invertedIndexRawDocidEncoding) {
+        return encodeRawDocIdsOnly;
+      } else {
+        return encodeDocIdsOnly;
+      }
 
     case Index_StoreNumeric:
       return encodeNumeric;
@@ -423,14 +433,23 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   t_docId delta = 0;
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
 
+  // use proper block size. Index_DocIdsOnly == 0x00
+  uint16_t blockSize = (idx->flags & INDEX_STORAGE_MASK) ? 
+          INDEX_BLOCK_SIZE :
+          INDEX_BLOCK_SIZE_DOCID_ONLY;
+
   // see if we need to grow the current block
-  if (blk->numDocs >= INDEX_BLOCK_SIZE) {
+  if (blk->numDocs >= blockSize) {
     blk = InvertedIndex_AddBlock(idx, docId);
   } else if (blk->numDocs == 0) {
     blk->firstId = blk->lastId = docId;
   }
 
-  delta = docId - blk->lastId;
+  if (encoder != encodeRawDocIdsOnly) {
+    delta = docId - blk->lastId;
+  } else {
+    delta = docId - blk->firstId;
+  }
   if (delta > UINT32_MAX) {
     blk = InvertedIndex_AddBlock(idx, docId);
     delta = 0;
@@ -697,6 +716,55 @@ DECODER(readFreqsOffsets) {
   return 1;
 }
 
+SKIPPER(seekRawDocIdsOnly) {
+  int64_t delta = expid - IR_CURRENT_BLOCK(ir).firstId;
+
+  Buffer_Read(br, &res->docId, 4);
+  if (res->docId >= delta || delta < 0) {
+    goto final;
+  }
+
+  uint32_t *buf = (uint32_t *)br->buf->data;
+  size_t start = br->pos / 4;
+  size_t end = (br->buf->offset - 4) / 4;
+  size_t cur = start;
+  uint32_t curVal = buf[cur];
+
+  // perform binary search
+  while (start < end) {
+    if (curVal == delta) {
+      break;
+    }
+    if (curVal > delta) {
+      end = cur;
+    } else {
+      start = cur + 1;
+    }
+    cur = (end + start) / 2;
+    curVal = buf[cur];
+  }
+
+  // we cannot get out of range since we check in 
+  if (curVal < delta) {
+    cur++;
+  }
+
+  // skip to position and read
+  Buffer_Seek(br, cur * 4);
+  Buffer_Read(br, &res->docId, 4);
+
+final:
+  res->docId += IR_CURRENT_BLOCK(ir).firstId;
+  res->freq = 1;
+  return 1;
+}
+
+DECODER(readRawDocIdsOnly) {
+  Buffer_Read(br, &res->docId, 4);
+  res->freq = 1;
+  return 1;  // Don't care about field mask
+}
+
 DECODER(readDocIdsOnly) {
   res->docId = ReadVarint(br);
   res->freq = 1;
@@ -735,7 +803,11 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
 
     // ()
     case Index_DocIdsOnly:
-      RETURN_DECODERS(readDocIdsOnly, NULL);
+      if (RSGlobalConfig.invertedIndexRawDocidEncoding) {
+        RETURN_DECODERS(readRawDocIdsOnly, seekRawDocIdsOnly);
+      } else {
+        RETURN_DECODERS(readDocIdsOnly, NULL);
+      }
 
     // (freqs, offsets)
     case Index_StoreFreqs | Index_StoreTermOffsets:
@@ -892,7 +964,11 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     // We write the docid as a 32 bit number when decoding it with qint.
     uint32_t delta = *(uint32_t *)&record->docId;
-    ir->lastId = record->docId = ir->lastId + delta;
+    if (ir->decoders.decoder != readRawDocIdsOnly) {
+      ir->lastId = record->docId = ir->lastId + delta;
+    } else {
+      ir->lastId = record->docId = IR_CURRENT_BLOCK(ir).firstId + delta;
+    }
 
     // The decoder also acts as a filter. A zero return value means that the
     // current record should not be processed.
@@ -1121,11 +1197,6 @@ void IR_Rewind(void *ctx) {
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 }
 
-typedef struct {
-  IndexIterator it;
-  IndexReader ir;
-} IRIndexIterator;
-
 IndexIterator *NewReadIterator(IndexReader *ir) {
   IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
   ri->ctx = ir;
@@ -1153,6 +1224,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
  * pointer. If an error occurred - returns -1
  */
 int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
+  t_docId firstReadId = blk->firstId;
   t_docId lastReadId = blk->firstId;
   bool isFirstRes = true;
 
@@ -1188,7 +1260,11 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
       // not an old rdb version
       // on an old rdb version, the first entry is the docid itself and not
       // the delta, so no need to increase by the lastReadId
-      res->docId = (*(uint32_t *)&res->docId) + lastReadId;
+      if (decoders.decoder != readRawDocIdsOnly) {
+        res->docId = (*(uint32_t *)&res->docId) + lastReadId;
+      } else {
+        res->docId = (*(uint32_t *)&res->docId) + firstReadId;
+      }
     }
     isFirstRes = false;
     lastReadId = res->docId;
@@ -1217,11 +1293,18 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
         if (!blk->lastId) {
           blk->lastId = res->docId;
         }
-        if (isLastValid) {
-          Buffer_Write(&bw, bufBegin, sz);
-        } else {
-          encoder(&bw, res->docId - blk->lastId, res);
-        }
+        if (encoder != encodeRawDocIdsOnly) {
+          if (isLastValid) {
+            Buffer_Write(&bw, bufBegin, sz);
+          } else {
+            encoder(&bw, res->docId - blk->lastId, res);
+          }
+        } else { // encoder == encodeRawDocIdsOnly
+          if (!blk->firstId) {
+            blk->firstId = res->docId;
+          }
+            encoder(&bw, res->docId - blk->firstId, res);
+          }
       }
 
       // Update these for every valid document, even for those which

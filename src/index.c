@@ -1095,11 +1095,16 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   // Get the child's last read docId
-  t_docId childId = nc->child->LastDocId(nc->child->ctx);
+  // if lastDocId is 0, Read & Skipto weren't called yet and child lastId
+  // might not be be updated (ex. NUMERIC filter) (PR-2440)
+  t_docId childId = 0;
+  if (nc->lastDocId != 0) {
+    childId = nc->child->LastDocId(nc->child->ctx);
+  }
 
   // If the child is ahead of the skipto id, it means the child doesn't have this id.
   // So we are okay!
-  if (childId > docId) {
+  if (childId > docId || !IITER_HAS_NEXT(nc->child)) {
     goto ok;
   }
 
@@ -1194,7 +1199,7 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
   // If we don't have a child result, or the child result is ahead of the current counter,
   // we just increment our virtual result's id until we hit the child result's
   // in which case we'll read from the child and bypass it by one.
-  if (cr == NULL || cr->docId > nc->base.current->docId) {
+  if (cr == NULL || cr->docId > nc->base.current->docId || !IITER_HAS_NEXT(nc->child)) {
     goto ok;
   }
 
@@ -1208,12 +1213,12 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
     }
   }
 
+ok:
   // make sure we did not overflow
   if (nc->base.current->docId > nc->maxDocId) {
     return INDEXREAD_EOF;
   }
 
-ok:
   // Set the next entry and return ok
   nc->lastDocId = nc->base.current->docId;
   if (hit) *hit = nc->base.current;
@@ -1342,7 +1347,9 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (rc == INDEXREAD_OK) {
       found = 1;
     }
-    nc->nextRealId = nc->base.current->docId;
+    if (nc->base.current) {
+      nc->nextRealId = nc->base.current->docId;
+    }
   }
 
   if (found) {
@@ -1454,6 +1461,7 @@ static void OI_Rewind(void *ctx) {
   OptionalMatchContext *nc = ctx;
   nc->lastDocId = 0;
   nc->virt->docId = 0;
+  nc->nextRealId = 0;
   if (nc->child) {
     nc->child->Rewind(nc->child->ctx);
   }
@@ -1882,6 +1890,7 @@ PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL", 1);
 PRINT_PROFILE_SINGLE(printWildcardIt, DummyIterator, "WILDCARD", 0);
 PRINT_PROFILE_SINGLE(printIdListIt, DummyIterator, "ID-LIST", 0);
 PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "EMPTY", 0);
+PRINT_PROFILE_SINGLE(printListIt, DummyIterator, "LIST", 0);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
@@ -1911,7 +1920,8 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
-    default:          { RS_LOG_ASSERT(0, "nope");   break; }
+    case LIST_ITERATOR:       { printListIt(ctx, root, counter, cpuTime, depth, limited);       break; }
+    case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
 
@@ -1945,6 +1955,7 @@ void Profile_AddIters(IndexIterator **root) {
       break;
     case WILDCARD_ITERATOR:
     case READ_ITERATOR:
+    case LIST_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
       break;

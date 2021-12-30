@@ -36,7 +36,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   if (options->score || options->lang) {
     spec->rule = rm_calloc(1, sizeof *spec->rule);
     spec->rule->score_default = options->score ? options->score : DEFAULT_SCORE;
-    spec->rule->lang_default = options->lang ? options->lang : DEFAULT_LANGUAGE;
+    spec->rule->lang_default = RSLanguage_Find(options->lang, 0);
   }
 
   spec->getValue = options->gvcb;
@@ -65,6 +65,13 @@ char **RediSearch_IndexGetStopwords(IndexSpec* sp, size_t *size) {
   return GetStopWordsList(sp->stopwords, size);
 }
 
+void RediSearch_StopwordsList_Free(char **list, size_t size) {
+  for (int i = 0; i < size; ++i) {
+    rm_free(list[i]);
+  }
+  rm_free(list);
+}
+
 double RediSearch_IndexGetScore(IndexSpec* sp) {
   if (sp->rule) {
     return sp->rule->score_default;
@@ -77,6 +84,13 @@ const char *RediSearch_IndexGetLanguage(IndexSpec* sp) {
     return RSLanguage_ToString(sp->rule->lang_default);
   }
   return RSLanguage_ToString(DEFAULT_LANGUAGE);
+}
+
+int RediSearch_ValidateLanguage(const char *lang) {
+  if (!lang || RSLanguage_Find(lang, 0) == RS_LANG_UNSUPPORTED) {
+    return REDISEARCH_ERR;
+  }
+  return REDISEARCH_OK;
 }
 
 RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
@@ -105,6 +119,10 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   }
   if (types & RSFLDTYPE_GEO) {
     fs->types |= INDEXFLD_T_GEO;
+    numTypes++;
+  }
+  if (types & RSFLDTYPE_VECTOR) {
+    fs->types |= INDEXFLD_T_VECTOR;
     numTypes++;
   }
   if (types & RSFLDTYPE_TAG) {
@@ -464,7 +482,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL);
+  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, &status);
   if (!it->internal) {
     goto end;
   }
@@ -604,6 +622,22 @@ void RediSearch_IndexOptionsSetGCPolicy(RSIndexOptions* options, int policy) {
   options->gcPolicy = policy;
 }
 
+int RediSearch_IndexOptionsSetScore(RSIndexOptions* options, double score) {
+  if (score < 0 || score > 1) {
+    return REDISEARCH_ERR;
+  }
+  options->score = score;
+  return REDISEARCH_OK;
+}
+
+int RediSearch_IndexOptionsSetLanguage(RSIndexOptions* options, const char *lang) {
+  if (!lang || RediSearch_ValidateLanguage(lang) != REDISEARCH_OK) {
+    return REDISEARCH_ERR;
+  }
+  options->lang = lang;
+  return REDISEARCH_OK;
+}
+
 #define REGISTER_API(name)                                                          \
   if (RedisModule_ExportSharedAPI(ctx, "RediSearch_" #name, RediSearch_##name) !=   \
       REDISMODULE_OK) {                                                             \
@@ -630,4 +664,98 @@ void RediSearch_SetCriteriaTesterThreshold(size_t num) {
 
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
   return StopWordList_Contains(idx->stopwords, term, len);
+}
+
+void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
+  infoField->name = rm_strdup(specField->name);
+  infoField->path = rm_strdup(specField->path);
+  if (specField->types & INDEXFLD_T_FULLTEXT) {
+    infoField->types |= RSFLDTYPE_FULLTEXT;
+    infoField->textWeight = specField->ftWeight;
+  }
+  if (specField->types & INDEXFLD_T_NUMERIC) {
+    infoField->types |= RSFLDTYPE_NUMERIC;
+  }
+  if (specField->types & INDEXFLD_T_TAG) {
+    infoField->types |= RSFLDTYPE_TAG;
+    infoField->tagSeperator = specField->tagSep;
+    infoField->tagCaseSensitive = specField->tagFlags & TagField_CaseSensitive ? 1 : 0;
+  }
+  if (specField->types & INDEXFLD_T_GEO) {
+    infoField->types |= RSFLDTYPE_GEO;
+  }
+
+  if (FieldSpec_IsSortable(specField)) {
+    infoField->options |= RSFLDOPT_SORTABLE;
+  }
+  if (FieldSpec_IsNoStem(specField)) {
+    infoField->options |= RSFLDOPT_TXTNOSTEM;
+  }
+  if (FieldSpec_IsPhonetics(specField)) {
+    infoField->options |= RSFLDOPT_TXTPHONETIC;
+  }
+  if (!FieldSpec_IsIndexable(specField)) {
+    infoField->options |= RSFLDOPT_NOINDEX;
+  }
+}
+
+int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
+  if (info->version < RS_INFO_INIT_VERSION || info->version > RS_INFO_CURRENT_VERSION) {
+    return REDISEARCH_ERR;
+  }
+
+  RWLOCK_ACQUIRE_READ();
+
+  info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
+  if (sp->rule) {
+    info->score = sp->rule->score_default;
+    info->lang = RSLanguage_ToString(sp->rule->lang_default);
+  } else {
+    info->score = DEFAULT_SCORE;
+    info->lang = RSLanguage_ToString(DEFAULT_LANGUAGE);
+  }
+
+  info->numFields = sp->numFields;
+  info->fields = rm_calloc(sp->numFields, sizeof(*info->fields));
+  for (int i = 0; i < info->numFields; ++i) {
+    RediSearch_FieldInfo(&info->fields[i], &sp->fields[i]);
+  }
+
+  info->numDocuments = sp->stats.numDocuments;
+  info->maxDocId = sp->docs.maxDocId;
+  info->docTableSize = sp->docs.memsize;
+  info->sortablesSize = sp->docs.sortablesSize;
+  info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
+  info->numTerms = sp->stats.numTerms;
+  info->numRecords = sp->stats.numRecords;
+  info->invertedSize = sp->stats.invertedSize;
+  info->invertedCap = sp->stats.invertedCap;
+  info->skipIndexesSize = sp->stats.skipIndexesSize;
+  info->scoreIndexesSize = sp->stats.scoreIndexesSize;
+  info->offsetVecsSize = sp->stats.offsetVecsSize;
+  info->offsetVecRecords = sp->stats.offsetVecRecords;
+  info->termsSize = sp->stats.termsSize;
+  info->indexingFailures = sp->stats.indexingFailures;
+
+  if (sp->gc) {
+    // LLAPI always uses ForkGC
+    ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
+
+    info->totalCollected = gcStats.totalCollected;
+    info->numCycles = gcStats.numCycles;
+    info->totalMSRun = gcStats.totalMSRun;
+    info->lastRunTimeMs = gcStats.lastRunTimeMs;
+  }
+
+  RWLOCK_RELEASE();
+
+  return REDISEARCH_OK;
+}
+
+void RediSearch_IndexInfoFree(RSIdxInfo *info) {
+  for (int i = 0; i < info->numFields; ++i) {
+    rm_free(info->fields[i].name);
+    rm_free(info->fields[i].path);
+  }
+  rm_free((void *)info->fields);
 }

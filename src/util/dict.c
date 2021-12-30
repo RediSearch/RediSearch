@@ -1286,4 +1286,5 @@ int main(int argc, char **argv) {
     }
     end_benchmark("Removing and adding");
 }
-#endif
+
+#endif // DICT_BENCHMARK_MAIN

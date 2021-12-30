@@ -27,8 +27,11 @@ extern "C" {
 struct IndexesScanner;
 struct DocumentIndexer;
 
-#define NUMERIC_STR "NUMERIC"
-#define GEO_STR "GEO"
+#define SPEC_GEO_STR "GEO"
+#define SPEC_TAG_STR "TAG"
+#define SPEC_TEXT_STR "TEXT"
+#define SPEC_VECTOR_STR "VECTOR"
+#define SPEC_NUMERIC_STR "NUMERIC"
 
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
@@ -38,11 +41,9 @@ struct DocumentIndexer;
 #define SPEC_SCHEMA_EXPANDABLE_STR "MAXTEXTFIELDS"
 #define SPEC_TEMPORARY_STR "TEMPORARY"
 #define SPEC_AS_STR "AS"
-#define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
 #define SPEC_NOSTEM_STR "NOSTEM"
 #define SPEC_PHONETIC_STR "PHONETIC"
-#define SPEC_TAG_STR "TAG"
 #define SPEC_SORTABLE_STR "SORTABLE"
 #define SPEC_UNF_STR "UNF"
 #define SPEC_STOPWORDS_STR "STOPWORDS"
@@ -82,6 +83,18 @@ struct DocumentIndexer;
        .len = &dummy2,                                                      \
        .type = AC_ARGTYPE_STRING},
 
+/**
+ * If wishing to represent field types positionally, use this
+ * enum. Since field types are a bitmask, it's pointless to waste
+ * space like this
+ */
+
+static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
+                                      [IXFLDPOS_NUMERIC] = SPEC_NUMERIC_STR,
+                                      [IXFLDPOS_GEO] = SPEC_GEO_STR,
+                                      [IXFLDPOS_TAG] = SPEC_TAG_STR,
+                                      [IXFLDPOS_VECTOR] = SPEC_VECTOR_STR};
+
 // TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
@@ -110,6 +123,7 @@ typedef struct {
   size_t offsetVecRecords;
   size_t termsSize;
   size_t indexingFailures;
+  size_t vectorIndexSize;
 } IndexStats;
 
 typedef enum {
@@ -133,6 +147,7 @@ typedef enum {
   Index_SkipInitialScan = 0x1000,
   Index_FromLLAPI = 0x2000,
   Index_HasFieldAlias = 0x4000,
+  Index_HasVecSim = 0x8000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,

@@ -1,9 +1,11 @@
+
 #include "test_util.h"
 #include "fragmenter.h"
+#include "rmutil/alloc.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../../src/rmutil/alloc.h"
 
 #define LOREM_IPSUM_FILE "./lorem_ipsum.txt"
 #define GENESIS_FILE "./genesis.txt"

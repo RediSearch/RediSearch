@@ -3,12 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "dep/triemap/triemap.h"
+#include "triemap/triemap.h"
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
 #include "rmutil/sds.h"
 #include "util/dict.h"
+#include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,8 +71,11 @@ typedef struct {
 } DocTable;
 
 /* increasing the ref count of the given dmd */
-#define DMD_Incref(md) \
-  if (md) ++md->ref_count;
+#define DMD_Incref(md)                                                       \
+  if (md) {                                                                  \
+    RS_LOG_ASSERT(md->ref_count < (1 << 16), "overflow of dmd ref_count");   \
+    ++md->ref_count;                                                         \
+  }
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
   for (size_t i = 0; i < dt->cap; ++i) {                                     \

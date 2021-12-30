@@ -20,6 +20,7 @@
 #include "ext/default.h"
 #include "rwlock.h"
 #include "json.h"
+#include "VecSim/vec_sim.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -108,6 +109,14 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+static inline const char* RS_GetExtraVersion() {
+#ifdef GIT_VERSPEC
+  return GIT_VERSPEC;
+#else
+  return "";
+#endif
+}
+
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
@@ -184,5 +193,9 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Initialize_CommandFilter(ctx);
   GetJSONAPIs(ctx, 1);
   Initialize_RdbNotifications(ctx);
+
+  // Register rm_malloc memory functions as vector similarity memory functions.
+  VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
+  VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
   return REDISMODULE_OK;
 }

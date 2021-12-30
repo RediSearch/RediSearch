@@ -1380,7 +1380,7 @@ def testNumericRange(env):
         env.assertEqual(100, res[0])
 
         res = r.execute_command(
-            'ft.search', 'idx', 'hello kitty  @score:[0 50]', "nocontent")
+            'ft.search', 'idx', 'hello kitty @score:[0 50]', "nocontent")
         env.assertEqual(51, res[0])
         res = r.execute_command(
             'ft.search', 'idx', 'hello kitty @score:[(0 (50]', 'verbatim', "nocontent")
@@ -1394,6 +1394,58 @@ def testNumericRange(env):
         res = r.execute_command(
             'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
+
+def testNotIter(env):
+    conn = getConnectionByEnv(env)
+    env.assertOk(conn.execute_command(
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))
+
+    for i in xrange(8):
+        conn.execute_command('HSET', 'doc%d' % i, 'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i)
+
+    # middle shunk
+    res = env.execute_command(
+        'ft.search', 'idx', '-@score:[2 4]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    res = env.execute_command(
+        'ft.search', 'idx', 'hello kitty -@score:[2 4]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    # start chunk
+    res = env.execute_command(
+        'ft.search', 'idx', '-@score:[0 2]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    res = env.execute_command(
+        'ft.search', 'idx', 'hello kitty -@score:[0 2]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    # end chunk
+    res = env.execute_command(
+        'ft.search', 'idx', '-@score:[5 7]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    res = env.execute_command(
+        'ft.search', 'idx', 'hello kitty -@score:[5 7]', 'verbatim', "nocontent")
+    env.assertEqual(5, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    # whole chunk
+    res = env.execute_command(
+        'ft.search', 'idx', '-@score:[0 7]', 'verbatim', "nocontent")
+    env.assertEqual(0, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+
+    res = env.execute_command(
+        'ft.search', 'idx', 'hello kitty -@score:[0 7]', 'verbatim', "nocontent")
+    env.assertEqual(0, res[0])
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
 
 def testPayload(env):
     r = env
@@ -2061,7 +2113,7 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
        .contains('Timeout limit was reached')
 
-    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1000)
+    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
     env.assertEqual(res[0], num_range)
 
     # test erroneous params
@@ -2109,6 +2161,24 @@ def testTimeout(env):
     # restore old configuration
     env.cmd('ft.config', 'set', 'timeout', '500')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', 200)
+
+def testTimeoutOnSorter(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.config', 'set', 'timeout', '1')
+    pl = conn.pipeline()
+
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric', 'SORTABLE')
+
+    elements = 1024 * 64
+    for i in range(elements):
+        pl.execute_command('hset', i, 'n', i)
+        if i % 10000 == 0:
+            pl.execute()
+    pl.execute()
+
+    res = env.cmd('ft.search', 'idx', '*', 'SORTBY', 'n', 'DESC')
+    env.assertGreater(elements, res[0])
 
 def testAlias(env):
     conn = getConnectionByEnv(env)
@@ -3403,3 +3473,9 @@ def test_mod1548(env):
     res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
     env.assertEqual(res, [2L, 'prod:1', [], 'prod:2', []])
 
+def test_empty_field_name(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()
+    conn.execute_command('hset', 'doc1', '', 'foo')
+    env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['', 'foo']])

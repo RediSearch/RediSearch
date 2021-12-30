@@ -3,8 +3,9 @@ from collections import Iterable
 import time
 from packaging import version
 from functools import wraps
-
 import signal
+import platform
+
 from includes import *
 
 
@@ -89,6 +90,15 @@ def numver_to_version(numver):
     v = "%d.%d.%d" % (int(v/10000), int(v/100)%100, v%100)
     return version.parse(v)
 
+def arch_int_bits():
+  arch = platform.machine()
+  if arch == 'x86_64':
+    return 128
+  elif arch == 'aarch64':
+    return 64
+  else:
+    return 64
+
 module_ver = None
 def module_version_at_least(env, ver):
     global module_ver
@@ -167,3 +177,17 @@ def unstable(f):
             return
         return f(env, *args, **kwargs)
     return wrapper
+
+def to_dict(res):
+    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return d
+
+
+def get_redis_memory_in_mb(env):
+    return float(env.cmd('info', 'memory')['used_memory'])/0x100000
+
+def get_redisearch_index_memory(env, index_key):
+    return float(index_info(env, index_key)["inverted_sz_mb"])
+
+def get_redisearch_vector_index_memory(env, index_key):
+    return float(index_info(env, index_key)["vector_index_sz_mb"])

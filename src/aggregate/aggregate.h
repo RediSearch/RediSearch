@@ -12,6 +12,8 @@
 extern "C" {
 #endif
 
+#define DEFAULT_LIMIT 10
+
 typedef struct Grouper Grouper;
 
 typedef enum {
