@@ -210,6 +210,7 @@ TEST_F(QueryTest, testParser) {
 
   // Test basic vector similarity query
   assertValidQuery("*=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[TOP_K $TOP_K @TOP_K $TOP_K TOPK $TOP_K AS $AS]", ctx); // using reserved word as an attribute or field
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]", ctx);
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB AS score]", ctx);
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB EF $ef foo bar x 5 AS score]", ctx);
@@ -228,6 +229,7 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("*=>[TOP_K -42 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
   assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB $EF ef foo bar x 5 AS score]", ctx); // parameter as attribute
   assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x 5 AS ]", ctx); // not specifying score field name
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB AS TOP_K]", ctx); // using reserved word as string parameter
   assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
 
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";

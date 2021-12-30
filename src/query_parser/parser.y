@@ -689,19 +689,19 @@ vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D).
 }
 
 // Vector query opt. 2 - score field only, no params.
-vector_query(A) ::= vector_command(B) AS param_term(D). { // how we get vector field query
+vector_query(A) ::= vector_command(B) AS param_term(D). {
   B->vn.vq->scoreField = rm_strndup(D.s, D.len);
   A = B;
 }
 
 // Vector query opt. 3 - no score field, params only.
-vector_query(A) ::= vector_command(B) vector_attribute_list(C). { // how we get vector field query
+vector_query(A) ::= vector_command(B) vector_attribute_list(C). {
   B->vn.vq->params = C;
   A = B;
 }
 
 // Vector query opt. 4 - no score field and no params.
-vector_query(A) ::= vector_command(B). { // how we get vector field query
+vector_query(A) ::= vector_command(B). {
   A = B;
 }
 
