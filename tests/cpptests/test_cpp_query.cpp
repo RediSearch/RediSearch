@@ -214,8 +214,29 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("@tag:{foo | bar} => {$great: 0.5;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
-
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
+
+  // Test basic vector similarity query
+  assertValidQuery("*=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB AS score]", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB EF $ef foo bar x 5 AS score]", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB foo bar x 5]", ctx);
+
+  // Test basic vector similarity query combind with other expressions
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]=>{$weight: 0.5; $slop: 2}", ctx);
+  assertValidQuery("*=>[TOP_K $K1 @vec_field $BLOB1] OR *=>[TOP_K $K2 @vec_field $BLOB2]", ctx);
+
+  // Test basic vector similarity query errors
+  assertInvalidQuery("*=>[TOPK $K @vec_field $BLOB]", ctx); // wrong command name
+  assertInvalidQuery("*=>[TOP_K $K @vec_field BLOB]", ctx); // pass vector as value (must be an attribute)
+  assertInvalidQuery("*=>[TOP_K $K vec_field $BLOB]", ctx); // wrong field value (must be @field)
+  assertInvalidQuery("*=>[TOP_K K @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[TOP_K 3.14 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[TOP_K -42 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB $EF ef foo bar x 5 AS score]", ctx); // parameter as attribute
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x 5 AS ]", ctx); // not specifying score field name
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
 
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;
