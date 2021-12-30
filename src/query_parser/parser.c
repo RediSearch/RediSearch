@@ -1813,42 +1813,52 @@ static YYACTIONTYPE yy_reduce(
   } else {
       yylhsminor.yy83 = NewQueryNode(QN_NULL);
   }
+  yymsp[-4].minor.yy27 = yymsp[-1].minor.yy27;
 }
   yymsp[-2].minor.yy83 = yylhsminor.yy83;
         break;
       case 62: /* vector_filter ::= LSQB param_any param_any param_any RSQB */
 {
-  // Update token types to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-  if (yymsp[-3].minor.yy0.type == QT_TERM) {
-    yymsp[-3].minor.yy0.type = QT_VEC;
-    // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
-    //  Equal signs are currently considered as punct (punctuation) and are not included in a
-    //  term, But in base64 encoding, it is used as padding to extend the string to a length
-    //  which is a multiple of 3.
-    size_t len = yymsp[-3].minor.yy0.len;
-    int remainder = len % 3;
-    if (remainder == 1 && *((yymsp[-3].minor.yy0.s) + len) == '=' && *((yymsp[-3].minor.yy0.s) + len + 1) == '=')
-      yymsp[-3].minor.yy0.len = len + 2;
-    else if (remainder == 2 && *((yymsp[-3].minor.yy0.s) + len) == '=')
-      yymsp[-3].minor.yy0.len = len + 1;
-  } else if (yymsp[-3].minor.yy0.type == QT_PARAM_ANY) {
-    yymsp[-3].minor.yy0.type = QT_PARAM_VEC;
-  } else {
-    badToken = &yymsp[-3].minor.yy0;
-  }
-
-  if (yymsp[-2].minor.yy0.type == QT_PARAM_ANY) {
-    yymsp[-2].minor.yy0.type = QT_PARAM_VEC_SIM_TYPE;
-  } else if (!badToken && yymsp[-2].minor.yy0.type != QT_TERM) {
-    badToken = &yymsp[-2].minor.yy0;
-  }
-
-  if (yymsp[-1].minor.yy0.type == QT_PARAM_ANY) {
-    yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC;
-  } else if (!badToken && yymsp[-1].minor.yy0.type != QT_NUMERIC) {
-    badToken = &yymsp[-1].minor.yy0;
+  yymsp[-3].minor.yy27->vn.vq->scoreField = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  yymsp[-3].minor.yy27->vn.vq->params = yymsp[-2].minor.yy89;
+  yylhsminor.yy27 = yymsp[-3].minor.yy27;
+}
+  yymsp[-3].minor.yy27 = yylhsminor.yy27;
+        break;
+      case 54: /* vector_query ::= vector_command AS param_term */
+{ // how we get vector field query
+  yymsp[-2].minor.yy27->vn.vq->scoreField = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  yylhsminor.yy27 = yymsp[-2].minor.yy27;
+}
+  yymsp[-2].minor.yy27 = yylhsminor.yy27;
+        break;
+      case 55: /* vector_query ::= vector_command vector_attribute_list */
+{ // how we get vector field query
+  yymsp[-1].minor.yy27->vn.vq->params = yymsp[0].minor.yy89;
+  yylhsminor.yy27 = yymsp[-1].minor.yy27;
+}
+  yymsp[-1].minor.yy27 = yylhsminor.yy27;
+        break;
+      case 56: /* vector_query ::= vector_command */
+{ // how we get vector field query
+  yylhsminor.yy27 = yymsp[0].minor.yy27;
+}
+  yymsp[0].minor.yy27 = yylhsminor.yy27;
+        break;
+      case 57: /* vector_command ::= TOP_K param_size modifier ATTRIBUTE */
+{
+  yymsp[0].minor.yy0.type = QT_PARAM_VEC;
+  yymsp[-3].minor.yy27 = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
+  yymsp[-3].minor.yy27->vn.vq->property = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
+}
+        break;
+      case 58: /* vector_attribute ::= TERM param_term */
+{
+  const char *value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  const char *name = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
+  yylhsminor.yy47 = (VectorQueryParam){ .name = name, .namelen = yymsp[-1].minor.yy0.len, .value = value, .vallen = yymsp[0].minor.yy0.len };
+  if (yymsp[0].minor.yy0.type == QT_PARAM_TERM) {
+    yylhsminor.yy47.isParam = true;
   }
 
   if (!badToken) {
@@ -1858,6 +1868,20 @@ static YYACTIONTYPE yy_reduce(
     yymsp[-4].minor.yy62 = NULL;
   }
 }
+  yymsp[-1].minor.yy47 = yylhsminor.yy47;
+        break;
+      case 59: /* vector_attribute_list ::= vector_attribute_list vector_attribute */
+{
+  yylhsminor.yy89 = array_append(yymsp[-1].minor.yy89, yymsp[0].minor.yy47);
+}
+  yymsp[-1].minor.yy89 = yylhsminor.yy89;
+        break;
+      case 60: /* vector_attribute_list ::= vector_attribute */
+{
+  yylhsminor.yy89 = array_new(VectorQueryParam, 1);
+  yylhsminor.yy89 = array_append(yylhsminor.yy89, yymsp[0].minor.yy47);
+}
+  yymsp[0].minor.yy89 = yylhsminor.yy89;
         break;
       case 63: /* num ::= NUMBER */
 {
