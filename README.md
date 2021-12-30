@@ -49,28 +49,28 @@ $ redis-cli
 
 The [RediSearch documentation](https://oss.redis.com/redisearch/) provides a complete overview of RediSearch. Helpful sections include:
 
-* The [RediSearch quick start](https://oss.redis.com/redisearch/Quick_Start/) 
+* The [RediSearch quick start](https://oss.redis.com/redisearch/Quick_Start/)
 * The [RediSearch command reference](https://oss.redis.com/redisearch/Commands/)
 * References on features such as [aggregations](https://oss.redis.com/redisearch/Aggregations/), [highlights](https://oss.redis.com/redisearch/Highlight/), [stemming](https://oss.redis.com/redisearch/Stemming/), and [spelling correction](https://oss.redis.com/redisearch/Spellcheck/).
 
 ## Mailing list and forum
 
-Got questions? Join us in [#redisearch on the Redis Discord](https://discord.gg/knMsnYmwXu) server. 
+Got questions? Join us in [#redisearch on the Redis Discord](https://discord.gg/knMsnYmwXu) server.
 
 If you have a more detailed question, drop us a line on the [RediSearch Discussion Forum](http://forum.redis.com/c/modules/redisearch).
 
 ## Client libraries
 
-You can use any standard Redis client library to run RediSearch commands, but it's easiest to use a library that wraps the RediSearch API. 
+You can use any standard Redis client library to run RediSearch commands, but it's easiest to use a library that wraps the RediSearch API.
 
 | Language | Library | Author | License | Stars |
 |----------|---------|--------|---------|-------|
-|Python | [redisearch-py][redisearch-py-url] | [Redis][redisearch-py-author] | BSD | [![redisearch-py-stars]][redisearch-py-url] |
+|Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
 | Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
 | Java (Lettuce client library) | [lettusearch][lettusearch-url] | [Redis][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url]|
 | Java | [spring-redisearch][spring-redisearch-url] | [Redis][spring-redisearch-author] | Apache-2.0 | [![spring-redisearch-stars]][spring-redisearch-url]|
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
-| Go | [redisearch-go][redisearch-go-url] | [Redis][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] | 
+| Go | [redisearch-go][redisearch-go-url] | [Redis][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
 | JavaScript | [RedRediSearch][RedRediSearch-url] | [Kyle J. Davis][RedRediSearch-author] | MIT |[![RedRediSearch-stars]][RedRediSearch-url]|
 | JavaScript | [redis-redisearch][redis-redisearch-url] | [Kyle J. Davis][redis-redisearch-author] | MIT | [![redis-redisearch-stars]][redis-redisearch-url]|
 | TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
@@ -82,9 +82,9 @@ You can use any standard Redis client library to run RediSearch commands, but it
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
 
-[redisearch-py-url]: https://github.com/RediSearch/redisearch-py
-[redisearch-py-author]: https://redis.com
-[redisearch-py-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-py.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[redis-py-url]: https://github.com/redis/redis-py
+[redis-py-author]: https://redis.com
+[redis-py-stars]: https://img.shields.io/github/stars/redis/redis-py.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [JRediSearch-url]: https://github.com/RediSearch/JRediSearch
 [JRediSearch-author]: https://redis.com
