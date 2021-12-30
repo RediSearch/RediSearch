@@ -76,7 +76,6 @@ endif()
 add_subdirectory(${RS_DIR} search)
 add_subdirectory(src/rmr)
 add_subdirectory(src)
-add_subdirectory(${RS_DIR}/deps/VectorSimilarity/src)
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
@@ -104,7 +103,7 @@ macro(MODULE_TARGET TYPE)
 
     set(_moduleName module-${SUFFIX})
     add_library(${_moduleName} SHARED ${FINAL_OBJECTS} src/build-info/info-${SUFFIX}.c)
-    target_link_libraries(${_moduleName} redisearch-${SUFFIX} VectorSimilarity ${LIBUV_LIBS} ${HIREDIS_LIBS} ${SSL_LIBS})
+    target_link_libraries(${_moduleName} redisearch-${SUFFIX} ${LIBUV_LIBS} ${HIREDIS_LIBS} ${SSL_LIBS})
 
     target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
     
