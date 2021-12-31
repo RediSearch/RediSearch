@@ -467,8 +467,9 @@ jobs:
       - run:
           name: Deploy to S3
           command: |
-            cd "workspace/artifacts/<<parameters.location>>"
+            cd ~/workspace
             du -ah --apparent-size *
+            cd "artifacts/<<parameters.location>>"
             if [[ -z "<<parameters.location>>" ]]; then
                 path=""
             else
@@ -491,9 +492,18 @@ jobs:
       - run:
           name: Deploy to S3
           command: |
+            cd ~/workspace
             du -ah --apparent-size *
-            cd "workspace/artifacts/<<parameters.location>>"
+            cd "artifacts/<<parameters.location>>"
             du -ah --apparent-size *
+            if [[ -z "<<parameters.location>>" ]]; then
+                path=""
+            else
+                path="<<parameters.location>>/"
+            fi
+            for f in `ls *.zip *.tgz`; do
+              echo aws s3 cp $f s3://redismodules/$PACKAGE_NAME/$path --acl public-read
+            done
 
   release-automation:
     docker:
