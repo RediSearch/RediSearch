@@ -478,6 +478,23 @@ jobs:
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/$path --acl public-read
             done
 
+  deploy-artifacts1:
+    parameters:
+      location:
+        type: string
+        default: ""
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+    steps:
+      - attach_workspace:
+          at: ~/workspace
+      - run:
+          name: Deploy to S3
+          command: |
+            du -ah --apparent-size *
+            cd "workspace/artifacts/<<parameters.location>>"
+            du -ah --apparent-size *
+
   release-automation:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bullseye
@@ -557,9 +574,9 @@ workflows:
   version: 2
   default-flow:
     jobs:
-      - build-linux-debian:
-          name: build
-          <<: *not-on-integ-branch
+#      - build-linux-debian:
+#          name: build
+#          <<: *not-on-integ-branch
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           <<: *on-integ-and-version-tags
@@ -567,11 +584,18 @@ workflows:
             parameters:
               redis_version: ["6.0", "6.2"]
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          #@@ <<: *on-integ-and-version-tags
+          <<: *on-any-branch
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, centos8, bullseye]
+              #@@ platform: [focal, bionic, xenial, centos7, centos8, bullseye]
+              platform: [bionic]
+      - deploy-artifacts1:
+          location: snapshots
+          <<: *on-any-branch
+          requires:
+            - build-platforms
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -580,15 +604,15 @@ workflows:
               platform: [bionic]
       - build-macos:
           <<: *on-integ-and-version-tags
-      - coverage:
-          context: common
-          <<: *on-any-branch
-      - sanitize:
-          name: sanitize-<< matrix.san-type >>
-          matrix:
-            parameters:
-              san-type: [address] # [address, memory]
-          <<: *on-any-branch
+#      - coverage:
+#          context: common
+#          <<: *on-any-branch
+#      - sanitize:
+#          name: sanitize-<< matrix.san-type >>
+#          matrix:
+#            parameters:
+#              san-type: [address] # [address, memory]
+#          <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
       - benchmark:
