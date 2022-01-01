@@ -195,10 +195,10 @@ commands:
           command: |
             ROOT=$PWD
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 SHOW=1 PACK=1 #TEST=1
-            # cd $ROOT
-            # mkdir -p tests/pytests/logs
-            # tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 TEST=1 SHOW=1 PACK=1
+            cd $ROOT
+            mkdir -p tests/pytests/logs
+            tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
           no_output_timeout: 30m
       - save-tests-logs
       - early-return-for-forked-pull-requests
@@ -479,32 +479,6 @@ jobs:
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/$path --acl public-read
             done
 
-  deploy-artifacts1:
-    parameters:
-      location:
-        type: string
-        default: ""
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-    steps:
-      - attach_workspace:
-          at: ~/workspace
-      - run:
-          name: Deploy to S3
-          command: |
-            cd ~/workspace
-            du -ah --apparent-size *
-            cd "artifacts/<<parameters.location>>"
-            du -ah --apparent-size *
-            if [[ -z "<<parameters.location>>" ]]; then
-                path=""
-            else
-                path="<<parameters.location>>/"
-            fi
-            for f in `ls *.zip *.tgz`; do
-              echo aws s3 cp $f s3://redismodules/$PACKAGE_NAME/$path --acl public-read
-            done
-
   release-automation:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bullseye
@@ -584,9 +558,9 @@ workflows:
   version: 2
   default-flow:
     jobs:
-#      - build-linux-debian:
-#          name: build
-#          <<: *not-on-integ-branch
+      - build-linux-debian:
+          name: build
+          <<: *not-on-integ-branch
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           <<: *on-integ-and-version-tags
@@ -594,18 +568,11 @@ workflows:
             parameters:
               redis_version: ["6.0", "6.2"]
       - build-platforms:
-          #@@ <<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              #@@ platform: [focal, bionic, xenial, centos7, centos8, bullseye]
-              platform: [bionic]
-      - deploy-artifacts1:
-          location: snapshots
-          <<: *on-any-branch
-          requires:
-            - build-platforms
+              platform: [focal, bionic, xenial, centos7, centos8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -614,15 +581,15 @@ workflows:
               platform: [bionic]
       - build-macos:
           <<: *on-integ-and-version-tags
-#      - coverage:
-#          context: common
-#          <<: *on-any-branch
-#      - sanitize:
-#          name: sanitize-<< matrix.san-type >>
-#          matrix:
-#            parameters:
-#              san-type: [address] # [address, memory]
-#          <<: *on-any-branch
+      - coverage:
+          context: common
+          <<: *on-any-branch
+      - sanitize:
+          name: sanitize-<< matrix.san-type >>
+          matrix:
+            parameters:
+              san-type: [address] # [address, memory]
+          <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
       - benchmark:
