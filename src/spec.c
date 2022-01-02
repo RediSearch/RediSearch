@@ -992,7 +992,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void IndexSpec_FreeInternals(IndexSpec *spec) {
+void IndexSpec_FreeGlobals(IndexSpec *spec) {
   if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
     dictDelete(specDict_g, spec->name);
   }
@@ -1001,6 +1001,22 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->isTimerSet) {
     RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
     spec->isTimerSet = false;
+  }
+
+  if (spec->uniqueId) {
+    // If uniqueid is 0, it means the index was not initialized
+    // and is being freed now during an error.
+    Cursors_PurgeWithName(&RSCursors, spec->name);
+    CursorList_RemoveSpec(&RSCursors, spec->name);
+
+    IndexSpec_ClearAliases(spec);
+  }
+}
+
+void IndexSpec_FreeInternals(IndexSpec *spec) {
+  if (spec->rule) {
+    SchemaRule_Free(spec->rule);
+    spec->rule = NULL;
   }
 
   if (spec->indexer) {
@@ -1014,18 +1030,6 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     TrieType_Free(spec->terms);
   }
   DocTable_Free(&spec->docs);
-
-  if (spec->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    Cursors_PurgeWithName(&RSCursors, spec->name);
-    CursorList_RemoveSpec(&RSCursors, spec->name);
-  }
-
-  if (spec->rule) {
-    SchemaRule_Free(spec->rule);
-    spec->rule = NULL;
-  }
 
   rm_free(spec->name);
   if (spec->sortables) {
@@ -1065,11 +1069,6 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
-  if (spec->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    IndexSpec_ClearAliases(spec);
-  }
 
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
@@ -1100,6 +1099,22 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
   RedisModule_FreeThreadSafeContext(threadCtx);
 }
 
+static void IndexSpec_FreeAllTask(IndexSpec **specs) {
+  RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
+
+  for (size_t i = 0; i < array_len(specs); ++i) {
+    RedisModule_ThreadSafeContextLock(threadCtx);
+    // Only free internals
+    IndexSpec_FreeInternals(specs[i]);
+    RedisModule_ThreadSafeContextUnlock(threadCtx);
+    sched_yield();
+  }
+  
+  RedisModule_FreeThreadSafeContext(threadCtx);
+
+  array_free(specs);
+}
+
 static struct thpool_ *cleanPool = NULL;
 
 void IndexSpec_LegacyFree(void *spec) {
@@ -1124,7 +1139,7 @@ void IndexSpec_Free(IndexSpec *spec) {
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, spec);
     return;
   }
-
+  IndexSpec_FreeGlobals(spec);
   IndexSpec_FreeInternals(spec);
 }
 
@@ -1149,7 +1164,11 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Free(dict *d) {
-  arrayof(IndexSpec *) specs = array_new(IndexSpec *, 10);
+  if (!cleanPool) {
+    cleanPool = thpool_init(1);
+  }
+
+  arrayof(IndexSpec *) specs = array_new(IndexSpec *, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
@@ -1157,11 +1176,14 @@ void Indexes_Free(dict *d) {
     specs = array_append(specs, sp);
   }
   dictReleaseIterator(iter);
+  dictEmpty(specDict_g, NULL);
 
-  for (size_t i = 0; i < array_len(specs); ++i) {
-    IndexSpec_FreeInternals(specs[i]);
+  // Free global attributes now and leave internal for threadpool
+  for (int i = 0; i < array_len(specs); ++i) {
+    IndexSpec_FreeGlobals(specs[i]);
   }
-  array_free(specs);
+
+  thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeAllTask, specs);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1891,6 +1913,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     // setting unique id to zero will make sure index will not be removed from global
     // cursor map and aliases.
     sp->uniqueId = 0;
+    IndexSpec_FreeGlobals(sp);
     IndexSpec_FreeInternals(sp);
     sp = oldSpec;
   } else {
@@ -2259,13 +2282,7 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void IndexSpec_CleanAll(void) {
-  dictIterator *it = dictGetSafeIterator(specDict_g);
-  dictEntry *e = NULL;
-  while ((e = dictNext(it))) {
-    IndexSpec *sp = e->v.val;
-    IndexSpec_Free(sp);
-  }
-  dictReleaseIterator(it);
+  Indexes_Free(specDict_g);
 }
 
 static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {

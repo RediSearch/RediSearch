@@ -129,12 +129,12 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   return rule;
 
 error:
+  SchemaPrefixes_RemoveSpec(rule->spec);
   SchemaRule_Free(rule);
   return NULL;
 }
 
 void SchemaRule_Free(SchemaRule *rule) {
-  SchemaPrefixes_RemoveSpec(rule->spec);
 
   rm_free((void *)rule->lang_field);
   rm_free((void *)rule->score_field);

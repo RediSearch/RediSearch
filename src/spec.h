@@ -480,6 +480,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
  * Free an indexSpec.
  */
 void IndexSpec_Free(IndexSpec *spec);
+void IndexSpec_FreeGlobals(IndexSpec *spec);
 void IndexSpec_FreeInternals(IndexSpec *spec);
 
 /**
