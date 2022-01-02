@@ -360,13 +360,11 @@ def test_memory_info(env):
     # Add vector.
     conn.execute_command('HSET', 1, vector_field, vector.tobytes())
     # Verify current memory readings > previous memory readings.
-    cur_redis_memory = get_redis_memory_in_mb(env)
-    env.assertLessEqual(redis_memory, cur_redis_memory)
     cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     env.assertLessEqual(redisearch_memory, cur_redisearch_memory)
     cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
     env.assertLessEqual(vecsim_memory, cur_vecsim_memory)
-    redis_memory = cur_redis_memory
+    redis_memory = get_redis_memory_in_mb(env)
     redisearch_memory = cur_redisearch_memory
     vecsim_memory = cur_vecsim_memory
     # Verify redis memory >= redisearch index memory
@@ -377,13 +375,11 @@ def test_memory_info(env):
     # Add vector.
     conn.execute_command('HSET', 2, vector_field, vector.tobytes())
     # Verify current memory readings > previous memory readings.
-    cur_redis_memory = get_redis_memory_in_mb(env)
-    env.assertLessEqual(redis_memory, cur_redis_memory)
     cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     env.assertLessEqual(redisearch_memory, cur_redisearch_memory)
     cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
     env.assertLessEqual(vecsim_memory, cur_vecsim_memory)
-    redis_memory = cur_redis_memory
+    redis_memory = get_redis_memory_in_mb(env)
     redisearch_memory = cur_redisearch_memory
     vecsim_memory = cur_vecsim_memory
     # Verify redis memory >= redisearch index memory
@@ -394,13 +390,11 @@ def test_memory_info(env):
     # Delete vector
     conn.execute_command('DEL', 2)
     # Verify current memory readings < previous memory readings.
-    cur_redis_memory = get_redis_memory_in_mb(env)
-    env.assertLessEqual(cur_redis_memory, redis_memory)
     cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     env.assertLessEqual(cur_redisearch_memory, redisearch_memory)
     cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
     env.assertLessEqual(cur_vecsim_memory, vecsim_memory)
-    redis_memory = cur_redis_memory
+    redis_memory = get_redis_memory_in_mb(env)
     redisearch_memory = cur_redisearch_memory
     vecsim_memory = cur_vecsim_memory
     # Verify redis memory >= redisearch index memory
@@ -411,13 +405,11 @@ def test_memory_info(env):
     # Delete vector
     conn.execute_command('DEL', 1)
     # Verify current memory readings < previous memory readings.
-    cur_redis_memory = get_redis_memory_in_mb(env)
-    env.assertLessEqual(cur_redis_memory, redis_memory)
     cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     env.assertLessEqual(cur_redisearch_memory, redisearch_memory)
     cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
     env.assertLessEqual(cur_vecsim_memory, vecsim_memory)
-    redis_memory = cur_redis_memory
+    redis_memory = get_redis_memory_in_mb(env)
     redisearch_memory = cur_redisearch_memory
     vecsim_memory = cur_vecsim_memory
     # Verify redis memory >= redisearch index memory
