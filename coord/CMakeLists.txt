@@ -75,7 +75,7 @@ add_subdirectory(${RS_DIR} search)
 add_subdirectory(src/rmr)
 add_subdirectory(src)
 option(VECSIM_STATIC "Build as static library" ON)
-option(BUILD_TESTS "Build tests" OFF)
+option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>

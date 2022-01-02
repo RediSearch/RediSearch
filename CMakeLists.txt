@@ -8,7 +8,6 @@ message("# search root: " ${RS_DIR})
 message("# search binroot: " ${binroot})
 
 include(build/cmake/common.cmake)
-# include(${RS_DIR}/build/vecsim/vecsim.cmake)
 
 #----------------------------------------------------------------------------------------------
 
@@ -65,7 +64,7 @@ add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
 option(VECSIM_STATIC "Build as static library" ON)
-option(BUILD_TESTS "Build tests" OFF)
+option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 add_subdirectory(deps/VectorSimilarity/src)
 
 #----------------------------------------------------------------------------------------------
