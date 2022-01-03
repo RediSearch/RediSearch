@@ -43,6 +43,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_NUMERIC_COMPRESS').res[0][0] =='_NUMERIC_COMPRESS'
     assert env.expect('ft.config', 'get', '_NUMERIC_RANGES_PARENTS').res[0][0] =='_NUMERIC_RANGES_PARENTS'
     assert env.expect('ft.config', 'get', 'RAW_DOCID_ENCODING').res[0][0] =='RAW_DOCID_ENCODING'
+    assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] =='FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
 '''
 
 Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
@@ -110,6 +111,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['PARTIAL_INDEXED_DOCS'][0], 'false')
     env.assertEqual(res_dict['_NUMERIC_COMPRESS'][0], 'false')
     env.assertEqual(res_dict['_NUMERIC_RANGES_PARENTS'][0], '0')
+    env.assertEqual(res_dict['FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'false')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
@@ -157,6 +159,7 @@ def testInitConfig(env):
     test_arg_true('SAFEMODE')
     test_arg_true('CONCURRENT_WRITE_MODE')
     test_arg_true('NO_MEM_POOLS')
+    test_arg_true('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
 
     # String arguments
     def test_arg_str(arg_name, arg_value, ret_value=None):

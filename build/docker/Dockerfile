@@ -47,7 +47,7 @@ RUN ./sbin/system-setup.py
 RUN /usr/local/bin/redis-server --version
 RUN bash -l -c "make fetch"
 
-RUN bash -l -c "make build WITH_TESTS=1 SHOW=1"
+RUN bash -l -c "make build SHOW=1"
 RUN set -e ;\
     if [ "$PACK" = "1" ]; then \
         bash -l -c "make build LITE=1 SHOW=1" ;\
@@ -55,21 +55,21 @@ RUN set -e ;\
     fi
 RUN set -e ;\
     if [ "$TEST" = "1" ]; then \
-        bash -l -c "make build WITH_TESTS=1 COORD=oss SHOW=1" ;\
+        bash -l -c "make build COORD=oss SHOW=1" ;\
     fi
 
 RUN mkdir -p bin/artifacts
 RUN set -e ;\
     if [ "$PACK" = "1" ]; then \
         bash -l -c "make pack COORD=rlec" ;\
-		bash -l -c "make pack LITE=1" ;\
-		echo "Artifacts:" ;\
-		du -ah --apparent-size /build/bin/artifacts ;\
+        bash -l -c "make pack LITE=1" ;\
+        echo "Artifacts:" ;\
+        du -ah --apparent-size /build/bin/artifacts ;\
     fi
 RUN set -e ;\
     if [ "$TEST" = "1" ]; then \
         bash -l -c "TEST= make test" ;\
-		bash -l -c "TEST= make test COORD=oss" ;\
+        bash -l -c "TEST= make test COORD=oss" ;\
         cd /build/tests/pytests/logs ;\
         rm -f *.aof *.rdb ;\
         tar -czf /build/bin/artifacts/tests-pytests-logs-${ARCH}-${OSNICK}.tgz . ;\

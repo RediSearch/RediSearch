@@ -63,15 +63,6 @@ void Document_AddGeoField(Document *d, const char *fieldname,
   f->unionType = FLD_VAR_T_GEO;
 }
 
-void Document_SetPayload(Document *d, const void *p, size_t n) {
-  d->payload = p;
-  d->payloadSize = n;
-  if (d->flags & DOCUMENT_F_OWNSTRINGS) {
-    d->payload = rm_malloc(n);
-    memcpy((void *)d->payload, p, n);
-  }
-}
-
 void Document_MakeStringsOwner(Document *d) {
   if (d->flags & DOCUMENT_F_OWNSTRINGS) {
     // Already the owner
@@ -129,6 +120,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx) {
   doc->score = SchemaRule_HashScore(sctx->redisCtx, rule, k, keyname);
   payload_rms = SchemaRule_HashPayload(sctx->redisCtx, rule, k, keyname);
   if (payload_rms) {
+    doc->flags |= Document_HasPayload;
     const char *payload_str = RedisModule_StringPtrLen(payload_rms, &doc->payloadSize);
     doc->payload = rm_malloc(doc->payloadSize);
     memcpy((char *)doc->payload, payload_str, doc->payloadSize);
