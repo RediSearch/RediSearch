@@ -494,6 +494,31 @@ FIELD_BULK_INDEXER(numericIndexer) {
   return 0;
 }
 
+FIELD_PREPROCESSOR(vectorPreprocessor) {
+  // TODO: check input validity
+  size_t len;
+  fdata->vector = RedisModule_StringPtrLen(field->text, &len);
+  fdata->vecLen = len;
+  aCtx->fwIdx->maxFreq++;
+  return 0;
+}
+
+FIELD_BULK_INDEXER(vectorIndexer) {
+  VecSimIndex *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
+  if (!rt) {
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_VECTOR);
+    rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
+        OpenVectorIndex(ctx, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
+    if (!rt) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
+      return -1;
+    }
+  }
+  ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);;
+  ctx->spec->stats.numRecords++;
+  return 0;
+}
+
 FIELD_PREPROCESSOR(geoPreprocessor) {
   size_t len;
   const char *str = NULL;
@@ -569,7 +594,9 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_FULLTEXT] = fulltextPreprocessor,
     [IXFLDPOS_NUMERIC] = numericPreprocessor,
     [IXFLDPOS_GEO] = geoPreprocessor,
-    [IXFLDPOS_TAG] = tagPreprocessor};
+    [IXFLDPOS_TAG] = tagPreprocessor,
+    [IXFLDPOS_VECTOR] = vectorPreprocessor,
+    };
 
 int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
@@ -585,6 +612,9 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
         case IXFLDPOS_NUMERIC:
         case IXFLDPOS_GEO:
           rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          break;
+        case IXFLDPOS_VECTOR:
+          rc = vectorIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;

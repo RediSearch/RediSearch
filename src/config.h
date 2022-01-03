@@ -80,6 +80,7 @@ typedef struct {
   size_t forkGcCleanThreshold;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
+  int forkGCCleanNumericEmptyNodes;
 
   // Chained configuration data
   void *chainedConfig;
@@ -182,7 +183,8 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
-    .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                                   \
+    .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
+    .forkGCCleanNumericEmptyNodes = 0,                                                            \
   }
 
 #define REDIS_ARRAY_LIMIT 7

@@ -36,7 +36,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   if (options->score || options->lang) {
     spec->rule = rm_calloc(1, sizeof *spec->rule);
     spec->rule->score_default = options->score ? options->score : DEFAULT_SCORE;
-    spec->rule->lang_default = options->lang ? options->lang : DEFAULT_LANGUAGE;
+    spec->rule->lang_default = RSLanguage_Find(options->lang, 0);
   }
 
   spec->getValue = options->gvcb;
@@ -86,6 +86,13 @@ const char *RediSearch_IndexGetLanguage(IndexSpec* sp) {
   return RSLanguage_ToString(DEFAULT_LANGUAGE);
 }
 
+int RediSearch_ValidateLanguage(const char *lang) {
+  if (!lang || RSLanguage_Find(lang, 0) == RS_LANG_UNSUPPORTED) {
+    return REDISEARCH_ERR;
+  }
+  return REDISEARCH_OK;
+}
+
 RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
                                  unsigned options) {
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
@@ -112,6 +119,10 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   }
   if (types & RSFLDTYPE_GEO) {
     fs->types |= INDEXFLD_T_GEO;
+    numTypes++;
+  }
+  if (types & RSFLDTYPE_VECTOR) {
+    fs->types |= INDEXFLD_T_VECTOR;
     numTypes++;
   }
   if (types & RSFLDTYPE_TAG) {
@@ -471,7 +482,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL);
+  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, &status);
   if (!it->internal) {
     goto end;
   }
@@ -611,6 +622,22 @@ void RediSearch_IndexOptionsSetGCPolicy(RSIndexOptions* options, int policy) {
   options->gcPolicy = policy;
 }
 
+int RediSearch_IndexOptionsSetScore(RSIndexOptions* options, double score) {
+  if (score < 0 || score > 1) {
+    return REDISEARCH_ERR;
+  }
+  options->score = score;
+  return REDISEARCH_OK;
+}
+
+int RediSearch_IndexOptionsSetLanguage(RSIndexOptions* options, const char *lang) {
+  if (!lang || RediSearch_ValidateLanguage(lang) != REDISEARCH_OK) {
+    return REDISEARCH_ERR;
+  }
+  options->lang = lang;
+  return REDISEARCH_OK;
+}
+
 #define REGISTER_API(name)                                                          \
   if (RedisModule_ExportSharedAPI(ctx, "RediSearch_" #name, RediSearch_##name) !=   \
       REDISMODULE_OK) {                                                             \
@@ -682,10 +709,10 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
   if (sp->rule) {
     info->score = sp->rule->score_default;
-    info->lang = sp->rule->lang_default;
+    info->lang = RSLanguage_ToString(sp->rule->lang_default);
   } else {
     info->score = DEFAULT_SCORE;
-    info->lang = DEFAULT_LANGUAGE;
+    info->lang = RSLanguage_ToString(DEFAULT_LANGUAGE);
   }
 
   info->numFields = sp->numFields;

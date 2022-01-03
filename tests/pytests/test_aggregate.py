@@ -316,7 +316,7 @@ class TestAggregate():
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'SORTBY', 2, '@price', 'desc',
                            'LOAD', 1, '@title',
-                           'LIMIT', '0', '2')                           
+                           'LIMIT', '0', '2')
         self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
         # test with non-sortable filed
@@ -325,13 +325,13 @@ class TestAggregate():
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'SORTBY', 2, '@description', 'desc',
                            'LOAD', 1, '@description',
-                           'LIMIT', '0', '2')     
+                           'LIMIT', '0', '2')
         self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'LOAD', 1, '@description',
                            'SORTBY', 2, '@description', 'desc',
-                           'LIMIT', '0', '2')     
+                           'LIMIT', '0', '2')
         self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
     def testExpressions(self):
@@ -494,7 +494,8 @@ class TestAggregate():
 
     def testCountError(self):
         # With 0 values
-        res = self.env.cmd('ft.aggregate', 'games', '*',
+        conn = getConnectionByEnv(self.env)
+        res = conn.execute_command('ft.aggregate', 'games', '*',
                            'GROUPBY', '2', '@brand', '@price',
                            'REDUCE', 'COUNT', 0)
         self.env.assertEqual(len(res), 1245)
@@ -572,13 +573,13 @@ def testAggregateGroupByOnEmptyField(env):
 
 def testMultiSortBy(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'sb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
+    env.execute_command('FT.CREATE', 'sb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
     conn.execute_command('hset', 'doc1', 't1', 'a', 't2', 'a')
     conn.execute_command('hset', 'doc2', 't1', 'a', 't2', 'b')
-    conn.execute_command('hset', 'doc3', 't1', 'a', 't2', 'c')  
+    conn.execute_command('hset', 'doc3', 't1', 'a', 't2', 'c')
     conn.execute_command('hset', 'doc4', 't1', 'b', 't2', 'a')
     conn.execute_command('hset', 'doc5', 't1', 'b', 't2', 'b')
-    conn.execute_command('hset', 'doc6', 't1', 'b', 't2', 'c')  
+    conn.execute_command('hset', 'doc6', 't1', 'b', 't2', 'c')
     conn.execute_command('hset', 'doc7', 't1', 'c', 't2', 'a')
     conn.execute_command('hset', 'doc8', 't1', 'c', 't2', 'b')
     conn.execute_command('hset', 'doc9', 't1', 'c', 't2', 'c')
@@ -735,9 +736,9 @@ def testMaxAggInf(env):
 
 def testLoadPosition(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
     conn.execute_command('ft.add', 'idx', 'doc1', 1, 'FIELDS', 't1', 'hello', 't2', 'world')
-    
+
     # LOAD then SORTBY
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1', 'SORTBY', '2', '@t1', 'ASC') \
         .equal([1L, ['t1', 'hello']])
@@ -752,6 +753,6 @@ def testLoadPosition(env):
 
     # two LOADs with an apply for error
     res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
-                                           'APPLY', '@t2', 'AS', 'load_error', 
+                                           'APPLY', '@t2', 'AS', 'load_error',
                                            'LOAD', '1', 't2')
     env.assertContains('Value was not found in result', str(res[1]))

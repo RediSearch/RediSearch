@@ -283,6 +283,19 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   }
 
   *xcmd = MR_NewCommandArgv(array_len(tmparr), tmparr);
+
+  // PARAMS was already validated at AREQ_Compile
+  int loc = RMUtil_ArgIndex("PARAMS", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (loc != -1) {
+    long long nargs;
+    int rc = RedisModule_StringToLongLong(argv[loc + 3 + 1 + profileArgs], &nargs);
+
+    // append params string including PARAMS keyword and nargs
+    for (int i = 0; i < nargs + 2; ++i) {
+      MRCommand_AppendRstr(xcmd, argv[loc + 3 + i + profileArgs]);
+    }
+  }
+
   MRCommand_SetPrefix(xcmd, "_FT");
 
   array_free(tmparr);
@@ -292,14 +305,21 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
                              AREQDIST_UpstreamInfo *us) {
   // Establish our root processor, which is the distributed processor
   RPNet *rpRoot = RPNet_New(xcmd, sc);
+  rpRoot->base.parent = &r->qiter;
   rpRoot->lookup = us->lookup;
+
+  ResultProcessor *rpProfile = NULL;
 
   assert(!r->qiter.rootProc);
   // Get the deepest-most root:
   int found = 0;
   for (ResultProcessor *rp = r->qiter.endProc; rp; rp = rp->upstream) {
     if (!rp->upstream) {
-      rp->upstream = &rpRoot->base;
+      if (IsProfile(r)) {
+        rp->upstream = rpProfile = RPProfile_New(&rpRoot->base, &r->qiter);
+      } else {
+        rp->upstream = &rpRoot->base;
+      }
       found = 1;
       break;
     }
@@ -310,12 +330,10 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
   if (!found) {
     r->qiter.endProc = &rpRoot->base;
   }
-  rpRoot->base.parent = &r->qiter;
 
+  // allocate memory for replies and update endProc if necessary
   if (IsProfile(r)) {
     rpRoot->shardsProfile = rm_malloc(sizeof(*rpRoot->shardsProfile) * sc->size);
-
-    ResultProcessor *rpProfile = RPProfile_New(&rpRoot->base, &r->qiter);
     if (!found) {
       r->qiter.endProc = rpProfile;
     }
@@ -330,7 +348,7 @@ void printAggProfile(RedisModuleCtx *ctx, AREQ *req) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   // profileRP replace netRP as end PR
-  RPNet *rpnet = (RPNet *)req->qiter.endProc->upstream;
+  RPNet *rpnet = (RPNet *)req->qiter.rootProc;
 
   // Print shards profile
   nelem += PrintShardProfile(ctx, rpnet->shardsProfileIdx, rpnet->shardsProfile, 0);

@@ -75,6 +75,8 @@ typedef struct {
 
   uint32_t uniqueId;
 
+  size_t emptyLeaves;
+
 } NumericRangeTree;
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
@@ -107,6 +109,9 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max);
 
 /* Recursively free a node and its children */
 void NumericRangeNode_Free(NumericRangeNode *n);
+
+/* Recursively trim empty nodes from tree  */
+NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
 
 /* Create a new tree */
 NumericRangeTree *NewNumericRangeTree();

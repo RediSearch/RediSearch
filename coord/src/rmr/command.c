@@ -282,6 +282,12 @@ void MRCommand_Append(MRCommand *cmd, const char *s, size_t n) {
   }
 }
 
+void MRCommand_AppendRstr(MRCommand *cmd, RedisModuleString *rmstr) {
+  size_t len;
+  const char *cstr = RedisModule_StringPtrLen(rmstr, &len);
+  MRCommand_Append(cmd, cstr, len);
+}
+
 /** Set the prefix of the command (i.e {prefix}.{command}) to a given prefix. If the command has a
  * module style prefx it gets replaced with the new prefix. If it doesn't, we prepend the prefix to
  * the command. */

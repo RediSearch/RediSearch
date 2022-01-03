@@ -34,6 +34,8 @@ RSIndexResult *NewVirtualResult(double weight);
 
 RSIndexResult *NewNumericResult();
 
+RSIndexResult *NewDistanceResult();
+
 /* Allocate a new token record result for a given term */
 RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
