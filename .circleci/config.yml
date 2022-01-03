@@ -467,8 +467,9 @@ jobs:
       - run:
           name: Deploy to S3
           command: |
-            cd "workspace/artifacts/<<parameters.location>>"
+            cd ~/workspace
             du -ah --apparent-size *
+            cd "artifacts/<<parameters.location>>"
             if [[ -z "<<parameters.location>>" ]]; then
                 path=""
             else
