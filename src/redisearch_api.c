@@ -305,6 +305,13 @@ QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, cons
   return ret;
 }
 
+QueryNode* RediSearch_CreateTagTokenNode(IndexSpec* sp, const char* token) {
+  QueryNode* ret = NewQueryNode(QN_TOKEN);
+  ret->tn = (QueryTokenNode){
+      .str = (char*)rm_strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
+  return ret;
+}
+
 QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
@@ -342,6 +349,13 @@ QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, con
   return ret;
 }
 
+QueryNode* RediSearch_CreateTagPrefixNode(IndexSpec* sp, const char* s) {
+  QueryNode* ret = NewQueryNode(QN_PREFIX);
+  ret->pfx =
+      (QueryPrefixNode){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
+  return ret;
+}
+
 QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
                                          const char* end, int includeBegin, int includeEnd) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
@@ -355,6 +369,20 @@ QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, c
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
+  }
+  return ret;
+}
+
+QueryNode* RediSearch_CreateTagLexRangeNode(IndexSpec* sp, const char* begin,
+                                         const char* end, int includeBegin, int includeEnd) {
+  QueryNode* ret = NewQueryNode(QN_LEXRANGE);
+  if (begin) {
+    ret->lxrng.begin = begin ? rm_strdup(begin) : NULL;
+    ret->lxrng.includeBegin = includeBegin;
+  }
+  if (end) {
+    ret->lxrng.end = end ? rm_strdup(end) : NULL;
+    ret->lxrng.includeEnd = includeEnd;
   }
   return ret;
 }

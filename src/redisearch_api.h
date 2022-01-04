@@ -210,6 +210,14 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateLexRangeNode)
  int includeEnd);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagNode)(RSIndex* sp, const char* field);
+// Used as children of Tag
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagTokenNode)
+(RSIndex* sp, const char* token);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagPrefixNode)
+(RSIndex* sp, const char* s);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagLexRangeNode)
+(RSIndex* sp, const char* begin, const char* end, int includeBegin,
+ int includeEnd);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateIntersectNode)(RSIndex* sp, int exact);
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateUnionNode)(RSIndex* sp);
@@ -282,6 +290,9 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
   X(CreatePrefixNode)                \
   X(CreateLexRangeNode)              \
   X(CreateTagNode)                   \
+  X(CreateTagTokenNode)              \
+  X(CreateTagPrefixNode)             \
+  X(CreateTagLexRangeNode)           \
   X(CreateIntersectNode)             \
   X(CreateUnionNode)                 \
   X(CreateNotNode)                   \
