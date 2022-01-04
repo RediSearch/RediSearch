@@ -340,7 +340,7 @@ QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lat
 }
 
 QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  QueryNode* ret = NewQueryNode(QN_PREFX);
+  QueryNode* ret = NewQueryNode(QN_PREFIX);
   ret->pfx =
       (QueryPrefixNode){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
   if (fieldName) {
