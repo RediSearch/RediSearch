@@ -266,6 +266,8 @@ typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *u
 typedef struct {
   ResultProcessor base;
 
+  SortByType sortbyType;
+
   // The desired size of the heap - top N results
   // If set to 0 this is a growing heap
   uint32_t size;
@@ -289,6 +291,10 @@ typedef struct {
     const RLookupKey **keys;
     size_t nkeys;
     uint64_t ascendMap;
+
+    // Load key that are missing from sortables
+    const RLookupKey **loadKeys;
+    size_t nLoadKeys;
   } fieldcmp;
 
 } RPSorter;
@@ -296,6 +302,7 @@ typedef struct {
 /* Yield - pops the current top result from the heap */
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
+
   // make sure we don't overshoot the heap size, unless the heap size is dynamic
   if (self->pq->count > 0 && (!self->size || self->offset++ < self->size)) {
     SearchResult *sr = mmh_pop_max(self->pq);
@@ -314,6 +321,10 @@ static void rpsortFree(ResultProcessor *rp) {
   if (self->pooledResult) {
     SearchResult_Destroy(self->pooledResult);
     rm_free(self->pooledResult);
+  }
+
+  if (self->fieldcmp.loadKeys && self->fieldcmp.loadKeys != self->fieldcmp.keys) {
+    rm_free(self->fieldcmp.loadKeys);
   }
 
   // calling mmh_free will free all the remaining results in the heap, if any
@@ -335,6 +346,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   SearchResult *h = self->pooledResult;
   int rc = rp->upstream->Next(rp->upstream, h);
 
+  // For VecSim and Geo, this passes the calculated value to the sorting heap.
+  if (h && h->indexResult && h->indexResult->type == RSResultType_Distance) {
+    h->score = h->indexResult->num.value;
+  }
+
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
     // Transition state:
@@ -348,38 +364,48 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   // If the data is not in the sorted vector, lets load it.
   size_t nkeys = self->fieldcmp.nkeys;
   if (nkeys && h->dmd) {
-    int nloadKeys = 0;
-    const RLookupKey **loadKeys = NULL;
-    bool freeKeys = false;
+    if (self->sortbyType == SORTBY_FIELD) {
+      int nLoadKeys = self->fieldcmp.nLoadKeys;
+      const RLookupKey **loadKeys = self->fieldcmp.loadKeys;
 
-    // If there is no sorting vector, load all required fields, else, load missing fields
-    if (!h->rowdata.sv) {
-      loadKeys = self->fieldcmp.keys;
-      nloadKeys = nkeys;
-    } else {
-      for (int i = 0; i < nkeys; ++i) {
-        if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
-          if (!loadKeys) {
-            loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
-            freeKeys = true;
+      // If there is no sorting vector, load all required fields, else, load missing fields
+      if (nLoadKeys == REDISEARCH_UNINITIALIZED) {
+        if (!h->rowdata.sv) {
+          loadKeys = self->fieldcmp.keys;
+          nLoadKeys = nkeys;
+        } else {
+          nLoadKeys = 0;
+          for (int i = 0; i < nkeys; ++i) {
+            if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
+              if (!loadKeys) {
+                loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
+              }
+              loadKeys[nLoadKeys++] = self->fieldcmp.keys[i];
+            }
           }
-          loadKeys[nloadKeys++] = self->fieldcmp.keys[i];
+        }
+        self->fieldcmp.loadKeys = loadKeys;
+        self->fieldcmp.nLoadKeys = nLoadKeys;
+      }
+
+      if (loadKeys) {
+        QueryError status = {0};
+        RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
+                                      .dmd = h->dmd,
+                                      .nkeys = nLoadKeys,
+                                      .keys = loadKeys,
+                                      .status = &status};
+        RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
+        if (QueryError_HasError(&status)) {
+          return RS_RESULT_ERROR;
         }
       }
-    }
-
-    if (loadKeys) {
-      QueryError status = {0};
-      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
-                                     .dmd = h->dmd,
-                                     .nkeys = nloadKeys,
-                                     .keys = loadKeys,
-                                     .status = &status};
-      RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
-      if (QueryError_HasError(&status)) {
-        return RS_RESULT_ERROR;
-      }
-      if (freeKeys) rm_free(loadKeys);
+    } else if (self->sortbyType == SORTBY_DISTANCE){
+      RSValue *rsv = RS_NumVal(h->indexResult->num.value);
+      RLookup_WriteKey(self->fieldcmp.keys[0], &h->rowdata, rsv);
+      RSValue_Decref(rsv);
+    } else {
+      RS_LOG_ASSERT(0, "oops");
     }
   }
 
@@ -489,13 +515,24 @@ static void srDtor(void *p) {
 }
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascmap) {
+                                      uint64_t ascmap, SortByType sortByType) {
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
-  ret->cmp = nkeys ? cmpByFields : cmpByScore;
+  ret->sortbyType = sortByType;
+  switch (sortByType) {
+  case SORTBY_FIELD:
+  case SORTBY_DISTANCE:
+    ret->cmp = cmpByFields;
+    break;
+  case SORTBY_SCORE:
+    ret->cmp = cmpByScore;
+    break;
+  }
   ret->cmpCtx = ret;
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
+  ret->fieldcmp.loadKeys = NULL;
+  ret->fieldcmp.nLoadKeys = REDISEARCH_UNINITIALIZED;
 
   if (RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
     maxresults = MIN(maxresults, RSGlobalConfig.maxAggregateResults);
@@ -514,7 +551,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 }
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
+  return RPSorter_NewByFields(maxresults, NULL, 0, 0, SORTBY_SCORE);
 }
 
 void SortAscMap_Dump(uint64_t tt, size_t n) {

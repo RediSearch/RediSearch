@@ -139,10 +139,18 @@ FT.AGGREGATE userIdx '*' LOAD 6 $.user.hp AS hp $.user.dmg AS dmg APPLY '@hp-@dm
 
 ## Current indexing limitations
 
-### It is not possible to index JSON object and JSON arrays.
+### JSON arrays can only be indexed in a TAG fields.
+
+It is only possible to index an array of strings or booleans in a TAG field.
+Other types (numeric, geo, null) are not supported.
+
+### It is not possible to index JSON objects.
 
 To be indexed, a JSONPath expression must return a single scalar value (string or number).
-If the JSONPath expression returns an object or an array, it will be ignored.
+
+If the JSONPath expression returns an object, it will be ignored.
+
+However it is possible to index the strings in separated attributes.
 
 Given the following document:
 
@@ -186,3 +194,17 @@ FT.SEARCH orgIdx "suite 250"
 - JSON Strings can only be indexed as TEXT, TAG and GEO (using the right syntax).
 - JSON numbers can only be indexes as NUMERIC.
 - Boolean and NULL values are ignored.
+
+### SORTABLE not supported on TAG
+
+```SQL
+FT.CREATE orgIdx ON JSON SCHEMA $.cp[0] AS cp TAG SORTABLE
+(error) On JSON, cannot set tag field to sortable - cp
+```
+
+With hashes, SORTABLE can be used (as a side effect) to improve the performance of FT.AGGREGATE on TAGs.
+This is possible because the value in the hash is a string. Eg.: "foo,bar".
+
+With JSON it is possible to index an array of string values.
+Because there is no valid single textual representation of those values,
+there is no way for RediSearch to know how to sort the result.

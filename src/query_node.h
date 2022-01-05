@@ -1,9 +1,10 @@
-#ifndef __QUERY_NODE_H__
-#define __QUERY_NODE_H__
+
+#pragma once
+
 #include <stdlib.h>
 #include "redisearch.h"
 #include "query_error.h"
-//#include "numeric_index.h"
+#include "param.h"
 
 struct RSQueryNode;
 struct numericFilter;
@@ -47,6 +48,9 @@ typedef enum {
 
   /* Lexical range */
   QN_LEXRANGE,
+
+  /* Vector */
+  QN_VECTOR,
 
   /* Null term - take no action */
   QN_NULL
@@ -93,6 +97,10 @@ typedef struct {
 } QueryGeofilterNode;
 
 typedef struct {
+  struct VectorFilter *vf;
+} QueryVectorNode;
+
+typedef struct {
   t_docId *ids;
   size_t len;
 } QueryIdFilterNode;
@@ -109,7 +117,8 @@ typedef enum {
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
- * Currently supported are weight, slop, and inorder
+ * Currently supported are `weight`, `slop`, and `inorder`,
+ * And `base64` and `efRuntime` for vector
  */
 typedef struct {
   const char *name;
@@ -119,7 +128,7 @@ typedef struct {
 } QueryAttribute;
 
 #define PHONETIC_ENABLED 1
-#define PHONETIC_DESABLED 2
+#define PHONETIC_DISABLED 2
 #define PHONETIC_DEFAULT 0
 
 /* Various modifiers and options that can apply to the entire query or any sub-query of it */
@@ -138,6 +147,7 @@ typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
  * is, and a union of all possible nodes  */
 typedef struct RSQueryNode {
   union {
+    QueryVectorNode vn;
     QueryPhraseNode pn;
     QueryTokenNode tn;
     QueryUnionNode un;
@@ -155,6 +165,10 @@ typedef struct RSQueryNode {
   /* The node type, for resolving the union access */
   QueryNodeType type;
   QueryNodeOptions opts;
+
+  /* Parameters data, also pointing to the target fields in the appropriate struct in the union above */
+  Param *params;
+
   struct RSQueryNode **children;
 } QueryNode;
 
@@ -163,11 +177,13 @@ int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, Q
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);
 void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
+int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status);
 
 #define QueryNode_NumChildren(qn) ((qn)->children ? array_len((qn)->children) : 0)
 #define QueryNode_GetChild(qn, ix) (QueryNode_NumChildren(qn) > ix ? (qn)->children[ix] : NULL)
 
+#define QueryNode_NumParams(qn) ((qn)->params ? array_len((qn)->params) : 0)
+#define QueryNode_GetParam(qn, ix) (QueryNode_NumParams(qn) > ix ? (qn)->params[ix] : NULL)
+
 typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
 int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx, int reverse);
-
-#endif

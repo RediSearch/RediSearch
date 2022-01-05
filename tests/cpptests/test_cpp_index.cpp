@@ -1,19 +1,24 @@
-#include "../../src/buffer.h"
-#include "../../src/index.h"
-#include "../../src/inverted_index.h"
-#include "../../src/index_result.h"
-#include "../../src/query_parser/tokenizer.h"
-#include "../../src/rmutil/alloc.h"
-#include "../../src/spec.h"
-#include "../../src/tokenize.h"
-#include "../../src/varint.h"
-#include "../../src/rmutil/alloc.h"
+#include "src/buffer.h"
+#include "src/index.h"
+#include "src/inverted_index.h"
+#include "src/index_result.h"
+#include "src/query_parser/tokenizer.h"
+#include "src/spec.h"
+#include "src/tokenize.h"
+#include "src/varint.h"
+
+#include "rmutil/alloc.h"
+#include "rmutil/alloc.h"
+
+#include "gtest/gtest.h"
+
+#include "common.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
-#include <gtest/gtest.h>
 #include <vector>
 #include <cstdint>
 
@@ -133,7 +138,10 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   InvertedIndex *idx = NewInvertedIndex(indexFlags, 1);
 
   IndexEncoder enc = InvertedIndex_GetEncoder(indexFlags);
+  IndexEncoder docIdEnc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
+  
   ASSERT_TRUE(enc != NULL);
+  ASSERT_TRUE(docIdEnc != NULL);
 
   for (size_t i = 0; i < 200; i++) {
     // if (i % 10000 == 1) {
@@ -159,7 +167,11 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   }
 
   ASSERT_EQ(200, idx->numDocs);
-  ASSERT_EQ(2, idx->size);
+  if (enc != docIdEnc) {
+    ASSERT_EQ(2, idx->size);
+  } else {
+    ASSERT_EQ(1, idx->size);
+  }
   ASSERT_EQ(199, idx->lastId);
 
   // IW_MakeSkipIndex(w, NewMemoryBuffer(8, BUFFER_WRITE));
@@ -205,7 +217,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   InvertedIndex_Free(idx);
 }
 
-INSTANTIATE_TEST_CASE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
+INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
 
 InvertedIndex *createIndex(int size, int idStep) {
   InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1);
@@ -815,7 +827,7 @@ static void fillSchema(std::vector<char *> &args, size_t nfields) {
   args[0] = strdup("SCHEMA");
   size_t n = 1;
   for (unsigned i = 0; i < nfields; i++) {
-    asprintf(&args[n++], "field%u", i);
+    __ignore__(asprintf(&args[n++], "field%u", i));
     if (i % 2 == 0) {
       args[n++] = strdup("TEXT");
     } else {
@@ -963,7 +975,7 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_EQ(N + 1, dt.size);
   ASSERT_EQ(N, dt.maxDocId);
 #ifdef __x86_64__
-  ASSERT_EQ(10980, (int)dt.memsize);
+  ASSERT_EQ(10180, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
@@ -1002,6 +1014,7 @@ TEST_F(IndexTest, testDocTable) {
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
+  ASSERT_EQ(71, (int)dt.memsize);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
@@ -1009,6 +1022,7 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_FALSE(DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
+  ASSERT_EQ(148, (int)dt.memsize);
   ASSERT_NE(dmd->id, strDocId);
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
@@ -1040,23 +1054,23 @@ TEST_F(IndexTest, testSortable) {
   const char *masse = "Maße";
   double num = 3.141;
   ASSERT_TRUE(RSValue_IsNull(v->values[0]));
-  RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR);
+  RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR, 0);
   ASSERT_EQ(v->values[0]->t, RSValue_String);
   ASSERT_EQ(v->values[0]->strval.stype, RSString_RMAlloc);
 
   ASSERT_TRUE(RSValue_IsNull(v->values[1]));
   ASSERT_TRUE(RSValue_IsNull(v->values[2]));
-  RSSortingVector_Put(v, 1, &num, RSValue_Number);
+  RSSortingVector_Put(v, 1, &num, RSValue_Number, 0);
   ASSERT_EQ(v->values[1]->t, RS_SORTABLE_NUM);
 
   RSSortingVector *v2 = NewSortingVector(tbl->len);
-  RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR);
+  RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR, 0);
 
   /// test string unicode lowercase normalization
   ASSERT_STREQ("masse", v2->values[0]->strval.str);
 
   double s2 = 4.444;
-  RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM);
+  RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM, 0);
 
   RSSortingKey sk = {.index = 0, .ascending = 0};
 

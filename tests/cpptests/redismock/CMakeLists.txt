@@ -1,5 +1,8 @@
-ADD_LIBRARY(redismock SHARED redismock.cpp util.cpp)
-IF (APPLE) 
-    SET_TARGET_PROPERTIES(redismock
-        PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-ENDIF()
+
+add_library(redismock SHARED redismock.cpp util.cpp)
+
+if (APPLE) 
+    set_target_properties(redismock PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+endif()
+
+set_target_properties(redismock PROPERTIES COMPILE_FLAGS "-fvisibility=default")

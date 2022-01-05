@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "rmutil/rm_assert.h"
-#include "dep/libnu/libnu.h"
+#include "libnu/libnu.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "rmalloc.h"
@@ -63,7 +63,7 @@ char *normalizeStr(const char *str) {
 }
 
 /* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type) {
+void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type, int unf) {
   if (idx > RS_SORTABLES_MAX) {
     return;
   }
@@ -77,8 +77,8 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type)
 
       break;
     case RS_SORTABLE_STR: {
-      char *ns = normalizeStr((const char *)p);
-      tbl->values[idx] = RS_StringValT(ns, strlen(ns), RSString_RMAlloc);
+      char *str = unf ? rm_strdup(p) : normalizeStr((const char *)p);
+      tbl->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
       break;
     }
     case RS_SORTABLE_NIL:

@@ -15,13 +15,13 @@ void IndexAlias_InitGlobal(void) {
   AliasTable_g = AliasTable_New();
 }
 
-void IndexAlias_DestroyGlobal(void) {
-  if (!AliasTable_g) {
+void IndexAlias_DestroyGlobal(AliasTable **t) {
+  if (!*t) {
     return;
   }
-  dictRelease(AliasTable_g->d);
-  rm_free(AliasTable_g);
-  AliasTable_g = NULL;
+  dictRelease((*t)->d);
+  rm_free(*t);
+  *t = NULL;
 }
 
 int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int options,

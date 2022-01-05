@@ -70,7 +70,9 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    if (kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) {
+    // match `name` to the name/path of the field
+    if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) || 
+        (kk->path != kk->name && !strncmp(kk->path, name, n))) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
@@ -364,16 +366,15 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  // field name should be translated to a path
-  // TODO: consider better solution for faster
-  const char *path;
-  if (kk->path != kk->name) {
-    path = kk->path;
-  } else {
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
-    path = fs ? fs->path : kk->name;
+  rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->path, &val, NULL);
+  if (!val && options->sctx->spec->flags & Index_HasFieldAlias) {
+    // name of field is the alias given on FT.CREATE
+    // get the the actual path
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
+    if (fs) {
+      rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, fs->path, &val, NULL);
+    }
   }
-  rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, path, &val, NULL);
 
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
@@ -419,32 +420,33 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // Get the actual json value
-  int rc = REDISMODULE_ERR;
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  const char *path;
-  if (kk->path != kk->name) {
-    path = kk->path;
-  } else { 
-    // field name should be translated to a path
-    // TODO: consider better solution for faster
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
-    path = fs ? fs->path : kk->name;
+  JSONResultsIterator jsonIter = (*kk->path == '$') ? japi->get(*keyobj, kk->path) : NULL;
+  if (!jsonIter) {
+    // name of field is the alias given on FT.CREATE
+    // get the the actual path
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
+    if (fs) {
+      jsonIter = japi->get(*keyobj, fs->path);
+    }
   }
 
-  JSONResultsIterator jsonIter = japi->get(*keyobj, path);
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
     if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
       rsv = RS_StringVal(options->dmd->keyPtr, strlen(options->dmd->keyPtr));
     } else {
-      return REDISMODULE_ERR;
+      return REDISMODULE_OK;
     }
   } else {
     RedisJSON jsonValue = japi->next(jsonIter);
-    rsv = jsonValToValue(ctx, jsonValue);
     japi->freeIter(jsonIter);
+    if (!jsonValue) {
+      return REDISMODULE_OK;
+    }
+    rsv = jsonValToValue(ctx, jsonValue);
   }
 
   // Value has a reference count of 1
@@ -552,7 +554,6 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookup_HGETALL_privdata *pd = privdata;
   size_t fieldCStrLen;
   const char *fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
-  RS_LOG_ASSERT(fieldCStrLen > 0, "field string cannot be empty");
   RLookupKey *rlk = RLookup_GetKeyEx(pd->it, fieldCStr, fieldCStrLen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
   if (!pd->options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
     return;  // Can load it from the sort vector on demand.
@@ -607,6 +608,9 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
     RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, REDISMODULE_READ);
     if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
       // key does not exist or is not a hash
+      if (key) {
+        RedisModule_CloseKey(key);
+      }
       goto done;
     }
     RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();

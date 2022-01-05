@@ -49,6 +49,7 @@ FT.AGGREGATE
   ] ...
   [FILTER {EXPR:string}] ...
   [LIMIT {offset:integer} {num:integer} ] ...
+  [PARAMS {nargs} {name} {value} ... ]
 ```
 
 #### Parameters in detail
@@ -64,7 +65,7 @@ country, one would specify `SORTBY 6 firstName ASC lastName DESC country ASC`.
 
 * **query_string**: The base filtering query that retrieves the documents. It follows **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
-* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very low latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times.
+* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as SORTABLE (and optionally UNF to avoid any normalization), where they are available to the aggregation pipeline with very low latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times.
 The document ID can be loaded using `@__key`.
 
 * **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them or performing multiple aggregate operations (see below).
@@ -85,6 +86,7 @@ The document ID can be loaded using `@__key`.
 
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. See FILTER Expressions below for full details.
 
+* **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the query string by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
 ## Quick example
 
 Let's assume we have log of visits to our website, each record containing the following fields/properties:
@@ -410,7 +412,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | geodistance("lon,lat",lon,lat)  | Return distance in meters.    | `geodistance("1.2,-3.4",5.6,-7.8)`   |
 | geodistance(lon,lat,field)      | Return distance in meters.    | `geodistance(1.2,-3.4,@field)`       |
 | geodistance(lon,lat,"lon,lat")  | Return distance in meters.    | `geodistance(1.2,-3.4,"5.6,-7.8")`   |
-| geodistance(lon,lat,"lon,lat")  | Return distance in meters.    | `geodistance(1.2,-3.4,5.6,-7.8)`     |
+| geodistance(lon,lat,lon,lat)    | Return distance in meters.    | `geodistance(1.2,-3.4,5.6,-7.8)`     |
 
 ```
 FT.AGGREGATE myIdx "*"  LOAD 1 location  APPLY "geodistance(@location,\"-1.1,2.2\")" AS dist

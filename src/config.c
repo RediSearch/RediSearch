@@ -310,6 +310,14 @@ CONFIG_GETTER(getForkGcRetryInterval) {
   return sdscatprintf(ss, "%lu", config->forkGcRetryInterval);
 }
 
+// FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
+CONFIG_SETTER(setForkGCCleanNumericEmptyNodes) {
+  config->forkGCCleanNumericEmptyNodes = 1;
+  return REDISMODULE_OK;
+}
+
+CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, forkGCCleanNumericEmptyNodes, 0)
+
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->maxResultsToUnsortedMode);
@@ -342,6 +350,10 @@ CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 // _PRINT_PROFILE_CLOCK
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, printProfileClock)
 CONFIG_BOOLEAN_GETTER(getPrintProfileClock, printProfileClock, 0)
+
+// RAW_DOCID_ENCODING
+CONFIG_BOOLEAN_SETTER(setRawDocIDEncoding, invertedIndexRawDocidEncoding)
+CONFIG_BOOLEAN_GETTER(getRawDocIDEncoding, invertedIndexRawDocidEncoding, 0)
 
 CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   size_t maxDepthRange;
@@ -618,6 +630,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
          .getValue = getForkGcRetryInterval},
+        {.name = "FORK_GC_CLEAN_NUMERIC_EMPTY_NODES",
+         .helpText = "clean empty nodes from numeric tree",
+         .setValue = setForkGCCleanNumericEmptyNodes,
+         .getValue = getForkGCCleanNumericEmptyNodes},
         {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
          .helpText = "max results for union interator in which the interator will switch to "
                      "unsorted mode, should be used for debug only.",
@@ -657,6 +673,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,
          .getValue = getPrintProfileClock},
+        {.name = "RAW_DOCID_ENCODING",
+         .helpText = "Disable compression for DocID inverted index. Boost CPU performance.",
+         .setValue = setRawDocIDEncoding,
+         .getValue = getRawDocIDEncoding,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "_NUMERIC_RANGES_PARENTS",
          .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs " 
                      "for `x` generations.",

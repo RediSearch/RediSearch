@@ -7,19 +7,22 @@ ROOT=$(cd $HERE/.. && pwd)
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
 
-if [[ "$1" == "--help" || "$1" == "help" || "$HELP" == "1" ]]; then
+if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 	cat <<-END
 		Get RedisJSON module binaries
 
 		get-redisjson [--help|help]
 
 		Argument variables:
-		OSNICK=nick     Get binaries for given osnick
-		BRANCH=name     Use given branch
-		REPO_PATH=dir   Get binaries from given repo path
-		FORCE=1         Download module even if already present
-		NOP=1           No operation
-		HELP=1          Show help
+		OSNICK=nick        Get binaries for given `nick`
+		BRANCH=name        Use given branch
+		REPO_PATH=dir      Get binary artifacts from given repo `dir`
+		BINROOT=dir        On Build, place module .so in `dir`/RedisJSON
+		BUILD=0            Do not build if unable to download
+		FORCE=1            Download module even if already present
+		MODULE_FILE=file   Write module path into `file`
+		NOP=1              No operation
+		HELP=1             Show help
 
 	END
 	exit 0
@@ -28,17 +31,22 @@ fi
 BRANCH=${BRANCH:-master}
 
 OP=""
-[[ "$NOP" == "1" ]] && OP=echo
+[[ $NOP == 1 ]] && OP=echo
 
 os="$($READIES/bin/platform --os)"
 arch="$($READIES/bin/platform --arch)"
 
-if [[ ! -z "$REPO_PATH" ]]; then
+if [[ ! -z $REPO_PATH ]]; then
 	platform="$($READIES/bin/platform -t)"
 else
-	if [[ "$os" != "linux" || "$arch" != "x64" ]]; then
-		eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
-		exit 1
+	if [[ $os != linux && $os != macos ]]; then
+		if [[ BUILD == 0 ]]; then
+			eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
+			exit 1
+		fi
+		echo "Cannot match binary artifacts - building RedisJSON from source."
+		$ROOT/sbin/build-redisjson
+		exit $?
 	fi
 
 	dist="$($READIES/bin/platform --dist)"
@@ -58,7 +66,7 @@ else
 			nick="ubuntu14.04"
 		fi
 	elif [[ $dist == debian ]]; then
-		if [[ $nick != "buster" ]]; then
+		if [[ $nick != "bullseye" ]]; then
 			nick=ubuntu18.04
 		fi
 	elif [[ $dist == centos || $dist == redhat || $dist == fedora ]]; then
@@ -67,11 +75,8 @@ else
 		else
 			nick="rhel7"
 		fi
-	elif [[ ! -z "$OSNICK" ]]; then
+	elif [[ ! -z $OSNICK ]]; then
 		nick=$OSNICK
-	else
-		eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
-		exit 1
 	fi
 	platform="${os}-${nick}-${arch}"
 fi
@@ -80,6 +85,10 @@ MOD_S3_URL="http://redismodules.s3.amazonaws.com/rejson/snapshots"
 MOD_RAMP="rejson.${platform}.$BRANCH.zip"
 
 DEST_REJSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
+
+if [[ -n $MODULE_FILE ]]; then
+	echo "${DEST_REJSON_DIR}/rejson.so" > $MODULE_FILE
+fi
 
 if [[ $FORCE != 1 && -d $DEST_REJSON_DIR && -f $DEST_REJSON_DIR/rejson.so ]]; then
 	echo "RedisJSON is in ${DEST_REJSON_DIR}:"
@@ -95,10 +104,22 @@ if [[ -z $REPO_PATH ]]; then
 	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
 		echo "Download RedisJSON [$MOD_S3_URL/$MOD_RAMP] ..."
 		$OP wget -q -P $WORK_DIR $MOD_S3_URL/$MOD_RAMP
+		if [[ $NOP != 1 && $? != 0 ]]; then
+			if [[ BUILD == 0 ]]; then
+				eprint "Cannot download binary artifacts - build RedisJSON and set REPO_PATH"
+				exit 1
+			fi
+			echo "Cannot download binary artifacts - building RedisJSON from source."
+			$ROOT/sbin/build-redisjson
+			exit $?
+		fi
 	fi
 else
 	F_MOD_RAMP="${REPO_PATH}/artifacts/snapshots/${MOD_RAMP}"
-	[[ ! -f $F_MOD_RAMP ]] && { eprint "$F_MOD_RAMP is missing"; exit 1; }
+	if [[ ! -f $F_MOD_RAMP ]]; then
+		eprint "$F_MOD_RAMP is missing - build RedisJSON and set REPO_PATH"
+		exit 1
+	fi
 fi
 
 $OP unzip -q $F_MOD_RAMP -d $WORK_DIR
@@ -108,5 +129,10 @@ if [[ -e ${DEST_REJSON_DIR} ]]; then
 fi
 # $OP mv $WORK_DIR $DEST_REJSON_DIR
 $OP rsync -a --no-owner --no-group --remove-source-files $WORK_DIR/* $DEST_REJSON_DIR
+
 echo "RedisJSON installed into ${DEST_REJSON_DIR}:"
-$OP du -ah --apparent-size $DEST_REJSON_DIR
+if [[ $os == linux ]]; then
+	$OP du -ah --apparent-size $DEST_REJSON_DIR
+else
+	$OP du -ah $DEST_REJSON_DIR
+fi

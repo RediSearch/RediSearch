@@ -36,10 +36,35 @@ extern "C" {
  * See document.c for the internals.
  */
 
-typedef struct {
+typedef enum {
+  // Newline
+  FLD_VAR_T_RMS = 0x01,
+  FLD_VAR_T_CSTR = 0x02,
+  FLD_VAR_T_NUM = 0x04,
+  FLD_VAR_T_GEO = 0x08,
+  FLD_VAR_T_ARRAY = 0x10
+} FieldVarType;
+
+typedef struct DocumentField{
   const char *name;  // Can either be char or RMString
   const char *path;
-  RedisModuleString *text;
+  union {
+    // TODO: consider removing RMS altogether
+    RedisModuleString *text;
+    struct {
+      char *strval;
+      size_t strlen;
+    };
+    double numval;
+    struct {
+      double lon, lat;
+    };
+    struct {
+      char **multiVal;
+      size_t arrayLen; // for multiVal TODO: use arr.h
+    };
+  };
+  FieldVarType unionType;
   FieldType indexAs;
 } DocumentField;
 
@@ -106,6 +131,19 @@ void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fi
  */
 void Document_AddFieldC(Document *d, const char *fieldname, const char *val, size_t vallen,
                         uint32_t typemask);
+
+/**
+ * Load Document Field with a numeric value.
+ */
+void Document_AddNumericField(Document *d, const char *fieldname,
+                              double val, uint32_t typemask);
+
+/**
+ * Load Document Field with a longitude and latitude values.
+ */
+void Document_AddGeoField(Document *d, const char *fieldname,
+                          double lon, double lat, uint32_t typemask);
+
 /**
  * Initialize document structure with the relevant fields. numFields will allocate
  * the fields array, but you must still actually copy the data along.
@@ -116,7 +154,6 @@ void Document_AddFieldC(Document *d, const char *fieldname, const char *val, siz
  * calling this function).
  */
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang, DocumentType type);
-void Document_SetPayload(Document *doc, const void *payload, size_t n);
 
 /**
  * Make the document the owner of the strings it contains
@@ -319,10 +356,12 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, QueryError *status);
 
 /* Serialzie the document's fields to a redis client */
-int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc);
 int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id);
 
 DocumentField *Document_GetField(Document *d, const char *fieldName);
+
+/* return value as c string */
+const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len);
 
 // Document add functions:
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

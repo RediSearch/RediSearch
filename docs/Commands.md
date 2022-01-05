@@ -8,7 +8,7 @@
 ```
   FT.CREATE {index}
     [ON {data_type}]
-       [PREFIX {count} {prefix} [{prefix} ..]
+       [PREFIX {count} {prefix} [{prefix} ...]
        [FILTER {filter}]
        [LANGUAGE {default_lang}]
        [LANGUAGE_FIELD {lang_attribute}]
@@ -17,7 +17,9 @@
        [PAYLOAD_FIELD {payload_attribute}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {identifier} [AS {attribute}] [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
+    SCHEMA {identifier} [AS {attribute}]
+        [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE] [SORTABLE [UNF]] [NOINDEX]] |
+        [VECTOR {algorithm} {count} [{attribute_name} {attribute_value} ...]] ...
 ```
 
 #### Description
@@ -84,7 +86,7 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 Indexing a JSON document using a JSON Path expression:
 
 ```sql
-FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG SORTABLE
+FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG
 ```
 
 #### Parameters
@@ -161,9 +163,9 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 * **SKIPINITIALSCAN**: If set, we do not scan and index.
 
 * **SCHEMA {identifier} AS {attribute} {attribute type} {options...}**: After the SCHEMA keyword, we declare which fields to index:
-  
+
     * **{identifier}**
-      
+
       For hashes, the identifier is a field name within the hash.
       For JSON, the identifier is a JSON Path expression.
 
@@ -171,7 +173,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
       This optional parameter defines the attribute associated to the identifier.
       For example, you can use this feature to alias a complex JSONPath expression with more memorable (and easier to type) name
-      
+
     #### Field Types
 
     * **TEXT**
@@ -190,12 +192,20 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
       Allows geographic range queries against the value in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
 
+    * **VECTOR**
+
+      Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](Vectors.md).
+
     #### Field Options
 
     * **SORTABLE**
 
-        Numeric, tag or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
+        Numeric, tag (not supported with JSON) or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
 
+    * **UNF**
+        
+        By default, SORTABLE applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using UNF (un-normalized form) it is possible to disable the normalization and keep the original form of the value. 
+  
     * **NOSTEM**
 
         Text attributes can have the NOSTEM argument which will disable stemming when indexing its values.
@@ -229,7 +239,10 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
         is to be split into individual tags. The default is `,`. The value
         must be a single character.
 
+    * **CASESENSITIVE**
 
+        For `TAG` attributes, keeps the original letter cases of the tags.
+        If not specified, the characters are converted to lowercase.
 
 #### Complexity
 O(1)
@@ -249,7 +262,6 @@ OK or an error
 HSET {hash} {field} {value} [{field} {value} ...]
 ```
 
-
 ```
 JSON.SET {key} {path} {json}
 ```
@@ -262,7 +274,7 @@ When you modify a hash or JSON document, all matching indexes are updated automa
 
 If an attribute fails to be indexed (for example, if a numeric attributes gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
 
-If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` are specified with `FT.CREATE`, the document will extract the properties. 
+If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` are specified with `FT.CREATE`, the document will extract the properties.
 
 !!! warning "Schema mismatch"
     If a value in a hash does not match the schema type for that attribute, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
@@ -305,6 +317,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [PAYLOAD {payload}]
   [SORTBY {attribute} [ASC|DESC]]
   [LIMIT offset num]
+  [PARAMS {nargs} {name} {value} ... ]
 ```
 
 #### Description
@@ -327,7 +340,7 @@ FT.SEARCH books-idx "@title:dogs"
 Searching for books published in 2020 or 2021:
 
 ```sql
-FT.SEARCH books-idx "@published_at:[2020 2021]
+FT.SEARCH books-idx "@published_at:[2020 2021]"
 ```
 
 Searching for Chinese restaurants within 5 kilometers of longitude -122.41, latitude 37.77 (San Francisco):
@@ -367,7 +380,6 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 
 !!! tip "More examples"
     For more details and query examples, see [query syntax](Query_Syntax.md).
-
 
 #### Parameters
 
@@ -435,6 +447,8 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 
 !!! tip
     `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
+
+* **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the query string by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
 
 #### Complexity
 
@@ -514,7 +528,6 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
 !!! tip "More examples"
     For more details on aggreations and detailed examples of aggregation queries, see [Aggregations](Aggregations.md).
 
-
 #### Parameters
 
 * **index_name**: The index the query is executed against.
@@ -526,6 +539,7 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
   `identifier` is either an attribute name (for hashes and JSON) or a JSON Path expression for (JSON).
   `property` is the optional name used in the result. It is not provided, the `identifier` is used.
   This should be avoided as a general rule of thumb.
+  If `*` is used as `nargs`, all attributes in a document are loaded.
   Attributes needed for aggregations should be stored as **SORTABLE**,
   where they are available to the aggregation pipeline with very low latency. LOAD hurts the
   performance of aggregate queries considerably, since every processed record needs to execute the
@@ -1343,7 +1357,6 @@ Optional
 * Statistics about `cursors` if a cursor exists for the index.
 * Statistics about `stopword lists` if a custom stopword list is used.
 
-
 ##### Example
 ```bash
 127.0.0.1:6379> ft.info wik{0}
@@ -1675,7 +1688,6 @@ FT.DEL idx doc1
 - **index**: The index name. The index must be first created with FT.CREATE
 - **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which
   the document is stored. Use DEL to do that manually if needed.
-
 
 #### Complexity
 

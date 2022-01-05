@@ -17,6 +17,13 @@
 #include <cassert>
 #include <mutex>
 
+#define __ignore__(X) \
+    do { \
+        int rc = (X); \
+        if (rc == -1) \
+            ; \
+    } while(0)
+
 static std::mutex RMCK_GlobalLock;
 
 std::string HashValue::Key::makeKey() const {
@@ -159,7 +166,7 @@ RedisModuleString *RMCK_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt,
   va_list ap;
   va_start(ap, fmt);
   char *outp = NULL;
-  vasprintf(&outp, fmt, ap);
+  __ignore__(vasprintf(&outp, fmt, ap));
   va_end(ap);
   RedisModuleString *ret = RMCK_CreateString(ctx, outp, strlen(outp));
   free(outp);
@@ -176,6 +183,10 @@ void RMCK_FreeString(RedisModuleCtx *ctx, RedisModuleString *s) {
 void RMCK_RetainString(RedisModuleCtx *ctx, RedisModuleString *s) {
   s->incref();
 }
+
+void RMCK_SetModuleOptions(RedisModuleCtx *ctx, int options) {
+}
+
 
 const char *RMCK_StringPtrLen(RedisModuleString *s, size_t *len) {
   if (len) {
@@ -820,6 +831,8 @@ static void registerApis() {
   REGISTER_API(SubscribeToKeyspaceEvents);
   REGISTER_API(SubscribeToServerEvent);
   REGISTER_API(RegisterCommandFilter);
+
+  REGISTER_API(SetModuleOptions);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

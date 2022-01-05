@@ -1,15 +1,15 @@
 [![Release](https://img.shields.io/github/v/release/redisearch/redisearch.svg?sort=semver)](https://github.com/RediSearch/RediSearch/releases)
 [![CircleCI](https://circleci.com/gh/RediSearch/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RediSearch/RediSearch/tree/master)
-[![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/redislabs/redisearch.svg)](https://hub.docker.com/r/redislabs/redisearch/builds/)
-[![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redislabs.com/c/modules/redisearch/)
-[![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
+[![Dockerhub](https://img.shields.io/badge/dockerhub-redislabs%2Fredisearch-blue)](https://hub.docker.com/r/redislabs/redisearch/tags/)
 [![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
 [![Total alerts](https://img.shields.io/lgtm/alerts/g/RediSearch/RediSearch.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/RediSearch/RediSearch/alerts/)
 
 # RediSearch
-
 ## Querying, secondary indexing, and full-text search for Redis
-<img src="https://oss.redislabs.com/redisearch/img/logo.svg" alt="logo" width="300"/>
+[![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redis.com/c/modules/redisearch/)
+[![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
+
+<img src="https://oss.redis.com/redisearch/img/logo.svg" alt="logo" width="300"/>
 
 ## Overview
 
@@ -27,7 +27,7 @@ The fastest way to get up and running with RediSearch is by using the [RediSearc
 
 ## Trying RediSearch
 
-To try RediSearch, either use the RediSearch Docker image, or [create a free Redis Cloud Essentials account](https://redislabs.com/try-free/) to get a RediSearch instance in the cloud.
+To try RediSearch, either use the RediSearch Docker image, or [create a free Redis Cloud Essentials account](https://redis.com/try-free/) to get a RediSearch instance in the cloud.
 
 ### Docker image
 
@@ -47,63 +47,75 @@ $ redis-cli
 
 ## Documentation
 
-The [RediSearch documentation](https://oss.redislabs.com/redisearch/) provides a complete overview of RediSearch. Helpful sections include:
+The [RediSearch documentation](https://oss.redis.com/redisearch/) provides a complete overview of RediSearch. Helpful sections include:
 
-* The [RediSearch quick start](https://oss.redislabs.com/redisearch/Quick_Start/) 
-* The [RediSearch command reference](https://oss.redislabs.com/redisearch/Commands/)
-* References on features such as [aggregations](https://oss.redislabs.com/redisearch/Aggregations/), [higlights](https://oss.redislabs.com/redisearch/Highlight/), [stemming](https://oss.redislabs.com/redisearch/Stemming/), and [spelling correction](https://oss.redislabs.com/redisearch/Spellcheck/).
+* The [RediSearch quick start](https://oss.redis.com/redisearch/Quick_Start/)
+* The [RediSearch command reference](https://oss.redis.com/redisearch/Commands/)
+* References on features such as [aggregations](https://oss.redis.com/redisearch/Aggregations/), [highlights](https://oss.redis.com/redisearch/Highlight/), [stemming](https://oss.redis.com/redisearch/Stemming/), and [spelling correction](https://oss.redis.com/redisearch/Spellcheck/).
 
 ## Mailing list and forum
 
-Got questions? Join us in [#redisearch on the Redis Discord](https://discord.gg/knMsnYmwXu) server. 
+Got questions? Join us in [#redisearch on the Redis Discord](https://discord.gg/knMsnYmwXu) server.
 
-If you have a more detailed question, drop us a line on the [RediSearch Discussion Forum](http://forum.redislabs.com/c/modules/redisearch).
+If you have a more detailed question, drop us a line on the [RediSearch Discussion Forum](http://forum.redis.com/c/modules/redisearch).
 
 ## Client libraries
 
-You can use any standard Redis client library to run RediSearch commands, but it's easiest to use a library that wraps the RediSearch API. 
+You can use any standard Redis client library to run RediSearch commands, but it's easiest to use a library that wraps the RediSearch API.
 
 | Language | Library | Author | License | Stars |
 |----------|---------|--------|---------|-------|
-|Python | [redisearch-py][redisearch-py-url] | [Redis Labs][redisearch-py-author] | BSD | [![redisearch-py-stars]][redisearch-py-url] |
-| Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis Labs][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
-| Java (Lettuce client library) | [lettusearch][lettusearch-url] | [Redis Labs][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url]|
-| Java | [spring-redisearch][spring-redisearch-url] | [Redis Labs][spring-redisearch-author] | Apache-2.0 | [![spring-redisearch-stars]][spring-redisearch-url]|
+|Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
+| Python | [redis-om][redis-om-python-url] | [Redis][redis-om-python-author] | BSD-3-Clause | [![redis-om-python-stars]][redis-om-python-url] |
+| Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
+| Java (Lettuce client library) | [lettusearch][lettusearch-url] | [Redis][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url]|
+| Java | [spring-redisearch][spring-redisearch-url] | [Redis][spring-redisearch-author] | Apache-2.0 | [![spring-redisearch-stars]][spring-redisearch-url]|
+| Java | [redis-om-spring][redis-om-spring-url] | [Redis][redis-om-spring-author] | BSD-3-Clause | [![redis-om-spring-stars]][redis-om-spring-url] |
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
-| Go | [redisearch-go][redisearch-go-url] | [Redis Labs][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] | 
+| Go | [redisearch-go][redisearch-go-url] | [Redis][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
 | JavaScript | [RedRediSearch][RedRediSearch-url] | [Kyle J. Davis][RedRediSearch-author] | MIT |[![RedRediSearch-stars]][RedRediSearch-url]|
 | JavaScript | [redis-redisearch][redis-redisearch-url] | [Kyle J. Davis][redis-redisearch-author] | MIT | [![redis-redisearch-stars]][redis-redisearch-url]|
+| JavaScript | [Redis-om][redis-om-node-url] | [Redis][redis-om-node-author] | BSD-3-Clause | [![redis-om-node-stars]][redis-om-node-url] |
 | TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
 | C# | [NRediSearch][NRediSearch-url] | [Marc Gravell][NRediSearch-author] | MIT | [![NRediSearch-stars]][NRediSearch-url] |
+| C# | [Redis.OM][redis-om-dotnet-url] | [Redis][redis-om-dotnet-author] | BSD-3-Clause | [![redis-om-dotnet-stars]][redis-om-dotnet-url] |
 | PHP | [redisearch-php][redisearch-php-url] | [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
 | PHP | [php-redisearch][php-redisearch-url] | [MacFJA][php-redisearch-author] | MIT | [![php-redisearch-stars]][php-redisearch-url] |
-| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis Labs][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
+| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
 | Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
 
-[redisearch-py-url]: https://github.com/RediSearch/redisearch-py
-[redisearch-py-author]: https://redislabs.com
-[redisearch-py-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-py.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[redis-py-url]: https://github.com/redis/redis-py
+[redis-py-author]: https://redis.com
+[redis-py-stars]: https://img.shields.io/github/stars/redis/redis-py.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[redis-om-python-url]: https://github.com/redis/redis-om-python
+[redis-om-python-author]: https://redis.com
+[redis-om-python-stars]: https://img.shields.io/github/stars/redis/redis-om-python.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [JRediSearch-url]: https://github.com/RediSearch/JRediSearch
-[JRediSearch-author]: https://redislabs.com
+[JRediSearch-author]: https://redis.com
 [JRediSearch-stars]: https://img.shields.io/github/stars/RediSearch/JRediSearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [lettusearch-url]: https://github.com/RediSearch/lettusearch
-[lettusearch-author]: https://redislabs.com
+[lettusearch-author]: https://redis.com
 [lettusearch-stars]: https://img.shields.io/github/stars/RediSearch/lettusearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [spring-redisearch-url]: https://github.com/RediSearch/spring-redisearch
-[spring-redisearch-author]: https://redislabs.com
+[spring-redisearch-author]: https://redis.com
 [spring-redisearch-stars]: https://img.shields.io/github/stars/RediSearch/spring-redisearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[redis-om-spring-url]: https://github.com/redis/redis-om-spring
+[redis-om-spring-author]: https://redis.com
+[redis-om-spring-stars]: https://img.shields.io/github/stars/redis/redis-om-spring.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redis-modules-java-url]: https://github.com/dengliming/redis-modules-java
 [redis-modules-java-author]: https://github.com/dengliming
 [redis-modules-java-stars]: https://img.shields.io/github/stars/dengliming/redis-modules-java.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redisearch-go-url]: https://github.com/RediSearch/redisearch-go
-[redisearch-go-author]: https://redislabs.com
+[redisearch-go-author]: https://redis.com
 [redisearch-go-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-go.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [RedRediSearch-url]: https://github.com/stockholmux/redredisearch
@@ -114,13 +126,21 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redis-redisearch-author]: https://github.com/stockholmux
 [redis-redisearch-stars]: https://img.shields.io/github/stars/stockholmux/node_redis-redisearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
+[redis-om-node-url]: https://github.com/redis/redis-om-node
+[redis-om-node-author]: https://redis.com
+[redis-om-node-stars]: https://img.shields.io/github/stars/redis/redis-om-node.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
 [redis-modules-sdk-url]: https://github.com/danitseitlin/redis-modules-sdk
 [redis-modules-sdk-author]: https://github.com/danitseitlin
 [redis-modules-sdk-stars]: https://img.shields.io/github/stars/danitseitlin/redis-modules-sdk.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [NRediSearch-url]: https://libraries.io/nuget/NRediSearch
 [NRediSearch-author]: https://github.com/StackExchange/
-[NRediSearch-stars]: https://img.shields.io/github/stars/StackExchange/StackExchange.Redis.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[NRediSearch-stars]: https://img.shields.io/github/stars/StackExchange/NRediSearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[redis-om-dotnet-url]: https://github.com/redis/redis-om-dotnet
+[redis-om-dotnet-author]: htts://redis.com
+[redis-om-dotnet-stars]: https://img.shields.io/github/stars/redis/redis-om-dotnet.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redisearch-php-url]: https://github.com/ethanhann/redisearch-php
 [redisearch-php-author]: https://github.com/ethanhann
@@ -143,17 +163,17 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redi_search-stars]: https://img.shields.io/github/stars/npezza93/redi_search.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
-[redisearch-api-rs-author]: https://redislabs.com
+[redisearch-api-rs-author]: https://redis.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 ## Other available Libraries
 
 | Language | Library | Author | License | Stars | Comments |
 |----------|---------|--------|---------|-------|----------|
-| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis Labs][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
+| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
 
 [redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
-[redisearch-api-rs-author]: https://redislabs.com
+[redisearch-api-rs-author]: https://redis.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 
@@ -165,9 +185,9 @@ You can use any standard Redis client library to run RediSearch commands, but it
 * Field weighting
 * Complex boolean queries with AND, OR, and NOT operators
 * Prefix matching, fuzzy matching, and exact-phrase queries
-* Support for [double-metaphone phonetic matching](https://oss.redislabs.com/redisearch/Phonetic_Matching/)
+* Support for [double-metaphone phonetic matching](https://oss.redis.com/redisearch/Phonetic_Matching/)
 * Auto-complete suggestions (with fuzzy prefix suggestions)
-* Stemming-based query expansion in [many languages](https://oss.redislabs.com/redisearch/Stemming/) (using [Snowball](http://snowballstem.org/))
+* Stemming-based query expansion in [many languages](https://oss.redis.com/redisearch/Stemming/) (using [Snowball](http://snowballstem.org/))
 * Support for Chinese-language tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
 * Numeric filters and ranges
 * Geospatial searches using [Redis geospatial indexing](https://redis.io/commands/georadius)
@@ -178,9 +198,9 @@ You can use any standard Redis client library to run RediSearch commands, but it
 
 ## Cluster support
 
-RediSearch has a distributed cluster version that scales to billions of documents across hundreds of servers. At the moment, distributed RediSearch is available as part of [Redis Enterprise Cloud](https://redislabs.com/redis-enterprise-cloud/overview/) and [Redis Enterprise Software](https://redislabs.com/redis-enterprise-software/overview/).
+RediSearch has a distributed cluster version that scales to billions of documents across hundreds of servers. At the moment, distributed RediSearch is available as part of [Redis Enterprise Cloud](https://redis.com/redis-enterprise-cloud/overview/) and [Redis Enterprise Software](https://redis.com/redis-enterprise-software/overview/).
 
-See [RediSearch on Redis Enterprise](https://redislabs.com/modules/redisearch/) for more information.
+See [RediSearch on Redis Enterprise](https://redis.com/modules/redisearch/) for more information.
 
 ### License
 

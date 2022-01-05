@@ -27,8 +27,11 @@ extern "C" {
 struct IndexesScanner;
 struct DocumentIndexer;
 
-#define NUMERIC_STR "NUMERIC"
-#define GEO_STR "GEO"
+#define SPEC_GEO_STR "GEO"
+#define SPEC_TAG_STR "TAG"
+#define SPEC_TEXT_STR "TEXT"
+#define SPEC_VECTOR_STR "VECTOR"
+#define SPEC_NUMERIC_STR "NUMERIC"
 
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
@@ -38,18 +41,20 @@ struct DocumentIndexer;
 #define SPEC_SCHEMA_EXPANDABLE_STR "MAXTEXTFIELDS"
 #define SPEC_TEMPORARY_STR "TEMPORARY"
 #define SPEC_AS_STR "AS"
-#define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
 #define SPEC_NOSTEM_STR "NOSTEM"
 #define SPEC_PHONETIC_STR "PHONETIC"
-#define SPEC_TAG_STR "TAG"
 #define SPEC_SORTABLE_STR "SORTABLE"
+#define SPEC_UNF_STR "UNF"
 #define SPEC_STOPWORDS_STR "STOPWORDS"
 #define SPEC_NOINDEX_STR "NOINDEX"
-#define SPEC_SEPARATOR_STR "SEPARATOR"
+#define SPEC_TAG_SEPARATOR_STR "SEPARATOR"
+#define SPEC_TAG_CASE_SENSITIVE_STR "CASESENSITIVE"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
+
+#define DEFAULT_SCORE 1.0
 
 #define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
   {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
@@ -85,9 +90,10 @@ struct DocumentIndexer;
  */
 
 static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
-                                      [IXFLDPOS_NUMERIC] = NUMERIC_STR,
-                                      [IXFLDPOS_GEO] = GEO_STR,
-                                      [IXFLDPOS_TAG] = SPEC_TAG_STR};
+                                      [IXFLDPOS_NUMERIC] = SPEC_NUMERIC_STR,
+                                      [IXFLDPOS_GEO] = SPEC_GEO_STR,
+                                      [IXFLDPOS_TAG] = SPEC_TAG_STR,
+                                      [IXFLDPOS_VECTOR] = SPEC_VECTOR_STR};
 
 // TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
@@ -117,6 +123,7 @@ typedef struct {
   size_t offsetVecRecords;
   size_t termsSize;
   size_t indexingFailures;
+  size_t vectorIndexSize;
 } IndexStats;
 
 typedef enum {
@@ -138,6 +145,9 @@ typedef enum {
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
   Index_SkipInitialScan = 0x1000,
+  Index_FromLLAPI = 0x2000,
+  Index_HasFieldAlias = 0x4000,
+  Index_HasVecSim = 0x8000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -520,6 +530,7 @@ typedef struct IndexesScanner {
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
+void Indexes_Free(dict *d);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,

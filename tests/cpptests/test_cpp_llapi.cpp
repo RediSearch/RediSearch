@@ -1,8 +1,10 @@
-#include "../../src/redisearch_api.h"
-#include <gtest/gtest.h>
+
+#include "src/redisearch_api.h"
+#include "gtest/gtest.h"
+#include "common.h"
+
 #include <set>
 #include <string>
-#include "common.h"
 
 #define DOCID1 "doc1"
 #define DOCID2 "doc2"
@@ -249,7 +251,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
 
   // searching on the index
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
-  RSQNode* tqn = RediSearch_CreateTokenNode(index, NULL, TAG_VALUE);
+  RSQNode* tqn = RediSearch_CreateTagTokenNode(index, TAG_VALUE);
   RediSearch_QueryNodeAddChild(qn, tqn);
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
 
@@ -263,7 +265,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
 
   // prefix search on the index
   qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
-  tqn = RediSearch_CreatePrefixNode(index, NULL, "ta");
+  tqn = RediSearch_CreateTagPrefixNode(index, "ta");
   RediSearch_QueryNodeAddChild(qn, tqn);
   iter = RediSearch_GetResultsIterator(qn, index);
 
@@ -316,7 +318,7 @@ TEST_F(LLApiTest, testMassivePrefix) {
   }
 
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
-  RSQNode* pqn = RediSearch_CreatePrefixNode(index, NULL, "tag-");
+  RSQNode* pqn = RediSearch_CreateTagPrefixNode(index, "tag-");
   RediSearch_QueryNodeAddChild(qn, pqn);
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
@@ -395,20 +397,20 @@ TEST_F(LLApiTest, testRangesOnTags) {
 
   // test with include max and min
   RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  RSQNode* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "Markn", "Markx", 1, 1);
+  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, "Markn", "Markx", 1, 1);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'n', 'x', 11);
 
   // test without include max and min
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "Markn", "Markx", 0, 0);
+  qn = RediSearch_CreateTagLexRangeNode(index, "Markn", "Markx", 0, 0);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'o', 'w', 9);
 
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, NULL, NULL, 1, 1);
+  qn = RediSearch_CreateTagLexRangeNode(index, NULL, NULL, 1, 1);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'a', 'z', 26);
@@ -426,7 +428,7 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
 
   // test with include max and min
   RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  RSQNode* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "C", RSLECRANGE_INF, 0, 1);
+  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, "C", RSLECRANGE_INF, 0, 1);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   RSResultsIterator* iter = RediSearch_GetResultsIterator(tagQn, index);
@@ -439,7 +441,7 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
   RediSearch_ResultsIteratorFree(iter);
 
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, RSLECRANGE_INF, "C", 1, 0);
+  qn = RediSearch_CreateTagLexRangeNode(index, RSLECRANGE_INF, "C", 1, 0);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   iter = RediSearch_GetResultsIterator(tagQn, index);
@@ -488,7 +490,7 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
   }
 
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
-  RSQNode* pqn = RediSearch_CreatePrefixNode(index, NULL, "tag-");
+  RSQNode* pqn = RediSearch_CreateTagPrefixNode(index, "tag-");
   RediSearch_QueryNodeAddChild(qn, pqn);
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
@@ -526,10 +528,10 @@ TEST_F(LLApiTest, testPrefixIntersection) {
   }
 
   RSQNode* qn1 = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
-  RSQNode* pqn1 = RediSearch_CreatePrefixNode(index, NULL, "tag1-");
+  RSQNode* pqn1 = RediSearch_CreateTagPrefixNode(index, "tag1-");
   RediSearch_QueryNodeAddChild(qn1, pqn1);
   RSQNode* qn2 = RediSearch_CreateTagNode(index, TAG_FIELD_NAME2);
-  RSQNode* pqn2 = RediSearch_CreatePrefixNode(index, NULL, "tag2-");
+  RSQNode* pqn2 = RediSearch_CreateTagPrefixNode(index, "tag2-");
   RediSearch_QueryNodeAddChild(qn2, pqn2);
   RSQNode* iqn = RediSearch_CreateIntersectNode(index, 0);
   RediSearch_QueryNodeAddChild(iqn, qn1);
@@ -570,7 +572,7 @@ TEST_F(LLApiTest, testMultitype) {
   ASSERT_EQ("doc1", results[0]);
 
   qn = RediSearch_CreateTagNode(index, "f2");
-  RediSearch_QueryNodeAddChild(qn, RediSearch_CreateTokenNode(index, NULL, "world"));
+  RediSearch_QueryNodeAddChild(qn, RediSearch_CreateTagTokenNode(index, "world"));
   results = search(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
@@ -590,26 +592,26 @@ TEST_F(LLApiTest, testMultitypeNumericTag) {
   // Add document...
   RSDoc* d = RediSearch_CreateDocumentSimple("doc1");
   RediSearch_DocumentAddFieldCString(d, "f1", "World", RSFLDTYPE_TAG);
-  RediSearch_DocumentAddFieldCString(d, "f2", "World", RSFLDTYPE_TAG);
+  RediSearch_DocumentAddFieldCString(d, "f2", "world", RSFLDTYPE_TAG);
   int rc = RediSearch_SpecAddDocument(index, d);
   ASSERT_EQ(REDISMODULE_OK, rc);
 
   auto qn = RediSearch_CreateTagNode(index, "f2");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateLexRangeNode(index, "f2", "world", "world", 1, 1));
+                               RediSearch_CreateTagLexRangeNode(index, "world", "world", 1, 1));
   std::vector<std::string> results = search(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
 
   qn = RediSearch_CreateTagNode(index, "f1");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateLexRangeNode(index, "f1", "world", "world", 1, 1));
+                               RediSearch_CreateTagLexRangeNode(index, "world", "world", 1, 1));
   results = search(index, qn);
   ASSERT_EQ(0, results.size());
 
   qn = RediSearch_CreateTagNode(index, "f1");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateLexRangeNode(index, "f1", "World", "world", 1, 1));
+                               RediSearch_CreateTagLexRangeNode(index, "World", "world", 1, 1));
   results = search(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
@@ -684,11 +686,11 @@ TEST_F(LLApiTest, testNumericFieldWithCT) {
   RediSearch_SpecAddDocument(index, d);
 
   d = RediSearch_CreateDocumentSimple("doc2");
-  RediSearch_DocumentAddFieldNumber(d, "ft1", 60, RSFLDTYPE_NUMERIC);
+  RediSearch_DocumentAddFieldNumber(d, "ft1", 0, RSFLDTYPE_NUMERIC);
   RediSearch_SpecAddDocument(index, d);
 
-  RSQNode* qn1 = RediSearch_CreateNumericNode(index, "ft1", 70, 10, 0, 0);
-  RSQNode* qn2 = RediSearch_CreateNumericNode(index, "ft1", 70, 10, 0, 0);
+  RSQNode* qn1 = RediSearch_CreateNumericNode(index, "ft1", 70, -10, 0, 0);
+  RSQNode* qn2 = RediSearch_CreateNumericNode(index, "ft1", 70, -10, 0, 0);
   RSQNode* un = RediSearch_CreateUnionNode(index);
   RediSearch_QueryNodeAddChild(un, qn1);
   RediSearch_QueryNodeAddChild(un, qn2);
@@ -843,6 +845,14 @@ TEST_F(LLApiTest, testStopwords) {
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[0], strlen(words[0])), 1);
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[1], strlen(words[1])), 1);
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "RediSearch", strlen("RediSearch")), 0);
+
+  size_t size;
+  char **list = RediSearch_IndexGetStopwords(index, &size);
+  ASSERT_EQ(size, 2);
+  ASSERT_STRCASEEQ(list[0], words[0]);
+  ASSERT_STRCASEEQ(list[1], words[1]);
+  RediSearch_StopwordsList_Free(list, 2);
+
   RediSearch_FreeIndexOptions(options);
   RediSearch_DropIndex(index);
 
@@ -855,5 +865,152 @@ TEST_F(LLApiTest, testStopwords) {
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[0], strlen(words[0])), 0);
   RediSearch_FreeIndexOptions(options);
   RediSearch_DropIndex(index);
+}
 
+TEST_F(LLApiTest, testGetters) {
+  // test defaults
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  ASSERT_EQ(DEFAULT_SCORE, RediSearch_IndexGetScore(index));
+  ASSERT_STREQ(RSLanguage_ToString(DEFAULT_LANGUAGE), RediSearch_IndexGetLanguage(index));
+  RediSearch_DropIndex(index);
+
+  // test custom language and score
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetScore(opt, 0.42);
+  RediSearch_IndexOptionsSetLanguage(opt, "YIDDISH");
+
+  index = RediSearch_CreateIndex("index", opt);
+  ASSERT_EQ(0.42, RediSearch_IndexGetScore(index));
+  ASSERT_STREQ("yiddish", RediSearch_IndexGetLanguage(index));
+
+  RSDoc* d = RediSearch_CreateDocument2(DOCID1, strlen(DOCID1), index, NAN, NULL);
+  ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
+  ASSERT_EQ(d->score, (float)RediSearch_IndexGetScore(index));
+  RediSearch_FreeDocument(d);
+
+  RediSearch_FreeIndexOptions(opt);
+  RediSearch_DropIndex(index);  
+}
+
+TEST_F(LLApiTest, testInfo) {
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetGCPolicy(opt, GC_POLICY_FORK);
+  RediSearch_IndexOptionsSetScore(opt, 0.141);
+  RediSearch_IndexOptionsSetLanguage(opt, "YIDDISH");
+
+  RSIndex* index = RediSearch_CreateIndex("index", opt);
+
+  RSFieldID fieldID;
+  fieldID = RediSearch_CreateField(index, "ft1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+  RediSearch_TextFieldSetWeight(index, fieldID, 2.3);
+  RediSearch_CreateField(index, "ft2", RSFLDTYPE_FULLTEXT, RSFLDOPT_TXTNOSTEM);
+  RediSearch_CreateField(index, "n1", RSFLDTYPE_NUMERIC, RSFLDOPT_SORTABLE | RSFLDOPT_NOINDEX);
+  fieldID = RediSearch_CreateField(index, "tg1", RSFLDTYPE_TAG, RSFLDOPT_NONE);
+  RediSearch_TagFieldSetSeparator(index, fieldID, '.');
+  RediSearch_TagFieldSetCaseSensitive(index, fieldID, 1);
+  RediSearch_CreateField(index, "dynamic1", RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
+                                            RSFLDTYPE_TAG | RSFLDTYPE_GEO, RSFLDOPT_NONE);
+
+  const char *docKey1 = "doc1";
+  Document* d = RediSearch_CreateDocumentSimple(docKey1);
+  RediSearch_DocumentAddFieldCString(d, "ft1", "hello", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldCString(d, "ft2", "world", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldNumber(d, "n1", 42, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, "tg1", "tag1", RSFLDTYPE_TAG);
+  RediSearch_SpecAddDocument(index, d);
+
+  const char *docKey2 = "doc2";
+  d = RediSearch_CreateDocumentSimple(docKey2);
+  RediSearch_DocumentAddFieldCString(d, "ft1", "redis", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldCString(d, "ft2", "labs", RSFLDTYPE_FULLTEXT);
+  RediSearch_DocumentAddFieldNumber(d, "n1", 42, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, "tg1", "tag2", RSFLDTYPE_TAG);
+  RediSearch_SpecAddDocument(index, d);
+
+  // test invalid option
+  RSIdxInfo info = { .version = 0 };
+  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);  
+
+  info = { .version = RS_INFO_CURRENT_VERSION };
+  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_OK);
+
+  ASSERT_EQ(info.gcPolicy, GC_POLICY_FORK);
+  ASSERT_EQ(info.score, 0.141);
+  EXPECT_STRCASEEQ(info.lang, "YIDDISH");
+
+  // fields stats
+  ASSERT_EQ(info.numFields, 5);
+  ASSERT_STREQ(info.fields[0].path, "ft1");
+  ASSERT_EQ(info.fields[0].types, RSFLDTYPE_FULLTEXT);
+  ASSERT_EQ(info.fields[0].options, RSFLDOPT_NONE);
+  ASSERT_EQ(info.fields[0].textWeight, 2.3);
+
+  ASSERT_STREQ(info.fields[1].path, "ft2");
+  ASSERT_TRUE(info.fields[1].options & RSFLDOPT_TXTNOSTEM);
+  ASSERT_EQ(info.fields[1].types, RSFLDTYPE_FULLTEXT);
+
+  ASSERT_STREQ(info.fields[2].path, "n1");
+  ASSERT_EQ(info.fields[2].types, RSFLDTYPE_NUMERIC);
+  ASSERT_TRUE(info.fields[2].options & RSFLDOPT_SORTABLE);
+  ASSERT_TRUE(info.fields[2].options & RSFLDOPT_NOINDEX);
+
+  ASSERT_STREQ(info.fields[3].path, "tg1");
+  ASSERT_EQ(info.fields[3].types, RSFLDTYPE_TAG);
+  ASSERT_EQ(info.fields[3].tagSeperator, '.');
+  ASSERT_EQ(info.fields[3].tagCaseSensitive, 1);
+
+  ASSERT_STREQ(info.fields[4].path, "dynamic1");
+  ASSERT_EQ(info.fields[4].types, (RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
+                                    RSFLDTYPE_TAG | RSFLDTYPE_GEO));
+
+  // common stats
+  ASSERT_EQ(info.numDocuments, 2);
+  ASSERT_EQ(info.maxDocId, 2);
+  ASSERT_EQ(info.docTableSize, 140);
+  ASSERT_EQ(info.sortablesSize, 48);
+  ASSERT_EQ(info.docTrieSize, 87);
+  ASSERT_EQ(info.numTerms, 5);
+  ASSERT_EQ(info.numRecords, 7);
+  ASSERT_EQ(info.invertedSize, 32);
+  ASSERT_EQ(info.invertedCap, 0);
+  ASSERT_EQ(info.skipIndexesSize, 0);
+  ASSERT_EQ(info.scoreIndexesSize, 0);
+  ASSERT_EQ(info.offsetVecsSize, 5);
+  ASSERT_EQ(info.offsetVecRecords, 5);
+  ASSERT_EQ(info.termsSize, 24);
+  ASSERT_EQ(info.indexingFailures, 0);
+
+  RediSearch_IndexInfoFree(&info);
+
+  RediSearch_FreeIndexOptions(opt);
+  RediSearch_DropIndex(index);  
+}
+
+TEST_F(LLApiTest, testLanguage) {
+  ASSERT_EQ(REDISEARCH_OK, RediSearch_ValidateLanguage("Hindi"));
+  ASSERT_EQ(REDISEARCH_ERR, RediSearch_ValidateLanguage("Hebrew"));
+
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+
+  ASSERT_EQ(REDISEARCH_ERR, RediSearch_IndexOptionsSetLanguage(opt, NULL));
+  ASSERT_STRCASEEQ(opt->lang, NULL);
+  ASSERT_EQ(REDISEARCH_ERR, RediSearch_IndexOptionsSetLanguage(opt, "HEBREW"));
+  ASSERT_STRCASEEQ(opt->lang, NULL);
+  ASSERT_EQ(REDISEARCH_OK, RediSearch_IndexOptionsSetLanguage(opt, "YIDDISH"));
+  ASSERT_STRCASEEQ(opt->lang, "YIDDISH");
+  RediSearch_FreeIndexOptions(opt);
+}
+
+TEST_F(LLApiTest, testScore) {
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+
+  ASSERT_EQ(REDISEARCH_ERR, RediSearch_IndexOptionsSetScore(opt, 5));
+  ASSERT_EQ(opt->score, 0);
+  ASSERT_EQ(REDISEARCH_ERR, RediSearch_IndexOptionsSetScore(opt, -5));
+  ASSERT_EQ(opt->score, 0);
+  ASSERT_EQ(REDISEARCH_OK, RediSearch_IndexOptionsSetScore(opt, 1));
+  ASSERT_EQ(opt->score, 1);
+  ASSERT_EQ(REDISEARCH_OK, RediSearch_IndexOptionsSetScore(opt, 0.5));
+  ASSERT_EQ(opt->score, 0.5);
+  RediSearch_FreeIndexOptions(opt);
 }
