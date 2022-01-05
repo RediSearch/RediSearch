@@ -24,6 +24,13 @@ void IndexAlias_DestroyGlobal(AliasTable **t) {
   *t = NULL;
 }
 
+void IndexAlias_Empty(AliasTable *t) {
+  if (!t) {
+    return;
+  }
+  dictEmpty(t->d, NULL);
+}
+
 int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int options,
                    QueryError *error) {
   // look up and see if it exists:

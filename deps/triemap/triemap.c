@@ -928,6 +928,15 @@ void TrieMap_Free(TrieMap *t, void (*freeCB)(void *)) {
   }
 }
 
+void TrieMap_Empty(TrieMap *t, void (*freeCB)(void *)) {
+  if (t) {
+    TrieMapNode_Free(t->root, freeCB);
+    t->size = 0;
+    t->cardinality = 0;
+    t->root = __newTrieMapNode((char *)"", 0, 0, 0, NULL, 0);
+  }
+}
+
 TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str, tm_len_t *len) {
   // create an iteration stack we walk up and down
   size_t stackCap = minSteps;

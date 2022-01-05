@@ -1054,7 +1054,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
 
   CursorList_Destroy(&RSCursors);
 
-  Indexes_Free(specDict_g);
+  Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, NULL);
   dictRelease(specDict_g);
   specDict_g = NULL;
 
@@ -1073,7 +1073,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
-  SchemaPrefixes_Free(ScemaPrefixes_g);
+  SchemaPrefixes_Free(SchemaPrefixes_g);
 
   RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();

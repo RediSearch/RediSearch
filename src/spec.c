@@ -1163,7 +1163,7 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-void Indexes_Free(dict *d) {
+void Indexes_Free(dict *d, TrieMap *schemaPrefixes, void *aliases, void *cursors) {
   if (!cleanPool) {
     cleanPool = thpool_init(1);
   }
@@ -1173,16 +1173,24 @@ void Indexes_Free(dict *d) {
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     IndexSpec *sp = dictGetVal(entry);
+
+    if (sp->isTimerSet) {
+      RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL);
+      sp->isTimerSet = false;
+    }
+    if (cursors && sp->uniqueId) {
+      Cursors_PurgeWithName(cursors, sp->name);
+      CursorList_RemoveSpec(cursors, sp->name);
+    }
     specs = array_append(specs, sp);
   }
   dictReleaseIterator(iter);
-  dictEmpty(specDict_g, NULL);
 
-  // Free global attributes now and leave internal for threadpool
-  for (int i = 0; i < array_len(specs); ++i) {
-    IndexSpec_FreeGlobals(specs[i]);
-  }
-
+  // Empty all globals
+  dictEmpty(d, NULL);
+  IndexAlias_Empty(aliases);
+  SchemaPrefixes_Empty(schemaPrefixes);
+  
   thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeAllTask, specs);
 }
 
@@ -2145,7 +2153,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
-    Indexes_Free(specDict_g);
+    Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, NULL);
     if (legacySpecDict) {
       dictEmpty(legacySpecDict, NULL);
     } else {
@@ -2282,7 +2290,7 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void IndexSpec_CleanAll(void) {
-  Indexes_Free(specDict_g);
+  Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, &RSCursors);
 }
 
 static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
@@ -2331,7 +2339,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   arrayof(SchemaPrefixNode *) prefixes = array_new(SchemaPrefixNode *, 1);
   // collect specs that their name is prefixed by the key name
   // `prefixes` includes list of arrays of specs, one for each prefix of key name
-  int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void *) *)&prefixes);
+  int nprefixes = TrieMap_FindPrefixes(SchemaPrefixes_g, key_p, n, (arrayof(void *) *)&prefixes);
   for (int i = 0; i < array_len(prefixes); ++i) {
     SchemaPrefixNode *node = prefixes[i];
     for (int j = 0; j < array_len(node->index_specs); ++j) {

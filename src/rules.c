@@ -4,7 +4,7 @@
 #include "json.h"
 #include "rdb.h"
 
-TrieMap *ScemaPrefixes_g;
+TrieMap *SchemaPrefixes_g;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -426,7 +426,7 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void SchemaPrefixes_Create() {
-  ScemaPrefixes_g = NewTrieMap();
+  SchemaPrefixes_g = NewTrieMap();
 }
 
 static void freePrefixNode(void *ctx) {
@@ -437,12 +437,16 @@ void SchemaPrefixes_Free(TrieMap *t) {
   TrieMap_Free(t, freePrefixNode);
 }
 
+void SchemaPrefixes_Empty(TrieMap *t) {
+  TrieMap_Empty(t, freePrefixNode);
+}
+
 void SchemaPrefixes_Add(const char *prefix, IndexSpec *spec) {
   size_t nprefix = strlen(prefix);
-  void *p = TrieMap_Find(ScemaPrefixes_g, (char *)prefix, nprefix);
+  void *p = TrieMap_Find(SchemaPrefixes_g, (char *)prefix, nprefix);
   if (p == TRIEMAP_NOTFOUND) {
     SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix, spec);
-    TrieMap_Add(ScemaPrefixes_g, (char *)prefix, nprefix, node, NULL);
+    TrieMap_Add(SchemaPrefixes_g, (char *)prefix, nprefix, node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *)p;
     node->index_specs = array_append(node->index_specs, spec);
@@ -450,7 +454,7 @@ void SchemaPrefixes_Add(const char *prefix, IndexSpec *spec) {
 }
 
 void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
-  TrieMapIterator *it = TrieMap_Iterate(ScemaPrefixes_g, "", 0);
+  TrieMapIterator *it = TrieMap_Iterate(SchemaPrefixes_g, "", 0);
   while (true) {
     char *p;
     tm_len_t len;

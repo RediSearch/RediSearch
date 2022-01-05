@@ -76,10 +76,11 @@ int SchemaRule_RdbLoad(struct IndexSpec *sp, RedisModuleIO *rdb, int encver);
 
 //---------------------------------------------------------------------------------------------
 
-extern TrieMap *ScemaPrefixes_g;
+extern TrieMap *SchemaPrefixes_g;
 
 void SchemaPrefixes_Create();
 void SchemaPrefixes_Free(TrieMap *t);
+void SchemaPrefixes_Empty(TrieMap *t);
 void SchemaPrefixes_Add(const char *prefix, struct IndexSpec *index);
 void SchemaPrefixes_RemoveSpec(struct IndexSpec *spec);
 

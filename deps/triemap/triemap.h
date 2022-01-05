@@ -89,6 +89,10 @@ int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *));
  * call it to free individual payload values. If not, free() is used instead. */
 void TrieMap_Free(TrieMap *t, void (*freeCB)(void *));
 
+/* Empty the trie's root and all its children recursively. If freeCB is given, we
+ * call it to free individual payload values. If not, free() is used instead. */
+void TrieMap_Empty(TrieMap *t, void (*freeCB)(void *));
+
 /* Get a random key from the trie by doing a random walk down and up the tree
  * for a minimum number of steps. Returns 0 if the tree is empty and we couldn't
  * find a random node.
