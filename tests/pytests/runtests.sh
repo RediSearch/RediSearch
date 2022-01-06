@@ -312,7 +312,7 @@ if [[ -z $COORD ]]; then
 	{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 
 elif [[ $COORD == oss ]]; then
-	oss_cluster_args="--env oss-cluster --env-reuse --clear-logs --shards-count $SHARDS"
+	oss_cluster_args="--env oss-cluster --env-reuse --shards-count $SHARDS"
 
 	{ (MODARGS+=" PARTITIONS AUTO" RLTEST_ARGS+=" ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
