@@ -8,7 +8,6 @@ message("# search root: " ${RS_DIR})
 message("# search binroot: " ${binroot})
 
 include(build/cmake/common.cmake)
-include(${RS_DIR}/build/vecsim/vecsim.cmake)
 
 #----------------------------------------------------------------------------------------------
 
@@ -64,6 +63,9 @@ add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
+option(VECSIM_STATIC "Build as static library" ON)
+option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
+add_subdirectory(deps/VectorSimilarity/src)
 
 #----------------------------------------------------------------------------------------------
 
@@ -134,7 +136,7 @@ elseif (RS_BUILD_STATIC)
 
 else() # OSS RediSearch
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    target_link_libraries(redisearch ${VECSIM_LIBS} dl m)
+    target_link_libraries(redisearch VectorSimilarity dl m)
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     set_target_properties(redisearch PROPERTIES PREFIX "")
     set_target_properties(redisearch PROPERTIES SUFFIX ".so")

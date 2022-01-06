@@ -1,4 +1,4 @@
 RLTest
 redis >= 3.0.0
 packaging >= 20.8
-numpy
+numpy >= 1.16.6

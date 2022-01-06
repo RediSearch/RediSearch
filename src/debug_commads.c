@@ -363,6 +363,38 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(GCCleanNumeric) {
+
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RedisModuleKey *keyp = NULL;
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_NUMERIC);
+  if (!keyName) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+    goto end;
+  }
+  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  if (!rt) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    goto end;
+  }
+
+  NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
+
+  rt->numRanges += rv.numRanges;
+  rt->emptyLeaves = 0;
+  
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+  SearchCtx_Free(sctx);
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
+  return REDISMODULE_OK;
+}
+
 DEBUG_COMMAND(ttl) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
@@ -615,6 +647,48 @@ DEBUG_COMMAND(DocInfo) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.DEBUG VECSIM_INFO <index> <field>
+ */
+DEBUG_COMMAND(VecsimInfo) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0]);
+
+  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx, argv[1]);
+  if (!vecsimIndex) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Vector index ins not found");
+  }
+  VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
+  RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
+  while(VecSimInfoIterator_HasNextField(infoIter)) {
+    VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
+    RedisModule_ReplyWithSimpleString(ctx, infoField->fieldName);
+    switch (infoField->fieldType)
+    {
+    case INFOFIELD_STRING:
+      RedisModule_ReplyWithSimpleString(ctx, infoField->stringValue);
+      break;
+    case INFOFIELD_FLOAT64:
+      RedisModule_ReplyWithDouble(ctx, infoField->floatingPointValue);
+      break;
+    case INFOFIELD_INT64:
+      RedisModule_ReplyWithLongLong(ctx, infoField->integerValue);
+      break;
+    case INFOFIELD_UINT64:
+      RedisModule_ReplyWithLongLong(ctx, infoField->uintegerValue);
+      break;
+    default:
+      break;
+    }
+  }
+  VecSimInfoIterator_Free(infoIter);     
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -633,8 +707,10 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"NUMIDX_SUMMARY", NumericIndexSummary},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
+                               {"GC_CLEAN_NUMERIC", GCCleanNumeric},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
+                               {"VECSIM_INFO", VecsimInfo},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
