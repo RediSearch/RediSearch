@@ -45,6 +45,10 @@ endif # SAN
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(wildcard $(ROOT)/deps/readies/*),)
+$(info $(shell git submodule update --init --recursive &> /dev/null))
+endif
+
 ROOT=.
 include deps/readies/mk/main
 
@@ -75,13 +79,13 @@ make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
 make test          # run all tests (via ctest)
-  COORD=1|oss|rlec   # test coordinator
+  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=regex         # run tests that match regex
   TESTDEBUG=1        # be very verbose (CTest-related)
   CTEST_ARG=...      # pass args to CTest
   CTEST_PARALLEL=n   # run tests in give parallelism
 make pytest        # run python tests (tests/pytests)
-  COORD=1|oss|rlec   # test coordinator
+  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
   REJSON=1|0         # also load RedisJSON module
@@ -89,6 +93,7 @@ make pytest        # run python tests (tests/pytests)
   EXT=1              # External (existing) environment
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
+  VG_LEAKS=0         # do not search leaks with Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
 make c_tests       # run C tests (from tests/ctests)
@@ -260,6 +265,10 @@ ifeq ($(ARCH),x64)
 ifeq ($(SAN),)
 ifneq ($(findstring centos,$(OSNICK)),)
 VECSIM_MARCH ?= skylake-avx512
+else ifneq ($(findstring xenial,$(OSNICK)),)
+VECSIM_MARCH ?= skylake-avx512
+else ifneq ($(findstring macos,$(OS)),)
+VECSIM_MARCH ?= skylake-avx512
 else
 VECSIM_MARCH ?= x86-64-v4
 endif
@@ -335,8 +344,8 @@ ifeq ($(OSNICK),centos7)
 ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
 define SETUP_LIBSTDCXX
 set -e ;\
-cd $$(BINDIR) ;\
-wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$$(OS)-$$(ARCH).tgz ;\
+cd $(BINDIR) ;\
+wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$(OS)-$(ARCH).tgz ;\
 tar xzf libstdc.tgz ;\
 rm libstdc.tgz ;\
 ln -sf libstdc++.so.6.0.25 libstdc++.so.6
@@ -482,10 +491,16 @@ endif
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
-test:
 ifneq ($(SAN),)
+REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+
+$(REJSON_SO):
 	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
+else
+REJSON_SO=
 endif
+
+test: $(REJSON_SO)
 ifneq ($(TEST),)
 	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
@@ -499,10 +514,7 @@ ifeq ($(COORD),oss)
 endif
 endif
 
-pytest:
-ifneq ($(SAN),)
-	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
-endif
+pytest: $(REJSON_SO)
 	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
@@ -606,7 +618,7 @@ benchmark:
 #----------------------------------------------------------------------------------------------
 
 COV_EXCLUDE_DIRS += \
-    deps \
+	deps \
 	tests \
 	coord/tests
 
