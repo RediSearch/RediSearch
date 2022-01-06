@@ -70,7 +70,9 @@ commands:
       - setup-automation
       - run:
           name: System setup
-          command: ./sbin/system-setup.py
+          command: |
+            ./sbin/system-setup.py
+            bash -l -c "python2 -m pip list"
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
@@ -89,7 +91,7 @@ commands:
             cd
             echo 'export GIT_SSH_COMMAND="ssh -o IdentitiesOnly=yes -i /home/circleci/.ssh/id_rsa_2a113f169fab90346b5128f5b73ad16d"' > /tmp/arlecchino.sh
             sudo mv /tmp/arlecchino.sh /etc/profile.d
-            sudo -E bash -l -c "source <(curl -Ls http://tiny.cc/arlecchino)"
+            sudo -E bash -l -c "source <(curl -Ls https://github.com/RedisLabsModules/arlecchino/blob/master/bin/setup-rlec)"
 
   save-tests-logs:
     steps:
@@ -186,7 +188,7 @@ commands:
     steps:
       - early-returns
       - setup-executor
-      - checkout
+      - checkout-all
       - setup-automation
       - run:
           name: Build for platform
@@ -465,8 +467,9 @@ jobs:
       - run:
           name: Deploy to S3
           command: |
-            cd "workspace/artifacts/<<parameters.location>>"
+            cd ~/workspace
             du -ah --apparent-size *
+            cd "artifacts/<<parameters.location>>"
             if [[ -z "<<parameters.location>>" ]]; then
                 path=""
             else
@@ -569,7 +572,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, centos8]
+              platform: [focal, bionic, xenial, centos7, centos8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common

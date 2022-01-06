@@ -293,7 +293,7 @@ static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSInde
                                     const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   // the strings must be of the same length > 0
-  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
+  if (!hasPayload(dmd->flags) || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
     EXPLAIN(scrExp, "Payloads provided to scorer vary in length");
     return 0;
   }

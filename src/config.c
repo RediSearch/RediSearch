@@ -310,6 +310,14 @@ CONFIG_GETTER(getForkGcRetryInterval) {
   return sdscatprintf(ss, "%lu", config->forkGcRetryInterval);
 }
 
+// FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
+CONFIG_SETTER(setForkGCCleanNumericEmptyNodes) {
+  config->forkGCCleanNumericEmptyNodes = 1;
+  return REDISMODULE_OK;
+}
+
+CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, forkGCCleanNumericEmptyNodes, 0)
+
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->maxResultsToUnsortedMode);
@@ -622,6 +630,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
          .getValue = getForkGcRetryInterval},
+        {.name = "FORK_GC_CLEAN_NUMERIC_EMPTY_NODES",
+         .helpText = "clean empty nodes from numeric tree",
+         .setValue = setForkGCCleanNumericEmptyNodes,
+         .getValue = getForkGCCleanNumericEmptyNodes},
         {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
          .helpText = "max results for union interator in which the interator will switch to "
                      "unsorted mode, should be used for debug only.",

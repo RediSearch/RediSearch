@@ -9,7 +9,7 @@ OSNICK ?= bullseye
 
 REPO=redisearch
 
-REDIS_VER=6.2.5
+REDIS_VER=6.2.6
 REDISEARCH_VER=master
 
 INT_BRANCHES=2.2 2.0 1.6
