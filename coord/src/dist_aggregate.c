@@ -309,17 +309,16 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
   rpRoot->lookup = us->lookup;
 
   ResultProcessor *rpProfile = NULL;
+  if (IsProfile(r)) {
+    rpProfile = RPProfile_New(&rpRoot->base, &r->qiter);
+  }
 
   assert(!r->qiter.rootProc);
   // Get the deepest-most root:
   int found = 0;
   for (ResultProcessor *rp = r->qiter.endProc; rp; rp = rp->upstream) {
     if (!rp->upstream) {
-      if (IsProfile(r)) {
-        rp->upstream = rpProfile = RPProfile_New(&rpRoot->base, &r->qiter);
-      } else {
-        rp->upstream = &rpRoot->base;
-      }
+      rp->upstream = IsProfile(r) ? rpProfile : &rpRoot->base;
       found = 1;
       break;
     }
