@@ -1759,7 +1759,10 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 53: /* vector_query ::= vector_command vector_attribute_list AS param_term */
 {
-  if (yymsp[-3].minor.yy27->vn.vq->scoreField) rm_free(yymsp[-3].minor.yy27->vn.vq->scoreField);
+  if (yymsp[-3].minor.yy27->vn.vq->scoreField) {
+    rm_free(yymsp[-3].minor.yy27->vn.vq->scoreField);
+    yymsp[-3].minor.yy27->vn.vq->scoreField = NULL;
+  }
   yymsp[-3].minor.yy27->params = array_grow(yymsp[-3].minor.yy27->params, 1);
   memset(&array_tail(yymsp[-3].minor.yy27->params), 0, sizeof(*yymsp[-3].minor.yy27->params));
   QueryNode_SetParam(ctx, &(array_tail(yymsp[-3].minor.yy27->params)), &(yymsp[-3].minor.yy27->vn.vq->scoreField), NULL, &yymsp[0].minor.yy0);
@@ -1770,7 +1773,10 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 54: /* vector_query ::= vector_command AS param_term */
 {
-  if (yymsp[-2].minor.yy27->vn.vq->scoreField) rm_free(yymsp[-2].minor.yy27->vn.vq->scoreField);
+  if (yymsp[-2].minor.yy27->vn.vq->scoreField) {
+    rm_free(yymsp[-2].minor.yy27->vn.vq->scoreField);
+    yymsp[-2].minor.yy27->vn.vq->scoreField = NULL;
+  }
   yymsp[-2].minor.yy27->params = array_grow(yymsp[-2].minor.yy27->params, 1);
   memset(&array_tail(yymsp[-2].minor.yy27->params), 0, sizeof(*yymsp[-2].minor.yy27->params));
   QueryNode_SetParam(ctx, &(array_tail(yymsp[-2].minor.yy27->params)), &(yymsp[-2].minor.yy27->vn.vq->scoreField), NULL, &yymsp[0].minor.yy0);

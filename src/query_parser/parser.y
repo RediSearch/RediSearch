@@ -696,7 +696,10 @@ query ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim 
 
 // Vector query opt. 1 - full query.
 vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D). {
-  if (B->vn.vq->scoreField) rm_free(B->vn.vq->scoreField);
+  if (B->vn.vq->scoreField) {
+    rm_free(B->vn.vq->scoreField);
+    B->vn.vq->scoreField = NULL;
+  }
   B->params = array_grow(B->params, 1);
   memset(&array_tail(B->params), 0, sizeof(*B->params));
   QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
@@ -706,7 +709,10 @@ vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D).
 
 // Vector query opt. 2 - score field only, no params.
 vector_query(A) ::= vector_command(B) AS param_term(D). {
-  if (B->vn.vq->scoreField) rm_free(B->vn.vq->scoreField);
+  if (B->vn.vq->scoreField) {
+    rm_free(B->vn.vq->scoreField);
+    B->vn.vq->scoreField = NULL;
+  }
   B->params = array_grow(B->params, 1);
   memset(&array_tail(B->params), 0, sizeof(*B->params));
   QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
