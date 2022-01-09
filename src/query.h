@@ -35,8 +35,8 @@ typedef struct QueryAST {
   const void *udata;
   size_t udatalen;
 
-  // vector score field names.
-  char **vecScores;
+  // vector score field names array in the AST.
+  char **vecScoreFieldNames;
 
   // Copied query and length, because it seems we modify the string
   // in the parser (FIXME). Thus, if the original query is const

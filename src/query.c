@@ -637,7 +637,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     return NULL;
   }
-  array_ensure_append_1(*q->vecScoresp, qn->vn.vq->scoreField);
+  array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
   if (QueryNode_NumChildren(qn) > 0) {
     return NULL; // TODO: handle hybrid - get child iterator.
   } else {
@@ -991,7 +991,7 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
       .status = status,
-      .vecScoresp = &qast->vecScores,
+      .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
@@ -1004,6 +1004,7 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
+  q->vecScoreFieldNames = NULL;
   q->numTokens = 0;
   q->numParams = 0;
   rm_free(q->query);

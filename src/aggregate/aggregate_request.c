@@ -930,24 +930,24 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 
 static ResultProcessor *getVecSimRP(AREQ *req, AGGPlan *pln, ResultProcessor *up, QueryError *status) {
   RLookup *lk = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
-  char **sfields = req->ast.vecScores;
-  RLookupKey **keys = rm_calloc(array_len(sfields), sizeof(*keys));
+  char **sfns = req->ast.vecScoreFieldNames;
+  RLookupKey **keys = rm_calloc(array_len(sfns), sizeof(*keys));
 
-  for (size_t i = 0; i < array_len(sfields); i++) {
-    if (IndexSpec_GetField(req->sctx->spec, sfields[i], strlen(sfields[i]))) {
-      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", sfields[i]);
+  for (size_t i = 0; i < array_len(sfns); i++) {
+    if (IndexSpec_GetField(req->sctx->spec, sfns[i], strlen(sfns[i]))) {
+      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", sfns[i]);
       rm_free(keys);
       return NULL;
     }
-    keys[i] = RLookup_GetKey(lk, sfields[i], RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+    keys[i] = RLookup_GetKey(lk, sfns[i], RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
     if (!keys[i]) {
-      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", sfields[i]);
+      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", sfns[i]);
       rm_free(keys);
       return NULL;
     }
   }
 
-  ResultProcessor *rp = RPVecSim_New((const RLookupKey **)keys, array_len(sfields));
+  ResultProcessor *rp = RPVecSim_New((const RLookupKey **)keys, array_len(sfns));
   return pushRP(req, rp, up);
 }
 
@@ -1146,7 +1146,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
 
   // Load vecsim results according to their score fields.
-  if (req->sctx->spec->flags & Index_HasVecSim) {
+  // We need this RP only if vecScoreFieldNames is not empty.
+  if (req->ast.vecScoreFieldNames) {
     rpUpstream = getVecSimRP(req, pln, rpUpstream, status);
     if (!rpUpstream) {
       goto error;
