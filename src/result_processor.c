@@ -7,7 +7,7 @@
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
- ********************************************************************************************************************/
+ *******************************************************************************************************************/
 
 void QITR_Cleanup(QueryIterator *qitr) {
   ResultProcessor *p = qitr->rootProc;
@@ -54,7 +54,7 @@ static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
  *
  * It takes the raw index results from the index, and builds the search result to be sent
  * downstream.
- ********************************************************************************************************************/
+ *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;
@@ -173,7 +173,7 @@ void QITR_FreeChain(QueryIterator *qitr) {
  * It takes results from upstream, and using a scoring function applies the score to each one.
  *
  * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
- ********************************************************************************************************************/
+ *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;
@@ -240,6 +240,55 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 }
 
 /*******************************************************************************************************************
+ *  Vector Similarity Result Processor
+ *
+ * It takes results from upstream (should be Index iterator or close; before any RP that need these field),
+ * and add thier vecsim score to the right score field before sending them downstream.
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  const RLookupKey **keys;
+  size_t nkeys;
+} RPVecSim;
+
+static int rpvecsimNext(ResultProcessor *base, SearchResult *res) {
+  int rc;
+  RPVecSim *self = (RPVecSim *)base;
+
+  rc = base->upstream->Next(base->upstream, res);
+  if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+
+  // Add result to every score field.
+  // TODO: when we'll have a way to hold many results, add each result to its corresponding field.
+  for (size_t i = 0; i < self->nkeys; i++) {
+    RSValue *val = RS_NumVal(res->indexResult->num.value);
+    RLookup_WriteOwnKey(self->keys[i], &(res->rowdata), val);
+  }
+
+  return rc;
+}
+
+/* Free implementation for vecsim */
+static void rpvecsimFree(ResultProcessor *rp) {
+  RPVecSim *self = (RPVecSim *)rp;
+  rm_free(self->keys);
+  rm_free(self);
+}
+
+ResultProcessor *RPVecSim_New(const RLookupKey **keys, size_t nkeys) {
+  RPVecSim *ret = rm_calloc(1, sizeof(*ret));
+  ret->keys = keys;
+  ret->nkeys = nkeys;
+  ret->base.Next = rpvecsimNext;
+  ret->base.Free = rpvecsimFree;
+  ret->base.type = RP_VECSIM;
+  return &ret->base;
+}
+
+/*******************************************************************************************************************
  *  Sorting Processor
  *
  * This is where things become a bit complex...
@@ -257,9 +306,8 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
  * EOF. then it starts yielding results one by one by popping from the top of the heap.
  *
  * Note: We use a min-max heap to simplify maintaining a max heap where we can pop from the bottom
- * while
- * finding the top N results
- ********************************************************************************************************************/
+ * while finding the top N results
+ *******************************************************************************************************************/
 
 typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *udata);
 
@@ -346,11 +394,6 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   SearchResult *h = self->pooledResult;
   int rc = rp->upstream->Next(rp->upstream, h);
 
-  // For VecSim and Geo, this passes the calculated value to the sorting heap.
-  if (h && h->indexResult && h->indexResult->type == RSResultType_Distance) {
-    h->score = h->indexResult->num.value;
-  }
-
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
     // Transition state:
@@ -400,10 +443,6 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
           return RS_RESULT_ERROR;
         }
       }
-    } else if (self->sortbyType == SORTBY_DISTANCE){
-      RSValue *rsv = RS_NumVal(h->indexResult->num.value);
-      RLookup_WriteKey(self->fieldcmp.keys[0], &h->rowdata, rsv);
-      RSValue_Decref(rsv);
     } else {
       RS_LOG_ASSERT(0, "oops");
     }
@@ -768,7 +807,7 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
  * It takes results from upstream, and using a scoring function applies the score to each one.
  *
  * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
- ********************************************************************************************************************/
+ *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;

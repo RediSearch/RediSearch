@@ -178,12 +178,17 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %type vector_command { QueryNode *}
 %destructor vector_command { QueryNode_Free($$); }
 
-%type vector_attribute { VectorQueryParam }
-%destructor vector_attribute { rm_free((char*)$$.value); }
+%type vector_attribute { SingleVectorQueryParam }
+%destructor vector_attribute { rm_free((char*)($$.param.value)); rm_free((char*)($$.param.name)); }
 
-%type vector_attribute_list { VectorQueryParam *}
-%destructor vector_attribute_list { array_free_ex($$, {rm_free((char*)((VectorQueryParam*)ptr )->value);
-                                                       rm_free((char*)((VectorQueryParam*)ptr )->name);});}
+%type vector_attribute_list { VectorQueryParams }
+%destructor vector_attribute_list {
+  array_free($$.isAttr);
+  array_free_ex($$.params, {
+    rm_free((char*)((VecSimRawParam*)ptr)->value);
+    rm_free((char*)((VecSimRawParam*)ptr)->name);
+  });
+}
 
 %type modifierlist { Vector* }
 %destructor modifierlist { 
@@ -670,27 +675,41 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 
 // expr(A) ::= expr(B) ARROW LSQB vector_query(C) RSQB. {} // main parse, hybrid case.
 
-// TODO: add optimisation for "*=>[]" queries - vecsim search as the entire query. set order=BY_SCORE
-expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as subquery case.
+// expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as subquery case.
+//   switch (B->vn.vq->type) {
+//     case VECSIM_QT_TOPK:
+//       B->vn.vq->topk.order = BY_ID;
+//       break;
+//   }
+//   A = B;
+// }
+
+query ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
+  setup_trace(ctx);
   switch (B->vn.vq->type) {
     case VECSIM_QT_TOPK:
-      B->vn.vq->topk.runType = VECSIM_RUN_KNN;
-      B->vn.vq->topk.order = BY_ID;
+      B->vn.vq->topk.order = BY_SCORE;
       break;
   }
-  A = B;
+  ctx->root = B;
 }
 
 // Vector query opt. 1 - full query.
 vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D). {
-  B->vn.vq->scoreField = rm_strndup(D.s, D.len);
+  if (B->vn.vq->scoreField) rm_free(B->vn.vq->scoreField);
+  B->params = array_grow(B->params, 1);
+  memset(&array_tail(B->params), 0, sizeof(*B->params));
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
   B->vn.vq->params = C;
   A = B;
 }
 
 // Vector query opt. 2 - score field only, no params.
 vector_query(A) ::= vector_command(B) AS param_term(D). {
-  B->vn.vq->scoreField = rm_strndup(D.s, D.len);
+  if (B->vn.vq->scoreField) rm_free(B->vn.vq->scoreField);
+  B->params = array_grow(B->params, 1);
+  memset(&array_tail(B->params), 0, sizeof(*B->params));
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
   A = B;
 }
 
@@ -711,27 +730,33 @@ vector_command(A) ::= TOP_K param_size(B) modifier(C) ATTRIBUTE(D). {
   D.type = QT_PARAM_VEC;
   A = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
   A->vn.vq->property = rm_strndup(C.s, C.len);
+  A->vn.vq->scoreField = rm_calloc(1, C.len + 7);
+  strncpy(A->vn.vq->scoreField, C.s, C.len);
+  strcat(A->vn.vq->scoreField, "_score");
 }
 
 vector_attribute(A) ::= TERM(B) param_term(C). {
   const char *value = rm_strndup(C.s, C.len);
   const char *name = rm_strndup(B.s, B.len);
-  A = (VectorQueryParam){ .name = name, .namelen = B.len, .value = value, .vallen = C.len };
+  A.param = (VecSimRawParam){ .name = name, .nameLen = B.len, .value = value, .valLen = C.len };
   if (C.type == QT_PARAM_TERM) {
-    A.isParam = true;
+    A.isAttr = true;
   }
   else { // if C.type == QT_TERM
-    A.isParam = false;
+    A.isAttr = false;
   }
 }
 
 vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C). {
-  A = array_append(B, C);
+  A.params = array_append(B.params, C.param);
+  A.isAttr = array_append(B.isAttr, C.isAttr);
 }
 
 vector_attribute_list(A) ::= vector_attribute(B). {
-  A = array_new(VectorQueryParam, 1);
-  A = array_append(A, B);
+  A.params = array_new(VecSimRawParam, 1);
+  A.isAttr = array_new(bool, 1);
+  A.params = array_append(A.params, B.param);
+  A.isAttr = array_append(A.isAttr, B.isAttr);
 }
 
 /////////////////////////////////////////////////////////////////

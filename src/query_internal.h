@@ -43,7 +43,7 @@ typedef struct {
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
   QueryError *status;
-
+  char ***vecScoresp;
   size_t numTokens;
   uint32_t tokenId;
   DocTable *docTable;
