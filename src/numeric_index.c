@@ -10,7 +10,6 @@
 #include "util/misc.h"
 //#include "tests/time_sample.h"
 #define NR_EXPONENT 4
-#define NR_CARD_CHECK 10
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
 
@@ -304,6 +303,7 @@ uint16_t numericTreesUniqueId = 0;
 NumericRangeTree *NewNumericRangeTree() {
   NumericRangeTree *ret = rm_malloc(sizeof(NumericRangeTree));
 
+  // updated value since splitCard should be >NR_CARD_CHECK
   ret->root = NewLeafNode(2, 16);
   ret->numEntries = 0;
   ret->numRanges = 1;

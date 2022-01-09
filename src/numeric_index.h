@@ -16,6 +16,8 @@
 extern "C" {
 #endif
 
+#define NR_CARD_CHECK 10
+
 typedef struct {
   double value;
   size_t appearances;
