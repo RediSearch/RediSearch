@@ -87,7 +87,7 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
  * @param conc Used to save state on the query
  * @return an iterator.
  */
-IndexIterator *QAST_Iterate(const QueryAST *ast, const RSSearchOptions *options,
+IndexIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
                             RedisSearchCtx *sctx, ConcurrentSearchCtx *conc, QueryError *status);
 
 /**

@@ -188,7 +188,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       return 1;
 
     case PARAM_VEC: {
-      *(char **)param->target = val;
+      *(const char **)param->target = val;
       *param->target_len = val_len;
       return 1;
     }
