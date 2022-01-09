@@ -59,6 +59,7 @@ typedef enum {
   RP_PROFILE,
   RP_NETWORK,
   RP_MAX,
+  RP_VECSIM,
 } ResultProcessorType;
 
 struct ResultProcessor;
@@ -192,6 +193,8 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *itr, struct timespec timeout
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs);
+
+ResultProcessor *RPVecSim_New(const RLookupKey **keys, size_t nkeys);
 
 typedef enum {
   SORTBY_FIELD,

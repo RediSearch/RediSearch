@@ -68,7 +68,33 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   return openVectorKeysDict(ctx, keyName, 1);
 }
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq) {
+static bool isFit (VecSimIndex *ind, size_t size) {
+  VecSimIndexInfo info = VecSimIndex_Info(ind);
+  size_t dim = 0;
+  VecSimType type = 0;
+  bool res = false;
+  switch (info.algo) {
+    case VecSimAlgo_HNSWLIB:
+      dim = info.hnswInfo.dim;
+      type = info.hnswInfo.type;
+      break;
+    case VecSimAlgo_BF:
+      dim = info.bfInfo.dim;
+      type = info.bfInfo.type;
+      break;
+  }
+  switch (type) {
+    case VecSimType_FLOAT32:
+    case VecSimType_FLOAT64:
+    case VecSimType_INT32:
+    case VecSimType_INT64:
+      res = ((dim * sizeof(float)) == size);
+      break;
+  }
+  return res;
+}
+
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status) {
   // TODO: change Dict to hold strings
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
@@ -79,7 +105,17 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq) {
 
   switch (vq->type) {
     case VECSIM_QT_TOPK:;
-      VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = HNSW_DEFAULT_EF_RT};
+      VecSimQueryParams qParams;
+      int err;
+      if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params), &qParams)) != VecSim_OK) {
+        err = VecSimResolveCode_to_QueryErrorCode(err);
+        QueryError_SetErrorFmt(status, err, "Error parsing vector similarity parameters: %s", QueryError_Strerror(err));
+        return NULL;
+      }
+      if (!isFit(vecsim, vq->topk.vecLen)) {
+        QueryError_SetError(status, QUERY_EINVAL, "Error parsing vector similarity query: query vector does not match index's type or dimention.");
+        return NULL;
+      }
       vq->results = VecSimIndex_TopKQuery(vecsim, vq->topk.vector, vq->topk.k, &qParams, vq->topk.order );
       vq->resultsLen = VecSimQueryResult_Len(vq->results);
       break;
@@ -95,8 +131,8 @@ int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-  for (size_t i = 0; i < QueryNode_NumParams(node->vn.vq); i++) {
-    int res = VectorQuery_ParamResolve(&node->vn.vq->params[i], params, status);
+  for (size_t i = 0; i < array_len(node->vn.vq->params.params); i++) {
+    int res = VectorQuery_ParamResolve(node->vn.vq->params, i, params, status);
     if (res < 0) {
       return REDISMODULE_ERR;
     }
@@ -104,18 +140,18 @@ int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-int VectorQuery_ParamResolve(VectorQueryParam *param, dict *params, QueryError *status) {
-  if (!param->isParam) {
+int VectorQuery_ParamResolve(VectorQueryParams params, size_t ix, dict *paramsDict, QueryError *status) {
+  if (!params.isAttr[ix]) {
     return 0;
   }
   size_t val_len;
-  const char *val = Param_DictGet(params, param->value, &val_len, status);
+  const char *val = Param_DictGet(paramsDict, params.params[ix].value, &val_len, status);
   if (!val) {
     return -1;
   }
-  rm_free((char *)param->value);
-  param->value = rm_strndup(val, val_len);
-  param->vallen = val_len;
+  rm_free((char *)params.params[ix].value);
+  params.params[ix].value = rm_strndup(val, val_len);
+  params.params[ix].valLen = val_len;
   return 1;
 }
 
@@ -127,11 +163,12 @@ void VectorQuery_Free(VectorQuery *vq) {
     default:
       break;
   }
-  for (int i = 0; i < array_len(vq->params); i++) {
-    rm_free((char *)vq->params[i].name);
-    rm_free((char *)vq->params[i].value);
+  for (int i = 0; i < array_len(vq->params.params); i++) {
+    rm_free((char *)vq->params.params[i].name);
+    rm_free((char *)vq->params.params[i].value);
   }
-  array_free(vq->params);
+  array_free(vq->params.params);
+  array_free(vq->params.isAttr);
   rm_free(vq);
 }
 
@@ -160,4 +197,14 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
     case VecSimAlgo_HNSWLIB: return VECSIM_ALGORITHM_HNSW;
   }
   return NULL;
+}
+
+int VecSimResolveCode_to_QueryErrorCode(int code) {
+  switch (code) {
+    case VecSim_OK: return QUERY_OK;
+    case VecSimParamResolverErr_AlreadySet: return QUERY_EDUPFIELD;
+    case VecSimParamResolverErr_UnknownParam: return QUERY_ENOOPTION;
+    case VecSimParamResolverErr_BadValue: return QUERY_EBADATTR;
+  }
+  return QUERY_EGENERIC;
 }

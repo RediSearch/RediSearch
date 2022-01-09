@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include "../tokenize.h"
+#include "vector_index.h"
 
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
 typedef struct {
@@ -50,6 +51,11 @@ typedef struct {
   double num;
   int inclusive;
 } RangeNumber;
+
+typedef struct {
+  VecSimRawParam param;
+  bool isAttr;
+} SingleVectorQueryParam;
 
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
 

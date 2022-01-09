@@ -628,14 +628,21 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   return NewGeoRangeIterator(q->sctx, node->gn.gf);
 }
 
-static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryVectorNode *node) {
+static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
+  if (qn->type != QN_VECTOR) {
+    return NULL;
+  }
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->vq->property, strlen(node->vq->property));
+      IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     return NULL;
   }
-
-  return NewVectorIterator(q->sctx, node->vq);
+  array_ensure_append_1(*q->vecScoresp, qn->vn.vq->scoreField);
+  if (QueryNode_NumChildren(qn) > 0) {
+    return NULL; // TODO: handle hybrid - get child iterator.
+  } else {
+    return NewVectorIterator(q->sctx, qn->vn.vq, q->status);
+  }
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
@@ -917,7 +924,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_GEO:
       return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_VECTOR:
-      return Query_EvalVectorNode(q, &n->vn);
+      return Query_EvalVectorNode(q, n);
     case QN_IDS:
       return Query_EvalIdFilterNode(q, &n->fn);
     case QN_WILDCARD:
@@ -984,6 +991,7 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
       .status = status,
+      .vecScoresp = &qast->vecScores,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {

@@ -928,7 +928,28 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
   return pushRP(req, groupRP, rpUpstream);
 }
 
-#define _SCORE_LEN 6
+static ResultProcessor *getVecSimRP(AREQ *req, AGGPlan *pln, ResultProcessor *up, QueryError *status) {
+  RLookup *lk = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
+  char **sfields = req->ast.vecScores;
+  RLookupKey **keys = rm_calloc(array_len(sfields), sizeof(*keys));
+
+  for (size_t i = 0; i < array_len(sfields); i++) {
+    if (IndexSpec_GetField(req->sctx->spec, sfields[i], strlen(sfields[i]))) {
+      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", sfields[i]);
+      rm_free(keys);
+      return NULL;
+    }
+    keys[i] = RLookup_GetKey(lk, sfields[i], RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+    if (!keys[i]) {
+      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", sfields[i]);
+      rm_free(keys);
+      return NULL;
+    }
+  }
+
+  ResultProcessor *rp = RPVecSim_New((const RLookupKey **)keys, array_len(sfields));
+  return pushRP(req, rp, up);
+}
 
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up) {
@@ -936,7 +957,6 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
   IndexSpec *spec = req->sctx ? req->sctx->spec : NULL; // check for sctx?
-  SortByType sortbyType = SORTBY_FIELD;
 
   if (!astp) {
     astp = &astp_s;
@@ -965,33 +985,12 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       const char *keystr = astp->sortKeys[ii];
       sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_NOINCREF);
       if (!sortkeys[ii]) {
-        // check if key is a vector
-        if (nkeys == 1 && spec && spec->flags & Index_HasVecSim) {
-          // we check if field contains "_score"
-          int keystrlen = strlen(keystr) - _SCORE_LEN;
-          if (keystrlen > 0 && !strcmp(keystr + keystrlen, "_score")) {
-            char buf[keystrlen + 1 + _SCORE_LEN];
-            strncpy(buf, keystr, keystrlen);
-            buf[keystrlen] = '\0';
-            const FieldSpec *vecField = IndexSpec_GetField(spec, buf, strlen(buf));
-            if (vecField && vecField->types == INDEXFLD_T_VECTOR) {
-              strcpy(buf + keystrlen, "_score");
-              buf[keystrlen + _SCORE_LEN] = '\0';
-              sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_OCREAT);
-              sortbyType = SORTBY_DISTANCE;
-              // astp->sortAscMap = 0; // forcing ascending sort on vector distance
-            }
-          }
-        }
-        if (!sortkeys[ii]) {
-          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema",
-                                 keystr);
-          return NULL;
-        }
+        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
+        return NULL;
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, sortbyType);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, SORTBY_FIELD);
     up = pushRP(req, rp, up);
   }
 
@@ -1145,6 +1144,14 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
+
+  // Load vecsim results according to their score fields.
+  if (req->sctx->spec->flags & Index_HasVecSim) {
+    rpUpstream = getVecSimRP(req, pln, rpUpstream, status);
+    if (!rpUpstream) {
+      goto error;
+    }
+  }
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
