@@ -44,6 +44,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_NUMERIC_RANGES_PARENTS').res[0][0] =='_NUMERIC_RANGES_PARENTS'
     assert env.expect('ft.config', 'get', 'RAW_DOCID_ENCODING').res[0][0] =='RAW_DOCID_ENCODING'
     assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] =='FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
+    assert env.expect('ft.config', 'get', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] =='_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
 '''
 
 Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
@@ -112,6 +113,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_NUMERIC_COMPRESS'][0], 'false')
     env.assertEqual(res_dict['_NUMERIC_RANGES_PARENTS'][0], '0')
     env.assertEqual(res_dict['FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
+    env.assertEqual(res_dict['_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
@@ -184,6 +186,7 @@ def testInitConfig(env):
     test_arg_str('MAXAGGREGATERESULTS', '-1', 'unlimited')
     test_arg_str('RAW_DOCID_ENCODING', 'false', 'false')
     test_arg_str('RAW_DOCID_ENCODING', 'true', 'true')
+    test_arg_str('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'false', 'false')
 
 def testImmutable(env):
     env.skipOnCluster()

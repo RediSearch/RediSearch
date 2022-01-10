@@ -318,6 +318,10 @@ CONFIG_SETTER(setForkGCCleanNumericEmptyNodes) {
 
 CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, forkGCCleanNumericEmptyNodes, 0)
 
+// _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
+CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, forkGCCleanNumericEmptyNodes)
+CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, forkGCCleanNumericEmptyNodes, 0)
+
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->maxResultsToUnsortedMode);
@@ -634,6 +638,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "clean empty nodes from numeric tree",
          .setValue = setForkGCCleanNumericEmptyNodes,
          .getValue = getForkGCCleanNumericEmptyNodes},
+        {.name = "_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES",
+         .helpText = "clean empty nodes from numeric tree",
+         .setValue = set_ForkGCCleanNumericEmptyNodes,
+         .getValue = get_ForkGCCleanNumericEmptyNodes},
         {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
          .helpText = "max results for union interator in which the interator will switch to "
                      "unsorted mode, should be used for debug only.",
