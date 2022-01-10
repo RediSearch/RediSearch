@@ -228,7 +228,7 @@ def testCreate(env):
     # info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'FLAT', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'BLOCK_SIZE', str(1024 * 1024)]]
     # assertInfoField(env, 'idx5', 'attributes', info)
 
-def testErrors(env):
+def testCreateErrors(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
     # missing init args
@@ -272,10 +272,31 @@ def testErrors(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EF_RUNTIME', 'str') \
         .error().contains('Bad arguments for vector similarity HNSW index efRuntime')
 
-    # test wrong query word
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
+
+def testSearchErrors(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
+    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+    conn.execute_command('HSET', 'b', 'v', 'bbbbbbbb')
+    conn.execute_command('HSET', 'c', 'v', 'cccccccc')
+    conn.execute_command('HSET', 'd', 'v', 'dddddddd')
+
     env.expect('FT.SEARCH', 'idx', '*=>[REDIS 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '*=>[TOP_K str @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
+
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('query vector does not match index\'s type or dimention')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('query vector does not match index\'s type or dimention')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @t $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0]) # wrong field
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS v]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `v` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS s]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `s` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS t]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS $score]', 'PARAMS', '4', 'score', 't', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
+
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b EF_RUNTIME -42]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Attribute not supported for term')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b EF_RUNTIME 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Attribute not supported for term')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b EF_RUNTIME 5 EF_RUNTIME 6]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Field was specified twice')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b EF_FUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
 
 
 def load_vectors_into_redis(con, vector_field, dim, num_vectors):
