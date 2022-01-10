@@ -312,7 +312,7 @@ CONFIG_GETTER(getForkGcRetryInterval) {
 
 // FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
 CONFIG_SETTER(setForkGCCleanNumericEmptyNodes) {
-  config->forkGCCleanNumericEmptyNodes = !config->forkGCCleanNumericEmptyNodes;
+  config->forkGCCleanNumericEmptyNodes = 1;
   return REDISMODULE_OK;
 }
 
