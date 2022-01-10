@@ -1004,6 +1004,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
+  array_free(q->vecScoreFieldNames);
   q->vecScoreFieldNames = NULL;
   q->numTokens = 0;
   q->numParams = 0;
