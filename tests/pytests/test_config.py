@@ -161,7 +161,7 @@ def testInitConfig(env):
     test_arg_true_false('SAFEMODE', 'true')
     test_arg_true_false('CONCURRENT_WRITE_MODE', 'true')
     test_arg_true_false('NO_MEM_POOLS', 'true')
-    test_arg_true_false('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'false')
+    test_arg_true_false('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true')
 
     # String arguments
     def test_arg_str(arg_name, arg_value, ret_value=None):
