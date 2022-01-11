@@ -45,11 +45,12 @@ endif # SAN
 
 #----------------------------------------------------------------------------------------------
 
+ROOT=.
+
 ifeq ($(wildcard $(ROOT)/deps/readies/*),)
-$(info $(shell git submodule update --init --recursive &> /dev/null))
+___:=$(shell git submodule update --init --recursive &> /dev/null)
 endif
 
-ROOT=.
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -103,16 +104,24 @@ make cpp_tests     # run C++ tests (from tests/cpptests)
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
 
-make pack          # create installation packages
-  COORD=rlec         # pack RLEC coordinator ('redisearch' package)
-  LITE=1             # pack RediSearchLight ('redisearch-light' package)
-make deploy        # copy packages to S3
-make release       # release a version
+make pack             # create installation packages (default: 'redisearch-oss' package)
+  COORD=rlec            # pack RLEC coordinator ('redisearch' package)
+  LITE=1                # pack RediSearchLight ('redisearch-light' package)
+
+make upload-artifacts   # copy snapshot packages to S3
+  ALL=1                   # copy packages of standalone, lite, and RLEC builds
+make upload-release     # copy release packages to S3 (everything built into bin/artifacts)
+
+common options for upload operations:
+  STAGING=1             # copy to staging lab area (for validation)
+  FORCE=1               # allow operation outside CI environment
+  VERBOSE=1             # show more details
+  NOP=1                 # do not copy, just print commands
 
 make docs          # create documentation
-make deploydocs    # deploy documentation
+make deploy-docs   # deploy documentation
 
-make platform      # build for specified platform
+make docker        # build for specified platform
   OSNICK=nick        # platform to build for (default: host platform)
   TEST=1             # run tests after build
   PACK=1             # create package
@@ -126,60 +135,66 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(STATIC),1)
+ifeq ($(COORD),) # Standalone build
 
-ifneq ($(COORD),)
-$(error STATIC=1 is incompatible with COORD)
-endif
-
+ifeq ($(STATIC),1) # Static build
 CMAKE_DIR=$(ROOT)
 BINDIR=$(BINROOT)/search-static
 SRCDIR=src
 TARGET=$(BINDIR)/redisearch.a
 PACKAGE_NAME=
+RAMP_MODULE_NAME=
+RAMP_YAML=
 
-endif # STATIC
-
-ifeq ($(COORD),)
-
+else ifneq ($(LITE),1) # OSS Search
 CMAKE_DIR=$(ROOT)
+BINDIR=$(BINROOT)/search
 SRCDIR=src
 TARGET=$(BINDIR)/redisearch.so
-PACKAGE_NAME=redisearch
-RAMP_YAML=pack/ramp.yml
-
-ifneq ($(LITE),1)
-BINDIR=$(BINROOT)/search
+PACKAGE_NAME=redisearch-oss
 RAMP_MODULE_NAME=search
-else
+RAMP_YAML=pack/ramp.yml
+PACKAGE_S3_DIR=redisearch-oss
+
+else # Search Lite
+CMAKE_DIR=$(ROOT)
 BINDIR=$(BINROOT)/search-lite
-RAMP_MODULE_NAME=searchlight
+SRCDIR=src
+TARGET=$(BINDIR)/redisearch.so
 PACKAGE_NAME=redisearch-light
+RAMP_MODULE_NAME=searchlight
 RAMP_YAML=pack/ramp-light.yml
+PACKAGE_S3_DIR=redisearch
 endif
 
 else # COORD
+
+ifeq ($(STATIC),1)
+$(error STATIC=1 is incompatible with COORD)
+endif
 
 ifeq ($(COORD),1)
 override COORD:=oss
 endif
 
-ifeq ($(COORD),oss)
+ifeq ($(COORD),oss) # OSS Coordinator
 CMAKE_DIR=$(ROOT)/coord
 BINDIR=$(BINROOT)/coord-oss
 SRCDIR=coord/src
 TARGET=$(BINDIR)/module-oss.so
-PACKAGE_NAME=redisearch-oss
+PACKAGE_NAME=redisearch
 RAMP_MODULE_NAME=search
+RAMP_YAML=
 
-else ifeq ($(COORD),rlec)
+else ifeq ($(COORD),rlec) # RLEC Coordinator
 CMAKE_DIR=$(ROOT)/coord
 BINDIR=$(BINROOT)/coord-rlec
 SRCDIR=coord/src
 TARGET=$(BINDIR)/module-enterprise.so
-PACKAGE_NAME=redisearch-enterprise
+PACKAGE_NAME=redisearch
 RAMP_MODULE_NAME=search
 RAMP_YAML=coord/pack/ramp.yml
+PACKAGE_S3_DIR=redisearch
 
 else
 $(error COORD should be either oss or rlec)
@@ -500,6 +515,8 @@ else
 REJSON_SO=
 endif
 
+RLTEST_PARALLEL ?= 1
+
 test: $(REJSON_SO)
 ifneq ($(TEST),)
 	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
@@ -515,7 +532,7 @@ endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
@@ -580,6 +597,11 @@ RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 # RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
+ifneq ($(PACKAGE_S3_DIR),)
+ARTIFACTS.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=1 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
+ARTIFACTS.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=1 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
+endif
+
 PACK_ARGS=\
 	VARIANT=$(RAMP_VARIANT) \
 	PACKAGE_NAME=$(PACKAGE_NAME) \
@@ -592,6 +614,29 @@ bin/artifacts/$(RAMP.release) : $(RAMP_YAML) $(TARGET)
 	$(SHOW)$(PACK_ARGS) $(ROOT)/sbin/pack.sh $(TARGET)
 
 pack: bin/artifacts/$(RAMP.release)
+
+upload-release:
+	$(SHOW)RELEASE=1 IN_SITU=1 ./sbin/upload-artifacts
+
+ifeq ($(ALL),1)
+
+upload-artifacts:
+	$(SHOW)$(MAKE) upload-artifacts ALL=
+	$(SHOW)$(MAKE) upload-artifacts ALL= LITE=1
+	$(SHOW)$(MAKE) upload-artifacts ALL= COORD=rlec
+
+else ifneq ($(PACKAGE_S3_DIR),)
+
+upload-artifacts:
+	$(SHOW)SNAPSHOT=1 S3_DIR="$(PACKAGE_S3_DIR)" ./sbin/upload-artifacts $(ARTIFACTS.snapshot)
+
+else
+
+upload-artifacts: ;
+
+endif
+
+.PHONY: pack upload-artifacts upload-release
 
 #----------------------------------------------------------------------------------------------
 
@@ -614,6 +659,8 @@ endif
 benchmark:
 	$(SHOW)cd tests/benchmarks ;\
 	redisbench-admin $(BENCHMARK_ARGS)
+
+.PHONY: benchmark
 
 #----------------------------------------------------------------------------------------------
 
@@ -661,14 +708,14 @@ upload-cov:
 docs:
 	$(SHOW)mkdocs build
 
-deploydocs:
+deploy-docs:
 	$(SHOW)mkdocs gh-deploy
 
-.PHONY: docs deploydocs
+.PHONY: docs deploy-docs
 
 #----------------------------------------------------------------------------------------------
 
-platform:
+docker:
 	$(SHOW)$(MAKE) -C build/docker
 
 # box:

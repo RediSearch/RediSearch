@@ -28,9 +28,9 @@ RS_PLATFORMS = {
     'centos7': {
         'platform': 'Linux-rhel7',
         'env': 'rhel7.7-x86_64-aws' },
-    'cenots8': {
+    'centos8': {
         'platform': 'Linux-rhel8',
-        'env': 'rhel8.3-x86_64-aws' }
+        'env': 'rhel8-x86_64-aws' }
 }
 
 
@@ -93,7 +93,7 @@ class Test:
         
         ENV['REJSON_MODULE_DIR'] = 'rejson'
         ENV['REJSON_FILE_PREFIX'] = 'rejson'
-        ENV['REJSON_VERSION'] = '2.0.2'
+        ENV['REJSON_VERSION'] = '2.0.6'
 
         self.xtx_vars = ['RS_MODULE', 'RS_MODULE_DIR', 'RS_MODULE_FILE_PREFIX',
                          'RS_VERSION', 'RS_ENV', 'RS_MODULE_OS',
@@ -155,7 +155,7 @@ class Test:
             return 1
 
         self.id = j['data'][0]
-        click.echo(f"Tests running on {desc}")
+        # click.echo(f"Tests running on {desc}")
         click.echo(f"Results: https://{OPERETO3_URL}/ui#dashboard/flow/{self.id}")
         return 0
 

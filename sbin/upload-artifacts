@@ -1,0 +1,89 @@
+#!/bin/bash
+
+PROGNAME="${BASH_SOURCE[0]}"
+HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
+ROOT=$(cd $HERE/.. && pwd)
+READIES=$ROOT/deps/readies
+. $READIES/shibumi/defs
+
+if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
+	cat <<-END
+		Upload packages to S3
+
+		upload-artifacts [--help|help] artifacts...
+
+		Argument variables:
+		SNAPSHOT=1   Upload snapshots (default)
+		RELEASE=1    Upload release artifacts
+
+		S3_DIR=dir   S3 directory
+
+		FORCE=1      Allow uploading outside of CI
+		NOP=1        No operation
+		HELP=1       Show help
+
+	END
+	exit 0
+fi
+
+OP=""
+[[ $NOP == 1 ]] && OP=echo
+
+if [[ $STAGING == 1 ]]; then
+	S3_URL=s3://redismodules/lab/staging
+else
+	S3_URL=s3://redismodules
+fi
+
+if [[ $IN_SITU != 1 ]]; then
+	ARTIFACTS="$*"
+	if [[ -z $ARTIFACTS ]]; then
+		eprint "no artifacts were given"
+		exit 1
+	fi
+
+	if [[ -z $S3_DIR ]]; then
+		eprint "Missing S3_DIR"
+		exit 1
+	fi
+fi
+
+if [[ $FORCE != 1 ]]; then
+	if [[ -z $CIRCLECI ]]; then
+		eprint "Cannot upload outside of CircleCI. Override with FORCE=1."
+		exit 1
+	fi
+
+	if [[ -z $AWS_ACCESS_KEY_ID || -z $AWS_SECRET_ACCESS_KEY ]]; then
+		eprint "No credentials for S3 upload."
+		exit 1
+	fi
+fi
+
+cd $ROOT/bin
+
+if [[ $SNAPSHOT == 1 ]]; then
+	SUBDIR=/snapshots
+else
+	SUBDIR=
+fi
+
+cd artifacts${SUBDIR}
+[[ $VERBOSE == 1 ]] && du -ah --apparent-size *
+
+if [[ $IN_SITU != 1 ]]; then
+	for f in $ARTIFACTS; do
+		$OP aws s3 cp $f ${S3_URL}/${S3_DIR}${SUBDIR} --acl public-read --no-progress
+	done
+else
+	PREFIX=redisearch
+	for f in `ls ${PREFIX}.*.zip ${PREFIX}.*.tgz 2> /dev/null`; do
+		$OP aws s3 cp $f ${S3_URL}/${PREFIX}${SUBDIR}/ --acl public-read --no-progress
+	done
+	$OP aws s3 ls ${S3_URL}/${PREFIX}${SUBDIR}/
+	PREFIX=redisearch-oss
+	for f in `ls ${PREFIX}.*.zip ${PREFIX}.*.tgz 2> /dev/null`; do
+		$OP aws s3 cp $f ${S3_URL}/${PREFIX}${SUBDIR}/ --acl public-read --no-progress
+	done
+	$OP aws s3 ls ${S3_URL}/${PREFIX}${SUBDIR}/
+fi

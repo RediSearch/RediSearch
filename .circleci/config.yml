@@ -112,12 +112,9 @@ commands:
       - persist_to_workspace:
           root: bin/
           paths:
-            - artifacts/snapshots/*.zip
-            - artifacts/snapshots/*.tgz
-            - artifacts/snapshots/*.tar
-            - artifacts/*.zip
-            - artifacts/*.tgz
-            - artifacts/*.tar
+            - bin/artifacts/*.zip
+            - bin/artifacts/*.tgz
+            - bin/artifacts/*.tar
 
   build-steps:
     parameters:
@@ -160,6 +157,7 @@ commands:
           name: Pack
           shell: /bin/bash -l -eo pipefail
           command: |
+            make pack SHOW=1
             make pack COORD=rlec SHOW=1
             make pack LITE=1 SHOW=1
 
@@ -203,6 +201,12 @@ commands:
       - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH ]]; then
+                make upload-artifacts BRANCH=$CIRCLE_BRANCH ALL=1 SHOW=1 VERBOSE=1
+            fi
+      - run:
           name: Build for platform (publish)
           command: |
             docker login -u redisfab -p $DOCKER_REDISFAB_PWD
@@ -233,6 +237,12 @@ commands:
           no_output_timeout: 30m
       - save-tests-logs
       - early-return-for-forked-pull-requests
+      - run:
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH ]]; then
+                make upload-artifacts BRANCH=$CIRCLE_BRANCH ALL=1 SHOW=1 VERBOSE=1
+            fi
       - run:
           name: Build for platform (publish)
           command: |
@@ -454,30 +464,27 @@ jobs:
 
   deploy-artifacts:
     parameters:
-      location:
+      staging-lab:
         type: string
-        default: ""
+        default: "0"
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     steps:
       - early-returns
       - early-return-for-forked-pull-requests
+      - setup-automation
       - attach_workspace:
           at: ~/workspace
       - run:
           name: Deploy to S3
           command: |
-            cd ~/workspace
-            du -ah --apparent-size *
-            cd "artifacts/<<parameters.location>>"
-            if [[ -z "<<parameters.location>>" ]]; then
-                path=""
+            mkdir -p bin
+            ln -s ~/workspace/artifacts bin/artifacts
+            if [[ -n $CIRCLE_VERSION && "<<parameters.staging-lab>>" != 1 ]]; then
+                make upload-release SHOW=1 VERBOSE=1
             else
-                path="<<parameters.location>>/"
+                make upload-release BRANCH=$CIRCLE_BRANCH SHOW=1 VERBOSE=1 STAGING=1 NOP=1
             fi
-            for f in `ls *.zip *.tgz`; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/$path --acl public-read
-            done
 
   release-automation:
     docker:
@@ -489,7 +496,10 @@ jobs:
       - setup-automation
       - run:
           name: Run QA Automation
-          command: MODULE_VERSION="$CIRCLE_TAG" VERBOSE=1 TEST=release ./tests/qa/run
+          command: ./tests/qa/qatests -t release -m "$CIRCLE_TAG"
+      - run:
+          name: Run QA Automation (RediSearch Light)
+          command: ./tests/qa/qatests -t release -m "$CIRCLE_TAG" --light
 
 
 #----------------------------------------------------------------------------------------------------------------------------------
@@ -568,7 +578,8 @@ workflows:
             parameters:
               redis_version: ["6.0", "6.2"]
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          #@@ <<: *on-integ-and-version-tags
+          <<: *on-any-branch
           context: common
           matrix:
             parameters:
@@ -595,11 +606,20 @@ workflows:
       - benchmark:
           context: common
           <<: *on-integ-and-version-tags
+#      - deploy-artifacts:
+#          name: deploy-snapshot
+#          location: snapshots
+#          context: common
+#          <<: *on-integ-branch
+#          requires:
+#            - build-platforms
+#            - build-arm-platforms
+#            - build-macos
       - deploy-artifacts:
-          name: deploy-snapshot
-          location: snapshots
+          name: deploy-release-staging-lab
+          staging-lab: "1"
           context: common
-          <<: *on-integ-branch
+          <<: *on-any-branch
           requires:
             - build-platforms
             - build-arm-platforms
