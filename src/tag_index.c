@@ -59,7 +59,11 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
 
 static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, char ***resArray) {
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
-    *resArray = array_append(*resArray, strtolower(rm_strdup(str)));
+    char *tok = rm_strdup(str);
+    if (!(flags & TagField_CaseSensitive)) { // check case sensitive
+      tok = strtolower(tok);
+    }
+    *resArray = array_append(*resArray, tok);
     return REDISMODULE_OK;
   }
 

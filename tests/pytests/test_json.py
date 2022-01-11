@@ -779,8 +779,28 @@ def testMOD1853(env):
 def testTagArrayLowerCase(env):
     # test tag field change string to lower case independent of separator
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG')
+
     env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"attributes":[{"name":"Brand","value":"Vivo"}]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"sid":1}'))
     res =  [1L, 'json1', ['$', '{"attributes":[{"name":"Brand","value":"Vivo"}]}']]
-    env.expect('FT.SEARCH', 'idx', '@attrs:{Vivo}').equal(res)
+    
+    conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG')
+    waitForIndex(env, 'idx1')
+    env.expect('FT.SEARCH', 'idx1', '@attrs:{Vivo}').equal(res)
+    env.expect('FT.SEARCH', 'idx1', '@attrs:{vivo}').equal(res)
+
+    conn.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'SEPARATOR', ',')
+    waitForIndex(env, 'idx2')
+    env.expect('FT.SEARCH', 'idx2', '@attrs:{Vivo}').equal(res)
+    env.expect('FT.SEARCH', 'idx2', '@attrs:{vivo}').equal(res)
+
+    conn.execute_command('FT.CREATE', 'idx3', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'CASESENSITIVE')
+    waitForIndex(env, 'idx3')
+    env.expect('FT.SEARCH', 'idx3', '@attrs:{Vivo}').equal(res)
+    env.expect('FT.SEARCH', 'idx3', '@attrs:{vivo}').equal([0L])
+
+    conn.execute_command('FT.CREATE', 'idx4', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'SEPARATOR', ',', 'CASESENSITIVE')
+    waitForIndex(env, 'idx4')
+    env.expect('FT.SEARCH', 'idx4', '@attrs:{Vivo}').equal(res)
+    env.expect('FT.SEARCH', 'idx4', '@attrs:{vivo}').equal([0L])
+    
