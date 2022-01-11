@@ -59,7 +59,7 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
 
 static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, char ***resArray) {
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
-    *resArray = array_append(*resArray, rm_strdup(str));
+    *resArray = array_append(*resArray, strtolower(rm_strdup(str)));
     return REDISMODULE_OK;
   }
 

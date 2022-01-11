@@ -774,3 +774,13 @@ def testMOD1853(env):
     env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"sid":1}'))
     res = [2L, 'json1', ['sid', '0', '$', '{"sid":0}'], 'json2', ['sid', '1', '$', '{"sid":1}']]
     env.expect('FT.SEARCH', 'idx', '@sid:[0 1]', 'SORTBY', 'sid').equal(res)
+
+@no_msan
+def testTagArrayLowerCase(env):
+    # test tag field change string to lower case independent of separator
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG')
+    env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"attributes":[{"name":"Brand","value":"Vivo"}]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"sid":1}'))
+    res =  [1L, 'json1', ['$', '{"attributes":[{"name":"Brand","value":"Vivo"}]}']]
+    env.expect('FT.SEARCH', 'idx', '@attrs:{Vivo}').equal(res)
