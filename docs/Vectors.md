@@ -139,6 +139,42 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
     EF_RUNTIME 20
     ```
 
-<!-- ## Querying vector fields
+## Querying vector fields
 
-TO BE ADDED -->
+We allow using vector similarity queries in the `FT.SEARCH` "query" parameter. The syntax for vector similarity queries is `*=>[{vector similarity query}]` for running the query on an entire vector field, or `{some sub-query}=>[{vector similarity query}]` for running similarity query on the result of the sub-query.
+
+As of version 2.4, we allow vector similarity to be used **once** in the query, and on the entire other query parts as its filter.
+
+The `{vector similarity query}` part inside the square brackets needs to be in the following format:
+
+    TOP_K { number | $number_attribute } @{vector field} $blob_attribute [{vector quert param name} {value|$value_attribute} [...]] [ AS {score field name | $score_field_name_attribute}]
+
+Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](Commands.md#ftsearch) section.
+
+*   `{ number | $number_attribute }` - The number of results ("K").
+
+*   `@{vector field}` - `vector field` should be a name of a vector field in the index.
+
+*   `$blob_attribute` - An attribute that holds the query vector as blob. must be passed through the `PARAMS` section.
+
+*   `[{vector quert param name} {value|$value_attribute} [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. see what [parameters](Vectors.md#specific_attributse_per_algorithm) are valid for each algorithm.
+
+*   `[ AS {score field name | $score_field_name_attribute}]` - An optional part for specifing a score field name, for later sorting by the similarity score. Default score field name is "`{vector field}_score`" and it can be used for sorting without using `AS {score field name}` in the query.
+
+### Examples for querying vector fields
+
+*   ```
+    FT.SEARCH idx "*=>[TOP_K 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c"
+    ```
+
+*   ```
+    FT.SEARCH idx "*=>[TOP_K 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY vec_score
+    ```
+
+*   ```
+    FT.SEARCH idx "*=>[TOP_K $K @vec $BLOB EF_RUNTIME $EF]" PARAMS 6 BLOB "\12\a9\f5\6c" K 10 EF 150
+    ```
+
+*   ```
+    FT.SEARCH idx "*=>[TOP_K $K @vec $BLOB AS my_scores]" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY my_scores
+    ```

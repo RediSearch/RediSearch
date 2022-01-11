@@ -378,6 +378,12 @@ Searching for books with "Python" in any TEXT attribute, returning the price sto
 FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 ```
 
+Searching for books with textual similarity to some book using VECTOR attribute, returning the top 10 results, sorted by distance.
+
+```sql
+FT.SEARCH books-idx "*=>[TOP_K 10 @text_vec $query_vec AS text_vec_score]" PARAMS 2 query_vec <blob> SORTBY text_vec_score
+```
+
 !!! tip "More examples"
     For more details and query examples, see [query syntax](Query_Syntax.md).
 

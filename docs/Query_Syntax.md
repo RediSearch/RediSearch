@@ -97,6 +97,14 @@ As of version 0.21, it is possible to add geo radius queries directly into the q
 
 Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: `chinese restaurant @location:[-122.41 37.77 5 km]`.
 
+## Vector Similarity filter in query
+
+It is possible to add vector similaruty queries directly into the query language.
+The basic syntax is `"*=>[ TOP_K {num|$num} @vector $query_vec]"` for running TOP K query on @vector field.
+<!-- It is also possible to run a query on filtered result, the syntax is `"{some sub-query}=>[ TOP_K {num|$num} @vector $query_vec]"`. -->
+
+As of version 2.4, we allow vector similarity to be used **once** in the query, and on the entire other query parts as its filter. For more information on vector smilarity syntax, see [Vector Fields](Vectors.md#querying_vector_fields), "Querying vector fields" section.
+
 ## Prefix matching
 
 On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending `*` to a prefix token. For example:
