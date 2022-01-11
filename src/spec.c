@@ -1088,30 +1088,23 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
   RedisModule_Log(NULL, "notice", "Freeing index %s in background", spec->name);
 #endif
 
-  RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_AutoMemory(threadCtx);
-  RedisModule_ThreadSafeContextLock(threadCtx);
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
+  RedisModule_AutoMemory(RSDummyContext);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
   Redis_DropIndex(&sctx, spec->cascadeDelete);
 
-  RedisModule_ThreadSafeContextUnlock(threadCtx);
-  RedisModule_FreeThreadSafeContext(threadCtx);
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 }
 
 static void IndexSpec_FreeAllTask(IndexSpec **specs) {
-  RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
-
   for (size_t i = 0; i < array_len(specs); ++i) {
-    RedisModule_ThreadSafeContextLock(threadCtx);
-    // Only free internals
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
     IndexSpec_FreeInternals(specs[i]);
-    RedisModule_ThreadSafeContextUnlock(threadCtx);
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     sched_yield();
   }
   
-  RedisModule_FreeThreadSafeContext(threadCtx);
-
   array_free(specs);
 }
 

@@ -16,9 +16,6 @@ void IndexAlias_InitGlobal(void) {
 }
 
 void IndexAlias_DestroyGlobal(AliasTable **t) {
-  if (!*t) {
-    return;
-  }
   dictRelease((*t)->d);
   rm_free(*t);
   *t = NULL;
