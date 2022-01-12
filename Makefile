@@ -109,8 +109,8 @@ make pack             # create installation packages (default: 'redisearch-oss' 
   LITE=1                # pack RediSearchLight ('redisearch-light' package)
 
 make upload-artifacts   # copy snapshot packages to S3
-  ALL=1                   # copy packages of standalone, lite, and RLEC builds
-make upload-release     # copy release packages to S3 (everything built into bin/artifacts)
+  OSNICK=nick             # copy snapshots for specific OSNICK
+make upload-release     # copy release packages to S3
 
 common options for upload operations:
   STAGING=1             # copy to staging lab area (for validation)
@@ -597,11 +597,6 @@ RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 # RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
-ifneq ($(PACKAGE_S3_DIR),)
-ARTIFACTS.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=1 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
-ARTIFACTS.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=1 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
-endif
-
 PACK_ARGS=\
 	VARIANT=$(RAMP_VARIANT) \
 	PACKAGE_NAME=$(PACKAGE_NAME) \
@@ -616,25 +611,10 @@ bin/artifacts/$(RAMP.release) : $(RAMP_YAML) $(TARGET)
 pack: bin/artifacts/$(RAMP.release)
 
 upload-release:
-	$(SHOW)RELEASE=1 IN_SITU=1 ./sbin/upload-artifacts
-
-ifeq ($(ALL),1)
+	$(SHOW)RELEASE=1 ./sbin/upload-artifacts
 
 upload-artifacts:
-	$(SHOW)$(MAKE) upload-artifacts ALL=
-	$(SHOW)$(MAKE) upload-artifacts ALL= LITE=1
-	$(SHOW)$(MAKE) upload-artifacts ALL= COORD=rlec
-
-else ifneq ($(PACKAGE_S3_DIR),)
-
-upload-artifacts:
-	$(SHOW)SNAPSHOT=1 S3_DIR="$(PACKAGE_S3_DIR)" ./sbin/upload-artifacts $(ARTIFACTS.snapshot)
-
-else
-
-upload-artifacts: ;
-
-endif
+	$(SHOW)SNAPSHOT=1 ./sbin/upload-artifacts
 
 .PHONY: pack upload-artifacts upload-release
 

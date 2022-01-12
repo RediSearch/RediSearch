@@ -207,7 +207,7 @@ commands:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH ]]; then
-                make upload-artifacts BRANCH=$CIRCLE_BRANCH ALL=1 SHOW=1 VERBOSE=1
+                make upload-artifacts OSNICK=<<parameters.platform>> BRANCH=$CIRCLE_BRANCH SHOW=1
             fi
       - run:
           name: Build for platform (publish)
@@ -244,7 +244,7 @@ commands:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH ]]; then
-                make upload-artifacts BRANCH=$CIRCLE_BRANCH ALL=1 SHOW=1 VERBOSE=1
+                make upload-artifacts OSNICK=<<parameters.platform>> BRANCH=$CIRCLE_BRANCH SHOW=1
             fi
       - run:
           name: Build for platform (publish)
@@ -484,9 +484,9 @@ jobs:
             mkdir -p bin
             ln -s ~/workspace/artifacts bin/artifacts
             if [[ -n $CIRCLE_VERSION && "<<parameters.staging-lab>>" != 1 ]]; then
-                make upload-release SHOW=1 VERBOSE=1
+                make upload-release SHOW=1
             else
-                make upload-release BRANCH=$CIRCLE_BRANCH SHOW=1 VERBOSE=1 STAGING=1 NOP=1
+                make upload-release BRANCH=$CIRCLE_BRANCH SHOW=1 STAGING=1 NOP=1
             fi
 
   release-automation:
