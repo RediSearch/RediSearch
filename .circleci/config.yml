@@ -194,10 +194,11 @@ commands:
           command: |
             ROOT=$PWD
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 TEST=1 SHOW=1 PACK=1
+            ##@ make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 TEST=1 SHOW=1 PACK=1
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 SHOW=1 PACK=1
             cd $ROOT
             mkdir -p tests/pytests/logs
-            tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
+            #@@ tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
           no_output_timeout: 30m
       - save-tests-logs
       - early-return-for-forked-pull-requests

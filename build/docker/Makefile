@@ -13,4 +13,7 @@ PREVIEW_BRANCH=2.2
 
 ART_DIR=$(ROOT)/bin/artifacts
 
+REJSON_VERSION=master
+DOCKER_VARS += REJSON_VERSION
+
 include $(MK)/module.docker.rules
