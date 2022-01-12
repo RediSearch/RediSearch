@@ -58,6 +58,7 @@ commands:
             git submodule update --init deps/readies
             ./deps/readies/bin/getpy2
             ./deps/readies/bin/getpy3
+            python2 -m pip install awscli
 
   install-prerequisites:
     parameters:
