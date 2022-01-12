@@ -1022,10 +1022,6 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->indexer) {
     Indexer_Free(spec->indexer);
   }
-  if (spec->gc) {
-    GCContext_Stop(spec->gc);
-  }
-
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
@@ -1099,10 +1095,7 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
 
 static void IndexSpec_FreeAllTask(IndexSpec **specs) {
   for (size_t i = 0; i < array_len(specs); ++i) {
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
     IndexSpec_FreeInternals(specs[i]);
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    sched_yield();
   }
   
   array_free(specs);
@@ -1174,6 +1167,9 @@ void Indexes_Free(dict *d, TrieMap *schemaPrefixes, void *aliases, void *cursors
     if (cursors && sp->uniqueId) {
       Cursors_PurgeWithName(cursors, sp->name);
       CursorList_RemoveSpec(cursors, sp->name);
+    }
+    if (sp->gc) {
+      GCContext_Stop(sp->gc);
     }
     specs = array_append(specs, sp);
   }
