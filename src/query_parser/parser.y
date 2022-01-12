@@ -144,6 +144,7 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 // If a non-terminal is used by C-code, e.g., expr(A)
 // then %destructor code will bot be called for it
 // (C-code is responsible for destroying it)
+// Unless during error handling
 
 %type expr { QueryNode * } 
 %destructor expr { QueryNode_Free($$); }
@@ -179,7 +180,9 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %destructor vector_command { QueryNode_Free($$); }
 
 %type vector_attribute { SingleVectorQueryParam }
-%destructor vector_attribute { rm_free((char*)($$.param.value)); rm_free((char*)($$.param.name)); }
+// This destructor is commented out because it's not reachable: every vector_attribute that created
+// successfuly can successfuly be reduced to vector_attribute_list.
+// %destructor vector_attribute { rm_free((char*)($$.param.value)); rm_free((char*)($$.param.name)); }
 
 %type vector_attribute_list { VectorQueryParams }
 %destructor vector_attribute_list {

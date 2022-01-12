@@ -764,6 +764,7 @@ static void yy_destructor(
     */
 /********* Begin destructor definitions ***************************************/
       /* Default NON-TERMINAL Destructor */
+    case 41: /* vector_attribute */
     case 44: /* num */
     case 46: /* query */
     case 47: /* modifier */
@@ -800,11 +801,6 @@ static void yy_destructor(
     case 38: /* geo_filter */
 {
  QueryParam_Free((yypminor->yy6)); 
-}
-      break;
-    case 41: /* vector_attribute */
-{
- rm_free((char*)((yypminor->yy29).param.value)); rm_free((char*)((yypminor->yy29).param.name)); 
 }
       break;
     case 42: /* vector_attribute_list */
