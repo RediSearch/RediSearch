@@ -315,10 +315,10 @@ def test_vector(env):
     args = ['SORTBY', 'v_score', 'ASC', 'RETURN', 1, 'v_score', 'LIMIT', 0, 2]
 
     env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
-    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
     conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
     conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
     conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
+    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
 
     res1 = ['a', ['v_score', '0'], 'b', ['v_score', '3.09485009821e+26']]
     res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', *args) 

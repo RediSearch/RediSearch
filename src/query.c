@@ -637,6 +637,8 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     return NULL;
   }
+  // Add the score field name to the ast score field names array.
+  // This macro creats the array if it's the first name, and ensure its size is sufficient.
   array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
   if (QueryNode_NumChildren(qn) > 0) {
     return NULL; // TODO: handle hybrid - get child iterator.

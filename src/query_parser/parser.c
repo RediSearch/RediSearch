@@ -810,7 +810,7 @@ static void yy_destructor(
     case 42: /* vector_attribute_list */
 {
 
-  array_free((yypminor->yy34).isAttr);
+  array_free((yypminor->yy34).needResolve);
   array_free_ex((yypminor->yy34).params, {
     rm_free((char*)((VecSimRawParam*)ptr)->value);
     rm_free((char*)((VecSimRawParam*)ptr)->name);
@@ -1802,9 +1802,9 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy0.type = QT_PARAM_VEC;
   yymsp[-3].minor.yy27 = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
   yymsp[-3].minor.yy27->vn.vq->property = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-3].minor.yy27->vn.vq->scoreField = rm_calloc(1, yymsp[-1].minor.yy0.len + 7);
+  yymsp[-3].minor.yy27->vn.vq->scoreField = rm_calloc(1, yymsp[-1].minor.yy0.len + strlen(VECSIM_DEFAULT_SCORE_FIELD_SUFFIX));
   strncpy(yymsp[-3].minor.yy27->vn.vq->scoreField, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  strcat(yymsp[-3].minor.yy27->vn.vq->scoreField, "_score");
+  strcat(yymsp[-3].minor.yy27->vn.vq->scoreField, VECSIM_DEFAULT_SCORE_FIELD_SUFFIX);
 }
         break;
       case 58: /* vector_attribute ::= TERM param_term */
@@ -1813,10 +1813,10 @@ static YYACTIONTYPE yy_reduce(
   const char *name = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
   yylhsminor.yy29.param = (VecSimRawParam){ .name = name, .nameLen = yymsp[-1].minor.yy0.len, .value = value, .valLen = yymsp[0].minor.yy0.len };
   if (yymsp[0].minor.yy0.type == QT_PARAM_TERM) {
-    yylhsminor.yy29.isAttr = true;
+    yylhsminor.yy29.needResolve = true;
   }
   else { // if yymsp[0].minor.yy0.type == QT_TERM
-    yylhsminor.yy29.isAttr = false;
+    yylhsminor.yy29.needResolve = false;
   }
 }
   yymsp[-1].minor.yy29 = yylhsminor.yy29;
@@ -1824,16 +1824,16 @@ static YYACTIONTYPE yy_reduce(
       case 59: /* vector_attribute_list ::= vector_attribute_list vector_attribute */
 {
   yylhsminor.yy34.params = array_append(yymsp[-1].minor.yy34.params, yymsp[0].minor.yy29.param);
-  yylhsminor.yy34.isAttr = array_append(yymsp[-1].minor.yy34.isAttr, yymsp[0].minor.yy29.isAttr);
+  yylhsminor.yy34.needResolve = array_append(yymsp[-1].minor.yy34.needResolve, yymsp[0].minor.yy29.needResolve);
 }
   yymsp[-1].minor.yy34 = yylhsminor.yy34;
         break;
       case 60: /* vector_attribute_list ::= vector_attribute */
 {
   yylhsminor.yy34.params = array_new(VecSimRawParam, 1);
-  yylhsminor.yy34.isAttr = array_new(bool, 1);
+  yylhsminor.yy34.needResolve = array_new(bool, 1);
   yylhsminor.yy34.params = array_append(yylhsminor.yy34.params, yymsp[0].minor.yy29.param);
-  yylhsminor.yy34.isAttr = array_append(yylhsminor.yy34.isAttr, yymsp[0].minor.yy29.isAttr);
+  yylhsminor.yy34.needResolve = array_append(yylhsminor.yy34.needResolve, yymsp[0].minor.yy29.needResolve);
 }
   yymsp[0].minor.yy34 = yylhsminor.yy34;
         break;

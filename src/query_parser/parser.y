@@ -183,7 +183,7 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 
 %type vector_attribute_list { VectorQueryParams }
 %destructor vector_attribute_list {
-  array_free($$.isAttr);
+  array_free($$.needResolve);
   array_free_ex($$.params, {
     rm_free((char*)((VecSimRawParam*)ptr)->value);
     rm_free((char*)((VecSimRawParam*)ptr)->name);
@@ -736,9 +736,9 @@ vector_command(A) ::= TOP_K param_size(B) modifier(C) ATTRIBUTE(D). {
   D.type = QT_PARAM_VEC;
   A = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
   A->vn.vq->property = rm_strndup(C.s, C.len);
-  A->vn.vq->scoreField = rm_calloc(1, C.len + 7);
+  A->vn.vq->scoreField = rm_calloc(1, C.len + strlen(VECSIM_DEFAULT_SCORE_FIELD_SUFFIX));
   strncpy(A->vn.vq->scoreField, C.s, C.len);
-  strcat(A->vn.vq->scoreField, "_score");
+  strcat(A->vn.vq->scoreField, VECSIM_DEFAULT_SCORE_FIELD_SUFFIX);
 }
 
 vector_attribute(A) ::= TERM(B) param_term(C). {
@@ -746,23 +746,23 @@ vector_attribute(A) ::= TERM(B) param_term(C). {
   const char *name = rm_strndup(B.s, B.len);
   A.param = (VecSimRawParam){ .name = name, .nameLen = B.len, .value = value, .valLen = C.len };
   if (C.type == QT_PARAM_TERM) {
-    A.isAttr = true;
+    A.needResolve = true;
   }
   else { // if C.type == QT_TERM
-    A.isAttr = false;
+    A.needResolve = false;
   }
 }
 
 vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C). {
   A.params = array_append(B.params, C.param);
-  A.isAttr = array_append(B.isAttr, C.isAttr);
+  A.needResolve = array_append(B.needResolve, C.needResolve);
 }
 
 vector_attribute_list(A) ::= vector_attribute(B). {
   A.params = array_new(VecSimRawParam, 1);
-  A.isAttr = array_new(bool, 1);
+  A.needResolve = array_new(bool, 1);
   A.params = array_append(A.params, B.param);
-  A.isAttr = array_append(A.isAttr, B.isAttr);
+  A.needResolve = array_append(A.needResolve, B.needResolve);
 }
 
 /////////////////////////////////////////////////////////////////
