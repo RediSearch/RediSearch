@@ -1707,6 +1707,7 @@ void ReindexPool_ThreadPoolDestroy() {
     thpool_destroy(reindexPool);
     thpool_destroy(cleanPool);      // allow cleaning thread to finish
     reindexPool = NULL;
+    cleanPool = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
