@@ -71,19 +71,39 @@ fi
 cd artifacts${SUBDIR}
 [[ $VERBOSE == 1 ]] && du -ah --apparent-size *
 
+s3_upload() {
+	local file="$1"
+	local s3_dir="$2"
+	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
+	
+	$OP python2 -m awscli s3 cp $file $s3_dir --acl public-read --no-progress
+}
+
+s3_ls() {
+	local s3_dir="$1"
+	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
+	
+	$OP python2 -m awscli s3 ls $s3_dir
+}
+
 if [[ $IN_SITU != 1 ]]; then
+	S3_DIR="${S3_URL}/${S3_DIR}${SUBDIR}"
 	for f in $ARTIFACTS; do
-		$OP python2 -m awscli s3 cp $f ${S3_URL}/${S3_DIR}${SUBDIR} --acl public-read --no-progress
+		s3_upload $f $S3_DIR
 	done
+	s3_ls $S3_DIR
 else
 	PREFIX=redisearch
+	S3_DIR="${S3_URL}/${PREFIX}${SUBDIR}"
 	for f in `ls ${PREFIX}.*.zip ${PREFIX}.*.tgz 2> /dev/null`; do
-		$OP python2 -m awscli s3 cp $f ${S3_URL}/${PREFIX}${SUBDIR}/ --acl public-read --no-progress
+		s3_upload $f $S3_DIR
 	done
-	$OP aws s3 ls ${S3_URL}/${PREFIX}${SUBDIR}/
+	s3_ls $S3_DIR
+	
 	PREFIX=redisearch-oss
+	S3_DIR="${S3_URL}/${PREFIX}${SUBDIR}"
 	for f in `ls ${PREFIX}.*.zip ${PREFIX}.*.tgz 2> /dev/null`; do
-		$OP python2 -m awscli s3 cp $f ${S3_URL}/${PREFIX}${SUBDIR}/ --acl public-read --no-progress
+		s3_upload $f $S3_DIR
 	done
-	$OP python2 -m awscli s3 ls ${S3_URL}/${PREFIX}${SUBDIR}/
+	s3_ls $S3_DIR
 fi
