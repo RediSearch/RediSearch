@@ -992,6 +992,9 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+
+// unlink spec from global structures:
+// specs, schema prefixes, aliases, cursors, and GC 
 void IndexSpec_FreeGlobals(IndexSpec *spec) {
   if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
     dictDelete(specDict_g, spec->name);
@@ -1001,6 +1004,10 @@ void IndexSpec_FreeGlobals(IndexSpec *spec) {
   if (spec->isTimerSet) {
     RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
     spec->isTimerSet = false;
+  }
+
+  if (spec->gc) {
+    GCContext_Stop(spec->gc);
   }
 
   if (spec->uniqueId) {
@@ -1013,6 +1020,10 @@ void IndexSpec_FreeGlobals(IndexSpec *spec) {
   }
 }
 
+// free all resources of the spec:
+// spec, schemaRule, indexer, text terms trie, other fields trie, doc-table,
+// sortables, stopwords, synonym, spec-cache, formated field strings,
+// field specs, and scanner
 void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->rule) {
     SchemaRule_Free(spec->rule);
@@ -1149,16 +1160,20 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-void Indexes_Free(dict *d, TrieMap *schemaPrefixes, void *aliases, void *cursors) {
+void Indexes_Free(dict *specsDict, TrieMap *schemaPrefixes, void *aliases, void *cursors) {
   if (!cleanPool) {
     cleanPool = thpool_init(1);
   }
 
-  arrayof(IndexSpec *) specs = array_new(IndexSpec *, dictSize(d));
-  dictIterator *iter = dictGetIterator(d);
+  arrayof(IndexSpec *) specs = array_new(IndexSpec *, dictSize(specsDict));
+  dictIterator *iter = dictGetIterator(specsDict);
   dictEntry *entry = NULL;
+
+  // save all specs to an array and empty global structures (unlink):
+  // specs, schema prefixes, aliases, cursors, and GC 
   while ((entry = dictNext(iter))) {
     IndexSpec *sp = dictGetVal(entry);
+    specs = array_append(specs, sp);
 
     if (sp->isTimerSet) {
       RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL);
@@ -1171,12 +1186,11 @@ void Indexes_Free(dict *d, TrieMap *schemaPrefixes, void *aliases, void *cursors
     if (sp->gc) {
       GCContext_Stop(sp->gc);
     }
-    specs = array_append(specs, sp);
   }
   dictReleaseIterator(iter);
 
-  // Empty all globals
-  dictEmpty(d, NULL);
+  // Empty globals strctures
+  dictEmpty(specsDict, NULL);
   IndexAlias_Empty(aliases);
   SchemaPrefixes_Empty(schemaPrefixes);
   
