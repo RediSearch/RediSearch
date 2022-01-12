@@ -55,18 +55,17 @@ FROM redisfab/redis:{{REDIS_VERSION}}-{{ARCH}}-{{OSNICK}}
 
 WORKDIR /data
 
-ENV LIBDIR "{{MODULES_DIR}}"
 RUN mkdir -p "{{MODULES_DIR}}"
 
-COPY --from=builder /build/bin/linux-{{ARCH}}-release/search/redisearch.so* "{{MODULES_DIR}}"
+COPY --from=builder /build/bin/linux-{{ARCH}}-release/search/redisearch.so* "{{MODULES_DIR}}/"
 RUN true
-COPY --from=json    {{MODULES_DIR}}/rejson.so* "{{MODULES_DIR}}"
+COPY --from=json    {{MODULES_DIR}}/rejson.so* "{{MODULES_DIR}}/"
 RUN true
 
 {% if ARTIFACTS == "1" %}
 RUN mkdir -p /var/opt/redislabs/artifacts
 RUN chown -R redis:redis /var/opt/redislabs
-COPY --from=builder /build/bin/artifacts/ /var/opt/redislabs/artifacts
+COPY --from=builder /build/bin/artifacts/ /var/opt/redislabs/artifacts/
 {% endif %}
 
 CMD ["redis-server", "--loadmodule", "{{MODULES_DIR}}/redisearch.so", "--loadmodule", "{{MODULES_DIR}}/rejson.so"]
