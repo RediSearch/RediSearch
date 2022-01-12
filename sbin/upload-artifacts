@@ -20,8 +20,6 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 		RELEASE=1     Upload release artifacts
 
-		S3_DIR=dir    S3 directory
-
 		FORCE=1       Allow uploading outside of CI
 		NOP=1         No operation
 		HELP=1        Show help
@@ -57,19 +55,6 @@ if [[ $STAGING == 1 ]]; then
 	S3_URL=s3://redismodules/lab/staging
 else
 	S3_URL=s3://redismodules
-fi
-
-if [[ $IN_SITU != 1 ]]; then
-	ARTIFACTS="$*"
-	if [[ -z $ARTIFACTS ]]; then
-		eprint "no artifacts were given"
-		exit 1
-	fi
-
-	if [[ -z $S3_DIR ]]; then
-		eprint "Missing S3_DIR"
-		exit 1
-	fi
 fi
 
 if [[ $FORCE != 1 ]]; then
