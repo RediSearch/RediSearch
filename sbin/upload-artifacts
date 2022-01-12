@@ -73,17 +73,17 @@ cd artifacts${SUBDIR}
 
 if [[ $IN_SITU != 1 ]]; then
 	for f in $ARTIFACTS; do
-		$OP aws s3 cp $f ${S3_URL}/${S3_DIR}${SUBDIR} --acl public-read --no-progress
+		$OP python2 -m awscli s3 cp $f ${S3_URL}/${S3_DIR}${SUBDIR} --acl public-read --no-progress
 	done
 else
 	PREFIX=redisearch
 	for f in `ls ${PREFIX}.*.zip ${PREFIX}.*.tgz 2> /dev/null`; do
-		$OP aws s3 cp $f ${S3_URL}/${PREFIX}${SUBDIR}/ --acl public-read --no-progress
+		$OP python2 -m awscli s3 cp $f ${S3_URL}/${PREFIX}${SUBDIR}/ --acl public-read --no-progress
 	done
 	$OP aws s3 ls ${S3_URL}/${PREFIX}${SUBDIR}/
 	PREFIX=redisearch-oss
 	for f in `ls ${PREFIX}.*.zip ${PREFIX}.*.tgz 2> /dev/null`; do
-		$OP aws s3 cp $f ${S3_URL}/${PREFIX}${SUBDIR}/ --acl public-read --no-progress
+		$OP python2 -m awscli s3 cp $f ${S3_URL}/${PREFIX}${SUBDIR}/ --acl public-read --no-progress
 	done
-	$OP aws s3 ls ${S3_URL}/${PREFIX}${SUBDIR}/
+	$OP python2 -m awscli s3 ls ${S3_URL}/${PREFIX}${SUBDIR}/
 fi
