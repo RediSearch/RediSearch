@@ -58,8 +58,8 @@ typedef enum {
   RP_FILTER,
   RP_PROFILE,
   RP_NETWORK,
-  RP_MAX,
   RP_VECSIM,
+  RP_MAX,
 } ResultProcessorType;
 
 struct ResultProcessor;
