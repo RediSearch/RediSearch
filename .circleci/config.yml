@@ -57,6 +57,7 @@ commands:
           command: |
             git submodule update --init deps/readies
             ./deps/readies/bin/getpy2
+            ./deps/readies/bin/getpy3
 
   install-prerequisites:
     parameters:
@@ -112,9 +113,9 @@ commands:
       - persist_to_workspace:
           root: bin/
           paths:
-            - bin/artifacts/*.zip
-            - bin/artifacts/*.tgz
-            - bin/artifacts/*.tar
+            - artifacts/*.zip
+            - artifacts/*.tgz
+            - artifacts/*.tar
 
   build-steps:
     parameters:
