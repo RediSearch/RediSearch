@@ -1817,7 +1817,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy0.type = QT_PARAM_VEC;
   yymsp[-3].minor.yy31 = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
   yymsp[-3].minor.yy31->vn.vq->property = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  assert(-1 != (asprintf(&yymsp[-3].minor.yy31->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy0.len, yymsp[-1].minor.yy0.s)));
+  RedisModule_Assert(-1 != (asprintf(&yymsp[-3].minor.yy31->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy0.len, yymsp[-1].minor.yy0.s)));
 }
         break;
       case 58: /* vector_attribute ::= TERM param_term */
