@@ -92,6 +92,11 @@ TEST_F(QueryTest, testParser) {
   // test some valid queries
   assertValidQuery("hello", ctx);
 
+  assertValidQuery("*", ctx);
+  assertValidQuery("(*)", ctx);
+  assertValidQuery("((((((*))))))", ctx);
+  assertInvalidQuery("((((*))))))", ctx);
+
   assertValidQuery("hello wor*", ctx);
   assertValidQuery("hello world", ctx);
   assertValidQuery("hello (world)", ctx);
