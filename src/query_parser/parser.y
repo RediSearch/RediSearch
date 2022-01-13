@@ -219,10 +219,14 @@ query ::= . {
   ctx->root = NULL;
 }
 
-query ::= STAR . {
+query ::= star . {
   setup_trace(ctx);
   ctx->root = NewWildcardNode();
 }
+
+star ::= STAR.
+
+star ::= LP star RP.
 
 /////////////////////////////////////////////////////////////////
 // AND Clause / Phrase
@@ -687,7 +691,7 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 //   A = B;
 // }
 
-query ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
+query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
   switch (B->vn.vq->type) {
     case VECSIM_QT_TOPK:
