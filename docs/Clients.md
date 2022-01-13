@@ -1,26 +1,27 @@
 # RediSearch Client Libraries
 
-RediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages. 
+RediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages.
 
-While it is possible and simple to use the raw Redis commands API, in most cases it's easier to just use a client library abstracting it. 
+While it is possible and simple to use the raw Redis commands API, in most cases it's easier to just use a client library abstracting it.
 
 ## Currently available Libraries
 
 | Language | Library | Author | License | Stars |
 |----------|---------|--------|---------|-------|
-|Python | [redisearch-py][redisearch-py-url] | [Redis Inc][redisearch-py-author] | BSD | [![redisearch-py-stars]][redisearch-py-url] |
+| Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
 | Python | [redis-om][redis-om-python-url] | [Redis][redis-om-python-author] | BSD-3-Clause | [![redis-om-python-stars]][redis-om-python-url] |
 | Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis Inc][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
 | Java | [redis-om-spring][redis-om-spring-url] | [Redis][redis-om-spring-author] | BSD-3-Clause | [![redis-om-spring-stars]][redis-om-spring-url] |
 | Java (Lettuce client library) | [LettuceMod][lettucemod-url] | [Redis Inc][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
 | Java | [Spring LettuceMod][lettucemod-url] | [Redis Labs][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
-| Go | [redisearch-go][redisearch-go-url] | [Redis Inc][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] | 
+| Go | [redisearch-go][redisearch-go-url] | [Redis Inc][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
 | JavaScript | [RedRediSearch][RedRediSearch-url] | [Kyle J. Davis][RedRediSearch-author] | MIT |[![RedRediSearch-stars]][RedRediSearch-url]|
 | JavaScript | [redis-redisearch][redis-redisearch-url] | [Kyle J. Davis][redis-redisearch-author] | MIT | [![redis-redisearch-stars]][redis-redisearch-url]|
 | JavaScript | [Redis-om][redis-om-node-url] | [Redis][redis-om-node-author] | BSD-3-Clause | [![redis-om-node-stars]][redis-om-node-url] |
 | TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
 | C# | [NRediSearch][NRediSearch-url] | [Marc Gravell][NRediSearch-author] | MIT | [![NRediSearch-stars]][NRediSearch-url] |
+| C# | [RediSearchClient][RediSearchClient-url] | [Tom Hanks][RediSearchClient-author] | MIT | [![RediSearchClient-stars]][RediSearchClient-url] |
 | C# | [Redis.OM][redis-om-dotnet-url] | [Redis][redis-om-dotnet-author] | BSD-3-Clause | [![redis-om-dotnet-stars]][redis-om-dotnet-url] |
 | PHP | [php-redisearch][php-redisearch-url] | [MacFJA][php-redisearch-author] | MIT | [![php-redisearch-stars]][php-redisearch-url] |
 | PHP | [redisearch-php][redisearch-php-url] (for RediSearch v1)| [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
@@ -29,9 +30,9 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
 
-[redisearch-py-url]: https://github.com/RediSearch/redisearch-py
-[redisearch-py-author]: https://redis.com
-[redisearch-py-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-py.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[redis-py-url]: https://github.com/redis/redis-py
+[redis-py-author]: https://redis.com
+[redis-py-stars]: https://img.shields.io/github/stars/redis/redis-py.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [JRediSearch-url]: https://github.com/RediSearch/JRediSearch
 [JRediSearch-author]: https://redis.com
@@ -68,6 +69,10 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [NRediSearch-url]: https://libraries.io/nuget/NRediSearch
 [NRediSearch-author]: https://github.com/StackExchange/
 [NRediSearch-stars]: https://img.shields.io/github/stars/StackExchange/NRediSearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[RediSearchClient-url]: https://www.nuget.org/packages/RediSearchClient
+[RediSearchClient-author]: https://github.com/tombatron
+[RediSearchClient-stars]: https://img.shields.io/github/stars/tombatron/RediSearchClient.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redisearch-php-url]: https://github.com/ethanhann/redisearch-php
 [redisearch-php-author]: https://github.com/ethanhann
