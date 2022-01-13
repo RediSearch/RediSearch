@@ -1,9 +1,9 @@
 #!/bin/bash
 
-[[ $IGNERR == 1 ]] || set -e
-[[ $VERBOSE == 1 ]] && set -x
+# [[ $VERBOSE == 1 ]] && set -x
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+PROGNAME="${BASH_SOURCE[0]}"
+HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/.. && pwd)
 export READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
@@ -15,7 +15,7 @@ cd $ROOT
 
 #----------------------------------------------------------------------------------------------
 
-if [[ $1 == --help || $1 == help ]]; then
+if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 	cat <<-END
 		Generate RediSearch distribution packages.
 
@@ -30,9 +30,11 @@ if [[ $1 == --help || $1 == help ]]; then
 
 		MODULE_NAME=name    Module name (default: redisearch)
 		PACKAGE_NAME=name   Package stem name
-		VARIANT=name        Build variant (empty for standard packages)
+
 		BRANCH=name         Branch name for snapshot packages
-		GITSHA=1            Append Git SHA to shapshot package names
+		VERSION=ver         Version for release packages
+		WITH_GITSHA=1       Append Git SHA to shapshot package names
+		VARIANT=name        Build variant (empty for standard packages)
 
 		ARTDIR=dir          Directory in which packages are created (default: bin/artifacts)
 		
@@ -62,6 +64,8 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
 
+PLATFORM="$OS-$OSNICK-$ARCH"
+
 #----------------------------------------------------------------------------------------------
 
 MODULE_SO="$1"
@@ -88,15 +92,14 @@ DEP_NAMES="debug"
 pack_ramp() {
 	cd $ROOT
 
-	local platform="$OS-$OSNICK-$ARCH"
-	local stem=${PACKAGE_NAME}.${platform}
+	local stem=${PACKAGE_NAME}.${PLATFORM}
 
 	if [[ $SNAPSHOT == 0 ]]; then
 		local verspec=${SEMVER}${VARIANT}
 		local packdir=.
 		local s3base=""
 	else
-		local verspec=${BRANCH}${VARIANT}-snapshot
+		local verspec=${BRANCH}${VARIANT}
 		local packdir=snapshots
 		local s3base=snapshots/
 	fi
@@ -110,7 +113,7 @@ pack_ramp() {
 	local xtx_vars=""
 	for dep in $DEP_NAMES; do
 		eval "export NAME_${dep}=${PACKAGE_NAME}_${dep}"
-		local dep_fname=${PACKAGE_NAME}-${dep}.${platform}.${verspec}.tgz
+		local dep_fname="${PACKAGE_NAME}.${dep}.${PLATFORM}.${verspec}.tgz"
 		eval "export PATH_${dep}=${s3base}${dep_fname}"
 		local dep_sha256="$ARTDIR/$packdir/${dep_fname}.sha256"
 		eval "export SHA256_${dep}=$(cat $dep_sha256)"
@@ -137,7 +140,7 @@ pack_ramp() {
 		$MODULE_SO >/tmp/ramp.err 2>&1 || true
 
 	if [[ ! -e $packfile ]]; then
-		>&2 echo "Error generating RAMP file:"
+		eprint "Error generating RAMP file:"
 		>&2 cat /tmp/ramp.err
 		exit 1
 	else
@@ -155,12 +158,11 @@ pack_deps() {
 	
 	cd $ROOT
 	
-	local depdir=$(cat $ARTDIR/$dep.dir)
+	local stem=${PACKAGE_NAME}.${dep}.${PLATFORM}
+	local verspec=${SEMVER}${VARIANT}
+	local fq_package=$stem.${verspec}.tgz
 
-	local platform="$OS-$OSNICK-$ARCH"
-	
-	local stem=${PACKAGE_NAME}-${dep}.${platform}
-	local fq_package=$stem.${SEMVER}${VARIANT}.tgz
+	local depdir=$(cat $ARTDIR/$dep.dir)
 	local tar_path=$ARTDIR/$fq_package
 	local dep_prefix_dir=$(cat $ARTDIR/$dep.prefix)
 	
@@ -173,7 +175,7 @@ pack_deps() {
 	mkdir -p $ARTDIR/snapshots
 	cd $ARTDIR/snapshots
 	if [[ ! -z $BRANCH ]]; then
-		local snap_package=$stem.${BRANCH}${VARIANT}-snapshot.tgz
+		local snap_package=$stem.${BRANCH}${VARIANT}.tgz
 		ln -sf ../$fq_package $snap_package
 		ln -sf ../$fq_package.sha256 $snap_package.sha256
 	fi
@@ -184,29 +186,48 @@ pack_deps() {
 NUMVER=$(NUMERIC=1 $SBIN/getver)
 SEMVER=$($SBIN/getver)
 
-[[ -z $BRANCH ]] && BRANCH=${CIRCLE_BRANCH:-`git rev-parse --abbrev-ref HEAD`}
-BRANCH=${BRANCH//[^A-Za-z0-9._-]/_}
-if [[ $GITSHA == 1 ]]; then
-	GIT_COMMIT=$(git describe --always --abbrev=7 --dirty="+" 2>/dev/null || git rev-parse --short HEAD)
-	BRANCH="${BRANCH}-${GIT_COMMIT}"
-fi
-
 if [[ ! -z $VARIANT ]]; then
 	VARIANT=-${VARIANT}
 fi
 
+#----------------------------------------------------------------------------------------------
+
+if [[ -z $BRANCH ]]; then
+	BRANCH=$(git rev-parse --abbrev-ref HEAD)
+	# this happens of detached HEAD
+	if [[ $BRANCH == HEAD ]]; then
+		BRANCH="$SEMVER"
+	fi
+fi
+BRANCH=${BRANCH//[^A-Za-z0-9._-]/_}
+if [[ $WITH_GITSHA == 1 ]]; then
+	GIT_COMMIT=$(git rev-parse --short HEAD)
+	BRANCH="${BRANCH}-${GIT_COMMIT}"
+fi
+
+#----------------------------------------------------------------------------------------------
+
 RELEASE_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.$SEMVER${VARIANT}.zip
-SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}-snapshot.zip
+SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}.zip
+
+RELEASE_deps=
+SNAPSHOT_deps=
+for dep in $DEP_NAMES; do
+	RELEASE_deps+=" ${PACKAGE_NAME}.${dep}.$OS-$OSNICK-$ARCH.$SEMVER${VARIANT}.tgz"
+	SNAPSHOT_deps+=" ${PACKAGE_NAME}.${dep}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}.tgz"
+done
+
+#----------------------------------------------------------------------------------------------
 
 if [[ $JUST_PRINT == 1 ]]; then
 	if [[ $RAMP == 1 ]]; then
 		[[ $RELEASE == 1 ]] && echo $RELEASE_ramp
 		[[ $SNAPSHOT == 1 ]] && echo $SNAPSHOT_ramp
 	fi
-	# if [[ $DEPS == 1 ]]; then
-	# 	[[ $RELEASE == 1 ]] && echo $RELEASE_deps
-	# 	[[ $SNAPSHOT == 1 ]] && echo $SNAPSHOT_deps
-	# fi
+	if [[ $DEPS == 1 ]]; then
+		[[ $RELEASE == 1 ]] && echo $RELEASE_deps
+		[[ $SNAPSHOT == 1 ]] && echo $SNAPSHOT_deps
+	fi
 	exit 0
 fi
 
