@@ -72,12 +72,12 @@ fi
 cd $ROOT/bin
 
 if [[ $SNAPSHOT == 1 ]]; then
-	SUBDIR=/snapshots
+	MAYBE_SNAP=/snapshots
 else
-	SUBDIR=
+	MAYBE_SNAP=
 fi
 
-cd artifacts${SUBDIR}
+cd artifacts${MAYBE_SNAP}
 [[ $VERBOSE == 1 ]] && du -ah --apparent-size *
 
 #----------------------------------------------------------------------------------------------
@@ -98,10 +98,10 @@ s3_ls() {
 }
 
 s3_upload() {
-	local prefix="$1"
-	local upload_dir="${S3_URL}/${prefix}${SUBDIR}"
+	local prod_subdir="$1"
+	local prefix="$2"
+	local upload_dir="${S3_URL}/${prod_subdir}${MAYBE_SNAP}"
 	local file
-	du -ah --apparent-size *
 	if [[ $SNAPSHOT == 1 ]]; then
 		for file in `ls ${prefix}.*${PLATFORM}*.zip ${prefix}.*${PLATFORM}*.tgz 2> /dev/null`; do
 			s3_upload_file $file $upload_dir
@@ -111,10 +111,13 @@ s3_upload() {
 			s3_upload_file $file $upload_dir
 		done
 	fi
-	s3_ls $upload_dir
+	[[ $VERBOSE == 1 ]] && s3_ls $upload_dir
+	
+	return 0
 }
 
 #----------------------------------------------------------------------------------------------
 
-s3_upload redisearch
-s3_upload redisearch-oss
+s3_upload redisearch redisearch
+s3_upload redisearch redisearch-light
+s3_upload redisearch-oss redisearch-oss
