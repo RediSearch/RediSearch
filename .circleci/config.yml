@@ -603,20 +603,11 @@ workflows:
       - benchmark:
           context: common
           <<: *on-integ-and-version-tags
-#      - deploy-artifacts:
-#          name: deploy-snapshot
-#          location: snapshots
-#          context: common
-#          <<: *on-integ-branch
-#          requires:
-#            - build-platforms
-#            - build-arm-platforms
-#            - build-macos
       - deploy-artifacts:
           name: deploy-release-staging-lab
           staging-lab: "1"
           context: common
-          <<: *on-any-branch
+          <<: *on-integ-branch
           requires:
             - build-platforms
             - build-arm-platforms
