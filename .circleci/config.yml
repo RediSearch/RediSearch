@@ -57,6 +57,8 @@ commands:
           command: |
             git submodule update --init deps/readies
             ./deps/readies/bin/getpy2
+            ./deps/readies/bin/getpy3
+            python2 -m pip install awscli
 
   install-prerequisites:
     parameters:
@@ -80,19 +82,6 @@ commands:
             python2 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
             redis-server --version
 
-  install-arlecchino:
-    steps:
-      - add_ssh_keys:
-          fingerprints:
-            - "2a:11:3f:16:9f:ab:90:34:6b:51:28:f5:b7:3a:d1:6d"
-      - run:
-          name: Install Arlecchino
-          command: |
-            cd
-            echo 'export GIT_SSH_COMMAND="ssh -o IdentitiesOnly=yes -i /home/circleci/.ssh/id_rsa_2a113f169fab90346b5128f5b73ad16d"' > /tmp/arlecchino.sh
-            sudo mv /tmp/arlecchino.sh /etc/profile.d
-            sudo -E bash -l -c "source <(curl -Ls https://github.com/RedisLabsModules/arlecchino/blob/master/bin/setup-rlec)"
-
   save-tests-logs:
     steps:
       - run:
@@ -109,12 +98,14 @@ commands:
   persist-artifacts:
     steps:
       - early-return-for-forked-pull-requests
+      - run:
+          name: List artifacts
+          command: |
+            cd bin/artifacts
+            du -ah --apparent-size *
       - persist_to_workspace:
           root: bin/
           paths:
-            - artifacts/snapshots/*.zip
-            - artifacts/snapshots/*.tgz
-            - artifacts/snapshots/*.tar
             - artifacts/*.zip
             - artifacts/*.tgz
             - artifacts/*.tar
@@ -160,6 +151,7 @@ commands:
           name: Pack
           shell: /bin/bash -l -eo pipefail
           command: |
+            make pack SHOW=1
             make pack COORD=rlec SHOW=1
             make pack LITE=1 SHOW=1
 
@@ -195,7 +187,7 @@ commands:
           command: |
             ROOT=$PWD
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 TEST=1 SHOW=1 PACK=1
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1
             cd $ROOT
             mkdir -p tests/pytests/logs
             tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
@@ -203,11 +195,17 @@ commands:
       - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
-          name: Build for platform (publish)
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH ]]; then
+                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
+            fi
+      - run:
+          name: Publish container
           command: |
             docker login -u redisfab -p $DOCKER_REDISFAB_PWD
             cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=0 SHOW=1 VERBOSE=1
+            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1
       - persist-artifacts
 
   vm-build-platforms-steps:
@@ -216,7 +214,7 @@ commands:
         type: string
     steps:
       - early-returns
-      - checkout
+      - checkout-all
       - setup-automation
       - run:
           name: Install Docker
@@ -226,7 +224,7 @@ commands:
           command: |
             ROOT=$PWD
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 TEST=1 SHOW=1 PACK=1
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1
             cd $ROOT
             mkdir -p tests/pytests/logs
             tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
@@ -234,11 +232,17 @@ commands:
       - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
-          name: Build for platform (publish)
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH ]]; then
+                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
+            fi
+      - run:
+          name: Publish container
           command: |
             docker login -u redisfab -p $DOCKER_REDISFAB_PWD
             cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=0 SHOW=1 VERBOSE=1
+            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1
       - persist-artifacts
 
   benchmark-automation:
@@ -418,66 +422,67 @@ jobs:
     steps:
       - early-returns
       - checkout-all
+      - setup-automation
       - run:
           name: Install prerequisites
           shell: /bin/bash -l -eo pipefail
           command: |
-            sudo ./deps/readies/bin/getpy2
-            sudo ./sbin/system-setup.py
-            sudo ./deps/readies/bin/getredis
-            sudo ./deps/readies/bin/getdocker --just-enable-exp
+            ./sbin/system-setup.py
+            ./deps/readies/bin/getredis
+            ./deps/readies/bin/getdocker --just-enable-exp
             docker version
-      - install-arlecchino
+      - run:
+          name: Install Arlecchino
+          command: |
+            FORCE=1 ./deps/readies/bin/getrlec
       - run:
           name: Build
           shell: /bin/bash -l -eo pipefail
           command: |
-            sudo make -C build/docker build OSNICK=bionic VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 SHOW=1
+            make -C build/docker build OSNICK=bionic VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH SHOW=1
           no_output_timeout: 30m
       - run:
           name: Start RLEC
           shell: /bin/bash -l -eo pipefail
           command: |
             cd
-            sudo mkdir -p rlec
-            sudo cp RediSearch/tests/rlec/redis-modules.yaml rlec/
-            sudo rlec start --os bionic
+            mkdir -p rlec
+            cp RediSearch/tests/rlec/redis-modules.yaml rlec/
+            rlec start --os bionic
       - run:
           name: Flow Test
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
-            sudo python2 -m pip list
-            sudo mkdir -p ~/workspace/tests
-            sudo make test COORD=1 SHOW=1
+            python2 -m pip list
+            mkdir -p ~/workspace/tests
+            make test COORD=1 SHOW=1
       - save-tests-logs
 
   deploy-artifacts:
     parameters:
-      location:
+      staging-lab:
         type: string
-        default: ""
+        default: "0"
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     steps:
       - early-returns
       - early-return-for-forked-pull-requests
+      - checkout
+      - setup-automation
       - attach_workspace:
           at: ~/workspace
       - run:
           name: Deploy to S3
           command: |
-            cd ~/workspace
-            du -ah --apparent-size *
-            cd "artifacts/<<parameters.location>>"
-            if [[ -z "<<parameters.location>>" ]]; then
-                path=""
+            mkdir -p bin
+            ln -s ~/workspace/artifacts bin/artifacts
+            if [[ -n $CIRCLE_VERSION && "<<parameters.staging-lab>>" != 1 ]]; then
+                make upload-release SHOW=1
             else
-                path="<<parameters.location>>/"
+                make upload-release SHOW=1 STAGING=1
             fi
-            for f in `ls *.zip *.tgz`; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/$path --acl public-read
-            done
 
   release-automation:
     docker:
@@ -489,7 +494,10 @@ jobs:
       - setup-automation
       - run:
           name: Run QA Automation
-          command: MODULE_VERSION="$CIRCLE_TAG" VERBOSE=1 TEST=release ./tests/qa/run
+          command: ./tests/qa/qatests -t release -m "$CIRCLE_TAG"
+      - run:
+          name: Run QA Automation (RediSearch Light)
+          command: ./tests/qa/qatests -t release -m "$CIRCLE_TAG" --light
 
 
 #----------------------------------------------------------------------------------------------------------------------------------
@@ -596,8 +604,8 @@ workflows:
           context: common
           <<: *on-integ-and-version-tags
       - deploy-artifacts:
-          name: deploy-snapshot
-          location: snapshots
+          name: deploy-release-staging-lab
+          staging-lab: "1"
           context: common
           <<: *on-integ-branch
           requires:
