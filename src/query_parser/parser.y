@@ -743,9 +743,7 @@ vector_command(A) ::= TOP_K param_size(B) modifier(C) ATTRIBUTE(D). {
   D.type = QT_PARAM_VEC;
   A = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
   A->vn.vq->property = rm_strndup(C.s, C.len);
-  A->vn.vq->scoreField = rm_calloc(1, C.len + strlen(VECSIM_DEFAULT_SCORE_FIELD_SUFFIX));
-  strncpy(A->vn.vq->scoreField, C.s, C.len);
-  strcat(A->vn.vq->scoreField, VECSIM_DEFAULT_SCORE_FIELD_SUFFIX);
+  assert(-1 != (asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s)));
 }
 
 vector_attribute(A) ::= TERM(B) param_term(C). {

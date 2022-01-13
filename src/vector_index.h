@@ -28,8 +28,6 @@
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
 
-#define VECSIM_DEFAULT_SCORE_FIELD_SUFFIX "_score"
-
 typedef enum {
   VECSIM_QT_TOPK,
 } VectorQueryType;
