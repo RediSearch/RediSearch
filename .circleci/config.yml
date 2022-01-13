@@ -475,6 +475,7 @@ jobs:
     steps:
       - early-returns
       - early-return-for-forked-pull-requests
+      - checkout
       - setup-automation
       - attach_workspace:
           at: ~/workspace
