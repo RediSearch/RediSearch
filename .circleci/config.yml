@@ -187,7 +187,7 @@ commands:
           command: |
             ROOT=$PWD
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 TEST=1 SHOW=1 PACK=1
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1
             cd $ROOT
             mkdir -p tests/pytests/logs
             tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
@@ -205,7 +205,7 @@ commands:
           command: |
             docker login -u redisfab -p $DOCKER_REDISFAB_PWD
             cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=0 SHOW=1 VERBOSE=1
+            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1
       - persist-artifacts
 
   vm-build-platforms-steps:
@@ -214,7 +214,7 @@ commands:
         type: string
     steps:
       - early-returns
-      - checkout
+      - checkout-all
       - setup-automation
       - run:
           name: Install Docker
@@ -224,7 +224,7 @@ commands:
           command: |
             ROOT=$PWD
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 TEST=1 SHOW=1 PACK=1
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1
             cd $ROOT
             mkdir -p tests/pytests/logs
             tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
@@ -238,11 +238,11 @@ commands:
                 make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
             fi
       - run:
-          name: Build for platform (publish)
+          name: Publish container
           command: |
             docker login -u redisfab -p $DOCKER_REDISFAB_PWD
             cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=0 SHOW=1 VERBOSE=1
+            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1
       - persist-artifacts
 
   benchmark-automation:
