@@ -99,10 +99,10 @@ commands:
     steps:
       - early-return-for-forked-pull-requests
       - run:
-        name: List artifacts
-        command: |
-          cd bin/artifacts
-          du -ah --apparent-size *
+          name: List artifacts
+          command: |
+            cd bin/artifacts
+            du -ah --apparent-size *
       - persist_to_workspace:
           root: bin/
           paths:
