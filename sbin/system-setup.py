@@ -48,6 +48,8 @@ class RediSearchSetup(paella.Setup):
 
         if self.platform.is_arm():
             self.install("python-gevent")
+        else:
+            self.install_linux_gnu_tar()
 
     def archlinux(self):
         self.run("%s/bin/getgcc --modern" % READIES)

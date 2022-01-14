@@ -166,10 +166,16 @@ pack_deps() {
 	local tar_path=$ARTDIR/$fq_package
 	local dep_prefix_dir=$(cat $ARTDIR/$dep.prefix)
 	
+	rm -f $tar_path
 	{ cd $depdir ;\
 	  cat $ARTDIR/$dep.files | \
 	  xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' --transform "s,^,$dep_prefix_dir," 2>> /tmp/pack.err | \
 	  gzip -n - > $tar_path ; E=$?; } || true
+	if [[ ! -e $tar_path || -z $(tar tzf $tar_path) ]]; then
+		eprint "Count not create $tar_path. Aborting."
+		rm -f $tar_path
+		exit 1
+	fi
 	sha256sum $tar_path | gawk '{print $1}' > $tar_path.sha256
 
 	mkdir -p $ARTDIR/snapshots
@@ -243,23 +249,27 @@ if [[ $DEPS == 1 ]]; then
 
 	echo "Building dependencies ..."
 	for dep in $DEP_NAMES; do
-		(pack_deps $dep)
+		if [[ $OS != macos ]]; then
+			pack_deps $dep
+		fi
 	done
 	echo "Done."
 fi
 
 #----------------------------------------------------------------------------------------------
 
+cd $ROOT
+
 if [[ $RAMP == 1 ]]; then
 	if ! command -v redis-server > /dev/null; then
-		>&2 echo "$0: Cannot find redis-server. Aborting."
+		eprint "Cannot find redis-server. Aborting."
 		exit 1
 	fi
 
 	echo "Building RAMP files ..."
 
-	[[ -z $MODULE_SO ]] && >&2 echo "$0: Nothing to pack. Aborting." && exit 1
-	[[ ! -f $MODULE_SO ]] && >&2 echo "$0: $MODULE_SO does not exist. Aborting." && exit 1
+	[[ -z $MODULE_SO ]] && { eprint "Nothing to pack. Aborting."; exit 1; }
+	[[ ! -f $MODULE_SO ]] && { eprint "$MODULE_SO does not exist. Aborting."; exit 1; }
 	MODULE_SO=$(realpath $MODULE_SO)
 
 	[[ $RELEASE == 1 ]] && SNAPSHOT=0 pack_ramp
