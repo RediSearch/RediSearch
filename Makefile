@@ -137,74 +137,74 @@ endef
 
 ifeq ($(COORD),) # Standalone build
 
-ifeq ($(STATIC),1) # Static build
-CMAKE_DIR=$(ROOT)
-BINDIR=$(BINROOT)/search-static
-SRCDIR=src
-TARGET=$(BINDIR)/redisearch.a
-PACKAGE_NAME=
-RAMP_MODULE_NAME=
-RAMP_YAML=
+	ifeq ($(STATIC),1) # Static build
+		CMAKE_DIR=$(ROOT)
+		BINDIR=$(BINROOT)/search-static
+		SRCDIR=src
+		TARGET=$(BINDIR)/redisearch.a
+		PACKAGE_NAME=
+		RAMP_MODULE_NAME=
+		RAMP_YAML=
 
-else ifneq ($(LITE),1) # OSS Search
-CMAKE_DIR=$(ROOT)
-BINDIR=$(BINROOT)/search
-SRCDIR=src
-TARGET=$(BINDIR)/redisearch.so
-PACKAGE_NAME=redisearch-oss
-RAMP_MODULE_NAME=search
-RAMP_YAML=pack/ramp.yml
-PACKAGE_S3_DIR=redisearch-oss
+	else ifneq ($(LITE),1) # OSS Search
+		CMAKE_DIR=$(ROOT)
+		BINDIR=$(BINROOT)/search
+		SRCDIR=src
+		TARGET=$(BINDIR)/redisearch.so
+		PACKAGE_NAME=redisearch-oss
+		RAMP_MODULE_NAME=search
+		RAMP_YAML=pack/ramp.yml
+		PACKAGE_S3_DIR=redisearch-oss
 
-else # Search Lite
-CMAKE_DIR=$(ROOT)
-BINDIR=$(BINROOT)/search-lite
-SRCDIR=src
-TARGET=$(BINDIR)/redisearch.so
-PACKAGE_NAME=redisearch-light
-RAMP_MODULE_NAME=searchlight
-RAMP_YAML=pack/ramp-light.yml
-PACKAGE_S3_DIR=redisearch
-endif
+	else # Search Lite
+		CMAKE_DIR=$(ROOT)
+		BINDIR=$(BINROOT)/search-lite
+		SRCDIR=src
+		TARGET=$(BINDIR)/redisearch.so
+		PACKAGE_NAME=redisearch-light
+		RAMP_MODULE_NAME=searchlight
+		RAMP_YAML=pack/ramp-light.yml
+		PACKAGE_S3_DIR=redisearch
+	endif
 
 else # COORD
 
-ifeq ($(STATIC),1)
-$(error STATIC=1 is incompatible with COORD)
-endif
+	ifeq ($(STATIC),1)
+		___:=$(error STATIC=1 is incompatible with COORD)
+	endif
 
-ifeq ($(COORD),1)
-override COORD:=oss
-endif
+	ifeq ($(COORD),1)
+		override COORD:=oss
+	endif
 
-ifeq ($(COORD),oss) # OSS Coordinator
-CMAKE_DIR=$(ROOT)/coord
-BINDIR=$(BINROOT)/coord-oss
-SRCDIR=coord/src
-TARGET=$(BINDIR)/module-oss.so
-PACKAGE_NAME=redisearch
-RAMP_MODULE_NAME=search
-RAMP_YAML=
+	ifeq ($(COORD),oss) # OSS Coordinator
+		CMAKE_DIR=$(ROOT)/coord
+		BINDIR=$(BINROOT)/coord-oss
+		SRCDIR=coord/src
+		TARGET=$(BINDIR)/module-oss.so
+		PACKAGE_NAME=redisearch
+		RAMP_MODULE_NAME=search
+		RAMP_YAML=
 
-else ifeq ($(COORD),rlec) # RLEC Coordinator
-CMAKE_DIR=$(ROOT)/coord
-BINDIR=$(BINROOT)/coord-rlec
-SRCDIR=coord/src
-TARGET=$(BINDIR)/module-enterprise.so
-PACKAGE_NAME=redisearch
-RAMP_MODULE_NAME=search
-RAMP_YAML=coord/pack/ramp.yml
-PACKAGE_S3_DIR=redisearch
+	else ifeq ($(COORD),rlec) # RLEC Coordinator
+		CMAKE_DIR=$(ROOT)/coord
+		BINDIR=$(BINROOT)/coord-rlec
+		SRCDIR=coord/src
+		TARGET=$(BINDIR)/module-enterprise.so
+		PACKAGE_NAME=redisearch
+		RAMP_MODULE_NAME=search
+		RAMP_YAML=coord/pack/ramp.yml
+		PACKAGE_S3_DIR=redisearch
 
-else
-$(error COORD should be either oss or rlec)
-endif
+	else
+		___:=$(error COORD should be either oss or rlec)
+	endif
 
-export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.release)/libuv)
-include build/libuv/Makefile.defs
+	export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.release)/libuv)
+	include build/libuv/Makefile.defs
 
-HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
-include build/hiredis/Makefile.defs
+	HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
+	include build/hiredis/Makefile.defs
 
 endif # COORD
 
