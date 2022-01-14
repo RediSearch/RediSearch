@@ -351,6 +351,12 @@ jobs:
       - build-steps:
           platform: catalina
       - test-steps
+      - run:
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH ]]; then
+                make upload-artifacts SHOW=1
+            fi
       - persist-artifacts
 
   benchmark:
