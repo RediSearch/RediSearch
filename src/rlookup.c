@@ -685,4 +685,5 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, Sc
                             .mode = RLOOKUP_LOAD_KEYLIST };
   int rv = loadIndividualKeys(it, dst, &opt);
   rm_free(keys);
-  return rv;}
+  return rv;
+}

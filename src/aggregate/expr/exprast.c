@@ -140,6 +140,7 @@ void RSExpr_Free(RSExpr *e) {
   rm_free(e);
 }
 
+// Extract all field names from an RSExpr tree recursively 
 void RSExpr_GetProperties(RSExpr *e, char ***props) {
   if (!e) return;
   switch (e->t) {

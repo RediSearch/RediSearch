@@ -144,8 +144,6 @@ EvalCtx *EvalCtx_FromExpr(RSExpr *expr);
 EvalCtx *EvalCtx_FromString(const char *exprstr);
 void EvalCtx_Destroy(EvalCtx *r);
 RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val);
-int EvalCtx_AddHash(EvalCtx *r, RedisModuleCtx *ctx, RedisModuleString *key);
-// int EvalCtx_AddJson(EvalCtx *r, RedisModuleCtx *ctx, RedisModuleString *key);
 int EvalCtx_Eval(EvalCtx *r);
 int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr);
 int EvalCtx_EvalExprStr(EvalCtx *r, const char *exprstr);
