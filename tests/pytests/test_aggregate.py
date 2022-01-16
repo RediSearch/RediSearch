@@ -770,7 +770,12 @@ def testResultCounter(env):
     
     # first document is a match
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "hello"').equal([1L, ['t1', 'hello'], ['t1', 'hello']])
+    #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "hello"').equal([2L, ['t1', 'hello'], ['t1', 'hello']])
+    
     # 3rd document is a match
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "world"').equal([3L, ['t1', 'world']])
+    #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "world"').equal([1L, ['t1', 'world']])
+    
     # no match. max docID is 4
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([4L])
+    #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0L])
