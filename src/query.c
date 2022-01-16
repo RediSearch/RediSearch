@@ -1259,7 +1259,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       }
       switch (qs->vn.vq->type) {
         case VECSIM_QT_TOPK: {
-          s = sdscatprintf(s, "TOP %zu vectors similar to `", qs->vn.vq->topk.k);
+          s = sdscatprintf(s, "TOP K=%zu vectors similar to `", qs->vn.vq->topk.k);
           // s = sdscatlen(s, qs->vn.vq->topk.vector, qs->vn.vq->topk.vecLen);
           // This loop finds the vector param name. To get the blob value, use the line above.
           // This will not work if the blob contains null bytes.
