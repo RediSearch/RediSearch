@@ -465,7 +465,7 @@ jobs:
             make test COORD=1 SHOW=1
       - save-tests-logs
 
-  deploy-artifacts:
+  upload-artifacts:
     parameters:
       staging-lab:
         type: string
@@ -480,7 +480,7 @@ jobs:
       - attach_workspace:
           at: ~/workspace
       - run:
-          name: Deploy to S3
+          name: Upload artifacts to S3
           command: |
             mkdir -p bin
             ln -s ~/workspace/artifacts bin/artifacts
@@ -582,7 +582,8 @@ workflows:
             parameters:
               redis_version: ["6.0", "6.2"]
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *on-any-branch
           context: common
           matrix:
             parameters:
@@ -594,9 +595,9 @@ workflows:
             parameters:
               platform: [bionic]
       - build-macos:
+          context: common
           <<: *on-integ-and-version-tags
       - coverage:
-          context: common
           <<: *on-any-branch
       - sanitize:
           name: sanitize-<< matrix.san-type >>
@@ -609,8 +610,8 @@ workflows:
       - benchmark:
           context: common
           <<: *on-integ-and-version-tags
-      - deploy-artifacts:
-          name: deploy-release-staging-lab
+      - upload-artifacts:
+          name: upload-artifacts-to-staging-lab
           staging-lab: "1"
           context: common
           <<: *on-integ-branch
@@ -618,8 +619,8 @@ workflows:
             - build-platforms
             - build-arm-platforms
             - build-macos
-      - deploy-artifacts:
-          name: deploy-release
+      - upload-artifacts:
+          name: upload-release-artifacts
           context: common
           <<: *on-version-tags
           requires:
@@ -629,7 +630,7 @@ workflows:
       - release-automation:
           context: common
           requires:
-            - deploy-release
+            - upload-release-artifacts
           <<: *on-version-tags
 
   nightly:
