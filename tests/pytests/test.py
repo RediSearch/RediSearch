@@ -569,7 +569,7 @@ def testExplain(env):
 
     q = ['* => [TOP_K $k @v $B]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
-    expected = """VECTOR {TOP 10 vectors similar to `$B` in @v, AS `__v_score`}\n"""
+    expected = """VECTOR {TOP K=10 vectors similar to `$B` in @v, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
 def testNoIndex(env):
