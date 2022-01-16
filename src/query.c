@@ -1259,17 +1259,15 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       }
       switch (qs->vn.vq->type) {
         case VECSIM_QT_TOPK: {
-          s = sdscatprintf(s, "TOP K=%zu vectors similar to `", qs->vn.vq->topk.k);
-          // s = sdscatlen(s, qs->vn.vq->topk.vector, qs->vn.vq->topk.vecLen);
-          // This loop finds the vector param name. To get the blob value, use the line above.
-          // This will not work if the blob contains null bytes.
+          s = sdscatprintf(s, "TOP K=%zu vectors similar to ", qs->vn.vq->topk.k);
+          // This loop finds the vector param name.
           for (size_t i = 0; i < array_len(qs->params); i++) {
             if (qs->params[i].type != PARAM_NONE && qs->params[i].target == &qs->vn.vq->topk.vector) {
-              s = sdscatprintf(s, "$%s", qs->params[i].name);
+              s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
               break;
             }
           }
-          s = sdscatprintf(s, "` in @%s", qs->vn.vq->property);
+          s = sdscatprintf(s, "in @%s", qs->vn.vq->property);
           for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
             s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
             s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
