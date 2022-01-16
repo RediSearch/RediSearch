@@ -32,24 +32,18 @@ typedef enum {
   VECSIM_QT_TOPK,
 } VectorQueryType;
 
-typedef enum {
-  VECSIM_RUN_KNN = 0,
-  VECSIM_RUN_BATCH = 1,
-} VectorQueryRunType;
-
-// This struct always hold parameter name and value as allocated string.
-// First, the parser creates the param, and hold the key-name and value as they appear in the query,
+// This struct holds VecSimRawParam array and bool array.
+// the arrays should have the same length, for testing if the param in some index needs to be evaluated.
+// `params` params will always hold parameter name and value as allocated string.
+// First, the parser creates the param, holds the key-name and value as they appear in the query,
 // and marks if the value is the literal value or an attribute name.
 // Second, in the parameters evaluation step, if a param was marked as an attribute, we try to resolve it,
 // and free its old value and replace it with the actual value if we succeed.
 // It is the VecSim library job to resolve this strings-key-value params (array) into a VecSimQueryParams struct.
 typedef struct {
-  const char *name;
-  size_t namelen;
-  const char *value;
-  size_t vallen;
-  bool isParam;
-} VectorQueryParam;
+  VecSimRawParam *params;
+  bool *needResolve;
+} VectorQueryParams;
 
 typedef struct VectorQuery {
   char *property;                     // name of field
@@ -59,12 +53,11 @@ typedef struct VectorQuery {
       void *vector;                   // query vector data
       size_t vecLen;                  // vector length
       size_t k;                       // number of vectors to return
-      VectorQueryRunType runType;     // specify how to run the query
       VecSimQueryResult_Order order;  // specify the result order.
     } topk;
   };
   VectorQueryType type;               // vector similarity query type
-  VectorQueryParam *params;           // generic query params array, for the vecsim library to check
+  VectorQueryParams params;           // generic query params array, for the vecsim library to check
 
   VecSimQueryResult *results;         // array for results
   int resultsLen;                     // length of array
@@ -74,12 +67,13 @@ typedef struct VectorQuery {
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq);
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
-int VectorQuery_ParamResolve(VectorQueryParam *param, dict *params, QueryError *status);
+int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
 void VectorQuery_Free(VectorQuery *vq);
 
+int VecSimResolveCode_to_QueryErrorCode(int code);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);

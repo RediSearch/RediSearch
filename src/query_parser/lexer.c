@@ -22,35 +22,12 @@ void *RSQuery_ParseAlloc(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree(void *p, void (*freeProc)(void *));
 
 
-<<<<<<< HEAD
-/* #line 238 "lexer.rl" */
-=======
 /* #line 269 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 
 
 
 /* #line 30 "lexer.c" */
 static const char _query_actions[] = {
-<<<<<<< HEAD
-	0, 1, 0, 1, 1, 1, 10, 1, 
-	11, 1, 12, 1, 13, 1, 14, 1, 
-	15, 1, 16, 1, 17, 1, 18, 1, 
-	19, 1, 20, 1, 21, 1, 22, 1, 
-	23, 1, 24, 1, 25, 1, 26, 1, 
-	27, 1, 28, 1, 29, 1, 30, 1, 
-	31, 1, 32, 1, 33, 1, 34, 1, 
-	35, 2, 2, 3, 2, 2, 4, 2, 
-	2, 5, 2, 2, 6, 2, 2, 7, 
-	2, 2, 8, 2, 2, 9
-};
-
-static const unsigned char _query_key_offsets[] = {
-	0, 10, 20, 21, 22, 24, 27, 29, 
-	39, 77, 88, 98, 109, 110, 113, 119, 
-	124, 127, 143, 157, 170, 171, 181, 191, 
-	203
-=======
 	0, 1, 0, 1, 1, 1, 13, 1, 
 	14, 1, 15, 1, 16, 1, 17, 1, 
 	18, 1, 19, 1, 20, 1, 21, 1, 
@@ -70,7 +47,6 @@ static const short _query_key_offsets[] = {
 	39, 79, 90, 100, 111, 112, 115, 121, 
 	126, 129, 145, 159, 172, 173, 183, 195, 
 	207, 219, 230, 242, 252, 264
->>>>>>> Vecsim search parser (#2441)
 };
 
 static const char _query_trans_keys[] = {
@@ -80,29 +56,6 @@ static const char _query_trans_keys[] = {
 	45, 48, 57, 48, 57, 9, 13, 32, 
 	47, 58, 64, 91, 96, 123, 126, 32, 
 	34, 36, 37, 39, 40, 41, 42, 43, 
-<<<<<<< HEAD
-	45, 58, 59, 61, 64, 91, 92, 93, 
-	95, 105, 123, 124, 125, 126, 127, 0, 
-	8, 9, 13, 14, 31, 33, 47, 48, 
-	57, 60, 63, 94, 96, 42, 92, 96, 
-	0, 47, 58, 64, 91, 94, 123, 127, 
-	92, 96, 0, 47, 58, 64, 91, 94, 
-	123, 127, 42, 92, 96, 0, 47, 58, 
-	64, 91, 94, 123, 127, 105, 105, 48, 
-	57, 42, 46, 69, 101, 48, 57, 42, 
-	69, 101, 48, 57, 42, 48, 57, 42, 
-	46, 69, 92, 96, 101, 0, 47, 48, 
-	57, 58, 64, 91, 94, 123, 127, 42, 
-	45, 92, 96, 0, 47, 48, 57, 58, 
-	64, 91, 94, 123, 127, 42, 92, 96, 
-	0, 47, 48, 57, 58, 64, 91, 94, 
-	123, 127, 62, 92, 96, 0, 47, 58, 
-	64, 91, 94, 123, 127, 9, 13, 32, 
-	47, 58, 64, 91, 96, 123, 126, 42, 
-	92, 96, 110, 0, 47, 58, 64, 91, 
-	94, 123, 127, 42, 92, 96, 102, 0, 
-	47, 58, 64, 91, 94, 123, 127, 0
-=======
 	45, 58, 59, 61, 64, 65, 84, 91, 
 	92, 93, 95, 105, 123, 124, 125, 126, 
 	127, 0, 8, 9, 13, 14, 31, 33, 
@@ -132,91 +85,32 @@ static const char _query_trans_keys[] = {
 	0, 47, 58, 64, 91, 94, 123, 127, 
 	42, 92, 96, 102, 0, 47, 58, 64, 
 	91, 94, 123, 127, 0
->>>>>>> Vecsim search parser (#2441)
 };
 
 static const char _query_single_lengths[] = {
 	0, 0, 1, 1, 0, 1, 0, 0, 
-<<<<<<< HEAD
-	24, 3, 2, 3, 1, 1, 4, 3, 
-	1, 6, 4, 3, 1, 2, 0, 4, 
-	4
-=======
 	26, 3, 2, 3, 1, 1, 4, 3, 
 	1, 6, 4, 3, 1, 2, 4, 4, 
 	4, 3, 4, 0, 4, 4
->>>>>>> Vecsim search parser (#2441)
 };
 
 static const char _query_range_lengths[] = {
 	5, 5, 0, 0, 1, 1, 1, 5, 
 	7, 4, 4, 4, 0, 1, 1, 1, 
-<<<<<<< HEAD
-	1, 5, 5, 5, 0, 4, 5, 4, 
-	4
-=======
 	1, 5, 5, 5, 0, 4, 4, 4, 
 	4, 4, 4, 5, 4, 4
->>>>>>> Vecsim search parser (#2441)
 };
 
 static const unsigned char _query_index_offsets[] = {
 	0, 6, 12, 14, 16, 18, 21, 23, 
-<<<<<<< HEAD
-	29, 61, 69, 76, 84, 86, 89, 95, 
-	100, 103, 115, 125, 134, 136, 143, 149, 
-	158
-=======
 	29, 63, 71, 78, 86, 88, 91, 97, 
 	102, 105, 117, 127, 136, 138, 145, 154, 
 	163, 172, 180, 189, 195, 204
->>>>>>> Vecsim search parser (#2441)
 };
 
 static const char _query_indicies[] = {
 	1, 1, 1, 1, 1, 0, 2, 2, 
 	2, 2, 2, 0, 3, 0, 4, 0, 
-<<<<<<< HEAD
-	6, 5, 7, 8, 5, 8, 0, 9, 
-	9, 9, 9, 9, 0, 11, 13, 14, 
-	15, 16, 17, 18, 19, 16, 20, 22, 
-	23, 24, 25, 26, 27, 28, 29, 30, 
-	31, 32, 33, 34, 10, 10, 11, 10, 
-	12, 21, 12, 12, 1, 35, 36, 0, 
-	0, 0, 0, 0, 1, 38, 37, 37, 
-	37, 37, 37, 2, 35, 38, 39, 39, 
-	39, 39, 39, 2, 40, 37, 40, 42, 
-	41, 35, 44, 45, 45, 42, 43, 35, 
-	45, 45, 6, 43, 35, 8, 43, 35, 
-	44, 46, 36, 43, 46, 43, 21, 43, 
-	43, 43, 1, 35, 7, 36, 47, 47, 
-	48, 47, 47, 47, 1, 35, 36, 43, 
-	43, 48, 43, 43, 43, 1, 49, 37, 
-	50, 0, 0, 0, 0, 0, 9, 1, 
-	1, 1, 1, 1, 37, 35, 36, 47, 
-	51, 47, 47, 47, 47, 1, 35, 36, 
-	47, 52, 47, 47, 47, 47, 1, 0
-};
-
-static const char _query_trans_targs[] = {
-	8, 9, 11, 3, 8, 8, 15, 6, 
-	16, 21, 8, 8, 8, 8, 10, 8, 
-	12, 8, 8, 8, 13, 17, 8, 8, 
-	20, 21, 8, 22, 8, 9, 23, 8, 
-	8, 8, 8, 8, 0, 8, 1, 8, 
-	2, 8, 14, 8, 4, 5, 18, 8, 
-	19, 8, 7, 24, 9
-};
-
-static const char _query_trans_actions[] = {
-	55, 75, 63, 0, 7, 53, 57, 0, 
-	0, 60, 39, 35, 37, 9, 72, 29, 
-	72, 13, 15, 27, 69, 57, 21, 23, 
-	0, 72, 31, 0, 33, 72, 75, 17, 
-	11, 19, 25, 41, 0, 49, 0, 45, 
-	0, 47, 57, 43, 0, 0, 75, 51, 
-	57, 5, 0, 75, 66
-=======
 	5, 0, 7, 8, 6, 8, 0, 9, 
 	9, 9, 9, 9, 0, 11, 13, 14, 
 	15, 16, 17, 18, 19, 16, 20, 22, 
@@ -264,34 +158,19 @@ static const char _query_trans_actions[] = {
 	0, 47, 0, 49, 62, 45, 0, 0, 
 	43, 86, 53, 62, 5, 0, 74, 86, 
 	86, 86, 71, 86, 77
->>>>>>> Vecsim search parser (#2441)
 };
 
 static const char _query_to_state_actions[] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 
 	1, 0, 0, 0, 0, 0, 0, 0, 
 	0, 0, 0, 0, 0, 0, 0, 0, 
-<<<<<<< HEAD
-	0
-=======
 	0, 0, 0, 0, 0, 0
->>>>>>> Vecsim search parser (#2441)
 };
 
 static const char _query_from_state_actions[] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 
 	3, 0, 0, 0, 0, 0, 0, 0, 
 	0, 0, 0, 0, 0, 0, 0, 0, 
-<<<<<<< HEAD
-	0
-};
-
-static const unsigned char _query_eof_trans[] = {
-	1, 1, 1, 1, 6, 6, 1, 1, 
-	0, 1, 38, 40, 38, 42, 44, 44, 
-	44, 44, 48, 44, 38, 1, 38, 48, 
-	48
-=======
 	0, 0, 0, 0, 0, 0
 };
 
@@ -300,7 +179,6 @@ static const unsigned char _query_eof_trans[] = {
 	0, 1, 40, 42, 40, 44, 46, 46, 
 	46, 49, 51, 46, 40, 1, 51, 51, 
 	51, 51, 51, 40, 51, 51
->>>>>>> Vecsim search parser (#2441)
 };
 
 static const int query_start = 8;
@@ -310,11 +188,7 @@ static const int query_error = -1;
 static const int query_en_main = 8;
 
 
-<<<<<<< HEAD
-/* #line 241 "lexer.rl" */
-=======
 /* #line 272 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 
 QueryNode *RSQuery_ParseRaw(QueryParseCtx *q) {
   void *pParser = RSQuery_ParseAlloc(rm_malloc);
@@ -324,11 +198,7 @@ QueryNode *RSQuery_ParseRaw(QueryParseCtx *q) {
   const char* ts = q->raw;
   const char* te = q->raw + q->len;
   
-<<<<<<< HEAD
-/* #line 184 "lexer.c" */
-=======
 /* #line 202 "lexer.c" */
->>>>>>> Vecsim search parser (#2441)
 	{
 	cs = query_start;
 	ts = 0;
@@ -336,11 +206,7 @@ QueryNode *RSQuery_ParseRaw(QueryParseCtx *q) {
 	act = 0;
 	}
 
-<<<<<<< HEAD
-/* #line 250 "lexer.rl" */
-=======
 /* #line 281 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -349,11 +215,7 @@ QueryNode *RSQuery_ParseRaw(QueryParseCtx *q) {
   const char* eof = pe;
   
   
-<<<<<<< HEAD
-/* #line 201 "lexer.c" */
-=======
 /* #line 219 "lexer.c" */
->>>>>>> Vecsim search parser (#2441)
 	{
 	int _klen;
 	unsigned int _trans;
@@ -372,11 +234,7 @@ _resume:
 /* #line 1 "NONE" */
 	{ts = p;}
 	break;
-<<<<<<< HEAD
-/* #line 220 "lexer.c" */
-=======
 /* #line 238 "lexer.c" */
->>>>>>> Vecsim search parser (#2441)
 		}
 	}
 
@@ -447,37 +305,6 @@ _eof_trans:
 	{te = p+1;}
 	break;
 	case 3:
-<<<<<<< HEAD
-/* #line 53 "lexer.rl" */
-	{act = 1;}
-	break;
-	case 4:
-/* #line 65 "lexer.rl" */
-	{act = 2;}
-	break;
-	case 5:
-/* #line 74 "lexer.rl" */
-	{act = 3;}
-	break;
-	case 6:
-/* #line 92 "lexer.rl" */
-	{act = 5;}
-	break;
-	case 7:
-/* #line 161 "lexer.rl" */
-	{act = 14;}
-	break;
-	case 8:
-/* #line 204 "lexer.rl" */
-	{act = 21;}
-	break;
-	case 9:
-/* #line 207 "lexer.rl" */
-	{act = 23;}
-	break;
-	case 10:
-/* #line 83 "lexer.rl" */
-=======
 /* #line 56 "lexer.rl" */
 	{act = 1;}
 	break;
@@ -519,7 +346,6 @@ _eof_trans:
 	break;
 	case 13:
 /* #line 96 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{
     tok.pos = ts-q->raw;
     tok.len = te - ts;
@@ -530,13 +356,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 11:
-/* #line 92 "lexer.rl" */
-=======
 	case 14:
 /* #line 123 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -548,13 +369,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 12:
-/* #line 103 "lexer.rl" */
-=======
 	case 15:
 /* #line 134 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, QUOTE, tok, q);  
@@ -563,13 +379,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 13:
-/* #line 110 "lexer.rl" */
-=======
 	case 16:
 /* #line 141 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, OR, tok, q);
@@ -578,13 +389,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 14:
-/* #line 117 "lexer.rl" */
-=======
 	case 17:
 /* #line 148 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LP, tok, q);
@@ -593,13 +399,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 15:
-/* #line 125 "lexer.rl" */
-=======
 	case 18:
 /* #line 156 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, RP, tok, q);
@@ -608,13 +409,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 16:
-/* #line 132 "lexer.rl" */
-=======
 	case 19:
 /* #line 163 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LB, tok, q);
@@ -623,13 +419,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 17:
-/* #line 139 "lexer.rl" */
-=======
 	case 20:
 /* #line 170 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, RB, tok, q);
@@ -638,13 +429,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 18:
-/* #line 146 "lexer.rl" */
-=======
 	case 21:
 /* #line 177 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
      tok.pos = ts-q->raw;
      RSQuery_Parse(pParser, COLON, tok, q);
@@ -653,13 +439,8 @@ _eof_trans:
     }
    }}
 	break;
-<<<<<<< HEAD
-	case 19:
-/* #line 153 "lexer.rl" */
-=======
 	case 22:
 /* #line 184 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
      tok.pos = ts-q->raw;
      RSQuery_Parse(pParser, SEMICOLON, tok, q);
@@ -668,13 +449,8 @@ _eof_trans:
     }
    }}
 	break;
-<<<<<<< HEAD
-	case 20:
-/* #line 168 "lexer.rl" */
-=======
 	case 23:
 /* #line 199 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, TILDE, tok, q);  
@@ -683,13 +459,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 21:
-/* #line 175 "lexer.rl" */
-=======
 	case 24:
 /* #line 206 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, STAR, tok, q);
@@ -698,13 +469,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 22:
-/* #line 182 "lexer.rl" */
-=======
 	case 25:
 /* #line 213 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, PERCENT, tok, q);
@@ -713,13 +479,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 23:
-/* #line 189 "lexer.rl" */
-=======
 	case 26:
 /* #line 220 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LSQB, tok, q);  
@@ -728,13 +489,8 @@ _eof_trans:
     }  
   }}
 	break;
-<<<<<<< HEAD
-	case 24:
-/* #line 196 "lexer.rl" */
-=======
 	case 27:
 /* #line 227 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, RSQB, tok, q);   
@@ -743,22 +499,6 @@ _eof_trans:
     } 
   }}
 	break;
-<<<<<<< HEAD
-	case 25:
-/* #line 203 "lexer.rl" */
-	{te = p+1;}
-	break;
-	case 26:
-/* #line 204 "lexer.rl" */
-	{te = p+1;}
-	break;
-	case 27:
-/* #line 205 "lexer.rl" */
-	{te = p+1;}
-	break;
-	case 28:
-/* #line 221 "lexer.rl" */
-=======
 	case 28:
 /* #line 234 "lexer.rl" */
 	{te = p+1;}
@@ -773,7 +513,6 @@ _eof_trans:
 	break;
 	case 31:
 /* #line 252 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p+1;{
     int is_attr = (*ts == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -789,10 +528,6 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 29:
-/* #line 53 "lexer.rl" */
-=======
 	case 32:
 /* #line 56 "lexer.rl" */
 	{te = p;p--;{ 
@@ -809,7 +544,6 @@ _eof_trans:
 	break;
 	case 33:
 /* #line 67 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p;p--;{ 
     tok.s = ts;
     tok.len = te-ts;
@@ -820,18 +554,10 @@ _eof_trans:
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }
-<<<<<<< HEAD
-    
-  }}
-	break;
-	case 30:
-/* #line 74 "lexer.rl" */
-=======
   }}
 	break;
 	case 34:
 /* #line 87 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -842,13 +568,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 31:
-/* #line 161 "lexer.rl" */
-=======
 	case 35:
 /* #line 192 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p;p--;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, MINUS, tok, q);  
@@ -857,21 +578,12 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 32:
-/* #line 204 "lexer.rl" */
-	{te = p;p--;}
-	break;
-	case 33:
-/* #line 207 "lexer.rl" */
-=======
 	case 36:
 /* #line 235 "lexer.rl" */
 	{te = p;p--;}
 	break;
 	case 37:
 /* #line 238 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{te = p;p--;{
     tok.len = te-ts;
     tok.s = ts;
@@ -887,13 +599,8 @@ _eof_trans:
     }
   }}
 	break;
-<<<<<<< HEAD
-	case 34:
-/* #line 53 "lexer.rl" */
-=======
 	case 38:
 /* #line 67 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
 	{{p = ((te))-1;}{ 
     tok.s = ts;
     tok.len = te-ts;
@@ -904,16 +611,9 @@ _eof_trans:
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }
-<<<<<<< HEAD
-    
-  }}
-	break;
-	case 35:
-=======
   }}
 	break;
 	case 39:
->>>>>>> Vecsim search parser (#2441)
 /* #line 1 "NONE" */
 	{	switch( act ) {
 	case 1:
@@ -923,16 +623,6 @@ _eof_trans:
     char *ne = (char*)te;
     tok.numval = strtod(tok.s, &ne);
     tok.pos = ts-q->raw;
-<<<<<<< HEAD
-    RSQuery_Parse(pParser, NUMBER, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-    
-  }
-	break;
-	case 2:
-=======
     RSQuery_Parse(pParser, SIZE, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
@@ -953,7 +643,6 @@ _eof_trans:
   }
 	break;
 	case 3:
->>>>>>> Vecsim search parser (#2441)
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -964,11 +653,7 @@ _eof_trans:
     }
   }
 	break;
-<<<<<<< HEAD
-	case 3:
-=======
 	case 4:
->>>>>>> Vecsim search parser (#2441)
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -979,9 +664,6 @@ _eof_trans:
     }
   }
 	break;
-<<<<<<< HEAD
-	case 5:
-=======
 	case 6:
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
@@ -1005,7 +687,6 @@ _eof_trans:
   }
 	break;
 	case 8:
->>>>>>> Vecsim search parser (#2441)
 	{{p = ((te))-1;} 
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -1017,11 +698,7 @@ _eof_trans:
     }
   }
 	break;
-<<<<<<< HEAD
-	case 14:
-=======
 	case 17:
->>>>>>> Vecsim search parser (#2441)
 	{{p = ((te))-1;} 
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, MINUS, tok, q);  
@@ -1030,11 +707,7 @@ _eof_trans:
     }
   }
 	break;
-<<<<<<< HEAD
-	case 23:
-=======
 	case 26:
->>>>>>> Vecsim search parser (#2441)
 	{{p = ((te))-1;}
     tok.len = te-ts;
     tok.s = ts;
@@ -1056,11 +729,7 @@ _eof_trans:
 	}
 	}
 	break;
-<<<<<<< HEAD
-/* #line 657 "lexer.c" */
-=======
 /* #line 733 "lexer.c" */
->>>>>>> Vecsim search parser (#2441)
 		}
 	}
 
@@ -1073,11 +742,7 @@ _again:
 /* #line 1 "NONE" */
 	{ts = 0;}
 	break;
-<<<<<<< HEAD
-/* #line 670 "lexer.c" */
-=======
 /* #line 746 "lexer.c" */
->>>>>>> Vecsim search parser (#2441)
 		}
 	}
 
@@ -1095,11 +760,7 @@ _again:
 	_out: {}
 	}
 
-<<<<<<< HEAD
-/* #line 258 "lexer.rl" */
-=======
 /* #line 289 "lexer.rl" */
->>>>>>> Vecsim search parser (#2441)
   
   if (QPCTX_ISOK(q)) {
     RSQuery_Parse(pParser, 0, tok, q);

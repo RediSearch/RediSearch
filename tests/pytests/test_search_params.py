@@ -312,22 +312,22 @@ def test_numeric_range(env):
 def test_vector(env):
     conn = getConnectionByEnv(env)
 
-    args = ['SORTBY', 'v_score', 'ASC', 'RETURN', 1, 'v_score', 'LIMIT', 0, 2]
+    args = ['SORTBY', '__v_score', 'ASC', 'RETURN', 1, '__v_score', 'LIMIT', 0, 2]
 
     env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
-    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
     conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
     conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
     conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
+    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
 
-    res1 = ['a', ['v_score', '0'], 'b', ['v_score', '3.09485009821e+26']]
+    res1 = ['a', ['__v_score', '0'], 'b', ['__v_score', '3.09485009821e+26']]
     res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', *args) 
     env.assertEqual(res2[1:], res1)
     res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K $k @v $vec]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'k', '2', *args) 
     env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec AS score]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'k', '2', *args) 
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec AS __v_score]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'k', '2', *args) 
     env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec AS $score]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'score', 'sf1', *args) 
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec AS $score]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'score', '__v_score', *args) 
     env.assertEqual(res2[1:], res1)
     res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K $k @v $vec EF_RUNTIME $runtime]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args) 
     env.assertEqual(res2[1:], res1)
