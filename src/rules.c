@@ -1,5 +1,6 @@
 #include "rules.h"
 #include "aggregate/expr/expression.h"
+#include "aggregate/expr/exprast.h"
 #include "json.h"
 #include "rdb.h"
 
@@ -132,10 +133,16 @@ error:
   return NULL;
 }
 
-void RSExpr_GetProperties(RSExpr *e, char ***props);
-
+/*.
+ * RSExpr_GetProperties receives from the rule filter a list off all fields within it.
+ *
+ * The fields within the list are compared to the list of fieldSpecs and find
+ * the index for each field.
+ * 
+ * At documentation, the field index is used to load required fields instead of
+ * expensive comparisons.
+ */
 void SchemaRule_FilterFields(SchemaRule *rule) {
-  // if filter exist, check which fields should be loaded
   char **properties = array_new(char *, 8);
   IndexSpec *spec = rule->spec;
   RSExpr_GetProperties(rule->filter_exp, &properties);
@@ -145,12 +152,13 @@ void SchemaRule_FilterFields(SchemaRule *rule) {
     rule->filter_fields_index = rm_calloc(propLen, sizeof(int));
     for (int i = 0; i < propLen; ++i) {
       for (int j = 0; j < spec->numFields; ++j) {
+        // a match. save the field index for fast access
         FieldSpec *fs = spec->fields + j;
         if (!strcmp(properties[i], fs->name) || !strcmp(properties[i], fs->path)) {
           rule->filter_fields_index[i] = j;
           break;
         }
-        // no match was found
+        // no match was found we will load the field by the name provided.
         rule->filter_fields_index[i] = -1;
       }
     }

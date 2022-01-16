@@ -734,6 +734,7 @@ def testIdxFieldJson(env):
 
 def testFilterStartWith(env):
     conn = getConnectionByEnv(env)
+
     env.cmd('ft.create', 'things',
             'ON', 'JSON',
             'FILTER', 'startswith(@__key, "thing:")',
@@ -743,3 +744,41 @@ def testFilterStartWith(env):
 
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['$', '{"name":"foo","indexName":"idx1"}']])
+
+def testFilterWithOperator(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'things',
+            'ON', 'JSON',
+            'FILTER', '@name == "foo"',
+            'SCHEMA', '$.name', 'AS', 'name', 'text')
+
+    conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['$', '{"name":"foo","indexName":"idx1"}']])
+
+def testFilterWithNot(env):
+    conn = getConnectionByEnv(env)
+    # check NOT on a non existing value return 1 result
+    env.cmd('ft.create', 'things',
+            'ON', 'JSON',
+            'FILTER', '!(@name == "bar")',
+            'SCHEMA', '$.name', 'AS', 'name', 'text')
+
+    conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['$', '{"name":"foo","indexName":"idx1"}']])
+
+
+    env.cmd('FT.DROPINDEX', 'things', 'DD')
+
+    # check NOT on an existing value return 0 results
+    env.cmd('ft.create', 'things',
+            'ON', 'JSON',
+            'FILTER', '!(@name == "foo")',
+            'SCHEMA', '$.name', 'AS', 'name', 'text')
+
+    conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
+
+    env.expect('ft.search', 'things', 'foo').equal([0L])
