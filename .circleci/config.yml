@@ -589,14 +589,16 @@ workflows:
             parameters:
               platform: [focal, bionic, xenial, centos7, centos8, bullseye]
       - build-arm-platforms:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *on-any-branch
           context: common
           matrix:
             parameters:
               platform: [bionic]
       - build-macos:
           context: common
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *on-any-branch
       - coverage:
           <<: *on-any-branch
       - sanitize:
