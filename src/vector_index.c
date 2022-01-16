@@ -124,6 +124,28 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryErro
   return NewListIterator(vq->results, vq->resultsLen);
 }
 
+IndexIterator *NewHybridVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status, IndexIterator *child_it) {
+  RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
+  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
+  RedisModule_FreeString(ctx->redisCtx, key);
+  if (!vecsim) {
+    return NULL;
+  }
+  VecSimQueryParams qParams;
+  int err;
+  if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params), &qParams)) != VecSim_OK) {
+    err = VecSimResolveCode_to_QueryErrorCode(err);
+    QueryError_SetErrorFmt(status, err, "Error parsing vector similarity parameters: %s", QueryError_Strerror(err));
+    return NULL;
+  }
+  if (!isFit(vecsim, vq->topk.vecLen)) {
+    QueryError_SetError(status, QUERY_EINVAL, "Error parsing vector similarity query: query vector does not match index's type or dimention.");
+    return NULL;
+  }
+  VecSimBatchIterator *batch_it = VecSimBatchIterator_New(vecsim, vq->topk.vector);
+  return NewHybridVectorIteratorImpl(batch_it, VecSimIndex_IndexSize(vecsim), vq->topk.k, child_it);
+}
+
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
   for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
     int res = QueryParam_Resolve(&node->params[i], params, status);

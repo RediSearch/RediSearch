@@ -639,7 +639,9 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   array_ensure_append_1(*q->vecScoresp, qn->vn.vq->scoreField);
   if (QueryNode_NumChildren(qn) > 0) {
-    return NULL; // TODO: handle hybrid - get child iterator.
+    RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
+    IndexIterator *child_it = Query_EvalNode(q, qn->children[0]);
+    return NewHybridVectorIterator(q->sctx, qn->vn.vq, q->status, child_it);
   } else {
     return NewVectorIterator(q->sctx, qn->vn.vq, q->status);
   }

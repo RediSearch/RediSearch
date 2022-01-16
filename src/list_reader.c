@@ -1,6 +1,8 @@
 #include "list_reader.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
+#include "VecSim/query_result_struct.h"
+#include "util/heap.h"
 
 typedef struct {
   IndexIterator base;
@@ -9,6 +11,19 @@ typedef struct {
   t_docId lastDocId;
   t_offset size;
 } ListIterator;
+
+typedef struct {
+  IndexIterator base;
+  IndexIterator *childIt;
+  bool BF_MODE;
+  VecSimBatchIterator *batchIterator;
+  size_t vecIndexSize;
+  size_t k;
+  VecSimQueryResult_List list;
+  VecSimQueryResult_Iterator *iter;
+  t_docId lastDocId;
+  t_offset size;
+} HybridIterator;
 
 static inline void setEof(ListIterator *it, int value) {
   it->base.isValid = !value;
@@ -126,6 +141,98 @@ IndexIterator *NewListIterator(void *list, size_t len) {
   ri->Abort = LR_Abort;
   ri->Rewind = LR_Rewind;
   ri->HasNext = LR_HasNext;
+  ri->current = NewDistanceResult();
+
+  return ri;
+}
+
+static int cmpEntries(const void *p1, const void *p2, const void *udata) {
+  const VecSimQueryResult *e1 = p1, *e2 = p2;
+
+  if (e1->score < e2->score) {
+    return 1;
+  } else if (e1->score > e2->score) {
+    return -1;
+  }
+  return 0;
+}
+
+static int HR_Read(void *ctx, RSIndexResult **hit) {
+  HybridIterator *hr = ctx;
+  // Assuming the results for BF_MODE are stored upon initializing the iterator.
+  if (!hr->base.isValid || (!VecSimQueryResult_IteratorHasNext(hr->iter) && hr->BF_MODE)) {
+    hr->base.isValid = false;
+    return INDEXREAD_EOF;
+  }
+  // batch mode
+  if (VecSimQueryResult_IteratorHasNext(hr->iter)) {
+    VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
+    hr->base.current->docId = hr->lastDocId = VecSimQueryResult_GetId(res);
+    // save distance on RSIndexResult
+    hr->base.current->num.value = VecSimQueryResult_GetScore(res);
+    *hit = hr->base.current;
+    // Try to get another batch
+  } else if (!VecSimBatchIterator_HasNext(hr->batchIterator)) {
+      hr->base.isValid = false;
+      return INDEXREAD_EOF;
+  }
+  if (hr->iter) {
+    VecSimQueryResult_IteratorFree(hr->iter);
+  }
+  if (hr->list) {
+    VecSimQueryResult_Free(hr->list);
+  }
+  VecSimQueryResult_List next_batch = VecSimBatchIterator_Next(hr->batchIterator, hr->k, BY_ID);
+  hr->list = next_batch;
+  VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(next_batch);
+  hr->iter = iter;
+
+  heap_t *top_results = rm_malloc(heap_sizeof(hr->k));
+  heap_init(top_results, cmpEntries, NULL, hr->k);
+
+  while (hr->childIt->R)
+
+
+  return INDEXREAD_OK;
+}
+
+static bool UseBF(size_t T, size_t vec_index_size) {
+  return (float)T < (0.05 * (float)vec_index_size);
+}
+
+IndexIterator *NewHybridVectorIteratorImpl(VecSimBatchIterator *batch_it, size_t vec_index_size, size_t k, IndexIterator *child_it) {
+  HybridIterator *hi = rm_new(HybridIterator);
+  hi->lastDocId = 0;
+
+  //Todo: apply heuristics for BF mode
+  if (UseBF(child_it->NumEstimated(child_it), vec_index_size)) {
+    hi->BF_MODE = true;
+    // Go over child_it results, compute distances, sort and store results in hi->list
+    // can we do it here, or should it happen in the first call to "read"?
+  } else {
+    hi->batchIterator = batch_it;
+    //Todo: apply heuristics (batch_size = k / (vec_index_size*child_it->NumEstimated(child_it)))
+    size_t batch_size = k;
+    hi->list = VecSimBatchIterator_Next(batch_it, batch_size, BY_ID);
+  }
+  hi->size = VecSimQueryResult_Len(hi->list);
+  hi->iter = VecSimQueryResult_List_GetIterator(hi->list);
+  hi->base.isValid = 1;
+
+  IndexIterator *ri = &hi->base;
+  ri->ctx = hi;
+  ri->mode = MODE_SORTED;
+  ri->type = HYBRID_ITERATOR;
+  ri->NumEstimated = HR_NumEstimated;
+  ri->GetCriteriaTester = NULL; // TODO:remove from all project
+  ri->Read = HR_Read;
+  ri->SkipTo = HR_SkipTo;
+  ri->LastDocId = HR_LastDocId;
+  ri->Free = HybridIterator_Free;
+  ri->Len = HR_NumDocs;
+  ri->Abort = HR_Abort;
+  ri->Rewind = HR_Rewind;
+  ri->HasNext = HR_HasNext;
   ri->current = NewDistanceResult();
 
   return ri;
