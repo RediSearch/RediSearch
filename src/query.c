@@ -1244,21 +1244,40 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_IDS:
 
-      s = sdscat(s, "IDS { ");
+      s = sdscat(s, "IDS {");
       for (int i = 0; i < qs->fn.len; i++) {
         s = sdscatprintf(s, "%llu,", (unsigned long long)qs->fn.ids[i]);
       }
       break;
     case QN_VECTOR:
-      // TODO: add vector query params
-      s = sdscat(s, "VECTOR { ");
-      VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(qs->vn.vq->results);
-      VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
-      while (res) {
-        s = sdscatprintf(s, "[%lu,%lf]", VecSimQueryResult_GetId(res), VecSimQueryResult_GetScore(res));
-        res = VecSimQueryResult_IteratorNext(iter);
+      s = sdscat(s, "VECTOR {");
+      if (QueryNode_NumChildren(qs) > 0) {
+        s = sdscat(s, "\n");
+        s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+        s = doPad(s, depth);
+        s = sdscat(s, "} => {");
       }
-      VecSimQueryResult_IteratorFree(iter);
+      switch (qs->vn.vq->type) {
+        case VECSIM_QT_TOPK: {
+          s = sdscatprintf(s, "TOP K=%zu vectors similar to ", qs->vn.vq->topk.k);
+          // This loop finds the vector param name.
+          for (size_t i = 0; i < array_len(qs->params); i++) {
+            if (qs->params[i].type != PARAM_NONE && qs->params[i].target == &qs->vn.vq->topk.vector) {
+              s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
+              break;
+            }
+          }
+          s = sdscatprintf(s, "in @%s", qs->vn.vq->property);
+          for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
+            s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
+            s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
+          }
+          if (qs->vn.vq->scoreField) {
+            s = sdscatprintf(s, ", AS `%s`", qs->vn.vq->scoreField);
+          }
+          break;
+        }
+      }
       break;
     case QN_WILDCARD:
 
