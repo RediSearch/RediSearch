@@ -549,7 +549,8 @@ def testExplain(env):
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
+        'schema', 'foo', 'text', 'bar', 'numeric', 'sortable',
+        'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2'))
     q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
     res = r.execute_command('ft.explain', 'idx', q)
     # print res.replace('\n', '\\n')
@@ -564,6 +565,11 @@ def testExplain(env):
         raise unittest.SkipTest()
     res = env.cmd('ft.explainCli', 'idx', q)
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
+    env.assertEqual(expected, res)
+
+    q = ['* => [TOP_K $k @v $B]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    res = r.execute_command('ft.explain', 'idx', *q)
+    expected = """VECTOR {TOP 10 vectors similar to `$B` in @v, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
 def testNoIndex(env):
