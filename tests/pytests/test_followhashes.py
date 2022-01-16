@@ -749,13 +749,14 @@ def testFilterWithOperator(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things',
             'ON', 'JSON',
-            'FILTER', '@name == "foo"',
-            'SCHEMA', '$.name', 'AS', 'name', 'text')
+            'FILTER', '@num > 0',
+            'SCHEMA', '$.name', 'AS', 'name', 'text', '$.num', 'AS', 'num', 'numeric')
 
-    conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
+    conn.execute_command('JSON.SET', 'thing:foo', '$', r'{"name":"foo", "num":5}')
+    conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "num":-5}')
 
     env.expect('ft.search', 'things', 'foo') \
-       .equal([1L, 'thing:bar', ['$', '{"name":"foo","indexName":"idx1"}']])
+       .equal([1L, 'thing:foo', ['$', '{"name":"foo","num":5}']])
 
 def testFilterWithNot(env):
     conn = getConnectionByEnv(env)
