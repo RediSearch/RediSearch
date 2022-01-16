@@ -200,6 +200,24 @@ def testProfileTag(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
   env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Counter', 2L, 'Size', 2L]])
 
+def testProfileVector(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
+  conn.execute_command('hset', '1', 'v', 'abababab')
+  conn.execute_command('hset', '2', 'n', 'babababa')
+  conn.execute_command('hset', '3', 'n', 'aabbaabb')
+  conn.execute_command('hset', '4', 'n', 'bbaabbaa')
+  conn.execute_command('hset', '5', 'n', 'aaaabbbb')
+
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*=>[TOP_K 2 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  expected_iterators_res = ['Iterators profile', ['Type', 'LIST', 'Counter', 1L]]
+  expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 1L]
+  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(actual_res[1][4][3], expected_vecsim_rp_res)
+
 def testResultProcessorCounter(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)

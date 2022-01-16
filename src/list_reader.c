@@ -105,7 +105,7 @@ static int LR_HasNext(void *ctx) {
 }
 
 IndexIterator *NewListIterator(void *list, size_t len) {
-  ListIterator *li = rm_malloc(sizeof(*li));
+  ListIterator *li = rm_new(ListIterator);
   li->lastDocId = 0;
   li->size = len;
   li->list = list;
