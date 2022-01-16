@@ -99,11 +99,21 @@ Radius filters can be added into the query just like numeric filters. For exampl
 
 ## Vector Similarity filter in query
 
-It is possible to add vector similaruty queries directly into the query language.
+It is possible to add vector similarity queries directly into the query language.
 The basic syntax is `"*=>[ TOP_K {num|$num} @vector $query_vec]"` for running TOP K query on @vector field.
-<!-- It is also possible to run a query on filtered result, the syntax is `"{some sub-query}=>[ TOP_K {num|$num} @vector $query_vec]"`. -->
+<!-- It is also possilbe to run a Hybrid Query on a filtered result.
 
-As of version 2.4, we allow vector similarity to be used **once** in the query, and on the entire other query parts as its filter. For more information on vector smilarity syntax, see [Vector Fields](Vectors.md#querying_vector_fields), "Querying vector fields" section.
+A Hybrid query allows the user to specify a filter criteria that ALL results in a TOP K query must satisfy. The filter criteria can only include fields with non-vector indexes (e.g. indexes created on scalar values)
+
+The General syntax is `{some filter query}=>[ TOP_K {num|$num} @vector $query_vec]`. For example:
+
+* `@published_year:[2020 2021]` - Only entities published between 2020 and 2021.
+
+* `=>` - Separates scalar and vector query.
+
+* `[TOP_K {num|$num} @vector_field $query_vec]` - Return TOP `num` entities where `query_vec` is similar to the vector stored in `@vector_field`. -->
+
+As of version 2.4, we allow vector similarity to be used **once** in the query<!--, and on the entire other query parts as its filter-->. For more information on vector smilarity syntax, see [Vector Fields](Vectors.md#querying_vector_fields), "Querying vector fields" section.
 
 ## Prefix matching
 
