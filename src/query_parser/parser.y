@@ -144,6 +144,7 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 // If a non-terminal is used by C-code, e.g., expr(A)
 // then %destructor code will bot be called for it
 // (C-code is responsible for destroying it)
+// Unless during error handling
 
 %type expr { QueryNode * } 
 %destructor expr { QueryNode_Free($$); }
@@ -178,12 +179,19 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %type vector_command { QueryNode *}
 %destructor vector_command { QueryNode_Free($$); }
 
-%type vector_attribute { VectorQueryParam }
-%destructor vector_attribute { rm_free((char*)$$.value); }
+%type vector_attribute { SingleVectorQueryParam }
+// This destructor is commented out because it's not reachable: every vector_attribute that created
+// successfuly can successfuly be reduced to vector_attribute_list.
+// %destructor vector_attribute { rm_free((char*)($$.param.value)); rm_free((char*)($$.param.name)); }
 
-%type vector_attribute_list { VectorQueryParam *}
-%destructor vector_attribute_list { array_free_ex($$, {rm_free((char*)((VectorQueryParam*)ptr )->value);
-                                                       rm_free((char*)((VectorQueryParam*)ptr )->name);});}
+%type vector_attribute_list { VectorQueryParams }
+%destructor vector_attribute_list {
+  array_free($$.needResolve);
+  array_free_ex($$.params, {
+    rm_free((char*)((VecSimRawParam*)ptr)->value);
+    rm_free((char*)((VecSimRawParam*)ptr)->name);
+  });
+}
 
 %type modifierlist { Vector* }
 %destructor modifierlist { 
@@ -211,10 +219,14 @@ query ::= . {
   ctx->root = NULL;
 }
 
-query ::= STAR . {
+query ::= star . {
   setup_trace(ctx);
   ctx->root = NewWildcardNode();
 }
+
+star ::= STAR.
+
+star ::= LP star RP.
 
 /////////////////////////////////////////////////////////////////
 // AND Clause / Phrase
@@ -670,38 +682,58 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 
 // expr(A) ::= expr(B) ARROW LSQB vector_query(C) RSQB. {} // main parse, hybrid case.
 
-// TODO: add optimisation for "*=>[]" queries - vecsim search as the entire query. set order=BY_SCORE
-expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as subquery case.
+// expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as subquery case.
+//   switch (B->vn.vq->type) {
+//     case VECSIM_QT_TOPK:
+//       B->vn.vq->topk.order = BY_ID;
+//       break;
+//   }
+//   A = B;
+// }
+
+query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
+  setup_trace(ctx);
   switch (B->vn.vq->type) {
     case VECSIM_QT_TOPK:
-      B->vn.vq->topk.runType = VECSIM_RUN_KNN;
-      B->vn.vq->topk.order = BY_ID;
+      B->vn.vq->topk.order = BY_SCORE;
       break;
   }
-  A = B;
+  ctx->root = B;
 }
 
 // Vector query opt. 1 - full query.
 vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D). {
-  B->vn.vq->scoreField = rm_strndup(D.s, D.len);
+  if (B->vn.vq->scoreField) {
+    rm_free(B->vn.vq->scoreField);
+    B->vn.vq->scoreField = NULL;
+  }
+  B->params = array_grow(B->params, 1);
+  memset(&array_tail(B->params), 0, sizeof(*B->params));
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
   B->vn.vq->params = C;
   A = B;
 }
 
 // Vector query opt. 2 - score field only, no params.
-vector_query(A) ::= vector_command(B) AS param_term(D). { // how we get vector field query
-  B->vn.vq->scoreField = rm_strndup(D.s, D.len);
+vector_query(A) ::= vector_command(B) AS param_term(D). {
+  if (B->vn.vq->scoreField) {
+    rm_free(B->vn.vq->scoreField);
+    B->vn.vq->scoreField = NULL;
+  }
+  B->params = array_grow(B->params, 1);
+  memset(&array_tail(B->params), 0, sizeof(*B->params));
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
   A = B;
 }
 
 // Vector query opt. 3 - no score field, params only.
-vector_query(A) ::= vector_command(B) vector_attribute_list(C). { // how we get vector field query
+vector_query(A) ::= vector_command(B) vector_attribute_list(C). {
   B->vn.vq->params = C;
   A = B;
 }
 
 // Vector query opt. 4 - no score field and no params.
-vector_query(A) ::= vector_command(B). { // how we get vector field query
+vector_query(A) ::= vector_command(B). {
   A = B;
 }
 
@@ -711,27 +743,31 @@ vector_command(A) ::= TOP_K param_size(B) modifier(C) ATTRIBUTE(D). {
   D.type = QT_PARAM_VEC;
   A = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
   A->vn.vq->property = rm_strndup(C.s, C.len);
+  RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s)));
 }
 
 vector_attribute(A) ::= TERM(B) param_term(C). {
   const char *value = rm_strndup(C.s, C.len);
   const char *name = rm_strndup(B.s, B.len);
-  A = (VectorQueryParam){ .name = name, .namelen = B.len, .value = value, .vallen = C.len };
+  A.param = (VecSimRawParam){ .name = name, .nameLen = B.len, .value = value, .valLen = C.len };
   if (C.type == QT_PARAM_TERM) {
-    A.isParam = true;
+    A.needResolve = true;
   }
   else { // if C.type == QT_TERM
-    A.isParam = false;
+    A.needResolve = false;
   }
 }
 
 vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C). {
-  A = array_append(B, C);
+  A.params = array_append(B.params, C.param);
+  A.needResolve = array_append(B.needResolve, C.needResolve);
 }
 
 vector_attribute_list(A) ::= vector_attribute(B). {
-  A = array_new(VectorQueryParam, 1);
-  A = array_append(A, B);
+  A.params = array_new(VecSimRawParam, 1);
+  A.needResolve = array_new(bool, 1);
+  A.params = array_append(A.params, B.param);
+  A.needResolve = array_append(A.needResolve, B.needResolve);
 }
 
 /////////////////////////////////////////////////////////////////
