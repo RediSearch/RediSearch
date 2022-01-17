@@ -92,6 +92,11 @@ TEST_F(QueryTest, testParser) {
   // test some valid queries
   assertValidQuery("hello", ctx);
 
+  assertValidQuery("*", ctx);
+  assertValidQuery("(*)", ctx);
+  assertValidQuery("((((((*))))))", ctx);
+  assertInvalidQuery("((((*))))))", ctx);
+
   assertValidQuery("hello wor*", ctx);
   assertValidQuery("hello world", ctx);
   assertValidQuery("hello (world)", ctx);
@@ -217,8 +222,9 @@ TEST_F(QueryTest, testParser) {
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB foo bar x 5]", ctx);
 
   // Test basic vector similarity query combind with other expressions
-  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]=>{$weight: 0.5; $slop: 2}", ctx);
-  assertValidQuery("*=>[TOP_K $K1 @vec_field $BLOB1] OR *=>[TOP_K $K2 @vec_field $BLOB2]", ctx);
+  // This should fail for now because right now we only allow TOP_K query to be the root node.
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB]=>{$weight: 0.5; $slop: 2}", ctx);
+  assertInvalidQuery("*=>[TOP_K $K1 @vec_field $BLOB1] OR *=>[TOP_K $K2 @vec_field $BLOB2]", ctx);
 
   // Test basic vector similarity query errors
   assertInvalidQuery("*=>[TOPK $K @vec_field $BLOB]", ctx); // wrong command name

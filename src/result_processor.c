@@ -314,8 +314,6 @@ typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *u
 typedef struct {
   ResultProcessor base;
 
-  SortByType sortbyType;
-
   // The desired size of the heap - top N results
   // If set to 0 this is a growing heap
   uint32_t size;
@@ -407,44 +405,40 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   // If the data is not in the sorted vector, lets load it.
   size_t nkeys = self->fieldcmp.nkeys;
   if (nkeys && h->dmd) {
-    if (self->sortbyType == SORTBY_FIELD) {
-      int nLoadKeys = self->fieldcmp.nLoadKeys;
-      const RLookupKey **loadKeys = self->fieldcmp.loadKeys;
+    int nLoadKeys = self->fieldcmp.nLoadKeys;
+    const RLookupKey **loadKeys = self->fieldcmp.loadKeys;
 
-      // If there is no sorting vector, load all required fields, else, load missing fields
-      if (nLoadKeys == REDISEARCH_UNINITIALIZED) {
-        if (!h->rowdata.sv) {
-          loadKeys = self->fieldcmp.keys;
-          nLoadKeys = nkeys;
-        } else {
-          nLoadKeys = 0;
-          for (int i = 0; i < nkeys; ++i) {
-            if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
-              if (!loadKeys) {
-                loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
-              }
-              loadKeys[nLoadKeys++] = self->fieldcmp.keys[i];
+    // If there is no sorting vector, load all required fields, else, load missing fields
+    if (nLoadKeys == REDISEARCH_UNINITIALIZED) {
+      if (!h->rowdata.sv) {
+        loadKeys = self->fieldcmp.keys;
+        nLoadKeys = nkeys;
+      } else {
+        nLoadKeys = 0;
+        for (int i = 0; i < nkeys; ++i) {
+          if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
+            if (!loadKeys) {
+              loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
             }
+            loadKeys[nLoadKeys++] = self->fieldcmp.keys[i];
           }
         }
-        self->fieldcmp.loadKeys = loadKeys;
-        self->fieldcmp.nLoadKeys = nLoadKeys;
       }
+      self->fieldcmp.loadKeys = loadKeys;
+      self->fieldcmp.nLoadKeys = nLoadKeys;
+    }
 
-      if (loadKeys) {
-        QueryError status = {0};
-        RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
-                                      .dmd = h->dmd,
-                                      .nkeys = nLoadKeys,
-                                      .keys = loadKeys,
-                                      .status = &status};
-        RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
-        if (QueryError_HasError(&status)) {
-          return RS_RESULT_ERROR;
-        }
+    if (loadKeys) {
+      QueryError status = {0};
+      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
+                                    .dmd = h->dmd,
+                                    .nkeys = nLoadKeys,
+                                    .keys = loadKeys,
+                                    .status = &status};
+      RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
+      if (QueryError_HasError(&status)) {
+        return RS_RESULT_ERROR;
       }
-    } else {
-      RS_LOG_ASSERT(0, "oops");
     }
   }
 
@@ -554,18 +548,9 @@ static void srDtor(void *p) {
 }
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascmap, SortByType sortByType) {
+                                      uint64_t ascmap) {
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
-  ret->sortbyType = sortByType;
-  switch (sortByType) {
-  case SORTBY_FIELD:
-  case SORTBY_DISTANCE:
-    ret->cmp = cmpByFields;
-    break;
-  case SORTBY_SCORE:
-    ret->cmp = cmpByScore;
-    break;
-  }
+  ret->cmp = nkeys ? cmpByFields : cmpByScore;
   ret->cmpCtx = ret;
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
@@ -590,7 +575,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 }
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0, SORTBY_SCORE);
+  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
 }
 
 void SortAscMap_Dump(uint64_t tt, size_t n) {
@@ -737,7 +722,8 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 
 static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
                                      "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
-                                     "Projector", "Filter",        "Profile",     "Network"};
+                                     "Projector", "Filter",        "Profile",     "Network",
+                                     "Vector Similarity Scores Loader"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");

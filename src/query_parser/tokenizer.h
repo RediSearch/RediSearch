@@ -54,7 +54,7 @@ typedef struct {
 
 typedef struct {
   VecSimRawParam param;
-  bool isAttr;
+  bool needResolve;
 } SingleVectorQueryParam;
 
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;

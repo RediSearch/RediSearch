@@ -42,7 +42,7 @@ typedef enum {
 // It is the VecSim library job to resolve this strings-key-value params (array) into a VecSimQueryParams struct.
 typedef struct {
   VecSimRawParam *params;
-  bool *isAttr;
+  bool *needResolve;
 } VectorQueryParams;
 
 typedef struct VectorQuery {
@@ -71,7 +71,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryErro
 IndexIterator *NewHybridVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status, IndexIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
-int VectorQuery_ParamResolve(VectorQueryParams params, size_t ix, dict *paramsDict, QueryError *status);
+int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
 void VectorQuery_Free(VectorQuery *vq);
 
 int VecSimResolveCode_to_QueryErrorCode(int code);

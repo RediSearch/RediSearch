@@ -637,11 +637,11 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     return NULL;
   }
-  array_ensure_append_1(*q->vecScoresp, qn->vn.vq->scoreField);
+  // Add the score field name to the ast score field names array.
+  // This macro creats the array if it's the first name, and ensure its size is sufficient.
+  array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
   if (QueryNode_NumChildren(qn) > 0) {
-    RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
-    IndexIterator *child_it = Query_EvalNode(q, qn->children[0]);
-    return NewHybridVectorIterator(q->sctx, qn->vn.vq, q->status, child_it);
+    return NULL; // TODO: handle hybrid - get child iterator.
   } else {
     return NewVectorIterator(q->sctx, qn->vn.vq, q->status);
   }
@@ -984,7 +984,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
   return REDISMODULE_OK;
 }
 
-IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
+IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
                             ConcurrentSearchCtx *conc, QueryError *status) {
   QueryEvalCtx qectx = {
       .conc = conc,
@@ -993,7 +993,7 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
       .status = status,
-      .vecScoresp = &qast->vecScores,
+      .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
@@ -1006,6 +1006,8 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
+  array_free(q->vecScoreFieldNames);
+  q->vecScoreFieldNames = NULL;
   q->numTokens = 0;
   q->numParams = 0;
   rm_free(q->query);
@@ -1242,21 +1244,40 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_IDS:
 
-      s = sdscat(s, "IDS { ");
+      s = sdscat(s, "IDS {");
       for (int i = 0; i < qs->fn.len; i++) {
         s = sdscatprintf(s, "%llu,", (unsigned long long)qs->fn.ids[i]);
       }
       break;
     case QN_VECTOR:
-      // TODO: add vector query params
-      s = sdscat(s, "VECTOR { ");
-      VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(qs->vn.vq->results);
-      VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
-      while (res) {
-        s = sdscatprintf(s, "[%lu,%lf]", VecSimQueryResult_GetId(res), VecSimQueryResult_GetScore(res));
-        res = VecSimQueryResult_IteratorNext(iter);
+      s = sdscat(s, "VECTOR {");
+      if (QueryNode_NumChildren(qs) > 0) {
+        s = sdscat(s, "\n");
+        s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+        s = doPad(s, depth);
+        s = sdscat(s, "} => {");
       }
-      VecSimQueryResult_IteratorFree(iter);
+      switch (qs->vn.vq->type) {
+        case VECSIM_QT_TOPK: {
+          s = sdscatprintf(s, "TOP K=%zu vectors similar to ", qs->vn.vq->topk.k);
+          // This loop finds the vector param name.
+          for (size_t i = 0; i < array_len(qs->params); i++) {
+            if (qs->params[i].type != PARAM_NONE && qs->params[i].target == &qs->vn.vq->topk.vector) {
+              s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
+              break;
+            }
+          }
+          s = sdscatprintf(s, "in @%s", qs->vn.vq->property);
+          for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
+            s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
+            s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
+          }
+          if (qs->vn.vq->scoreField) {
+            s = sdscatprintf(s, ", AS `%s`", qs->vn.vq->scoreField);
+          }
+          break;
+        }
+      }
       break;
     case QN_WILDCARD:
 

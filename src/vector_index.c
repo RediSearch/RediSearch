@@ -162,18 +162,18 @@ int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-int VectorQuery_ParamResolve(VectorQueryParams params, size_t ix, dict *paramsDict, QueryError *status) {
-  if (!params.isAttr[ix]) {
+int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status) {
+  if (!params.needResolve[index]) {
     return 0;
   }
   size_t val_len;
-  const char *val = Param_DictGet(paramsDict, params.params[ix].value, &val_len, status);
+  const char *val = Param_DictGet(paramsDict, params.params[index].value, &val_len, status);
   if (!val) {
     return -1;
   }
-  rm_free((char *)params.params[ix].value);
-  params.params[ix].value = rm_strndup(val, val_len);
-  params.params[ix].valLen = val_len;
+  rm_free((char *)params.params[index].value);
+  params.params[index].value = rm_strndup(val, val_len);
+  params.params[index].valLen = val_len;
   return 1;
 }
 
@@ -190,7 +190,7 @@ void VectorQuery_Free(VectorQuery *vq) {
     rm_free((char *)vq->params.params[i].value);
   }
   array_free(vq->params.params);
-  array_free(vq->params.isAttr);
+  array_free(vq->params.needResolve);
   rm_free(vq);
 }
 
