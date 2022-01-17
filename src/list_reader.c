@@ -22,7 +22,9 @@ typedef struct {
   VecSimQueryResult_List list;
   VecSimQueryResult_Iterator *iter;
   t_docId lastDocId;
-  t_offset size;
+  t_offset listSize;
+  size_t returnedResCount;
+  heap_t *topResults;
 } HybridIterator;
 
 static inline void setEof(ListIterator *it, int value) {
@@ -146,15 +148,35 @@ IndexIterator *NewListIterator(void *list, size_t len) {
   return ri;
 }
 
-static int cmpEntries(const void *p1, const void *p2, const void *udata) {
-  const VecSimQueryResult *e1 = p1, *e2 = p2;
+static int cmpVecSimRes(const void *p1, const void *p2, const void *udata) {
+  const RSIndexResult *e1 = p1, *e2 = p2;
 
-  if (e1->score < e2->score) {
+  if (e1->num.value < e2->num.value) {
     return 1;
-  } else if (e1->score > e2->score) {
+  } else if (e1->num.value > e2->num.value) {
     return -1;
   }
   return 0;
+}
+
+// todo: decide how to handle SkipTo... rewind the child it?
+static int HR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
+  HybridIterator *hr = ctx;
+  while(VecSimQueryResult_IteratorHasNext(hr->iter)) {
+    VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
+    t_docId id = VecSimQueryResult_GetId(res);
+    if (docId > id) {
+      // consider binary search for next value
+      continue;
+    }
+    hr->base.current->docId = id;
+    hr->lastDocId = id;
+    hr->base.current->num.value = VecSimQueryResult_GetScore(res);
+    *hit = hr->base.current;
+    return INDEXREAD_OK;
+  }
+  hr->base.isValid = 0;
+  return INDEXREAD_EOF;
 }
 
 static int HR_Read(void *ctx, RSIndexResult **hit) {
@@ -164,18 +186,17 @@ static int HR_Read(void *ctx, RSIndexResult **hit) {
     hr->base.isValid = false;
     return INDEXREAD_EOF;
   }
-  // batch mode
-  if (VecSimQueryResult_IteratorHasNext(hr->iter)) {
-    VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
-    hr->base.current->docId = hr->lastDocId = VecSimQueryResult_GetId(res);
-    // save distance on RSIndexResult
-    hr->base.current->num.value = VecSimQueryResult_GetScore(res);
-    *hit = hr->base.current;
+  // Batch mode
+  if (heap_size(hr->topResults) > 0) {
+    *hit = heap_poll(hr->topResults);
+    hr->returnedResCount++;
+    return INDEXREAD_OK;
     // Try to get another batch
-  } else if (!VecSimBatchIterator_HasNext(hr->batchIterator)) {
+  } else if (!VecSimBatchIterator_HasNext(hr->batchIterator) || hr->returnedResCount == hr->k) {
       hr->base.isValid = false;
       return INDEXREAD_EOF;
   }
+  // Reset the result list and iterator with the next batch.
   if (hr->iter) {
     VecSimQueryResult_IteratorFree(hr->iter);
   }
@@ -187,12 +208,41 @@ static int HR_Read(void *ctx, RSIndexResult **hit) {
   VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(next_batch);
   hr->iter = iter;
 
-  heap_t *top_results = rm_malloc(heap_sizeof(hr->k));
-  heap_init(top_results, cmpEntries, NULL, hr->k);
+  // Initialize heap with more results, maximum size is the number of results left to return.
+  unsigned int heap_size = hr->k - hr->returnedResCount;
+  float upper_bound = INFINITY;
 
-  while (hr->childIt->R)
-
-
+  // Go over both iterators.
+  hr->childIt->Rewind(hr->childIt);
+  RSIndexResult *cur_res;
+  while (hr->childIt->isValid && hr->base.isValid) {
+    // found a match
+    if (hr->lastDocId == hr->childIt->current->docId) {
+      if (heap_count(hr->topResults) < heap_size) {
+        // insert to heap
+        heap_offerx(hr->topResults, cur_res);
+        RSIndexResult *top = heap_peek(hr->topResults);
+        upper_bound = (float)top->num.value;
+      } else if (hr->base.current->num.value < upper_bound) {
+        // replace with the worst candidate.
+        heap_replace(hr->topResults, cur_res);
+        RSIndexResult *top = heap_peek(hr->topResults);
+        upper_bound = (float)top->num.value;
+      }
+      hr->childIt->Read(hr, &cur_res);
+      // Otherwise, advance one of the iterators
+    } else if (hr->lastDocId < hr->childIt->current->docId) {
+      hr->base.SkipTo(hr, hr->childIt->current->docId, &cur_res);
+    } else {
+      hr->childIt->SkipTo(hr->childIt, hr->lastDocId, &cur_res);
+    }
+  }
+  // Return some result from the heap
+  if (heap_count(hr->topResults) == 0) {
+    hr->base.isValid = 0;
+    return INDEXREAD_EOF;
+  }
+  *hit = heap_poll(hr->topResults);
   return INDEXREAD_OK;
 }
 
@@ -215,13 +265,15 @@ IndexIterator *NewHybridVectorIteratorImpl(VecSimBatchIterator *batch_it, size_t
     size_t batch_size = k;
     hi->list = VecSimBatchIterator_Next(batch_it, batch_size, BY_ID);
   }
-  hi->size = VecSimQueryResult_Len(hi->list);
+  hi->listSize = VecSimQueryResult_Len(hi->list);
   hi->iter = VecSimQueryResult_List_GetIterator(hi->list);
   hi->base.isValid = 1;
+  hi->topResults = rm_malloc(heap_sizeof(k));
+  heap_init(hi->topResults, cmpVecSimRes, NULL, k);
 
   IndexIterator *ri = &hi->base;
   ri->ctx = hi;
-  ri->mode = MODE_SORTED;
+  ri->mode = MODE_UNSORTED;
   ri->type = HYBRID_ITERATOR;
   ri->NumEstimated = HR_NumEstimated;
   ri->GetCriteriaTester = NULL; // TODO:remove from all project
