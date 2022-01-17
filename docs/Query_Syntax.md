@@ -113,7 +113,7 @@ The General syntax is `{some filter query}=>[ TOP_K {num|$num} @vector $query_ve
 
 * `[TOP_K {num|$num} @vector_field $query_vec]` - Return TOP `num` entities where `query_vec` is similar to the vector stored in `@vector_field`. -->
 
-As of version 2.4, we allow vector similarity to be used **once** in the query, and on the entire query as its primary filter. Bad example: `"(@t:hello)=>[TOP_K 10 @v $B] AND @year:[2020 2022]"`. For more information on vector smilarity syntax, see [Vector Fields](Vectors.md#querying_vector_fields), "Querying vector fields" section.
+As of version 2.4, we allow vector similarity to be used **once** in the query, and on the entire query as its primary filter. For more information on vector smilarity syntax, see [Vector Fields](Vectors.md#querying_vector_fields), "Querying vector fields" section.
 
 ## Prefix matching
 
