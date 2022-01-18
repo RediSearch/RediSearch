@@ -691,6 +691,17 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 //   A = B;
 // }
 
+query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid query as entire query case.
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_TOPK:
+      B->vn.vq->topk.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+  QueryNode_AddChild(B, A);
+}
+
 query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
   switch (B->vn.vq->type) {

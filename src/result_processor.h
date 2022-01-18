@@ -60,7 +60,6 @@ typedef enum {
   RP_NETWORK,
   RP_VECSIM,
   RP_MAX,
-  RP_VECSIM,
 } ResultProcessorType;
 
 struct ResultProcessor;

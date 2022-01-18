@@ -1,5 +1,6 @@
 #include "vector_index.h"
 #include "list_reader.h"
+#include "hybrid_reader.h"
 #include "query_param.h"
 
 // taken from parser.c
@@ -116,8 +117,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryErro
         QueryError_SetError(status, QUERY_EINVAL, "Error parsing vector similarity query: query vector does not match index's type or dimention.");
         return NULL;
       }
-      vq->results = VecSimIndex_TopKQuery(vecsim, vq->topk.vector, vq->topk.k, &qParams, vq->topk.order );
-      vq->resultsLen = VecSimQueryResult_Len(vq->results);
+
       break;
   }
 
@@ -142,8 +142,7 @@ IndexIterator *NewHybridVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, Que
     QueryError_SetError(status, QUERY_EINVAL, "Error parsing vector similarity query: query vector does not match index's type or dimention.");
     return NULL;
   }
-  VecSimBatchIterator *batch_it = VecSimBatchIterator_New(vecsim, vq->topk.vector);
-  return NewHybridVectorIteratorImpl(batch_it, VecSimIndex_IndexSize(vecsim), vq->topk.k, child_it);
+  return NewHybridVectorIteratorImpl(vecsim, vq->topk, child_it);
 }
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
