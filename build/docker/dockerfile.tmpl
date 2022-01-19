@@ -58,7 +58,7 @@ WORKDIR /data
 
 RUN mkdir -p "{{MODULES_DIR}}"
 
-COPY --from=builder /build/bin/linux-{{OSNICK}}-release/search/redisearch.so* "{{MODULES_DIR}}/"
+COPY --from=builder /build/bin/linux-{{ARCH}}-release/search/redisearch.so* "{{MODULES_DIR}}/"
 RUN true
 COPY --from=json    {{MODULES_DIR}}/rejson.so* "{{MODULES_DIR}}/"
 RUN true
