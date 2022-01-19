@@ -64,7 +64,6 @@ static int HR_SkipToInBatch(VecSimQueryResult_Iterator *iter, t_docId docId, RSI
 
 
 static void prepareResults(HybridIterator *hr) {
-
   if (hr->mode == STANDARD_KNN) {
     hr->list =
         VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, NULL, hr->query.order);
@@ -111,6 +110,9 @@ static void prepareResults(HybridIterator *hr) {
       } else {
         hr->childIt->SkipTo(hr->childIt, hr->lastDocId, &cur_res);
       }
+    }
+    if (heap_count(hr->topResults) == hr->query.k) {
+      break;
     }
   }
 }
@@ -219,8 +221,8 @@ void HybridIterator_Free(struct indexIterator *self) {
   if (it->mode == HYBRID_ADHOC_BF || it->mode == HYBRID_BATCHES) {
     heap_free(it->topResults);
   } else if (it->mode == STANDARD_KNN) {
-    VecSimQueryResult_IteratorFree(it->iter);
-    VecSimQueryResult_Free(it->list);
+    if (it->list) VecSimQueryResult_Free(it->list);
+    if (it->iter) VecSimQueryResult_IteratorFree(it->iter);
   } else {
     RedisModule_Assert(false); // Error
   }
@@ -238,6 +240,8 @@ IndexIterator *NewHybridVectorIteratorImpl(VecSimIndex *index, TopKVectorQuery q
   //Todo: apply heuristics for BF mode
   if (child_it == NULL) {
     hi->mode = STANDARD_KNN;
+    hi->list = NULL;
+    hi->iter = NULL;
   } else if (UseBF(child_it->NumEstimated(child_it), query, index)) {
     hi->mode = HYBRID_ADHOC_BF;
   } else {
