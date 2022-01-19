@@ -1920,7 +1920,7 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
-    case LIST_ITERATOR:       { printListIt(ctx, root, counter, cpuTime, depth, limited);       break; }
+    case HYBRID_ITERATOR:       { printListIt(ctx, root, counter, cpuTime, depth, limited);       break; }
     case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
@@ -1956,6 +1956,7 @@ void Profile_AddIters(IndexIterator **root) {
     case WILDCARD_ITERATOR:
     case READ_ITERATOR:
     case LIST_ITERATOR:
+    case HYBRID_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
       break;
