@@ -18,7 +18,7 @@ if (RS_RUN_TESTS)
 	function(_rmutilTest name)
 		add_executable("${name}" "${name}.c" $<TARGET_OBJECTS:rmutil>)
 		target_compile_definitions("${name}" PRIVATE REDISMODULE_MAIN)
-		target_link_libraries(${name} m)
+		target_link_libraries(${name} m rt)
 		add_test(NAME "${name}" COMMAND "${name}")
 	endfunction()
 
