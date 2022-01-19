@@ -65,6 +65,8 @@ add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
+option(VECSIM_STATIC "Build as static library" ON)
+option(VESCIM_LINK_RUNTIME "Build link stdlibc++" ON)
 add_subdirectory(deps/VectorSimilarity/src)
 
 #----------------------------------------------------------------------------------------------
