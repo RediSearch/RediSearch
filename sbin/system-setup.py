@@ -27,8 +27,7 @@ class RediSearchSetup(paella.Setup):
 
     def debian_compat(self):
         self.install("libatomic1")
-        self.run("%s/bin/getgcc" % READIES)
-        self.run("%s/bin/getconda" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake libssl-dev")
         self.install("python-dev")
 
@@ -43,8 +42,7 @@ class RediSearchSetup(paella.Setup):
         self.run("%s/bin/getepel" % READIES, sudo=True)
         self.install("libatomic")
 
-        self.run("%s/bin/getgcc" % READIES)
-        self.run("%s/bin/getconda" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake openssl-devel")
         self.install("python2-devel")
 

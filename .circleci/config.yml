@@ -597,12 +597,8 @@ workflows:
               platform: [bionic]
       - build-macos:
           context: common
-<<<<<<< HEAD
           #@@<<: *on-integ-and-version-tags
           <<: *on-any-branch
-=======
-          <<: *on-integ-and-version-tags
->>>>>>> origin/master
       - coverage:
           <<: *on-any-branch
       - sanitize:
