@@ -4,8 +4,8 @@ if(NOT DEFINED root)
 	set(root ${RS_DIR})
 endif()
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
-message("# coord root: " ${RS_DIR})
-message("# coord binroot: " ${binroot})
+message("# RediSearch/coord root: " ${RS_DIR})
+message("# RediSearch/coord binroot: " ${binroot})
 
 include(${RS_DIR}/build/cmake/common.cmake)
 
@@ -25,6 +25,9 @@ set(RS_RUN_TESTS OFF CACHE BOOL "" FORCE) # Don't run RS' own tests
 set(RS_ENABLE_MOCK ON CACHE BOOL "" FORCE) # But build mock so we can link our own tests
 set(RS_BUILD_STATIC OFF CACHE BOOL "" FORCE)
 set(RS_BUILD_COORDINATOR 1)
+
+option(STATIC_LIBSTDCXX "Link libstdc++ statically" ON)
+message("# RediSearch/coord static libstdc++: " ${STATIC_LIBSTDCXX})
 
 #----------------------------------------------------------------------------------------------
 
@@ -74,6 +77,7 @@ endif()
 add_subdirectory(${RS_DIR} search)
 add_subdirectory(src/rmr)
 add_subdirectory(src)
+
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
@@ -106,7 +110,12 @@ macro(MODULE_TARGET TYPE)
     target_link_libraries(${_moduleName} redisearch-${SUFFIX} VectorSimilarity ${LIBUV_LIBS} ${HIREDIS_LIBS} ${SSL_LIBS})
 
     target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
-    
+
+	if(STATIC_LIBSTDCXX)
+		SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${CMAKE_STATIC_LIBSTDCXX_FLAGS}")
+		SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_STATIC_LIBSTDCXX_FLAGS}")
+	endif()
+
     set_target_properties(${_moduleName} PROPERTIES PREFIX "")
     set_target_properties(${_moduleName} PROPERTIES SUFFIX ".so")
 

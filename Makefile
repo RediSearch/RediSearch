@@ -43,6 +43,8 @@ endif
 export SAN
 endif # SAN
 
+STATIC_LIBSTDCXX ?= 1
+
 #----------------------------------------------------------------------------------------------
 
 ROOT=.
@@ -59,19 +61,20 @@ define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
 make fetch         # download and prepare dependant modules
 
-make build         # compile and link
-  COORD=1|oss|rlec   # build coordinator (1|oss: Open Source, rlec: Enterprise)
-  STATIC=1           # build as static lib
-  LITE=1             # build RediSearchLight
-  VECSIM_MARCH=arch  # architecture for VecSim build
-  DEBUG=1            # build for debugging
-  NO_TESTS=1         # disable unit tests
-  WHY=1              # explain CMake decisions (in /tmp/cmake-why)
-  FORCE=1            # Force CMake rerun (default)
-  CMAKE_ARGS=...     # extra arguments to CMake
-  VG=1               # build for Valgrind
-  SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread) 
-  SLOW=1             # do not parallelize build (for diagnostics)
+make build          # compile and link
+  COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)
+  STATIC=1            # build as static lib
+  LITE=1              # build RediSearchLight
+  VECSIM_MARCH=arch   # architecture for VecSim build
+  DEBUG=1             # build for debugging
+  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
+  NO_TESTS=1          # disable unit tests
+  WHY=1               # explain CMake decisions (in /tmp/cmake-why)
+  FORCE=1             # Force CMake rerun (default)
+  CMAKE_ARGS=...      # extra arguments to CMake
+  VG=1                # build for Valgrind
+  SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SLOW=1              # do not parallelize build (for diagnostics)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -228,6 +231,12 @@ ifeq ($(PROFILE),1)
 CMAKE_PROFILE=-DPROFILE=ON
 endif
 
+ifeq ($(STATIC_LIBSTDCXX),1)
+CMAKE_STATIC_LIBSTDCXX=-DSTATIC_LIBSTDCXX=on
+else
+CMAKE_STATIC_LIBSTDCXX=-DSTATIC_LIBSTDCXX=off
+endif
+
 ifeq ($(DEBUG),1)
 CMAKE_BUILD_TYPE=DEBUG
 else
@@ -311,7 +320,7 @@ CMAKE_FLAGS=\
 	-DARCH=$(ARCH)
 
 CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_VECSIM) \
-	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
+	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
 
 #----------------------------------------------------------------------------------------------
 
@@ -355,6 +364,7 @@ else
 MAKE_J:=-j$(shell nproc)
 endif
 
+ifeq ($(STATIC_LIBSTDCXX),1)
 ifeq ($(OSNICK),centos7)
 ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
 define SETUP_LIBSTDCXX
@@ -366,7 +376,8 @@ rm libstdc.tgz ;\
 ln -sf libstdc++.so.6.0.25 libstdc++.so.6
 endef
 endif
-endif
+endif # centos7
+endif # STATIC_LIBSTDCXX
 
 ifeq ($(FORCE),1)
 .PHONY: __force
