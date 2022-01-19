@@ -3,6 +3,7 @@
 FROM redisfab/redis:{{REDIS_VERSION}}-{{ARCH}}-{{OSNICK}} AS redis
 FROM {{OS}} AS builder
 
+RUN sed -ie 's/mesg n/tty -s \&\& mesg -n/g' /root/.profile
 SHELL ["/bin/bash", "-l", "-c"]
 
 RUN echo "Building for {{OSNICK}} ({{OS}}) for {{ARCH}} [with Redis {{REDIS_VERSION}}]"
@@ -57,7 +58,7 @@ WORKDIR /data
 
 RUN mkdir -p "{{MODULES_DIR}}"
 
-COPY --from=builder /build/bin/linux-{{ARCH}}-release/search/redisearch.so* "{{MODULES_DIR}}/"
+COPY --from=builder /build/bin/linux-{{OSNICK}}-release/search/redisearch.so* "{{MODULES_DIR}}/"
 RUN true
 COPY --from=json    {{MODULES_DIR}}/rejson.so* "{{MODULES_DIR}}/"
 RUN true
