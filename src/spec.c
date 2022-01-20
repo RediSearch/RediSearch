@@ -1038,6 +1038,13 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
 
   DocTable_Free(&spec->docs);
 
+  if (spec->aliases) {
+    for (size_t i = 0; i < array_len(spec->aliases); i++) {
+      rm_free(spec->aliases[i]);
+    }
+    array_free(spec->aliases);
+    spec->aliases = NULL;
+  }
 
   rm_free(spec->name);
   if (spec->sortables) {
@@ -1105,7 +1112,7 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 }
 
-static void IndexSpec_FreeAllTask(IndexSpec **specs) {
+static void IndexSpec_FreeAllTask(arrayof(IndexSpec *)specs) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec_FreeInternals(specs[i]);
   }
@@ -1122,10 +1129,11 @@ void IndexSpec_LegacyFree(void *spec) {
 }
 
 void IndexSpec_Free(IndexSpec *spec) {
+  if (!cleanPool) {
+    cleanPool = thpool_init(1);
+  }
+  
   if (spec->flags & Index_Temporary) {
-    if (!cleanPool) {
-      cleanPool = thpool_init(1);
-    }
     // we are taking the index to a background thread to be released.
     // before we do it we need to delete it from the index dictionary
     // to prevent it from been freed again.c
@@ -1137,8 +1145,9 @@ void IndexSpec_Free(IndexSpec *spec) {
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, spec);
     return;
   }
+  
   IndexSpec_FreeGlobals(spec);
-  IndexSpec_FreeInternals(spec);
+  thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeInternals, spec);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1181,7 +1190,7 @@ void Indexes_Free(dict *specsDict, TrieMap *schemaPrefixes, void *aliases,
       RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL);
       sp->isTimerSet = false;
     }
-    if (cursors && sp->uniqueId) {
+    if (cursors) {
       Cursors_PurgeWithName(cursors, sp->name);
       CursorList_RemoveSpec(cursors, sp->name);
     }
@@ -1199,6 +1208,7 @@ void Indexes_Free(dict *specsDict, TrieMap *schemaPrefixes, void *aliases,
   if (OnThread) {
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeAllTask, specs);
   } else {
+    // We do not clean on a thread when RediSearch exits b/c sanitizer. 
     IndexSpec_FreeAllTask(specs);
   }
 }

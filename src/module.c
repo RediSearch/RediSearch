@@ -1064,12 +1064,12 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   }
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
+  ReindexPool_ThreadPoolDestroy();
   Extensions_Free();
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();
   mempool_free_global();
   ConcurrentSearch_ThreadPoolDestroy();
-  ReindexPool_ThreadPoolDestroy();
   GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
