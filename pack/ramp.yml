@@ -1,0 +1,24 @@
+display_name: RediSearch 2
+author: RedisLabs
+email: meir@redislabs.com
+description: High performance search index on top of redis
+homepage: http://redisearch.io
+license:  Redis Source Available License Agreement
+command_line_args: ""
+min_redis_version: "6.0"
+min_redis_pack_version: "6.0"
+config_command: "FT.CONFIG SET"
+capabilities:
+    - types
+    - replica_of
+    - failover_migrate
+    - persistence_aof
+    - persistence_rdb
+    - clustering
+    - backup_restore
+    - reshard_rebalance
+    - flash
+    - crdb
+    - eviction_expiry
+    - hash_policy
+

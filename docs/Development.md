@@ -122,7 +122,7 @@ make deploy        # copy packages to S3
 make release       # release a version
 
 make docs          # create documentation
-make deploydocs    # deploy documentation
+make deploy-docs   # deploy documentation
 
 make platform      # build for specified platform
   OSNICK=nick        # platform to build for (default: host platform)

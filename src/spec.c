@@ -1490,6 +1490,9 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveUnsigned(rdb, f->tagFlags);
     RedisModule_SaveStringBuffer(rdb, &f->tagSep, 1);
   }
+  if (FIELD_IS(f, INDEXFLD_T_VECTOR)) {
+    VecSim_RdbSave(rdb, &f->vecSimParams);
+  }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -1536,6 +1539,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     RS_LOG_ASSERT(l == 1, "buffer length should be 1");
     f->tagSep = *s;
     RedisModule_Free(s);
+  }
+  // Load vector specific options
+  if (encver >= INDEX_VECSIM_VERSION && FIELD_IS(f, INDEXFLD_T_VECTOR)) {
+    if (VecSim_RdbLoad(rdb, &f->vecSimParams) != REDISMODULE_OK) {
+      goto fail;
+    }
   }
   return REDISMODULE_OK;
 
