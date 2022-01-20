@@ -70,6 +70,39 @@ FT.SEARCH userIdx '@name:(John)'
    2) "{\"user\":{\"name\":\"John Smith\",\"tag\":\"foo,bar\",\"hp\":1000,\"dmg\":150}}"
 ```
 
+## Indexing JSON arrays with tags
+
+It is possible to index scalar values in JSON arrays by using the wildcard operator in the JSON Path. For example if you were indexing blog posts you might have a field called `tags` which is an array of tags that apply to the blog post.
+
+```JSON
+{
+   "title":"Using RedisJson is Easy and Fun",
+   "tags":["redis","json","redisjson"]
+}
+```
+
+You can apply an index to the `tags` field by specifying the JSON Path `$.tags.*` in your schema creation:
+
+```bash
+FT.CREATE blog-idx ON JSON PREFIX 1 Blog: SCHEMA $.tags.* AS tags TAG
+```
+
+You would then set a blog post as you would any other JSON document:
+
+```bash
+JSON.SET Blog:1 . '{"title":"Using RedisJson is Easy and Fun", "tags":["redis","json","redisjson"]}'
+```
+
+And finally you can search using the typical tag searching syntax:
+
+```bash
+127.0.0.1:6379> FT.SEARCH blog-idx "@tags:{redis}"
+1) (integer) 1
+2) "Blog:1"
+3) 1) "$"
+   2) "{\"title\":\"Using RedisJson is Easy and Fun\",\"tags\":[\"redis\",\"json\",\"redisjson\"]}"
+```
+
 ## Field projection
 
 `FT.SEARCH` returns the whole document by default.
