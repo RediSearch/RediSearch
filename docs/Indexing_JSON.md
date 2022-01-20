@@ -72,7 +72,7 @@ FT.SEARCH userIdx '@name:(John)'
 
 ## Indexing JSON arrays with tags
 
-It is possible to index scalar string values in JSON arrays by using the wildcard operator in the JSON Path. For example if you were indexing blog posts you might have a field called `tags` which is an array of tags that apply to the blog post.
+It is possible to index scalar string and boolean values in JSON arrays by using the wildcard operator in the JSON Path. For example if you were indexing blog posts you might have a field called `tags` which is an array of tags that apply to the blog post.
 
 ```JSON
 {
