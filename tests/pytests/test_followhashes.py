@@ -749,7 +749,7 @@ def testFilterWithOperator(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things',
             'ON', 'JSON',
-            'FILTER', '@num > 0',
+            'FILTER', '@num > (0 + 0)',
             'SCHEMA', '$.name', 'AS', 'name', 'text', '$.num', 'AS', 'num', 'numeric')
 
     conn.execute_command('JSON.SET', 'thing:foo', '$', r'{"name":"foo", "num":5}')
