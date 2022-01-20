@@ -18,7 +18,7 @@ void Backup_Globals() {
 }
 
 void Restore_Globals() {
-  Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, NULL);
+  Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, NULL, 1);
 
   dictRelease(specDict_g);
   specDict_g = specDict_g_bkup;
@@ -34,7 +34,7 @@ void Restore_Globals() {
 }
 
 void Discard_Globals_Backup() {
-  Indexes_Free(specDict_g_bkup, SchemaPrefixes_g_bkup, AliasTable_g_bkup, NULL);
+  Indexes_Free(specDict_g_bkup, SchemaPrefixes_g_bkup, AliasTable_g_bkup, NULL, 1);
 
   dictRelease(specDict_g_bkup);
   specDict_g_bkup = NULL;

@@ -1054,7 +1054,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
 
   CursorList_Destroy(&RSCursors);
 
-  Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, NULL);
+  Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, NULL, 0);
   dictRelease(specDict_g);
   specDict_g = NULL;
 

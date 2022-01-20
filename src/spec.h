@@ -531,7 +531,7 @@ typedef struct IndexesScanner {
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
-void Indexes_Free(dict *d, TrieMap *schemaPrefixes, void *aliases, void *cursors);
+void Indexes_Free(dict *d, TrieMap *schemaPrefixes, void *aliases, void *cursors, bool onThread);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,

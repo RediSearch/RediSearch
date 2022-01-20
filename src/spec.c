@@ -1015,9 +1015,8 @@ void IndexSpec_FreeGlobals(IndexSpec *spec) {
     // and is being freed now during an error.
     Cursors_PurgeWithName(&RSCursors, spec->name);
     CursorList_RemoveSpec(&RSCursors, spec->name);
-
-    IndexSpec_ClearAliases(spec);
   }
+  IndexSpec_ClearAliases(spec);
 }
 
 // free all resources of the spec:
@@ -1036,7 +1035,9 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
+
   DocTable_Free(&spec->docs);
+
 
   rm_free(spec->name);
   if (spec->sortables) {
@@ -1160,7 +1161,8 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-void Indexes_Free(dict *specsDict, TrieMap *schemaPrefixes, void *aliases, void *cursors) {
+void Indexes_Free(dict *specsDict, TrieMap *schemaPrefixes, void *aliases,
+                  void *cursors, bool OnThread) {
   if (!cleanPool) {
     cleanPool = thpool_init(1);
   }
@@ -1194,7 +1196,11 @@ void Indexes_Free(dict *specsDict, TrieMap *schemaPrefixes, void *aliases, void 
   IndexAlias_Empty(aliases);
   SchemaPrefixes_Empty(schemaPrefixes);
   
-  thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeAllTask, specs);
+  if (OnThread) {
+    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeAllTask, specs);
+  } else {
+    IndexSpec_FreeAllTask(specs);
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2158,7 +2164,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
-    Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, NULL);
+    Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, NULL, 1);
     if (legacySpecDict) {
       dictEmpty(legacySpecDict, NULL);
     } else {
@@ -2295,7 +2301,7 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void IndexSpec_CleanAll(void) {
-  Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, &RSCursors);
+  Indexes_Free(specDict_g, SchemaPrefixes_g, AliasTable_g, &RSCursors, 1);
 }
 
 static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
