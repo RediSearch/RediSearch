@@ -27,7 +27,7 @@ class RediSearchSetup(paella.Setup):
 
     def debian_compat(self):
         self.install("libatomic1")
-        self.run("%s/bin/getgcc --modern" % READIES, sudo=True)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake libssl-dev")
         self.install("python-dev")
 
@@ -42,20 +42,22 @@ class RediSearchSetup(paella.Setup):
         self.run("%s/bin/getepel" % READIES, sudo=True)
         self.install("libatomic")
 
-        self.run("%s/bin/getgcc --modern" % READIES, sudo=True)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake openssl-devel")
         self.install("python2-devel")
 
         if self.platform.is_arm():
             self.install("python-gevent")
+        else:
+            self.install_linux_gnu_tar()
 
     def archlinux(self):
-        self.run("%s/bin/getgcc --modern" % READIES, sudo=True)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake")
 
     def fedora(self):
         self.install("libatomic")
-        self.run("%s/bin/getgcc --modern" % READIES, sudo=True)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("openssl-devel")
 
     def macos(self):
