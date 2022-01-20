@@ -1,4 +1,4 @@
-INCLUDE(CheckCCompilerFlag)
+include(CheckCCompilerFlag)
 
 # This file exposes the following:
 # RS_C_FLAGS
@@ -76,6 +76,12 @@ set(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
 set(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
 
 #----------------------------------------------------------------------------------------------
+
+if (${OS} STREQUAL "linux")
+	set(RS_LINK_LIBS m dl rt)
+elseif (${OS} STREQUAL "macos")
+	set(RS_LINK_LIBS "m dl")
+endif()
 
 if (NOT APPLE)
     set(RS_SO_FLAGS "-Wl,-Bsymbolic,-Bsymbolic-functions")
