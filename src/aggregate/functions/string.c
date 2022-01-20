@@ -340,13 +340,16 @@ static int stringfunc_contains(ExprEval *ctx, RSValue *result, RSValue **argv, s
   RSValue *pref = RSValue_Dereference(argv[1]);
 
   char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
-  const char *p_pref = (char *)RSValue_StringPtrLen(pref, NULL);
+  size_t p_pref_size;
+  const char *p_pref = (char *)RSValue_StringPtrLen(pref, &p_pref_size);
   result->t = RSValue_Number;
 
   size_t num = 0;
-  while ((p_str = strstr(p_str, p_pref)) != NULL) {
-    num++;
-    p_str++;
+  if(p_pref_size > 0) {
+    while ((p_str = strstr(p_str, p_pref)) != NULL) {
+      num++;
+      p_str++;
+    }
   }
   result->numval = num;
   return EXPR_EVAL_OK;
