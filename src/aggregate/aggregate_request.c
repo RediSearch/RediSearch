@@ -118,38 +118,6 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
-static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
-  ArgsCursor paramsArgs = {0};
-  int rv = AC_GetVarArgs(ac, &paramsArgs);
-  if (rv != AC_OK) {
-    QERR_MKBADARGS_AC(status, "PARAMS", rv);
-    return REDISMODULE_ERR;
-  }
-  if (req->searchopts.params) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Multiple PARAMS are not allowed. Parameters can be defined only once");
-    return REDISMODULE_ERR;
-  }
-  if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
-    return REDISMODULE_ERR;
-  }
-
-  dict *params = Param_DictCreate();
-  size_t value_len;
-  while (!AC_IsAtEnd(&paramsArgs)) {
-    const char *param = AC_GetStringNC(&paramsArgs, NULL);
-    const char *value = AC_GetStringNC(&paramsArgs, &value_len);
-    // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
-    if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
-      Param_DictFree(params);
-      return REDISMODULE_ERR;
-    }
-  }
-  req->searchopts.params = params;
-
-  return REDISMODULE_OK;
-}
-
 static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
   // This handles the common arguments that are not stateful
@@ -209,7 +177,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     req->reqflags |= QEXEC_F_SENDRAWIDS;
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
-    if (parseParams(req, ac, status) != REDISMODULE_OK) {
+    if (parseParams(&(req->searchopts.params), ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {

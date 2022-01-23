@@ -48,3 +48,6 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status);
  */
 bool QueryParam_SetParam(struct QueryParseCtx *q, Param *target_param, void *target_value,
                          size_t *target_len, QueryToken *source);
+
+
+int parseParams(dict **destParams, ArgsCursor *ac, QueryError *status);

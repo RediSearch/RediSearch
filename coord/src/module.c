@@ -31,6 +31,7 @@
 #include <sys/param.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include "query.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 
@@ -309,6 +310,11 @@ typedef struct {
   double sortKeyNum;
 } searchResult;
 
+typedef enum {
+  SPECIAL_CASE_NONE,
+  SPECIAL_CASE_TOPK
+} searchRequestSpecialCase;
+
 typedef struct {
   char *queryString;
   long long offset;
@@ -320,6 +326,7 @@ typedef struct {
   int sortAscending;
   int withSortingKeys;
   int noContent;
+  searchRequestSpecialCase specialCase;
 
   // used to signal profile flag and count related args
   int profileArgs;
@@ -350,6 +357,44 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
     }
   }
   return REDISMODULE_OK;
+}
+
+void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, int argc) {
+  QueryError status = {0};
+  RedisSearchCtx sctx = {0};
+  RSSearchOptions opts = {0};
+  QueryParseCtx qpCtx = {
+                         .raw = req->queryString,
+                         .len = strlen(req->queryString),
+                         .sctx = &sctx,
+                         .opts = &opts,
+                         .status = &status,
+#ifdef PARSER_DEBUG
+                         .trace_log = NULL
+#endif
+  };
+  QueryNode* queryNode = RSQuery_ParseRaw(&qpCtx);
+  if(queryNode!= NULL && queryNode->type == QN_VECTOR) {
+
+    // In we need to parse the parameters
+    if(QueryNode_NumParams(queryNode)>0) {
+      dict *params = NULL;
+      int paramsOffset = RMUtil_ArgExists("PARAMS", argv, argc, 1)+1;
+      if(paramsOffset!=0) {
+        ArgsCursor ac;
+        ArgsCursor_InitRString(&ac, argv+paramsOffset, argc-paramsOffset);
+          parseParams(&params, &ac, &status);
+      }
+      else {
+        //fail
+      }
+      QueryNode_EvalParamsCommon(params, queryNode, &status);
+    }
+    QueryVectorNode queryVectorNode = queryNode->vn;
+    size_t k = queryVectorNode.vq->topk.k;
+    const char* scoreField = queryVectorNode.vq->scoreField;
+    req->specialCase = SPECIAL_CASE_TOPK;
+  }
 }
 
 searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
@@ -407,6 +452,13 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   if (req->limit < 0 || req->offset < 0) {
     free(req);
     return NULL;
+  }
+
+  // Handle special cases
+  req->specialCase = SPECIAL_CASE_NONE;
+  // Note: currently there is only one single case. For extending those cases we should use a trie here.
+  if(strstr(req->queryString, "TOP_K")) {
+    prepareOptionalTopKCase(req, argv, argc);
   }
 
   return req;
