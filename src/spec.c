@@ -1016,6 +1016,12 @@ void IndexSpec_FreeGlobals(IndexSpec *spec) {
     Cursors_PurgeWithName(&RSCursors, spec->name);
     CursorList_RemoveSpec(&RSCursors, spec->name);
   }
+
+  if (spec->stopwords) {
+    StopWordList_Unref(spec->stopwords);
+    spec->stopwords = NULL;
+  }
+
   IndexSpec_ClearAliases(spec);
 }
 
@@ -1050,10 +1056,6 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->sortables) {
     SortingTable_Free(spec->sortables);
     spec->sortables = NULL;
-  }
-  if (spec->stopwords) {
-    StopWordList_Unref(spec->stopwords);
-    spec->stopwords = NULL;
   }
 
   if (spec->smap) {
@@ -1196,6 +1198,10 @@ void Indexes_Free(dict *specsDict, TrieMap *schemaPrefixes, void *aliases,
     }
     if (sp->gc) {
       GCContext_Stop(sp->gc);
+    }
+    if (sp->stopwords) {
+      StopWordList_Unref(spec->stopwords);
+      spec->stopwords = NULL;
     }
   }
   dictReleaseIterator(iter);
