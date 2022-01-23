@@ -255,6 +255,7 @@ double QS_Query(QuantStream *stream, double q) {
   }
 
   double t = ceil(q * stream->n);
+  t += floor(QS_GetMaxVal(stream, t) / 2.0);
   const Sample *prev = stream->firstSample;
   double r = 0;
 
