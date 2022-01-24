@@ -131,25 +131,28 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 #define COLON                           5
 #define MINUS                           6
 #define NUMBER                          7
-#define STOPWORD                        8
-#define TERMLIST                        9
-#define TERM                           10
-#define PREFIX                         11
-#define PERCENT                        12
-#define ATTRIBUTE                      13
-#define LP                             14
-#define RP                             15
-#define MODIFIER                       16
-#define AND                            17
-#define OR                             18
-#define ORX                            19
-#define ARROW                          20
-#define STAR                           21
-#define SEMICOLON                      22
-#define LB                             23
-#define RB                             24
-#define LSQB                           25
-#define RSQB                           26
+#define SIZE                            8
+#define STOPWORD                        9
+#define STAR                           10
+#define TERMLIST                       11
+#define TERM                           12
+#define PREFIX                         13
+#define PERCENT                        14
+#define ATTRIBUTE                      15
+#define LP                             16
+#define RP                             17
+#define MODIFIER                       18
+#define AND                            19
+#define OR                             20
+#define ORX                            21
+#define ARROW                          22
+#define TOP_K                          23
+#define AS                             24
+#define SEMICOLON                      25
+#define LB                             26
+#define RB                             27
+#define LSQB                           28
+#define RSQB                           29
 #endif
 /**************** End token definitions ***************************************/
 
@@ -239,6 +242,7 @@ typedef union {
 #define RSQueryParser_CTX_STORE
 #define YYNSTATE             82
 #define YYNRULE              80
+#define YYNRULE_WITH_ACTION  78
 #define YYNTOKEN             30
 #define YY_MAX_SHIFT         81
 #define YY_MIN_SHIFTREDUCE   140
@@ -393,7 +397,8 @@ static const YYCODETYPE yy_lookahead[] = {
  /*   350 */    12,   53,   53,   15,    7,    8,   53,   53,   53,   12,
  /*   360 */    53,   53,   15,   53,   53,   53,   53,   53,   53,   53,
  /*   370 */    53,   53,   53,   53,   53,   53,   53,   53,   53,   53,
- /*   380 */    53,   53,   53,   53,   53,
+ /*   380 */    53,   53,   53,   53,   53,   30,   30,   30,   30,   30,
+ /*   390 */    30,   30,   30,
 };
 #define YY_SHIFT_COUNT    (81)
 #define YY_SHIFT_MIN      (0)
@@ -1156,93 +1161,174 @@ static void yy_shift(
   yyTraceShift(yypParser, yyNewState, "Shift");
 }
 
-/* The following table contains information about every rule that
-** is used during the reduce.
-*/
-static const struct {
-  YYCODETYPE lhs;       /* Symbol on the left-hand side of the rule */
-  signed char nrhs;     /* Negative of the number of RHS symbols in the rule */
-} yyRuleInfo[] = {
-  {   46,   -1 }, /* (0) query ::= expr */
-  {   46,    0 }, /* (1) query ::= */
-  {   46,   -1 }, /* (2) query ::= star */
-  {   30,   -2 }, /* (3) expr ::= expr expr */
-  {   30,   -1 }, /* (4) expr ::= union */
-  {   35,   -3 }, /* (5) union ::= expr OR expr */
-  {   35,   -3 }, /* (6) union ::= union OR expr */
-  {   30,   -3 }, /* (7) expr ::= modifier COLON expr */
-  {   30,   -3 }, /* (8) expr ::= modifierlist COLON expr */
-  {   30,   -3 }, /* (9) expr ::= LP expr RP */
-  {   31,   -3 }, /* (10) attribute ::= ATTRIBUTE COLON param_term */
-  {   32,   -1 }, /* (11) attribute_list ::= attribute */
-  {   32,   -3 }, /* (12) attribute_list ::= attribute_list SEMICOLON attribute */
-  {   32,   -2 }, /* (13) attribute_list ::= attribute_list SEMICOLON */
-  {   32,    0 }, /* (14) attribute_list ::= */
-  {   30,   -5 }, /* (15) expr ::= expr ARROW LB attribute_list RB */
-  {   30,   -3 }, /* (16) expr ::= QUOTE termlist QUOTE */
-  {   30,   -3 }, /* (17) expr ::= QUOTE term QUOTE */
-  {   30,   -3 }, /* (18) expr ::= QUOTE ATTRIBUTE QUOTE */
-  {   30,   -1 }, /* (19) expr ::= param_term */
-  {   30,   -1 }, /* (20) expr ::= prefix */
-  {   30,   -1 }, /* (21) expr ::= termlist */
-  {   30,   -1 }, /* (22) expr ::= STOPWORD */
-  {   34,   -2 }, /* (23) termlist ::= param_term param_term */
-  {   34,   -2 }, /* (24) termlist ::= termlist param_term */
-  {   34,   -2 }, /* (25) termlist ::= termlist STOPWORD */
-  {   30,   -2 }, /* (26) expr ::= MINUS expr */
-  {   30,   -2 }, /* (27) expr ::= TILDE expr */
-  {   33,   -1 }, /* (28) prefix ::= PREFIX */
-  {   30,   -3 }, /* (29) expr ::= PERCENT param_term PERCENT */
-  {   30,   -5 }, /* (30) expr ::= PERCENT PERCENT param_term PERCENT PERCENT */
-  {   30,   -7 }, /* (31) expr ::= PERCENT PERCENT PERCENT param_term PERCENT PERCENT PERCENT */
-  {   30,   -3 }, /* (32) expr ::= PERCENT STOPWORD PERCENT */
-  {   30,   -5 }, /* (33) expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
-  {   30,   -7 }, /* (34) expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
-  {   48,   -1 }, /* (35) modifier ::= MODIFIER */
-  {   43,   -3 }, /* (36) modifierlist ::= modifier OR term */
-  {   43,   -3 }, /* (37) modifierlist ::= modifierlist OR term */
-  {   30,   -3 }, /* (38) expr ::= modifier COLON tag_list */
-  {   37,   -2 }, /* (39) tag_list ::= LB param_term */
-  {   37,   -2 }, /* (40) tag_list ::= LB STOPWORD */
-  {   37,   -2 }, /* (41) tag_list ::= LB prefix */
-  {   37,   -2 }, /* (42) tag_list ::= LB termlist */
-  {   37,   -3 }, /* (43) tag_list ::= tag_list OR param_term */
-  {   37,   -3 }, /* (44) tag_list ::= tag_list OR STOPWORD */
-  {   37,   -3 }, /* (45) tag_list ::= tag_list OR prefix */
-  {   37,   -3 }, /* (46) tag_list ::= tag_list OR termlist */
-  {   37,   -2 }, /* (47) tag_list ::= tag_list RB */
-  {   30,   -3 }, /* (48) expr ::= modifier COLON numeric_range */
-  {   45,   -4 }, /* (49) numeric_range ::= LSQB param_any param_any RSQB */
-  {   30,   -3 }, /* (50) expr ::= modifier COLON geo_filter */
-  {   38,   -6 }, /* (51) geo_filter ::= LSQB param_any param_any param_any param_any RSQB */
-  {   46,   -5 }, /* (52) query ::= star ARROW LSQB vector_query RSQB */
-  {   39,   -4 }, /* (53) vector_query ::= vector_command vector_attribute_list AS param_term */
-  {   39,   -3 }, /* (54) vector_query ::= vector_command AS param_term */
-  {   39,   -2 }, /* (55) vector_query ::= vector_command vector_attribute_list */
-  {   39,   -1 }, /* (56) vector_query ::= vector_command */
-  {   40,   -4 }, /* (57) vector_command ::= TOP_K param_size modifier ATTRIBUTE */
-  {   41,   -2 }, /* (58) vector_attribute ::= TERM param_term */
-  {   42,   -2 }, /* (59) vector_attribute_list ::= vector_attribute_list vector_attribute */
-  {   42,   -1 }, /* (60) vector_attribute_list ::= vector_attribute */
-  {   44,   -1 }, /* (61) num ::= SIZE */
-  {   44,   -1 }, /* (62) num ::= NUMBER */
-  {   44,   -2 }, /* (63) num ::= LP num */
-  {   44,   -2 }, /* (64) num ::= MINUS num */
-  {   50,   -1 }, /* (65) term ::= TERM */
-  {   50,   -1 }, /* (66) term ::= NUMBER */
-  {   50,   -1 }, /* (67) term ::= SIZE */
-  {   49,   -1 }, /* (68) param_term ::= TERM */
-  {   49,   -1 }, /* (69) param_term ::= NUMBER */
-  {   49,   -1 }, /* (70) param_term ::= SIZE */
-  {   49,   -1 }, /* (71) param_term ::= ATTRIBUTE */
-  {   52,   -1 }, /* (72) param_size ::= SIZE */
-  {   52,   -1 }, /* (73) param_size ::= ATTRIBUTE */
-  {   51,   -1 }, /* (74) param_any ::= ATTRIBUTE */
-  {   51,   -2 }, /* (75) param_any ::= LP ATTRIBUTE */
-  {   51,   -1 }, /* (76) param_any ::= TERM */
-  {   51,   -1 }, /* (77) param_any ::= num */
-  {   47,   -1 }, /* (78) star ::= STAR */
-  {   47,   -3 }, /* (79) star ::= LP star RP */
+/* For rule J, yyRuleInfoLhs[J] contains the symbol on the left-hand side
+** of that rule */
+static const YYCODETYPE yyRuleInfoLhs[] = {
+    46,  /* (0) query ::= expr */
+    46,  /* (1) query ::= */
+    46,  /* (2) query ::= star */
+    30,  /* (3) expr ::= expr expr */
+    30,  /* (4) expr ::= union */
+    35,  /* (5) union ::= expr OR expr */
+    35,  /* (6) union ::= union OR expr */
+    30,  /* (7) expr ::= modifier COLON expr */
+    30,  /* (8) expr ::= modifierlist COLON expr */
+    30,  /* (9) expr ::= LP expr RP */
+    31,  /* (10) attribute ::= ATTRIBUTE COLON param_term */
+    32,  /* (11) attribute_list ::= attribute */
+    32,  /* (12) attribute_list ::= attribute_list SEMICOLON attribute */
+    32,  /* (13) attribute_list ::= attribute_list SEMICOLON */
+    32,  /* (14) attribute_list ::= */
+    30,  /* (15) expr ::= expr ARROW LB attribute_list RB */
+    30,  /* (16) expr ::= QUOTE termlist QUOTE */
+    30,  /* (17) expr ::= QUOTE term QUOTE */
+    30,  /* (18) expr ::= QUOTE ATTRIBUTE QUOTE */
+    30,  /* (19) expr ::= param_term */
+    30,  /* (20) expr ::= prefix */
+    30,  /* (21) expr ::= termlist */
+    30,  /* (22) expr ::= STOPWORD */
+    34,  /* (23) termlist ::= param_term param_term */
+    34,  /* (24) termlist ::= termlist param_term */
+    34,  /* (25) termlist ::= termlist STOPWORD */
+    30,  /* (26) expr ::= MINUS expr */
+    30,  /* (27) expr ::= TILDE expr */
+    33,  /* (28) prefix ::= PREFIX */
+    30,  /* (29) expr ::= PERCENT param_term PERCENT */
+    30,  /* (30) expr ::= PERCENT PERCENT param_term PERCENT PERCENT */
+    30,  /* (31) expr ::= PERCENT PERCENT PERCENT param_term PERCENT PERCENT PERCENT */
+    30,  /* (32) expr ::= PERCENT STOPWORD PERCENT */
+    30,  /* (33) expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
+    30,  /* (34) expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
+    48,  /* (35) modifier ::= MODIFIER */
+    43,  /* (36) modifierlist ::= modifier OR term */
+    43,  /* (37) modifierlist ::= modifierlist OR term */
+    30,  /* (38) expr ::= modifier COLON tag_list */
+    37,  /* (39) tag_list ::= LB param_term */
+    37,  /* (40) tag_list ::= LB STOPWORD */
+    37,  /* (41) tag_list ::= LB prefix */
+    37,  /* (42) tag_list ::= LB termlist */
+    37,  /* (43) tag_list ::= tag_list OR param_term */
+    37,  /* (44) tag_list ::= tag_list OR STOPWORD */
+    37,  /* (45) tag_list ::= tag_list OR prefix */
+    37,  /* (46) tag_list ::= tag_list OR termlist */
+    37,  /* (47) tag_list ::= tag_list RB */
+    30,  /* (48) expr ::= modifier COLON numeric_range */
+    45,  /* (49) numeric_range ::= LSQB param_any param_any RSQB */
+    30,  /* (50) expr ::= modifier COLON geo_filter */
+    38,  /* (51) geo_filter ::= LSQB param_any param_any param_any param_any RSQB */
+    46,  /* (52) query ::= star ARROW LSQB vector_query RSQB */
+    39,  /* (53) vector_query ::= vector_command vector_attribute_list AS param_term */
+    39,  /* (54) vector_query ::= vector_command AS param_term */
+    39,  /* (55) vector_query ::= vector_command vector_attribute_list */
+    39,  /* (56) vector_query ::= vector_command */
+    40,  /* (57) vector_command ::= TOP_K param_size modifier ATTRIBUTE */
+    41,  /* (58) vector_attribute ::= TERM param_term */
+    42,  /* (59) vector_attribute_list ::= vector_attribute_list vector_attribute */
+    42,  /* (60) vector_attribute_list ::= vector_attribute */
+    44,  /* (61) num ::= SIZE */
+    44,  /* (62) num ::= NUMBER */
+    44,  /* (63) num ::= LP num */
+    44,  /* (64) num ::= MINUS num */
+    50,  /* (65) term ::= TERM */
+    50,  /* (66) term ::= NUMBER */
+    50,  /* (67) term ::= SIZE */
+    49,  /* (68) param_term ::= TERM */
+    49,  /* (69) param_term ::= NUMBER */
+    49,  /* (70) param_term ::= SIZE */
+    49,  /* (71) param_term ::= ATTRIBUTE */
+    52,  /* (72) param_size ::= SIZE */
+    52,  /* (73) param_size ::= ATTRIBUTE */
+    51,  /* (74) param_any ::= ATTRIBUTE */
+    51,  /* (75) param_any ::= LP ATTRIBUTE */
+    51,  /* (76) param_any ::= TERM */
+    51,  /* (77) param_any ::= num */
+    47,  /* (78) star ::= STAR */
+    47,  /* (79) star ::= LP star RP */
+};
+
+/* For rule J, yyRuleInfoNRhs[J] contains the negative of the number
+** of symbols on the right-hand side of that rule. */
+static const signed char yyRuleInfoNRhs[] = {
+   -1,  /* (0) query ::= expr */
+    0,  /* (1) query ::= */
+   -1,  /* (2) query ::= star */
+   -2,  /* (3) expr ::= expr expr */
+   -1,  /* (4) expr ::= union */
+   -3,  /* (5) union ::= expr OR expr */
+   -3,  /* (6) union ::= union OR expr */
+   -3,  /* (7) expr ::= modifier COLON expr */
+   -3,  /* (8) expr ::= modifierlist COLON expr */
+   -3,  /* (9) expr ::= LP expr RP */
+   -3,  /* (10) attribute ::= ATTRIBUTE COLON param_term */
+   -1,  /* (11) attribute_list ::= attribute */
+   -3,  /* (12) attribute_list ::= attribute_list SEMICOLON attribute */
+   -2,  /* (13) attribute_list ::= attribute_list SEMICOLON */
+    0,  /* (14) attribute_list ::= */
+   -5,  /* (15) expr ::= expr ARROW LB attribute_list RB */
+   -3,  /* (16) expr ::= QUOTE termlist QUOTE */
+   -3,  /* (17) expr ::= QUOTE term QUOTE */
+   -3,  /* (18) expr ::= QUOTE ATTRIBUTE QUOTE */
+   -1,  /* (19) expr ::= param_term */
+   -1,  /* (20) expr ::= prefix */
+   -1,  /* (21) expr ::= termlist */
+   -1,  /* (22) expr ::= STOPWORD */
+   -2,  /* (23) termlist ::= param_term param_term */
+   -2,  /* (24) termlist ::= termlist param_term */
+   -2,  /* (25) termlist ::= termlist STOPWORD */
+   -2,  /* (26) expr ::= MINUS expr */
+   -2,  /* (27) expr ::= TILDE expr */
+   -1,  /* (28) prefix ::= PREFIX */
+   -3,  /* (29) expr ::= PERCENT param_term PERCENT */
+   -5,  /* (30) expr ::= PERCENT PERCENT param_term PERCENT PERCENT */
+   -7,  /* (31) expr ::= PERCENT PERCENT PERCENT param_term PERCENT PERCENT PERCENT */
+   -3,  /* (32) expr ::= PERCENT STOPWORD PERCENT */
+   -5,  /* (33) expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
+   -7,  /* (34) expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
+   -1,  /* (35) modifier ::= MODIFIER */
+   -3,  /* (36) modifierlist ::= modifier OR term */
+   -3,  /* (37) modifierlist ::= modifierlist OR term */
+   -3,  /* (38) expr ::= modifier COLON tag_list */
+   -2,  /* (39) tag_list ::= LB param_term */
+   -2,  /* (40) tag_list ::= LB STOPWORD */
+   -2,  /* (41) tag_list ::= LB prefix */
+   -2,  /* (42) tag_list ::= LB termlist */
+   -3,  /* (43) tag_list ::= tag_list OR param_term */
+   -3,  /* (44) tag_list ::= tag_list OR STOPWORD */
+   -3,  /* (45) tag_list ::= tag_list OR prefix */
+   -3,  /* (46) tag_list ::= tag_list OR termlist */
+   -2,  /* (47) tag_list ::= tag_list RB */
+   -3,  /* (48) expr ::= modifier COLON numeric_range */
+   -4,  /* (49) numeric_range ::= LSQB param_any param_any RSQB */
+   -3,  /* (50) expr ::= modifier COLON geo_filter */
+   -6,  /* (51) geo_filter ::= LSQB param_any param_any param_any param_any RSQB */
+   -5,  /* (52) query ::= star ARROW LSQB vector_query RSQB */
+   -4,  /* (53) vector_query ::= vector_command vector_attribute_list AS param_term */
+   -3,  /* (54) vector_query ::= vector_command AS param_term */
+   -2,  /* (55) vector_query ::= vector_command vector_attribute_list */
+   -1,  /* (56) vector_query ::= vector_command */
+   -4,  /* (57) vector_command ::= TOP_K param_size modifier ATTRIBUTE */
+   -2,  /* (58) vector_attribute ::= TERM param_term */
+   -2,  /* (59) vector_attribute_list ::= vector_attribute_list vector_attribute */
+   -1,  /* (60) vector_attribute_list ::= vector_attribute */
+   -1,  /* (61) num ::= SIZE */
+   -1,  /* (62) num ::= NUMBER */
+   -2,  /* (63) num ::= LP num */
+   -2,  /* (64) num ::= MINUS num */
+   -1,  /* (65) term ::= TERM */
+   -1,  /* (66) term ::= NUMBER */
+   -1,  /* (67) term ::= SIZE */
+   -1,  /* (68) param_term ::= TERM */
+   -1,  /* (69) param_term ::= NUMBER */
+   -1,  /* (70) param_term ::= SIZE */
+   -1,  /* (71) param_term ::= ATTRIBUTE */
+   -1,  /* (72) param_size ::= SIZE */
+   -1,  /* (73) param_size ::= ATTRIBUTE */
+   -1,  /* (74) param_any ::= ATTRIBUTE */
+   -2,  /* (75) param_any ::= LP ATTRIBUTE */
+   -1,  /* (76) param_any ::= TERM */
+   -1,  /* (77) param_any ::= num */
+   -1,  /* (78) star ::= STAR */
+   -3,  /* (79) star ::= LP star RP */
 };
 
 static void yy_accept(yyParser*);  /* Forward Declaration */
