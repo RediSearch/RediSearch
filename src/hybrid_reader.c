@@ -47,7 +47,7 @@ static int cmpVecSimResById(const void *p1, const void *p2, const void *udata) {
 }
 
 // Simulate the logic of "SkipTo", but it is limited to the results in a specific batch.
-static int HR_SkipToInBatch(VecSimQueryResult_Iterator *iter, t_docId docId, RSIndexResult *hit) {
+static int HR_SkipToInBatch(HybridIterator *hr, VecSimQueryResult_Iterator *iter, t_docId docId) {
   while(VecSimQueryResult_IteratorHasNext(iter)) {
     VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
     t_docId id = VecSimQueryResult_GetId(res);
@@ -55,8 +55,8 @@ static int HR_SkipToInBatch(VecSimQueryResult_Iterator *iter, t_docId docId, RSI
       // consider binary search for next value
       continue;
     }
-    hit->docId = id;
-    hit->num.value = VecSimQueryResult_GetScore(res);
+    hr->base.current->docId = id;
+    hr->base.current->num.value = VecSimQueryResult_GetScore(res);
     return INDEXREAD_OK;
   }
   return INDEXREAD_EOF;
@@ -86,29 +86,34 @@ static void prepareResults(HybridIterator *hr) {
 
     // Go over both iterators.
     hr->childIt->Rewind(hr->childIt);
-    RSIndexResult *cur_res;
+    RSIndexResult *cur_res = rm_new(RSIndexResult);
     while (hr->childIt->isValid && VecSimQueryResult_IteratorHasNext(iter)) {
       // found a match
-      if (hr->lastDocId == hr->childIt->current->docId) {
+      if (hr->base.current->docId == hr->childIt->current->docId) {
         if (heap_count(hr->topResults) < hr->query.k) {
           // todo: should we allocate the res?
+          // are we loosing information when not using childIt->current ?
+          *cur_res = *(hr->base.current);
           // insert to heap
           heap_offerx(hr->topResults, cur_res);
           RSIndexResult *top = heap_peek(hr->topResults);
           upper_bound = (float)top->num.value;
+          cur_res = rm_new(RSIndexResult);
         } else if (hr->base.current->num.value < upper_bound) {
           // replace with the worst candidate.
+          *cur_res = *(hr->base.current);
           heap_replace(hr->topResults, cur_res);
+          // free/reuse memory here?
           RSIndexResult *top = heap_peek(hr->topResults);
           upper_bound = (float)top->num.value;
+          cur_res = rm_new(RSIndexResult);
         }
-        hr->childIt->Read(hr, &cur_res);
+        hr->childIt->Read(hr->childIt, NULL);
         // Otherwise, advance one of the iterators
-      } else if (hr->lastDocId < hr->childIt->current->docId) {
-        HR_SkipToInBatch(iter, hr->childIt->current->docId, cur_res);
-        hr->lastDocId = cur_res->docId;
+      } else if (hr->base.current->docId < hr->childIt->current->docId) {
+        HR_SkipToInBatch(hr, iter, hr->childIt->current->docId);
       } else {
-        hr->childIt->SkipTo(hr->childIt, hr->lastDocId, &cur_res);
+        hr->childIt->SkipTo(hr->childIt, hr->lastDocId, NULL);
       }
     }
     if (heap_count(hr->topResults) == hr->query.k) {

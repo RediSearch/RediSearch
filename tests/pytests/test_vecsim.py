@@ -300,7 +300,7 @@ def load_vectors_into_redis(con, vector_field, dim, num_vectors):
     id_vec_list = []
     p = con.pipeline(transaction=False)
     for i, vector in enumerate(data):
-        con.execute_command('HSET', i, vector_field, vector.tobytes(), 't', i % 10)
+        con.execute_command('HSET', i, vector_field, vector.tobytes(), 't', 'text value')
         id_vec_list.append((i, vector))
     p.execute()
     return id_vec_list
@@ -332,7 +332,6 @@ def test_memory_info(env):
     # Skip on cluster as FT.DEBUG not supported.
     env.skipOnCluster()
     # This test flow adds two vectors and deletes them. The test checks for memory increase in Redis and RediSearch upon insertion and decrease upon delete.
-    conn = getConnectionByEnv(env)
     conn = getConnectionByEnv(env)
     dimension = 128
     index_key = 'idx'
@@ -407,3 +406,19 @@ def test_memory_info(env):
     env.assertLessEqual(redisearch_memory, redis_memory)
     #verify vecsim memory == redisearch memory
     env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
+
+
+def test_hybrid_query_batches_mode(env):
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    qty = 100
+
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+    load_vectors_into_redis(conn, 'v', dimension, qty)
+
+    query_data = np.float32(np.random.random((1, dimension)))
+    res = env.cmd('FT.SEARCH', 'idx', '@t:(text value)=>[TOP_K 100 @v $vec_param]',
+                  'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                  'RETURN', 2, '__v_score', 't')
+    print res
