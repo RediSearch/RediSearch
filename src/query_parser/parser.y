@@ -2,7 +2,7 @@
 %left TILDE.
 %left TAGLIST.
 %left QUOTE.
-%left COLON.
+%left MODIFIER.
 %left MINUS.
 %left NUMBER.
 %left STOPWORD.
@@ -16,10 +16,11 @@
 %right LP.
 %left RP.
 // needs to be above lp/rp
-%left MODIFIER.
+%left COLON.
 %left AND.
 %left OR.
 %left ORX.
+%left TEXTEXPR.
 %left ARROW.
 
 %token_type {QueryToken}  
@@ -158,6 +159,12 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %type union { QueryNode *}
 %destructor union { QueryNode_Free($$); }
 
+%type text_union { QueryNode *}
+%destructor text_union { QueryNode_Free($$); }
+
+%type text_expr { QueryNode * } 
+%destructor text_expr { QueryNode_Free($$); }
+
 %type fuzzy { QueryNode *}
 %destructor fuzzy { QueryNode_Free($$); }
 
@@ -224,6 +231,24 @@ expr(A) ::= expr(B) expr(C) . [AND] {
     }
 } 
 
+text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {     
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
+} 
+
 
 /////////////////////////////////////////////////////////////////
 // Unions
@@ -265,11 +290,51 @@ union(A) ::= union(B) OR expr(C). [ORX] {
     }
 }
 
+text_expr(A) ::= text_union(B) . [ORX] {
+    A = B;
+}
+
+text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+    
+}
+
+text_union(A) ::= text_union(B) OR text_expr(C). [ORX] {
+    A = B;
+    if (C) {
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(C, A->opts.fieldMask);
+    }
+}
+
 /////////////////////////////////////////////////////////////////
 // Text Field Filters
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
+expr(A) ::= text_expr(B). [TEXTEXPR]{
+  A = B;
+}
+
+expr(A) ::= modifier(B) COLON text_expr(C) . {
     if (C == NULL) {
         A = NULL;
     } else {
@@ -280,8 +345,7 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
     }
 }
 
-
-expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
+expr(A) ::= modifierlist(B) COLON text_expr(C) . {
     
     if (C == NULL) {
         A = NULL;
@@ -300,9 +364,13 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
         Vector_Free(B);
         A=C;
     }
-} 
+}
 
 expr(A) ::= LP expr(B) RP . {
+    A = B;
+}
+
+text_expr(A) ::= LP text_expr(B) RP . {
     A = B;
 }
 
@@ -355,7 +423,7 @@ expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
 // Term Lists
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
+text_expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
   // TODO: Quoted/verbatim string in termlist should not be handled as parameters
   // Also need to add the leading '$' which was consumed by the lexer
   B->pn.exact = 1;
@@ -364,12 +432,12 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
   A = B;
 }
 
-expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
+text_expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
   A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
   A->opts.flags |= QueryNode_Verbatim;
 }
 
-expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
+text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   // Quoted/verbatim string should not be handled as parameters
   // Also need to add the leading '$' which was consumed by the lexer
   char *s = rm_malloc(B.len + 1);
@@ -380,19 +448,19 @@ expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   A->opts.flags |= QueryNode_Verbatim;
 }
 
-expr(A) ::= param_term(B) . [LOWEST]  {
+text_expr(A) ::= param_term(B) . [LOWEST]  {
   A = NewTokenNode_WithParams(ctx, &B);
 }
 
-expr(A) ::= prefix(B) . [PREFIX]  {
+text_expr(A) ::= prefix(B) . [PREFIX]  {
     A = B;
 }
 
-expr(A) ::= termlist(B) .  [TERMLIST] {
+text_expr(A) ::= termlist(B) .  [TERMLIST] {
         A = B;
 }
 
-expr(A) ::= STOPWORD . [STOPWORD] {
+text_expr(A) ::= STOPWORD . [STOPWORD] {
     A = NULL;
 }
 
@@ -423,11 +491,27 @@ expr(A) ::= MINUS expr(B) . {
     }
 }
 
+text_expr(A) ::= MINUS text_expr(B) . {
+    if (B) {
+        A = NewNotNode(B);
+    } else {
+        A = NULL;
+    }
+}
+
 /////////////////////////////////////////////////////////////////
 // Optional Clause
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= TILDE expr(B) . { 
+    if (B) {
+        A = NewOptionalNode(B);
+    } else {
+        A = NULL;
+    }
+}
+
+text_expr(A) ::= TILDE text_expr(B) . {
     if (B) {
         A = NewOptionalNode(B);
     } else {
@@ -447,27 +531,27 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 // Fuzzy terms
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::=  PERCENT param_term(B) PERCENT. [PREFIX] {
+text_expr(A) ::=  PERCENT param_term(B) PERCENT. [PREFIX] {
   A = NewFuzzyNode_WithParams(ctx, &B, 1);
 }
 
-expr(A) ::= PERCENT PERCENT param_term(B) PERCENT PERCENT. [PREFIX] {
+text_expr(A) ::= PERCENT PERCENT param_term(B) PERCENT PERCENT. [PREFIX] {
   A = NewFuzzyNode_WithParams(ctx, &B, 2);
 }
 
-expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. [PREFIX] {
+text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. [PREFIX] {
   A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
 
-expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
+text_expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
   A = NewFuzzyNode_WithParams(ctx, &B, 1);
 }
 
-expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
+text_expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
   A = NewFuzzyNode_WithParams(ctx, &B, 2);
 }
 
-expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
+text_expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
   A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
 
