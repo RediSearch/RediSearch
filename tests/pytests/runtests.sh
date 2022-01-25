@@ -30,6 +30,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1               Perform only one test variant
+		PARALLEL=1            Runs RLTest tests in parallel
 
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
 		REJSON_BRANCH=branch  Use a snapshot of given branch name
@@ -110,6 +111,8 @@ SHARDS=${SHARDS:-3}
 [[ $SAN == mem ]] && SAN=memory
 
 RLEC_PORT=${RLEC_PORT:-12000}
+
+[[ $PARALLEL == 1 ]] && RLTEST_PARALLEL="--parallelism $($READIES/bin/nproc)"
 
 #---------------------------------------------------------------------------------------------- 
 
@@ -241,6 +244,7 @@ run_tests() {
 			--module $MODULE
 			--module-args '$MODARGS'
 			$RLTEST_ARGS
+			$RLTEST_PARALLEL
 			$REJSON_ARGS
 			$VALGRIND_ARGS
 			$SAN_ARGS

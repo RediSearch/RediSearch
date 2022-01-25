@@ -44,6 +44,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_NUMERIC_RANGES_PARENTS').res[0][0] =='_NUMERIC_RANGES_PARENTS'
     assert env.expect('ft.config', 'get', 'RAW_DOCID_ENCODING').res[0][0] =='RAW_DOCID_ENCODING'
     assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] =='FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
+    assert env.expect('ft.config', 'get', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] =='_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
 '''
 
 Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
@@ -111,7 +112,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['PARTIAL_INDEXED_DOCS'][0], 'false')
     env.assertEqual(res_dict['_NUMERIC_COMPRESS'][0], 'false')
     env.assertEqual(res_dict['_NUMERIC_RANGES_PARENTS'][0], '0')
-    env.assertEqual(res_dict['FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'false')
+    env.assertEqual(res_dict['FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
+    env.assertEqual(res_dict['_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
@@ -148,18 +150,18 @@ def testInitConfig(env):
     test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
 
     # True/False arguments
-    def test_arg_true(arg_name):
+    def test_arg_true_false(arg_name, res):
         env = Env(moduleArgs=arg_name, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
-        assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, 'true']])
+        assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, res]])
         env.stop()
 
-    test_arg_true('NOGC')
-    test_arg_true('SAFEMODE')
-    test_arg_true('CONCURRENT_WRITE_MODE')
-    test_arg_true('NO_MEM_POOLS')
-    test_arg_true('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
+    test_arg_true_false('NOGC', 'true')
+    test_arg_true_false('SAFEMODE', 'true')
+    test_arg_true_false('CONCURRENT_WRITE_MODE', 'true')
+    test_arg_true_false('NO_MEM_POOLS', 'true')
+    test_arg_true_false('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true')
 
     # String arguments
     def test_arg_str(arg_name, arg_value, ret_value=None):
@@ -184,6 +186,7 @@ def testInitConfig(env):
     test_arg_str('MAXAGGREGATERESULTS', '-1', 'unlimited')
     test_arg_str('RAW_DOCID_ENCODING', 'false', 'false')
     test_arg_str('RAW_DOCID_ENCODING', 'true', 'true')
+    test_arg_str('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'false', 'false')
 
 def testImmutable(env):
     env.skipOnCluster()
