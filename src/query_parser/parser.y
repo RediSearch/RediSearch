@@ -419,6 +419,15 @@ expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
     A = B;
 }
 
+text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
+
+    if (B && C) {
+        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+    }
+    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+    A = B;
+}
+
 /////////////////////////////////////////////////////////////////
 // Term Lists
 /////////////////////////////////////////////////////////////////
