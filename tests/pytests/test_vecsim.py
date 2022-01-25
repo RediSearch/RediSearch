@@ -424,7 +424,7 @@ def test_hybrid_query_batches_mode(env):
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, '__v_score', 't').equal(expected_res)
 
-    # change the test value for 10 vectors (with id 10, 20, ..., 100)
+    # change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
     for i in range(1, 11):
         vector = np.float32([10*i for j in range(dimension)])
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
