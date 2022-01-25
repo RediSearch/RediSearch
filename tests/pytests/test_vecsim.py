@@ -296,10 +296,10 @@ def testSearchErrors(env):
 
 
 def load_vectors_into_redis(con, vector_field, dim, num_vectors):
-    data = np.float32(np.random.random((num_vectors, dim)))
     id_vec_list = []
     p = con.pipeline(transaction=False)
-    for i, vector in enumerate(data):
+    for i in range(1, num_vectors+1):
+        vector = np.float32([i for j in range(dim)])
         con.execute_command('HSET', i, vector_field, vector.tobytes(), 't', 'text value')
         id_vec_list.append((i, vector))
     p.execute()
@@ -417,8 +417,19 @@ def test_hybrid_query_batches_mode(env):
                          'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_into_redis(conn, 'v', dimension, qty)
 
-    query_data = np.float32(np.random.random((1, dimension)))
-    res = env.cmd('FT.SEARCH', 'idx', '@t:(text value)=>[TOP_K 100 @v $vec_param]',
-                  'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                  'RETURN', 2, '__v_score', 't')
-    print res
+    query_data = np.float32([qty for j in range(dimension)])
+    expected_res = [100L, '100', ['__v_score', '0', 't', 'text value'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
+    env.expect('FT.SEARCH', 'idx', '(@t:(text value))=>[TOP_K 100 @v $vec_param]',
+               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'RETURN', 2, '__v_score', 't').equal(expected_res)
+
+    # change the test value for 10 vectors (with id 10, 20, ..., 100)
+    for i in range(1, 11):
+        vector = np.float32([10*i for j in range(dimension)])
+        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+
+    # expect to get only vector that passes the filter (i.e, has "other" in t field)
+    expected_res = [10L, '100', ['__v_score', '0', 't', 'other'], '90', ['__v_score', '12800', 't', 'other'], '80', ['__v_score', '51200', 't', 'other'], '70', ['__v_score', '115200', 't', 'other'], '60', ['__v_score', '204800', 't', 'other'], '50', ['__v_score', '320000', 't', 'other'], '40', ['__v_score', '460800', 't', 'other'], '30', ['__v_score', '627200', 't', 'other'], '20', ['__v_score', '819200', 't', 'other'], '10', ['__v_score', '1036800', 't', 'other']]
+    env.expect('FT.SEARCH', 'idx', '(@t:other)=>[TOP_K 10 @v $vec_param]',
+                               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                               'RETURN', 2, '__v_score', 't').equal(expected_res)

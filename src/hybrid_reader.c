@@ -28,9 +28,9 @@ static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata
   const RSIndexResult *e1 = p1, *e2 = p2;
 
   if (e1->num.value < e2->num.value) {
-    return 1;
-  } else if (e1->num.value > e2->num.value) {
     return -1;
+  } else if (e1->num.value > e2->num.value) {
+    return 1;
   }
   return 0;
 }
@@ -55,6 +55,7 @@ static int HR_SkipToInBatch(HybridIterator *hr, VecSimQueryResult_Iterator *iter
       // consider binary search for next value
       continue;
     }
+    // Set the itm that we skipped to it in the current RSIndexResult
     hr->base.current->docId = id;
     hr->base.current->num.value = VecSimQueryResult_GetScore(res);
     return INDEXREAD_OK;
@@ -62,6 +63,60 @@ static int HR_SkipToInBatch(HybridIterator *hr, VecSimQueryResult_Iterator *iter
   return INDEXREAD_EOF;
 }
 
+// Simulate the logic of "Read", but it is limited to the results in a specific batch.
+static int HR_ReadInBatch(HybridIterator *hr, VecSimQueryResult_Iterator *iter) {
+  if (!VecSimQueryResult_IteratorHasNext(iter)) {
+    return INDEXREAD_EOF;
+  }
+  VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
+  // Set the item that we read in the current RSIndexResult
+  hr->base.current->docId = VecSimQueryResult_GetId(res);;
+  hr->base.current->num.value = VecSimQueryResult_GetScore(res);
+  return INDEXREAD_OK;
+}
+
+static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *vecsim_iter, float *upper_bound) {
+  RSIndexResult *cur_res;
+  hr->childIt->Read(hr->childIt->ctx, &(hr->childIt->current));
+  HR_ReadInBatch(hr, vecsim_iter);
+  while (hr->childIt->isValid) {
+    if (hr->base.current->docId == hr->childIt->current->docId) {
+      // Found a match
+      if (heap_count(hr->topResults) >= hr->query.k && hr->base.current->num.value >= *upper_bound) {
+        // Skip the result and get the next one, since it was not better
+        // than the k results that we already have.
+        hr->childIt->Read(hr->childIt->ctx, &(hr->childIt->current));
+        HR_ReadInBatch(hr, vecsim_iter);
+        continue;
+      }
+      // Otherwise, insert the current result to the heap.
+      if (heap_count(hr->topResults) >= hr->query.k) {
+        RSIndexResult *top = heap_poll(hr->topResults);
+        // Reuse the RSIndexResult struct of the worst result for the new one.
+        // todo: check are we loosing information when not using childIt->current ?
+        *top = *(hr->base.current);
+        cur_res = top;
+      } else {
+        cur_res = rm_new(RSIndexResult);
+        *cur_res = *(hr->base.current);
+      }
+      // Insert to heap
+      heap_offerx(hr->topResults, cur_res);
+      RSIndexResult *top = heap_peek(hr->topResults);
+      *upper_bound = (float)top->num.value;
+      hr->childIt->Read(hr->childIt->ctx, &(hr->childIt->current));
+      HR_ReadInBatch(hr, vecsim_iter);
+    }
+    // Otherwise, advance the iterator pointing to the lower id.
+    else if (hr->base.current->docId > hr->childIt->current->docId && hr->childIt->isValid) {
+      hr->childIt->SkipTo(hr->childIt->ctx, hr->base.current->docId, &(hr->childIt->current));
+    } else if (VecSimQueryResult_IteratorHasNext(vecsim_iter)){
+      HR_SkipToInBatch(hr, vecsim_iter, hr->childIt->current->docId);
+    } else {
+      break; // both iterators depleted.
+    }
+  }
+}
 
 static void prepareResults(HybridIterator *hr) {
   if (hr->mode == STANDARD_KNN) {
@@ -80,46 +135,17 @@ static void prepareResults(HybridIterator *hr) {
   float upper_bound = INFINITY;
   while (VecSimBatchIterator_HasNext(batch_it)) {
     size_t batch_size = hr->query.k;  // add heuristics here
-    hr->lastDocId = 0;
     VecSimQueryResult_List next_batch = VecSimBatchIterator_Next(batch_it, batch_size, BY_ID);
     VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(next_batch);
+    hr->childIt->Rewind(hr->childIt->ctx);
 
-    // Go over both iterators.
-    hr->childIt->Rewind(hr->childIt);
-    RSIndexResult *cur_res = rm_new(RSIndexResult);
-    while (hr->childIt->isValid && VecSimQueryResult_IteratorHasNext(iter)) {
-      // found a match
-      if (hr->base.current->docId == hr->childIt->current->docId) {
-        if (heap_count(hr->topResults) < hr->query.k) {
-          // todo: should we allocate the res?
-          // are we loosing information when not using childIt->current ?
-          *cur_res = *(hr->base.current);
-          // insert to heap
-          heap_offerx(hr->topResults, cur_res);
-          RSIndexResult *top = heap_peek(hr->topResults);
-          upper_bound = (float)top->num.value;
-          cur_res = rm_new(RSIndexResult);
-        } else if (hr->base.current->num.value < upper_bound) {
-          // replace with the worst candidate.
-          *cur_res = *(hr->base.current);
-          heap_replace(hr->topResults, cur_res);
-          // free/reuse memory here?
-          RSIndexResult *top = heap_peek(hr->topResults);
-          upper_bound = (float)top->num.value;
-          cur_res = rm_new(RSIndexResult);
-        }
-        hr->childIt->Read(hr->childIt, NULL);
-        // Otherwise, advance one of the iterators
-      } else if (hr->base.current->docId < hr->childIt->current->docId) {
-        HR_SkipToInBatch(hr, iter, hr->childIt->current->docId);
-      } else {
-        hr->childIt->SkipTo(hr->childIt, hr->lastDocId, NULL);
-      }
-    }
+    // Go over both iterators and save mutual results in the heap.
+    alternatingIterate(hr, iter, &upper_bound);
     if (heap_count(hr->topResults) == hr->query.k) {
       break;
     }
   }
+
 }
 
 static int HR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
@@ -147,7 +173,6 @@ static int HR_Read(void *ctx, RSIndexResult **hit) {
     hr->RESULTS_PREPARED = true;
   }
   if (!hr->base.isValid) {
-    hr->base.isValid = false;
     return INDEXREAD_EOF;
   }
   if (hr->mode == HYBRID_BATCHES || hr->mode == HYBRID_ADHOC_BF) {
@@ -183,7 +208,10 @@ static size_t HR_NumEstimated(void *ctx) {
 
 static size_t HR_Len(void *ctx) {
   HybridIterator *hr = ctx;
-  return heap_count(hr->orderedResults);
+  if (!hr->RESULTS_PREPARED) {
+    prepareResults(hr);
+  }
+  return heap_count(hr->topResults);
 }
 
 static void HR_Abort(void *ctx) {
