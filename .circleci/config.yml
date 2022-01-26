@@ -323,8 +323,11 @@ jobs:
     parameters:
       platform:
         type: string
-    docker:
-      - image: debian:bullseye
+    # docker:
+    #   - image: debian:bullseye
+    machine:
+      enabled: true
+      image: ubuntu-2004:202010-01
     steps:
       - vm-build-platforms-steps:
           platform: <<parameters.platform>>
