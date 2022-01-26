@@ -345,12 +345,12 @@ jobs:
 
   build-macos:
     macos:
-      xcode: 11.6.0
+      xcode: 12.4.0
     steps:
       - early-returns
       - run:
-          name: Brew update
-          command: brew update
+          name: Brew upgrade
+          command: brew upgrade
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
