@@ -315,6 +315,19 @@ typedef enum {
   SPECIAL_CASE_TOPK
 } searchRequestSpecialCase;
 
+
+typedef struct {
+  union {
+    struct {
+      size_t k;
+      const char* fieldName;
+    }topkContext;
+  } ctx;
+  searchRequestSpecialCase specialCaseType;
+} specialCaseCtx;
+
+
+
 typedef struct {
   char *queryString;
   long long offset;
@@ -326,8 +339,9 @@ typedef struct {
   int sortAscending;
   int withSortingKeys;
   int noContent;
-  searchRequestSpecialCase specialCase;
-
+ 
+  specialCaseCtx* specialCases;
+  const char** requiredFields;
   // used to signal profile flag and count related args
   int profileArgs;
   int profileLimited;
@@ -337,6 +351,15 @@ typedef struct {
 
 void searchRequestCtx_Free(searchRequestCtx *r) {
   free(r->queryString);
+  if(r->specialCases) {
+    size_t specialCasesLen = array_len(r->specialCases);
+    for(size_t i = 0)
+  }
+  if(r->specialCaseType != SPECIAL_CASE_NONE) {
+    if(r->specialCaseType == SPECIAL_CASE_TOPK) {
+      TopKContext_Free(r->specialCaseCtx.topk);
+    }
+  }
   free(r);
 }
 
@@ -374,6 +397,9 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
 #endif
   };
   QueryNode* queryNode = RSQuery_ParseRaw(&qpCtx);
+  if(status.code != 0 ) {
+    //fail.
+  }
   if(queryNode!= NULL && queryNode->type == QN_VECTOR) {
 
     // In we need to parse the parameters
@@ -393,7 +419,11 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->topk.k;
     const char* scoreField = queryVectorNode.vq->scoreField;
-    req->specialCase = SPECIAL_CASE_TOPK;
+    topkContext* topk = TopKContext_New();
+    topk->k = k;
+    topk->fieldName = rm_strdup(scoreField);
+    req->specialCaseType = SPECIAL_CASE_TOPK;
+    req->specialCaseCtx.topk = topk;
   }
 }
 
@@ -455,7 +485,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   }
 
   // Handle special cases
-  req->specialCase = SPECIAL_CASE_NONE;
+  req->specialCaseType = SPECIAL_CASE_NONE;
   // Note: currently there is only one single case. For extending those cases we should use a trie here.
   if(strstr(req->queryString, "TOP_K")) {
     prepareOptionalTopKCase(req, argv, argc);
@@ -1232,6 +1262,35 @@ int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   return REDISMODULE_OK;
 }
 
+void MRCommand_addRequiredFieldsNumber(MRCommand* cmd, int fieldNumber) {
+  int requiredFieldStrIndex = MRCommand_Contains(cmd, "_REQUIRED_FIELDS");
+  if(requiredFieldStrIndex!= -1) {
+    // We have _REQUIRED_FIELDS arg, we need to update the number of required fields.
+    requiredFieldStrIndex++;
+    const char* oldNumStr = MRCommand_Get(cmd, requiredFieldStrIndex);
+    int oldNum = atoi(oldNumStr);
+    char snum[8] = {0};
+    sprintf(snum, "%d", fieldNumber+oldNum);
+    MRCommand_ReplaceArg(cmd, requiredFieldStrIndex, snum, strlen(snum));
+  } else {
+    // Need to append to _REQUIRED_FIELDS to the command.
+      MRCommand_Append(cmd, "_REQUIRED_FIELDS", strlen("_REQUIRED_FIELDS"));
+      char snum[8] = {0};
+      sprintf(snum, "%d", fieldNumber);
+      MRCommand_Append(cmd, snum, strlen(snum));
+  }
+}
+
+void MRCommand_addRequiredField(MRCommand* cmd, const char* field) {
+  int appendIndex = MRCommand_Contains(cmd, "_REQUIRED_FIELDS") + 2;
+  MRCommand_AppendArgsAtPos(cmd, appendIndex, 1, field);
+}
+
+void collectTopKFields(MRCommand *cmd, topkContext* topk) {
+  MRCommand_addRequiredFieldsNumber(cmd, 1);
+  MRCommand_addRequiredField(cmd, topk->fieldName);
+}
+
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **argv, int argc) {
   RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_AutoMemory(ctx);
@@ -1272,6 +1331,23 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
     // Worst case it will appears twice.
     MRCommand_AppendArgsAtPos(&cmd, 3 + req->profileArgs, 1, "WITHSORTKEYS");
     // req->withSortingKeys = 1;
+  }
+
+  if(req->specialCaseType != SPECIAL_CASE_NONE) {
+    
+    if(req->specialCaseType == SPECIAL_CASE_TOPK) {
+        collectTopKFields(&cmd, req->specialCaseCtx.topk);
+    }
+  }
+
+  switch (req->specialCaseType)
+  {
+    case SPECIAL_CASE_TOPK:
+      
+      break;
+    case SPECIAL_CASE_NONE:
+    default:
+      break;
   }
 
   struct MRCtx *mrctx = MR_CreateCtx(ctx, req);

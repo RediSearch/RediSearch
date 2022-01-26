@@ -114,6 +114,8 @@ typedef struct {
   clock_t totalTime;          // Total time. Used to accimulate cursors times
   clock_t parseTime;          // Time for parsing the query
   clock_t pipelineBuildTime;  // Time for creating the pipeline
+
+  const char** requiredFields;
 } AREQ;
 
 /**

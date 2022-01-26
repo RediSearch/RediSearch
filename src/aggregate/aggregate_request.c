@@ -114,6 +114,29 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
+
+  ArgsCursor args = {0};
+  int rv = AC_GetVarArgs(ac, &args);
+  if (rv != AC_OK) {
+    QERR_MKBADARGS_AC(status, "_REQUIRED_FIELDS", rv);
+    return REDISMODULE_ERR;
+  }
+
+
+  int requiredFieldNum;
+  AC_GetInt(&args, &requiredFieldNum, 0);
+
+  const char** requiredFields = array_new(const char*, requiredFieldNum);
+  for(size_t i=0; i < requiredFieldNum; i++) {
+    requiredFields = array_append(requiredFields, AC_GetStringNC(ac, NULL));
+  }
+
+  req->requiredFields = requiredFields;
+
+  return REDISMODULE_OK;
+}
+
 #define ARG_HANDLED 1
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
@@ -178,6 +201,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->reqflags |= QEXEC_F_SENDRAWIDS;
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
     if (parseParams(&(req->searchopts.params), ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+  } else if(AC_AdvanceIfMatch(ac, "_REQUIRED_FIELDS")) {
+    if (parseRequiredFields(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {

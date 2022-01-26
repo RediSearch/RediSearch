@@ -103,3 +103,8 @@ void MRCommand_FPrint(FILE *fd, MRCommand *cmd);
 
 /* Create a copy of a command by duplicating all strings */
 MRCommand MRCommand_Copy(const MRCommand *cmd);
+
+/* Return the index of the argument equal (strcmp) to the string s, -1 if not exists */
+int MRCommand_Contains(MRCommand *cmd, const char *s);
+
+const char* MRCommand_Get(MRCommand *cmd, int idx);
