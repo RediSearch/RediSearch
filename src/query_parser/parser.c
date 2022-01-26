@@ -1591,15 +1591,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy83 = yylhsminor.yy83;
         break;
       case 33: /* expr ::= MINUS expr */
-{ 
-    if (yymsp[0].minor.yy83) {
-        yymsp[-1].minor.yy83 = NewNotNode(yymsp[0].minor.yy83);
-    } else {
-        yymsp[-1].minor.yy83 = NULL;
-    }
-}
-        break;
-      case 34: /* text_expr ::= MINUS text_expr */
+      case 34: /* text_expr ::= MINUS text_expr */ yytestcase(yyruleno==34);
 {
     if (yymsp[0].minor.yy83) {
         yymsp[-1].minor.yy83 = NewNotNode(yymsp[0].minor.yy83);
@@ -1609,15 +1601,7 @@ static YYACTIONTYPE yy_reduce(
 }
         break;
       case 35: /* expr ::= TILDE expr */
-{ 
-    if (yymsp[0].minor.yy83) {
-        yymsp[-1].minor.yy83 = NewOptionalNode(yymsp[0].minor.yy83);
-    } else {
-        yymsp[-1].minor.yy83 = NULL;
-    }
-}
-        break;
-      case 36: /* text_expr ::= TILDE text_expr */
+      case 36: /* text_expr ::= TILDE text_expr */ yytestcase(yyruleno==36);
 {
     if (yymsp[0].minor.yy83) {
         yymsp[-1].minor.yy83 = NewOptionalNode(yymsp[0].minor.yy83);

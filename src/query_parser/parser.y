@@ -492,7 +492,7 @@ termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
 // Negative Clause
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= MINUS expr(B) . { 
+expr(A) ::= MINUS expr(B) . {
     if (B) {
         A = NewNotNode(B);
     } else {
@@ -512,7 +512,7 @@ text_expr(A) ::= MINUS text_expr(B) . {
 // Optional Clause
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= TILDE expr(B) . { 
+expr(A) ::= TILDE expr(B) . {
     if (B) {
         A = NewOptionalNode(B);
     } else {
