@@ -632,6 +632,17 @@ TEST_F(IndexTest, testIntersection) {
   ASSERT_EQ(count, 50000);
   ASSERT_EQ(topFreq, 100000.0);
 
+  // test read after skip goes to next id
+  ii->Rewind(ii->ctx);
+  ASSERT_EQ(ii->SkipTo(ii->ctx, 8, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 8);
+  ASSERT_EQ(ii->Read(ii->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 12);
+  // test for last id
+  ASSERT_EQ(ii->SkipTo(ii->ctx, 200000, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 200000);
+  ASSERT_EQ(ii->Read(ii->ctx, &h), INDEXREAD_EOF);
+
   ii->Free(ii);
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
