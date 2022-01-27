@@ -328,6 +328,7 @@ jobs:
     machine:
       enabled: true
       image: ubuntu-2004:202010-01
+      resource_class: large
     steps:
       - vm-build-platforms-steps:
           platform: <<parameters.platform>>

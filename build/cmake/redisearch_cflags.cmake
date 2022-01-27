@@ -80,7 +80,7 @@ set(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
 if (${OS} STREQUAL "linux")
 	set(RS_LINK_LIBS m dl rt)
 elseif (${OS} STREQUAL "macos")
-	set(RS_LINK_LIBS "m dl")
+	set(RS_LINK_LIBS m dl)
 endif()
 
 if (NOT APPLE)
