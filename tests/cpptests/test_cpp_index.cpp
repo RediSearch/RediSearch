@@ -317,6 +317,18 @@ TEST_F(IndexTest, testUnion) {
     // printf("%d, ", h.docId);
   }
 
+
+  // test read after skip goes to next id
+  ui->Rewind(ui->ctx);
+  ASSERT_EQ(ui->SkipTo(ui->ctx, 6, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 6);
+  ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 8);
+  // test for last id
+  ASSERT_EQ(ui->SkipTo(ui->ctx, 30, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 30);
+  ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_EOF);
+
   ui->Free(ui);
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
