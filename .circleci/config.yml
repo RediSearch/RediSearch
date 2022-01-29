@@ -604,8 +604,8 @@ workflows:
               platform: [bionic]
       - build-macos:
           context: common
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
+          #@@<<: *on-any-branch
       - coverage:
           <<: *on-any-branch
       - sanitize:
@@ -613,7 +613,8 @@ workflows:
           matrix:
             parameters:
               san-type: [address] # [address, memory]
-          <<: *on-any-branch
+          #@@<<: *on-any-branch
+          <<: *on-integ-and-version-tags
       - valgrind-memcheck:
           <<: *never
       - benchmark:
