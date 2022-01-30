@@ -352,10 +352,8 @@ endif
 
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
-	$(SHOW)$(SETUP_LIBSTDCXX)
 ifneq ($(DRY_RUN),1)
 	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
-#	$(SHOW)[ -f $(TARGET) ] && touch $(TARGET)
 else
 	@make -C $(BINDIR) $(MAKE_J)
 endif

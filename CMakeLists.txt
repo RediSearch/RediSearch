@@ -1,4 +1,3 @@
-cmake_minimum_required(VERSION 3.10)
 
 get_filename_component(RS_DIR ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
