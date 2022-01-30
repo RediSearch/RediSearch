@@ -124,9 +124,11 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("@title:", ctx);
   assertInvalidQuery("@body:@title:", ctx);
   assertInvalidQuery("@body|title:@title:", ctx);
+  assertInvalidQuery("@body|title", ctx);
   assertInvalidQuery("@title:@num:[0 10]", ctx);
   assertInvalidQuery("@title:(@num:[0 10])", ctx);
-  assertInvalidQuery("@body|title", ctx);
+  assertInvalidQuery("@t1:@t2:@t3:hello", ctx);
+  assertValidQuery("@t1|t2|t3:hello", ctx);
   assertValidQuery("hello ~world ~war", ctx);
   assertValidQuery("hello ~(world war)", ctx);
   assertValidQuery("-foo", ctx);
