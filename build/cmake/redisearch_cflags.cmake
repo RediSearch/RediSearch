@@ -1,4 +1,3 @@
-include(CheckCCompilerFlag)
 
 # This file exposes the following:
 # RS_C_FLAGS
