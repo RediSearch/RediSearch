@@ -283,6 +283,12 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
+HAVE_MARCH_OPTS:=$(shell $(MK)/cc-have-opts)
+CMAKE_CXX_MARCH_FLAGS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt))
+CMAKE_HAVE_MARCH_OPTS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt)=on) -DMARCH_CXX_FLAGS="$(CMAKE_CXX_MARCH_FLAGS)"
+
+#----------------------------------------------------------------------------------------------
+
 CMAKE_FLAGS=\
 	-Wno-dev \
 	-DGIT_SHA=$(GIT_SHA) \
@@ -292,7 +298,7 @@ CMAKE_FLAGS=\
 	-DOSNICK=$(OSNICK) \
 	-DARCH=$(ARCH)
 
-CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) \
+CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_HAVE_MARCH_OPTS) \
 	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
 
 #----------------------------------------------------------------------------------------------
