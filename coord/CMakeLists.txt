@@ -47,7 +47,7 @@ add_definitions(-DRMUTIL_NO_SDS)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
-set(CMAKE_LINKER "${CMAKE_C_COMPILER}")
+set(CMAKE_LINKER "${CMAKE_CXX_COMPILER}")
 
 # Specific to coordinator
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")

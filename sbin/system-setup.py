@@ -43,6 +43,8 @@ class RediSearchSetup(paella.Setup):
         self.install("libatomic")
 
         self.run("%s/bin/getgcc --modern" % READIES)
+        if self.osnick == "xenial":
+            self.run("GCC=1 POST=0 %s/bin/getconda" % READIES)
         self.install("libtool m4 automake openssl-devel")
         self.install("python2-devel")
 
