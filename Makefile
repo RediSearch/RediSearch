@@ -283,7 +283,11 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
+ifneq ($(OSNICK),xenial)
 HAVE_MARCH_OPTS:=$(shell $(MK)/cc-have-march-opts)
+else
+HAVE_MARCH_OPTS:=$(shell . /opt/miniforge/bin/activate; $(MK)/cc-have-march-opts)
+endif
 CMAKE_CXX_MARCH_FLAGS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt))
 CMAKE_HAVE_MARCH_OPTS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt)=on) -DMARCH_CXX_FLAGS="$(CMAKE_CXX_MARCH_FLAGS)"
 
@@ -314,7 +318,7 @@ ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
 endif
 ifeq ($(wildcard $(HIREDIS)),)
-MISSING_DEPS += $(HIREDIS)
+# MISSING_DEPS += $(HIREDIS)
 endif
 
 ifneq ($(MISSING_DEPS),)
@@ -343,6 +347,7 @@ else
 MAKE_J:=-j$(shell nproc)
 endif
 
+ifeq (0,1)
 ifeq ($(STATIC_LIBSTDCXX),1)
 ifeq ($(OSNICK),centos7)
 ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
@@ -357,6 +362,7 @@ endef
 endif
 endif # centos7
 endif # STATIC_LIBSTDCXX
+endif # 0==1
 
 ifeq ($(FORCE),1)
 .PHONY: __force
