@@ -1,4 +1,6 @@
 
+include(CheckCCompilerFlag)
+
 # This file exposes the following:
 # RS_C_FLAGS
 # RS_CXX_FLAGS
