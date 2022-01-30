@@ -1200,8 +1200,8 @@ void Indexes_Free(dict *specsDict, TrieMap *schemaPrefixes, void *aliases,
       GCContext_Stop(sp->gc);
     }
     if (sp->stopwords) {
-      StopWordList_Unref(spec->stopwords);
-      spec->stopwords = NULL;
+      StopWordList_Unref(sp->stopwords);
+      sp->stopwords = NULL;
     }
   }
   dictReleaseIterator(iter);
