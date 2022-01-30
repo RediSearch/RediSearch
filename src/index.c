@@ -827,7 +827,7 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (ic->docIds[i] != docId) {
       rc = it->SkipTo(it->ctx, docId, &res);
       if (rc != INDEXREAD_EOF) {
-        if (res) ic->docIds[i] = res->docId;
+        if (res) docId = ic->docIds[i] = res->docId;
       }
     }
 
@@ -860,6 +860,7 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (ic->maxSlop == -1 ||
         IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
       ic->lastFoundId = ic->base.current->docId;
+      ic->lastDocId++;
       if (hit) *hit = ic->base.current;
       return INDEXREAD_OK;
     }
