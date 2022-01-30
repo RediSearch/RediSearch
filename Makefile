@@ -318,7 +318,7 @@ ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
 endif
 ifeq ($(wildcard $(HIREDIS)),)
-# MISSING_DEPS += $(HIREDIS)
+MISSING_DEPS += $(HIREDIS)
 endif
 
 ifneq ($(MISSING_DEPS),)
@@ -346,23 +346,6 @@ MAKE_J=
 else
 MAKE_J:=-j$(shell nproc)
 endif
-
-ifeq (0,1)
-ifeq ($(STATIC_LIBSTDCXX),1)
-ifeq ($(OSNICK),centos7)
-ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
-define SETUP_LIBSTDCXX
-set -e ;\
-cd $(BINDIR) ;\
-wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$(OS)-$(ARCH).tgz ;\
-tar xzf libstdc.tgz ;\
-rm libstdc.tgz ;\
-ln -sf libstdc++.so.6.0.25 libstdc++.so.6
-endef
-endif
-endif # centos7
-endif # STATIC_LIBSTDCXX
-endif # 0==1
 
 ifeq ($(FORCE),1)
 .PHONY: __force
