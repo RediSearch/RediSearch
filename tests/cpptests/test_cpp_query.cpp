@@ -129,6 +129,7 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("@title:(@num:[0 10])", ctx);
   assertInvalidQuery("@t1:@t2:@t3:hello", ctx);
   assertValidQuery("@t1|t2|t3:hello", ctx);
+  assertValidQuery("@title:(hello=>{$phonetic: true} world)", ctx);
   assertValidQuery("hello ~world ~war", ctx);
   assertValidQuery("hello ~(world war)", ctx);
   assertValidQuery("-foo", ctx);
