@@ -638,7 +638,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   // Add the score field name to the ast score field names array.
-  // This macro creats the array if it's the first name, and ensure its size is sufficient.
+  // This macro creates the array if it's the first name, and ensure its size is sufficient.
   array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {

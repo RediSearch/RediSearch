@@ -262,9 +262,14 @@ static int rpvecsimNext(ResultProcessor *base, SearchResult *res) {
   }
 
   // Add result to every score field.
-  // TODO: when we'll have a way to hold many results, add each result to its corresponding field.
+  // TODO: when we'll have a way to hold many results, add each result to its corresponding field
+  //  this will require scanning the entire IndexResult tree and looking for vector nodes whose score field name
+  //  stored in some entry of the self->keys array
+  RedisModule_Assert(self->nkeys == 1);
   for (size_t i = 0; i < self->nkeys; i++) {
-    RSValue *val = RS_NumVal(res->indexResult->num.value);
+    RedisModule_Assert(res->indexResult->type == RSResultType_Hybrid);
+    RedisModule_Assert(!strcmp(res->indexResult->agg.children[0]->dist.scoreField, self->keys[0]->name));
+    RSValue *val = RS_NumVal(res->indexResult->agg.children[0]->dist.distance);
     RLookup_WriteOwnKey(self->keys[i], &(res->rowdata), val);
   }
 
