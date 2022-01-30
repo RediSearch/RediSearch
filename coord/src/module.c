@@ -322,10 +322,18 @@ typedef struct {
       size_t k;
       const char* fieldName;
     }topkContext;
-  } ctx;
+  };
   searchRequestSpecialCase specialCaseType;
 } specialCaseCtx;
 
+specialCaseCtx* SpecialCaseCtx_New() {
+  specialCaseCtx* ctx = rm_calloc(1, sizeof(specialCaseCtx));
+  return ctx;
+}
+
+void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
+  rm_free(ctx);
+}
 
 
 typedef struct {
@@ -340,7 +348,7 @@ typedef struct {
   int withSortingKeys;
   int noContent;
  
-  specialCaseCtx* specialCases;
+  specialCaseCtx** specialCases;
   const char** requiredFields;
   // used to signal profile flag and count related args
   int profileArgs;
@@ -353,12 +361,11 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
   free(r->queryString);
   if(r->specialCases) {
     size_t specialCasesLen = array_len(r->specialCases);
-    for(size_t i = 0)
-  }
-  if(r->specialCaseType != SPECIAL_CASE_NONE) {
-    if(r->specialCaseType == SPECIAL_CASE_TOPK) {
-      TopKContext_Free(r->specialCaseCtx.topk);
+    for(size_t i = 0; i< specialCasesLen; i ++) {
+      specialCaseCtx* ctx = r->specialCases[i];
+      TopKContext_Free(ctx);
     }
+    array_free(r->specialCases);
   }
   free(r);
 }
@@ -419,11 +426,15 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->topk.k;
     const char* scoreField = queryVectorNode.vq->scoreField;
-    topkContext* topk = TopKContext_New();
-    topk->k = k;
-    topk->fieldName = rm_strdup(scoreField);
-    req->specialCaseType = SPECIAL_CASE_TOPK;
-    req->specialCaseCtx.topk = topk;
+    specialCaseCtx *ctx = SpecialCaseCtx_New();
+    ctx->topkContext.k = k;
+    ctx->topkContext->fieldName = scoreField;
+    ctx->specialCaseType = SPECIAL_CASE_TOPK;
+    if(req->specialCases) {
+      req->specialCases = array_new(specialCaseCtx*, 1);
+    }
+    req->specialCases = array_append(req->specialCases, ctx);
+
   }
 }
 
@@ -485,7 +496,6 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   }
 
   // Handle special cases
-  req->specialCaseType = SPECIAL_CASE_NONE;
   // Note: currently there is only one single case. For extending those cases we should use a trie here.
   if(strstr(req->queryString, "TOP_K")) {
     prepareOptionalTopKCase(req, argv, argc);
@@ -1262,33 +1272,28 @@ int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   return REDISMODULE_OK;
 }
 
-void MRCommand_addRequiredFieldsNumber(MRCommand* cmd, int fieldNumber) {
-  int requiredFieldStrIndex = MRCommand_Contains(cmd, "_REQUIRED_FIELDS");
-  if(requiredFieldStrIndex!= -1) {
-    // We have _REQUIRED_FIELDS arg, we need to update the number of required fields.
-    requiredFieldStrIndex++;
-    const char* oldNumStr = MRCommand_Get(cmd, requiredFieldStrIndex);
-    int oldNum = atoi(oldNumStr);
-    char snum[8] = {0};
-    sprintf(snum, "%d", fieldNumber+oldNum);
-    MRCommand_ReplaceArg(cmd, requiredFieldStrIndex, snum, strlen(snum));
-  } else {
-    // Need to append to _REQUIRED_FIELDS to the command.
-      MRCommand_Append(cmd, "_REQUIRED_FIELDS", strlen("_REQUIRED_FIELDS"));
-      char snum[8] = {0};
-      sprintf(snum, "%d", fieldNumber);
-      MRCommand_Append(cmd, snum, strlen(snum));
+void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
+  size_t specialCasesLen = array_len(req->specialCases);
+  
+  for(size_t i=0; i < specialCasesLen; i++) {
+    specialCaseCtx* ctx = req->specialCases[i];
+    if(ctx->specialCaseType == SPECIAL_CASE_TOPK) {
+      if(req->requiredFields == NULL) {
+        req->requiredFields = array_new(const char*, 1);
+      }
+      req->requiredFields = array_append(req->requiredFields, ctx->topkContext.fieldName);
+    }
   }
-}
-
-void MRCommand_addRequiredField(MRCommand* cmd, const char* field) {
-  int appendIndex = MRCommand_Contains(cmd, "_REQUIRED_FIELDS") + 2;
-  MRCommand_AppendArgsAtPos(cmd, appendIndex, 1, field);
-}
-
-void collectTopKFields(MRCommand *cmd, topkContext* topk) {
-  MRCommand_addRequiredFieldsNumber(cmd, 1);
-  MRCommand_addRequiredField(cmd, topk->fieldName);
+  if(req->requiredFields) {
+    MRCommand_Append(cmd, "_REQUIRED_FIELDS", strlen("_REQUIRED_FIELDS"));
+    int numberOfFields = array_len(req->requiredFields);
+    char snum[8] = {0};
+    sprintf(snum, "%d", numberOfFields);
+    MRCommand_Append(cmd, snum, strlen(snum));
+    for(size_t i = 0; i < numberOfFields; i++) {
+        MRCommand_Append(cmd, req->requiredFields[i], strlen(req->requiredFields[i]));
+    }
+  }
 }
 
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **argv, int argc) {
@@ -1333,22 +1338,10 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
     // req->withSortingKeys = 1;
   }
 
-  if(req->specialCaseType != SPECIAL_CASE_NONE) {
-    
-    if(req->specialCaseType == SPECIAL_CASE_TOPK) {
-        collectTopKFields(&cmd, req->specialCaseCtx.topk);
-    }
+  if(req->specialCases) {
+    sendRequiredFields(req, &cmd);
   }
 
-  switch (req->specialCaseType)
-  {
-    case SPECIAL_CASE_TOPK:
-      
-      break;
-    case SPECIAL_CASE_NONE:
-    default:
-      break;
-  }
 
   struct MRCtx *mrctx = MR_CreateCtx(ctx, req);
   // we prefer the next level to be local - we will only approach nodes on our own shard
