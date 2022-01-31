@@ -660,7 +660,7 @@ def testContains(env):
 
     # check filter by contains
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'filter', 'contains(@t, "bb")')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2L, ['t', 'bba'], \
+    env.assertEqual(toSortedFlatList(res)[1:], toSortedFlatList([['t', 'bba'], \
                                                                  ['t', 'abb'], \
                                                                  ['t', 'abba'], \
                                                                  ['t', 'abbabb']]))
@@ -676,7 +676,7 @@ def testContains(env):
 
     # check filter by contains with empty string
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'filter', 'contains(@t, "")')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa'], \
+    env.assertEqual(toSortedFlatList(res)[1:], toSortedFlatList([['t', 'aa'], \
                                                                  ['t', 'bba'], \
                                                                  ['t', 'aba'], \
                                                                  ['t', 'abb'], \
