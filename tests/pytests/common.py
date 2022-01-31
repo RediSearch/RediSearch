@@ -134,6 +134,10 @@ def skipOnExistingEnv(env):
     if 'existing' in env.env:
         env.skip()
 
+def skipOnOss(env):
+    if not env.isCluster():
+        env.skip()
+
 def skipOnCrdtEnv(env):
     if len([a for a in env.cmd('module', 'list') if a[1] == 'crdt']) > 0:
         env.skip()
