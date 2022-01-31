@@ -267,9 +267,12 @@ static int rpvecsimNext(ResultProcessor *base, SearchResult *res) {
   //  stored in some entry of the self->keys array
   RedisModule_Assert(self->nkeys == 1);
   for (size_t i = 0; i < self->nkeys; i++) {
-    RedisModule_Assert(res->indexResult->type == RSResultType_Hybrid);
-    RedisModule_Assert(!strcmp(res->indexResult->agg.children[0]->dist.scoreField, self->keys[0]->name));
-    RSValue *val = RS_NumVal(res->indexResult->agg.children[0]->dist.distance);
+    RSValue *val;
+    if (res->indexResult->type == RSResultType_Hybrid) {
+      val = RS_NumVal(res->indexResult->agg.children[0]->dist.distance);
+    } else {
+      val = RS_NumVal(res->indexResult->dist.distance);
+    }
     RLookup_WriteOwnKey(self->keys[i], &(res->rowdata), val);
   }
 

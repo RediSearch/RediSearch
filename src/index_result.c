@@ -217,7 +217,7 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
 
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;
-  if (r->type == RS_RESULT_AGGREGATE) {
+  if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_Hybrid) {
     // for deep-copy results we also free the children
     if (r->isCopy && r->agg.children) {
       for (int i = 0; i < r->agg.numChildren; i++) {
