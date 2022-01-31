@@ -782,3 +782,50 @@ def testLoadPosition(env):
                                            'APPLY', '@t2', 'AS', 'load_error',
                                            'LOAD', '1', 't2')
     env.assertContains('Value was not found in result', str(res[1]))
+
+def testAggregateGroup0Field(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
+    for i in range(101):
+        conn.execute_command('HSET', 'doc%s' % i, 't', 'text', 'num', i)
+    
+    res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
+                                    'REDUCE', 'QUANTILE', '2', 'num', '0.95', 'AS', 'q95')
+    env.assertEqual(res, [1L, ['q95', '95']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
+                                    'REDUCE', 'QUANTILE', '2', 'num', '0.9', 'AS', 'q90')
+    env.assertEqual(res, [1L, ['q90', '90']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
+                                    'REDUCE', 'QUANTILE', '2', 'num', '0.5', 'AS', 'q50')
+    env.assertEqual(res, [1L, ['q50', '50']])
+
+
+    conn.execute_command('FLUSHALL')
+    conn.execute_command('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
+
+    values = [880000.0, 685000.0, 590000.0, 1200000.0, 1170000.0, 1145000.0,
+              3950000.0, 620000.0, 758000.0, 4850000.0, 800000.0, 340000.0,
+              530000.0, 500000.0, 540000.0, 2500000.0, 330000.0, 525000.0,
+              2500000.0, 350000.0, 590000.0, 1250000.0, 799000.0, 1380000.0]
+    for i in range(len(values)):
+        conn.execute_command('HSET', 'doc%s' % i, 't', 'text', 'num', values[i])
+
+
+    res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
+                                    'REDUCE', 'QUANTILE', '2', 'num', '0.95', 'AS', 'q95')
+    env.assertEqual(res, [1L, ['q95', '3950000']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
+                                    'REDUCE', 'QUANTILE', '2', 'num', '0.9', 'AS', 'q90')
+    env.assertEqual(res, [1L, ['q90', '2500000']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
+                                    'REDUCE', 'QUANTILE', '2', 'num', '0.8', 'AS', 'q80')
+    env.assertEqual(res, [1L, ['q80', '1380000']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
+                                    'REDUCE', 'QUANTILE', '2', 'num', '0.7', 'AS', 'q70')
+    env.assertEqual(res, [1L, ['q70', '1170000']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
+                                    'REDUCE', 'QUANTILE', '2', 'num', '0.6', 'AS', 'q60')
+    env.assertEqual(res, [1L, ['q60', '880000']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
+                                    'REDUCE', 'QUANTILE', '2', 'num', '0.5', 'AS', 'q50')
+    env.assertEqual(res, [1L, ['q50', '758000']])
