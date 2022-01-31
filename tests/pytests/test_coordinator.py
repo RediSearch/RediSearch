@@ -2,7 +2,7 @@ from common import *
 from RLTest import Env
 
 def testInfo(env):
-    skipOnOss(env)
+    SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     for i in range (100):

@@ -134,7 +134,7 @@ def skipOnExistingEnv(env):
     if 'existing' in env.env:
         env.skip()
 
-def skipOnOss(env):
+def SkipOnNonCluster(env):
     if not env.isCluster():
         env.skip()
 
