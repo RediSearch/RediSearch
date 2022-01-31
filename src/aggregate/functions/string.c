@@ -345,7 +345,7 @@ static int stringfunc_contains(ExprEval *ctx, RSValue *result, RSValue **argv, s
   const char *p_pref = (char *)RSValue_StringPtrLen(pref, &p_pref_size);
   result->t = RSValue_Number;
 
-  size_t num = 0;
+  size_t num;
   if(p_pref_size > 0) {
     num = 0;
     while ((p_str = strstr(p_str, p_pref)) != NULL) {
