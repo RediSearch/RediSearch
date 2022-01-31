@@ -6,7 +6,7 @@ endif()
 
 function(RSTEST name)
     add_executable("${name}" "${name}.c")
-    target_link_libraries("${name}" ${RS_TEST_MODULE} m apistubs rt)
+    target_link_libraries("${name}" ${RS_TEST_MODULE} apistubs ${RS_LINK_LIBS})
 	set_target_properties("${name}" PROPERTIES LINKER_LANGUAGE CXX)
     add_test(NAME "${name}" COMMAND "${name}" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 endfunction()

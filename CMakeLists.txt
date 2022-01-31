@@ -4,8 +4,8 @@ get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 if(NOT DEFINED root)
 	set(root ${RS_DIR})
 endif()
-message("# search root: " ${RS_DIR})
-message("# search binroot: " ${binroot})
+message("# RediSearch root: " ${RS_DIR})
+message("# RediSearch binroot: " ${binroot})
 
 include(build/cmake/common.cmake)
 
@@ -18,11 +18,14 @@ option(RS_BUILD_STATIC "Build a static library" OFF)
 
 option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(USE_COVERAGE "Build with coverage" OFF)
+option(STATIC_LIBSTDCXX "Link libstdc++ statically" ON)
 
 option(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 option(USE_ASAN "Use AddressSanitizer (clang)" OFF)
 option(USE_MSAN "Use MemorySanitizer (clang)" OFF)
 option(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
+
+message("# RediSearch static libstdc++: " ${STATIC_LIBSTDCXX})
 
 #----------------------------------------------------------------------------------------------
 
@@ -35,8 +38,13 @@ include(build/cmake/redisearch_debug.cmake)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
+
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${RS_EXE_FLAGS}")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS} ${RS_VECSIM_SO_FLAGS}")
+if (STATIC_LIBSTDCXX AND NOT (USE_ASAN OR USE_MSAN))
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_STATIC_LIBSTDCXX_FLAGS}")
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${CMAKE_STATIC_LIBSTDCXX_FLAGS}")
+endif()
 
 if (NOT RS_MODULE_NAME)
     set(RS_MODULE_NAME "search")
