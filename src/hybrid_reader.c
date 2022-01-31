@@ -116,6 +116,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
       // before insert result to the heap.
       AggregateResult_AddChild(hr->base.current, cur_vec_res);
       AggregateResult_AddChild(hr->base.current, cur_child_res);
+      // todo: can we reuse memory sometimes instead of deep copying as the sorter does?
       RSIndexResult *cur_res = IndexResult_DeepCopy(hr->base.current);
       if (heap_count(hr->topResults) >= hr->query.k) {
         // Remove and release the worst result to replace it with the new one.
@@ -262,15 +263,15 @@ void HybridIterator_Free(struct indexIterator *self) {
     return;
   }
   rm_free(it->runtimeParams);
-  //IndexResult_Free(it->base.current);
   while (heap_count(it->topResults) > 0) {
     IndexResult_Free(heap_poll(it->topResults));
   }
   heap_free(it->topResults);
-  for (size_t i = 0; i < array_len(it->returnedResults); i++) {
+  for (int i = 0; i < (int)array_len(it->returnedResults) - 1; i++) {
     IndexResult_Free(it->returnedResults[i]);
   }
   array_free(it->returnedResults);
+  IndexResult_Free(it->base.current); // the last returned result is stored in current.
   if (it->list) VecSimQueryResult_Free(it->list);
   if (it->iter) VecSimQueryResult_IteratorFree(it->iter);
   if (it->childIt) {
