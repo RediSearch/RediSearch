@@ -347,11 +347,12 @@ static int stringfunc_contains(ExprEval *ctx, RSValue *result, RSValue **argv, s
 
   size_t num = 0;
   if(p_pref_size > 0) {
+    num = 0;
     while ((p_str = strstr(p_str, p_pref)) != NULL) {
       num++;
       p_str++;
     }
-  } else if (p_pref_size == 0) {
+  } else {
     num = p_str_size + 1;
   }
   result->numval = num;
