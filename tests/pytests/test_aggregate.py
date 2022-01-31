@@ -566,6 +566,7 @@ def testContains(env):
     conn.execute_command('hset', 'doc5', 't', 'abba')
     conn.execute_command('hset', 'doc6', 't', 'abbabb')
 
+    # check count of contains
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'contains(@t, "bb")', 'as', 'substring')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa', 'substring', '0'], \
                                                              ['t', 'bba', 'substring', '1'], \
@@ -573,6 +574,31 @@ def testContains(env):
                                                              ['t', 'abb', 'substring', '1'], \
                                                              ['t', 'abba', 'substring', '1'], \
                                                              ['t', 'abbabb', 'substring', '2']]))
+
+    # check filter by contains
+    res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'filter', 'contains(@t, "bb")')
+    env.assertEqual(toSortedFlatList(res)[1:], toSortedFlatList([['t', 'bba'], \
+                                                                 ['t', 'abb'], \
+                                                                 ['t', 'abba'], \
+                                                                 ['t', 'abbabb']]))
+
+    # check count of contains with empty string. (returns length of string + 1)
+    res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'contains(@t, "")', 'as', 'substring')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa', 'substring', '3'], \
+                                                             ['t', 'bba', 'substring', '4'], \
+                                                             ['t', 'aba', 'substring', '4'], \
+                                                             ['t', 'abb', 'substring', '4'], \
+                                                             ['t', 'abba', 'substring', '5'], \
+                                                             ['t', 'abbabb', 'substring', '7']]))
+
+    # check filter by contains with empty string
+    res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'filter', 'contains(@t, "")')
+    env.assertEqual(toSortedFlatList(res)[1:], toSortedFlatList([['t', 'aa'], \
+                                                                 ['t', 'bba'], \
+                                                                 ['t', 'aba'], \
+                                                                 ['t', 'abb'], \
+                                                                 ['t', 'abba'], \
+                                                                 ['t', 'abbabb']]))
 
 def testLoadAll(env):
     conn = getConnectionByEnv(env)
