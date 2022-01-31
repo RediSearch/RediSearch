@@ -1064,7 +1064,6 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   }
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
-  ReindexPool_ThreadPoolDestroy();
   Extensions_Free();
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();
@@ -1075,6 +1074,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   freeGlobalAddStrings();
   SchemaPrefixes_Free(SchemaPrefixes_g);
 
+  ReindexPool_ThreadPoolDestroy();
   RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();
   RediSearch_LockDestory();
