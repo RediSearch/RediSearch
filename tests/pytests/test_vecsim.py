@@ -231,9 +231,10 @@ def testCreate(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR']]
-    assertInfoField(env, 'idx1', 'attributes', info)
-    env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx1", "v")[:-1], ['ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIMENSION', 1024L, 'METRIC', 'IP', 'INDEX_SIZE', 0L, 'M', 16L, 'EF_CONSTRUCTION', 200L, 'EF_RUNTIME', 10L, 'MAX_LEVEL', -1L, 'ENTRYPOINT', -1L, 'MEMORY'])
+    for _ in env.retry_with_rdb_reload():
+        info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR']]
+        assertInfoField(env, 'idx1', 'attributes', info)
+        env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx1", "v")[:-1], ['ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIMENSION', 1024L, 'METRIC', 'IP', 'INDEX_SIZE', 0L, 'M', 16L, 'EF_CONSTRUCTION', 200L, 'EF_RUNTIME', 10L, 'MAX_LEVEL', -1L, 'ENTRYPOINT', -1L, 'MEMORY'])
 
     # Uncomment these tests when support for FLOAT64, INT32, INT64, is added.
     # Trying to run these tests right now will cause 'Bad arguments for vector similarity HNSW index type' error
@@ -322,15 +323,16 @@ def test_with_fields(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_into_redis(conn, 'v', dimension, qty)
 
-    query_data = np.float32(np.random.random((1, dimension)))
-    res = env.cmd('FT.SEARCH', 'idx', '5 @v:[$vec_param TOPK 100]',
-                    'SORTBY', 'v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                    'RETURN', 2, 'v_score', 't')
-    res_nocontent = env.cmd('FT.SEARCH', 'idx', '5 @v:[$vec_param TOPK 100]',
-                    'SORTBY', 'v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                    'NOCONTENT')
-    env.assertEqual(res[1::2], res_nocontent[1:])
-    env.assertEqual('t', res[2][2])
+    for _ in env.retry_with_rdb_reload():
+        query_data = np.float32(np.random.random((1, dimension)))
+        res = env.cmd('FT.SEARCH', 'idx', '5 @v:[$vec_param TOPK 100]',
+                        'SORTBY', 'v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                        'RETURN', 2, 'v_score', 't')
+        res_nocontent = env.cmd('FT.SEARCH', 'idx', '5 @v:[$vec_param TOPK 100]',
+                        'SORTBY', 'v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                        'NOCONTENT')
+        env.assertEqual(res[1::2], res_nocontent[1:])
+        env.assertEqual('t', res[2][2])
 
 
 def get_vecsim_memory(env, index_key, field_name):

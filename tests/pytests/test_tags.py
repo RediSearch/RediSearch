@@ -209,7 +209,7 @@ def testTagCaseSensitive(env):
         forceInvokeGC(env, 'idx3')
         forceInvokeGC(env, 'idx4')
         forceInvokeGC(env, 'idx5')
- 
+
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['f o', [4L, 5L, 6L]]])
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['f o', [4L, 6L]], ['F O', [4L, 5L]]])
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['f o', [5L, 6L]], ['f o,f o', [4L]]])

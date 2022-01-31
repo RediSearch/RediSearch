@@ -2,6 +2,7 @@
 #include "list_reader.h"
 #include "base64/base64.h"
 #include "query_param.h"
+#include "rdb.h"
 
 // taken from parser.c
 void unescape(char *s, size_t *sz) {
@@ -87,7 +88,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
         unescape((char *)vector, &vf->vecLen);
         vector = base64_decode(vector, vf->vecLen, &outLen);
       }
-      
+
       VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = vf->efRuntime};
       vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value, &qParams, BY_ID );
       vf->resultsLen = VecSimQueryResult_Len(vf->results);
@@ -175,4 +176,54 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
     case VecSimAlgo_HNSWLIB: return VECSIM_ALGORITHM_HNSW;
   }
   return NULL;
+}
+
+void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
+  RedisModule_SaveUnsigned(rdb, vecsimParams->algo);
+
+  switch (vecsimParams->algo) {
+  case VecSimAlgo_BF:
+    RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.type);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.dim);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.metric);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.initialCapacity);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.blockSize);
+    break;
+  case VecSimAlgo_HNSWLIB:
+    RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.type);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.dim);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.metric);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.initialCapacity);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.M);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.efConstruction);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.efRuntime);
+    break;
+  }
+}
+
+int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
+  vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
+
+  switch (vecsimParams->algo) {
+  case VecSimAlgo_BF:
+    vecsimParams->bfParams.type = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.blockSize = LoadUnsigned_IOError(rdb, goto fail);
+    break;
+  case VecSimAlgo_HNSWLIB:
+    vecsimParams->hnswParams.type = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.M = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
+    break;
+  }
+  return REDISMODULE_OK;
+
+fail:
+  return REDISMODULE_ERR;
 }
