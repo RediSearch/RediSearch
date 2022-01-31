@@ -458,7 +458,7 @@ def test_hybrid_query_batches_mode_with_text(env):
                'RETURN', 2, '__v_score', 't').equal(expected_res_2)
 
     # Expect for top 10 results from vector search that still has the original text "text value"
-    # (i.e., expected_res_1 without 90, 100)
+    # (i.e., expected_res_1 without 100, and with 89 instead)
     expected_res_4 = [10L, '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value'], '89', ['__v_score', '15488', 't', 'text value']]
     env.expect('FT.SEARCH', 'idx', '(-(@t:other))=>[TOP_K 10 @v $vec_param]',
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
@@ -467,18 +467,18 @@ def test_hybrid_query_batches_mode_with_text(env):
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, '__v_score', 't').equal(expected_res_4)
 
-    # All documents should match, so TOP 15 takes the 15 with the largest ids. Since we sort by score
-    # and "value" is optional, expect that 100 and 90 ids will come first.
-    expected_res_5 = [10L, '100', 3, ['__v_score', '0', 't', 'other'], '91', 2, ['__v_score', '10368', 't', 'text value'], '92', 2, ['__v_score', '8192', 't', 'text value'], '93', 2, ['__v_score', '6272', 't', 'text value'], '94', 2, ['__v_score', '4608', 't', 'text value'], '95', 2, ['__v_score', '3200', 't', 'text value'], '96', 2, ['__v_score', '2048', 't', 'text value'], '97', 2, ['__v_score', '1152', 't', 'text value'], '98', 2, ['__v_score', '512', 't', 'text value'], '99', 2, ['__v_score', '128', 't', 'text value']]
+    # All documents should match, so TOP 10 takes the 10 with the largest ids. Since we sort by score
+    # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
+    expected_res_5 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '2', ['__v_score', '10368', 't', 'text value'], '92', '2', ['__v_score', '8192', 't', 'text value'], '93', '2', ['__v_score', '6272', 't', 'text value'], '94', '2', ['__v_score', '4608', 't', 'text value'], '95', '2', ['__v_score', '3200', 't', 'text value'], '96', '2', ['__v_score', '2048', 't', 'text value'], '97', '2', ['__v_score', '1152', 't', 'text value'], '98', '2', ['__v_score', '512', 't', 'text value'], '99', '2', ['__v_score', '128', 't', 'text value']]
     env.expect('FT.SEARCH', 'idx', '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score').equal(expected_res_5)
 
-    # todo: check why the regular scores are weired with vectors
     # Same as above, but here we use fuzzy for 'text'
-    env.expect('FT.SEARCH', 'idx', '(test|other)=>[TOP_K 10 @v $vec_param]', 'WITHSCORES',
+    expected_res_6 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
+    env.expect('FT.SEARCH', 'idx', '(%test%|other)=>[TOP_K 10 @v $vec_param]', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, 't', '__v_score').equal(expected_res_5)
+               'RETURN', 2, 't', '__v_score').equal(expected_res_6)
 
     # This time the fuzzy matching should not return documents with 'text'.
     env.expect('FT.SEARCH', 'idx', '(%tesst%|other)=>[TOP_K 10 @v $vec_param]',

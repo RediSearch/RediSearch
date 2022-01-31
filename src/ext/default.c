@@ -66,7 +66,7 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
     EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
     return res;
   }
-  if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
+  if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_Hybrid)) {
     double ret = 0;
     int numChildren = r->agg.numChildren;
     if (!scrExp) {

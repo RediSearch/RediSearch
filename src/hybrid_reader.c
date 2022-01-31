@@ -91,49 +91,52 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
 }
 
 static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *vecsim_iter, float *upper_bound) {
-  RSIndexResult *cur_res;
-  hr->childIt->Read(hr->childIt->ctx, &(hr->childIt->current));
-  HR_ReadInBatch(hr, &(VECTOR_RESULT(hr->base.current)));
+  RSIndexResult *cur_vec_res = NewDistanceResult(), *cur_child_res;
+  hr->childIt->Read(hr->childIt->ctx, &cur_child_res);
+  HR_ReadInBatch(hr, &cur_vec_res);
   while (hr->childIt->isValid) {
-    if (VECTOR_RESULT(hr->base.current)->docId == hr->childIt->current->docId) {
+    if (cur_vec_res->docId == cur_child_res->docId) {
       // Found a match - check if it should be added to the results heap.
-      if (heap_count(hr->topResults) >= hr->query.k && hr->base.current->num.value >= *upper_bound) {
+      if (heap_count(hr->topResults) >= hr->query.k && cur_vec_res->dist.distance >= *upper_bound) {
         // Skip the result and get the next one, since it was not better
         // than the k results that we already have.
-        hr->childIt->Read(hr->childIt->ctx, &(hr->childIt->current));
-        HR_ReadInBatch(hr, &(VECTOR_RESULT(hr->base.current)));
+        hr->childIt->Read(hr->childIt->ctx, &cur_child_res);
+        HR_ReadInBatch(hr, &cur_vec_res);
         continue;
       }
-      // Otherwise, set the child result as the second child before insert result to the heap.
-      AggregateResult_AddChild(hr->base.current, hr->childIt->current);
+      // Otherwise, set the vector and child results as the children
+      // before insert result to the heap.
+      AggregateResult_AddChild(hr->base.current, cur_vec_res);
+      AggregateResult_AddChild(hr->base.current, cur_child_res);
+      RSIndexResult *cur_res = IndexResult_DeepCopy(hr->base.current);
       if (heap_count(hr->topResults) >= hr->query.k) {
-        // Reuse the RSIndexResult struct of the worst result for the new one.
-        cur_res = heap_poll(hr->topResults);
-        IndexResult_Free(cur_res);
-        cur_res = IndexResult_DeepCopy(hr->base.current);
-      } else {
-        cur_res = IndexResult_DeepCopy(hr->base.current);
+        // Remove and release the worst result to replace it with the new one.
+        RSIndexResult *top_res = heap_poll(hr->topResults);
+        IndexResult_Free(top_res);
       }
-      // Insert to heap
+      // Insert to heap, update the distance upper bound.
       heap_offerx(hr->topResults, cur_res);
       RSIndexResult *top = heap_peek(hr->topResults);
       *upper_bound = VECTOR_RESULT(top)->dist.distance;
-      hr->childIt->Read(hr->childIt->ctx, &(hr->childIt->current));
-      HR_ReadInBatch(hr, &(VECTOR_RESULT(hr->base.current)));
+      // Reset the current result.
+      AggregateResult_Reset(hr->base.current);
+      cur_vec_res = NewDistanceResult();
+      hr->childIt->Read(hr->childIt->ctx, &cur_child_res);
+      HR_ReadInBatch(hr, &cur_vec_res);
     }
     // Otherwise, advance the iterator pointing to the lower id.
-    else if (VECTOR_RESULT(hr->base.current)->docId > hr->childIt->current->docId && hr->childIt->isValid) {
-      RSIndexResult *tmp; // placeholder, SkipTo and Read require this, but we don't use it.
-      int rc = hr->childIt->SkipTo(hr->childIt->ctx, VECTOR_RESULT(hr->base.current)->docId, &tmp);
+    else if (cur_vec_res->docId > cur_child_res->docId && hr->childIt->isValid) {
+      int rc = hr->childIt->SkipTo(hr->childIt->ctx, cur_vec_res->docId, &cur_child_res);
       if (rc == INDEXREAD_NOTFOUND) {
-        hr->childIt->Read(hr->childIt->ctx, &tmp);
+        hr->childIt->Read(hr->childIt->ctx, &cur_child_res);
       }
     } else if (VecSimQueryResult_IteratorHasNext(vecsim_iter)){
-      HR_SkipToInBatch(hr, hr->childIt->current->docId, &(VECTOR_RESULT(hr->base.current)));
+      HR_SkipToInBatch(hr, cur_child_res->docId, &cur_vec_res);
     } else {
       break; // both iterators are depleted.
     }
   }
+  IndexResult_Free(cur_vec_res);
 }
 
 static void prepareResults(HybridIterator *hr) {
@@ -258,6 +261,9 @@ void HybridIterator_Free(struct indexIterator *self) {
   heap_free(it->topResults);
   if (it->list) VecSimQueryResult_Free(it->list);
   if (it->iter) VecSimQueryResult_IteratorFree(it->iter);
+  if (it->childIt) {
+    it->childIt->Free(it->childIt->ctx);
+  }
   rm_free(it);
 }
 
@@ -303,8 +309,6 @@ IndexIterator *NewHybridVectorIteratorImpl(VecSimIndex *index, char *score_field
     ri->Read = HR_ReadInBatch;
   } else {
     ri->current = NewHybridResult();
-    // The first child is always the vector distance result, the second is the child's result.
-    AggregateResult_AddChild(ri->current, NewDistanceResult());
     ri->Read = HR_ReadUnsorted;
   }
   return ri;

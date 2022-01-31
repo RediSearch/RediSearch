@@ -91,7 +91,7 @@ RSIndexResult *NewDistanceResult() {
                          .docId = 0,
                          .isCopy = 0,
                          .fieldMask = RS_FIELDMASK_ALL,
-                         .freq = 1,
+                         .freq = 0,
                          .weight = 1,
 
                          .dist = (RSDistanceRecord){.distance = 0}};
