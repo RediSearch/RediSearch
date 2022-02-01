@@ -43,7 +43,11 @@ endif
 export SAN
 endif # SAN
 
+ifneq ($(OS),macos)
 STATIC_LIBSTDCXX ?= 1
+else
+STATIC_LIBSTDCXX ?= 0
+endif
 
 #----------------------------------------------------------------------------------------------
 
