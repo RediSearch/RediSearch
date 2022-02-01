@@ -589,13 +589,11 @@ workflows:
             parameters:
               redis_version: ["6.0", "6.2"]
       - build-platforms:
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              #@@platform: [focal, bionic, xenial, centos7, ol8, bullseye]
-              platform: [bionic, xenial, centos7, ol8]
+              platform: [focal, bionic, xenial, centos7, ol8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -604,8 +602,7 @@ workflows:
               platform: [bionic]
       - build-macos:
           context: common
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
       - coverage:
           <<: *on-any-branch
       - sanitize:
