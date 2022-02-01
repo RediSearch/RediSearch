@@ -247,8 +247,9 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
 
   // Test simple hybrid vector query
-  assertValidQuery("hello world=>[TOP_K 10 @vec_field $BLOB]", ctx);
-  const char *vqt = "hello world=>[TOP_K 10 @vec_field $BLOB]";
+  //assertInvalidQuery("hello world=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(hello world)=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  const char *vqt = "(hello world)=>[TOP_K 10 @vec_field $BLOB]";
   QASTCXX v_ast;
   v_ast.setContext(&ctx);
   ASSERT_TRUE(v_ast.parse(vqt));
@@ -257,7 +258,6 @@ TEST_F(QueryTest, testParser) {
   ASSERT_EQ(vn->type, QN_VECTOR);
   ASSERT_EQ(QueryNode_NumChildren(vn), 1);
 
-  // todo: change this after parser changes
   assertValidQuery("(@title:hello)=>[TOP_K 10 @vec_field $BLOB]", ctx);
 
   assertValidQuery("(hello|world)=>[TOP_K 10 @vec_field $BLOB]", ctx);

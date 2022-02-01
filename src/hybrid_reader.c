@@ -13,7 +13,7 @@ typedef struct {
   IndexIterator base;
   VecSimIndex *index;
   TopKVectorQuery query;
-  VecSimQueryParams *runtimeParams;   // evaluated runtime params.
+  VecSimQueryParams runtimeParams;   // evaluated runtime params.
   IndexIterator *childIt;
   VecSearchMode mode;
   bool RESULTS_PREPARED;
@@ -150,7 +150,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
 void prepareResults(HybridIterator *hr) {
   if (hr->mode == STANDARD_KNN) {
     hr->list =
-        VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, hr->runtimeParams, hr->query.order);
+        VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, &(hr->runtimeParams), hr->query.order);
     hr->iter = VecSimQueryResult_List_GetIterator(hr->list);
     return;
   }
@@ -263,7 +263,6 @@ void HybridIterator_Free(struct indexIterator *self) {
   if (it == NULL) {
     return;
   }
-  rm_free(it->runtimeParams);
   while (heap_count(it->topResults) > 0) {
     IndexResult_Free(heap_poll(it->topResults));
   }
@@ -271,8 +270,8 @@ void HybridIterator_Free(struct indexIterator *self) {
   for (int i = 0; i < (int)array_len(it->returnedResults); i++) {
     IndexResult_Free(it->returnedResults[i]);
   }
-  IndexResult_Free(it->base.current); // the last returned result is stored in current.
   array_free(it->returnedResults);
+  IndexResult_Free(it->base.current);
   if (it->list) VecSimQueryResult_Free(it->list);
   if (it->iter) VecSimQueryResult_IteratorFree(it->iter);
   if (it->childIt) {
@@ -281,7 +280,7 @@ void HybridIterator_Free(struct indexIterator *self) {
   rm_free(it);
 }
 
-IndexIterator *NewHybridVectorIteratorImpl(VecSimIndex *index, char *score_field, TopKVectorQuery query, VecSimQueryParams *qParams, IndexIterator *child_it) {
+IndexIterator *NewHybridVectorIteratorImpl(VecSimIndex *index, char *score_field, TopKVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it) {
   HybridIterator *hi = rm_new(HybridIterator);
   hi->lastDocId = 0;
   hi->childIt = child_it;

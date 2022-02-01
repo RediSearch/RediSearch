@@ -134,10 +134,10 @@ IndexIterator *NewHybridVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, Que
   }
   switch (vq->type) {
     case VECSIM_QT_TOPK:;
-      VecSimQueryParams *qParams = rm_malloc(sizeof(VecSimQueryParams));
+      VecSimQueryParams qParams;
       int err;
       if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params),
-                                           qParams)) != VecSim_OK) {
+                                           &qParams)) != VecSim_OK) {
         err = VecSimResolveCode_to_QueryErrorCode(err);
         QueryError_SetErrorFmt(status, err, "Error parsing vector similarity parameters: %s",
                                QueryError_Strerror(err));
@@ -145,7 +145,7 @@ IndexIterator *NewHybridVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, Que
       }
       if (!isFit(vecsim, vq->topk.vecLen)) {
         QueryError_SetError(status, QUERY_EINVAL,
-                            "Error parsing vector similarity query: query vector does not match index's type or dimention.");
+                            "Error parsing vector similarity query: query vector does not match index's type or dimension.");
         return NULL;
       }
       return NewHybridVectorIteratorImpl(vecsim, vq->scoreField, vq->topk, qParams, child_it);

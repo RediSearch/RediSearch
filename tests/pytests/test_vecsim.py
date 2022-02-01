@@ -282,8 +282,8 @@ def testSearchErrors(env):
     env.expect('FT.SEARCH', 'idx', '*=>[REDIS 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '*=>[TOP_K str @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
 
-    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('query vector does not match index\'s type or dimention')
-    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('query vector does not match index\'s type or dimention')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('query vector does not match index\'s type or dimension.')
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('query vector does not match index\'s type or dimension.')
     env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @t $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0]) # wrong field
     env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS v]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `v` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b AS s]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `s` already exists in schema')
@@ -306,13 +306,14 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
     p.execute()
     return id_vec_list
 
+
 def test_with_fields(env):
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
 
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
-    load_vectors_into_redis(conn, 'v', dimension, qty)
+    load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
 
     query_data = np.float32(np.random.random((1, dimension)))
     res = env.cmd('FT.SEARCH', 'idx', '*=>[TOP_K 100 @v $vec_param AS score]',
@@ -471,3 +472,21 @@ def test_hybrid_query_batches_mode_with_text(env):
 
     # This time the fuzzy matching should not return documents with 'text'.
     execute_hybrid_query(env, '(%tesst%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_2)
+
+
+# def test_hybrid_query_batches_mode_with_tags(env):
+#     conn = getConnectionByEnv(env)
+#     dimension = 128
+#     index_size = 100
+#     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+#                          'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'tag', 'TAG', 'text', 'TEXT')
+#
+#     p = conn.pipeline(transaction=False)
+#     for i in range(1, index_size+1):
+#         vector = np.float32([i for j in range(dimension)])
+#         conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'text value')
+#     p.execute()
+#     query_data = np.float32([index_size for j in range(dimension)])
+#
+#     expected_res_1 = [10L, '100', ['__v_score', '0', 't', 'text value'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
+#     execute_hybrid_query(env, '(@t:(text value))=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_1)
