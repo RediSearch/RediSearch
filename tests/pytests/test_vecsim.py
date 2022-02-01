@@ -296,7 +296,7 @@ def testSearchErrors(env):
     env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $b EF_FUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
 
 
-def load_vectors_into_redis(con, vector_field, dim, num_vectors):
+def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
     id_vec_list = []
     p = con.pipeline(transaction=False)
     for i in range(1, num_vectors+1):
@@ -409,78 +409,65 @@ def test_memory_info(env):
     env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
 
+def execute_hybrid_query(env, query_string, query_data, non_vector_field, expected, sort_by_vector=True):
+    if sort_by_vector:
+        env.expect('FT.SEARCH', 'idx', query_string,
+                   'SORTBY', '__v_score',
+                   'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                   'RETURN', 2, '__v_score', non_vector_field).equal(expected)
+    else:
+        env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+                   'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                   'RETURN', 2, 't', '__v_score').equal(expected)
+
+
 def test_hybrid_query_batches_mode_with_text(env):
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
                          'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
-    load_vectors_into_redis(conn, 'v', dimension, qty)
+    load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
     query_data = np.float32([qty for j in range(dimension)])
-    expected_res_1 = [10L, '100', ['__v_score', '0', 't', 'text value'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
-    env.expect('FT.SEARCH', 'idx', '(@t:(text value))=>[TOP_K 10 @v $vec_param]',
-               'SORTBY', '__v_score',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, '__v_score', 't').equal(expected_res_1)
-    env.expect('FT.SEARCH', 'idx', '(text value)=>[TOP_K 10 @v $vec_param]',
-               'SORTBY', '__v_score',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, '__v_score', 't').equal(expected_res_1)
-    env.expect('FT.SEARCH', 'idx', '("text value")=>[TOP_K 10 @v $vec_param]',
-               'SORTBY', '__v_score',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, '__v_score', 't').equal(expected_res_1)
 
-    # change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
+    expected_res_1 = [10L, '100', ['__v_score', '0', 't', 'text value'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
+    execute_hybrid_query(env, '(@t:(text value))=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_1)
+    execute_hybrid_query(env, '(text value)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_1)
+    execute_hybrid_query(env, '("text value")=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_1)
+
+    # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
     for i in range(1, 11):
         vector = np.float32([10*i for j in range(dimension)])
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
 
-    # expect to get only vector that passes the filter (i.e, has "other" in t field)
+    # Expect to get only vector that passes the filter (i.e, has "other" in t field)
     expected_res_2 = [10L, '100', ['__v_score', '0', 't', 'other'], '90', ['__v_score', '12800', 't', 'other'], '80', ['__v_score', '51200', 't', 'other'], '70', ['__v_score', '115200', 't', 'other'], '60', ['__v_score', '204800', 't', 'other'], '50', ['__v_score', '320000', 't', 'other'], '40', ['__v_score', '460800', 't', 'other'], '30', ['__v_score', '627200', 't', 'other'], '20', ['__v_score', '819200', 't', 'other'], '10', ['__v_score', '1036800', 't', 'other']]
-    env.expect('FT.SEARCH', 'idx', '(@t:other)=>[TOP_K 10 @v $vec_param]',
-                               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                               'RETURN', 2, '__v_score', 't').equal(expected_res_2)
+    execute_hybrid_query(env, '(@t:other)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_2)
 
+    # Test with union - expect that all docs will pass the filter.
     expected_res_3 = [10L, '100', ['__v_score', '0', 't', 'other'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
-    env.expect('FT.SEARCH', 'idx', '(@t:other|text)=>[TOP_K 10 @v $vec_param]',
-                         'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                         'RETURN', 2, '__v_score', 't').equal(expected_res_3)
+    execute_hybrid_query(env, '(@t:other|text)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_3)
 
     # Expect empty score for the intersection (disjoint sets of results)
-    env.expect('FT.SEARCH', 'idx', '(@t:other text)=>[TOP_K 10 @v $vec_param]',
-               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, '__v_score', 't').equal([0L])
+    execute_hybrid_query(env, '(@t:other text)=>[TOP_K 10 @v $vec_param]', query_data, 't', [0L])
 
     # Expect the same results as in expected_res_2 ('other AND NOT text')
-    env.expect('FT.SEARCH', 'idx', '(@t:other -text)=>[TOP_K 10 @v $vec_param]',
-               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, '__v_score', 't').equal(expected_res_2)
+    execute_hybrid_query(env, '(@t:other -text)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_2)
 
     # Expect for top 10 results from vector search that still has the original text "text value"
     # (i.e., expected_res_1 without 100, and with 89 instead)
     expected_res_4 = [10L, '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value'], '89', ['__v_score', '15488', 't', 'text value']]
-    env.expect('FT.SEARCH', 'idx', '(-(@t:other))=>[TOP_K 10 @v $vec_param]',
-               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, '__v_score', 't').equal(expected_res_4)
-    env.expect('FT.SEARCH', 'idx', '(te*)=>[TOP_K 10 @v $vec_param]',
-               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, '__v_score', 't').equal(expected_res_4)
+    execute_hybrid_query(env, '(-(@t:other))=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_4)
+    execute_hybrid_query(env, '(te*)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_4)
 
     # All documents should match, so TOP 10 takes the 10 with the largest ids. Since we sort by score
     # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
     expected_res_5 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '2', ['__v_score', '10368', 't', 'text value'], '92', '2', ['__v_score', '8192', 't', 'text value'], '93', '2', ['__v_score', '6272', 't', 'text value'], '94', '2', ['__v_score', '4608', 't', 'text value'], '95', '2', ['__v_score', '3200', 't', 'text value'], '96', '2', ['__v_score', '2048', 't', 'text value'], '97', '2', ['__v_score', '1152', 't', 'text value'], '98', '2', ['__v_score', '512', 't', 'text value'], '99', '2', ['__v_score', '128', 't', 'text value']]
-    env.expect('FT.SEARCH', 'idx', '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', 'WITHSCORES',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, 't', '__v_score').equal(expected_res_5)
+    execute_hybrid_query(env, '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_5, sort_by_vector=False)
 
     # Same as above, but here we use fuzzy for 'text'
     expected_res_6 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
-    env.expect('FT.SEARCH', 'idx', '(%test%|other)=>[TOP_K 10 @v $vec_param]', 'WITHSCORES',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, 't', '__v_score').equal(expected_res_6)
+    execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_6, sort_by_vector=False)
 
     # This time the fuzzy matching should not return documents with 'text'.
-    env.expect('FT.SEARCH', 'idx', '(%tesst%|other)=>[TOP_K 10 @v $vec_param]',
-               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'LIMIT', 0, 15,
-               'RETURN', 2, 't', '__v_score').equal(expected_res_2)
+    execute_hybrid_query(env, '(%tesst%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_2)
