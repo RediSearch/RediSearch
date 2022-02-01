@@ -1274,6 +1274,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   ret->Abort = NI_Abort;
   ret->Rewind = NI_Rewind;
   ret->mode = MODE_SORTED;
+  ret->isValid = true;
 
   if (nc->child->mode == MODE_UNSORTED) {
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
@@ -1956,7 +1957,6 @@ void Profile_AddIters(IndexIterator **root) {
       break;
     case WILDCARD_ITERATOR:
     case READ_ITERATOR:
-    case LIST_ITERATOR:
     case HYBRID_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:

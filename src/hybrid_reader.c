@@ -99,7 +99,7 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
 }
 
 static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *vecsim_iter, float *upper_bound) {
-  RSIndexResult *cur_vec_res = NewDistanceResult(), *cur_child_res;
+  RSIndexResult *cur_vec_res = NewDistanceResult(), *cur_child_res, *cur_res = hr->base.current;
   hr->childIt->Read(hr->childIt->ctx, &cur_child_res);
   HR_ReadInBatch(hr, &cur_vec_res);
   while (hr->childIt->isValid) {
@@ -114,21 +114,21 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
       }
       // Otherwise, set the vector and child results as the children
       // before insert result to the heap.
-      AggregateResult_AddChild(hr->base.current, cur_vec_res);
-      AggregateResult_AddChild(hr->base.current, cur_child_res);
-      // todo: can we reuse memory sometimes instead of deep copying as the sorter does?
-      RSIndexResult *cur_res = IndexResult_DeepCopy(hr->base.current);
+      AggregateResult_AddChild(cur_res, cur_vec_res);
+      AggregateResult_AddChild(cur_res, cur_child_res);
+      // todo: can we avoid deep copy and reuse memory sometimes (as the sorter does)?
+      RSIndexResult *hit = IndexResult_DeepCopy(cur_res);
       if (heap_count(hr->topResults) >= hr->query.k) {
         // Remove and release the worst result to replace it with the new one.
         RSIndexResult *top_res = heap_poll(hr->topResults);
         IndexResult_Free(top_res);
       }
       // Insert to heap, update the distance upper bound.
-      heap_offerx(hr->topResults, cur_res);
+      heap_offerx(hr->topResults, hit);
       RSIndexResult *top = heap_peek(hr->topResults);
       *upper_bound = VECTOR_RESULT(top)->dist.distance;
-      // Reset the current result.
-      AggregateResult_Reset(hr->base.current);
+      // Reset the current result and advance both "sub-iterators".
+      AggregateResult_Reset(cur_res);
       hr->childIt->Read(hr->childIt->ctx, &cur_child_res);
       HR_ReadInBatch(hr, &cur_vec_res);
     }
@@ -196,8 +196,9 @@ static int HR_ReadUnsorted(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   if (heap_count(hr->topResults) > 0) {
-    hr->base.current = heap_poll(hr->topResults);
-    *hit = hr->base.current;
+//    hr->base.current = heap_poll(hr->topResults);
+//    *hit = hr->base.current;
+    *hit = heap_poll(hr->topResults);
     hr->returnedResults = array_append(hr->returnedResults, *hit);
     return INDEXREAD_OK;
   }
@@ -267,11 +268,11 @@ void HybridIterator_Free(struct indexIterator *self) {
     IndexResult_Free(heap_poll(it->topResults));
   }
   heap_free(it->topResults);
-  for (int i = 0; i < (int)array_len(it->returnedResults) - 1; i++) {
+  for (int i = 0; i < (int)array_len(it->returnedResults); i++) {
     IndexResult_Free(it->returnedResults[i]);
   }
-  array_free(it->returnedResults);
   IndexResult_Free(it->base.current); // the last returned result is stored in current.
+  array_free(it->returnedResults);
   if (it->list) VecSimQueryResult_Free(it->list);
   if (it->iter) VecSimQueryResult_IteratorFree(it->iter);
   if (it->childIt) {

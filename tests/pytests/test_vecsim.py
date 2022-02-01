@@ -452,7 +452,7 @@ def test_hybrid_query_batches_mode_with_text(env):
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, '__v_score', 't').equal([0L])
 
-    # Expect the same results as in expected_res_2 ('other AND NOT text`)
+    # Expect the same results as in expected_res_2 ('other AND NOT text')
     env.expect('FT.SEARCH', 'idx', '(@t:other -text)=>[TOP_K 10 @v $vec_param]',
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, '__v_score', 't').equal(expected_res_2)
