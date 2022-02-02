@@ -14,11 +14,17 @@ if(RMUTIL_NO_SDS)
 	target_compile_definitions(rmutil PRIVATE RMUTIL_NO_SDS)
 endif()
 
+if (${OS} STREQUAL "linux")
+	set(RMUTIL_LINK_LIBS m dl rt)
+elseif (${OS} STREQUAL "macos")
+	set(RMUTIL_LINK_LIBS m dl)
+endif()
+
 if (RS_RUN_TESTS)
 	function(_rmutilTest name)
 		add_executable("${name}" "${name}.c" $<TARGET_OBJECTS:rmutil>)
 		target_compile_definitions("${name}" PRIVATE REDISMODULE_MAIN)
-		target_link_libraries(${name} m)
+		target_link_libraries(${name} ${RMUTIL_LINK_LIBS})
 		add_test(NAME "${name}" COMMAND "${name}")
 	endfunction()
 

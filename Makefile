@@ -45,11 +45,12 @@ endif # SAN
 
 #----------------------------------------------------------------------------------------------
 
+ROOT=.
+
 ifeq ($(wildcard $(ROOT)/deps/readies/*),)
-$(info $(shell git submodule update --init --recursive &> /dev/null))
+___:=$(shell git submodule update --init --recursive &> /dev/null)
 endif
 
-ROOT=.
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -58,19 +59,19 @@ define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
 make fetch         # download and prepare dependant modules
 
-make build         # compile and link
-  COORD=1|oss|rlec   # build coordinator (1|oss: Open Source, rlec: Enterprise)
-  STATIC=1           # build as static lib
-  LITE=1             # build RediSearchLight
-  VECSIM_MARCH=arch  # architecture for VecSim build
-  DEBUG=1            # build for debugging
-  NO_TESTS=1         # disable unit tests
-  WHY=1              # explain CMake decisions (in /tmp/cmake-why)
-  FORCE=1            # Force CMake rerun (default)
-  CMAKE_ARGS=...     # extra arguments to CMake
-  VG=1               # build for Valgrind
-  SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread) 
-  SLOW=1             # do not parallelize build (for diagnostics)
+make build          # compile and link
+  COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)
+  STATIC=1            # build as static lib
+  LITE=1              # build RediSearchLight
+  DEBUG=1             # build for debugging
+  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
+  NO_TESTS=1          # disable unit tests
+  WHY=1               # explain CMake decisions (in /tmp/cmake-why)
+  FORCE=1             # Force CMake rerun (default)
+  CMAKE_ARGS=...      # extra arguments to CMake
+  VG=1                # build for Valgrind
+  SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SLOW=1              # do not parallelize build (for diagnostics)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -103,16 +104,24 @@ make cpp_tests     # run C++ tests (from tests/cpptests)
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
 
-make pack          # create installation packages
-  COORD=rlec         # pack RLEC coordinator ('redisearch' package)
-  LITE=1             # pack RediSearchLight ('redisearch-light' package)
-make deploy        # copy packages to S3
-make release       # release a version
+make pack             # create installation packages (default: 'redisearch-oss' package)
+  COORD=rlec            # pack RLEC coordinator ('redisearch' package)
+  LITE=1                # pack RediSearchLight ('redisearch-light' package)
+
+make upload-artifacts   # copy snapshot packages to S3
+  OSNICK=nick             # copy snapshots for specific OSNICK
+make upload-release     # copy release packages to S3
+
+common options for upload operations:
+  STAGING=1             # copy to staging lab area (for validation)
+  FORCE=1               # allow operation outside CI environment
+  VERBOSE=1             # show more details
+  NOP=1                 # do not copy, just print commands
 
 make docs          # create documentation
-make deploydocs    # deploy documentation
+make deploy-docs   # deploy documentation
 
-make platform      # build for specified platform
+make docker        # build for specified platform
   OSNICK=nick        # platform to build for (default: host platform)
   TEST=1             # run tests after build
   PACK=1             # create package
@@ -126,70 +135,76 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(STATIC),1)
+ifeq ($(COORD),) # Standalone build
 
-ifneq ($(COORD),)
-$(error STATIC=1 is incompatible with COORD)
-endif
+	ifeq ($(STATIC),1) # Static build
+		CMAKE_DIR=$(ROOT)
+		BINDIR=$(BINROOT)/search-static
+		SRCDIR=src
+		TARGET=$(BINDIR)/redisearch.a
+		PACKAGE_NAME=
+		RAMP_MODULE_NAME=
+		RAMP_YAML=
 
-CMAKE_DIR=$(ROOT)
-BINDIR=$(BINROOT)/search-static
-SRCDIR=src
-TARGET=$(BINDIR)/redisearch.a
-PACKAGE_NAME=
+	else ifneq ($(LITE),1) # OSS Search
+		CMAKE_DIR=$(ROOT)
+		BINDIR=$(BINROOT)/search
+		SRCDIR=src
+		TARGET=$(BINDIR)/redisearch.so
+		PACKAGE_NAME=redisearch-oss
+		RAMP_MODULE_NAME=search
+		RAMP_YAML=pack/ramp.yml
+		PACKAGE_S3_DIR=redisearch-oss
 
-endif # STATIC
-
-ifeq ($(COORD),)
-
-CMAKE_DIR=$(ROOT)
-SRCDIR=src
-TARGET=$(BINDIR)/redisearch.so
-PACKAGE_NAME=redisearch
-RAMP_YAML=pack/ramp.yml
-
-ifneq ($(LITE),1)
-BINDIR=$(BINROOT)/search
-RAMP_MODULE_NAME=search
-else
-BINDIR=$(BINROOT)/search-lite
-RAMP_MODULE_NAME=searchlight
-PACKAGE_NAME=redisearch-light
-RAMP_YAML=pack/ramp-light.yml
-endif
+	else # Search Lite
+		CMAKE_DIR=$(ROOT)
+		BINDIR=$(BINROOT)/search-lite
+		SRCDIR=src
+		TARGET=$(BINDIR)/redisearch.so
+		PACKAGE_NAME=redisearch-light
+		RAMP_MODULE_NAME=searchlight
+		RAMP_YAML=pack/ramp-light.yml
+		PACKAGE_S3_DIR=redisearch
+	endif
 
 else # COORD
 
-ifeq ($(COORD),1)
-override COORD:=oss
-endif
+	ifeq ($(STATIC),1)
+		___:=$(error STATIC=1 is incompatible with COORD)
+	endif
 
-ifeq ($(COORD),oss)
-CMAKE_DIR=$(ROOT)/coord
-BINDIR=$(BINROOT)/coord-oss
-SRCDIR=coord/src
-TARGET=$(BINDIR)/module-oss.so
-PACKAGE_NAME=redisearch-oss
-RAMP_MODULE_NAME=search
+	ifeq ($(COORD),1)
+		override COORD:=oss
+	endif
 
-else ifeq ($(COORD),rlec)
-CMAKE_DIR=$(ROOT)/coord
-BINDIR=$(BINROOT)/coord-rlec
-SRCDIR=coord/src
-TARGET=$(BINDIR)/module-enterprise.so
-PACKAGE_NAME=redisearch-enterprise
-RAMP_MODULE_NAME=search
-RAMP_YAML=coord/pack/ramp.yml
+	ifeq ($(COORD),oss) # OSS Coordinator
+		CMAKE_DIR=$(ROOT)/coord
+		BINDIR=$(BINROOT)/coord-oss
+		SRCDIR=coord/src
+		TARGET=$(BINDIR)/module-oss.so
+		PACKAGE_NAME=redisearch
+		RAMP_MODULE_NAME=search
+		RAMP_YAML=
 
-else
-$(error COORD should be either oss or rlec)
-endif
+	else ifeq ($(COORD),rlec) # RLEC Coordinator
+		CMAKE_DIR=$(ROOT)/coord
+		BINDIR=$(BINROOT)/coord-rlec
+		SRCDIR=coord/src
+		TARGET=$(BINDIR)/module-enterprise.so
+		PACKAGE_NAME=redisearch
+		RAMP_MODULE_NAME=search
+		RAMP_YAML=coord/pack/ramp.yml
+		PACKAGE_S3_DIR=redisearch
 
-export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.release)/libuv)
-include build/libuv/Makefile.defs
+	else
+		___:=$(error COORD should be either oss or rlec)
+	endif
 
-HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
-include build/hiredis/Makefile.defs
+	export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.release)/libuv)
+	include build/libuv/Makefile.defs
+
+	HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
+	include build/hiredis/Makefile.defs
 
 endif # COORD
 
@@ -201,6 +216,12 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
+ifneq ($(OS),macos)
+STATIC_LIBSTDCXX ?= 1
+else
+STATIC_LIBSTDCXX ?= 0
+endif
+
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
 endif
@@ -211,6 +232,12 @@ endif
 
 ifeq ($(PROFILE),1)
 CMAKE_PROFILE=-DPROFILE=ON
+endif
+
+ifeq ($(STATIC_LIBSTDCXX),1)
+CMAKE_STATIC_LIBSTDCXX=-DSTATIC_LIBSTDCXX=on
+else
+CMAKE_STATIC_LIBSTDCXX=-DSTATIC_LIBSTDCXX=off
 endif
 
 ifeq ($(DEBUG),1)
@@ -260,29 +287,9 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(ARCH),x64)
-
-ifeq ($(SAN),)
-ifneq ($(findstring centos,$(OSNICK)),)
-VECSIM_MARCH ?= skylake-avx512
-else ifneq ($(findstring xenial,$(OSNICK)),)
-VECSIM_MARCH ?= skylake-avx512
-else ifneq ($(findstring macos,$(OS)),)
-VECSIM_MARCH ?= skylake-avx512
-else
-VECSIM_MARCH ?= x86-64-v4
-endif
-else
-VECSIM_MARCH ?= skylake-avx512
-endif
-
-CMAKE_VECSIM=-DVECSIM_MARCH=$(VECSIM_MARCH)
-
-else # ARCH != x64
-
-CMAKE_VECSIM=
-
-endif # ARCH
+HAVE_MARCH_OPTS:=$(shell $(MK)/cc-have-opts)
+CMAKE_CXX_MARCH_FLAGS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt))
+CMAKE_HAVE_MARCH_OPTS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt)=on) -DMARCH_CXX_FLAGS="$(CMAKE_CXX_MARCH_FLAGS)"
 
 #----------------------------------------------------------------------------------------------
 
@@ -295,8 +302,8 @@ CMAKE_FLAGS=\
 	-DOSNICK=$(OSNICK) \
 	-DARCH=$(ARCH)
 
-CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_VECSIM) \
-	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
+CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_COV) \
+	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
 
 #----------------------------------------------------------------------------------------------
 
@@ -340,19 +347,6 @@ else
 MAKE_J:=-j$(shell nproc)
 endif
 
-ifeq ($(OSNICK),centos7)
-ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
-define SETUP_LIBSTDCXX
-set -e ;\
-cd $(BINDIR) ;\
-wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$(OS)-$(ARCH).tgz ;\
-tar xzf libstdc.tgz ;\
-rm libstdc.tgz ;\
-ln -sf libstdc++.so.6.0.25 libstdc++.so.6
-endef
-endif
-endif
-
 ifeq ($(FORCE),1)
 .PHONY: __force
 
@@ -368,10 +362,8 @@ endif
 
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
-	$(SHOW)$(SETUP_LIBSTDCXX)
 ifneq ($(DRY_RUN),1)
 	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
-#	$(SHOW)[ -f $(TARGET) ] && touch $(TARGET)
 else
 	@make -C $(BINDIR) $(MAKE_J)
 endif
@@ -500,6 +492,8 @@ else
 REJSON_SO=
 endif
 
+RLTEST_PARALLEL ?= 1
+
 test: $(REJSON_SO)
 ifneq ($(TEST),)
 	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
@@ -515,7 +509,7 @@ endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
@@ -593,6 +587,14 @@ bin/artifacts/$(RAMP.release) : $(RAMP_YAML) $(TARGET)
 
 pack: bin/artifacts/$(RAMP.release)
 
+upload-release:
+	$(SHOW)RELEASE=1 ./sbin/upload-artifacts
+
+upload-artifacts:
+	$(SHOW)SNAPSHOT=1 ./sbin/upload-artifacts
+
+.PHONY: pack upload-artifacts upload-release
+
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(REMOTE),1)
@@ -614,6 +616,8 @@ endif
 benchmark:
 	$(SHOW)cd tests/benchmarks ;\
 	redisbench-admin $(BENCHMARK_ARGS)
+
+.PHONY: benchmark
 
 #----------------------------------------------------------------------------------------------
 
@@ -661,14 +665,14 @@ upload-cov:
 docs:
 	$(SHOW)mkdocs build
 
-deploydocs:
+deploy-docs:
 	$(SHOW)mkdocs gh-deploy
 
-.PHONY: docs deploydocs
+.PHONY: docs deploy-docs
 
 #----------------------------------------------------------------------------------------------
 
-platform:
+docker:
 	$(SHOW)$(MAKE) -C build/docker
 
 # box:

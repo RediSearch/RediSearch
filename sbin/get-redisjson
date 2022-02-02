@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# set -e
-
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+PROGNAME="${BASH_SOURCE[0]}"
+HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/.. && pwd)
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
@@ -69,8 +68,8 @@ else
 		if [[ $nick != "bullseye" ]]; then
 			nick=ubuntu18.04
 		fi
-	elif [[ $dist == centos || $dist == redhat || $dist == fedora ]]; then
-		if [[ $nick == "centos8" ]]; then
+	elif [[ $dist == centos || $dist == redhat || $dist == fedora || $dist == ol ]]; then
+		if [[ $nick == "centos8" || $nick == "ol8" ]]; then
 			nick="rhel8"
 		else
 			nick="rhel7"

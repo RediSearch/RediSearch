@@ -774,3 +774,33 @@ def testMOD1853(env):
     env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"sid":1}'))
     res = [2L, 'json1', ['sid', '0', '$', '{"sid":0}'], 'json2', ['sid', '1', '$', '{"sid":1}']]
     env.expect('FT.SEARCH', 'idx', '@sid:[0 1]', 'SORTBY', 'sid').equal(res)
+
+@no_msan
+def testTagArrayLowerCase(env):
+    # test tag field change string to lower case independent of separator
+    conn = getConnectionByEnv(env)
+
+    env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"attributes":[{"name":"Brand1","value":"Vivo"}]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"attributes":[{"name":"Brand2","value":"Ext,vivo"}]}'))
+    res =  [1L, 'json1', ['$', '{"attributes":[{"name":"Brand1","value":"Vivo"}]}']]
+    
+    conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG')
+    waitForIndex(env, 'idx1')
+    env.expect('FT.SEARCH', 'idx1', '@attrs:{Vivo}').equal(res)
+    env.expect('FT.SEARCH', 'idx1', '@attrs:{vivo}').equal(res)
+
+    conn.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'SEPARATOR', ',', '$.attributes[*].name', 'AS', 'name', 'TAG')
+    waitForIndex(env, 'idx2')
+    env.expect('FT.SEARCH', 'idx2', '@attrs:{Vivo}', 'SORTBY', 'name', 'NOCONTENT').equal([2L, 'json1', 'json2'])
+    env.expect('FT.SEARCH', 'idx2', '@attrs:{vivo}', 'SORTBY', 'name', 'NOCONTENT').equal([2L, 'json1', 'json2'])
+
+    conn.execute_command('FT.CREATE', 'idx3', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'CASESENSITIVE')
+    waitForIndex(env, 'idx3')
+    env.expect('FT.SEARCH', 'idx3', '@attrs:{Vivo}').equal(res)
+    env.expect('FT.SEARCH', 'idx3', '@attrs:{vivo}').equal([0L])
+
+    conn.execute_command('FT.CREATE', 'idx4', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'SEPARATOR', ',', 'CASESENSITIVE')
+    waitForIndex(env, 'idx4')
+    env.expect('FT.SEARCH', 'idx4', '@attrs:{Vivo}', 'NOCONTENT').equal([1L, 'json1'])
+    env.expect('FT.SEARCH', 'idx4', '@attrs:{vivo}', 'NOCONTENT').equal([1L, 'json2'])
+    
