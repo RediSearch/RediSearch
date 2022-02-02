@@ -261,10 +261,10 @@ typedef enum {
   RSResultType_Virtual = 0x8,
   RSResultType_Numeric = 0x10,
   RSResultType_Distance = 0x20,
-  RSResultType_Hybrid = 0x40,
+  RSResultType_HybridDistance = 0x40,
 } RSResultType;
 
-#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_Hybrid)
+#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridDistance)
 
 typedef struct {
   /* The number of child records */

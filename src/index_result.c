@@ -35,7 +35,7 @@ RSIndexResult *NewUnionResult(size_t cap, double weight) {
 /* Allocate a new hybrid result with a given capacity (currently relevant for
  * hybrid vector similarity queries)*/
 RSIndexResult *NewHybridResult() {
-  return __newAggregateResult(2, RSResultType_Hybrid, 1);
+  return __newAggregateResult(2, RSResultType_HybridDistance, 1);
 }
 
 /* Allocate a new token record result for a given term */
@@ -107,7 +107,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     // copy aggregate types
     case RSResultType_Intersection:
     case RSResultType_Union:
-    case RSResultType_Hybrid:
+    case RSResultType_HybridDistance:
       // allocate a new child pointer array
       ret->agg.children = rm_malloc(src->agg.numChildren * sizeof(RSIndexResult *));
       ret->agg.childrenCap = src->agg.numChildren;
@@ -217,7 +217,7 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
 
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;
-  if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_Hybrid) {
+  if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridDistance) {
     // for deep-copy results we also free the children
     if (r->isCopy && r->agg.children) {
       for (int i = 0; i < r->agg.numChildren; i++) {

@@ -268,7 +268,7 @@ static int rpvecsimNext(ResultProcessor *base, SearchResult *res) {
   RedisModule_Assert(self->nkeys == 1);
   for (size_t i = 0; i < self->nkeys; i++) {
     RSValue *val;
-    if (res->indexResult->type == RSResultType_Hybrid) {
+    if (res->indexResult->type == RSResultType_HybridDistance) {
       val = RS_NumVal(res->indexResult->agg.children[0]->dist.distance);
     } else {
       val = RS_NumVal(res->indexResult->dist.distance);

@@ -293,8 +293,8 @@ IndexIterator *NewHybridVectorIteratorImpl(VecSimIndex *index, char *score_field
 
   if (child_it == NULL) {
     hi->mode = STANDARD_KNN;
-  } else if (UseBF(child_it->NumEstimated(child_it), query, index)) {
-    hi->mode = HYBRID_ADHOC_BF;
+//  } else if (UseBF(child_it->NumEstimated(child_it), query, index)) {
+//    hi->mode = HYBRID_ADHOC_BF;
   } else {
     hi->mode = HYBRID_BATCHES;
     //Todo: apply heuristics (batch_size = k / (vec_index_size*child_it->NumEstimated(child_it)))
