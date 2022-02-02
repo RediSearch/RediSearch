@@ -255,7 +255,7 @@ typedef struct IndexSpec {
   char **aliases;  // Aliases to self-remove when the index is deleted
   struct DocumentIndexer *indexer;
 
-  SchemaRule *rule;
+  struct SchemaRule *rule;
 
   struct IndexesScanner *scanner;
   // can be true even if scanner == NULL, in case of a scan being cancelled
