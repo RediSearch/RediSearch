@@ -23,7 +23,7 @@ typedef struct {
   RSIndexResult **returnedResults; // Save the pointers to be freed in clean-up.
   char *scoreField;  // to use by the sorter, for distinguishing between different vector fields.
   heap_t *topResults;  // sorted by score (max heap).
-  heap_t *orderedResults;  // sorted by id (min heap) - do we need it?
+  //heap_t *orderedResults;  // sorted by id (min heap) - for future use.
 } HybridIterator;
 
 #define VECTOR_RESULT(p) p->agg.children[0]
@@ -41,6 +41,7 @@ static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata
   return 0;
 }
 
+// To use in the future, if we will need to sort results by id.
 static int cmpVecSimResById(const void *p1, const void *p2, const void *udata) {
   const RSIndexResult *e1 = p1, *e2 = p2;
 
@@ -68,27 +69,14 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
     (*hit)->dist.scoreField = hr->scoreField;
     return INDEXREAD_OK;
   }
-  if (hr->mode == STANDARD_KNN) {
-    hr->base.isValid = false;
-  }
   return INDEXREAD_EOF;
 }
 
 // Simulate the logic of "Read", but it is limited to the results in a specific batch.
 static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
-  if (hr->mode == STANDARD_KNN && !hr->RESULTS_PREPARED) {
-    prepareResults(hr);
-    hr->RESULTS_PREPARED = true;
-  }
   if (!VecSimQueryResult_IteratorHasNext(hr->iter)) {
-    if (hr->mode == STANDARD_KNN) {
-      hr->base.isValid = 0;
-    }
     return INDEXREAD_EOF;
-  }
-  if (hr->mode == STANDARD_KNN) {
-    *hit = hr->base.current;
   }
   VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
   // Set the item that we read in the current RSIndexResult
@@ -148,18 +136,27 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
 }
 
 void prepareResults(HybridIterator *hr) {
-  if (hr->mode == STANDARD_KNN) {
-    hr->list =
-        VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, &(hr->runtimeParams), hr->query.order);
-    hr->iter = VecSimQueryResult_List_GetIterator(hr->list);
+    if (hr->mode == STANDARD_KNN) {
+      if (hr->list) VecSimQueryResult_Free(hr->list);
+      hr->list =
+          VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, &(hr->runtimeParams), hr->query.order);
+      if (hr->iter) VecSimQueryResult_IteratorFree(hr->iter);
+      hr->iter = VecSimQueryResult_List_GetIterator(hr->list);
     return;
   }
 
+  // Clean the saved and returned results (in case of rewind).
+  while (heap_count(hr->topResults) > 0) {
+    IndexResult_Free(heap_poll(hr->topResults));
+  }
+  for (size_t i = 0; i < array_len(hr->returnedResults); i++) {
+    IndexResult_Free(hr->returnedResults[i]);
+  }
   if (hr->mode == HYBRID_ADHOC_BF) {
     // Go over child_it results, compute distances, sort and store results in topResults.
     return;
   }
-  // Batch mode
+  // Batches mode.
   VecSimBatchIterator *batch_it = VecSimBatchIterator_New(hr->index, hr->query.vector);
   float upper_bound = INFINITY;
   while (VecSimBatchIterator_HasNext(batch_it)) {
@@ -186,29 +183,29 @@ void prepareResults(HybridIterator *hr) {
 
 static int HR_ReadUnsorted(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
-  // This callback should be called only for hybrid queries.
-  RedisModule_Assert(hr->mode != STANDARD_KNN);
   if (!hr->RESULTS_PREPARED) {
     prepareResults(hr);
     hr->RESULTS_PREPARED = true;
   }
-  if (!hr->base.isValid) {
+  if (!hr->base.HasNext(ctx)) {
+    hr->base.isValid = false;
     return INDEXREAD_EOF;
   }
-  if (heap_count(hr->topResults) > 0) {
-//    hr->base.current = heap_poll(hr->topResults);
-//    *hit = hr->base.current;
+  if (hr->mode == STANDARD_KNN) {
+    *hit = hr->base.current;
+    HR_ReadInBatch(hr, hit);
+  } else {
     *hit = heap_poll(hr->topResults);
     hr->returnedResults = array_append(hr->returnedResults, *hit);
-    return INDEXREAD_OK;
   }
-  hr->base.isValid = false;
-  return INDEXREAD_EOF;
+  hr->lastDocId = (*hit)->docId;
+  return INDEXREAD_OK;
 }
 
 static bool UseBF(size_t T, TopKVectorQuery query, VecSimIndex *index) {
-  // todo: have more sophisticated heuristics here.
-  return (float)T < (0.05 * (float)VecSimIndex_IndexSize(index));
+  // todo: have more sophisticated heuristics here, currently this is disabled.
+  // return (float)T < (0.05 * (float)VecSimIndex_IndexSize(index));
+  return false;
 }
 
 static size_t HR_NumEstimated(void *ctx) {
@@ -263,14 +260,16 @@ void HybridIterator_Free(struct indexIterator *self) {
   if (it == NULL) {
     return;
   }
-  while (heap_count(it->topResults) > 0) {
-    IndexResult_Free(heap_poll(it->topResults));
+  if (it->mode != STANDARD_KNN) {
+    while (heap_count(it->topResults) > 0) {
+      IndexResult_Free(heap_poll(it->topResults));
+    }
+    heap_free(it->topResults);
+    for (int i = 0; i < (int)array_len(it->returnedResults); i++) {
+      IndexResult_Free(it->returnedResults[i]);
+    }
+    array_free(it->returnedResults);
   }
-  heap_free(it->topResults);
-  for (int i = 0; i < (int)array_len(it->returnedResults); i++) {
-    IndexResult_Free(it->returnedResults[i]);
-  }
-  array_free(it->returnedResults);
   IndexResult_Free(it->base.current);
   if (it->list) VecSimQueryResult_Free(it->list);
   if (it->iter) VecSimQueryResult_IteratorFree(it->iter);
@@ -291,7 +290,6 @@ IndexIterator *NewHybridVectorIteratorImpl(VecSimIndex *index, char *score_field
   hi->scoreField = score_field;
   hi->list = NULL;
   hi->iter = NULL;
-  hi->returnedResults = array_new(RSIndexResult *, query.k);
 
   if (child_it == NULL) {
     hi->mode = STANDARD_KNN;
@@ -302,8 +300,11 @@ IndexIterator *NewHybridVectorIteratorImpl(VecSimIndex *index, char *score_field
     //Todo: apply heuristics (batch_size = k / (vec_index_size*child_it->NumEstimated(child_it)))
   }
   hi->base.isValid = 1;
-  hi->topResults = rm_malloc(heap_sizeof(query.k));
-  heap_init(hi->topResults, cmpVecSimResByScore, NULL, query.k);
+  if (hi->mode != STANDARD_KNN) {
+    hi->topResults = rm_malloc(heap_sizeof(query.k));
+    heap_init(hi->topResults, cmpVecSimResByScore, NULL, query.k);
+    hi->returnedResults = array_new(RSIndexResult *, query.k);
+  }
 
   IndexIterator *ri = &hi->base;
   ri->ctx = hi;
@@ -317,13 +318,12 @@ IndexIterator *NewHybridVectorIteratorImpl(VecSimIndex *index, char *score_field
   ri->Abort = HR_Abort;
   ri->Rewind = HR_Rewind;
   ri->HasNext = HR_HasNext;
+  ri->Read = HR_ReadUnsorted;
   ri->SkipTo = NULL; // As long as we return results by score (unsorted by id), this has no meaning.
   if (hi->mode == STANDARD_KNN) {
     ri->current = NewDistanceResult();
-    ri->Read = HR_ReadInBatch;
   } else {
     ri->current = NewHybridResult();
-    ri->Read = HR_ReadUnsorted;
   }
   return ri;
 }

@@ -431,6 +431,9 @@ def test_hybrid_query_batches_mode_with_text(env):
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
     query_data = np.float32([qty for j in range(dimension)])
 
+    # expect to find no result (internally, build the child iterator as empty iterator).
+    execute_hybrid_query(env, '(nothing)=>[TOP_K 10 @v $vec_param]', query_data, 't', [0L])
+
     expected_res_1 = [10L, '100', ['__v_score', '0', 't', 'text value'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
     execute_hybrid_query(env, '(@t:(text value))=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_1)
     execute_hybrid_query(env, '(text value)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_1)
@@ -443,7 +446,7 @@ def test_hybrid_query_batches_mode_with_text(env):
 
     # Expect to get only vector that passes the filter (i.e, has "other" in t field)
     expected_res_2 = [10L, '100', ['__v_score', '0', 't', 'other'], '90', ['__v_score', '12800', 't', 'other'], '80', ['__v_score', '51200', 't', 'other'], '70', ['__v_score', '115200', 't', 'other'], '60', ['__v_score', '204800', 't', 'other'], '50', ['__v_score', '320000', 't', 'other'], '40', ['__v_score', '460800', 't', 'other'], '30', ['__v_score', '627200', 't', 'other'], '20', ['__v_score', '819200', 't', 'other'], '10', ['__v_score', '1036800', 't', 'other']]
-    execute_hybrid_query(env, '(@t:other)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_2)
+    execute_hybrid_query(env, '(other)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_2)
 
     # Test with union - expect that all docs will pass the filter.
     expected_res_3 = [10L, '100', ['__v_score', '0', 't', 'other'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
@@ -470,8 +473,8 @@ def test_hybrid_query_batches_mode_with_text(env):
     expected_res_6 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_6, sort_by_vector=False)
 
-    # This time the fuzzy matching should not return documents with 'text'.
-    execute_hybrid_query(env, '(%tesst%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_2)
+    # This time the fuzzy matching should return only documents with the original 'text value'.
+    execute_hybrid_query(env, '(%test%)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_4)
 
 
 # def test_hybrid_query_batches_mode_with_tags(env):

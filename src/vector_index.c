@@ -1,5 +1,4 @@
 #include "vector_index.h"
-#include "list_reader.h"
 #include "hybrid_reader.h"
 #include "query_param.h"
 #include "rdb.h"
@@ -94,35 +93,6 @@ static bool isFit (VecSimIndex *ind, size_t size) {
       break;
   }
   return res;
-}
-
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status) {
-  // TODO: change Dict to hold strings
-  RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
-  RedisModule_FreeString(ctx->redisCtx, key);
-  if (!vecsim) {
-    return NULL;
-  }
-
-  switch (vq->type) {
-    case VECSIM_QT_TOPK:;
-      VecSimQueryParams qParams;
-      int err;
-      if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params), &qParams)) != VecSim_OK) {
-        err = VecSimResolveCode_to_QueryErrorCode(err);
-        QueryError_SetErrorFmt(status, err, "Error parsing vector similarity parameters: %s", QueryError_Strerror(err));
-        return NULL;
-      }
-      if (!isFit(vecsim, vq->topk.vecLen)) {
-        QueryError_SetError(status, QUERY_EINVAL, "Error parsing vector similarity query: query vector does not match index's type or dimention.");
-        return NULL;
-      }
-
-      break;
-  }
-
-  return NewListIterator(vq->results, vq->resultsLen);
 }
 
 IndexIterator *NewHybridVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status, IndexIterator *child_it) {
