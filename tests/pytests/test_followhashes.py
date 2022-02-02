@@ -713,4 +713,73 @@ def testIssue1571WithRename(env):
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', 'foo*')), toSortedFlatList([1L, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']]))
     env.expect('ft.search', 'idx2', 'foo*').equal([0L])
 
+@no_msan
+def testIdxFieldJson(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'idx1',
+            'ON', 'JSON',
+            'PREFIX', 1, 'doc',
+            'FILTER', '@indexName=="idx1"',
+            'SCHEMA', '$.name', 'AS', 'name', 'text', '$.indexName', 'AS', 'indexName', 'text')
+    env.cmd('ft.create', 'idx2',
+            'ON', 'JSON',
+            'FILTER', '@indexName=="idx2"',
+            'SCHEMA', '$.name', 'AS', 'name', 'text', '$.indexName', 'AS', 'indexName', 'text')
 
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"name":"foo", "indexName":"idx1"}')
+    conn.execute_command('JSON.SET', 'doc:2', '$', r'{"name":"bar", "indexName":"idx2"}')
+
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', '*')), toSortedFlatList([1L, '$', 'doc:1', '{"name":"foo","indexName":"idx1"}']))
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', '*')), toSortedFlatList([1L, '$', 'doc:2', '{"name":"bar","indexName":"idx2"}']))
+
+def testFilterStartWith(env):
+    conn = getConnectionByEnv(env)
+
+    env.cmd('ft.create', 'things',
+            'ON', 'JSON',
+            'FILTER', 'startswith(@__key, "thing:")',
+            'SCHEMA', '$.name', 'AS', 'name', 'text')
+
+    conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['$', '{"name":"foo","indexName":"idx1"}']])
+
+def testFilterWithOperator(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'things',
+            'ON', 'JSON',
+            'FILTER', '@num > (0 + 0)',
+            'SCHEMA', '$.name', 'AS', 'name', 'text', '$.num', 'AS', 'num', 'numeric')
+
+    conn.execute_command('JSON.SET', 'thing:foo', '$', r'{"name":"foo", "num":5}')
+    conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "num":-5}')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:foo', ['$', '{"name":"foo","num":5}']])
+
+def testFilterWithNot(env):
+    conn = getConnectionByEnv(env)
+    # check NOT on a non existing value return 1 result
+    env.cmd('ft.create', 'things',
+            'ON', 'JSON',
+            'FILTER', '!(@name == "bar")',
+            'SCHEMA', '$.name', 'AS', 'name', 'text')
+
+    conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['$', '{"name":"foo","indexName":"idx1"}']])
+
+
+    env.cmd('FT.DROPINDEX', 'things', 'DD')
+
+    # check NOT on an existing value return 0 results
+    env.cmd('ft.create', 'things',
+            'ON', 'JSON',
+            'FILTER', '!(@name == "foo")',
+            'SCHEMA', '$.name', 'AS', 'name', 'text')
+
+    conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
+
+    env.expect('ft.search', 'things', 'foo').equal([0L])

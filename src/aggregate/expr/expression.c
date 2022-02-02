@@ -271,7 +271,7 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
     case RSExpr_Inverted:
       RECURSE(expr->inverted.child);
       break;
-    default:
+    case RSExpr_Literal:
       break;
   }
   return EXPR_EVAL_OK;
@@ -351,10 +351,6 @@ RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val) {
     RLookup_WriteOwnKey(lkk, &r->row, val);
   }
   return lkk;
-}
-
-int EvalCtx_AddHash(EvalCtx *r, RedisModuleCtx *ctx, RedisModuleString *key) {
-  return RLookup_GetHash(&r->lk, &r->row, ctx, key);
 }
 
 //---------------------------------------------------------------------------------------------
