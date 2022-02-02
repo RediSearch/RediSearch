@@ -43,8 +43,6 @@ endif
 export SAN
 endif # SAN
 
-STATIC_LIBSTDCXX ?= 1
-
 #----------------------------------------------------------------------------------------------
 
 ROOT=.
@@ -218,6 +216,12 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
+ifneq ($(OS),macos)
+STATIC_LIBSTDCXX ?= 1
+else
+STATIC_LIBSTDCXX ?= 0
+endif
+
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
 endif
@@ -298,8 +302,8 @@ CMAKE_FLAGS=\
 	-DOSNICK=$(OSNICK) \
 	-DARCH=$(ARCH)
 
-CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_HAVE_MARCH_OPTS) \
-	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
+CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_COV) \
+	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
 
 #----------------------------------------------------------------------------------------------
 
