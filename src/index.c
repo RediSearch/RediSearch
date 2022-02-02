@@ -1063,6 +1063,7 @@ typedef struct {
 
 static void NI_Abort(void *ctx) {
   NotContext *nc = ctx;
+  nc->base.isValid = 0;
   nc->child->Abort(nc->child->ctx);
 }
 
@@ -1070,6 +1071,7 @@ static void NI_Rewind(void *ctx) {
   NotContext *nc = ctx;
   nc->lastDocId = 0;
   nc->base.current->docId = 0;
+  nc->base.isValid = 1;
   nc->child->Rewind(nc->child->ctx);
 }
 
