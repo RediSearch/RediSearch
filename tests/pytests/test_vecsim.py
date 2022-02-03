@@ -419,7 +419,7 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, expect
     else:
         env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
                    'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                   'RETURN', 2, 't', '__v_score').equal(expected)
+                   'RETURN', 2, non_vector_field, '__v_score').equal(expected)
 
 
 def test_hybrid_query_batches_mode_with_text(env):
@@ -477,19 +477,76 @@ def test_hybrid_query_batches_mode_with_text(env):
     execute_hybrid_query(env, '(%test%)=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_4)
 
 
-# def test_hybrid_query_batches_mode_with_tags(env):
-#     conn = getConnectionByEnv(env)
-#     dimension = 128
-#     index_size = 100
-#     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
-#                          'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'tag', 'TAG', 'text', 'TEXT')
-#
-#     p = conn.pipeline(transaction=False)
-#     for i in range(1, index_size+1):
-#         vector = np.float32([i for j in range(dimension)])
-#         conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'text value')
-#     p.execute()
-#     query_data = np.float32([index_size for j in range(dimension)])
-#
-#     expected_res_1 = [10L, '100', ['__v_score', '0', 't', 'text value'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
-#     execute_hybrid_query(env, '(@t:(text value))=>[TOP_K 10 @v $vec_param]', query_data, 't', expected_res_1)
+def test_hybrid_query_batches_mode_with_tags(env):
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    index_size = 100
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
+
+    p = conn.pipeline(transaction=False)
+    for i in range(1, index_size+1):
+        vector = np.float32([i for j in range(dimension)])
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid')
+    p.execute()
+    query_data = np.float32([index_size/2 for j in range(dimension)])
+    execute_hybrid_query(env, '(@tags:{nothing})=>[TOP_K 10 @v $vec_param]', query_data, 'tags', [0L])
+    execute_hybrid_query(env, '(@tags:{hybrid} @text:hello)=>[TOP_K 10 @v $vec_param]', query_data, 'tags', [0L])
+    expected_res_1 = [10L, '50', ['__v_score', '0', 'tags', 'hybrid'], '51', ['__v_score', '128', 'tags', 'hybrid'], '49', ['__v_score', '128', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid']]
+    execute_hybrid_query(env, '(@tags:{hybrid})=>[TOP_K 10 @v $vec_param]', query_data, 'tags', expected_res_1)
+
+    # Change the tag values to 'different, tag' for 10 vectors (with id 10, 20, ..., 100)
+    for i in range(1, 11):
+        vector = np.float32([10*i for j in range(dimension)])
+        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 'tags', 'different, tag')
+
+    expected_res_2 = [10L, '50', ['__v_score', '0', 'tags', 'different, tag'], '60', ['__v_score', '12800', 'tags', 'different, tag'], '40', ['__v_score', '12800', 'tags', 'different, tag'], '70', ['__v_score', '51200', 'tags', 'different, tag'], '30', ['__v_score', '51200', 'tags', 'different, tag'], '80', ['__v_score', '115200', 'tags', 'different, tag'], '20', ['__v_score', '115200', 'tags', 'different, tag'], '90', ['__v_score', '204800', 'tags', 'different, tag'], '10', ['__v_score', '204800', 'tags', 'different, tag'], '100', ['__v_score', '320000', 'tags', 'different, tag']]
+    execute_hybrid_query(env, '(@tags:{different})=>[TOP_K 10 @v $vec_param]', query_data, 'tags', expected_res_2)
+    expected_res_3 = [10L, '51', ['__v_score', '128', 'tags', 'hybrid'], '49', ['__v_score', '128', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '55', ['__v_score', '3200', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid']]
+    execute_hybrid_query(env, '(@tags:{hybrid})=>[TOP_K 10 @v $vec_param]', query_data, 'tags', expected_res_3)
+    execute_hybrid_query(env, '(@tags:{hy*})=>[TOP_K 10 @v $vec_param]', query_data, 'tags', expected_res_3)
+
+    # Search with tag list. Expect that docs with 'hybrid' will have lower score, since they are more frequent.
+    expected_res_4 = [10L, '50', '3', ['__v_score', '0', 'tags', 'different, tag'], '45', '1', ['__v_score', '3200', 'tags', 'hybrid'], '46', '1', ['__v_score', '2048', 'tags', 'hybrid'], '47', '1', ['__v_score', '1152', 'tags', 'hybrid'], '48', '1', ['__v_score', '512', 'tags', 'hybrid'], '49', '1', ['__v_score', '128', 'tags', 'hybrid'], '51', '1', ['__v_score', '128', 'tags', 'hybrid'], '52', '1', ['__v_score', '512', 'tags', 'hybrid'], '53', '1', ['__v_score', '1152', 'tags', 'hybrid'], '54', '1', ['__v_score', '2048', 'tags', 'hybrid']]
+    execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[TOP_K 10 @v $vec_param]', query_data, 'tags', expected_res_4, sort_by_vector=False)
+
+
+def test_hybrid_query_batches_mode_with_numeric_and_geo(env):
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    index_size = 100
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'num', 'NUMERIC')
+
+    p = conn.pipeline(transaction=False)
+    for i in range(1, index_size+1):
+        vector = np.float32([i for j in range(dimension)])
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i)
+    p.execute()
+
+    query_data = np.float32([index_size for j in range(dimension)])
+    execute_hybrid_query(env, '(@num:[0 0.5])=>[TOP_K 10 @v $vec_param]', query_data, 'num', [0L])
+
+    # Expect to get all the results by the distance order (higher id has a better __v_score)
+    expected_res_1 = [10L, '100', ['__v_score', '0', 'num', '100'], '99', ['__v_score', '128', 'num', '99'], '98', ['__v_score', '512', 'num', '98'], '97', ['__v_score', '1152', 'num', '97'], '96', ['__v_score', '2048', 'num', '96'], '95', ['__v_score', '3200', 'num', '95'], '94', ['__v_score', '4608', 'num', '94'], '93', ['__v_score', '6272', 'num', '93'], '92', ['__v_score', '8192', 'num', '92'], '91', ['__v_score', '10368', 'num', '91']]
+    execute_hybrid_query(env, '(@num:[0 100])=>[TOP_K 10 @v $vec_param]', query_data, 'num',expected_res_1)
+    execute_hybrid_query(env, '(@num:[0 inf])=>[TOP_K 10 @v $vec_param]', query_data, 'num',expected_res_1)
+
+    # Expect to get results with maximum numeric value of 50
+    expected_res_2 = [10L, '50', ['__v_score', '320000', 'num', '50'], '49', ['__v_score', '332928', 'num', '49'], '48', ['__v_score', '346112', 'num', '48'], '47', ['__v_score', '359552', 'num', '47'], '46', ['__v_score', '373248', 'num', '46'], '45', ['__v_score', '387200', 'num', '45'], '44', ['__v_score', '401408', 'num', '44'], '43', ['__v_score', '415872', 'num', '43'], '42', ['__v_score', '430592', 'num', '42'], '41', ['__v_score', '445568', 'num', '41']]
+    execute_hybrid_query(env, '(@num:[-inf 50])=>[TOP_K 10 @v $vec_param]', query_data, 'num', expected_res_2)
+    execute_hybrid_query(env, '(@num:[-inf 40] | @num:[40 50])=>[TOP_K 10 @v $vec_param]', query_data, 'num', expected_res_2)
+
+    expected_res_3 = [5L, '49', ['__v_score', '332928', 'num', '49'], '48', ['__v_score', '346112', 'num', '48'], '47', ['__v_score', '359552', 'num', '47'], '46', ['__v_score', '373248', 'num', '46'], '45', ['__v_score', '387200', 'num', '45']]
+    execute_hybrid_query(env, '(@num:[45 (50])=>[TOP_K 10 @v $vec_param]', query_data, 'num', expected_res_3)
+
+    # Testing with geo-filters
+    conn.execute_command('FT.DROPINDEX', 'idx')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO')
+
+    p = conn.pipeline(transaction=False)
+    for i in range(1, index_size+1):
+        vector = np.float32([i for j in range(dimension)])
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', "-0.084324,51.515583")
+    p.execute()
