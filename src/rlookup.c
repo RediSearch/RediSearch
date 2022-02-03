@@ -344,11 +344,12 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     return REDISMODULE_OK;
   }
 
+  const char *keyPtr = options->dmd ? options->dmd->keyPtr : options->keyPtr;
   // In this case, the flag must be obtained via HGET
   if (!*keyobj) {
     RedisModuleCtx *ctx = options->sctx->redisCtx;
     RedisModuleString *keyName =
-        RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
+        RedisModule_CreateString(ctx, keyPtr, strlen(keyPtr));
     *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
     RedisModule_FreeString(ctx, keyName);
     if (!*keyobj) {
@@ -381,7 +382,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     RedisModule_FreeString(RSDummyContext, val);
   } else if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
     RedisModuleString *keyName = RedisModule_CreateString(options->sctx->redisCtx,
-                                  options->dmd->keyPtr, strlen(options->dmd->keyPtr));
+                                  keyPtr, strlen(keyPtr));
     rsv = hvalToValue(keyName, RLOOKUP_C_STR);
     RedisModule_FreeString(options->sctx->redisCtx, keyName);
   } else {
@@ -410,9 +411,10 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
   // In this case, the flag must be obtained from JSON
   RedisModuleCtx *ctx = options->sctx->redisCtx;
+  char *keyPtr = options->dmd ? options->dmd->keyPtr : (char *)options->keyPtr;
   if (!*keyobj) {
 
-    *keyobj = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
+    *keyobj = japi->openKeyFromStr(ctx, keyPtr);
     if (!*keyobj) {
       QueryError_SetCode(options->status, QUERY_ENODOC);
       return REDISMODULE_ERR;
@@ -436,7 +438,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
     if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
-      rsv = RS_StringVal(options->dmd->keyPtr, strlen(options->dmd->keyPtr));
+      rsv = RS_StringVal(rm_strdup(keyPtr), strlen(keyPtr));
     } else {
       return REDISMODULE_OK;
     }
@@ -462,8 +464,9 @@ typedef int (*GetKeyFunc)(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOpti
 static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   // Load the document from the schema. This should be simple enough...
   void *key = NULL;  // This is populated by getKeyCommon; we free it at the end
-  GetKeyFunc getKey = (options->dmd->type == DocumentType_Hash) ? (GetKeyFunc)getKeyCommonHash :
-                                                                  (GetKeyFunc)getKeyCommonJSON;
+  DocumentType type = options->dmd ? options->dmd->type : options->type;
+  GetKeyFunc getKey = (type == DocumentType_Hash) ? (GetKeyFunc)getKeyCommonHash :
+                                                    (GetKeyFunc)getKeyCommonJSON;
   int rc = REDISMODULE_ERR;
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
@@ -493,52 +496,11 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
 
 done:
   if (key) {
-    switch (options->dmd->type) {
+    switch (type) {
     case DocumentType_Hash: RedisModule_CloseKey(key); break;
     case DocumentType_Json: break;
     case DocumentType_None: RS_LOG_ASSERT(1, "placeholder");
     }
-  }
-  return rc;
-}
-
-int RLookup_GetHash(RLookup *it, RLookupRow *dst, RedisModuleCtx *ctx, RedisModuleString *key) {
-  int rc = REDISMODULE_ERR;
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "HGETALL", "s", key);
-
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-    goto done;
-  }
-
-  size_t len = RedisModule_CallReplyLength(rep);
-  // Zero means the document does not exist in redis
-  if (len == 0) {
-    goto done;
-  }
-
-  for (size_t i = 0; i < len; i += 2) {
-    size_t klen = 0;
-    RedisModuleCallReply *repk = RedisModule_CallReplyArrayElement(rep, i);
-    RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
-
-    const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
-    RLookupKey *rlk = RLookup_GetKeyEx(it, kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
-    if (rlk->flags & RLOOKUP_F_SVSRC) {
-      continue;  // Can load it from the sort vector on demand.
-    }
-    RLookupCoerceType ctype = rlk->fieldtype;
-    if (1 /*options->forceString*/) {
-      ctype = RLOOKUP_C_STR;
-    }
-    RSValue *vptr = replyElemToValue(repv, ctype);
-    RLookup_WriteOwnKey(rlk, dst, vptr);
-  }
-
-  rc = REDISMODULE_OK;
-
-done:
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
   }
   return rc;
 }
@@ -690,5 +652,38 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   } else {
     rv = loadIndividualKeys(it, dst, options);
   }
+  return rv;
+}
+
+int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, SchemaRule *rule, const char *keyptr) {
+  IndexSpec *spec = rule->spec;
+
+  // create rlookupkeys
+  int nkeys = array_len(rule->filter_fields);
+  RLookupKey **keys = rm_malloc(nkeys * sizeof(*keys));
+  for (int i = 0; i < nkeys; ++i) {
+    int idx = rule->filter_fields_index[i];
+    if (idx == -1) {
+      keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), 0, it->rowlen++);
+      continue;
+    }
+    FieldSpec *fs = spec->fields + idx;
+    keys[i] = createNewKey(it, fs->name, strlen(fs->name), 0, it->rowlen++);
+    keys[i]->path = fs->path;
+  }
+
+  // load
+  RedisSearchCtx sctx = {.redisCtx = ctx, .spec = spec };
+  struct QueryError status = {0}; // TODO
+  RLookupLoadOptions opt = {.keys = (const RLookupKey **)keys,
+                            .nkeys = nkeys,
+                            .sctx = &sctx,
+                            .keyPtr = keyptr,
+                            .type = rule->type,
+                            .status = &status,
+                            .noSortables = 1,
+                            .mode = RLOOKUP_LOAD_KEYLIST };
+  int rv = loadIndividualKeys(it, dst, &opt);
+  rm_free(keys);
   return rv;
 }
