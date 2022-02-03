@@ -1,6 +1,6 @@
 #include "rules.h"
 #include "aggregate/expr/expression.h"
-#include "spec.h"
+#include "aggregate/expr/exprast.h"
 #include "json.h"
 #include "rdb.h"
 
@@ -133,6 +133,41 @@ error:
   return NULL;
 }
 
+/*.
+ * RSExpr_GetProperties receives from the rule filter a list off all fields within it.
+ *
+ * The fields within the list are compared to the list of fieldSpecs and find
+ * the index for each field.
+ * 
+ * At documentation, the field index is used to load required fields instead of
+ * expensive comparisons.
+ */
+void SchemaRule_FilterFields(SchemaRule *rule) {
+  char **properties = array_new(char *, 8);
+  IndexSpec *spec = rule->spec;
+  RSExpr_GetProperties(rule->filter_exp, &properties);
+  int propLen = array_len(properties);
+  if (array_len(properties) > 0) {
+    rule->filter_fields = properties;
+    rule->filter_fields_index = rm_calloc(propLen, sizeof(int));
+    for (int i = 0; i < propLen; ++i) {
+      for (int j = 0; j < spec->numFields; ++j) {
+        // a match. save the field index for fast access
+        FieldSpec *fs = spec->fields + j;
+        if (!strcmp(properties[i], fs->name) || !strcmp(properties[i], fs->path)) {
+          rule->filter_fields_index[i] = j;
+          break;
+        }
+        // no match was found we will load the field by the name provided.
+        rule->filter_fields_index[i] = -1;
+      }
+    }
+  } else {
+    array_free(properties);
+  }
+  
+}
+
 void SchemaRule_Free(SchemaRule *rule) {
   SchemaPrefixes_RemoveSpec(rule->spec);
 
@@ -144,6 +179,8 @@ void SchemaRule_Free(SchemaRule *rule) {
     ExprAST_Free((RSExpr *)rule->filter_exp);
   }
   array_free_ex(rule->prefixes, rm_free(*(char **)ptr));
+  array_free_ex(rule->filter_fields, rm_free(*(char **)ptr));
+  rm_free(rule->filter_fields_index);
   rm_free((void *)rule);
 }
 
@@ -358,6 +395,7 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
     rule->lang_default = lang_default;
     sp->rule = rule;
   }
+  SchemaRule_FilterFields(rule);
 
 cleanup:
   if (args.type) {

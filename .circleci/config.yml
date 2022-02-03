@@ -72,9 +72,10 @@ commands:
       - setup-automation
       - run:
           name: System setup
+          shell: /bin/bash -l -eo pipefail
           command: |
             ./sbin/system-setup.py
-            bash -l -c "python2 -m pip list"
+            python2 -m pip list
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
@@ -218,7 +219,8 @@ commands:
       - setup-automation
       - run:
           name: Install Docker
-          command: sudo bash -l -c "./deps/readies/bin/getdocker"
+          shell: /bin/bash -l -eo pipefail
+          command: ./deps/readies/bin/getdocker
       - run:
           name: Build for platform
           command: |
@@ -321,10 +323,14 @@ jobs:
     parameters:
       platform:
         type: string
-    docker:
-      - image: debian:bullseye
+    # docker:
+    #   - image: debian:bullseye
+    machine:
+      enabled: true
+      image: ubuntu-2004:202010-01
+      resource_class: large
     steps:
-      - build-platforms-steps:
+      - vm-build-platforms-steps:
           platform: <<parameters.platform>>
 
   build-arm-platforms:
@@ -340,14 +346,15 @@ jobs:
 
   build-macos:
     macos:
-      xcode: 11.6.0
+      xcode: 12.4.0
     steps:
       - early-returns
       - run:
+          name: Brew upgrade
+          command: brew upgrade
+      - run:
           name: Set up workspace
-          command: |
-            sudo mkdir -p ~/workspace
-            sudo chown $USER ~/workspace
+          command: mkdir -p ~/workspace
       - build-steps:
           platform: catalina
       - test-steps
@@ -586,7 +593,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, centos8, bullseye]
+              platform: [focal, bionic, xenial, centos7, ol8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common

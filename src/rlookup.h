@@ -304,6 +304,10 @@ typedef struct {
   /** Needed for the key name, and perhaps the sortable */
   const RSDocumentMetadata *dmd;
 
+  /* Needed for rule filter where dmd does not exist */
+  const char *keyPtr;
+  DocumentType type;
+
   /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */
   const RLookupKey **keys;
   /** Number of keys in keys array */
@@ -367,7 +371,7 @@ static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f
 /**
  * Initialize the lookup with fields from hash.
  */
-int RLookup_GetHash(RLookup *it, RLookupRow *dst, RedisModuleCtx *ctx, RedisModuleString *key);
+int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, SchemaRule *rule, const char *keyptr);
 
 #ifdef __cplusplus
 }

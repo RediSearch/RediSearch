@@ -59,19 +59,19 @@ define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
 make fetch         # download and prepare dependant modules
 
-make build         # compile and link
-  COORD=1|oss|rlec   # build coordinator (1|oss: Open Source, rlec: Enterprise)
-  STATIC=1           # build as static lib
-  LITE=1             # build RediSearchLight
-  VECSIM_MARCH=arch  # architecture for VecSim build
-  DEBUG=1            # build for debugging
-  NO_TESTS=1         # disable unit tests
-  WHY=1              # explain CMake decisions (in /tmp/cmake-why)
-  FORCE=1            # Force CMake rerun (default)
-  CMAKE_ARGS=...     # extra arguments to CMake
-  VG=1               # build for Valgrind
-  SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread) 
-  SLOW=1             # do not parallelize build (for diagnostics)
+make build          # compile and link
+  COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)
+  STATIC=1            # build as static lib
+  LITE=1              # build RediSearchLight
+  DEBUG=1             # build for debugging
+  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
+  NO_TESTS=1          # disable unit tests
+  WHY=1               # explain CMake decisions (in /tmp/cmake-why)
+  FORCE=1             # Force CMake rerun (default)
+  CMAKE_ARGS=...      # extra arguments to CMake
+  VG=1                # build for Valgrind
+  SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SLOW=1              # do not parallelize build (for diagnostics)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -216,6 +216,12 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
+ifneq ($(OS),macos)
+STATIC_LIBSTDCXX ?= 1
+else
+STATIC_LIBSTDCXX ?= 0
+endif
+
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
 endif
@@ -226,6 +232,12 @@ endif
 
 ifeq ($(PROFILE),1)
 CMAKE_PROFILE=-DPROFILE=ON
+endif
+
+ifeq ($(STATIC_LIBSTDCXX),1)
+CMAKE_STATIC_LIBSTDCXX=-DSTATIC_LIBSTDCXX=on
+else
+CMAKE_STATIC_LIBSTDCXX=-DSTATIC_LIBSTDCXX=off
 endif
 
 ifeq ($(DEBUG),1)
@@ -275,29 +287,9 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(ARCH),x64)
-
-ifeq ($(SAN),)
-ifneq ($(findstring centos,$(OSNICK)),)
-VECSIM_MARCH ?= skylake-avx512
-else ifneq ($(findstring xenial,$(OSNICK)),)
-VECSIM_MARCH ?= skylake-avx512
-else ifneq ($(findstring macos,$(OS)),)
-VECSIM_MARCH ?= skylake-avx512
-else
-VECSIM_MARCH ?= x86-64-v4
-endif
-else
-VECSIM_MARCH ?= skylake-avx512
-endif
-
-CMAKE_VECSIM=-DVECSIM_MARCH=$(VECSIM_MARCH)
-
-else # ARCH != x64
-
-CMAKE_VECSIM=
-
-endif # ARCH
+HAVE_MARCH_OPTS:=$(shell $(MK)/cc-have-opts)
+CMAKE_CXX_MARCH_FLAGS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt))
+CMAKE_HAVE_MARCH_OPTS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt)=on) -DMARCH_CXX_FLAGS="$(CMAKE_CXX_MARCH_FLAGS)"
 
 #----------------------------------------------------------------------------------------------
 
@@ -310,8 +302,8 @@ CMAKE_FLAGS=\
 	-DOSNICK=$(OSNICK) \
 	-DARCH=$(ARCH)
 
-CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_VECSIM) \
-	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
+CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_COV) \
+	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
 
 #----------------------------------------------------------------------------------------------
 
@@ -355,19 +347,6 @@ else
 MAKE_J:=-j$(shell nproc)
 endif
 
-ifeq ($(OSNICK),centos7)
-ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
-define SETUP_LIBSTDCXX
-set -e ;\
-cd $(BINDIR) ;\
-wget -q -O libstdc.tgz http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$(OS)-$(ARCH).tgz ;\
-tar xzf libstdc.tgz ;\
-rm libstdc.tgz ;\
-ln -sf libstdc++.so.6.0.25 libstdc++.so.6
-endef
-endif
-endif
-
 ifeq ($(FORCE),1)
 .PHONY: __force
 
@@ -383,10 +362,8 @@ endif
 
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
-	$(SHOW)$(SETUP_LIBSTDCXX)
 ifneq ($(DRY_RUN),1)
 	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
-#	$(SHOW)[ -f $(TARGET) ] && touch $(TARGET)
 else
 	@make -C $(BINDIR) $(MAKE_J)
 endif
