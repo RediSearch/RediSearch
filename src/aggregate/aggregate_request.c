@@ -932,15 +932,16 @@ static ResultProcessor *getVecSimRP(AREQ *req, AGGPlan *pln, ResultProcessor *up
   RLookup *lk = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
   RLookupKey **keys = rm_calloc(array_len(req->ast.vecScoreFieldNames), sizeof(*keys));
 
-  for (size_t i = 0; i < array_len(req->ast.vecScoreFieldNames); i++) {
-    if (IndexSpec_GetField(req->sctx->spec, req->ast.vecScoreFieldNames[i], strlen(req->ast.vecScoreFieldNames[i]))) {
-      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", req->ast.vecScoreFieldNames[i]);
+  char **scoreFields = req->ast.vecScoreFieldNames;
+  for (size_t i = 0; i < array_len(scoreFields); i++) {
+    if (IndexSpec_GetField(req->sctx->spec, scoreFields[i], strlen(scoreFields[i]))) {
+      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", scoreFields[i]);
       rm_free(keys);
       return NULL;
     }
-    keys[i] = RLookup_GetKey(lk, req->ast.vecScoreFieldNames[i], RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+    keys[i] = RLookup_GetKey(lk, scoreFields[i], RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
     if (!keys[i]) {
-      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", req->ast.vecScoreFieldNames[i]);
+      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", scoreFields[i]);
       rm_free(keys);
       return NULL;
     }

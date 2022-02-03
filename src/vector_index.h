@@ -69,8 +69,7 @@ typedef struct VectorQuery {
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status);
-IndexIterator *NewHybridVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status, IndexIterator *child_it);
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status, IndexIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);

@@ -95,7 +95,7 @@ static bool isFit (VecSimIndex *ind, size_t size) {
   return res;
 }
 
-IndexIterator *NewHybridVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status, IndexIterator *child_it) {
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status, IndexIterator *child_it) {
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
@@ -118,8 +118,9 @@ IndexIterator *NewHybridVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, Que
                             "Error parsing vector similarity query: query vector does not match index's type or dimension.");
         return NULL;
       }
-      return NewHybridVectorIteratorImpl(vecsim, vq->scoreField, vq->topk, qParams, child_it);
+      return NewHybridVectorIterator(vecsim, vq->scoreField, vq->topk, qParams, child_it);
   }
+  return NULL;
 }
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {

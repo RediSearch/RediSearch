@@ -649,7 +649,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       return NULL;
     }
   }
-  return NewHybridVectorIterator(q->sctx, qn->vn.vq, q->status, child_it);
+  return NewVectorIterator(q->sctx, qn->vn.vq, q->status, child_it);
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {

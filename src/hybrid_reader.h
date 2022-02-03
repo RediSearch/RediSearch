@@ -5,4 +5,4 @@
 #include "redisearch.h"
 #include "spec.h"
 
-IndexIterator *NewHybridVectorIteratorImpl(VecSimIndex *index, char *score_field, TopKVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it);
+IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, TopKVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it);
