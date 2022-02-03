@@ -625,6 +625,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     goto failure;
   }
 
+  if (spec->rule->filter_exp) {
+    SchemaRule_FilterFields(spec->rule);
+  }
+
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
@@ -1583,6 +1587,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
   }
+  
 
   //    DocTable_RdbLoad(&sp->docs, rdb, encver);
   sp->terms = NewTrie();
@@ -2082,10 +2087,8 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       if (!r) {
         // load hash only if required
         r = EvalCtx_Create();
-        // Add support for JSON filter
-        EvalCtx_AddHash(r, ctx, keyToReadData);
-        RSValue *keyRSV = RS_RedisStringVal(key);
-        EvalCtx_Set(r, UNDERSCORE_KEY, keyRSV);
+
+        RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
       }
 
       if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
@@ -2094,6 +2097,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
           specOp->op = SpecOp_Del;
         }
       }
+      QueryError_ClearError(r->ee.err);
     }
 
     if (r) {
