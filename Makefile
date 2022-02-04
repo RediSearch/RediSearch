@@ -574,6 +574,8 @@ RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 # RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
+ifneq ($(RAMP_YAML),)
+
 PACK_ARGS=\
 	VARIANT=$(RAMP_VARIANT) \
 	PACKAGE_NAME=$(PACKAGE_NAME) \
@@ -586,6 +588,13 @@ bin/artifacts/$(RAMP.release) : $(RAMP_YAML) $(TARGET)
 	$(SHOW)$(PACK_ARGS) $(ROOT)/sbin/pack.sh $(TARGET)
 
 pack: bin/artifacts/$(RAMP.release)
+
+else
+
+pack:
+	@echo "Nothing to pack for this configuration."
+
+endif # RAML_YAML
 
 upload-release:
 	$(SHOW)RELEASE=1 ./sbin/upload-artifacts
