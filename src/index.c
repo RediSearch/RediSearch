@@ -580,6 +580,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
     heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
   }
 
+  ui->minDocId = it->minId;
   *hit = CURRENT_RECORD(ui);
   return rc;
 }
