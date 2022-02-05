@@ -317,11 +317,13 @@ typedef enum {
 
 
 typedef struct {
-  union {
-    struct {
       size_t k;
       const char* fieldName;
-    }topkContext;
+} topkContext;
+
+typedef struct {
+  union {
+    topkContext topk;
   };
   searchRequestSpecialCase specialCaseType;
 } specialCaseCtx;
@@ -363,7 +365,7 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
     size_t specialCasesLen = array_len(r->specialCases);
     for(size_t i = 0; i< specialCasesLen; i ++) {
       specialCaseCtx* ctx = r->specialCases[i];
-      TopKContext_Free(ctx);
+      SpecialCaseCtx_Free(ctx);
     }
     array_free(r->specialCases);
   }
@@ -427,8 +429,8 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     size_t k = queryVectorNode.vq->topk.k;
     const char* scoreField = queryVectorNode.vq->scoreField;
     specialCaseCtx *ctx = SpecialCaseCtx_New();
-    ctx->topkContext.k = k;
-    ctx->topkContext->fieldName = scoreField;
+    ctx->topk.k = k;
+    ctx->topk.fieldName = scoreField;
     ctx->specialCaseType = SPECIAL_CASE_TOPK;
     if(req->specialCases) {
       req->specialCases = array_new(specialCaseCtx*, 1);
@@ -1281,7 +1283,7 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
       if(req->requiredFields == NULL) {
         req->requiredFields = array_new(const char*, 1);
       }
-      req->requiredFields = array_append(req->requiredFields, ctx->topkContext.fieldName);
+      req->requiredFields = array_append(req->requiredFields, ctx->topk.fieldName);
     }
   }
   if(req->requiredFields) {
