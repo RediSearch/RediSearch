@@ -415,15 +415,16 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
         return env.expect('FT.SEARCH', 'idx', query_string,
                    'SORTBY', '__v_score',
                    'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                   'RETURN', 2, '__v_score', non_vector_field)
+                   'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
 
     else:
         return env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
                    'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                   'RETURN', 2, non_vector_field, '__v_score')
+                   'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
 
 def test_hybrid_query_batches_mode_with_text(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -479,6 +480,7 @@ def test_hybrid_query_batches_mode_with_text(env):
 
 
 def test_hybrid_query_batches_mode_with_tags(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     dimension = 128
     index_size = 100
@@ -513,6 +515,7 @@ def test_hybrid_query_batches_mode_with_tags(env):
 
 
 def test_hybrid_query_batches_mode_with_numeric_and_geo(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     dimension = 128
     index_size = 100
@@ -560,6 +563,7 @@ def test_hybrid_query_batches_mode_with_numeric_and_geo(env):
 
 
 def test_hybrid_query_batches_mode_with_complex_queries(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     dimension = 128
     index_size = 100
