@@ -578,6 +578,12 @@ def testExplain(env):
     expected = """VECTOR {\n  @t:INTERSECT {\n    @t:hello\n    @t:world\n  }\n} => {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
+    # retest when index is not empty
+    r.expect('hset', '1', 'v', 'abababab', 't', "hello").equal(2L)
+    res = r.execute_command('ft.explain', 'idx', *q)
+    env.assertEqual(expected, res)
+
+
 def testNoIndex(env):
     r = env
     env.assertOk(r.execute_command(
