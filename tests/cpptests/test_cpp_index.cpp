@@ -285,54 +285,61 @@ TEST_F(IndexTest, testReadIterator) {
 }
 
 TEST_F(IndexTest, testUnion) {
-  InvertedIndex *w = createIndex(10, 2);
-  InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  int oldConfig = RSGlobalConfig.minUnionIterHeap;
+  for (int cfg = 0; cfg < 2; ++cfg) {
+    InvertedIndex *w = createIndex(10, 2);
+    InvertedIndex *w2 = createIndex(10, 3);
+    IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
+    IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
-  // printf("Reading!\n");
-  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-  irs[0] = NewReadIterator(r1);
-  irs[1] = NewReadIterator(r2);
+    // printf("Reading!\n");
+    IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
+    irs[0] = NewReadIterator(r1);
+    irs[1] = NewReadIterator(r2);
 
-  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
-  RSIndexResult *h = NULL;
-  int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
-  int i = 0;
-  while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
-    // printf("%d <=> %d\n", h.docId, expected[i]);
-    ASSERT_EQ(expected[i], h->docId);
-    i++;
+    IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
+    RSIndexResult *h = NULL;
+    int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
+    int i = 0;
+    while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+      // printf("%d <=> %d\n", h.docId, expected[i]);
+      ASSERT_EQ(expected[i], h->docId);
+      i++;
 
-    RSIndexResult *copy = IndexResult_DeepCopy(h);
-    ASSERT_TRUE(copy != NULL);
-    ASSERT_TRUE(copy != h);
-    ASSERT_TRUE(copy->isCopy);
+      RSIndexResult *copy = IndexResult_DeepCopy(h);
+      ASSERT_TRUE(copy != NULL);
+      ASSERT_TRUE(copy != h);
+      ASSERT_TRUE(copy->isCopy);
 
-    ASSERT_EQ(copy->docId, h->docId);
-    ASSERT_EQ(copy->type, h->type);
+      ASSERT_EQ(copy->docId, h->docId);
+      ASSERT_EQ(copy->type, h->type);
 
-    IndexResult_Free(copy);
+      IndexResult_Free(copy);
 
-    // printf("%d, ", h.docId);
+      // printf("%d, ", h.docId);
+    }
+
+
+    // test read after skip goes to next id
+    ui->Rewind(ui->ctx);
+    ASSERT_EQ(ui->SkipTo(ui->ctx, 6, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->docId, 6);
+    ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->docId, 8);
+    // test for last id
+    ASSERT_EQ(ui->SkipTo(ui->ctx, 30, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->docId, 30);
+    ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_EOF);
+
+    ui->Free(ui);
+    // IndexResult_Free(&h);
+    InvertedIndex_Free(w);
+    InvertedIndex_Free(w2);
+
+    // change config parameter to use UI_ReadHigh and UI_SkipToHigh
+    RSGlobalConfig.minUnionIterHeap = 1;
   }
-
-
-  // test read after skip goes to next id
-  ui->Rewind(ui->ctx);
-  ASSERT_EQ(ui->SkipTo(ui->ctx, 6, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 6);
-  ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 8);
-  // test for last id
-  ASSERT_EQ(ui->SkipTo(ui->ctx, 30, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 30);
-  ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_EOF);
-
-  ui->Free(ui);
-  // IndexResult_Free(&h);
-  InvertedIndex_Free(w);
-  InvertedIndex_Free(w2);
+  RSGlobalConfig.minUnionIterHeap = oldConfig;
 }
 
 TEST_F(IndexTest, testWeight) {
