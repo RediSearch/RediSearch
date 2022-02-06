@@ -83,13 +83,15 @@ def testManyPrefixes(env):
     # this test checks that releasing all indexes is faster
     # it went down from 20 to 2 seconds for 20,000 indexes
     conn = getConnectionByEnv(env)
-    for i in range(20000):
+    start_time = time.time()
+    for i in range(10000):
         conn.execute_command('ft.create', i, 'ON', 'HASH',
                 'PREFIX', '1', i,
                 'SCHEMA', 'name', 'text')
+    env.debugPrint(str(time.time() - start_time), force=True)
     start_time = time.time()
     conn.execute_command('FLUSHALL')
-    env.assertLess(time.time() - start_time, 10)
+    env.assertLess(time.time() - start_time, 1)
 
 def testFilter2(env):
     conn = getConnectionByEnv(env)
