@@ -1052,11 +1052,13 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   }
   invoked = 1;
 
-  CursorList_Destroy(&RSCursors);
+  
 
   Indexes_Free(specDict_g);
   dictRelease(specDict_g);
   specDict_g = NULL;
+
+  CursorList_Destroy(&RSCursors);
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
