@@ -412,15 +412,17 @@ def test_memory_info(env):
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True):
     if sort_by_vector:
-        return env.expect('FT.SEARCH', 'idx', query_string,
+        res = env.expect('FT.SEARCH', 'idx', query_string,
                    'SORTBY', '__v_score',
                    'PARAMS', 2, 'vec_param', query_data.tobytes(),
                    'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
 
     else:
-        return env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+        res = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
                    'PARAMS', 2, 'vec_param', query_data.tobytes(),
                    'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
+    if env.isCluster():
+        res[0] /= env.shardsCount
 
 
 def test_hybrid_query_batches_mode_with_text(env):

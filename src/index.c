@@ -1284,7 +1284,6 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   ret->Abort = NI_Abort;
   ret->Rewind = NI_Rewind;
   ret->mode = MODE_SORTED;
-  ret->isValid = true;
 
   if (nc->child->mode == MODE_UNSORTED) {
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
