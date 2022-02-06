@@ -550,7 +550,7 @@ def testExplain(env):
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'foo', 'text', 'bar', 'numeric', 'sortable',
-        'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2'))
+        'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2', 't', 'TEXT'))
     q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
     res = r.execute_command('ft.explain', 'idx', q)
     # print res.replace('\n', '\\n')
@@ -570,6 +570,12 @@ def testExplain(env):
     q = ['* => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
     expected = """VECTOR {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
+    env.assertEqual(expected, res)
+
+    # test with hybrid query
+    q = ['(@t:hello world) => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    res = r.execute_command('ft.explain', 'idx', *q)
+    expected = """VECTOR {\n  @t:INTERSECT {\n    @t:hello\n    @t:world\n  }\n} => {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
 def testNoIndex(env):

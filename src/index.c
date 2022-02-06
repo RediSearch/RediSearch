@@ -11,6 +11,7 @@
 #include "rmutil/rm_assert.h"
 #include "util/heap.h"
 #include "profile.h"
+#include "hybrid_reader.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit);
@@ -1875,7 +1876,7 @@ PRINT_PROFILE_FUNC(name) {                                                      
   int addChild = hasChild && ((iterType *)root)->child;                             \
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);                 \
   printProfileType(text);                                                           \
-  nlen += 2;                                                                        \
+  nlen += 2;                                                                    \
   if (PROFILE_VERBOSE) {                                                            \
     printProfileTime(cpuTime);                                                      \
     nlen += 2;                                                                      \
@@ -1901,7 +1902,7 @@ PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL", 1);
 PRINT_PROFILE_SINGLE(printWildcardIt, DummyIterator, "WILDCARD", 0);
 PRINT_PROFILE_SINGLE(printIdListIt, DummyIterator, "ID-LIST", 0);
 PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "EMPTY", 0);
-PRINT_PROFILE_SINGLE(printListIt, DummyIterator, "LIST", 0);
+PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator, "VECTOR", 1);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
@@ -1931,7 +1932,7 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
-    case HYBRID_ITERATOR:     { printListIt(ctx, root, counter, cpuTime, depth, limited);       break; }
+    case HYBRID_ITERATOR:     { printHybridIt(ctx, root, counter, cpuTime, depth, limited);       break; }
     case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
