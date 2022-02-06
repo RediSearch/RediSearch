@@ -1225,7 +1225,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
   struct MRCtx *mrctx = MR_CreateCtx(ctx, req);
   // we prefer the next level to be local - we will only approach nodes on our own shard
   // we also ask only masters to serve the request, to avoid duplications by random
-  MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination);
+  MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination | MRCluster_MastersOnly);
 
   MRCtx_SetReduceFunction(mrctx, searchResultReducer);
   MRCtx_SetRedisCtx(mrctx, bc);
