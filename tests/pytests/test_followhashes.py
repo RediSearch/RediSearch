@@ -79,6 +79,18 @@ def testPrefix2(env):
     env.assertIn('that:foo', res)
     env.assertIn('this:foo', res)
 
+def testManyPrefixes(env):
+    # this test checks that releasing all indexes is faster
+    # it went down from 20 to 2 seconds for 20,000 indexes
+    conn = getConnectionByEnv(env)
+    for i in range(20000):
+        conn.execute_command('ft.create', i, 'ON', 'HASH',
+                'PREFIX', '1', i,
+                'SCHEMA', 'name', 'text')
+    start_time = time.time()
+    conn.execute_command('FLUSHALL')
+    env.assertLess(time.time() - start_time, 10)
+
 def testFilter2(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'stuff', 'ON', 'HASH',
