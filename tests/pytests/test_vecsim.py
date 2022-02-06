@@ -50,25 +50,6 @@ def test_sanity(env):
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
-def testEscape(env):
-    return
-    conn = getConnectionByEnv(env)
-
-    vecsim_type = ['FLAT', 'HNSW']
-    for vs_type in vecsim_type:
-        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
-        conn.execute_command('HSET', 'a', 'v', '////////')
-        conn.execute_command('HSET', 'b', 'v', '++++++++')
-        conn.execute_command('HSET', 'c', 'v', 'abcdefgh')
-        conn.execute_command('HSET', 'd', 'v', 'aacdefgh')
-        conn.execute_command('HSET', 'e', 'v', 'aaadefgh')
-
-        messages = ['\+\+\+\+\+\+\+\+', '\/\/\/\/\/\/\/\/', 'abcdefgh', 'aacdefgh', 'aaadefgh']
-        for message in messages:
-            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b AS score]', 'PARAMS', '2', 'b', message, 'SORTBY', 'score', 'ASC', 'LIMIT', 0, 1)
-            env.assertEqual(res[2][3], message.replace('\\', ''))
-
-        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def testDel(env):
     conn = getConnectionByEnv(env)
@@ -412,17 +393,15 @@ def test_memory_info(env):
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True):
     if sort_by_vector:
-        res = env.expect('FT.SEARCH', 'idx', query_string,
+        return env.expect('FT.SEARCH', 'idx', query_string,
                    'SORTBY', '__v_score',
                    'PARAMS', 2, 'vec_param', query_data.tobytes(),
                    'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
 
     else:
-        res = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+        return env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
                    'PARAMS', 2, 'vec_param', query_data.tobytes(),
                    'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
-    if env.isCluster():
-        res[0] /= env.shardsCount
 
 
 def test_hybrid_query_batches_mode_with_text(env):
