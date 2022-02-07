@@ -1158,9 +1158,7 @@ void Indexes_Free(dict *d) {
   SchemaPrefixes_Free(ScemaPrefixes_g);
   SchemaPrefixes_Create();
   // cursor list is iterating through the list as well and consuming a lot of CPU
-  CursorList_Destroy(&RSCursors);
-  Array_Free(&RSCursors.idle);
-  CursorList_Init(&RSCursors);
+  CursorList_Empty(&RSCursors);
 
   arrayof(IndexSpec *) specs = array_new(IndexSpec *, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
