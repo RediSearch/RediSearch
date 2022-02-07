@@ -106,13 +106,15 @@ TEST_F(QueryTest, testParser) {
   assertValidQuery("hello|hallo|yellow world", ctx);
   assertValidQuery("(hello|world|foo) bar baz 123", ctx);
   assertValidQuery("(hello|world|foo) (bar baz)", ctx);
-  // assertValidQuery("(hello world|foo \"bar baz\") \"bar baz\" bbbb");
+  assertValidQuery("@a:foo (@b:bar (@c:baz @d:gaz))", ctx);
+  assertValidQuery("(hello world|foo \"bar baz\") \"bar baz\" bbbb", ctx);
   assertValidQuery("@title:(barack obama)  @body:us|president", ctx);
   assertValidQuery("@ti_tle:barack obama  @body:us", ctx);
   assertValidQuery("@title:barack @body:obama", ctx);
   assertValidQuery("@tit_le|bo_dy:barack @body|title|url|something_else:obama", ctx);
   assertValidQuery("hello world&good+bye foo.bar", ctx);
   assertValidQuery("@BusinessName:\"Wells Fargo Bank, National Association\"", ctx);
+
   // escaping and unicode in field names
   assertValidQuery("@Business\\:\\-\\ Name:Wells Fargo", ctx);
   assertValidQuery("@שלום:Wells Fargo", ctx);
@@ -123,6 +125,11 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("@body:@title:", ctx);
   assertInvalidQuery("@body|title:@title:", ctx);
   assertInvalidQuery("@body|title", ctx);
+  assertInvalidQuery("@title:@num:[0 10]", ctx);
+  assertInvalidQuery("@title:(@num:[0 10])", ctx);
+  assertInvalidQuery("@t1:@t2:@t3:hello", ctx);
+  assertValidQuery("@t1|t2|t3:hello", ctx);
+  assertValidQuery("@title:(hello=>{$phonetic: true} world)", ctx);
   assertValidQuery("hello ~world ~war", ctx);
   assertValidQuery("hello ~(world war)", ctx);
   assertValidQuery("-foo", ctx);
@@ -198,6 +205,7 @@ TEST_F(QueryTest, testParser) {
   assertValidQuery(
       "@title:(foo bar) => {$weight: 0.5; $slop: 2} @body:(foo bar) => {$weight: 0.5; $slop: 2}",
       ctx);
+  assertValidQuery("@title:(conversation) (@title:(conversation the conversation))=>{$inorder: true;$slop: 0}", ctx);
   assertValidQuery("(foo => {$weight: 0.5;}) | ((bar) => {$weight: 0.5})", ctx);
   assertValidQuery("(foo => {$weight: 0.5;})  ((bar) => {}) => {}", ctx);
   assertValidQuery("@tag:{foo | bar} => {$weight: 0.5;} ", ctx);

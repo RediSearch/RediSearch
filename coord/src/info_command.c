@@ -198,7 +198,7 @@ static size_t replyKvArray(InfoFields *fields, RedisModuleCtx *ctx, InfoValue *v
     if (type == InfoField_WholeSum || type == InfoField_Max) {
       RedisModule_ReplyWithLongLong(ctx, source->u.total_l);
     } else if (type == InfoField_DoubleSum) {
-      RedisModule_ReplyWithDouble(ctx, source->u.total_l);
+      RedisModule_ReplyWithDouble(ctx, source->u.total_d);
     } else if (type == InfoField_DoubleAverage) {
       if (source->u.avg.count) {
         RedisModule_ReplyWithDouble(ctx, source->u.avg.avg / source->u.avg.count);

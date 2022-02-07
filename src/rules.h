@@ -6,6 +6,7 @@
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
+#include "spec.h"
 #include "redisearch.h"
 
 #ifdef __cplusplus
@@ -43,6 +44,8 @@ typedef struct SchemaRule {
   arrayof(const char *) prefixes;
   char *filter_exp_str;
   struct RSExpr *filter_exp;
+  char **filter_fields;
+  int *filter_fields_index;
   char *lang_field;
   char *score_field;
   char *payload_field;
@@ -58,6 +61,7 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *args);
 void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx);
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, struct IndexSpec *spec, QueryError *status);
+void SchemaRule_FilterFields(SchemaRule *rule);
 void SchemaRule_Free(SchemaRule *);
 
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
