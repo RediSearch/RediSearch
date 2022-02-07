@@ -15,7 +15,7 @@ static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata
   } else if (score1 > score2) {
     return 1;
   }
-  return 0;
+  return e1->docId < e2->docId;
 }
 
 // To use in the future, if we will need to sort results by id.
@@ -41,7 +41,7 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
       continue;
     }
     // Set the item that we skipped to it in hit.
-    (*hit)->docId = VecSimQueryResult_GetId(res);
+    (*hit)->docId = id;
     (*hit)->dist.distance = VecSimQueryResult_GetScore(res);
     (*hit)->dist.scoreField = hr->scoreField;
     return INDEXREAD_OK;
@@ -92,13 +92,16 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
         // Reset the current result and advance both "sub-iterators".
         AggregateResult_Reset(cur_res);
       }
-      hr->child->Read(hr->child->ctx, &cur_child_res);
-      HR_ReadInBatch(hr, &cur_vec_res);
+      unsigned int rc = hr->child->Read(hr->child->ctx, &cur_child_res);
+      rc |= HR_ReadInBatch(hr, &cur_vec_res);
+      if (rc != INDEXREAD_OK) break;
     }
     // Otherwise, advance the iterator pointing to the lower id.
     else if (cur_vec_res->docId > cur_child_res->docId && IITER_HAS_NEXT(hr->child)) {
       int rc = hr->child->SkipTo(hr->child->ctx, cur_vec_res->docId, &cur_child_res);
-      if (rc == INDEXREAD_NOTFOUND) {
+      // It may be the case where we skipped to an invalid result (in NOT iterator for example),
+      // so we read to get the next valid result.
+      if (rc == INDEXREAD_NOTFOUND && cur_child_res->docId == cur_vec_res->docId) {
         hr->child->Read(hr->child->ctx, &cur_child_res);
       }
     } else if (VecSimQueryResult_IteratorHasNext(vecsim_iter)){
@@ -152,7 +155,9 @@ static int HR_HasNext(void *ctx) {
   return hr->base.isValid;
 }
 
-static int HR_ReadUnsorted(void *ctx, RSIndexResult **hit) {
+// In KNN mode, the results will return sorted by ascending order of the distance
+// (better score first), while in hybrid mode, the results will return in descending order.
+static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
   if (!hr->resultsPrepared) {
     prepareResults(hr);
@@ -161,24 +166,32 @@ static int HR_ReadUnsorted(void *ctx, RSIndexResult **hit) {
   if (!HR_HasNext(ctx)) {
     return INDEXREAD_EOF;
   }
-  if (hr->mode == STANDARD_KNN) {
-    *hit = hr->base.current;
-    if (HR_ReadInBatch(hr, hit) == INDEXREAD_EOF) {
-      goto eof;
-    }
-  } else {
-    if (heap_count(hr->topResults) == 0) {
-      goto eof;
-    }
-    *hit = heap_poll(hr->topResults);
-    hr->returnedResults = array_append(hr->returnedResults, *hit);
+  if (heap_count(hr->topResults) == 0) {
+    hr->base.isValid = false;
+    return INDEXREAD_EOF;
+  }
+  *hit = heap_poll(hr->topResults);
+  hr->returnedResults = array_append(hr->returnedResults, *hit);
+  hr->lastDocId = (*hit)->docId;
+  return INDEXREAD_OK;
+}
+
+static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
+  HybridIterator *hr = ctx;
+  if (!hr->resultsPrepared) {
+    prepareResults(hr);
+    hr->resultsPrepared = true;
+  }
+  if (!HR_HasNext(ctx)) {
+    return INDEXREAD_EOF;
+  }
+  *hit = hr->base.current;
+  if (HR_ReadInBatch(hr, hit) == INDEXREAD_EOF) {
+    hr->base.isValid = false;
+    return INDEXREAD_EOF;
   }
   hr->lastDocId = (*hit)->docId;
   return INDEXREAD_OK;
-
-eof:
-  hr->base.isValid = false;
-  return INDEXREAD_EOF;
 }
 
 static bool UseBF(size_t T, TopKVectorQuery query, VecSimIndex *index) {
@@ -213,15 +226,18 @@ static void HR_Rewind(void *ctx) {
   hr->resultsPrepared = false;
   if (hr->iter) VecSimQueryResult_IteratorFree(hr->iter);
   if (hr->list) VecSimQueryResult_Free(hr->list);
-  // Clean the saved and returned results (in case of rewind).
-  while (heap_count(hr->topResults) > 0) {
-    IndexResult_Free(heap_poll(hr->topResults));
-  }
-  for (size_t i = 0; i < array_len(hr->returnedResults); i++) {
-    IndexResult_Free(hr->returnedResults[i]);
-  }
   hr->lastDocId = 0;
   hr->base.isValid = 1;
+
+  if (hr->mode != STANDARD_KNN) {
+    // Clean the saved and returned results (in case of HYBRID mode).
+    while (heap_count(hr->topResults) > 0) {
+      IndexResult_Free(heap_poll(hr->topResults));
+    }
+    for (size_t i = 0; i < array_len(hr->returnedResults); i++) {
+      IndexResult_Free(hr->returnedResults[i]);
+    }
+  }
 }
 
 void HybridIterator_Free(struct indexIterator *self) {
@@ -288,11 +304,12 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, To
   ri->Abort = HR_Abort;
   ri->Rewind = HR_Rewind;
   ri->HasNext = HR_HasNext;
-  ri->Read = HR_ReadUnsorted;
   ri->SkipTo = NULL; // As long as we return results by score (unsorted by id), this has no meaning.
   if (hi->mode == STANDARD_KNN) {
+    ri->Read = HR_ReadKnnUnsorted;
     ri->current = NewDistanceResult();
   } else {
+    ri->Read = HR_ReadHybridUnsorted;
     ri->current = NewHybridResult();
   }
   return ri;

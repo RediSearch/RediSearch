@@ -103,7 +103,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryErro
     return NULL;
   }
   switch (vq->type) {
-    case VECSIM_QT_TOPK:;
+    case VECSIM_QT_TOPK: {
       VecSimQueryParams qParams;
       int err;
       if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params),
@@ -119,6 +119,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryErro
         return NULL;
       }
       return NewHybridVectorIterator(vecsim, vq->scoreField, vq->topk, qParams, child_it);
+    }
   }
   return NULL;
 }

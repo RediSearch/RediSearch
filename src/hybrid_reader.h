@@ -32,4 +32,12 @@ typedef struct {
   //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
 } HybridIterator;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, TopKVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it);
+
+#ifdef __cplusplus
+}
+#endif
