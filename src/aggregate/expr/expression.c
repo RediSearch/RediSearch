@@ -7,26 +7,27 @@ int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Que
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static void setReferenceValue(RSValue *dst, RSValue *src) {
-  RSValue_MakeReference(dst, src);
+  RSValue::MakeReference(dst, src);
 }
 
 //---------------------------------------------------------------------------------------------
 
-int ExprEval::evalFunc(const RSFunctionExpr *f, RSValue *result) {
+int RSFunctionExpr::Eval(ExprEval &eval, RSValue *res) {
+  res->Clear();
   int rc = EXPR_EVAL_ERR;
 
   // First, evaluate every argument
   size_t nusedargs = 0;
-  size_t nargs = f->args->len;
+  size_t nargs = _args->length();
   RSValue *argspp[nargs];
   RSValue args[nargs];
 
   for (size_t ii = 0; ii < nargs; ii++) {
     args[ii] = RSValue();
     argspp[ii] = &args[ii];
-    int internalRes = evalInternal(f->args->args[ii], &args[ii]);
+    int internalRes = _args->args[ii]->Eval(eval, &args[ii]);
     if (internalRes == EXPR_EVAL_ERR ||
-        (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
+        (internalRes == EXPR_EVAL_NULL && Call != func_exists)) {
       // TODO: Free other results
       goto cleanup;
     }
@@ -34,7 +35,7 @@ int ExprEval::evalFunc(const RSFunctionExpr *f, RSValue *result) {
   }
 
   // We pass an RSValue**, not an RSValue*, as the arguments
-  rc = f->Call(this, result, argspp, nargs, err);
+  rc = Call(&eval, res, argspp, nargs, eval.err);
 
 cleanup:
   for (size_t ii = 0; ii < nusedargs; ii++) {
@@ -43,29 +44,38 @@ cleanup:
   return rc;
 }
 
+int RSFunctionExpr::GetLookupKeys(RLookup *lookup, QueryError *err) {
+  for (size_t ii = 0; ii < _args->length(); ii++) {
+    auto rc = _args->args[ii]->GetLookupKeys(lookup, err);
+    if (rc != EXPR_EVAL_OK) return rc;
+  }
+  return EXPR_EVAL_OK;
+}
+
 //---------------------------------------------------------------------------------------------
 
-int ExprEval::evalOp(const RSExprOp *op, RSValue *result) {
+int RSExprOp::Eval(ExprEval &eval, RSValue *result) {
+  result->Clear();
+
   RSValue l, r;
   int rc = EXPR_EVAL_ERR;
 
-  if (evalInternal(op->left, &l) != EXPR_EVAL_OK) {
+  if (eval.eval(left, &l) != EXPR_EVAL_OK) {
     goto cleanup;
   }
-  if (evalInternal(op->right, &r) != EXPR_EVAL_OK) {
+  if (eval.eval(right, &r) != EXPR_EVAL_OK) {
     goto cleanup;
   }
 
   double n1, n2;
-  if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
-
-    err->SetError(QUERY_ENOTNUMERIC, NULL);
+  if (!l.ToNumber(&n1) || !r.ToNumber(&n2)) {
+    eval.err->SetError(QUERY_ENOTNUMERIC, NULL);
     rc = EXPR_EVAL_ERR;
     goto cleanup;
   }
 
   double res;
-  switch (op->op) {
+  switch (op) {
     case '+':
       res = n1 + n2;
       break;
@@ -98,31 +108,37 @@ cleanup:
   return rc;
 }
 
+int RSExprOp::GetLookupKeys(RLookup *lookup, QueryError *err) {
+  auto rc = left->GetLookupKeys(lookup, err);
+  if (rc != EXPR_EVAL_OK) return rc;
+  return right->GetLookupKeys(lookup, err);
+}
+
 //---------------------------------------------------------------------------------------------
 
 int ExprEval::getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition op) {
   switch (op) {
     case RSCondition_Eq:
-      return RSValue_Equal(l, r, err);
+      return RSValue::Equal(l, r, err);
 
     case RSCondition_Lt:
-      return RSValue_Cmp(l, r, err) < 0;
+      return RSValue::Cmp(l, r, err) < 0;
 
     // Less than or equal, <=
     case RSCondition_Le:
-      return RSValue_Cmp(l, r, err) <= 0;
+      return RSValue::Cmp(l, r, err) <= 0;
 
     // Greater than, >
     case RSCondition_Gt:
-      return RSValue_Cmp(l, r, err) > 0;
+      return RSValue::Cmp(l, r, err) > 0;
 
     // Greater than or equal, >=
     case RSCondition_Ge:
-      return RSValue_Cmp(l, r, err) >= 0;
+      return RSValue::Cmp(l, r, err) >= 0;
 
     // Not equal, !=
     case RSCondition_Ne:
-      return !RSValue_Equal(l, r, err);
+      return !RSValue::Equal(l, r, err);
 
     // Logical AND of 2 expressions, &&
     case RSCondition_And:
@@ -140,9 +156,10 @@ int ExprEval::getPredicateBoolean(const RSValue *l, const RSValue *r, RSConditio
 
 //---------------------------------------------------------------------------------------------
 
-int ExprEval::evalInverted(const RSInverted *vv, RSValue *result) {
+int RSInverted::Eval(ExprEval &eval, RSValue *result) {
+  result->Clear();
   RSValue tmpval;
-  if (evalInternal(vv->child, &tmpval) != EXPR_EVAL_OK) {
+  if (child->Eval(eval, &tmpval) != EXPR_EVAL_OK) {
     return EXPR_EVAL_ERR;
   }
 
@@ -153,28 +170,33 @@ int ExprEval::evalInverted(const RSInverted *vv, RSValue *result) {
   return EXPR_EVAL_OK;
 }
 
+int RSInverted::GetLookupKeys(RLookup *lookup, QueryError *err) {
+  return child->GetLookupKeys(lookup, err);
+}
+
 //---------------------------------------------------------------------------------------------
 
-int ExprEval::evalPredicate(const RSPredicate *pred, RSValue *result) {
+int RSPredicate::Eval(ExprEval &eval, RSValue *result) {
+  result->Clear();
   int res;
   RSValue l, r;
   int rc = EXPR_EVAL_ERR;
-  if (evalInternal(pred->left, &l) != EXPR_EVAL_OK) {
+  if (left->Eval(eval, &l) != EXPR_EVAL_OK) {
     goto cleanup;
-  } else if (pred->cond == RSCondition_Or && l.BoolTest()) {
+  } else if (cond == RSCondition_Or && l.BoolTest()) {
     res = 1;
     goto success;
-  } else if (pred->cond == RSCondition_And && !l.BoolTest()) {
+  } else if (cond == RSCondition_And && !l.BoolTest()) {
     res = 0;
     goto success;
-  } else if (evalInternal(pred->right, &r) != EXPR_EVAL_OK) {
+  } else if (right->Eval(eval, &r) != EXPR_EVAL_OK) {
     goto cleanup;
   }
 
-  res = getPredicateBoolean(&l, &r, pred->cond);
+  res = eval.getPredicateBoolean(&l, &r, cond);
 
 success:
-  if (!err || err->code == QUERY_OK) {
+  if (!eval.err || eval.err->code == QUERY_OK) {
     result->numval = res;
     result->t = RSValue_Number;
     rc = EXPR_EVAL_OK;
@@ -188,25 +210,32 @@ cleanup:
   return rc;
 }
 
+int RSPredicate::GetLookupKeys(RLookup *lookup, QueryError *err) {
+  auto rc = left->GetLookupKeys(lookup, err);
+  if (rc != EXPR_EVAL_OK) return rc;
+  return right->GetLookupKeys(lookup, err);
+}
+
 //---------------------------------------------------------------------------------------------
 
-int ExprEval::evalProperty(const RSLookupExpr *e, RSValue *res) {
-  if (!e->lookupKey) {
+int RSLookupExpr::Eval(ExprEval &eval, RSValue *res) {
+  res->Clear();
+  if (!eval.lookup) {
     // todo : this can not happened
     // No lookup object. This means that the key does not exist
     // Note: Because this is evaluated for each row potentially, do not assume
     // that query error is present:
-    if (err) {
-      err->SetError(QUERY_ENOPROPKEY, NULL);
+    if (eval.err) {
+      eval.err->SetError(QUERY_ENOPROPKEY, NULL);
     }
     return EXPR_EVAL_ERR;
   }
 
   // Find the actual value
-  RSValue *value = srcrow->GetItem(e->lookupKey);
+  RSValue *value = eval.srcrow->GetItem(lookupKey);
   if (!value) {
-    if (err) {
-      err->SetError(QUERY_ENOPROPVAL, NULL);
+    if (eval.err) {
+      eval.err->SetError(QUERY_ENOPROPVAL, NULL);
     }
     res->t = RSValue_Null;
     return EXPR_EVAL_NULL;
@@ -216,32 +245,21 @@ int ExprEval::evalProperty(const RSLookupExpr *e, RSValue *res) {
   return EXPR_EVAL_OK;
 }
 
-//---------------------------------------------------------------------------------------------
-
-int ExprEval::evalInternal(const RSExpr *e, RSValue *res) {
-  res->Clear();
-  switch (e->t) {
-    case RSExpr_Property:
-      return evalProperty(&e->property, res);
-    case RSExpr_Literal:
-      RSValue_MakeReference(res, (RSValue *)&e->literal);
-      return EXPR_EVAL_OK;
-    case RSExpr_Function:
-      return evalFunc(&e->func, res);
-    case RSExpr_Op:
-      return evalOp(&e->op, res);
-    case RSExpr_Predicate:
-      return evalPredicate(&e->pred, res);
-    case RSExpr_Inverted:
-      return evalInverted(&e->inverted, res);
+int RSLookupExpr::GetLookupKeys(RLookup *lookup, QueryError *err) {
+  lookupKey = lookup->GetKey(key, RLOOKUP_F_NOINCREF);
+  if (!lookupKey) {
+    err->SetErrorFmt(QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline", key);
+    return EXPR_EVAL_ERR;
   }
-  return EXPR_EVAL_ERR;  // todo: this can not happened
+  return EXPR_EVAL_OK;
 }
 
 //---------------------------------------------------------------------------------------------
 
-int ExprEval::Eval(RSValue *result) {
-  return evalInternal(root, result);
+int RSLiteral::Eval(ExprEval &eval, RSValue *res) {
+  res->Clear();
+  RSValue::MakeReference(res, &literal);
+  return EXPR_EVAL_OK;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -254,46 +272,7 @@ int ExprEval::Eval(RSValue *result) {
  *  the error.
  */
 
-int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
-
-#define RECURSE(v)                                                                    \
-  do {                                                                                \
-    if (!v) {                                                                         \
-      err->SetErrorFmt(QUERY_EEXPR, "Missing (or badly formatted) value for %s", #v); \
-      return EXPR_EVAL_ERR;                                                           \
-    }                                                                                 \
-    if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                      \
-      return EXPR_EVAL_ERR;                                                           \
-    }                                                                                 \
-  } while (0)
-
-  switch (expr->t) {
-    case RSExpr_Property:
-      expr->property.lookupKey = lookup->GetKey(expr->property.key, RLOOKUP_F_NOINCREF);
-      if (!expr->property.lookupKey) {
-        err->SetErrorFmt(QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline", expr->property.key);
-        return EXPR_EVAL_ERR;
-      }
-      break;
-    case RSExpr_Function:
-      for (size_t ii = 0; ii < expr->func.args->len; ii++) {
-        RECURSE(expr->func.args->args[ii]);
-      }
-      break;
-    case RSExpr_Op:
-      RECURSE(expr->op.left);
-      RECURSE(expr->op.right);
-      break;
-    case RSExpr_Predicate:
-      RECURSE(expr->pred.left);
-      RECURSE(expr->pred.right);
-      break;
-    case RSExpr_Inverted:
-      RECURSE(expr->inverted.child);
-      break;
-    default:
-      break;
-  }
+int RSExpr::GetLookupKeys(RLookup *lookup, QueryError *err) {
   return EXPR_EVAL_OK;
 }
 

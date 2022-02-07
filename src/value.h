@@ -87,17 +87,46 @@ struct RSValue {
   }
 
   void Clear();
+  RSValue *IncrRef();
   void Decref();
 
-  const RSValue *RSValue::Dereference() const;
+  RSValue *Dereference();
+  const RSValue *Dereference() const;
+
   bool BoolTest() const;
   bool IsNull() const;
+  bool IsString() const;
 
   void SetNumber(double n);
   void SetString(char *str, size_t len);
   void SetSDS(sds s);
   void SetConstString(const char *str, size_t len);
 
+  void Print() const;
+
+  void ToString(RSValue *dst);
+  const char *StringPtrLen(size_t *lenp) const;
+  const char *ConvertStringPtrLen(size_t *lenp, char *buf, size_t buflen) const;
+
+  int ToNumber(double *d) const;
+
+  const char *TypeName(RSValueType t);
+
+  uint64_t Hash(uint64_t hval) const;
+
+  static void MakeReference(RSValue *dst, RSValue *src);
+  static void MakeOwnReference(RSValue *dst, RSValue *src);
+
+  void MakePersistent();
+  
+  RSValue *ArrayItem(uint32_t index) const;
+  uint32_t ArrayLen() const;
+
+  // Compare 2 values for sorting
+  static int Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
+
+  // Return 1 if the two values are equal
+  static int Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
 };
 
 #pragma pack()
@@ -108,9 +137,9 @@ struct RSValue {
 // and doesn't free the actual value object
 void RSValue_Free(RSValue *v);
 
-inline RSValue *RSValue::IncrRef(RSValue *v) {
-  ++v->refcount;
-  return v;
+inline RSValue *RSValue::IncrRef() {
+  ++refcount;
+  return this;
 }
 
 inline void RSValue::Decref() {
@@ -134,15 +163,15 @@ static RSValue RS_StaticValue(RSValueType t) {
   return v;
 }
 
-static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
+inline void RSValue::MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
   dst->Clear();
   dst->t = RSValue_Reference;
-  dst->ref = RSValue_IncrRef(src);
+  dst->ref = src->IncrRef();
 }
 
-static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
-  RSValue_MakeReference(dst, src);
+inline void RSValue::MakeOwnReference(RSValue *dst, RSValue *src) {
+  RSValue::MakeReference(dst, src);
   src->Decref();
 }
 
@@ -154,8 +183,6 @@ inline const RSValue *RSValue::Dereference() const {
   return (RSValue *)v;
 }
 
-// Wrap a string with length into a value object. Doesn't duplicate the string.
-// Use strdup if the value needs to be detached
 RSValue *RS_StringVal(char *str, uint32_t len);
 
 RSValue *RS_StringValFmt(const char *fmt, ...);
@@ -165,11 +192,11 @@ RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t);
 
 // Wrap a string with length into a value object, assuming the string is a null terminated C string
 
-static inline RSValue *RS_StringValC(char *s) {
+inline RSValue *RS_StringValC(char *s) {
   return RS_StringVal(s, strlen(s));
 }
 
-static inline RSValue *RS_ConstStringVal(const char *s, size_t n) {
+inline RSValue *RS_ConstStringVal(const char *s, size_t n) {
   return RS_StringValT((char *)s, n, RSString_Const);
 }
 
@@ -178,23 +205,14 @@ static inline RSValue *RS_ConstStringVal(const char *s, size_t n) {
 // Wrap a redis string value
 
 RSValue *RS_RedisStringVal(RedisModuleString *str);
-
-// Create a new value object which increments and owns a reference to the string
-
 RSValue *RS_OwnRedisStringVal(RedisModuleString *str);
-
-// Create a new value object which steals a reference to the string
 RSValue *RS_StealRedisStringVal(RedisModuleString *s);
-
 void RSValue_MakeRStringOwner(RSValue *v);
-
-const char *RSValue_TypeName(RSValueType t);
 
 // Returns true if the value contains a string
 
-static inline int RSValue_IsString(const RSValue *value) {
-  return value && (value->t == RSValue_String || value->t == RSValue_RedisString ||
-                   value->t == RSValue_OwnRstring);
+inline bool RSValue::IsString() const {
+  return t == RSValue_String || t == RSValue_RedisString || t == RSValue_OwnRstring;
 }
 
 // Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null
@@ -210,59 +228,47 @@ inline bool RSValue::IsNull() const {
 // A volatile string usually comes from a block allocator and is not freed in RSVAlue_Free, so just
 // discarding the pointer here is "safe"
 
-static inline RSValue *RSValue_MakePersistent(RSValue *v) {
-  if (v->t == RSValue_String && v->strval.stype == RSString_Volatile) {
-    v->strval.str = rm_strndup(v->strval.str, v->strval.len);
-    v->strval.stype = RSString_Malloc;
-  } else if (v->t == RSValue_Array) {
-    for (size_t i = 0; i < v->arrval.len; i++) {
-      RSValue_MakePersistent(v->arrval.vals[i]);
+inline void RSValue::MakePersistent() {
+  if (t == RSValue_String && strval.stype == RSString_Volatile) {
+    strval.str = rm_strndup(strval.str, strval.len);
+    strval.stype = RSString_Malloc;
+  } else if (t == RSValue_Array) {
+    for (size_t i = 0; i < arrval.len; i++) {
+      arrval.vals[i]->MakePersistent();
     }
   }
-  return v;
 }
 
 // Copies a string using the default mechanism. Returns the copied value
 RSValue *RS_NewCopiedString(const char *s, size_t dst);
 
-// Convert a value to a string value. If the value is already a string value it gets
-// shallow-copied (no string buffer gets copied)
-void RSValue_ToString(RSValue *dst, RSValue *v);
-
 // New value from string, trying to parse it as a number
 RSValue *RSValue_ParseNumber(const char *p, size_t l);
-
-// Convert a value to a number, either returning the actual numeric values or by parsing a string into a number.
-// Return 1 if the value is a number or a numeric string and can be converted, or 0 if not.
-// If possible, we put the actual value into teh double pointer.
-int RSValue_ToNumber(const RSValue *v, double *d);
 
 #define RSVALUE_NULL_HASH 1337
 
 // Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 
-inline uint64_t RSValue::Hash(const RSValue *v, uint64_t hval) {
-  switch (v->t) {
+inline uint64_t RSValue::Hash(uint64_t hval) const {
+  switch (t) {
     case RSValue_Reference:
-      return RSValue_Hash(v->ref, hval);
+      return ref->Hash(hval);
     case RSValue_String:
-
-      return fnv_64a_buf(v->strval.str, v->strval.len, hval);
+      return fnv_64a_buf(strval.str, strval.len, hval);
     case RSValue_Number:
-      return fnv_64a_buf(&v->numval, sizeof(double), hval);
-
+      return fnv_64a_buf(&numval, sizeof(double), hval);
     case RSValue_RedisString:
     case RSValue_OwnRstring: {
       size_t sz;
-      const char *c = RedisModule_StringPtrLen(v->rstrval, &sz);
+      const char *c = RedisModule_StringPtrLen(rstrval, &sz);
       return fnv_64a_buf((void *)c, sz, hval);
     }
     case RSValue_Null:
       return 1337;  // TODO: fix...
 
     case RSValue_Array: {
-      for (uint32_t i = 0; i < v->arrval.len; i++) {
-        hval = RSValue_Hash(v->arrval.vals[i], hval);
+      for (uint32_t i = 0; i < arrval.len; i++) {
+        hval = arrval.vals[i]->Hash(hval);
       }
       return hval;
     }
@@ -272,14 +278,6 @@ inline uint64_t RSValue::Hash(const RSValue *v, uint64_t hval) {
 
   return 0;
 }
-
-// Gets the string pointer and length from the value
-const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp);
-
-// Combines PtrLen with ToString to convert any RSValue into a string buffer.
-// Returns NULL if buf is required, but is too small
-const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
-                                        size_t buflen);
 
 // Wrap a number into a value object
 RSValue *RS_NumVal(double n);
@@ -293,12 +291,6 @@ RSValue *RS_Int64Val(int64_t ii);
 // Don't free the underlying list when the array is freed
 #define RSVAL_ARRAY_STATIC 0x04
 
-/**
- * Create a new array
- * @param vals the values to use for the array. If NULL, the array is allocated
- * as empty, but with enough *capacity* for these values
- * @param options RSVAL_ARRAY_*
- */
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
 
 // Accesses the array element at a given position as an l-value
@@ -317,12 +309,6 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 
 // Create a new NULL RSValue
 RSValue *RS_NullVal();
-
-// Compare 2 values for sorting
-int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
-
-// Return 1 if the two values are equal
-int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
 
 // "truth testing" for a value. for a number - not zero. For a string/array - not empty.
 // null is considered false
@@ -348,18 +334,16 @@ inline bool RSValue::BoolTest() const {
   }
 }
 
-static inline RSValue *RSValue_ArrayItem(const RSValue *arr, uint32_t index) {
-  return arr->arrval.vals[index];
+inline RSValue *RSValue::ArrayItem(uint32_t index) const {
+  return arrval.vals[index];
 }
 
-static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
-  return arr ? arr->arrval.len : 0;
+inline uint32_t RSValue::ArrayLen() const {
+  return arrval.len;
 }
 
 // Based on the value type, serialize the value into redis client response
 int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int typed);
-
-void RSValue_Print(const RSValue *v);
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 
@@ -368,6 +352,8 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 #else
 #define RSVALUE_STATICALLOC_INIT(T) { .t = T }
 #endif
+
+//---------------------------------------------------------------------------------------------
 
 // Static value pointers. These don't ever get decremented
 
@@ -385,8 +371,8 @@ static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT
 
 #define RSVALUE_REPLACE(dstpp, src) \
   do {                              \
-    (*dstpp)->Decref();         \
-    src->IncrRef();           \
+    (*dstpp)->Decref();             \
+    src->IncrRef();                 \
     *(dstpp) = src;                 \
   } while (0);
 
@@ -399,7 +385,7 @@ static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT
 
 #define RSVALUE_CLEARVAR(v) \
   if (v) {                  \
-    v->Decref();      \
+    v->Decref();            \
   }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

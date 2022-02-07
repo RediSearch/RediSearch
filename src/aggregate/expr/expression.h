@@ -36,8 +36,13 @@ struct RSExpr : Object {
   RSExpr(const char *e, size_t n, QueryError *status);
   virtual ~RSExpr() {}
 
-  int GetLookupKeys(RLookup *lookup, QueryError *err);
   virtual void Print() const;
+
+  virtual int Eval(ExprEval &eval, RSValue *res) = 0; //@@ was evalInternal
+  virtual int GetLookupKeys(RLookup *lookup, QueryError *err);
+
+  static RSExpr *ParseAST(const char *e, size_t n, QueryError *status); //@@ was ExprAST_Parse
+  static RSExpr *Parse(const char *expr, size_t len, char **err); //@@ was RSExpr_Parse
 };
 
 //---------------------------------------------------------------------------------------------
@@ -51,6 +56,9 @@ struct RSExprOp : public RSExpr {
   struct RSExpr *right;
 
   virtual void Print() const;
+
+  virtual int Eval(ExprEval &eval, RSValue *res);
+  virtual int GetLookupKeys(RLookup *lookup, QueryError *err);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -79,6 +87,9 @@ struct RSPredicate : public RSExpr {
   RSCondition cond;
 
   virtual void Print() const;
+
+  virtual int Eval(ExprEval &eval, RSValue *res);
+  virtual int GetLookupKeys(RLookup *lookup, QueryError *err);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -90,6 +101,9 @@ struct RSInverted : public RSExpr {
   struct RSExpr *child;
 
   virtual void Print() const;
+
+  virtual int Eval(ExprEval &eval, RSValue *res);
+  virtual int GetLookupKeys(RLookup *lookup, QueryError *err);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -115,10 +129,13 @@ struct RSFunctionExpr : public RSExpr {
   ~RSFunctionExpr();
 
   const char *name;
-  RSArgList *args;
+  RSArgList *_args;
   RSFunction Call;
 
   virtual void Print() const;
+
+  virtual int Eval(ExprEval &eval, RSValue *res);
+  virtual int GetLookupKeys(RLookup *lookup, QueryError *err);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -131,6 +148,9 @@ struct RSLookupExpr : public RSExpr {
   const RLookupKey *lookupKey;
 
   virtual void Print() const;
+
+  virtual int Eval(ExprEval &eval, RSValue *res);
+  virtual int GetLookupKeys(RLookup *lookup, QueryError *err);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -142,6 +162,8 @@ struct RSLiteral : public RSExpr {
   RSValue literal;
 
   virtual void Print() const;
+
+  virtual int Eval(ExprEval &eval, RSValue *res);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -161,10 +183,6 @@ struct RSStringLiteral : public RSLiteral {
 struct RSNullLiteral : public RSLiteral {
   RSNullLiteral();
 };
-
-//---------------------------------------------------------------------------------------------
-
-RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -186,7 +204,7 @@ struct ExprEval {
 
   void Cleanup();
 
-protected:
+//protected:
   int evalFunc(const RSFunctionExpr *f, RSValue *result);
   int evalOp(const RSExprOp *op, RSValue *result);
   int getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition op);
@@ -194,7 +212,7 @@ protected:
   int evalPredicate(const RSPredicate *pred, RSValue *result);
   int evalProperty(const RSLookupExpr *e, RSValue *res);
 
-  int evalInternal(const RSExpr *e, RSValue *res);
+  int eval(const RSExpr *e, RSValue *res);
 };
 
 //---------------------------------------------------------------------------------------------

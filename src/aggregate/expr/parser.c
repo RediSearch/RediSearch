@@ -968,70 +968,70 @@ static YYACTIONTYPE yy_reduce(
 { yymsp[-2].minor.yy19 = yymsp[-1].minor.yy19; }
         break;
       case 2: /* expr ::= expr PLUS expr */
-{ yylhsminor.yy19 = RS_NewOp('+', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = new RSExprOp('+', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 3: /* expr ::= expr DIVIDE expr */
-{  yylhsminor.yy19 = RS_NewOp('/', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{  yylhsminor.yy19 = new RSExprOp('/', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 4: /* expr ::= expr TIMES expr */
-{  yylhsminor.yy19 = RS_NewOp('*', yymsp[-2].minor.yy19, yymsp[0].minor.yy19);}
+{  yylhsminor.yy19 = new RSExprOp('*', yymsp[-2].minor.yy19, yymsp[0].minor.yy19);}
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 5: /* expr ::= expr MINUS expr */
-{  yylhsminor.yy19 = RS_NewOp('-', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{  yylhsminor.yy19 = new RSExprOp('-', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 6: /* expr ::= expr POW expr */
-{  yylhsminor.yy19 = RS_NewOp('^', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{  yylhsminor.yy19 = new RSExprOp('^', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 7: /* expr ::= expr MOD expr */
-{ yylhsminor.yy19 = RS_NewOp('%', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = new RSExprOp('%', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 8: /* expr ::= expr EQ expr */
-{ yylhsminor.yy19 = RS_NewPredicate(RSCondition_Eq, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = new RSPredicate(RSCondition_Eq, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 9: /* expr ::= expr NE expr */
-{ yylhsminor.yy19 = RS_NewPredicate(RSCondition_Ne, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = new RSPredicate(RSCondition_Ne, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 10: /* expr ::= expr LT expr */
-{ yylhsminor.yy19 = RS_NewPredicate(RSCondition_Lt, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = new RSPredicate(RSCondition_Lt, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 11: /* expr ::= expr LE expr */
-{ yylhsminor.yy19 = RS_NewPredicate(RSCondition_Le, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = new RSPredicate(RSCondition_Le, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 12: /* expr ::= expr GT expr */
-{ yylhsminor.yy19 = RS_NewPredicate(RSCondition_Gt, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = new RSPredicate(RSCondition_Gt, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 13: /* expr ::= expr GE expr */
-{ yylhsminor.yy19 = RS_NewPredicate(RSCondition_Ge, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = new RSPredicate(RSCondition_Ge, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 14: /* expr ::= expr AND expr */
-{ yylhsminor.yy19 = RS_NewPredicate(RSCondition_And, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = new RSPredicate(RSCondition_And, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 15: /* expr ::= expr OR expr */
-{ yylhsminor.yy19 = RS_NewPredicate(RSCondition_Or, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = new RSPredicate(RSCondition_Or, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 16: /* expr ::= NOT expr */
-{ yymsp[-1].minor.yy19 = RS_NewInverted(yymsp[0].minor.yy19); }
+{ yymsp[-1].minor.yy19 = new RSInverted(yymsp[0].minor.yy19); }
         break;
       case 17: /* expr ::= STRING */
-{ yylhsminor.yy19 =  RS_NewStringLiteral((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
+{ yylhsminor.yy19 =  new RSStringLiteral((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 18: /* expr ::= number */
-{ yylhsminor.yy19 = RS_NewNumberLiteral(yymsp[0].minor.yy32); }
+{ yylhsminor.yy19 = new RSNumberLiteral(yymsp[0].minor.yy32); }
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 19: /* number ::= NUMBER */
@@ -1042,7 +1042,7 @@ static YYACTIONTYPE yy_reduce(
 { yymsp[-1].minor.yy32 = -yymsp[0].minor.yy0.numval; }
         break;
       case 21: /* expr ::= PROPERTY */
-{ yylhsminor.yy19 = RS_NewProp(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
+{ yylhsminor.yy19 = new RSLookupExpr(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 22: /* expr ::= SYMBOL LP arglist RP */
@@ -1053,7 +1053,7 @@ static YYACTIONTYPE yy_reduce(
         ctx->ok = 0;
         yylhsminor.yy19 = NULL; 
     } else {
-         yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy46, cb);
+         yylhsminor.yy19 = new RSFunctionExpr(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy46, cb);
     }
 }
   yymsp[-3].minor.yy19 = yylhsminor.yy19;
@@ -1061,7 +1061,7 @@ static YYACTIONTYPE yy_reduce(
       case 23: /* expr ::= SYMBOL */
 {
     if (yymsp[0].minor.yy0.len == 4 && !strncmp(yymsp[0].minor.yy0.s, "NULL", 4)) {
-        yylhsminor.yy19 = RS_NewNullLiteral();
+        yylhsminor.yy19 = new RSNullLiteral();
     } else {
         rm_asprintf(&ctx->errorMsg, "Unknown symbol '%.*s'", yymsp[0].minor.yy0.len, yymsp[0].minor.yy0.s);
         ctx->ok = 0;
@@ -1071,15 +1071,15 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 24: /* arglist ::= */
-{ yymsp[1].minor.yy46 = RS_NewArgList(NULL); }
+{ yymsp[1].minor.yy46 = new RSArgList(NULL); }
         break;
       case 25: /* arglist ::= expr */
-{ yylhsminor.yy46 = RS_NewArgList(yymsp[0].minor.yy19); }
+{ yylhsminor.yy46 = new RSArgList(yymsp[0].minor.yy19); }
   yymsp[0].minor.yy46 = yylhsminor.yy46;
         break;
       case 26: /* arglist ::= arglist COMMA expr */
 { 
-    yylhsminor.yy46 = yymsp[-2].minor.yy46.Append(yymsp[0].minor.yy19);
+    yylhsminor.yy46 = yymsp[-2].minor.yy46->Append(yymsp[0].minor.yy19);
 }
   yymsp[-2].minor.yy46 = yylhsminor.yy46;
         break;

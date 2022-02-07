@@ -107,6 +107,7 @@ void RSValue::Clear() {
           break;
       }
       break;
+      
     case RSValue_Array:
       for (uint32_t i = 0; i < arrval.len; i++) {
         arrval.vals[i]->Decref();
@@ -115,14 +116,18 @@ void RSValue::Clear() {
         rm_free(arrval.vals);
       }
       break;
+
     case RSValue_Reference:
       ref->Decref();
       break;
+
     case RSValue_OwnRstring:
       RedisModule_FreeString(RSDummyContext, rstrval);
       break;
+
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
+
     default:   // no free
       break;
   }
@@ -201,7 +206,6 @@ void RSValue::SetConstString(const char *str, size_t len) {
 
 //---------------------------------------------------------------------------------------------
 
-
 // Wrap a string with length into a value object. Doesn't duplicate the string.
 // Use strdup if the value needs to be detached.
 
@@ -249,11 +253,17 @@ RSValue *RS_RedisStringVal(RedisModuleString *str) {
 
 //---------------------------------------------------------------------------------------------
 
+// Create a new value object which increments and owns a reference to the string
+
 RSValue *RS_OwnRedisStringVal(RedisModuleString *str) {
   RSValue *r = RS_RedisStringVal(str);
-  RSValue_MakeRStringOwner(r);
+  r->MakeRStringOwner();
   return r;
 }
+
+//---------------------------------------------------------------------------------------------
+
+// Create a new value object which steals a reference to the string
 
 RSValue *RS_StealRedisStringVal(RedisModuleString *str) {
   RSValue *ret = RS_RedisStringVal(str);
@@ -264,10 +274,10 @@ RSValue *RS_StealRedisStringVal(RedisModuleString *str) {
 
 //---------------------------------------------------------------------------------------------
 
-void RSValue_MakeRStringOwner(RSValue *v) {
-  RS_LOG_ASSERT(v->t == RSValue_RedisString, "RSvalue type should be string");
-  v->t = RSValue_OwnRstring;
-  RedisModule_RetainString(RSDummyContext, v->rstrval);
+void RSValue::MakeRStringOwner() {
+  RS_LOG_ASSERT(t == RSValue_RedisString, "RSvalue type should be string");
+  t = RSValue_OwnRstring;
+  RedisModule_RetainString(RSDummyContext, rstrval);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -275,27 +285,30 @@ void RSValue_MakeRStringOwner(RSValue *v) {
 // Convert a value to a string value. If the value is already a string value it gets
 // shallow-copied (no string buffer gets copied)
 
-void RSValue_ToString(RSValue *dst, RSValue *v) {
-  switch (v->t) {
+void RSValue::ToString(RSValue *dst) {
+  switch (t) {
     case RSValue_String:
-      RSValue_MakeReference(dst, v);
+      RSValue_MakeReference(dst, this);
       break;
+
     case RSValue_RedisString:
     case RSValue_OwnRstring: {
       size_t sz;
-      const char *str = RedisModule_StringPtrLen(v->rstrval, &sz);
+      const char *str = RedisModule_StringPtrLen(rstrval, &sz);
       RSValue_SetConstString(dst, str, sz);
       break;
     }
+
     case RSValue_Number: {
       char tmpbuf[128] = {0};
-      RSValue_NumToString(v->numval, tmpbuf);
+      RSValue_NumToString(numval, tmpbuf);
       char *buf = rm_strdup(tmpbuf);
       RSValue_SetString(dst, buf, strlen(buf));
       break;
     }
+
     case RSValue_Reference:
-      return RSValue_ToString(dst, v->ref);
+      return RSValue_ToString(dst, ref);
 
     case RSValue_Null:
     default:
@@ -305,8 +318,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
 
 //---------------------------------------------------------------------------------------------
 
-RSValue *RSValue_ParseNumber(const char *p, size_t l) {
-
+RSValue *RSValue::ParseNumber(const char *p, size_t l) {
   char *e;
   errno = 0;
   double d = strtod(p, &e);
@@ -319,11 +331,13 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 
 //---------------------------------------------------------------------------------------------
 
-/* Convert a value to a number, either returning the actual numeric values or by parsing a string
-into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
-not. If possible, we put the actual value into teh double pointer */
-int RSValue_ToNumber(const RSValue *v, double *d) {
-  if (RSValue_IsNull(v)) return 0;
+// Convert a value to a number, either returning the actual numeric values or by parsing a string
+// into a number. 
+// Return 1 if the value is a number or a numeric string and can be converted, or 0 if not. 
+// If possible, we put the actual value into the double pointer
+
+int RSValue::ToNumber(double *d) const {
+  if (IsNull(v)) return 0;
   v = v->Dereference();
 
   const char *p = NULL;
@@ -417,6 +431,7 @@ const char *RSValue::StringPtrLen(size_t *lenp) const {
 
 // Combines PtrLen with ToString to convert any RSValue into a string buffer.
 // Returns NULL if buf is required, but is too small
+
 const char *RSValue::ConvertStringPtrLen(size_t *lenp, char *buf, size_t buflen) const {
   auto value = Dereference();
 
@@ -455,6 +470,11 @@ RSValue *RS_Int64Val(int64_t dd) {
 }
 
 //---------------------------------------------------------------------------------------------
+
+// Create a new array
+// @param vals the values to use for the array. If NULL, the array is allocated
+// as empty, but with enough *capacity* for these values
+// @param options RSVAL_ARRAY_*
 
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   RSValue *arr = RS_NewValue(RSValue_Array);

@@ -61,7 +61,7 @@ RSStringLiteral::RSStringLiteral(const char *str, size_t len) {
 //---------------------------------------------------------------------------------------------
 
 RSNullLiteral::RSNullLiteral() {
-  RSValue_MakeReference(&literal, RS_NullVal());
+  RSValue::MakeReference(&literal, RS_NullVal());
 }
 
 //---------------------------------------------------------------------------------------------
@@ -89,8 +89,8 @@ RSPredicate::RSPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
 
 //---------------------------------------------------------------------------------------------
 
-RSFunctionExpr::RSFunctionExpr(const char *str, size_t len, RSArgList *args_, RSFunction cb) {
-  args = args_; // @@ ownership
+RSFunctionExpr::RSFunctionExpr(const char *str, size_t len, RSArgList *args, RSFunction cb) {
+  _args = args; // @@ ownership
   name = rm_strndup(str, len);
   Call = cb;
 }
@@ -135,7 +135,7 @@ RSInverted::~RSInverted() {
 
 RSFunctionExpr::~RSFunctionExpr() {
   rm_free((char *)name);
-  delete args;
+  delete _args;
 }
 
 RSLookupExpr::~RSLookupExpr() {
@@ -171,9 +171,9 @@ void RSInverted::Print() const {
 
 void RSFunctionExpr::Print() const {
   printf("%s(", name);
-  for (size_t i = 0; args != NULL && i < args->length(); i++) {
-    (*args[i])->Print();
-    if (i < args->length() - 1) printf(", ");
+  for (size_t i = 0; _args != NULL && i < _args->length(); i++) {
+    (*_args)[i]->Print();
+    if (i < _args->length() - 1) printf(", ");
   }
   printf(")");
 }
@@ -199,16 +199,15 @@ void ExprAST_Print(const RSExpr *e) {
   e->Print(e);
 }
 
-RSExpr *ExprAST_Parse(const char *e, size_t n, QueryError *status) {
+RSExpr *RSExpr::ParseAST(const char *e, size_t n, QueryError *status) {
   char *errtmp = NULL;
   RS_LOG_ASSERT(!status->HasError(), "Query has error")
 
-  RSExpr *ret = RSExpr_Parse(e, n, &errtmp);
+  RSExpr *ret = RSExpr::Parse(e, n, &errtmp);
   if (!ret) {
     status->SetError(QUERY_EEXPR, errtmp);
   }
   rm_free(errtmp);
-  return ret;
 }
 
 #endif // 0

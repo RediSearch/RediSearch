@@ -1124,7 +1124,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
         PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)step;
         // Ensure the lookups can actually find what they need
         RLookup *curLookup = pln->GetLookup(step, AGPLN_GETLOOKUP_PREV);
-        mstp->parsedExpr = new RSExpr(mstp->rawExpr, strlen(mstp->rawExpr), status);
+        mstp->parsedExpr = RSExpr::ParseAST(mstp->rawExpr, strlen(mstp->rawExpr), status);
         if (!mstp->parsedExpr) {
           goto error;
         }
