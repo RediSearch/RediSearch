@@ -1191,7 +1191,7 @@ static int NI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
 static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
   NotContext *nc = ctx;
   if (nc->lastDocId > nc->maxDocId) {
-    IITER_SET_EOF(&nc->base);    
+    IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;
   }
 
