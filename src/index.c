@@ -1952,6 +1952,9 @@ void Profile_AddIters(IndexIterator **root) {
     case OPTIONAL_ITERATOR:
       Profile_AddIters(&((OptionalIterator *)((*root)->ctx))->child);
       break;
+    case HYBRID_ITERATOR:
+      Profile_AddIters(&((HybridIterator *)((*root)->ctx))->child);
+      break;
     case UNION_ITERATOR:
       ui = (*root)->ctx;
       for (int i = 0; i < ui->norig; i++) {
@@ -1967,7 +1970,6 @@ void Profile_AddIters(IndexIterator **root) {
       break;
     case WILDCARD_ITERATOR:
     case READ_ITERATOR:
-    case HYBRID_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
       break;

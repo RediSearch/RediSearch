@@ -220,7 +220,8 @@ def testProfileVector(env):
 
   # Test with hybrid query
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[TOP_K 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
-  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 2L, 'Child iterator', ['Type', 'INTERSECT', 'Counter', 0L, 'Child iterators', ['Type', 'TEXT', 'Term', 'world', 'Counter', 0L, 'Size', 2L], ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0L, 'Size', 5L]]]]
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 2L, 'Child iterator', ['Type', 'INTERSECT', 'Counter', 4L, 'Child iterators', ['Type', 'TEXT', 'Term', 'world', 'Counter', 4L, 'Size', 2L], ['Type', 'TEXT', 'Term', 'hello', 'Counter', 4L, 'Size', 5L]]]]
+  env.assertEqual(actual_res[0], [2L, '4', '5'])
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][3], expected_vecsim_rp_res)
 
