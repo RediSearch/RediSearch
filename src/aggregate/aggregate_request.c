@@ -123,13 +123,10 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
     return REDISMODULE_ERR;
   }
 
-
-  int requiredFieldNum;
-  AC_GetInt(&args, &requiredFieldNum, 0);
-
+  int requiredFieldNum = AC_NumArgs(&args);
   const char** requiredFields = array_new(const char*, requiredFieldNum);
   for(size_t i=0; i < requiredFieldNum; i++) {
-    requiredFields = array_append(requiredFields, AC_GetStringNC(ac, NULL));
+    requiredFields = array_append(requiredFields, AC_GetStringNC(&args, NULL));
   }
 
   req->requiredFields = requiredFields;
@@ -207,6 +204,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (parseRequiredFields(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+    req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
   } else {
     return ARG_UNKNOWN;
   }

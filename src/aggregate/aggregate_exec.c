@@ -15,7 +15,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
  * Get the sorting key of the result. This will be the sorting key of the last
  * RLookup registry. Returns NULL if there is no sorting key
  */
-static const RSValue *getSortKey(const RLookupKey *kk, SearchResult *r) {
+static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
   if ((kk->flags & RLOOKUP_F_SVSRC) && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
     return r->rowdata.sv->values[kk->svidx];
   } else {
@@ -30,9 +30,8 @@ typedef struct {
 } cachedVars;
 
 static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
-  if(key->t == RSValue_Dereference) {
-    reeval_key(outctx, RSValue_Dereference(key));
-    return;
+  if(key->t == RSValue_Reference) {
+    key = RSValue_Dereference(key);
   }
   RedisModuleString *rskey = NULL;
   if (key) {
@@ -106,27 +105,29 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     }
   }
 
-  // Coordinator only - handle required fields for coordinator request.
-  if(options & QEXEC_F_REQUIRED_FIELDS) {
-    size_t requiredFieldsCount = array_len(req->requiredFields);
-      for(size_t i =0; i < requiredFieldsCount; i++) {
-        count++;
-        const RLookupKey *rlk = RLookup_GetKey(&r->rowdata,req->requiredFields[i], 0);
-        const RSValue *v = RLookup_GetItem(rlk, &r->rowdata);
-        reeval_key(outctx, v);
-      }
-  }
-
   // Coordinator only - sortkey will be sent on the required fields.
   // Non Coordinator modes will require this condition.
-  if ((options & QEXEC_F_SEND_SORTKEYS) && !(options & QEXEC_F_REQUIRED_FIELDS)) {
+  if ((options & QEXEC_F_SEND_SORTKEYS)) {
     count++;
     const RSValue *sortkey = NULL;
     if((cv->lastAstp) && (cv->lastAstp->sortkeysLK)) {
       const RLookupKey *kk = cv->lastAstp->sortkeysLK[0];
-      sortkey = getSortKey(kk, r);
+      sortkey = getReplyKey(kk, r);
     }
     reeval_key(outctx, sortkey);
+  }
+
+  // Coordinator only - handle required fields for coordinator request.
+  if(options & QEXEC_F_REQUIRED_FIELDS) {
+    // Sortkey is the first key to reply on the required fields, if the we already replied it, continue to the next one.
+    size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
+    size_t requiredFieldsCount = array_len(req->requiredFields);
+      for(; currentField < requiredFieldsCount; currentField++) {
+        count++;
+        const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
+        const RSValue *v = getReplyKey(rlk, r);
+        reeval_key(outctx, v);
+      }
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
@@ -158,30 +159,37 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   return count;
 }
 
-static size_t getResultsFactor(uint32_t options) {
+static size_t getResultsFactor(AREQ *req) {
   size_t count = 0;
 
-  if (options & QEXEC_F_IS_SEARCH) {
+  if (req->reqflags & QEXEC_F_IS_SEARCH) {
     count++;
   }
 
-  if (options & QEXEC_F_SEND_SCORES) {
+  if (req->reqflags & QEXEC_F_SEND_SCORES) {
     count++;
   }
 
-  if (options & QEXEC_F_SENDRAWIDS) {
+  if (req->reqflags & QEXEC_F_SENDRAWIDS) {
     count++;
   }
 
-  if (options & QEXEC_F_SEND_PAYLOADS) {
+  if (req->reqflags & QEXEC_F_SEND_PAYLOADS) {
     count++;
   }
 
-  if ((options & QEXEC_F_SEND_SORTKEYS)) {
+  if (req->reqflags & QEXEC_F_SEND_SORTKEYS) {
     count++;
   }
 
-  if (!(options & QEXEC_F_SEND_NOFIELDS)) {
+  if(req->reqflags & QEXEC_F_REQUIRED_FIELDS) {
+    count+= array_len(req->requiredFields);
+    if (req->reqflags & QEXEC_F_SEND_SORTKEYS) {
+      count--;
+    }
+  }
+
+  if (!(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
     count++;
   }
   return count;
@@ -217,7 +225,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
-    size_t resultFactor = getResultsFactor(req->reqflags);
+    size_t resultFactor = getResultsFactor(req);
     size_t reqResults = req->qiter.totalResults > reqOffset ? req->qiter.totalResults - reqOffset : 0;
     resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
   }

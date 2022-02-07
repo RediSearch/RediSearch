@@ -441,7 +441,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     ctx->topk.k = k;
     ctx->topk.fieldName = scoreField;
     ctx->specialCaseType = SPECIAL_CASE_TOPK;
-    if(req->specialCases) {
+    if(!req->specialCases) {
       req->specialCases = array_new(specialCaseCtx*, 1);
     }
     req->specialCases = array_append(req->specialCases, ctx);
@@ -462,7 +462,7 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
       ctx->sortby.asc = true;
     }
   }
-  if(req->specialCases) {
+  if(!req->specialCases) {
       req->specialCases = array_new(specialCaseCtx*, 1);
     }
   req->specialCases = array_append(req->specialCases, ctx);
@@ -517,12 +517,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   }
 
   // Handle special cases
-  // Note: currently there is only one single case. For extending those cases we should use a trie here.
-  if(strstr(req->queryString, "TOP_K")) {
-    prepareOptionalTopKCase(req, argv, argc);
-  }
-
-  // Parse SORTBY ... ASC
+  // Parse SORTBY ... ASC.
+  // Parse it ALWAYS first so the sortkey will be send first
   int sortByIndex = RMUtil_ArgIndex("SORTBY", argv, argc);
   if(sortByIndex > 2) {
     // Check for command error where no sortkey is given.
@@ -531,6 +527,15 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
       return NULL;
     }
     prepareSortbyCase(req, argv, argc, sortByIndex);
+  } else if(req->withSortingKeys) {
+    // In case we have sorting keys request without sort by.
+    free(req);
+    return NULL;
+  }
+
+  // Note: currently there is only one single case. For extending those cases we should use a trie here.
+  if(strstr(req->queryString, "TOP_K")) {
+    prepareOptionalTopKCase(req, argv, argc);
   }
 
   return req;
@@ -1309,26 +1314,41 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   
   for(size_t i=0; i < specialCasesLen; i++) {
     specialCaseCtx* ctx = req->specialCases[i];
+    const char* sortKey = NULL;
+    size_t offset = 0;
+
+    // Handle sortby    
+    if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
+      // Sort by is always the first case.
+      RedisModule_Assert(i==0);
+      if(req->requiredFields == NULL) {
+        req->requiredFields = array_new(const char*, 1);
+      }
+      req->requiredFields = array_append(req->requiredFields, ctx->sortby.sortKey);
+      sortKey = ctx->sortby.sortKey;
+      // Sortkey is the first required key value to return
+      ctx->sortby.offset = 0;
+      offset++;
+    }
+
     if(ctx->specialCaseType == SPECIAL_CASE_TOPK) {
+      // Before requesting for a new field, see if it is not the sortkey.
+      if(sortKey) {
+        if(strcmp(sortKey, ctx->topk.fieldName)==0) {
+          // We have already requested this field, we will not append it.
+          ctx->topk.offset = 0;
+          continue;
+        }
+      }
+      // Fall back into appending new required field.
       if(req->requiredFields == NULL) {
         req->requiredFields = array_new(const char*, 1);
       }
       req->requiredFields = array_append(req->requiredFields, ctx->topk.fieldName);
-    }
-
-    // Handle sortby    
-    if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
-      // Check if sort key already requested, if so, get the offset.
-      size_t sortKeyOffset = array_len(req->requiredFields);
-      for(size_t j = 0; j < sortKeyOffset; j++) {
-        if(strcmp(req->requiredFields[j], ctx->sortby.sortKey) == 0) {
-          sortKeyOffset = j;
-          break;
-        }
-      }
-
+      ctx->topk.offset = offset++; 
     }
   }
+
   if(req->requiredFields) {
     MRCommand_Append(cmd, "_REQUIRED_FIELDS", strlen("_REQUIRED_FIELDS"));
     int numberOfFields = array_len(req->requiredFields);
@@ -1376,12 +1396,6 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
   // adding the WITHSCORES option anyway immediately after the query.
   // Worst case it will appears twice.
   MRCommand_AppendArgsAtPos(&cmd, 3 + req->profileArgs, 1, "WITHSCORES");
-  if (req->withSortby) {
-    // if sort by requested we adding the WITHSORTKEYS option anyway immediately after the query.
-    // Worst case it will appears twice.
-    MRCommand_AppendArgsAtPos(&cmd, 3 + req->profileArgs, 1, "WITHSORTKEYS");
-    // req->withSortingKeys = 1;
-  }
 
   if(req->specialCases) {
     sendRequiredFields(req, &cmd);
