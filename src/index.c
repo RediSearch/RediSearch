@@ -1123,6 +1123,12 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   // OK means not found
   if (rc == INDEXREAD_OK) {
+    // Fix for VecSim
+    // nc->base.current->docId is used by Read()
+    // previously, we have never done Read() after SkipTo()
+    nc->base.current->docId = docId - 1;
+    nc->lastDocId = docId;
+    *hit = nc->base.current;
     return INDEXREAD_NOTFOUND;
   }
 

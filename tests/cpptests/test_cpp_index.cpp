@@ -428,6 +428,26 @@ TEST_F(IndexTest, testPureNot) {
   InvertedIndex_Free(w);
 }
 
+TEST_F(IndexTest, testSkipRead) {
+  InvertedIndex *w = createIndex(10, 1);
+
+  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  printf("last id: %llu\n", (unsigned long long)w->lastId);
+
+  IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5, 1);
+
+  RSIndexResult *h = NULL;
+  //ASSERT_EQ(ir->Read(ir->ctx, &h), INDEXREAD_OK);
+  //ASSERT_EQ(h->docId, 11);
+  ASSERT_EQ(ir->SkipTo(ir->ctx, 2, &h), INDEXREAD_NOTFOUND);
+  ASSERT_EQ(h->docId, 1);
+  ASSERT_EQ(ir->Read(ir->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 11);
+
+  ir->Free(ir);
+  InvertedIndex_Free(w);
+}
+
 // Note -- in test_index.c, this test was never actually run!
 TEST_F(IndexTest, DISABLED_testOptional) {
   InvertedIndex *w = createIndex(16, 1);
