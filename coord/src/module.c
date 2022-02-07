@@ -312,18 +312,26 @@ typedef struct {
 
 typedef enum {
   SPECIAL_CASE_NONE,
-  SPECIAL_CASE_TOPK
+  SPECIAL_CASE_TOPK,
+  SPECIAL_CASE_SORTBY
 } searchRequestSpecialCase;
 
 
 typedef struct {
       size_t k;
       const char* fieldName;
+      size_t offset;
 } topkContext;
 
 typedef struct {
+  const char* sortKey;  // SortKey name;
+  bool asc;             // Sort order ASC/DESC
+  size_t offset;        // SortKey reply offset
+} sortbyContext;
+typedef struct {
   union {
     topkContext topk;
+    sortbyContext sortby;
   };
   searchRequestSpecialCase specialCaseType;
 } specialCaseCtx;
@@ -391,6 +399,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   return REDISMODULE_OK;
 }
 
+// Prepare a TOPK special case.
 void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, int argc) {
   QueryError status = {0};
   RedisSearchCtx sctx = {0};
@@ -440,6 +449,25 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
   }
 }
 
+// Prepare a sortby special case.
+void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc, int sortByIndex) {
+  const char* sortkey = RedisModule_StringPtrLen(argv + (sortByIndex + 1), NULL);
+  specialCaseCtx *ctx = SpecialCaseCtx_New();
+  ctx->sortby.sortKey = sortkey;
+  if (req->withSortby && sortByIndex + 2 < argc) {
+    if (RMUtil_StringEqualsCaseC(argv[sortByIndex + 2], "DESC")) {
+      ctx->sortby.asc = false;
+    }
+    else {
+      ctx->sortby.asc = true;
+    }
+  }
+  if(req->specialCases) {
+      req->specialCases = array_new(specialCaseCtx*, 1);
+    }
+  req->specialCases = array_append(req->specialCases, ctx);
+}
+
 searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   /* A search request must have at least 3 args */
   if (argc < 3) {
@@ -461,15 +489,6 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   req->withScores = RMUtil_ArgExists("WITHSCORES", argv, argc, argvOffset) != 0;
   req->withExplainScores = RMUtil_ArgExists("EXPLAINSCORE", argv, argc, argvOffset) != 0;
 
-  // Parse SORTBY ... ASC
-  int sortByIndex = RMUtil_ArgIndex("SORTBY", argv, argc);
-  req->withSortby = sortByIndex > 2;
-  req->sortAscending = 1;
-  if (req->withSortby && sortByIndex + 2 < argc) {
-    if (RMUtil_StringEqualsCaseC(argv[sortByIndex + 2], "DESC")) {
-      req->sortAscending = 0;
-    }
-  }
 
   req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
   // fprintf(stderr, "Sortby: %d, asc: %d withsort: %d\n", req->withSortby, req->sortAscending,
@@ -501,6 +520,17 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   // Note: currently there is only one single case. For extending those cases we should use a trie here.
   if(strstr(req->queryString, "TOP_K")) {
     prepareOptionalTopKCase(req, argv, argc);
+  }
+
+  // Parse SORTBY ... ASC
+  int sortByIndex = RMUtil_ArgIndex("SORTBY", argv, argc);
+  if(sortByIndex > 2) {
+    // Check for command error where no sortkey is given.
+    if(sortByIndex + 1 >= argc) {
+      free(req);
+      return NULL;
+    }
+    prepareSortbyCase(req, argv, argc, sortByIndex);
   }
 
   return req;
@@ -1284,6 +1314,19 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
         req->requiredFields = array_new(const char*, 1);
       }
       req->requiredFields = array_append(req->requiredFields, ctx->topk.fieldName);
+    }
+
+    // Handle sortby    
+    if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
+      // Check if sort key already requested, if so, get the offset.
+      size_t sortKeyOffset = array_len(req->requiredFields);
+      for(size_t j = 0; j < sortKeyOffset; j++) {
+        if(strcmp(req->requiredFields[j], ctx->sortby.sortKey) == 0) {
+          sortKeyOffset = j;
+          break;
+        }
+      }
+
     }
   }
   if(req->requiredFields) {

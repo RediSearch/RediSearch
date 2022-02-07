@@ -17,12 +17,13 @@ extern "C" {
 typedef struct Grouper Grouper;
 
 typedef enum {
-  QEXEC_F_IS_EXTENDED = 0x01,    // Contains aggregations or projections
-  QEXEC_F_SEND_SCORES = 0x02,    // Output: Send scores with each result
-  QEXEC_F_SEND_SORTKEYS = 0x04,  // Sent the key used for sorting, for each result
-  QEXEC_F_SEND_NOFIELDS = 0x08,  // Don't send the contents of the fields
-  QEXEC_F_SEND_PAYLOADS = 0x10,  // Sent the payload set with ADD
-  QEXEC_F_IS_CURSOR = 0x20,      // Is a cursor-type query
+  QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
+  QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
+  QEXEC_F_SEND_SORTKEYS = 0x04,   // Sent the key used for sorting, for each result
+  QEXEC_F_SEND_NOFIELDS = 0x08,   // Don't send the contents of the fields
+  QEXEC_F_SEND_PAYLOADS = 0x10,   // Sent the payload set with ADD
+  QEXEC_F_IS_CURSOR = 0x20,       // Is a cursor-type query
+  QEXEC_F_REQUIRED_FIELDS = 0x40, // Send multiple required fields
 
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,

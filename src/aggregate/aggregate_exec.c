@@ -15,15 +15,11 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
  * Get the sorting key of the result. This will be the sorting key of the last
  * RLookup registry. Returns NULL if there is no sorting key
  */
-static const RSValue *getSortKey(AREQ *req, const SearchResult *r, const PLN_ArrangeStep *astp) {
-  if (!astp || !(astp->sortkeysLK)) {
-    return NULL;
-  }
-  const RLookupKey *kk = astp->sortkeysLK[0];
+static const RSValue *getSortKey(const RLookupKey *kk, SearchResult *r) {
   if ((kk->flags & RLOOKUP_F_SVSRC) && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
     return r->rowdata.sv->values[kk->svidx];
   } else {
-    return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
+    return RLookup_GetItem(kk, &r->rowdata);
   }
 }
 
@@ -32,6 +28,45 @@ typedef struct {
   const RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
+
+static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
+  if(key->t == RSValue_Dereference) {
+    reeval_key(outctx, RSValue_Dereference(key));
+    return;
+  }
+  RedisModuleString *rskey = NULL;
+  if (key) {
+    switch (key->t) {
+      case RSValue_Number:
+        /* Serialize double - by prepending "%" to the number, so the coordinator/client can
+          * tell it's a double and not just a numeric string value */
+        rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", key->numval);
+        break;
+      case RSValue_String:
+        /* Serialize string - by prepending "$" to it */
+        rskey = RedisModule_CreateStringPrintf(outctx, "$%s", key->strval.str);
+        break;
+      case RSValue_RedisString:
+      case RSValue_OwnRstring:
+        rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
+                                                RedisModule_StringPtrLen(key->rstrval, NULL));
+        break;
+      case RSValue_Null:
+      case RSValue_Undef:
+      case RSValue_Array:
+      case RSValue_Reference:
+        break;
+    }
+    if (rskey) {
+      RedisModule_ReplyWithString(outctx, rskey);
+      RedisModule_FreeString(outctx, rskey);
+    } else {
+      RedisModule_ReplyWithNull(outctx);
+    }
+  } else {
+    RedisModule_ReplyWithNull(outctx);
+  }
+}
 
 static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r,
                               const cachedVars *cv) {
@@ -71,44 +106,27 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     }
   }
 
-  if ((options & QEXEC_F_SEND_SORTKEYS)) {
+  // Coordinator only - handle required fields for coordinator request.
+  if(options & QEXEC_F_REQUIRED_FIELDS) {
+    size_t requiredFieldsCount = array_len(req->requiredFields);
+      for(size_t i =0; i < requiredFieldsCount; i++) {
+        count++;
+        const RLookupKey *rlk = RLookup_GetKey(&r->rowdata,req->requiredFields[i], 0);
+        const RSValue *v = RLookup_GetItem(rlk, &r->rowdata);
+        reeval_key(outctx, v);
+      }
+  }
+
+  // Coordinator only - sortkey will be sent on the required fields.
+  // Non Coordinator modes will require this condition.
+  if ((options & QEXEC_F_SEND_SORTKEYS) && !(options & QEXEC_F_REQUIRED_FIELDS)) {
     count++;
-    const RSValue *sortkey = getSortKey(req, r, cv->lastAstp);
-    RedisModuleString *rskey = NULL;
-  reeval_sortkey:
-    if (sortkey) {
-      switch (sortkey->t) {
-        case RSValue_Number:
-          /* Serialize double - by prepending "%" to the number, so the coordinator/client can
-           * tell it's a double and not just a numeric string value */
-          rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", sortkey->numval);
-          break;
-        case RSValue_String:
-          /* Serialize string - by prepending "$" to it */
-          rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval.str);
-          break;
-        case RSValue_RedisString:
-        case RSValue_OwnRstring:
-          rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
-                                                 RedisModule_StringPtrLen(sortkey->rstrval, NULL));
-          break;
-        case RSValue_Null:
-        case RSValue_Undef:
-        case RSValue_Array:
-          break;
-        case RSValue_Reference:
-          sortkey = RSValue_Dereference(sortkey);
-          goto reeval_sortkey;
-      }
-      if (rskey) {
-        RedisModule_ReplyWithString(outctx, rskey);
-        RedisModule_FreeString(outctx, rskey);
-      } else {
-        RedisModule_ReplyWithNull(outctx);
-      }
-    } else {
-      RedisModule_ReplyWithNull(outctx);
+    const RSValue *sortkey = NULL;
+    if((cv->lastAstp) && (cv->lastAstp->sortkeysLK)) {
+      const RLookupKey *kk = cv->lastAstp->sortkeysLK[0];
+      sortkey = getSortKey(kk, r);
     }
+    reeval_key(outctx, sortkey);
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
