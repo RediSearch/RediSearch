@@ -1123,12 +1123,8 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   // OK means not found
   if (rc == INDEXREAD_OK) {
-    // Fix for VecSim
-    // nc->base.current->docId is used by Read()
-    // previously, we have never done Read() after SkipTo()
-    nc->base.current->docId = docId - 1;
+    nc->base.current->docId = docId;
     nc->lastDocId = docId;
-    *hit = nc->base.current;
     return INDEXREAD_NOTFOUND;
   }
 
@@ -1211,15 +1207,14 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
     goto ok;
   }
 
-  while (cr->docId == nc->base.current->docId) {
-    // advance our docId to the next possible id
+  int rc;
+  do {
     nc->base.current->docId++;
-
-    // read the next entry from the child
-    if (nc->child->Read(nc->child->ctx, &cr) == INDEXREAD_EOF) {
+    rc = nc->child->SkipTo(nc->child->ctx, nc->base.current->docId, &cr);
+    if (nc->base.current->docId < cr->docId || rc == INDEXREAD_EOF) {
       break;
     }
-  }
+  } while (1);
 
 ok:
   // make sure we did not overflow

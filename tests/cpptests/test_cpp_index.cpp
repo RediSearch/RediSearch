@@ -440,7 +440,7 @@ TEST_F(IndexTest, testSkipRead) {
   //ASSERT_EQ(ir->Read(ir->ctx, &h), INDEXREAD_OK);
   //ASSERT_EQ(h->docId, 11);
   ASSERT_EQ(ir->SkipTo(ir->ctx, 2, &h), INDEXREAD_NOTFOUND);
-  ASSERT_EQ(h->docId, 1);
+  ASSERT_EQ(h->docId, 2);
   ASSERT_EQ(ir->Read(ir->ctx, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, 11);
 
