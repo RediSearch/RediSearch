@@ -8,7 +8,7 @@
 %left SIZE.
 %left STOPWORD.
 %left STAR.
- 
+
 %left TERMLIST.
 %left TERM.
 %left PREFIX.
@@ -28,7 +28,7 @@
 %right TOP_K.
 %right AS.
 
-%token_type {QueryToken}  
+%token_type {QueryToken}
 
 %name RSQueryParser_
 
@@ -168,7 +168,7 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %type text_union { QueryNode *}
 %destructor text_union { QueryNode_Free($$); }
 
-%type text_expr { QueryNode * } 
+%type text_expr { QueryNode * }
 %destructor text_expr { QueryNode_Free($$); }
 
 %type fuzzy { QueryNode *}
@@ -264,16 +264,16 @@ text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
     } else if (rv == NODENN_ONE_NULL) {
         // Nothing- `out` is already assigned
     } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
             B->opts.fieldMask == RS_FIELDMASK_ALL ) {
             A = B;
-        } else {     
+        } else {
             A = NewPhraseNode(0);
             QueryNode_AddChild(A, B);
         }
         QueryNode_AddChild(A, C);
     }
-} 
+}
 
 
 /////////////////////////////////////////////////////////////////
@@ -340,7 +340,7 @@ text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
-    
+
 }
 
 text_union(A) ::= text_union(B) OR text_expr(C). [ORX] {
@@ -784,6 +784,17 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 //   A = B;
 // }
 
+query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid query as entire query case.
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_TOPK:
+      B->vn.vq->topk.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+  QueryNode_AddChild(B, A);
+}
+
 query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
   switch (B->vn.vq->type) {
@@ -896,7 +907,7 @@ term(A) ::= NUMBER(B) . {
 }
 
 term(A) ::= SIZE(B). {
-    A = B; 
+    A = B;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////

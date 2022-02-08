@@ -638,13 +638,22 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   // Add the score field name to the ast score field names array.
-  // This macro creats the array if it's the first name, and ensure its size is sufficient.
+  // This macro creates the array if it's the first name, and ensure its size is sufficient.
   array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
+  IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
-    return NULL; // TODO: handle hybrid - get child iterator.
-  } else {
-    return NewVectorIterator(q->sctx, qn->vn.vq, q->status);
+    RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
+    child_it = Query_EvalNode(q, qn->children[0]);
+    // If child iterator is in valid or empty, the hybrid iterator is empty as well.
+    if (child_it == NULL) {
+      return NULL;
+    }
   }
+  IndexIterator *it = NewVectorIterator(q->sctx, qn->vn.vq, q->status, child_it);
+  if (it == NULL && child_it != NULL) {
+    child_it->Free(child_it);
+  }
+  return it;
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {

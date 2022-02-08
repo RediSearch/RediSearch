@@ -66,7 +66,7 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
     EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
     return res;
   }
-  if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
+  if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridDistance)) {
     double ret = 0;
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
@@ -146,7 +146,9 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   static const float k1 = 1.2;
   double f = (double)r->freq;
   double ret = 0;
-
+  if (r->type == RSResultType_HybridDistance) {
+    RS_LOG_ASSERT(false, "Scoring function is not supported with vector similarity search")
+  }
   if (r->type == RSResultType_Term) {
     double idf = (r->term.term ? r->term.term->idf : 0);
 
@@ -226,6 +228,8 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
   // for terms - we return the term frequency
   double ret = 0;
   switch (r->type) {
+    case RSResultType_HybridDistance:
+      RS_LOG_ASSERT(false, "Scoring function is not supported with vector similarity search")
     case RSResultType_Term:
     case RSResultType_Distance:
     case RSResultType_Numeric:

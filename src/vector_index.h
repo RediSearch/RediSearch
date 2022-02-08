@@ -45,16 +45,18 @@ typedef struct {
   bool *needResolve;
 } VectorQueryParams;
 
+typedef struct {
+  void *vector;                   // query vector data
+  size_t vecLen;                  // vector length
+  size_t k;                       // number of vectors to return
+  VecSimQueryResult_Order order;  // specify the result order.
+} TopKVectorQuery;
+
 typedef struct VectorQuery {
   char *property;                     // name of field
   char *scoreField;                   // name of score field
   union {
-    struct {
-      void *vector;                   // query vector data
-      size_t vecLen;                  // vector length
-      size_t k;                       // number of vectors to return
-      VecSimQueryResult_Order order;  // specify the result order.
-    } topk;
+    TopKVectorQuery topk;
   };
   VectorQueryType type;               // vector similarity query type
   VectorQueryParams params;           // generic query params array, for the vecsim library to check
@@ -67,7 +69,7 @@ typedef struct VectorQuery {
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status);
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status, IndexIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
