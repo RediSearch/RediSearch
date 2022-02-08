@@ -159,6 +159,8 @@ struct AREQ : public Object {
 
 // Grouper Functions
 
+struct Grouper;
+
 //---------------------------------------------------------------------------------------------
 
 // A group represents the allocated context of all reducers in a group, and the
@@ -174,7 +176,7 @@ struct Group {
   // (e.g. how many records seen, and so on). This is created by Reducer::NewInstance()
   void *accumdata[0];
 
-  Group(const RSValue **groupvals, size_t ngrpvals);
+  Group(Grouper &grouper, const RSValue **groupvals, size_t ngrpvals);
 
   void invokeReducers(RLookupRow *srcrow);
   void writeValues(SearchResult *r) const;
@@ -201,24 +203,30 @@ struct Grouper : ResultProcessor {
   const RLookupKey **dstkeys;
   size_t nkeys;
 
-  // array of reducers
-  Reducer **reducers;
+  arrayof(Reducer*) reducers;
 
   // Used for maintaining state when yielding groups
   khiter_t iter;
+  bool _yield;
 
   Grouper(const RLookupKey **srckeys_, const RLookupKey **dstkeys, size_t nkeys);
   virtual ~Grouper();
 
-  int rpYield(SearchResult *r);
-
   void extractGroups(const RSValue **xarr, size_t xpos, size_t xlen, size_t arridx,
                      uint64_t hval, RLookupRow *res);
 
+  size_t numReducers() const;
+  
   virtual int Next(SearchResult *res);
+  int Yield(SearchResult *res);
 
   void AddReducer(Reducer *r, RLookupKey *dstkey);
   ResultProcessor *GetRP();
+
+  void writeGroupValues(const Group *gr, SearchResult *r) const;
+
+  void invokeReducers(RLookupRow *srcrow);
+  void invokeGroupReducers(Group *gr, RLookupRow *srcrow);
 };
 
 //---------------------------------------------------------------------------------------------

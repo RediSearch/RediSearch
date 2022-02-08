@@ -1,5 +1,7 @@
 #include "reducer.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 typedef struct {
   const char *name;
   ReducerFactory fn;
@@ -7,11 +9,15 @@ typedef struct {
 
 static FuncEntry *globalRegistry = NULL;
 
+//---------------------------------------------------------------------------------------------
+
 void RDCR_RegisterFactory(const char *name, ReducerFactory factory) {
   FuncEntry ent = {.name = name, .fn = factory};
   FuncEntry *tail = array_ensure_tail(&globalRegistry, FuncEntry);
   *tail = ent;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int isBuiltinsRegistered = 0;
 
@@ -29,6 +35,8 @@ ReducerFactory RDCR_GetFactory(const char *name) {
   return NULL;
 }
 
+//---------------------------------------------------------------------------------------------
+
 #define RDCR_XBUILTIN(X)                           \
   X(RDCRCount_New, "COUNT")                        \
   X(RDCRSum_New, "SUM")                            \
@@ -45,11 +53,15 @@ ReducerFactory RDCR_GetFactory(const char *name) {
   X(RDCRHLL_New, "HLL")                            \
   X(RDCRHLLSum_New, "HLL_SUM")
 
-void RDCR_RegisterBuiltins(void) {
+//---------------------------------------------------------------------------------------------
+
+void RDCR_RegisterBuiltins() {
 #define X(fn, n) RDCR_RegisterFactory(n, fn);
   RDCR_XBUILTIN(X);
 #undef X
 }
+
+//---------------------------------------------------------------------------------------------
 
 int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   ArgsCursor *ac = options->args;
@@ -72,6 +84,8 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options) {
   if (AC_NumRemaining(options->args)) {
     options->status->FmtUnknownArg(options->args, options->name);
@@ -80,6 +94,10 @@ int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void *Reducer_BlkAlloc(Reducer *r, size_t elemsz, size_t blksz) {
   return BlkAlloc_Alloc(&r->alloc, elemsz, blksz);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

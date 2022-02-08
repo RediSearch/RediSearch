@@ -105,6 +105,24 @@ struct ReducerOptions {
   // NOT NULL, then the error information will be set here.
 
   QueryError *status;
+
+  Reducer *RDCRCount_New(const ReducerOptions *);
+  Reducer *RDCRSum_New(const ReducerOptions *);
+  Reducer *RDCRToList_New(const ReducerOptions *);
+  Reducer *RDCRMin_New(const ReducerOptions *);
+  Reducer *RDCRMax_New(const ReducerOptions *);
+  Reducer *RDCRAvg_New(const ReducerOptions *);
+  Reducer *RDCRCountDistinct_New(const ReducerOptions *);
+  Reducer *RDCRCountDistinctish_New(const ReducerOptions *);
+  Reducer *RDCRQuantile_New(const ReducerOptions *);
+  Reducer *RDCRStdDev_New(const ReducerOptions *);
+  Reducer *RDCRFirstValue_New(const ReducerOptions *);
+  Reducer *RDCRRandomSample_New(const ReducerOptions *);
+  Reducer *RDCRHLL_New(const ReducerOptions *);
+  Reducer *RDCRHLLSum_New(const ReducerOptions *);
+
+  int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options);
+int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **kout);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -121,34 +139,16 @@ struct ReducerOptions {
  *
  * @return boolean - 0=fail, !0=success
  */
-int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **kout);
 #define ReducerOptions_GetKey ReducerOpts_GetKey
 
 // This helper function ensures that all of a reducer's arguments are consumed.
 // Otherwise, an error is raised to the user.
 
-int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options);
-
 void *Reducer_BlkAlloc(Reducer *r, size_t elemsz, size_t absBlkSize);
-
-Reducer *RDCRCount_New(const ReducerOptions *);
-Reducer *RDCRSum_New(const ReducerOptions *);
-Reducer *RDCRToList_New(const ReducerOptions *);
-Reducer *RDCRMin_New(const ReducerOptions *);
-Reducer *RDCRMax_New(const ReducerOptions *);
-Reducer *RDCRAvg_New(const ReducerOptions *);
-Reducer *RDCRCountDistinct_New(const ReducerOptions *);
-Reducer *RDCRCountDistinctish_New(const ReducerOptions *);
-Reducer *RDCRQuantile_New(const ReducerOptions *);
-Reducer *RDCRStdDev_New(const ReducerOptions *);
-Reducer *RDCRFirstValue_New(const ReducerOptions *);
-Reducer *RDCRRandomSample_New(const ReducerOptions *);
-Reducer *RDCRHLL_New(const ReducerOptions *);
-Reducer *RDCRHLLSum_New(const ReducerOptions *);
 
 typedef Reducer *(*ReducerFactory)(const ReducerOptions *);
 ReducerFactory RDCR_GetFactory(const char *name);
 void RDCR_RegisterFactory(const char *name, ReducerFactory factory);
-void RDCR_RegisterBuiltins(void);
+void RDCR_RegisterBuiltins();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
