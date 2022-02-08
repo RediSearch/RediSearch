@@ -1876,7 +1876,7 @@ PRINT_PROFILE_FUNC(name) {                                                      
   int addChild = hasChild && ((iterType *)root)->child;                             \
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);                 \
   printProfileType(text);                                                           \
-  nlen += 2;                                                                    \
+  nlen += 2;                                                                        \
   if (PROFILE_VERBOSE) {                                                            \
     printProfileTime(cpuTime);                                                      \
     nlen += 2;                                                                      \
@@ -1932,7 +1932,7 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
-    case HYBRID_ITERATOR:     { printHybridIt(ctx, root, counter, cpuTime, depth, limited);       break; }
+    case HYBRID_ITERATOR:     { printHybridIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }

@@ -933,7 +933,8 @@ static ResultProcessor *getVecSimRP(AREQ *req, AGGPlan *pln, ResultProcessor *up
   RLookupKey **keys = rm_calloc(array_len(req->ast.vecScoreFieldNames), sizeof(*keys));
 
   char **scoreFields = req->ast.vecScoreFieldNames;
-  for (size_t i = 0; i < array_len(scoreFields); i++) {
+  size_t len = array_len(scoreFields);
+  for (size_t i = 0; i < len; i++) {
     if (IndexSpec_GetField(req->sctx->spec, scoreFields[i], strlen(scoreFields[i]))) {
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", scoreFields[i]);
       rm_free(keys);
