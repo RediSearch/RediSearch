@@ -1,5 +1,8 @@
-#include <aggregate/reducer.h>
+
+#include "aggregate/reducer.h"
 #include <math.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
   const RLookupKey *srckey;
@@ -9,12 +12,16 @@ typedef struct {
 
 #define BLOCK_SIZE 1024 * sizeof(devCtx)
 
+//---------------------------------------------------------------------------------------------
+
 static void *stddevNewInstance(Reducer *rbase) {
   devCtx *dctx = BlkAlloc_Alloc(&rbase->alloc, sizeof(*dctx), BLOCK_SIZE);
   memset(dctx, 0, sizeof(*dctx));
   dctx->srckey = rbase->srckey;
   return dctx;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void stddevAddInternal(devCtx *dctx, double d) {
   // https://www.johndcook.com/blog/standard_deviation/
@@ -31,6 +38,8 @@ static void stddevAddInternal(devCtx *dctx, double d) {
     dctx->oldS = dctx->newS;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   devCtx *dctx = ctx;
@@ -53,12 +62,16 @@ static int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *stddevFinalize(Reducer *parent, void *instance) {
   devCtx *dctx = instance;
   double variance = ((dctx->n > 1) ? dctx->newS / (dctx->n - 1) : 0.0);
   double stddev = sqrt(variance);
   return RS_NumVal(stddev);
 }
+
+//---------------------------------------------------------------------------------------------
 
 Reducer *RDCRStdDev_New(const ReducerOptions *options) {
   Reducer *r = rm_calloc(1, sizeof(*r));
@@ -73,3 +86,5 @@ Reducer *RDCRStdDev_New(const ReducerOptions *options) {
   r->reducerId = REDUCER_T_STDDEV;
   return r;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

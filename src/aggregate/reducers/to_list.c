@@ -1,9 +1,14 @@
-#include <aggregate/reducer.h>
+
+#include "aggregate/reducer.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
   TrieMap *values;
   const RLookupKey *srckey;
 } tolistCtx;
+
+//---------------------------------------------------------------------------------------------
 
 static void *tolistNewInstance(Reducer *rbase) {
   tolistCtx *ctx = Reducer_BlkAlloc(rbase, sizeof(*ctx), 100 * sizeof(*ctx));
@@ -11,6 +16,8 @@ static void *tolistNewInstance(Reducer *rbase) {
   ctx->srckey = rbase->srckey;
   return ctx;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   tolistCtx *tlc = ctx;
@@ -42,6 +49,8 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   tolistCtx *tlc = ctx;
   TrieMapIterator *it = TrieMap_Iterate(tlc->values, "", 0);
@@ -61,14 +70,20 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void freeValues(void *ptr) {
   ((RSValue *)ptr)->Decref();
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void tolistFreeInstance(Reducer *parent, void *p) {
   tolistCtx *tlc = p;
   TrieMap_Free(tlc->values, freeValues);
 }
+
+//---------------------------------------------------------------------------------------------
 
 Reducer *RDCRToList_New(const ReducerOptions *opts) {
   Reducer *r = rm_calloc(1, sizeof(*r));
@@ -83,3 +98,5 @@ Reducer *RDCRToList_New(const ReducerOptions *opts) {
   r->NewInstance = tolistNewInstance;
   return r;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

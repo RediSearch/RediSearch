@@ -239,6 +239,8 @@ int RSLookupExpr::Eval(ExprEval &eval, RSValue *res) {
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RSLookupExpr::GetLookupKeys(RLookup *lookup, QueryError *err) {
   lookupKey = lookup->GetKey(key, RLOOKUP_F_NOINCREF);
   if (!lookupKey) {

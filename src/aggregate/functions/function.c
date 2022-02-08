@@ -1,5 +1,7 @@
-#define RS_FUNCTION_C_
+
 #include "function.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 static RSFunctionRegistry functions_g = {0};
 
@@ -14,6 +16,8 @@ RSFunction RSFunctionRegistry_Get(const char *name, size_t len) {
   return NULL;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueType retType) {
   if (functions_g.len + 1 >= functions_g.cap) {
     functions_g.cap += functions_g.cap ? functions_g.cap : 2;
@@ -26,13 +30,19 @@ int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueT
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RegisterAllFunctions() {
   RegisterMathFunctions();
   RegisterDateFunctions();
   RegisterStringFunctions();
 }
 
+//---------------------------------------------------------------------------------------------
+
 void FunctionRegistry_Free(void) {
   rm_free(functions_g.funcs);
   memset(&functions_g, 0, sizeof(functions_g));
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

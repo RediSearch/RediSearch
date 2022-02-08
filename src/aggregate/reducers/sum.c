@@ -1,4 +1,7 @@
-#include <aggregate/reducer.h>
+
+#include "aggregate/reducer.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
   size_t count;
@@ -13,12 +16,16 @@ typedef struct {
 
 #define BLOCK_SIZE 32 * sizeof(sumCtx)
 
+//---------------------------------------------------------------------------------------------
+
 static void *sumNewInstance(Reducer *r) {
   sumCtx *ctx = BlkAlloc_Alloc(&r->alloc, sizeof(*ctx), BLOCK_SIZE);
   ctx->count = 0;
   ctx->total = 0;
   return ctx;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int sumAdd(Reducer *baseparent, void *instance, const RLookupRow *row) {
   sumCtx *ctr = instance;
@@ -36,6 +43,8 @@ static int sumAdd(Reducer *baseparent, void *instance, const RLookupRow *row) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *sumFinalize(Reducer *baseparent, void *instance) {
   sumCtx *ctr = instance;
   SumReducer *parent = (SumReducer *)baseparent;
@@ -49,6 +58,8 @@ static RSValue *sumFinalize(Reducer *baseparent, void *instance) {
   }
   return RS_NumVal(v);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static Reducer *newReducerCommon(const ReducerOptions *options, int isAvg) {
   SumReducer *r = rm_calloc(1, sizeof(*r));
@@ -64,10 +75,16 @@ static Reducer *newReducerCommon(const ReducerOptions *options, int isAvg) {
   return &r->base;
 }
 
+//---------------------------------------------------------------------------------------------
+
 Reducer *RDCRSum_New(const ReducerOptions *options) {
   return newReducerCommon(options, 0);
 }
 
+//---------------------------------------------------------------------------------------------
+
 Reducer *RDCRAvg_New(const ReducerOptions *options) {
   return newReducerCommon(options, 1);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

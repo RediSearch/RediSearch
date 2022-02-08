@@ -1,9 +1,12 @@
-#include <aggregate/reducer.h>
-#include <util/block_alloc.h>
-#include <util/khash.h>
-#include <util/fnv.h>
-#include <dep/hll/hll.h>
-#include <rmutil/sds.h>
+
+#include "aggregate/reducer.h"
+#include "util/block_alloc.h"
+#include "util/khash.h"
+#include "util/fnv.h"
+#include "hll/hll.h"
+#include "rmutil/sds.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define HLL_PRECISION_BITS 8
 #define INSTANCE_BLOCK_NUM 1024
@@ -17,6 +20,8 @@ typedef struct {
   khash_t(khid) * dedup;
 } distinctCounter;
 
+//---------------------------------------------------------------------------------------------
+
 static void *distinctNewInstance(Reducer *r) {
   BlkAlloc *ba = &r->alloc;
   distinctCounter *ctr =
@@ -26,6 +31,8 @@ static void *distinctNewInstance(Reducer *r) {
   ctr->srckey = r->srckey;
   return ctr;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   distinctCounter *ctr = ctx;
@@ -45,10 +52,14 @@ static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *distinctFinalize(Reducer *parent, void *ctx) {
   distinctCounter *ctr = ctx;
   return RS_NumVal(ctr->count);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void distinctFreeInstance(Reducer *r, void *p) {
   distinctCounter *ctr = p;
@@ -56,6 +67,8 @@ static void distinctFreeInstance(Reducer *r, void *p) {
   // freeing
   kh_destroy(khid, ctr->dedup);
 }
+
+//---------------------------------------------------------------------------------------------
 
 Reducer *RDCRCountDistinct_New(const ReducerOptions *options) {
   Reducer *r = rm_calloc(1, sizeof(*r));
@@ -72,10 +85,14 @@ Reducer *RDCRCountDistinct_New(const ReducerOptions *options) {
   return r;
 }
 
+//---------------------------------------------------------------------------------------------
+
 typedef struct {
   struct HLL hll;
   const RLookupKey *key;
 } distinctishCounter;
+
+//---------------------------------------------------------------------------------------------
 
 static void *distinctishNewInstance(Reducer *parent) {
   BlkAlloc *ba = &parent->alloc;
@@ -85,6 +102,8 @@ static void *distinctishNewInstance(Reducer *parent) {
   ctr->key = parent->srckey;
   return ctr;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *srcrow) {
   distinctishCounter *ctr = instance;
@@ -99,15 +118,21 @@ static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *src
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *distinctishFinalize(Reducer *parent, void *instance) {
   distinctishCounter *ctr = instance;
   return RS_NumVal((uint64_t)hll_count(&ctr->hll));
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void distinctishFreeInstance(Reducer *r, void *p) {
   distinctishCounter *ctr = p;
   hll_destroy(&ctr->hll);
 }
+
+//---------------------------------------------------------------------------------------------
 
 /** Serialized HLL format */
 typedef struct __attribute__((packed)) {
@@ -115,6 +140,8 @@ typedef struct __attribute__((packed)) {
   uint8_t bits;
   // uint32_t size -- NOTE - always 1<<bits
 } HLLSerializedHeader;
+
+//---------------------------------------------------------------------------------------------
 
 static RSValue *hllFinalize(Reducer *parent, void *ctx) {
   distinctishCounter *ctr = ctx;
@@ -128,6 +155,8 @@ static RSValue *hllFinalize(Reducer *parent, void *ctx) {
   RSValue *ret = RS_StringVal(str, sizeof(hdr) + ctr->hll.size);
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static Reducer *newHllCommon(const ReducerOptions *options, int isRaw) {
   Reducer *r = rm_calloc(1, sizeof(*r));
@@ -150,18 +179,26 @@ static Reducer *newHllCommon(const ReducerOptions *options, int isRaw) {
   return r;
 }
 
+//---------------------------------------------------------------------------------------------
+
 Reducer *RDCRCountDistinctish_New(const ReducerOptions *options) {
   return newHllCommon(options, 0);
 }
+
+//---------------------------------------------------------------------------------------------
 
 Reducer *RDCRHLL_New(const ReducerOptions *options) {
   return newHllCommon(options, 1);
 }
 
+//---------------------------------------------------------------------------------------------
+
 typedef struct {
   const RLookupKey *srckey;
   struct HLL hll;
 } hllSumCtx;
+
+//---------------------------------------------------------------------------------------------
 
 static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   hllSumCtx *ctr = ctx;
@@ -214,10 +251,14 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *hllsumFinalize(Reducer *parent, void *ctx) {
   hllSumCtx *ctr = ctx;
   return RS_NumVal(ctr->hll.bits ? (uint64_t)hll_count(&ctr->hll) : 0);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void *hllsumNewInstance(Reducer *r) {
   hllSumCtx *ctr = BlkAlloc_Alloc(&r->alloc, sizeof(*ctr), 1024 * sizeof(*ctr));
@@ -227,10 +268,14 @@ static void *hllsumNewInstance(Reducer *r) {
   return ctr;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void hllsumFreeInstance(Reducer *r, void *p) {
   hllSumCtx *ctr = p;
   hll_destroy(&ctr->hll);
 }
+
+//---------------------------------------------------------------------------------------------
 
 Reducer *RDCRHLLSum_New(const ReducerOptions *options) {
   Reducer *r = rm_calloc(1, sizeof(*r));
@@ -246,3 +291,5 @@ Reducer *RDCRHLLSum_New(const ReducerOptions *options) {
   r->Free = Reducer_GenericFree;
   return r;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

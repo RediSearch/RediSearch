@@ -4,6 +4,8 @@
 
 #include <stdlib.h>
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 // A query-specific tokenizer, that reads symbols like quots, pipes, etc
 
 struct RSExprParseCtx {
@@ -17,6 +19,8 @@ struct RSExprParseCtx {
   int ok;
 };
 
+//---------------------------------------------------------------------------------------------
+
 // A token in the process of parsing a query.
 // Unlike the document tokenizer,  it works iteratively and is not callback based.
 
@@ -26,3 +30,5 @@ struct RSExprToken {
   int pos;
   double numval;
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////

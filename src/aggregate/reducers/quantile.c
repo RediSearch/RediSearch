@@ -1,5 +1,8 @@
-#include <aggregate/reducer.h>
+
+#include "aggregate/reducer.h"
 #include "util/quantile.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
   Reducer base;
@@ -7,10 +10,14 @@ typedef struct {
   unsigned resolution;
 } QTLReducer;
 
+//---------------------------------------------------------------------------------------------
+
 static void *quantileNewInstance(Reducer *parent) {
   QTLReducer *qt = (QTLReducer *)parent;
   return NewQuantileStream(&qt->pct, 0, qt->resolution);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
   double d;
@@ -36,6 +43,8 @@ static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *quantileFinalize(Reducer *r, void *ctx) {
   QuantStream *qs = ctx;
   QTLReducer *qt = (QTLReducer *)r;
@@ -43,9 +52,13 @@ static RSValue *quantileFinalize(Reducer *r, void *ctx) {
   return RS_NumVal(value);
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void quantileFreeInstance(Reducer *unused, void *p) {
   QS_Free(p);
 }
+
+//---------------------------------------------------------------------------------------------
 
 Reducer *RDCRQuantile_New(const ReducerOptions *options) {
   QTLReducer *r = rm_calloc(1, sizeof(*r));
@@ -90,3 +103,5 @@ error:
   rm_free(r);
   return NULL;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

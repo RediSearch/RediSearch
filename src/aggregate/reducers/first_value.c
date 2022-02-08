@@ -1,4 +1,7 @@
-#include <aggregate/reducer.h>
+
+#include "aggregate/reducer.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
   const RLookupKey *retprop;   // The key to return
@@ -14,6 +17,8 @@ typedef struct {
   int ascending;
 } FVReducer;
 
+//---------------------------------------------------------------------------------------------
+
 static void *fvNewInstance(Reducer *rbase) {
   FVReducer *parent = (FVReducer *)rbase;
   BlkAlloc *ba = &parent->base.alloc;
@@ -26,6 +31,8 @@ static void *fvNewInstance(Reducer *rbase) {
   fv->sortval = NULL;
   return fv;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   fvCtx *fvx = ctx;
@@ -41,6 +48,8 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   fvx->value = RSValue_IncrRef(val);
   return 1;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   fvCtx *fvx = ctx;
@@ -72,16 +81,22 @@ static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *fvFinalize(Reducer *parent, void *ctx) {
   fvCtx *fvx = ctx;
   return RSValue_IncrRef(fvx->value);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void fvFreeInstance(Reducer *parent, void *p) {
   fvCtx *fvx = p;
   RSVALUE_CLEARVAR(fvx->value);
   RSVALUE_CLEARVAR(fvx->sortval);
 }
+
+//---------------------------------------------------------------------------------------------
 
 Reducer *RDCRFirstValue_New(const ReducerOptions *options) {
   FVReducer *fvr = rm_calloc(1, sizeof(*fvr));
@@ -119,3 +134,5 @@ Reducer *RDCRFirstValue_New(const ReducerOptions *options) {
   rbase->NewInstance = fvNewInstance;
   return rbase;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

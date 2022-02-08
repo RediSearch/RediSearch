@@ -1,5 +1,8 @@
-#include <aggregate/reducer.h>
+
+#include "aggregate/reducer.h"
 #include <float.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef enum { Minmax_Min = 1, Minmax_Max = 2 } MinmaxMode;
 
@@ -14,6 +17,8 @@ typedef struct {
   Reducer base;
   MinmaxMode mode;
 } MinmaxReducer;
+
+//---------------------------------------------------------------------------------------------
 
 static void *minmaxNewInstance(Reducer *rbase) {
   MinmaxReducer *r = (MinmaxReducer *)rbase;
@@ -30,6 +35,8 @@ static void *minmaxNewInstance(Reducer *rbase) {
   }
   return m;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int minmaxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   minmaxCtx *m = ctx;
@@ -49,10 +56,14 @@ static int minmaxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *minmaxFinalize(Reducer *parent, void *instance) {
   minmaxCtx *ctx = instance;
   return RS_NumVal(ctx->numMatches ? ctx->val : 0);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static Reducer *newMinMax(const ReducerOptions *options, MinmaxMode mode) {
   MinmaxReducer *r = rm_calloc(1, sizeof(*r));
@@ -68,10 +79,16 @@ static Reducer *newMinMax(const ReducerOptions *options, MinmaxMode mode) {
   return &r->base;
 }
 
+//---------------------------------------------------------------------------------------------
+
 Reducer *RDCRMin_New(const ReducerOptions *options) {
   return newMinMax(options, Minmax_Min);
 }
 
+//---------------------------------------------------------------------------------------------
+
 Reducer *RDCRMax_New(const ReducerOptions *options) {
   return newMinMax(options, Minmax_Max);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

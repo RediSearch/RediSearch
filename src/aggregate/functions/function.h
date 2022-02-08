@@ -33,6 +33,8 @@
 #define VALIDATE_ARG_ISSTRING(fname, args, idx) \
   VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__STRING, 0)
 
+//---------------------------------------------------------------------------------------------
+
 struct ExprEval;
 
 /**
@@ -51,6 +53,8 @@ struct ExprEval;
 typedef int (*RSFunction)(ExprEval *e, RSValue *result, RSValue **args, size_t nargs,
                           QueryError *err);
 
+//---------------------------------------------------------------------------------------------
+
 struct RSFunctionRegistry {
   size_t len;
   size_t cap;
@@ -62,6 +66,8 @@ struct RSFunctionRegistry {
     int maxargs;
   } * funcs;
 };
+
+//---------------------------------------------------------------------------------------------
 
 typedef struct RSFunctionInfo RSFunctionInfo;
 

@@ -1,4 +1,7 @@
-#include <aggregate/reducer.h>
+
+#include "aggregate/reducer.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
   Reducer base;
@@ -10,6 +13,8 @@ typedef struct {
   RSValue *samplesArray;
 } rsmplCtx;
 
+//---------------------------------------------------------------------------------------------
+
 static void *sampleNewInstance(Reducer *base) {
   RSMPLReducer *r = (RSMPLReducer *)base;
   size_t blocksize = MAX(10000, sizeof(rsmplCtx) + r->len * sizeof(RSValue *));
@@ -18,6 +23,8 @@ static void *sampleNewInstance(Reducer *base) {
   ctx->samplesArray = RSValue_NewArrayEx(NULL, r->len, 0);
   return ctx;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   RSMPLReducer *r = (RSMPLReducer *)rbase;
@@ -41,6 +48,8 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
   rsmplCtx *sc = ctx;
   RSMPLReducer *r = (RSMPLReducer *)rbase;
@@ -50,6 +59,8 @@ static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void sampleFreeInstance(Reducer *rbase, void *p) {
   rsmplCtx *sc = p;
   RSMPLReducer *r = (RSMPLReducer *)rbase;
@@ -57,6 +68,8 @@ static void sampleFreeInstance(Reducer *rbase, void *p) {
     sc->samplesArray->Decref();
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
   RSMPLReducer *ret = rm_calloc(1, sizeof(*ret));
@@ -86,3 +99,5 @@ Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
   rbase->NewInstance = sampleNewInstance;
   return rbase;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
