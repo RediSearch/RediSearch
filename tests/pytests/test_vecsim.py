@@ -571,6 +571,7 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
 
 def test_hybrid_query_batches_non_vector_score(env):
     # Todo: enable this when the coordinator will be able to run TOP K queries and sortby score
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
