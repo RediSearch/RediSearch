@@ -146,9 +146,6 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   static const float k1 = 1.2;
   double f = (double)r->freq;
   double ret = 0;
-  if (r->type == RSResultType_HybridDistance) {
-    RS_LOG_ASSERT(false, "Scoring function is not supported with vector similarity search")
-  }
   if (r->type == RSResultType_Term) {
     double idf = (r->term.term ? r->term.term->idf : 0);
 
@@ -156,7 +153,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
     EXPLAIN(scrExp,
             "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
             ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
-  } else if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
+  } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridDistance)) {
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
       for (int i = 0; i < numChildren; i++) {
@@ -228,8 +225,6 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
   // for terms - we return the term frequency
   double ret = 0;
   switch (r->type) {
-    case RSResultType_HybridDistance:
-      RS_LOG_ASSERT(false, "Scoring function is not supported with vector similarity search")
     case RSResultType_Term:
     case RSResultType_Distance:
     case RSResultType_Numeric:
@@ -270,6 +265,9 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
                 ret);
       }
       break;
+    // for hybrid - just take the non-vector child score (the second one).
+    case RSResultType_HybridDistance:
+      return dismaxRecursive(ctx, r->agg.children[1], scrExp);
   }
   return r->weight * ret;
 }

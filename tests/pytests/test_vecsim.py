@@ -452,18 +452,6 @@ def test_hybrid_query_batches_mode_with_text(env):
 
     execute_hybrid_query(env, '(-(@t:other))=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_4)
 
-    if env.isCluster():
-        return
-    # Todo: enable this when the coordinator will be able to run TOP K queries and sortby score
-    # All documents should match, so TOP 10 takes the 10 with the largest ids. Since we sort by score
-    # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
-    expected_res_5 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '2', ['__v_score', '10368', 't', 'text value'], '92', '2', ['__v_score', '8192', 't', 'text value'], '93', '2', ['__v_score', '6272', 't', 'text value'], '94', '2', ['__v_score', '4608', 't', 'text value'], '95', '2', ['__v_score', '3200', 't', 'text value'], '96', '2', ['__v_score', '2048', 't', 'text value'], '97', '2', ['__v_score', '1152', 't', 'text value'], '98', '2', ['__v_score', '512', 't', 'text value'], '99', '2', ['__v_score', '128', 't', 'text value']]
-    execute_hybrid_query(env, '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_5)
-
-    # Same as above, but here we use fuzzy for 'text'
-    expected_res_6 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
-    execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_6)
-
 
 def test_hybrid_query_batches_mode_with_tags(env):
     # Todo: enable this when the coordinator will be able to run TOP K queries and sortby score
@@ -579,3 +567,51 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
                'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't1', 't2').equal([0L])
+
+
+def test_hybrid_query_batches_non_vector_score(env):
+    # Todo: enable this when the coordinator will be able to run TOP K queries and sortby score
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    qty = 100
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+    load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
+
+    # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
+    for i in range(1, 11):
+        vector = np.float32([10*i for j in range(dimension)])
+        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+
+    query_data = np.float32([qty for j in range(dimension)])
+    # All documents should match, so TOP 10 takes the 10 with the largest ids. Since we sort by default score
+    # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
+    expected_res_1 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '2', ['__v_score', '10368', 't', 'text value'], '92', '2', ['__v_score', '8192', 't', 'text value'], '93', '2', ['__v_score', '6272', 't', 'text value'], '94', '2', ['__v_score', '4608', 't', 'text value'], '95', '2', ['__v_score', '3200', 't', 'text value'], '96', '2', ['__v_score', '2048', 't', 'text value'], '97', '2', ['__v_score', '1152', 't', 'text value'], '98', '2', ['__v_score', '512', 't', 'text value'], '99', '2', ['__v_score', '128', 't', 'text value']]
+    execute_hybrid_query(env, '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_1)
+
+    # Same as above, but here we use fuzzy for 'text'
+    expected_res_2 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
+    execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_2)
+
+    # use TFIDF.DOCNORM scorer
+    expected_res_3 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'], '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'], '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'], '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'], '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'], '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'], '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'], '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'], '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
+    env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
+               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_3)
+
+    # use BM25 scorer
+    expected_res_4 = [10L, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
+    env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
+               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_4)
+
+    # use DISMAX scorer
+    expected_res_5 = [10L, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
+    env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'DISMAX', 'WITHSCORES',
+               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_5)
+
+    # use DOCSCORE scorer
+    env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
