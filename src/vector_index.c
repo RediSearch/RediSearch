@@ -95,7 +95,7 @@ static bool isFit (VecSimIndex *ind, size_t size) {
   return res;
 }
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, QueryError *status, IndexIterator *child_it) {
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIterator *child_it, QueryError *status) {
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);

@@ -930,10 +930,11 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 
 static ResultProcessor *getVecSimRP(AREQ *req, AGGPlan *pln, ResultProcessor *up, QueryError *status) {
   RLookup *lk = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
-  RLookupKey **keys = rm_calloc(array_len(req->ast.vecScoreFieldNames), sizeof(*keys));
-
   char **scoreFields = req->ast.vecScoreFieldNames;
-  for (size_t i = 0; i < array_len(scoreFields); i++) {
+  size_t len = array_len(scoreFields);
+  RLookupKey **keys = rm_calloc(len, sizeof(*keys));
+
+  for (size_t i = 0; i < len; i++) {
     if (IndexSpec_GetField(req->sctx->spec, scoreFields[i], strlen(scoreFields[i]))) {
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", scoreFields[i]);
       rm_free(keys);
