@@ -20,39 +20,35 @@ static int timeFormat(ExprEval *ctx, RSValue *result, RSValue **argv, size_t arg
   const char *fmt = ISOFMT;
   if (argc == 2) {
     VALIDATE_ARG_TYPE("time", argv, 1, RSValue_String);
-    fmt = RSValue_StringPtrLen(argv[1], NULL);
+    fmt = argv[1]->StringPtrLen();
   }
   // Get the format
   char timebuf[1024] = {0};  // Should be enough for any human time string
+  const char *arg0 = argv[0]->StringPtrLen();
   double n;
   // value is not a number
-  if (!RSValue_ToNumber(argv[0], &n)) {
-    goto err;
+  if (!argv[0]->ToNumber(&n)) {
+    throw QueryError(QUERY_ETYPE, "not a number: %s", arg0);
   }
   time_t tt = (time_t)n;
   struct tm tm;
   if (!gmtime_r(&tt, &tm)) {
     // could not convert value to timestamp
-    goto err;
+    throw QueryError(QUERY_ETYPE, "cannot convert timestamp: %s", arg0);
   }
 
   size_t rv = strftime(timebuf, sizeof timebuf, fmt, &tm);
   if (rv == 0) {
     // invalid format
-    goto err;
+    throw QueryError(QUERY_ETYPE, "invalid date format: %s", arg0);
   }
 
-  // Finally, allocate a buffer to store the time!
+  // allocate a buffer to store the time
   char *buf = ctx->Strndup(timebuf, rv);
 
   // It will be released by the block allocator destruction, so we refer to it is a static string so
   // the value ref counter will not release it
-  RSValue_SetConstString(result, buf, rv);
-  return EXPR_EVAL_OK;
-
-err:
-  // on runtime error (bad formatting, etc) we just set the result to null
-  RSValue_MakeReference(result, RS_NullVal());
+  result->SetConstString(buf, rv);
   return EXPR_EVAL_OK;
 }
 
@@ -84,8 +80,8 @@ static int func_hour(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc
   VALIDATE_ARGS("hour", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
-    goto err;
+  if (!argv[0]->ToNumber(&d) || d < 0) {
+    throw QueryError(QUERY_ETYPE, "not an hour: %s", argv[0]->StringPtrLen());
   }
   time_t ts = (time_t)d;
   struct tm tmm;
@@ -94,13 +90,8 @@ static int func_hour(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc
   tmm.tm_sec = 0;
   tmm.tm_min = 0;
   ts = fast_timegm(&tmm);
-  RSValue_SetNumber(result, (double)ts);
+  result->SetNumber((double)ts);
 
-  return EXPR_EVAL_OK;
-err:
-  // on runtime error (bad formatting, etc) we just set the result to null
-
-  RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_OK;
 }
 
@@ -111,15 +102,10 @@ static int func_minute(ExprEval *ctx, RSValue *result, RSValue **argv, size_t ar
   VALIDATE_ARGS("minute", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
-    goto err;
+  if (!argv[0]->ToNumber(&d) || d < 0) {
+    throw QueryError(QUERY_ETYPE, "not a minute: %s", argv[0]->StringPtrLen());
   }
-  RSValue_SetNumber(result, floor(d - fmod(d, 60)));
-  return EXPR_EVAL_OK;
-err:
-  // on runtime error (bad formatting, etc) we just set the result to null
-
-  RSValue_MakeReference(result, RS_NullVal());
+  result->SetNumber(floor(d - fmod(d, 60)));
   return EXPR_EVAL_OK;
 }
 
@@ -131,8 +117,8 @@ static int func_day(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
   VALIDATE_ARGS("day", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
-    goto err;
+  if (!argv[0]->ToNumber(&d) || d < 0) {
+    throw QueryError(QUERY_ETYPE, "not a day: %s", argv[0]->StringPtrLen());
   }
   time_t ts = (time_t)d;
   struct tm tmm;
@@ -142,12 +128,7 @@ static int func_day(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
   tmm.tm_hour = 0;
   tmm.tm_min = 0;
   ts = fast_timegm(&tmm);
-  RSValue_SetNumber(result, (double)ts);
-  return EXPR_EVAL_OK;
-err:
-  // on runtime error (bad formatting, etc) we just set the result to null
-
-  RSValue_MakeReference(result, RS_NullVal());
+  result->SetNumber((double)ts);
   return EXPR_EVAL_OK;
 }
 
@@ -158,19 +139,14 @@ static int func_dayofmonth(ExprEval *ctx, RSValue *result, RSValue **argv, size_
   VALIDATE_ARGS("dayofmonth", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
-    goto err;
+  if (!argv[0]->ToNumber(&d) || d < 0) {
+    throw QueryError(QUERY_ETYPE, "not a day: %s", argv[0]->StringPtrLen());
   }
   time_t ts = (time_t)d;
   struct tm tmm;
   gmtime_r(&ts, &tmm);
 
-  RSValue_SetNumber(result, (double)tmm.tm_mday);
-  return EXPR_EVAL_OK;
-err:
-  // on runtime error (bad formatting, etc) we just set the result to null
-
-  RSValue_MakeReference(result, RS_NullVal());
+  result->SetNumber((double)tmm.tm_mday);
   return EXPR_EVAL_OK;
 }
 
@@ -181,19 +157,14 @@ static int func_dayofweek(ExprEval *ctx, RSValue *result, RSValue **argv, size_t
   VALIDATE_ARGS("dayofweek", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
-    goto err;
+  if (!argv[0]->ToNumber(&d) || d < 0) {
+    throw QueryError(QUERY_ETYPE, "not a day: %s", argv[0]->StringPtrLen());
   }
   time_t ts = (time_t)d;
   struct tm tmm;
   gmtime_r(&ts, &tmm);
 
-  RSValue_SetNumber(result, (double)tmm.tm_wday);
-  return EXPR_EVAL_OK;
-err:
-  // on runtime error (bad formatting, etc) we just set the result to null
-
-  RSValue_MakeReference(result, RS_NullVal());
+  result->SetNumber((double)tmm.tm_wday);
   return EXPR_EVAL_OK;
 }
 
@@ -204,19 +175,14 @@ static int func_dayofyear(ExprEval *ctx, RSValue *result, RSValue **argv, size_t
   VALIDATE_ARGS("dayofyear", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
-    goto err;
+  if (!argv[0]->ToNumber(&d) || d < 0) {
+    throw QueryError(QUERY_ETYPE, "not a day: %s", argv[0]->StringPtrLen());
   }
   time_t ts = (time_t)d;
   struct tm tmm;
   gmtime_r(&ts, &tmm);
 
-  RSValue_SetNumber(result, (double)tmm.tm_yday);
-  return EXPR_EVAL_OK;
-err:
-  // on runtime error (bad formatting, etc) we just set the result to null
-
-  RSValue_MakeReference(result, RS_NullVal());
+  result->SetNumber((double)tmm.tm_yday);
   return EXPR_EVAL_OK;
 }
 
@@ -226,18 +192,14 @@ static int func_year(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc
   VALIDATE_ARGS("year", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
-    goto err;
+  if (!argv[0]->ToNumber(&d) || d < 0) {
+    throw QueryError(QUERY_ETYPE, "not a year: %s", argv[0]->StringPtrLen());
   }
   time_t ts = (time_t)d;
   struct tm tmm;
   gmtime_r(&ts, &tmm);
 
-  RSValue_SetNumber(result, (double)tmm.tm_year + 1900);
-  return EXPR_EVAL_OK;
-err:
-  // on runtime error (bad formatting, etc) we just set the result to null
-  RSValue_MakeReference(result, RS_NullVal());
+  result->SetNumber((double)tmm.tm_year + 1900);
   return EXPR_EVAL_OK;
 }
 
@@ -250,8 +212,8 @@ static int func_month(ExprEval *ctx, RSValue *result, RSValue **argv, size_t arg
   VALIDATE_ARGS("month", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
-    goto err;
+  if (!argv[0]->ToNumber(&d) || d < 0) {
+    throw QueryError(QUERY_ETYPE, "not a month: %s", argv[0]->StringPtrLen());
   }
   time_t ts = (time_t)d;
   struct tm tmm;
@@ -261,12 +223,7 @@ static int func_month(ExprEval *ctx, RSValue *result, RSValue **argv, size_t arg
   tmm.tm_min = 0;
   tmm.tm_mday = 1;
   ts = fast_timegm(&tmm);
-  RSValue_SetNumber(result, (double)ts);
-  return EXPR_EVAL_OK;
-err:
-  // on runtime error (bad formatting, etc) we just set the result to null
-
-  RSValue_MakeReference(result, RS_NullVal());
+  result->SetNumber((double)ts);
   return EXPR_EVAL_OK;
 }
 
@@ -277,18 +234,13 @@ static int func_monthofyear(ExprEval *ctx, RSValue *result, RSValue **argv, size
   VALIDATE_ARGS("monthofyear", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
-    goto err;
+  if (!argv[0]->ToNumber(&d) || d < 0) {
+    throw QueryError(QUERY_ETYPE, "not a month: %s", argv[0]->StringPtrLen());
   }
   time_t ts = (time_t)d;
   struct tm tmm;
   gmtime_r(&ts, &tmm);
-  RSValue_SetNumber(result, (double)tmm.tm_mon);
-  return EXPR_EVAL_OK;
-err:
-  // on runtime error (bad formatting, etc) we just set the result to null
-
-  RSValue_MakeReference(result, RS_NullVal());
+  result->SetNumber((double)tmm.tm_mon);
   return EXPR_EVAL_OK;
 }
 
@@ -303,15 +255,15 @@ static int parseTime(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc
   char valbuf[1024] = {0};
   size_t fmtlen;
 
-  const char *origfmt = RSValue_StringPtrLen(argv[0], &fmtlen);
+  const char *origfmt = argv[0]->StringPtrLen(&fmtlen);
   if (fmtlen > sizeof(fmtbuf)) {
-    goto err;
+    throw QueryError(QUERY_ETYPE, "expression too long: %.64s", argv[0]->StringPtrLen());
   }
 
   size_t vallen;
-  const char *origval = RSValue_StringPtrLen(argv[1], &vallen);
+  const char *origval = argv[1]->StringPtrLen(&vallen);
   if (vallen > sizeof(valbuf)) {
-    goto err;
+    throw QueryError(QUERY_ETYPE, "expression too long: %.64s", argv[1]->StringPtrLen());
   }
   memcpy(fmtbuf, origfmt, fmtlen);
   memcpy(valbuf, origval, vallen);
@@ -319,14 +271,10 @@ static int parseTime(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc
   struct tm tm = {0};
   char *rc = strptime(valbuf, fmtbuf, &tm);
   if (rc == NULL) {
-    goto err;
+    throw QueryError(QUERY_ETYPE, "improper time expression: ", valbuf);
   }
   time_t rv = timegm(&tm);
-  RSValue_SetNumber(result, rv);
-  return EXPR_EVAL_OK;
-
-err:
-  RSValue_MakeReference(result, RS_NullVal());
+  result->SetNumber(rv);
   return EXPR_EVAL_OK;
 }
 

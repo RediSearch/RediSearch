@@ -8,15 +8,15 @@
   static int mathfunc_##f(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,           \
                           QueryError *error) {                                                   \
     if (argc != 1) {                                                                             \
-      error->SetErrorFmt(QUERY_EPARSEARGS, "Invalid number of arguments for %s", #f); \
+      error->SetErrorFmt(QUERY_EPARSEARGS, "Invalid number of arguments for %s", #f);            \
       return EXPR_EVAL_ERR;                                                                      \
     }                                                                                            \
     double d;                                                                                    \
-    if (!RSValue_ToNumber(argv[0], &d)) {                                                        \
-      RSValue_SetNumber(result, NAN);                                                            \
+    if (!(argv[0])->ToNumber(&d)) {                                                        \
+      result->SetNumber(NAN);                                                            \
       return EXPR_EVAL_OK;                                                                       \
     }                                                                                            \
-    RSValue_SetNumber(result, f(d));                                                             \
+    result->SetNumber(f(d));                                                             \
     return EXPR_EVAL_OK;                                                                         \
   }
 

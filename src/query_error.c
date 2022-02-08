@@ -9,6 +9,17 @@ QueryError::QueryError() {
   detail = NULL;
 }
 
+QueryError::QueryError(QueryErrorCode code, const char *fmt, ...) : code(code) {
+  va_list ap;
+  va_start(ap, fmt);
+  rm_vasprintf(&detail, fmt, ap);
+  va_end(ap);
+}
+
+QueryError::~QueryError() {
+    if (detail) rm_free(detail);
+}
+
 //---------------------------------------------------------------------------------------------
 
 /**

@@ -6,12 +6,6 @@ int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Que
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static void setReferenceValue(RSValue *dst, RSValue *src) {
-  RSValue::MakeReference(dst, src);
-}
-
-//---------------------------------------------------------------------------------------------
-
 int RSFunctionExpr::Eval(ExprEval &eval, RSValue *res) {
   res->Clear();
   int rc = EXPR_EVAL_ERR;
@@ -241,7 +235,7 @@ int RSLookupExpr::Eval(ExprEval &eval, RSValue *res) {
     return EXPR_EVAL_NULL;
   }
 
-  setReferenceValue(res, value);
+  res->MakeReference(value);
   return EXPR_EVAL_OK;
 }
 
@@ -258,7 +252,7 @@ int RSLookupExpr::GetLookupKeys(RLookup *lookup, QueryError *err) {
 
 int RSLiteral::Eval(ExprEval &eval, RSValue *res) {
   res->Clear();
-  RSValue::MakeReference(res, &literal);
+  res->MakeReference(&literal);
   return EXPR_EVAL_OK;
 }
 

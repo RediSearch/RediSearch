@@ -20,7 +20,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   int maxTerms = 0;
   if (argc == 1) {
     double d;
-    if (RSValue_ToNumber(argv[0], &d)) {
+    if (argv[0]->ToNumber(&d)) {
       if (d > 0) {
         maxTerms = (int)d;
       }
@@ -40,12 +40,12 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
       for (size_t i = 0; i < n; i++) {
         arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
       }
-      RSValue *v = RSValue_NewArrayEx(arr, n, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
-      RSValue_MakeOwnReference(result, v);
+      RSValue *v = RSValue::NewArray(arr, n, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+      result->MakeOwnReference(v);
       return EXPR_EVAL_OK;
     }
   }
-  RSValue_MakeReference(result, RS_NullVal());
+  result->MakeReference(RS_NullVal());
   return EXPR_EVAL_OK;
 }
 
@@ -57,19 +57,19 @@ static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, si
 
   VALIDATE_ARGS("lower", 1, 1, err);
   RSValue *val = argv[0]->Dereference();
-  if (!RSValue_IsString(val)) {
-    RSValue_MakeReference(result, RS_NullVal());
+  if (!val->IsString()) {
+    result->MakeReference(RS_NullVal());
     return EXPR_EVAL_OK;
   }
 
   size_t sz = 0;
-  char *p = (char *)RSValue_StringPtrLen(val, &sz);
+  char *p = (char *)val->StringPtrLen(&sz);
   char *np = ctx->UnalignedAlloc(sz + 1);
   for (size_t i = 0; i < sz; i++) {
     np[i] = tolower(p[i]);
   }
   np[sz] = '\0';
-  RSValue_SetConstString(result, np, sz);
+  result->SetConstString(np, sz);
   return EXPR_EVAL_OK;
 }
 
@@ -81,19 +81,19 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, si
   VALIDATE_ARGS("upper", 1, 1, err);
 
   RSValue *val = argv[0]->Dereference();
-  if (!RSValue_IsString(val)) {
-    RSValue_MakeReference(result, RS_NullVal());
+  if (!val->IsString()) {
+    result->MakeReference(RS_NullVal());
     return EXPR_EVAL_OK;
   }
 
   size_t sz = 0;
-  char *p = (char *)RSValue_StringPtrLen(val, &sz);
+  char *p = (char *)val->StringPtrLen(&sz);
   char *np = ctx->UnalignedAlloc(sz + 1);
   for (size_t i = 0; i < sz; i++) {
     np[i] = toupper(p[i]);
   }
   np[sz] = '\0';
-  RSValue_SetConstString(result, np, sz);
+  result->SetConstString(np, sz);
   return EXPR_EVAL_OK;
 }
 
@@ -108,7 +108,7 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   VALIDATE_ARG_TYPE("substr", argv, 2, RSValue_Number);
 
   size_t sz;
-  const char *str = RSValue_StringPtrLen(argv[0], &sz);
+  const char *str = argv[0]->StringPtrLen(&sz);
   if (!str) {
     err->SetError(QUERY_EPARSEARGS, "Invalid type for substr. Expected string");
     return EXPR_EVAL_ERR;
@@ -131,7 +131,7 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   }
 
   char *dup = ctx->Strndup(&str[offset], len);
-  RSValue_SetConstString(result, dup, len);
+  result->SetConstString(dup, len);
   return EXPR_EVAL_OK;
 }
 
@@ -141,14 +141,14 @@ int func_to_number(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, 
   VALIDATE_ARGS("to_number", 1, 1, err);
 
   double n;
-  if (!RSValue_ToNumber(argv[0], &n)) {
+  if (!argv[0]->ToNumber(&n)) {
     size_t sz = 0;
-    const char *p = RSValue_StringPtrLen(argv[0], &sz);
+    const char *p = argv[0]->StringPtrLen(&sz);
     err->SetErrorFmt(QUERY_EPARSEARGS, "to_number: cannot convert string '%s'", p);
     return EXPR_EVAL_ERR;
   }
 
-  RSValue_SetNumber(result, n);
+  result->SetNumber(n);
   return EXPR_EVAL_OK;
 }
 
@@ -157,7 +157,7 @@ int func_to_number(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, 
 int func_to_str(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("to_str", 1, 1, err);
 
-  RSValue_ToString(result, argv[0]);
+  result->ToString(argv[0]);
   return EXPR_EVAL_OK;
 }
 
@@ -173,7 +173,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
 
   size_t argix = 1;
   size_t fmtsz = 0;
-  const char *fmt = RSValue_StringPtrLen(argv[0], &fmtsz);
+  const char *fmt = argv[0]->StringPtrLen(&fmtsz);
   const char *last = fmt, *end = fmt + fmtsz;
   sds out = sdsMakeRoomFor(sdsnew(""), fmtsz);
 
@@ -210,12 +210,12 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
         // write null value
         out = sdscat(out, "(null)");
         continue;
-      } else if (!RSValue_IsString(arg)) {
+      } else if (!arg->IsString()) {
 
         RSValue strval;
-        RSValue_ToString(&strval, arg);
+        strval.ToString(arg);
         size_t sz;
-        const char *str = RSValue_StringPtrLen(&strval, &sz);
+        const char *str = strval.StringPtrLen(&sz);
         if (!str) {
           out = sdscat(out, "(null)");
         } else {
@@ -224,7 +224,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
         RSValue_Free(&strval);
       } else {
         size_t sz;
-        const char *str = RSValue_StringPtrLen(arg, &sz);
+        const char *str = arg->StringPtrLen(&sz);
         out = sdscatlen(out, str, sz);
       }
     } else {
@@ -237,13 +237,13 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
     out = sdscatlen(out, last, end - last);
   }
 
-  RSValue_SetSDS(result, out);
+  result->SetSDS(out);
   return EXPR_EVAL_OK;
 
 error:
   assert(err->HasError());
   sdsfree(out);
-  RSValue_MakeReference(result, RS_NullVal());
+  result->MakeReference(RS_NullVal());
   return EXPR_EVAL_ERR;
 }
 
@@ -274,15 +274,15 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   const char *strp = " ";
   if (argc >= 2) {
     VALIDATE_ARG_ISSTRING("format", argv, 1);
-    sep = RSValue_StringPtrLen(argv[1], NULL);
+    sep = argv[1]->StringPtrLen();
   }
   if (argc == 3) {
     VALIDATE_ARG_ISSTRING("format", argv, 2);
-    strp = RSValue_StringPtrLen(argv[2], NULL);
+    strp = argv[2]->StringPtrLen();
   }
 
   size_t len;
-  char *str = (char *)RSValue_StringPtrLen(argv[0], &len);
+  char *str = (char *)argv[0]->StringPtrLen(&len);
   char *ep = str + len;
   size_t l = 0;
   char *next;
@@ -317,8 +317,8 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   for (size_t i = 0; i < l; i++) {
     vals[i] = tmp[i];
   }
-  RSValue *ret = RSValue_NewArrayEx(vals, l, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
-  RSValue_MakeOwnReference(result, ret);
+  RSValue *ret = RSValue::NewArray(vals, l, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+  result->MakeOwnReference(ret);
   return EXPR_EVAL_OK;
 }
 

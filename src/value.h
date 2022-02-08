@@ -48,6 +48,21 @@ enum RSStringType {
 
 //---------------------------------------------------------------------------------------------
 
+// Don't increment the refcount of the children
+#define RSVAL_ARRAY_NOINCREF 0x01
+// Alloc the underlying array. Absence means the previous array is used
+#define RSVAL_ARRAY_ALLOC 0x02
+// Don't free the underlying list when the array is freed
+#define RSVAL_ARRAY_STATIC 0x04
+
+// Accesses the array element at a given position as an l-value
+#define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])
+
+// Accesses the array length as an lvalue
+#define RSVALUE_ARRLEN(vv) ((vv)->arrval.len)
+
+//---------------------------------------------------------------------------------------------
+
 #pragma pack(4)
 
 // Variant value union
@@ -86,6 +101,8 @@ struct RSValue {
     ref(NULL), t(t_), refcount(refcount), allocated(allocated) {
   }
 
+  static RSValue *NewArray(RSValue **vals, size_t n, int options);
+
   void Clear();
   RSValue *IncrRef();
   void Decref();
@@ -105,7 +122,7 @@ struct RSValue {
   void Print() const;
 
   void ToString(RSValue *dst);
-  const char *StringPtrLen(size_t *lenp) const;
+  const char *StringPtrLen(size_t *lenp = NULL) const;
   const char *ConvertStringPtrLen(size_t *lenp, char *buf, size_t buflen) const;
 
   int ToNumber(double *d) const;
@@ -114,8 +131,8 @@ struct RSValue {
 
   uint64_t Hash(uint64_t hval) const;
 
-  static void MakeReference(RSValue *dst, RSValue *src);
-  static void MakeOwnReference(RSValue *dst, RSValue *src);
+  void MakeReference(RSValue *src);
+  void MakeOwnReference(RSValue *src);
 
   void MakePersistent();
   
@@ -163,15 +180,15 @@ static RSValue RS_StaticValue(RSValueType t) {
   return v;
 }
 
-inline void RSValue::MakeReference(RSValue *dst, RSValue *src) {
+inline void RSValue::MakeReference(RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
-  dst->Clear();
-  dst->t = RSValue_Reference;
-  dst->ref = src->IncrRef();
+  Clear();
+  t = RSValue_Reference;
+  ref = src->IncrRef();
 }
 
-inline void RSValue::MakeOwnReference(RSValue *dst, RSValue *src) {
-  RSValue::MakeReference(dst, src);
+inline void RSValue::MakeOwnReference(RSValue *src) {
+  MakeReference(src);
   src->Decref();
 }
 
@@ -283,21 +300,6 @@ inline uint64_t RSValue::Hash(uint64_t hval) const {
 RSValue *RS_NumVal(double n);
 
 RSValue *RS_Int64Val(int64_t ii);
-
-// Don't increment the refcount of the children
-#define RSVAL_ARRAY_NOINCREF 0x01
-// Alloc the underlying array. Absence means the previous array is used
-#define RSVAL_ARRAY_ALLOC 0x02
-// Don't free the underlying list when the array is freed
-#define RSVAL_ARRAY_STATIC 0x04
-
-RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
-
-// Accesses the array element at a given position as an l-value
-#define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])
-
-// Accesses the array length as an lvalue
-#define RSVALUE_ARRLEN(vv) ((vv)->arrval.len)
 
 RSValue *RS_VStringArray(uint32_t sz, ...);
 

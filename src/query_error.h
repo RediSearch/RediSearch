@@ -45,7 +45,8 @@
   X(QUERY_EGEOFORMAT, "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"") \
   X(QUERY_ENODISTRIBUTE, "Could not distribute the operation")                  \
   X(QUERY_EUNSUPPTYPE, "Unsupported index type")                                \
-  X(QUERY_ENOTNUMERIC, "Could not convert value to a number")
+  X(QUERY_ENOTNUMERIC, "Could not convert value to a number")                   \
+  X(QUERY_ETYPE, "Data type error")
 
 enum QueryErrorCode {
   QUERY_OK = 0,
@@ -62,6 +63,8 @@ struct QueryError {
   char *detail;
 
   QueryError();
+  QueryError(QueryErrorCode code, const char *fmt, ...);
+  virtual ~QueryError();
 
   static const char *Strerror(QueryErrorCode code);
 
@@ -104,7 +107,8 @@ public:
 #define QERR_MKBADARGS_AC(status, name, rv)  \
   (status)->SetErrorFmt(QUERY_EPARSEARGS, "Bad arguments for %s: %s", (name), AC_Strerror(rv))
 
-#define QERR_MKSYNTAXERR(status, ...) (status)->SetErrorFmt(QUERY_ESYNTAX, ##__VA_ARGS__)
+#define QERR_MKSYNTAXERR(status, ...) \
+  (status)->SetErrorFmt(QUERY_ESYNTAX, ##__VA_ARGS__)
 
 // Convenience macro to reply the error string to redis and clear the error code.
 // I'm making this into a macro so I don't need to include redismodule.h

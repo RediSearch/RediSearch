@@ -476,7 +476,7 @@ RSValue *RS_Int64Val(int64_t dd) {
 // as empty, but with enough *capacity* for these values
 // @param options RSVAL_ARRAY_*
 
-RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
+RSValue *RSValue::NewArray(RSValue **vals, size_t n, int options) {
   RSValue *arr = RS_NewValue(RSValue_Array);
   RSValue **list;
   if (options & RSVAL_ARRAY_ALLOC) {

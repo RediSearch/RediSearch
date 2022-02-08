@@ -10,7 +10,7 @@
 
 #define VALIDATE_ARGS(fname, minargs, maxargs, err)                                           \
   if (argc < minargs || argc > maxargs) {                                                     \
-    err->SetError(QUERY_EPARSEARGS, "Invalid arguments for function '" fname "'"); \
+    err->SetError(QUERY_EPARSEARGS, "Invalid arguments for function '" fname "'");            \
     return EXPR_EVAL_ERR;                                                                     \
   }
 
@@ -29,7 +29,7 @@
 #define VALIDATE_ARG_TYPE(fname, args, idx, t) \
   VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__TYPE, t)
 
-#define VALIDATE_ARG__STRING(arg, unused) RSValue_IsString(arg)
+#define VALIDATE_ARG__STRING(arg, unused) (arg)->IsString()
 #define VALIDATE_ARG_ISSTRING(fname, args, idx) \
   VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__STRING, 0)
 

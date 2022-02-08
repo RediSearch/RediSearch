@@ -61,7 +61,7 @@ RSStringLiteral::RSStringLiteral(const char *str, size_t len) {
 //---------------------------------------------------------------------------------------------
 
 RSNullLiteral::RSNullLiteral() {
-  RSValue::MakeReference(&literal, RS_NullVal());
+  literal.MakeReference(RS_NullVal());
 }
 
 //---------------------------------------------------------------------------------------------
