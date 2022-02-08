@@ -224,8 +224,14 @@ static size_t HR_LastDocId(void *ctx) {
 static void HR_Rewind(void *ctx) {
   HybridIterator *hr = ctx;
   hr->resultsPrepared = false;
-  if (hr->iter) VecSimQueryResult_IteratorFree(hr->iter);
-  if (hr->list) VecSimQueryResult_Free(hr->list);
+  if (hr->list) {
+    VecSimQueryResult_Free(hr->list);
+    hr->list = NULL;
+  }
+  if (hr->iter) {
+    VecSimQueryResult_IteratorFree(hr->iter);
+    hr->iter = NULL;
+  }
   hr->lastDocId = 0;
   hr->base.isValid = 1;
 
@@ -237,6 +243,7 @@ static void HR_Rewind(void *ctx) {
     for (size_t i = 0; i < array_len(hr->returnedResults); i++) {
       IndexResult_Free(hr->returnedResults[i]);
     }
+    array_clear(hr->returnedResults);
   }
 }
 

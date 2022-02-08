@@ -711,6 +711,28 @@ TEST_F(IndexTest, testHybridVector) {
     ASSERT_EQ(h->docId, expected_id);
   }
   ASSERT_EQ(count, k);
+  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+
+  hybridIt->Rewind(hybridIt->ctx);
+  ASSERT_TRUE(hybridIt->HasNext(hybridIt->ctx));
+  ASSERT_EQ(hybridIt->NumEstimated(hybridIt->ctx), k);
+  ASSERT_EQ(hybridIt->Len(hybridIt->ctx), k);
+
+  // check rerun and abort (go over only half of the results)ץ
+  count = 0;
+  for (size_t i = 0; i < k/2; i++) {
+    count++;
+    ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+  ASSERT_EQ(hybridIt->LastDocId(hybridIt->ctx), max_id - step*k/2);
+  hybridIt->Abort(hybridIt->ctx);
+  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
 
   hybridIt->Free(hybridIt);
   InvertedIndex_Free(w);
