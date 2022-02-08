@@ -450,11 +450,10 @@ def test_hybrid_query_batches_mode_with_text(env):
     # This time the fuzzy matching should return only documents with the original 'text value'.
     execute_hybrid_query(env, '(%test%)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_4)
 
-    if env.isCluster():
-        return
-    # Todo: enable this when the issue with Read/SkipTo in NOT_ITERATOR will be fixed
     execute_hybrid_query(env, '(-(@t:other))=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_4)
 
+    if env.isCluster():
+        return
     # Todo: enable this when the coordinator will be able to run TOP K queries and sortby score
     # All documents should match, so TOP 10 takes the 10 with the largest ids. Since we sort by score
     # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.

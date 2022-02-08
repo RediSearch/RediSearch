@@ -92,20 +92,24 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
         // Reset the current result and advance both "sub-iterators".
         AggregateResult_Reset(cur_res);
       }
-      unsigned int rc = hr->child->Read(hr->child->ctx, &cur_child_res);
-      rc |= HR_ReadInBatch(hr, &cur_vec_res);
-      if (rc != INDEXREAD_OK) break;
+      int ret_child = hr->child->Read(hr->child->ctx, &cur_child_res);
+      int ret_vec = HR_ReadInBatch(hr, &cur_vec_res);
+      if (ret_child != INDEXREAD_OK || ret_vec != INDEXREAD_OK) break;
     }
     // Otherwise, advance the iterator pointing to the lower id.
     else if (cur_vec_res->docId > cur_child_res->docId && IITER_HAS_NEXT(hr->child)) {
       int rc = hr->child->SkipTo(hr->child->ctx, cur_vec_res->docId, &cur_child_res);
+      if (rc == INDEXREAD_EOF) break; // no more results left.
       // It may be the case where we skipped to an invalid result (in NOT iterator for example),
       // so we read to get the next valid result.
+      // If we passed cur_vec_res->docId, we found the next valid id of the child.
       if (rc == INDEXREAD_NOTFOUND && cur_child_res->docId == cur_vec_res->docId) {
-        hr->child->Read(hr->child->ctx, &cur_child_res);
+        rc = HR_ReadInBatch(hr, &cur_vec_res);
+        if (rc == INDEXREAD_EOF) break;
       }
     } else if (VecSimQueryResult_IteratorHasNext(vecsim_iter)){
-      HR_SkipToInBatch(hr, cur_child_res->docId, &cur_vec_res);
+      int rc = HR_SkipToInBatch(hr, cur_child_res->docId, &cur_vec_res);
+      if (rc == INDEXREAD_EOF) break;
     } else {
       break; // both iterators are depleted.
     }

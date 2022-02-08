@@ -700,13 +700,14 @@ TEST_F(IndexTest, testHybridVector) {
   RSIndexResult *h = NULL;
   size_t count = 0;
 
-  // Expect to get top 10 results in reverse order of the distance
+  // Expect to get top 10 results in reverse order of the distance: 364, 368, ..., 400.
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
     ASSERT_EQ(h->type, RSResultType_HybridDistance);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
     ASSERT_EQ(h->agg.numChildren, 2);
     ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
   }
@@ -718,7 +719,7 @@ TEST_F(IndexTest, testHybridVector) {
   ASSERT_EQ(hybridIt->NumEstimated(hybridIt->ctx), k);
   ASSERT_EQ(hybridIt->Len(hybridIt->ctx), k);
 
-  // check rerun and abort (go over only half of the results)ץ
+  // check rerun and abort (go over only half of the results)
   count = 0;
   for (size_t i = 0; i < k/2; i++) {
     count++;
