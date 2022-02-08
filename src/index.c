@@ -1209,7 +1209,7 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
 
   int rc;
   do {
-    nc->base.current->docId++;
+    nc->base.current->docId = cr->docId + 1;
     rc = nc->child->SkipTo(nc->child->ctx, nc->base.current->docId, &cr);
     if (nc->base.current->docId < cr->docId || rc == INDEXREAD_EOF) {
       break;
