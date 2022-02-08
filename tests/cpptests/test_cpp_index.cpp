@@ -6,6 +6,7 @@
 #include "src/spec.h"
 #include "src/tokenize.h"
 #include "src/varint.h"
+#include "src/hybrid_reader.h"
 
 #include "rmutil/alloc.h"
 #include "rmutil/alloc.h"
@@ -659,6 +660,84 @@ TEST_F(IndexTest, testIntersection) {
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
+}
+
+TEST_F(IndexTest, testHybridVector) {
+
+  size_t n = 100;
+  size_t step = 4;
+  size_t max_id = n*step;
+  size_t d = 4;
+  size_t k = 10;
+  InvertedIndex *w = createIndex(n, step);
+  IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  IndexIterator *ir = NewReadIterator(r);
+
+  // Create vector index
+  VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
+                      .hnswParams = HNSWParams{.type = VecSimType_FLOAT32,
+                                               .dim = d,
+                                               .metric = VecSimMetric_L2,
+                                               .initialCapacity = max_id,
+                                               .M = 16,
+                                               .efConstruction = 100}};
+  VecSimIndex *index = VecSimIndex_New(&params);
+  for (size_t i = 1; i <= max_id; i++) {
+    float f[d];
+    for (size_t j = 0; j < d; j++) {
+      f[j] = (float)i;
+    }
+    VecSimIndex_AddVector(index, (const void *)f, (int)i);
+  }
+  ASSERT_EQ(VecSimIndex_IndexSize(index), max_id);
+
+  float query[] = {(float)max_id, (float)max_id, (float)max_id, (float)max_id};
+  TopKVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_ID};
+  VecSimQueryParams queryParams;
+  queryParams.hnswRuntimeParams.efRuntime = max_id;
+  IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir);
+
+  RSIndexResult *h = NULL;
+  size_t count = 0;
+
+  // Expect to get top 10 results in reverse order of the distance: 364, 368, ..., 400.
+  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+    count++;
+    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+  ASSERT_EQ(count, k);
+  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+
+  hybridIt->Rewind(hybridIt->ctx);
+  ASSERT_TRUE(hybridIt->HasNext(hybridIt->ctx));
+  ASSERT_EQ(hybridIt->NumEstimated(hybridIt->ctx), k);
+  ASSERT_EQ(hybridIt->Len(hybridIt->ctx), k);
+
+  // check rerun and abort (go over only half of the results)
+  count = 0;
+  for (size_t i = 0; i < k/2; i++) {
+    count++;
+    ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+  ASSERT_EQ(hybridIt->LastDocId(hybridIt->ctx), max_id - step*k/2);
+  hybridIt->Abort(hybridIt->ctx);
+  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+
+  hybridIt->Free(hybridIt);
+  InvertedIndex_Free(w);
+  VecSimIndex_Free(index);
 }
 
 TEST_F(IndexTest, testBuffer) {
