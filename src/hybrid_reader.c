@@ -117,6 +117,38 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
   IndexResult_Free(cur_vec_res);
 }
 
+void computeDistances(HybridIterator *hr) {
+  double upper_bound = INFINITY;
+  RSIndexResult *cur_res = hr->base.current;
+  RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
+  RSIndexResult *cur_vec_res = NewDistanceResult();
+
+  while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
+    double dist = VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, hr->query.vector);
+    if (heap_count(hr->topResults) < hr->query.k || dist < upper_bound) {
+      // Populate the vector result.
+      cur_vec_res->docId = cur_child_res->docId;
+      cur_vec_res->dist.distance = dist;
+      cur_child_res->dist.scoreField = hr->scoreField;
+      AggregateResult_AddChild(cur_res, cur_vec_res);
+      AggregateResult_AddChild(cur_res, cur_child_res);
+      // todo: can we avoid deep copy and reuse memory sometimes (as the sorter does)?
+      RSIndexResult *hit = IndexResult_DeepCopy(cur_res);
+      if (heap_count(hr->topResults) >= hr->query.k) {
+        // Remove and release the worst result to replace it with the new one.
+        RSIndexResult *top_res = heap_poll(hr->topResults);
+        IndexResult_Free(top_res);
+      }
+      // Insert to heap, update the distance upper bound.
+      heap_offerx(hr->topResults, hit);
+      RSIndexResult *top = heap_peek(hr->topResults);
+      upper_bound = VECTOR_RESULT(top)->dist.distance;
+      // Reset the current result and advance both "sub-iterators".
+      AggregateResult_Reset(cur_res);
+    }
+  }
+}
+
 void prepareResults(HybridIterator *hr) {
     if (hr->mode == STANDARD_KNN) {
       hr->list =
@@ -127,6 +159,7 @@ void prepareResults(HybridIterator *hr) {
 
   if (hr->mode == HYBRID_ADHOC_BF) {
     // Go over child_it results, compute distances, sort and store results in topResults.
+    computeDistances(hr);
     return;
   }
   // Batches mode.
@@ -199,9 +232,8 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
 }
 
 static bool UseBF(size_t T, TopKVectorQuery query, VecSimIndex *index) {
-  // todo: have more sophisticated heuristics here, currently this is disabled.
-  // return (float)T < (0.05 * (float)VecSimIndex_IndexSize(index));
-  return false;
+  // todo: have more sophisticated heuristics here...
+  return (float)T < (0.05 * (float)VecSimIndex_IndexSize(index));
 }
 
 static size_t HR_NumEstimated(void *ctx) {
@@ -290,8 +322,8 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, To
 
   if (child_it == NULL) {
     hi->mode = STANDARD_KNN;
-//  } else if (UseBF(child_it->NumEstimated(child_it), query, index)) {
-//    hi->mode = HYBRID_ADHOC_BF;
+  } else if (UseBF(child_it->NumEstimated(child_it), query, index)) {
+    hi->mode = HYBRID_ADHOC_BF;
   } else {
     hi->mode = HYBRID_BATCHES;
     //Todo: apply heuristics (batch_size = k / (vec_index_size*child_it->NumEstimated(child_it)))

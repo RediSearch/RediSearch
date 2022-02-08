@@ -735,6 +735,22 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Abort(hybridIt->ctx);
   ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
 
+  // Rerun in AD_HOC BF MODE.
+  hybridIt->Rewind(hybridIt->ctx);
+  // todo - fix this.
+  hybridIt->ctx->mode = HYBRID_ADHOC_BF;
+  count = 0;
+  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+    count++;
+    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+
   hybridIt->Free(hybridIt);
   InvertedIndex_Free(w);
   VecSimIndex_Free(index);
