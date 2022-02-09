@@ -1,6 +1,5 @@
 #!/bin/bash
 
-[[ $IGNERR == 1 ]] || set -e
 # [[ $VERBOSE == 1 ]] && set -x
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
@@ -49,8 +48,12 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
 		GDB=1                 Enable interactive gdb debugging (in single-test mode)
 
+		COLLECT_LOGS=1        Collect logs into .tar file
+		CLEAR_LOGS=0          Do not remove logs prior to running tests
+		NOFAIL=1              Do not fail on errors (always exit with 0)
+		STATFILE=file         Write test status (0|1) into `file`
+
 		VERBOSE=1             Print commands and Redis output
-		IGNERR=1              Do not abort on error
 		NOP=1                 Dry run
 		HELP=1                Show help
 
@@ -310,13 +313,17 @@ run_tests() {
 
 #---------------------------------------------------------------------------------------------- 
 
+if [[ $CLEAR_LOGS != 0 ]]; then
+	rm -rf $HERE/logs
+fi
+
 E=0
 
 if [[ -z $COORD ]]; then
 	{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 
 elif [[ $COORD == oss ]]; then
-	oss_cluster_args="--env oss-cluster --env-reuse --clear-logs --shards-count $SHARDS"
+	oss_cluster_args="--env oss-cluster --env-reuse --shards-count $SHARDS"
 
 	{ (MODARGS+=" PARTITIONS AUTO" RLTEST_ARGS+=" ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
@@ -341,6 +348,28 @@ elif [[ $COORD == oss ]]; then
 elif [[ $COORD == rlec ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
 	{ (RLTEST_ARGS+=" --env existing-env --existing-env-addr $dhost:$RLEC_PORT" run_tests "tests on RLEC"); (( E |= $? )); } || true
+fi
+
+#---------------------------------------------------------------------------------------------- 
+
+if [[ $COLLECT_LOGS == 1 ]]; then
+	ARCH=`$READIES/bin/platform --arch`
+	OSNICK=`$READIES/bin/platform --osnick`
+	cd $ROOT
+	mkdir -p bin/artifacts/tests
+	find tests/pytests/logs -name "*.log" | tar -czf bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz -T -
+fi
+
+if [[ -n $STATFILE ]]; then
+	mkdir -p $(dirname $STATFILE)
+	if [[ -f $STATFILE ]]; then
+		(( E |= `cat $STATFILE || echo 1` ))
+	fi
+	echo $E > $STATFILE
+fi
+
+if [[ $NOFAIL == 1 ]]; then
+	exit 0
 fi
 
 exit $E

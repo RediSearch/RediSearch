@@ -36,19 +36,16 @@ RUN mkdir -p bin/artifacts
 RUN make pack
 RUN make pack COORD=rlec
 RUN make pack LITE=1
-RUN set -e ;\
-    echo "Artifacts:" ;\
-    du -ah --apparent-size /build/bin/artifacts
 {% endif %}
 
 {% if TEST == "1" %}
-RUN TEST= make test
-RUN TEST= make test COORD=oss
-RUN set -e ;\
-    cd /build/tests/pytests/logs ;\
-    rm -f *.aof *.rdb ;\
-    tar -czf /build/bin/artifacts/tests-pytests-logs-{{ARCH}}-{{OSNICK}}.tgz .
+RUN TEST='' make test CLEAR_LOGS=0 COLLECT_LOGS=1 NOFAIL=1 STATFILE=bin/artifacts/tests/status
+RUN TEST='' make test COORD=oss CLEAR_LOGS=0 COLLECT_LOGS=1 NOFAIL=1 STATFILE=bin/artifacts/tests/status
 {% endif %}
+
+RUN set -e ;\
+    echo "Artifacts:" ;\
+    du -ah --apparent-size /build/bin/artifacts
 
 #----------------------------------------------------------------------------------------------
 FROM redisfab/rejson:{{REJSON_VERSION}}-{{ARCH}}-{{OSNICK}} AS json
