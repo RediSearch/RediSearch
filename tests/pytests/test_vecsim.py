@@ -411,8 +411,8 @@ def test_hybrid_query_batches_mode_with_text(env):
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                         'DIM', dimension, 'DISTANCE_METRIC', 'COSINE', 'EF_RUNTIME', 100, 't', 'TEXT')
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
     query_data = np.float32([qty for j in range(dimension)])
 
