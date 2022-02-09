@@ -7,15 +7,15 @@
 #   - exclude: cpp/use-of-goto            
 extraction:
   cpp:
-    prepare:    # Customizable step used by all languages.
-      packages:
-        - gcc
+#     prepare:    # Customizable step used by all languages.
+#       packages:
+#         - gcc
 #     after_prepare:    # Customizable step used by all languages.
 #       - export GNU_MAKE=make
 #       - export GIT=true
     configure:    # Customizable step used only by C/C++ extraction.
       command:
-        - make setup
+        - sudo make setup
 #     before_index:    # Customizable step used by all languages.
 #       - export BOOST_DIR=$LGTM_SRC/boost
 #       - export GTEST_DIR=$LGTM_SRC/googletest
