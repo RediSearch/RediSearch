@@ -647,7 +647,8 @@ workflows:
             branches:
               only: master
     jobs:
-      - build-macos
+      - build-macos:
+          context: common
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
