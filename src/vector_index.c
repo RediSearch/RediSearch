@@ -1,6 +1,5 @@
 #include "vector_index.h"
-#include "list_reader.h"
-#include "base64/base64.h"
+#include "hybrid_reader.h"
 #include "query_param.h"
 #include "rdb.h"
 
@@ -70,85 +69,107 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   return openVectorKeysDict(ctx, keyName, 1);
 }
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
-  VecSimQueryResult *result;
-  // TODO: change Dict to hold strings
-  RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vf->property);
+static bool isFit (VecSimIndex *ind, size_t size) {
+  VecSimIndexInfo info = VecSimIndex_Info(ind);
+  size_t dim = 0;
+  VecSimType type = 0;
+  bool res = false;
+  switch (info.algo) {
+    case VecSimAlgo_HNSWLIB:
+      dim = info.hnswInfo.dim;
+      type = info.hnswInfo.type;
+      break;
+    case VecSimAlgo_BF:
+      dim = info.bfInfo.dim;
+      type = info.bfInfo.type;
+      break;
+  }
+  switch (type) {
+    case VecSimType_FLOAT32:
+    case VecSimType_FLOAT64:
+    case VecSimType_INT32:
+    case VecSimType_INT64:
+      res = ((dim * sizeof(float)) == size);
+      break;
+  }
+  return res;
+}
+
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIterator *child_it, QueryError *status) {
+  RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
   if (!vecsim) {
     return NULL;
   }
-
-  size_t outLen;
-  unsigned char *vector = vf->vector;
-  switch (vf->type) {
-    case VECTOR_SIM_TOPK:
-      if (vf->isBase64) {
-        unescape((char *)vector, &vf->vecLen);
-        vector = base64_decode(vector, vf->vecLen, &outLen);
+  switch (vq->type) {
+    case VECSIM_QT_TOPK: {
+      VecSimQueryParams qParams;
+      int err;
+      if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params),
+                                           &qParams)) != VecSim_OK) {
+        err = VecSimResolveCode_to_QueryErrorCode(err);
+        QueryError_SetErrorFmt(status, err, "Error parsing vector similarity parameters: %s",
+                               QueryError_Strerror(err));
+        return NULL;
       }
-
-      VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = vf->efRuntime};
-      vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value, &qParams, BY_ID );
-      vf->resultsLen = VecSimQueryResult_Len(vf->results);
-      if (vf->isBase64) {
-        rm_free(vector);
+      if (!isFit(vecsim, vq->topk.vecLen)) {
+        QueryError_SetError(status, QUERY_EINVAL,
+                            "Error parsing vector similarity query: query vector does not match index's type or dimension.");
+        return NULL;
       }
-      break;
-
-    case VECTOR_SIM_INVALID:
-      return NULL;
-  }
-
-  return NewListIterator(vf->results, vf->resultsLen);
-}
-
-void VectorFilter_InitValues(VectorFilter *vf) {
-  vf->efRuntime = HNSW_DEFAULT_EF_RT;
-}
-
-
-VectorQueryType VectorFilter_ParseType(const char *s, size_t len) {
-  if (!strncasecmp(s, "TOPK", len)) {
-    return VECTOR_SIM_TOPK;
-  } else if (!strncasecmp(s, "RANGE", len)) {
-    return VECTOR_SIM_TOPK;
-  } else {
-    return VECTOR_SIM_INVALID;
-  }
-}
-
-int VectorFilter_Validate(const VectorFilter *vf, QueryError *status) {
-    if (vf->type == VECTOR_SIM_INVALID) {
-      QERR_MKSYNTAXERR(status, "Invalid Vector similarity type");
-      return 0;
+      return NewHybridVectorIterator(vecsim, vq->scoreField, vq->topk, qParams, child_it);
     }
-    return 1;
+  }
+  return NULL;
 }
 
-int VectorFilter_EvalParams(dict *params, QueryNode *node, QueryError *status) {
-  if (node->params) {
-    int resolved = 0;
-
-    for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
-      int res = QueryParam_Resolve(&node->params[i], params, status);
-      if (res < 0)
-        return REDISMODULE_ERR;
-      else if (res > 0)
-        resolved = 1;
+int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+  for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
+    int res = QueryParam_Resolve(&node->params[i], params, status);
+    if (res < 0) {
+      return REDISMODULE_ERR;
     }
-    if (resolved && !VectorFilter_Validate(node->vn.vf, status)) {
+  }
+  for (size_t i = 0; i < array_len(node->vn.vq->params.params); i++) {
+    int res = VectorQuery_ParamResolve(node->vn.vq->params, i, params, status);
+    if (res < 0) {
       return REDISMODULE_ERR;
     }
   }
   return REDISMODULE_OK;
 }
 
-void VectorFilter_Free(VectorFilter *vf) {
-  if (vf->property) rm_free((char *)vf->property);
-  if (vf->vector) rm_free(vf->vector);
-  rm_free(vf);
+int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status) {
+  if (!params.needResolve[index]) {
+    return 0;
+  }
+  size_t val_len;
+  const char *val = Param_DictGet(paramsDict, params.params[index].value, &val_len, status);
+  if (!val) {
+    return -1;
+  }
+  rm_free((char *)params.params[index].value);
+  params.params[index].value = rm_strndup(val, val_len);
+  params.params[index].valLen = val_len;
+  return 1;
+}
+
+void VectorQuery_Free(VectorQuery *vq) {
+  if (vq->property) rm_free((char *)vq->property);
+  if (vq->scoreField) rm_free((char *)vq->scoreField);
+  switch (vq->type) {
+    case VECSIM_QT_TOPK: // no need to free the vector as we pointes to the query dictionary
+    default:
+      break;
+  }
+  for (int i = 0; i < array_len(vq->params.params); i++) {
+    rm_free((char *)vq->params.params[i].name);
+    rm_free((char *)vq->params.params[i].value);
+  }
+  array_free(vq->params.params);
+  array_free(vq->params.needResolve);
+  rm_free(vq);
 }
 
 const char *VecSimType_ToString(VecSimType type) {
@@ -226,4 +247,14 @@ int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
 
 fail:
   return REDISMODULE_ERR;
+}
+
+int VecSimResolveCode_to_QueryErrorCode(int code) {
+  switch (code) {
+    case VecSim_OK: return QUERY_OK;
+    case VecSimParamResolverErr_AlreadySet: return QUERY_EDUPFIELD;
+    case VecSimParamResolverErr_UnknownParam: return QUERY_ENOOPTION;
+    case VecSimParamResolverErr_BadValue: return QUERY_EBADATTR;
+  }
+  return QUERY_EGENERIC;
 }

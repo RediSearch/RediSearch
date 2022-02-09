@@ -7,7 +7,7 @@
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
- ********************************************************************************************************************/
+ *******************************************************************************************************************/
 
 void QITR_Cleanup(QueryIterator *qitr) {
   ResultProcessor *p = qitr->rootProc;
@@ -54,7 +54,7 @@ static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
  *
  * It takes the raw index results from the index, and builds the search result to be sent
  * downstream.
- ********************************************************************************************************************/
+ *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;
@@ -173,7 +173,7 @@ void QITR_FreeChain(QueryIterator *qitr) {
  * It takes results from upstream, and using a scoring function applies the score to each one.
  *
  * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
- ********************************************************************************************************************/
+ *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;
@@ -240,6 +240,64 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 }
 
 /*******************************************************************************************************************
+ *  Vector Similarity Result Processor
+ *
+ * It takes results from upstream (should be Index iterator or close; before any RP that need these field),
+ * and add thier vecsim score to the right score field before sending them downstream.
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  const RLookupKey **keys;
+  size_t nkeys;
+} RPVecSim;
+
+static int rpvecsimNext(ResultProcessor *base, SearchResult *res) {
+  int rc;
+  RPVecSim *self = (RPVecSim *)base;
+
+  rc = base->upstream->Next(base->upstream, res);
+  if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+
+  // Add result to every score field.
+  // TODO: when we'll have a way to hold many results, add each result to its corresponding field
+  //  this will require scanning the entire IndexResult tree and looking for vector nodes whose score field name
+  //  stored in some entry of the self->keys array
+  RS_LOG_ASSERT(self->nkeys == 1, "Internal error, number of vector fields in a query is at most 1");
+  for (size_t i = 0; i < self->nkeys; i++) {
+    RSValue *val;
+    if (res->indexResult->type == RSResultType_HybridDistance) {
+      val = RS_NumVal(res->indexResult->agg.children[0]->dist.distance);
+    } else {
+      // The entire query is a TOP-K query, the distance is saved in the root of indexResult.
+      val = RS_NumVal(res->indexResult->dist.distance);
+    }
+    RLookup_WriteOwnKey(self->keys[i], &(res->rowdata), val);
+  }
+
+  return rc;
+}
+
+/* Free implementation for vecsim */
+static void rpvecsimFree(ResultProcessor *rp) {
+  RPVecSim *self = (RPVecSim *)rp;
+  rm_free(self->keys);
+  rm_free(self);
+}
+
+ResultProcessor *RPVecSim_New(const RLookupKey **keys, size_t nkeys) {
+  RPVecSim *ret = rm_calloc(1, sizeof(*ret));
+  ret->keys = keys;
+  ret->nkeys = nkeys;
+  ret->base.Next = rpvecsimNext;
+  ret->base.Free = rpvecsimFree;
+  ret->base.type = RP_VECSIM;
+  return &ret->base;
+}
+
+/*******************************************************************************************************************
  *  Sorting Processor
  *
  * This is where things become a bit complex...
@@ -257,16 +315,13 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
  * EOF. then it starts yielding results one by one by popping from the top of the heap.
  *
  * Note: We use a min-max heap to simplify maintaining a max heap where we can pop from the bottom
- * while
- * finding the top N results
- ********************************************************************************************************************/
+ * while finding the top N results
+ *******************************************************************************************************************/
 
 typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *udata);
 
 typedef struct {
   ResultProcessor base;
-
-  SortByType sortbyType;
 
   // The desired size of the heap - top N results
   // If set to 0 this is a growing heap
@@ -346,11 +401,6 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   SearchResult *h = self->pooledResult;
   int rc = rp->upstream->Next(rp->upstream, h);
 
-  // For VecSim and Geo, this passes the calculated value to the sorting heap.
-  if (h && h->indexResult && h->indexResult->type == RSResultType_Distance) {
-    h->score = h->indexResult->num.value;
-  }
-
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
     // Transition state:
@@ -364,48 +414,40 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   // If the data is not in the sorted vector, lets load it.
   size_t nkeys = self->fieldcmp.nkeys;
   if (nkeys && h->dmd) {
-    if (self->sortbyType == SORTBY_FIELD) {
-      int nLoadKeys = self->fieldcmp.nLoadKeys;
-      const RLookupKey **loadKeys = self->fieldcmp.loadKeys;
+    int nLoadKeys = self->fieldcmp.nLoadKeys;
+    const RLookupKey **loadKeys = self->fieldcmp.loadKeys;
 
-      // If there is no sorting vector, load all required fields, else, load missing fields
-      if (nLoadKeys == REDISEARCH_UNINITIALIZED) {
-        if (!h->rowdata.sv) {
-          loadKeys = self->fieldcmp.keys;
-          nLoadKeys = nkeys;
-        } else {
-          nLoadKeys = 0;
-          for (int i = 0; i < nkeys; ++i) {
-            if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
-              if (!loadKeys) {
-                loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
-              }
-              loadKeys[nLoadKeys++] = self->fieldcmp.keys[i];
+    // If there is no sorting vector, load all required fields, else, load missing fields
+    if (nLoadKeys == REDISEARCH_UNINITIALIZED) {
+      if (!h->rowdata.sv) {
+        loadKeys = self->fieldcmp.keys;
+        nLoadKeys = nkeys;
+      } else {
+        nLoadKeys = 0;
+        for (int i = 0; i < nkeys; ++i) {
+          if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
+            if (!loadKeys) {
+              loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
             }
+            loadKeys[nLoadKeys++] = self->fieldcmp.keys[i];
           }
         }
-        self->fieldcmp.loadKeys = loadKeys;
-        self->fieldcmp.nLoadKeys = nLoadKeys;
       }
+      self->fieldcmp.loadKeys = loadKeys;
+      self->fieldcmp.nLoadKeys = nLoadKeys;
+    }
 
-      if (loadKeys) {
-        QueryError status = {0};
-        RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
-                                      .dmd = h->dmd,
-                                      .nkeys = nLoadKeys,
-                                      .keys = loadKeys,
-                                      .status = &status};
-        RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
-        if (QueryError_HasError(&status)) {
-          return RS_RESULT_ERROR;
-        }
+    if (loadKeys) {
+      QueryError status = {0};
+      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
+                                    .dmd = h->dmd,
+                                    .nkeys = nLoadKeys,
+                                    .keys = loadKeys,
+                                    .status = &status};
+      RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
+      if (QueryError_HasError(&status)) {
+        return RS_RESULT_ERROR;
       }
-    } else if (self->sortbyType == SORTBY_DISTANCE){
-      RSValue *rsv = RS_NumVal(h->indexResult->num.value);
-      RLookup_WriteKey(self->fieldcmp.keys[0], &h->rowdata, rsv);
-      RSValue_Decref(rsv);
-    } else {
-      RS_LOG_ASSERT(0, "oops");
     }
   }
 
@@ -515,18 +557,9 @@ static void srDtor(void *p) {
 }
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascmap, SortByType sortByType) {
+                                      uint64_t ascmap) {
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
-  ret->sortbyType = sortByType;
-  switch (sortByType) {
-  case SORTBY_FIELD:
-  case SORTBY_DISTANCE:
-    ret->cmp = cmpByFields;
-    break;
-  case SORTBY_SCORE:
-    ret->cmp = cmpByScore;
-    break;
-  }
+  ret->cmp = nkeys ? cmpByFields : cmpByScore;
   ret->cmpCtx = ret;
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
@@ -551,7 +584,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 }
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0, SORTBY_SCORE);
+  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
 }
 
 void SortAscMap_Dump(uint64_t tt, size_t n) {
@@ -698,7 +731,8 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 
 static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
                                      "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
-                                     "Projector", "Filter",        "Profile",     "Network"};
+                                     "Projector", "Filter",        "Profile",     "Network",
+                                     "Vector Similarity Scores Loader"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -768,7 +802,7 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
  * It takes results from upstream, and using a scoring function applies the score to each one.
  *
  * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
- ********************************************************************************************************************/
+ *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;
