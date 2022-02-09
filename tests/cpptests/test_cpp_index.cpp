@@ -737,8 +737,8 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Rerun in AD_HOC BF MODE.
   hybridIt->Rewind(hybridIt->ctx);
-  // todo - fix this.
-  hybridIt->ctx->mode = HYBRID_ADHOC_BF;
+  HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
+  hr->mode = HYBRID_ADHOC_BF;
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;

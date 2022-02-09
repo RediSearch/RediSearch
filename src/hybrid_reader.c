@@ -280,6 +280,7 @@ static void HR_Rewind(void *ctx) {
       IndexResult_Free(hr->returnedResults[i]);
     }
     array_clear(hr->returnedResults);
+    hr->child->Rewind(hr->child->ctx);
   }
 }
 
