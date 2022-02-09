@@ -131,26 +131,29 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 #define MODIFIER                        5
 #define MINUS                           6
 #define NUMBER                          7
-#define STOPWORD                        8
-#define TERMLIST                        9
-#define TERM                           10
-#define PREFIX                         11
-#define PERCENT                        12
-#define ATTRIBUTE                      13
-#define LP                             14
-#define RP                             15
-#define COLON                          16
-#define AND                            17
-#define OR                             18
-#define ORX                            19
-#define TEXTEXPR                       20
-#define ARROW                          21
-#define STAR                           22
-#define SEMICOLON                      23
-#define LB                             24
-#define RB                             25
-#define LSQB                           26
-#define RSQB                           27
+#define SIZE                            8
+#define STOPWORD                        9
+#define STAR                           10
+#define TERMLIST                       11
+#define TERM                           12
+#define PREFIX                         13
+#define PERCENT                        14
+#define ATTRIBUTE                      15
+#define LP                             16
+#define RP                             17
+#define COLON                          18
+#define AND                            19
+#define OR                             20
+#define ORX                            21
+#define TEXTEXPR                       22
+#define ARROW                          23
+#define TOP_K                          24
+#define AS                             25
+#define SEMICOLON                      26
+#define LB                             27
+#define RB                             28
+#define LSQB                           29
+#define RSQB                           30
 #endif
 /**************** End token definitions ***************************************/
 
@@ -210,18 +213,20 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 #endif
 /************* Begin control #defines *****************************************/
 #define YYCODETYPE unsigned char
-#define YYNOCODE 48
+#define YYNOCODE 56
 #define YYACTIONTYPE unsigned short int
 #define RSQueryParser_TOKENTYPE QueryToken
 typedef union {
   int yyinit;
   RSQueryParser_TOKENTYPE yy0;
-  QueryAttribute yy7;
-  Vector* yy18;
-  QueryAttribute * yy33;
-  QueryParam * yy62;
-  QueryNode * yy83;
-  RangeNumber yy95;
+  QueryNode * yy35;
+  Vector* yy50;
+  QueryAttribute yy55;
+  SingleVectorQueryParam yy61;
+  VectorQueryParams yy74;
+  QueryParam * yy78;
+  QueryAttribute * yy97;
+  RangeNumber yy111;
 } YYMINORTYPE;
 #ifndef YYSTACKDEPTH
 #define YYSTACKDEPTH 100
@@ -236,18 +241,18 @@ typedef union {
 #define RSQueryParser_CTX_PARAM
 #define RSQueryParser_CTX_FETCH
 #define RSQueryParser_CTX_STORE
-#define YYNSTATE             85
-#define YYNRULE              75
-#define YYNRULE_WITH_ACTION  75
-#define YYNTOKEN             28
-#define YY_MAX_SHIFT         84
-#define YY_MIN_SHIFTREDUCE   135
-#define YY_MAX_SHIFTREDUCE   209
-#define YY_ERROR_ACTION      210
-#define YY_ACCEPT_ACTION     211
-#define YY_NO_ACTION         212
-#define YY_MIN_REDUCE        213
-#define YY_MAX_REDUCE        287
+#define YYNSTATE             104
+#define YYNRULE              90
+#define YYNRULE_WITH_ACTION  88
+#define YYNTOKEN             31
+#define YY_MAX_SHIFT         103
+#define YY_MIN_SHIFTREDUCE   165
+#define YY_MAX_SHIFTREDUCE   254
+#define YY_ERROR_ACTION      255
+#define YY_ACCEPT_ACTION     256
+#define YY_NO_ACTION         257
+#define YY_MIN_REDUCE        258
+#define YY_MAX_REDUCE        347
 /************* End control #defines *******************************************/
 #define YY_NLOOKAHEAD ((int)(sizeof(yy_lookahead)/sizeof(yy_lookahead[0])))
 
@@ -314,127 +319,150 @@ typedef union {
 **  yy_default[]       Default action for each state.
 **
 *********** Begin parsing tables **********************************************/
-#define YY_ACTTAB_COUNT (387)
+#define YY_ACTTAB_COUNT (474)
 static const YYACTIONTYPE yy_action[] = {
- /*     0 */    77,   78,    5,   43,   34,  179,    6,  204,  164,  244,
- /*    10 */   203,  172,   42,  205,    7,  149,   53,   82,    8,  287,
- /*    20 */   202,   65,  213,  201,    5,   66,   34,  179,    6,  204,
- /*    30 */   164,  277,  203,  172,   42,  205,    7,   48,  198,   65,
- /*    40 */     8,  230,   59,   65,  214,   49,    5,  287,   34,  179,
- /*    50 */     6,  204,  164,   35,  203,  172,   42,  205,    7,   17,
- /*    60 */    58,   34,  156,   18,  204,  164,   64,  203,  172,   42,
- /*    70 */   205,   19,  150,  204,  184,   20,  203,  172,   84,  205,
- /*    80 */    34,  179,    6,  204,  164,   84,  203,  172,   42,  205,
- /*    90 */     7,   83,  204,  188,    8,  203,  172,   65,  205,   75,
- /*   100 */    17,  287,   34,  278,   18,  204,  164,   36,  203,  172,
- /*   110 */    42,  205,   19,   48,  198,  243,  229,  208,  263,   45,
- /*   120 */   206,   44,   32,    8,   38,    5,   65,   34,  179,    6,
- /*   130 */   204,  164,   50,  203,  172,   42,  205,    7,   34,  259,
- /*   140 */    18,  204,  164,  258,  203,  172,   42,  205,   19,  267,
- /*   150 */    46,   20,   20,    2,   84,   84,  240,   57,  218,  221,
- /*   160 */    31,  204,   69,   51,  203,   60,   47,  205,  211,   62,
- /*   170 */    52,   17,  287,   34,  231,   18,  204,  164,   37,  203,
- /*   180 */   172,   42,  205,   19,   11,   39,  195,  240,   57,  218,
- /*   190 */   221,   31,  204,   67,  176,  203,   60,   41,  205,  215,
- /*   200 */    62,   52,  240,   57,  203,  221,   24,  205,   61,  272,
- /*   210 */   274,  240,   57,  270,  221,   25,   52,    3,  177,   68,
- /*   220 */   240,   57,  218,  221,   28,   52,  230,   63,   16,   60,
- /*   230 */    55,  178,   10,   62,   52,  240,   57,  218,  221,   27,
- /*   240 */   204,  167,   70,  203,   60,    4,  205,   56,   62,   52,
- /*   250 */     1,   48,  198,  240,   57,  218,  221,   26,  207,   49,
- /*   260 */    71,   58,   60,  157,  175,   12,   62,   52,  240,   57,
- /*   270 */   218,  221,   31,  204,   72,   73,  203,   60,   33,  205,
- /*   280 */    74,   62,   52,   13,  174,  191,  240,   57,  218,  221,
- /*   290 */    31,   79,   76,  173,   80,   60,  280,   81,  279,   62,
- /*   300 */    52,  160,  159,  204,  164,   54,  203,  172,   42,  205,
- /*   310 */     7,   40,  212,  212,    8,  204,  164,   65,  203,  172,
- /*   320 */    42,  205,   19,   48,  198,  212,   20,  208,  212,   84,
- /*   330 */   206,   44,  212,   48,  198,  240,   57,  208,  221,   23,
- /*   340 */   206,   44,  240,   57,  197,  221,   15,  240,   57,   52,
- /*   350 */   221,   22,  204,  212,  193,  203,   52,  212,  205,  240,
- /*   360 */    57,   52,  221,   14,  212,  240,   57,  212,  221,   29,
- /*   370 */   212,  240,   57,   52,  221,   30,  212,  158,  212,   52,
- /*   380 */   204,  167,  212,  203,  212,   52,  205,
+ /*     0 */   308,   49,    5,  345,   35,  209,    6,  244,  245,  194,
+ /*    10 */    37,   95,  243,  202,   46,  246,    7,  179,   57,   17,
+ /*    20 */     8,   62,    8,   83,  258,   83,    5,  345,   35,  209,
+ /*    30 */     6,  244,  245,  194,   84,   64,  243,  202,   46,  246,
+ /*    40 */     7,  244,  245,  197,    8,  260,  243,   70,  259,  246,
+ /*    50 */     5,   34,   35,  209,    6,  244,  245,  194,  253,  221,
+ /*    60 */   243,  202,   46,  246,    1,   18,  345,   35,   79,   19,
+ /*    70 */   244,  245,  194,   36,   53,  243,  202,   46,  246,   20,
+ /*    80 */   180,   21,   83,   21,  103,   53,  103,   52,   14,    5,
+ /*    90 */    63,   35,  209,    6,  244,  245,  194,  253,   54,  243,
+ /*   100 */   202,   46,  246,    1,   35,  209,    6,  244,  245,  194,
+ /*   110 */   328,   65,  243,  202,   46,  246,    7,  244,  245,   87,
+ /*   120 */     8,  103,  243,   83,   51,  246,   18,   47,   35,  102,
+ /*   130 */    19,  244,  245,  194,  275,   71,  243,  202,   46,  246,
+ /*   140 */    20,  244,  245,  214,   60,  101,  243,  202,  345,  246,
+ /*   150 */    43,   33,   42,   39,    5,   38,   35,  209,    6,  244,
+ /*   160 */   245,  194,   78,   40,  243,  202,   46,  246,    7,   35,
+ /*   170 */    96,   19,  244,  245,  194,   82,   40,  243,  202,   46,
+ /*   180 */   246,   20,  241,  242,  289,   21,    3,  240,  103,  285,
+ /*   190 */    66,  263,  266,   32,  244,  245,  218,  331,   93,  243,
+ /*   200 */   202,   72,  246,  322,  256,   69,   74,   59,   18,   68,
+ /*   210 */    35,  186,   19,  244,  245,  194,  275,   75,  243,  202,
+ /*   220 */    46,  246,   20,    2,  326,  321,  285,   66,  263,  266,
+ /*   230 */    27,  285,   66,  243,  266,   26,  246,   68,   72,  187,
+ /*   240 */   332,  288,   76,   74,   59,   67,  244,  245,  194,   59,
+ /*   250 */   274,  243,  202,   46,  246,    7,  304,  285,   66,    8,
+ /*   260 */   266,   24,   83,  244,  245,  194,  247,  303,  243,  202,
+ /*   270 */    46,  246,   20,  248,  327,   59,   21,  209,   11,  103,
+ /*   280 */    80,  285,   66,  263,  266,   32,   55,  237,  236,  276,
+ /*   290 */   254,  320,  251,   72,   77,  249,   48,    4,   74,   59,
+ /*   300 */   285,   66,  263,  266,   29,   55,  237,  236,   41,  232,
+ /*   310 */   223,  251,   72,  319,  249,   48,   10,   74,   59,  285,
+ /*   320 */    66,  263,  266,   28,   43,  244,  245,   85,   81,  206,
+ /*   330 */   243,   72,   45,  246,  207,    2,   74,   59,  285,   66,
+ /*   340 */   263,  266,   27,   86,  225,  285,   66,  208,  266,   16,
+ /*   350 */    72,   88,   89,  205,   12,   74,   59,  285,   66,  263,
+ /*   360 */   266,   32,   91,   59,   92,  204,   94,  203,  335,   72,
+ /*   370 */   334,  333,  190,   13,   74,   59,  285,   66,  263,  266,
+ /*   380 */    32,  188,   98,   97,  244,  245,  197,   99,   72,  243,
+ /*   390 */   100,  189,  246,   74,   59,  285,   66,   61,  266,   25,
+ /*   400 */    44,   73,  317,  257,  285,   66,  257,  266,   23,  315,
+ /*   410 */   257,  257,  257,   59,  285,   66,  257,  266,   15,  257,
+ /*   420 */   285,   66,   59,  266,   30,  257,  257,  285,   66,  257,
+ /*   430 */   266,   31,   59,  257,   55,  237,  236,  257,   59,   55,
+ /*   440 */   237,  236,  257,  250,   56,   59,  244,  245,   90,   56,
+ /*   450 */   257,  243,  244,  245,  246,  312,   50,  243,  257,  257,
+ /*   460 */   246,  257,  257,  257,  257,  257,  257,  257,  257,  257,
+ /*   470 */   257,  257,  257,   58,
 };
 static const YYCODETYPE yy_lookahead[] = {
- /*     0 */    45,   45,    2,   32,    4,    5,    6,    7,    8,   45,
- /*    10 */    10,   11,   12,   13,   14,   15,   45,   46,   18,   41,
- /*    20 */     7,   21,    0,   10,    2,   47,    4,    5,    6,    7,
- /*    30 */     8,   41,   10,   11,   12,   13,   14,    6,    7,   21,
- /*    40 */    18,   29,   30,   21,    0,   14,    2,   41,    4,    5,
- /*    50 */     6,    7,    8,   47,   10,   11,   12,   13,   14,    2,
- /*    60 */    23,    4,   25,    6,    7,    8,   22,   10,   11,   12,
- /*    70 */    13,   14,   15,    7,    8,   18,   10,   11,   21,   13,
- /*    80 */     4,    5,    6,    7,    8,   21,   10,   11,   12,   13,
- /*    90 */    14,   13,    7,    8,   18,   10,   11,   21,   13,   45,
- /*   100 */     2,   41,    4,   41,    6,    7,    8,   47,   10,   11,
- /*   110 */    12,   13,   14,    6,    7,   45,   45,   10,   31,   32,
- /*   120 */    13,   14,   24,   18,   26,    2,   21,    4,    5,    6,
- /*   130 */     7,    8,   45,   10,   11,   12,   13,   14,    4,   46,
- /*   140 */     6,    7,    8,   46,   10,   11,   12,   13,   14,   31,
- /*   150 */    32,   18,   18,   28,   21,   21,   31,   32,   33,   34,
- /*   160 */    35,    7,    8,   45,   10,   40,   12,   13,   43,   44,
- /*   170 */    45,    2,   41,    4,   29,    6,    7,    8,   47,   10,
- /*   180 */    11,   12,   13,   14,   28,   24,   27,   31,   32,   33,
- /*   190 */    34,   35,    7,    8,   12,   10,   40,   12,   13,    0,
- /*   200 */    44,   45,   31,   32,   10,   34,   35,   13,   37,   38,
- /*   210 */    39,   31,   32,   42,   34,   35,   45,   28,   12,   12,
- /*   220 */    31,   32,   33,   34,   35,   45,   29,   30,   16,   40,
- /*   230 */    18,   12,   28,   44,   45,   31,   32,   33,   34,   35,
- /*   240 */     7,    8,   12,   10,   40,   16,   13,   18,   44,   45,
- /*   250 */    28,    6,    7,   31,   32,   33,   34,   35,   13,   14,
- /*   260 */    12,   23,   40,   25,   12,   28,   44,   45,   31,   32,
- /*   270 */    33,   34,   35,    7,    8,   12,   10,   40,   18,   13,
- /*   280 */    12,   44,   45,   28,   12,   25,   31,   32,   33,   34,
- /*   290 */    35,    7,   12,   12,   10,   40,    4,   13,    4,   44,
- /*   300 */    45,    4,    4,    7,    8,   16,   10,   11,   12,   13,
- /*   310 */    14,   24,   48,   48,   18,    7,    8,   21,   10,   11,
- /*   320 */    12,   13,   14,    6,    7,   48,   18,   10,   48,   21,
- /*   330 */    13,   14,   48,    6,    7,   31,   32,   10,   34,   35,
- /*   340 */    13,   14,   31,   32,   27,   34,   35,   31,   32,   45,
- /*   350 */    34,   35,    7,   48,   27,   10,   45,   48,   13,   31,
- /*   360 */    32,   45,   34,   35,   48,   31,   32,   48,   34,   35,
- /*   370 */    48,   31,   32,   45,   34,   35,   48,    4,   48,   45,
- /*   380 */     7,    8,   48,   10,   48,   45,   13,   48,   48,   48,
- /*   390 */    48,   48,   48,   48,   48,   48,   48,   48,   48,   48,
- /*   400 */    48,   48,   48,   48,   48,   48,   28,   28,   28,   28,
- /*   410 */    28,   28,   28,   28,   28,
+ /*     0 */    34,   35,    2,   47,    4,    5,    6,    7,    8,    9,
+ /*    10 */    54,   52,   12,   13,   14,   15,   16,   17,   52,   18,
+ /*    20 */    20,   20,   20,   23,    0,   23,    2,   47,    4,    5,
+ /*    30 */     6,    7,    8,    9,   54,   24,   12,   13,   14,   15,
+ /*    40 */    16,    7,    8,    9,   20,    0,   12,   23,    0,   15,
+ /*    50 */     2,   20,    4,    5,    6,    7,    8,    9,   10,   28,
+ /*    60 */    12,   13,   14,   15,   16,    2,   47,    4,   23,    6,
+ /*    70 */     7,    8,    9,   54,   12,   12,   13,   14,   15,   16,
+ /*    80 */    17,   20,   23,   20,   23,   12,   23,   25,   18,    2,
+ /*    90 */    20,    4,    5,    6,    7,    8,    9,   10,   25,   12,
+ /*   100 */    13,   14,   15,   16,    4,    5,    6,    7,    8,    9,
+ /*   110 */    44,   45,   12,   13,   14,   15,   16,    7,    8,    9,
+ /*   120 */    20,   23,   12,   23,   14,   15,    2,   35,    4,   15,
+ /*   130 */     6,    7,    8,    9,   32,   33,   12,   13,   14,   15,
+ /*   140 */    16,    7,    8,    9,   52,   53,   12,   13,   47,   15,
+ /*   150 */    27,   27,   29,   29,    2,   54,    4,    5,    6,    7,
+ /*   160 */     8,    9,   42,   43,   12,   13,   14,   15,   16,    4,
+ /*   170 */    52,    6,    7,    8,    9,   42,   43,   12,   13,   14,
+ /*   180 */    15,   16,    7,    8,   52,   20,   31,   12,   23,   34,
+ /*   190 */    35,   36,   37,   38,    7,    8,    9,   47,   52,   12,
+ /*   200 */    13,   46,   15,   52,   49,   50,   51,   52,    2,   26,
+ /*   210 */     4,   28,    6,    7,    8,    9,   32,   33,   12,   13,
+ /*   220 */    14,   15,   16,   31,   52,   52,   34,   35,   36,   37,
+ /*   230 */    38,   34,   35,   12,   37,   38,   15,   26,   46,   28,
+ /*   240 */    47,   52,   50,   51,   52,   55,    7,    8,    9,   52,
+ /*   250 */    52,   12,   13,   14,   15,   16,   53,   34,   35,   20,
+ /*   260 */    37,   38,   23,    7,    8,    9,    8,   53,   12,   13,
+ /*   270 */    14,   15,   16,   15,   44,   52,   20,    5,   31,   23,
+ /*   280 */    51,   34,   35,   36,   37,   38,    6,    7,    8,   32,
+ /*   290 */    17,    0,   12,   46,   30,   15,   16,   31,   51,   52,
+ /*   300 */    34,   35,   36,   37,   38,    6,    7,    8,   29,   15,
+ /*   310 */    30,   12,   46,    0,   15,   16,   31,   51,   52,   34,
+ /*   320 */    35,   36,   37,   38,   27,    7,    8,    9,   30,   14,
+ /*   330 */    12,   46,   14,   15,   14,   31,   51,   52,   34,   35,
+ /*   340 */    36,   37,   38,   14,   30,   34,   35,   14,   37,   38,
+ /*   350 */    46,   14,   14,   14,   31,   51,   52,   34,   35,   36,
+ /*   360 */    37,   38,   14,   52,   14,   14,   14,   14,    4,   46,
+ /*   370 */     4,    4,    4,   31,   51,   52,   34,   35,   36,   37,
+ /*   380 */    38,    4,    7,    8,    7,    8,    9,   12,   46,   12,
+ /*   390 */    15,    4,   15,   51,   52,   34,   35,   18,   37,   38,
+ /*   400 */    27,   40,   41,   56,   34,   35,   56,   37,   38,   48,
+ /*   410 */    56,   56,   56,   52,   34,   35,   56,   37,   38,   56,
+ /*   420 */    34,   35,   52,   37,   38,   56,   56,   34,   35,   56,
+ /*   430 */    37,   38,   52,   56,    6,    7,    8,   56,   52,    6,
+ /*   440 */     7,    8,   56,   15,   16,   52,    7,    8,    9,   16,
+ /*   450 */    56,   12,    7,    8,   15,   34,   35,   12,   56,   56,
+ /*   460 */    15,   56,   56,   56,   56,   56,   56,   56,   56,   56,
+ /*   470 */    56,   56,   56,   52,   56,   56,   56,   56,   56,   56,
+ /*   480 */    56,   56,   56,   56,   31,   31,   31,   31,   31,   31,
+ /*   490 */    31,   31,   31,   31,   31,   31,   31,   31,   31,   31,
+ /*   500 */    31,   31,   31,   31,   31,
 };
-#define YY_SHIFT_COUNT    (84)
+#define YY_SHIFT_COUNT    (103)
 #define YY_SHIFT_MIN      (0)
-#define YY_SHIFT_MAX      (373)
+#define YY_SHIFT_MAX      (445)
 static const unsigned short int yy_shift_ofst[] = {
- /*     0 */    44,    0,   22,   76,   98,  123,  123,  123,  123,  123,
- /*    10 */   296,  105,   18,   18,   57,  134,  169,  169,  169,  169,
- /*    20 */   169,  169,  308,  133,  133,  133,   64,   64,   64,   64,
- /*    30 */    64,   64,   66,   85,  284,  317,  327,  107,  107,   78,
- /*    40 */    78,  154,  185,  373,  245,  233,  233,  266,   31,   31,
- /*    50 */   345,  345,  345,  345,  345,   13,   13,  194,   78,   37,
- /*    60 */   212,  260,  229,  238,  199,  161,  159,  182,  206,  207,
- /*    70 */   219,  230,  248,  252,  263,  268,  272,  280,  281,  292,
- /*    80 */   294,  297,  298,  289,  287,
+ /*     0 */    48,   87,    0,   24,  100,  152,  152,  152,  152,  152,
+ /*    10 */   239,    2,   59,   59,  124,   63,  165,  206,  206,  206,
+ /*    20 */   206,  206,  206,  256,   61,   61,   61,   98,   98,   98,
+ /*    30 */    98,   98,   98,  134,  187,  375,  280,  299,  299,  299,
+ /*    40 */    62,   11,   11,  114,  114,  110,  318,  377,  428,   34,
+ /*    50 */    34,  439,  445,  445,  445,  433,  433,  445,  445,  445,
+ /*    60 */   445,  445,  175,  175,  258,   73,  221,  272,  114,   45,
+ /*    70 */   123,  183,    1,   31,   70,  211,  273,  291,  264,  279,
+ /*    80 */   294,  313,  298,  297,  314,  315,  320,  329,  333,  337,
+ /*    90 */   338,  339,  348,  350,  351,  352,  353,  364,  366,  367,
+ /*   100 */   368,  387,  379,  373,
 };
-#define YY_REDUCE_COUNT (58)
-#define YY_REDUCE_MIN   (-45)
-#define YY_REDUCE_MAX   (340)
+#define YY_REDUCE_COUNT (68)
+#define YY_REDUCE_MIN   (-44)
+#define YY_REDUCE_MAX   (421)
 static const short yy_reduce_ofst[] = {
- /*     0 */   125,  156,  156,  156,  171,  189,  204,  222,  237,  255,
- /*    10 */   156,  156,  156,  156,  180,  180,  304,  311,  316,  328,
- /*    20 */   334,  340,  180,  180,  180,  180,  180,  180,  180,  180,
- /*    30 */   180,  180,   87,  118,  -29,  -22,    6,   60,  131,   12,
- /*    40 */   197,  -45,  -44,  -36,  -10,  -36,  -36,   54,   62,  -10,
- /*    50 */    70,   70,   70,   70,   71,   93,   97,  -36,  145,
+ /*     0 */   155,  192,  247,  247,  247,  266,  285,  304,  323,  342,
+ /*    10 */   247,  247,  247,  247,  361,  197,  197,  223,  311,  370,
+ /*    20 */   380,  386,  393,  197,  197,  197,  197,  197,  197,  197,
+ /*    30 */   197,  197,  197,  -34,  421,   92,  -44,  -20,   19,  101,
+ /*    40 */    66,  120,  133,  102,  184,  -41,  118,  132,  150,  132,
+ /*    50 */   132,  146,  151,  172,  173,  193,  150,  189,  189,  189,
+ /*    60 */   189,  198,  203,  214,  190,  230,  132,  229,  257,
 };
 static const YYACTIONTYPE yy_default[] = {
- /*     0 */   210,  210,  210,  248,  210,  210,  210,  210,  210,  210,
- /*    10 */   246,  216,  219,  220,  210,  249,  210,  210,  210,  210,
- /*    20 */   210,  210,  247,  226,  225,  217,  224,  224,  224,  222,
- /*    30 */   223,  224,  210,  210,  210,  210,  210,  210,  210,  233,
- /*    40 */   233,  210,  210,  210,  210,  264,  268,  210,  210,  210,
- /*    50 */   261,  265,  239,  210,  210,  210,  210,  241,  232,  210,
- /*    60 */   210,  260,  210,  210,  210,  210,  210,  210,  210,  210,
- /*    70 */   210,  210,  210,  210,  210,  210,  210,  210,  210,  282,
- /*    80 */   281,  283,  210,  210,  210,
+ /*     0 */   255,  255,  255,  255,  293,  255,  255,  255,  255,  255,
+ /*    10 */   291,  261,  264,  265,  255,  255,  294,  255,  255,  255,
+ /*    20 */   255,  255,  255,  292,  271,  270,  262,  269,  269,  269,
+ /*    30 */   267,  268,  269,  255,  255,  255,  255,  255,  255,  255,
+ /*    40 */   324,  255,  255,  278,  278,  255,  255,  255,  255,  309,
+ /*    50 */   313,  255,  255,  255,  255,  255,  255,  306,  310,  284,
+ /*    60 */   255,  255,  255,  255,  255,  323,  286,  255,  277,  255,
+ /*    70 */   255,  255,  255,  305,  255,  255,  255,  255,  255,  255,
+ /*    80 */   255,  255,  255,  255,  255,  255,  255,  255,  255,  255,
+ /*    90 */   255,  255,  255,  255,  255,  255,  255,  338,  337,  336,
+ /*   100 */   339,  255,  255,  255,
 };
 /********** End of lemon-generated parsing tables *****************************/
 
@@ -550,46 +578,54 @@ static const char *const yyTokenName[] = {
   /*    5 */ "MODIFIER",
   /*    6 */ "MINUS",
   /*    7 */ "NUMBER",
-  /*    8 */ "STOPWORD",
-  /*    9 */ "TERMLIST",
-  /*   10 */ "TERM",
-  /*   11 */ "PREFIX",
-  /*   12 */ "PERCENT",
-  /*   13 */ "ATTRIBUTE",
-  /*   14 */ "LP",
-  /*   15 */ "RP",
-  /*   16 */ "COLON",
-  /*   17 */ "AND",
-  /*   18 */ "OR",
-  /*   19 */ "ORX",
-  /*   20 */ "TEXTEXPR",
-  /*   21 */ "ARROW",
-  /*   22 */ "STAR",
-  /*   23 */ "SEMICOLON",
-  /*   24 */ "LB",
-  /*   25 */ "RB",
-  /*   26 */ "LSQB",
-  /*   27 */ "RSQB",
-  /*   28 */ "expr",
-  /*   29 */ "attribute",
-  /*   30 */ "attribute_list",
-  /*   31 */ "prefix",
-  /*   32 */ "termlist",
-  /*   33 */ "union",
-  /*   34 */ "text_union",
-  /*   35 */ "text_expr",
-  /*   36 */ "fuzzy",
-  /*   37 */ "tag_list",
-  /*   38 */ "geo_filter",
-  /*   39 */ "vector_filter",
-  /*   40 */ "modifierlist",
-  /*   41 */ "num",
-  /*   42 */ "numeric_range",
-  /*   43 */ "query",
-  /*   44 */ "modifier",
-  /*   45 */ "param_term",
-  /*   46 */ "term",
-  /*   47 */ "param_any",
+  /*    8 */ "SIZE",
+  /*    9 */ "STOPWORD",
+  /*   10 */ "STAR",
+  /*   11 */ "TERMLIST",
+  /*   12 */ "TERM",
+  /*   13 */ "PREFIX",
+  /*   14 */ "PERCENT",
+  /*   15 */ "ATTRIBUTE",
+  /*   16 */ "LP",
+  /*   17 */ "RP",
+  /*   18 */ "COLON",
+  /*   19 */ "AND",
+  /*   20 */ "OR",
+  /*   21 */ "ORX",
+  /*   22 */ "TEXTEXPR",
+  /*   23 */ "ARROW",
+  /*   24 */ "TOP_K",
+  /*   25 */ "AS",
+  /*   26 */ "SEMICOLON",
+  /*   27 */ "LB",
+  /*   28 */ "RB",
+  /*   29 */ "LSQB",
+  /*   30 */ "RSQB",
+  /*   31 */ "expr",
+  /*   32 */ "attribute",
+  /*   33 */ "attribute_list",
+  /*   34 */ "prefix",
+  /*   35 */ "termlist",
+  /*   36 */ "union",
+  /*   37 */ "text_union",
+  /*   38 */ "text_expr",
+  /*   39 */ "fuzzy",
+  /*   40 */ "tag_list",
+  /*   41 */ "geo_filter",
+  /*   42 */ "vector_query",
+  /*   43 */ "vector_command",
+  /*   44 */ "vector_attribute",
+  /*   45 */ "vector_attribute_list",
+  /*   46 */ "modifierlist",
+  /*   47 */ "num",
+  /*   48 */ "numeric_range",
+  /*   49 */ "query",
+  /*   50 */ "star",
+  /*   51 */ "modifier",
+  /*   52 */ "param_term",
+  /*   53 */ "term",
+  /*   54 */ "param_any",
+  /*   55 */ "param_size",
 };
 #endif /* defined(YYCOVERAGE) || !defined(NDEBUG) */
 
@@ -599,7 +635,7 @@ static const char *const yyTokenName[] = {
 static const char *const yyRuleName[] = {
  /*   0 */ "query ::= expr",
  /*   1 */ "query ::=",
- /*   2 */ "query ::= STAR",
+ /*   2 */ "query ::= star",
  /*   3 */ "expr ::= expr expr",
  /*   4 */ "text_expr ::= text_expr text_expr",
  /*   5 */ "expr ::= union",
@@ -658,20 +694,35 @@ static const char *const yyRuleName[] = {
  /*  58 */ "numeric_range ::= LSQB param_any param_any RSQB",
  /*  59 */ "expr ::= modifier COLON geo_filter",
  /*  60 */ "geo_filter ::= LSQB param_any param_any param_any param_any RSQB",
- /*  61 */ "expr ::= modifier COLON vector_filter",
- /*  62 */ "vector_filter ::= LSQB param_any param_any param_any RSQB",
- /*  63 */ "num ::= NUMBER",
- /*  64 */ "num ::= LP num",
- /*  65 */ "num ::= MINUS num",
- /*  66 */ "term ::= TERM",
- /*  67 */ "term ::= NUMBER",
- /*  68 */ "param_term ::= TERM",
- /*  69 */ "param_term ::= NUMBER",
- /*  70 */ "param_term ::= ATTRIBUTE",
- /*  71 */ "param_any ::= ATTRIBUTE",
- /*  72 */ "param_any ::= LP ATTRIBUTE",
- /*  73 */ "param_any ::= TERM",
- /*  74 */ "param_any ::= num",
+ /*  61 */ "query ::= expr ARROW LSQB vector_query RSQB",
+ /*  62 */ "query ::= star ARROW LSQB vector_query RSQB",
+ /*  63 */ "vector_query ::= vector_command vector_attribute_list AS param_term",
+ /*  64 */ "vector_query ::= vector_command AS param_term",
+ /*  65 */ "vector_query ::= vector_command vector_attribute_list",
+ /*  66 */ "vector_query ::= vector_command",
+ /*  67 */ "vector_command ::= TOP_K param_size modifier ATTRIBUTE",
+ /*  68 */ "vector_attribute ::= TERM param_term",
+ /*  69 */ "vector_attribute_list ::= vector_attribute_list vector_attribute",
+ /*  70 */ "vector_attribute_list ::= vector_attribute",
+ /*  71 */ "num ::= SIZE",
+ /*  72 */ "num ::= NUMBER",
+ /*  73 */ "num ::= LP num",
+ /*  74 */ "num ::= MINUS num",
+ /*  75 */ "term ::= TERM",
+ /*  76 */ "term ::= NUMBER",
+ /*  77 */ "term ::= SIZE",
+ /*  78 */ "param_term ::= TERM",
+ /*  79 */ "param_term ::= NUMBER",
+ /*  80 */ "param_term ::= SIZE",
+ /*  81 */ "param_term ::= ATTRIBUTE",
+ /*  82 */ "param_size ::= SIZE",
+ /*  83 */ "param_size ::= ATTRIBUTE",
+ /*  84 */ "param_any ::= ATTRIBUTE",
+ /*  85 */ "param_any ::= LP ATTRIBUTE",
+ /*  86 */ "param_any ::= TERM",
+ /*  87 */ "param_any ::= num",
+ /*  88 */ "star ::= STAR",
+ /*  89 */ "star ::= LP star RP",
 };
 #endif /* NDEBUG */
 
@@ -798,60 +849,75 @@ static void yy_destructor(
     */
 /********* Begin destructor definitions ***************************************/
       /* Default NON-TERMINAL Destructor */
-    case 41: /* num */
-    case 43: /* query */
-    case 44: /* modifier */
-    case 45: /* param_term */
-    case 46: /* term */
-    case 47: /* param_any */
+    case 44: /* vector_attribute */
+    case 47: /* num */
+    case 49: /* query */
+    case 50: /* star */
+    case 51: /* modifier */
+    case 52: /* param_term */
+    case 53: /* term */
+    case 54: /* param_any */
+    case 55: /* param_size */
 {
  
 }
       break;
-    case 28: /* expr */
-    case 31: /* prefix */
-    case 32: /* termlist */
-    case 33: /* union */
-    case 34: /* text_union */
-    case 35: /* text_expr */
-    case 36: /* fuzzy */
-    case 37: /* tag_list */
+    case 31: /* expr */
+    case 34: /* prefix */
+    case 35: /* termlist */
+    case 36: /* union */
+    case 37: /* text_union */
+    case 38: /* text_expr */
+    case 39: /* fuzzy */
+    case 40: /* tag_list */
+    case 42: /* vector_query */
+    case 43: /* vector_command */
 {
- QueryNode_Free((yypminor->yy83)); 
+ QueryNode_Free((yypminor->yy35)); 
 }
       break;
-    case 29: /* attribute */
+    case 32: /* attribute */
 {
- rm_free((char*)(yypminor->yy7).value); 
+ rm_free((char*)(yypminor->yy55).value); 
 }
       break;
-    case 30: /* attribute_list */
+    case 33: /* attribute_list */
 {
- array_free_ex((yypminor->yy33), rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy97), rm_free((char*)((QueryAttribute*)ptr )->value)); 
 }
       break;
-    case 38: /* geo_filter */
-    case 39: /* vector_filter */
+    case 41: /* geo_filter */
 {
- QueryParam_Free((yypminor->yy62)); 
+ QueryParam_Free((yypminor->yy78)); 
 }
       break;
-    case 40: /* modifierlist */
+    case 45: /* vector_attribute_list */
+{
+
+  array_free((yypminor->yy74).needResolve);
+  array_free_ex((yypminor->yy74).params, {
+    rm_free((char*)((VecSimRawParam*)ptr)->value);
+    rm_free((char*)((VecSimRawParam*)ptr)->name);
+  });
+
+}
+      break;
+    case 46: /* modifierlist */
 {
  
-    for (size_t i = 0; i < Vector_Size((yypminor->yy18)); i++) {
+    for (size_t i = 0; i < Vector_Size((yypminor->yy50)); i++) {
         char *s;
-        Vector_Get((yypminor->yy18), i, &s);
+        Vector_Get((yypminor->yy50), i, &s);
         rm_free(s);
     }
-    Vector_Free((yypminor->yy18)); 
+    Vector_Free((yypminor->yy50)); 
 
 }
       break;
-    case 42: /* numeric_range */
+    case 48: /* numeric_range */
 {
 
-  QueryParam_Free((yypminor->yy62));
+  QueryParam_Free((yypminor->yy78));
 
 }
       break;
@@ -1141,81 +1207,96 @@ static void yy_shift(
 /* For rule J, yyRuleInfoLhs[J] contains the symbol on the left-hand side
 ** of that rule */
 static const YYCODETYPE yyRuleInfoLhs[] = {
-    43,  /* (0) query ::= expr */
-    43,  /* (1) query ::= */
-    43,  /* (2) query ::= STAR */
-    28,  /* (3) expr ::= expr expr */
-    35,  /* (4) text_expr ::= text_expr text_expr */
-    28,  /* (5) expr ::= union */
-    33,  /* (6) union ::= expr OR expr */
-    33,  /* (7) union ::= union OR expr */
-    35,  /* (8) text_expr ::= text_union */
-    34,  /* (9) text_union ::= text_expr OR text_expr */
-    34,  /* (10) text_union ::= text_union OR text_expr */
-    28,  /* (11) expr ::= text_expr */
-    28,  /* (12) expr ::= modifier COLON text_expr */
-    28,  /* (13) expr ::= modifierlist COLON text_expr */
-    28,  /* (14) expr ::= LP expr RP */
-    35,  /* (15) text_expr ::= LP text_expr RP */
-    29,  /* (16) attribute ::= ATTRIBUTE COLON param_term */
-    30,  /* (17) attribute_list ::= attribute */
-    30,  /* (18) attribute_list ::= attribute_list SEMICOLON attribute */
-    30,  /* (19) attribute_list ::= attribute_list SEMICOLON */
-    30,  /* (20) attribute_list ::= */
-    28,  /* (21) expr ::= expr ARROW LB attribute_list RB */
-    35,  /* (22) text_expr ::= text_expr ARROW LB attribute_list RB */
-    35,  /* (23) text_expr ::= QUOTE termlist QUOTE */
-    35,  /* (24) text_expr ::= QUOTE term QUOTE */
-    35,  /* (25) text_expr ::= QUOTE ATTRIBUTE QUOTE */
-    35,  /* (26) text_expr ::= param_term */
-    35,  /* (27) text_expr ::= prefix */
-    35,  /* (28) text_expr ::= termlist */
-    35,  /* (29) text_expr ::= STOPWORD */
-    32,  /* (30) termlist ::= param_term param_term */
-    32,  /* (31) termlist ::= termlist param_term */
-    32,  /* (32) termlist ::= termlist STOPWORD */
-    28,  /* (33) expr ::= MINUS expr */
-    35,  /* (34) text_expr ::= MINUS text_expr */
-    28,  /* (35) expr ::= TILDE expr */
-    35,  /* (36) text_expr ::= TILDE text_expr */
-    31,  /* (37) prefix ::= PREFIX */
-    35,  /* (38) text_expr ::= PERCENT param_term PERCENT */
-    35,  /* (39) text_expr ::= PERCENT PERCENT param_term PERCENT PERCENT */
-    35,  /* (40) text_expr ::= PERCENT PERCENT PERCENT param_term PERCENT PERCENT PERCENT */
-    35,  /* (41) text_expr ::= PERCENT STOPWORD PERCENT */
-    35,  /* (42) text_expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
-    35,  /* (43) text_expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
-    44,  /* (44) modifier ::= MODIFIER */
-    40,  /* (45) modifierlist ::= modifier OR term */
-    40,  /* (46) modifierlist ::= modifierlist OR term */
-    28,  /* (47) expr ::= modifier COLON tag_list */
-    37,  /* (48) tag_list ::= LB param_term */
-    37,  /* (49) tag_list ::= LB STOPWORD */
-    37,  /* (50) tag_list ::= LB prefix */
-    37,  /* (51) tag_list ::= LB termlist */
-    37,  /* (52) tag_list ::= tag_list OR param_term */
-    37,  /* (53) tag_list ::= tag_list OR STOPWORD */
-    37,  /* (54) tag_list ::= tag_list OR prefix */
-    37,  /* (55) tag_list ::= tag_list OR termlist */
-    37,  /* (56) tag_list ::= tag_list RB */
-    28,  /* (57) expr ::= modifier COLON numeric_range */
-    42,  /* (58) numeric_range ::= LSQB param_any param_any RSQB */
-    28,  /* (59) expr ::= modifier COLON geo_filter */
-    38,  /* (60) geo_filter ::= LSQB param_any param_any param_any param_any RSQB */
-    28,  /* (61) expr ::= modifier COLON vector_filter */
-    39,  /* (62) vector_filter ::= LSQB param_any param_any param_any RSQB */
-    41,  /* (63) num ::= NUMBER */
-    41,  /* (64) num ::= LP num */
-    41,  /* (65) num ::= MINUS num */
-    46,  /* (66) term ::= TERM */
-    46,  /* (67) term ::= NUMBER */
-    45,  /* (68) param_term ::= TERM */
-    45,  /* (69) param_term ::= NUMBER */
-    45,  /* (70) param_term ::= ATTRIBUTE */
-    47,  /* (71) param_any ::= ATTRIBUTE */
-    47,  /* (72) param_any ::= LP ATTRIBUTE */
-    47,  /* (73) param_any ::= TERM */
-    47,  /* (74) param_any ::= num */
+    49,  /* (0) query ::= expr */
+    49,  /* (1) query ::= */
+    49,  /* (2) query ::= star */
+    31,  /* (3) expr ::= expr expr */
+    38,  /* (4) text_expr ::= text_expr text_expr */
+    31,  /* (5) expr ::= union */
+    36,  /* (6) union ::= expr OR expr */
+    36,  /* (7) union ::= union OR expr */
+    38,  /* (8) text_expr ::= text_union */
+    37,  /* (9) text_union ::= text_expr OR text_expr */
+    37,  /* (10) text_union ::= text_union OR text_expr */
+    31,  /* (11) expr ::= text_expr */
+    31,  /* (12) expr ::= modifier COLON text_expr */
+    31,  /* (13) expr ::= modifierlist COLON text_expr */
+    31,  /* (14) expr ::= LP expr RP */
+    38,  /* (15) text_expr ::= LP text_expr RP */
+    32,  /* (16) attribute ::= ATTRIBUTE COLON param_term */
+    33,  /* (17) attribute_list ::= attribute */
+    33,  /* (18) attribute_list ::= attribute_list SEMICOLON attribute */
+    33,  /* (19) attribute_list ::= attribute_list SEMICOLON */
+    33,  /* (20) attribute_list ::= */
+    31,  /* (21) expr ::= expr ARROW LB attribute_list RB */
+    38,  /* (22) text_expr ::= text_expr ARROW LB attribute_list RB */
+    38,  /* (23) text_expr ::= QUOTE termlist QUOTE */
+    38,  /* (24) text_expr ::= QUOTE term QUOTE */
+    38,  /* (25) text_expr ::= QUOTE ATTRIBUTE QUOTE */
+    38,  /* (26) text_expr ::= param_term */
+    38,  /* (27) text_expr ::= prefix */
+    38,  /* (28) text_expr ::= termlist */
+    38,  /* (29) text_expr ::= STOPWORD */
+    35,  /* (30) termlist ::= param_term param_term */
+    35,  /* (31) termlist ::= termlist param_term */
+    35,  /* (32) termlist ::= termlist STOPWORD */
+    31,  /* (33) expr ::= MINUS expr */
+    38,  /* (34) text_expr ::= MINUS text_expr */
+    31,  /* (35) expr ::= TILDE expr */
+    38,  /* (36) text_expr ::= TILDE text_expr */
+    34,  /* (37) prefix ::= PREFIX */
+    38,  /* (38) text_expr ::= PERCENT param_term PERCENT */
+    38,  /* (39) text_expr ::= PERCENT PERCENT param_term PERCENT PERCENT */
+    38,  /* (40) text_expr ::= PERCENT PERCENT PERCENT param_term PERCENT PERCENT PERCENT */
+    38,  /* (41) text_expr ::= PERCENT STOPWORD PERCENT */
+    38,  /* (42) text_expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
+    38,  /* (43) text_expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
+    51,  /* (44) modifier ::= MODIFIER */
+    46,  /* (45) modifierlist ::= modifier OR term */
+    46,  /* (46) modifierlist ::= modifierlist OR term */
+    31,  /* (47) expr ::= modifier COLON tag_list */
+    40,  /* (48) tag_list ::= LB param_term */
+    40,  /* (49) tag_list ::= LB STOPWORD */
+    40,  /* (50) tag_list ::= LB prefix */
+    40,  /* (51) tag_list ::= LB termlist */
+    40,  /* (52) tag_list ::= tag_list OR param_term */
+    40,  /* (53) tag_list ::= tag_list OR STOPWORD */
+    40,  /* (54) tag_list ::= tag_list OR prefix */
+    40,  /* (55) tag_list ::= tag_list OR termlist */
+    40,  /* (56) tag_list ::= tag_list RB */
+    31,  /* (57) expr ::= modifier COLON numeric_range */
+    48,  /* (58) numeric_range ::= LSQB param_any param_any RSQB */
+    31,  /* (59) expr ::= modifier COLON geo_filter */
+    41,  /* (60) geo_filter ::= LSQB param_any param_any param_any param_any RSQB */
+    49,  /* (61) query ::= expr ARROW LSQB vector_query RSQB */
+    49,  /* (62) query ::= star ARROW LSQB vector_query RSQB */
+    42,  /* (63) vector_query ::= vector_command vector_attribute_list AS param_term */
+    42,  /* (64) vector_query ::= vector_command AS param_term */
+    42,  /* (65) vector_query ::= vector_command vector_attribute_list */
+    42,  /* (66) vector_query ::= vector_command */
+    43,  /* (67) vector_command ::= TOP_K param_size modifier ATTRIBUTE */
+    44,  /* (68) vector_attribute ::= TERM param_term */
+    45,  /* (69) vector_attribute_list ::= vector_attribute_list vector_attribute */
+    45,  /* (70) vector_attribute_list ::= vector_attribute */
+    47,  /* (71) num ::= SIZE */
+    47,  /* (72) num ::= NUMBER */
+    47,  /* (73) num ::= LP num */
+    47,  /* (74) num ::= MINUS num */
+    53,  /* (75) term ::= TERM */
+    53,  /* (76) term ::= NUMBER */
+    53,  /* (77) term ::= SIZE */
+    52,  /* (78) param_term ::= TERM */
+    52,  /* (79) param_term ::= NUMBER */
+    52,  /* (80) param_term ::= SIZE */
+    52,  /* (81) param_term ::= ATTRIBUTE */
+    55,  /* (82) param_size ::= SIZE */
+    55,  /* (83) param_size ::= ATTRIBUTE */
+    54,  /* (84) param_any ::= ATTRIBUTE */
+    54,  /* (85) param_any ::= LP ATTRIBUTE */
+    54,  /* (86) param_any ::= TERM */
+    54,  /* (87) param_any ::= num */
+    50,  /* (88) star ::= STAR */
+    50,  /* (89) star ::= LP star RP */
 };
 
 /* For rule J, yyRuleInfoNRhs[J] contains the negative of the number
@@ -1223,7 +1304,7 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
 static const signed char yyRuleInfoNRhs[] = {
    -1,  /* (0) query ::= expr */
     0,  /* (1) query ::= */
-   -1,  /* (2) query ::= STAR */
+   -1,  /* (2) query ::= star */
    -2,  /* (3) expr ::= expr expr */
    -2,  /* (4) text_expr ::= text_expr text_expr */
    -1,  /* (5) expr ::= union */
@@ -1282,20 +1363,35 @@ static const signed char yyRuleInfoNRhs[] = {
    -4,  /* (58) numeric_range ::= LSQB param_any param_any RSQB */
    -3,  /* (59) expr ::= modifier COLON geo_filter */
    -6,  /* (60) geo_filter ::= LSQB param_any param_any param_any param_any RSQB */
-   -3,  /* (61) expr ::= modifier COLON vector_filter */
-   -5,  /* (62) vector_filter ::= LSQB param_any param_any param_any RSQB */
-   -1,  /* (63) num ::= NUMBER */
-   -2,  /* (64) num ::= LP num */
-   -2,  /* (65) num ::= MINUS num */
-   -1,  /* (66) term ::= TERM */
-   -1,  /* (67) term ::= NUMBER */
-   -1,  /* (68) param_term ::= TERM */
-   -1,  /* (69) param_term ::= NUMBER */
-   -1,  /* (70) param_term ::= ATTRIBUTE */
-   -1,  /* (71) param_any ::= ATTRIBUTE */
-   -2,  /* (72) param_any ::= LP ATTRIBUTE */
-   -1,  /* (73) param_any ::= TERM */
-   -1,  /* (74) param_any ::= num */
+   -5,  /* (61) query ::= expr ARROW LSQB vector_query RSQB */
+   -5,  /* (62) query ::= star ARROW LSQB vector_query RSQB */
+   -4,  /* (63) vector_query ::= vector_command vector_attribute_list AS param_term */
+   -3,  /* (64) vector_query ::= vector_command AS param_term */
+   -2,  /* (65) vector_query ::= vector_command vector_attribute_list */
+   -1,  /* (66) vector_query ::= vector_command */
+   -4,  /* (67) vector_command ::= TOP_K param_size modifier ATTRIBUTE */
+   -2,  /* (68) vector_attribute ::= TERM param_term */
+   -2,  /* (69) vector_attribute_list ::= vector_attribute_list vector_attribute */
+   -1,  /* (70) vector_attribute_list ::= vector_attribute */
+   -1,  /* (71) num ::= SIZE */
+   -1,  /* (72) num ::= NUMBER */
+   -2,  /* (73) num ::= LP num */
+   -2,  /* (74) num ::= MINUS num */
+   -1,  /* (75) term ::= TERM */
+   -1,  /* (76) term ::= NUMBER */
+   -1,  /* (77) term ::= SIZE */
+   -1,  /* (78) param_term ::= TERM */
+   -1,  /* (79) param_term ::= NUMBER */
+   -1,  /* (80) param_term ::= SIZE */
+   -1,  /* (81) param_term ::= ATTRIBUTE */
+   -1,  /* (82) param_size ::= SIZE */
+   -1,  /* (83) param_size ::= ATTRIBUTE */
+   -1,  /* (84) param_any ::= ATTRIBUTE */
+   -2,  /* (85) param_any ::= LP ATTRIBUTE */
+   -1,  /* (86) param_any ::= TERM */
+   -1,  /* (87) param_any ::= num */
+   -1,  /* (88) star ::= STAR */
+   -3,  /* (89) star ::= LP star RP */
 };
 
 static void yy_accept(yyParser*);  /* Forward Declaration */
@@ -1340,8 +1436,7 @@ static YYACTIONTYPE yy_reduce(
       case 0: /* query ::= expr */
 { 
   setup_trace(ctx);
-  ctx->root = yymsp[0].minor.yy83;
- 
+  ctx->root = yymsp[0].minor.yy35;
 }
         break;
       case 1: /* query ::= */
@@ -1349,125 +1444,171 @@ static YYACTIONTYPE yy_reduce(
   ctx->root = NULL;
 }
         break;
-      case 2: /* query ::= STAR */
+      case 2: /* query ::= star */
+{  yy_destructor(yypParser,50,&yymsp[0].minor);
 {
   setup_trace(ctx);
   ctx->root = NewWildcardNode();
 }
+}
         break;
       case 3: /* expr ::= expr expr */
-      case 4: /* text_expr ::= text_expr text_expr */ yytestcase(yyruleno==4);
 {
-    int rv = one_not_null(yymsp[-1].minor.yy83, yymsp[0].minor.yy83, (void**)&yylhsminor.yy83);
+    int rv = one_not_null(yymsp[-1].minor.yy35, yymsp[0].minor.yy35, (void**)&yylhsminor.yy35);
     if (rv == NODENN_BOTH_INVALID) {
-        yylhsminor.yy83 = NULL;
+        yylhsminor.yy35 = NULL;
     } else if (rv == NODENN_ONE_NULL) {
         // Nothing- `out` is already assigned
     } else {
-        if (yymsp[-1].minor.yy83 && yymsp[-1].minor.yy83->type == QN_PHRASE && yymsp[-1].minor.yy83->pn.exact == 0 && 
-            yymsp[-1].minor.yy83->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            yylhsminor.yy83 = yymsp[-1].minor.yy83;
+        if (yymsp[-1].minor.yy35 && yymsp[-1].minor.yy35->type == QN_PHRASE && yymsp[-1].minor.yy35->pn.exact == 0 && 
+            yymsp[-1].minor.yy35->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            yylhsminor.yy35 = yymsp[-1].minor.yy35;
         } else {     
-            yylhsminor.yy83 = NewPhraseNode(0);
-            QueryNode_AddChild(yylhsminor.yy83, yymsp[-1].minor.yy83);
+            yylhsminor.yy35 = NewPhraseNode(0);
+            QueryNode_AddChild(yylhsminor.yy35, yymsp[-1].minor.yy35);
         }
-        QueryNode_AddChild(yylhsminor.yy83, yymsp[0].minor.yy83);
+        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
     }
 }
-  yymsp[-1].minor.yy83 = yylhsminor.yy83;
+  yymsp[-1].minor.yy35 = yylhsminor.yy35;
+        break;
+      case 4: /* text_expr ::= text_expr text_expr */
+{
+    int rv = one_not_null(yymsp[-1].minor.yy35, yymsp[0].minor.yy35, (void**)&yylhsminor.yy35);
+    if (rv == NODENN_BOTH_INVALID) {
+        yylhsminor.yy35 = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (yymsp[-1].minor.yy35 && yymsp[-1].minor.yy35->type == QN_PHRASE && yymsp[-1].minor.yy35->pn.exact == 0 &&
+            yymsp[-1].minor.yy35->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            yylhsminor.yy35 = yymsp[-1].minor.yy35;
+        } else {
+            yylhsminor.yy35 = NewPhraseNode(0);
+            QueryNode_AddChild(yylhsminor.yy35, yymsp[-1].minor.yy35);
+        }
+        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
+    }
+}
+  yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 5: /* expr ::= union */
       case 8: /* text_expr ::= text_union */ yytestcase(yyruleno==8);
       case 27: /* text_expr ::= prefix */ yytestcase(yyruleno==27);
 {
-    yylhsminor.yy83 = yymsp[0].minor.yy83;
+    yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
-  yymsp[0].minor.yy83 = yylhsminor.yy83;
+  yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 6: /* union ::= expr OR expr */
-      case 9: /* text_union ::= text_expr OR text_expr */ yytestcase(yyruleno==9);
 {
-    int rv = one_not_null(yymsp[-2].minor.yy83, yymsp[0].minor.yy83, (void**)&yylhsminor.yy83);
+    int rv = one_not_null(yymsp[-2].minor.yy35, yymsp[0].minor.yy35, (void**)&yylhsminor.yy35);
     if (rv == NODENN_BOTH_INVALID) {
-        yylhsminor.yy83 = NULL;
+        yylhsminor.yy35 = NULL;
     } else if (rv == NODENN_ONE_NULL) {
         // Nothing- already assigned
     } else {
-        if (yymsp[-2].minor.yy83->type == QN_UNION && yymsp[-2].minor.yy83->opts.fieldMask == RS_FIELDMASK_ALL) {
-            yylhsminor.yy83 = yymsp[-2].minor.yy83;
+        if (yymsp[-2].minor.yy35->type == QN_UNION && yymsp[-2].minor.yy35->opts.fieldMask == RS_FIELDMASK_ALL) {
+            yylhsminor.yy35 = yymsp[-2].minor.yy35;
         } else {
-            yylhsminor.yy83 = NewUnionNode();
-            QueryNode_AddChild(yylhsminor.yy83, yymsp[-2].minor.yy83);
-            yylhsminor.yy83->opts.fieldMask |= yymsp[-2].minor.yy83->opts.fieldMask;
+            yylhsminor.yy35 = NewUnionNode();
+            QueryNode_AddChild(yylhsminor.yy35, yymsp[-2].minor.yy35);
+            yylhsminor.yy35->opts.fieldMask |= yymsp[-2].minor.yy35->opts.fieldMask;
         }
 
-        // Handle yymsp[0].minor.yy83
-        QueryNode_AddChild(yylhsminor.yy83, yymsp[0].minor.yy83);
-        yylhsminor.yy83->opts.fieldMask |= yymsp[0].minor.yy83->opts.fieldMask;
-        QueryNode_SetFieldMask(yylhsminor.yy83, yylhsminor.yy83->opts.fieldMask);
+        // Handle yymsp[0].minor.yy35
+        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
+        yylhsminor.yy35->opts.fieldMask |= yymsp[0].minor.yy35->opts.fieldMask;
+        QueryNode_SetFieldMask(yylhsminor.yy35, yylhsminor.yy35->opts.fieldMask);
     }
     
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 7: /* union ::= union OR expr */
       case 10: /* text_union ::= text_union OR text_expr */ yytestcase(yyruleno==10);
 {
-    yylhsminor.yy83 = yymsp[-2].minor.yy83;
-    if (yymsp[0].minor.yy83) {
-        QueryNode_AddChild(yylhsminor.yy83, yymsp[0].minor.yy83);
-        yylhsminor.yy83->opts.fieldMask |= yymsp[0].minor.yy83->opts.fieldMask;
-        QueryNode_SetFieldMask(yymsp[0].minor.yy83, yylhsminor.yy83->opts.fieldMask);
+    yylhsminor.yy35 = yymsp[-2].minor.yy35;
+    if (yymsp[0].minor.yy35) {
+        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
+        yylhsminor.yy35->opts.fieldMask |= yymsp[0].minor.yy35->opts.fieldMask;
+        QueryNode_SetFieldMask(yymsp[0].minor.yy35, yylhsminor.yy35->opts.fieldMask);
     }
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
+        break;
+      case 9: /* text_union ::= text_expr OR text_expr */
+{
+    int rv = one_not_null(yymsp[-2].minor.yy35, yymsp[0].minor.yy35, (void**)&yylhsminor.yy35);
+    if (rv == NODENN_BOTH_INVALID) {
+        yylhsminor.yy35 = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (yymsp[-2].minor.yy35->type == QN_UNION && yymsp[-2].minor.yy35->opts.fieldMask == RS_FIELDMASK_ALL) {
+            yylhsminor.yy35 = yymsp[-2].minor.yy35;
+        } else {
+            yylhsminor.yy35 = NewUnionNode();
+            QueryNode_AddChild(yylhsminor.yy35, yymsp[-2].minor.yy35);
+            yylhsminor.yy35->opts.fieldMask |= yymsp[-2].minor.yy35->opts.fieldMask;
+        }
+
+        // Handle yymsp[0].minor.yy35
+        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
+        yylhsminor.yy35->opts.fieldMask |= yymsp[0].minor.yy35->opts.fieldMask;
+        QueryNode_SetFieldMask(yylhsminor.yy35, yylhsminor.yy35->opts.fieldMask);
+    }
+
+}
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 11: /* expr ::= text_expr */
+      case 66: /* vector_query ::= vector_command */ yytestcase(yyruleno==66);
 {
-  yylhsminor.yy83 = yymsp[0].minor.yy83;
+  yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
-  yymsp[0].minor.yy83 = yylhsminor.yy83;
+  yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 12: /* expr ::= modifier COLON text_expr */
 {
-    if (yymsp[0].minor.yy83 == NULL) {
-        yylhsminor.yy83 = NULL;
+    if (yymsp[0].minor.yy35 == NULL) {
+        yylhsminor.yy35 = NULL;
     } else {
         if (ctx->sctx->spec) {
-            QueryNode_SetFieldMask(yymsp[0].minor.yy83, IndexSpec_GetFieldBit(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
+            QueryNode_SetFieldMask(yymsp[0].minor.yy35, IndexSpec_GetFieldBit(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
         }
-        yylhsminor.yy83 = yymsp[0].minor.yy83; 
+        yylhsminor.yy35 = yymsp[0].minor.yy35; 
     }
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 13: /* expr ::= modifierlist COLON text_expr */
 {
     
-    if (yymsp[0].minor.yy83 == NULL) {
-        yylhsminor.yy83 = NULL;
+    if (yymsp[0].minor.yy35 == NULL) {
+        yylhsminor.yy35 = NULL;
     } else {
-        //yymsp[0].minor.yy83->opts.fieldMask = 0;
+        //yymsp[0].minor.yy35->opts.fieldMask = 0;
         t_fieldMask mask = 0; 
         if (ctx->sctx->spec) {
-            for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy18); i++) {
+            for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy50); i++) {
                 char *p;
-                Vector_Get(yymsp[-2].minor.yy18, i, &p);
+                Vector_Get(yymsp[-2].minor.yy50, i, &p);
                 mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
                 rm_free(p);
             }
         }
-        QueryNode_SetFieldMask(yymsp[0].minor.yy83, mask);
-        Vector_Free(yymsp[-2].minor.yy18);
-        yylhsminor.yy83=yymsp[0].minor.yy83;
+        QueryNode_SetFieldMask(yymsp[0].minor.yy35, mask);
+        Vector_Free(yymsp[-2].minor.yy50);
+        yylhsminor.yy35=yymsp[0].minor.yy35;
     }
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 14: /* expr ::= LP expr RP */
       case 15: /* text_expr ::= LP text_expr RP */ yytestcase(yyruleno==15);
 {
-    yymsp[-2].minor.yy83 = yymsp[-1].minor.yy83;
+    yymsp[-2].minor.yy35 = yymsp[-1].minor.yy35;
 }
         break;
       case 16: /* attribute ::= ATTRIBUTE COLON param_term */
@@ -1483,60 +1624,60 @@ static YYACTIONTYPE yy_reduce(
       value_len = found_value_len;
     }
   }
-  yylhsminor.yy7 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = value, .vallen = value_len };
+  yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = value, .vallen = value_len };
 }
-  yymsp[-2].minor.yy7 = yylhsminor.yy7;
+  yymsp[-2].minor.yy55 = yylhsminor.yy55;
         break;
       case 17: /* attribute_list ::= attribute */
 {
-  yylhsminor.yy33 = array_new(QueryAttribute, 2);
-  yylhsminor.yy33 = array_append(yylhsminor.yy33, yymsp[0].minor.yy7);
+  yylhsminor.yy97 = array_new(QueryAttribute, 2);
+  yylhsminor.yy97 = array_append(yylhsminor.yy97, yymsp[0].minor.yy55);
 }
-  yymsp[0].minor.yy33 = yylhsminor.yy33;
+  yymsp[0].minor.yy97 = yylhsminor.yy97;
         break;
       case 18: /* attribute_list ::= attribute_list SEMICOLON attribute */
 {
-  yylhsminor.yy33 = array_append(yymsp[-2].minor.yy33, yymsp[0].minor.yy7);
+  yylhsminor.yy97 = array_append(yymsp[-2].minor.yy97, yymsp[0].minor.yy55);
 }
-  yymsp[-2].minor.yy33 = yylhsminor.yy33;
+  yymsp[-2].minor.yy97 = yylhsminor.yy97;
         break;
       case 19: /* attribute_list ::= attribute_list SEMICOLON */
 {
-    yylhsminor.yy33 = yymsp[-1].minor.yy33;
+    yylhsminor.yy97 = yymsp[-1].minor.yy97;
 }
-  yymsp[-1].minor.yy33 = yylhsminor.yy33;
+  yymsp[-1].minor.yy97 = yylhsminor.yy97;
         break;
       case 20: /* attribute_list ::= */
 {
-    yymsp[1].minor.yy33 = NULL;
+    yymsp[1].minor.yy97 = NULL;
 }
         break;
       case 21: /* expr ::= expr ARROW LB attribute_list RB */
       case 22: /* text_expr ::= text_expr ARROW LB attribute_list RB */ yytestcase(yyruleno==22);
 {
 
-    if (yymsp[-4].minor.yy83 && yymsp[-1].minor.yy33) {
-        QueryNode_ApplyAttributes(yymsp[-4].minor.yy83, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);
+    if (yymsp[-4].minor.yy35 && yymsp[-1].minor.yy97) {
+        QueryNode_ApplyAttributes(yymsp[-4].minor.yy35, yymsp[-1].minor.yy97, array_len(yymsp[-1].minor.yy97), ctx->status);
     }
-    array_free_ex(yymsp[-1].minor.yy33, rm_free((char*)((QueryAttribute*)ptr )->value));
-    yylhsminor.yy83 = yymsp[-4].minor.yy83;
+    array_free_ex(yymsp[-1].minor.yy97, rm_free((char*)((QueryAttribute*)ptr )->value));
+    yylhsminor.yy35 = yymsp[-4].minor.yy35;
 }
-  yymsp[-4].minor.yy83 = yylhsminor.yy83;
+  yymsp[-4].minor.yy35 = yylhsminor.yy35;
         break;
       case 23: /* text_expr ::= QUOTE termlist QUOTE */
 {
   // TODO: Quoted/verbatim string in termlist should not be handled as parameters
   // Also need to add the leading '$' which was consumed by the lexer
-  yymsp[-1].minor.yy83->pn.exact = 1;
-  yymsp[-1].minor.yy83->opts.flags |= QueryNode_Verbatim;
+  yymsp[-1].minor.yy35->pn.exact = 1;
+  yymsp[-1].minor.yy35->opts.flags |= QueryNode_Verbatim;
 
-  yymsp[-2].minor.yy83 = yymsp[-1].minor.yy83;
+  yymsp[-2].minor.yy35 = yymsp[-1].minor.yy35;
 }
         break;
       case 24: /* text_expr ::= QUOTE term QUOTE */
 {
-  yymsp[-2].minor.yy83 = NewTokenNode(ctx, rm_strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
-  yymsp[-2].minor.yy83->opts.flags |= QueryNode_Verbatim;
+  yymsp[-2].minor.yy35 = NewTokenNode(ctx, rm_strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
+  yymsp[-2].minor.yy35->opts.flags |= QueryNode_Verbatim;
 }
         break;
       case 25: /* text_expr ::= QUOTE ATTRIBUTE QUOTE */
@@ -1546,92 +1687,92 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-2].minor.yy83 = NewTokenNode(ctx, rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), -1);
+  yymsp[-2].minor.yy35 = NewTokenNode(ctx, rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), -1);
   rm_free(s);
-  yymsp[-2].minor.yy83->opts.flags |= QueryNode_Verbatim;
+  yymsp[-2].minor.yy35->opts.flags |= QueryNode_Verbatim;
 }
         break;
       case 26: /* text_expr ::= param_term */
 {
-  yylhsminor.yy83 = NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0);
+  yylhsminor.yy35 = NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0);
 }
-  yymsp[0].minor.yy83 = yylhsminor.yy83;
+  yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 28: /* text_expr ::= termlist */
 {
-        yylhsminor.yy83 = yymsp[0].minor.yy83;
+        yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
-  yymsp[0].minor.yy83 = yylhsminor.yy83;
+  yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 29: /* text_expr ::= STOPWORD */
 {
-    yymsp[0].minor.yy83 = NULL;
+    yymsp[0].minor.yy35 = NULL;
 }
         break;
       case 30: /* termlist ::= param_term param_term */
 {
-  yylhsminor.yy83 = NewPhraseNode(0);
-  QueryNode_AddChild(yylhsminor.yy83, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
-  QueryNode_AddChild(yylhsminor.yy83, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  yylhsminor.yy35 = NewPhraseNode(0);
+  QueryNode_AddChild(yylhsminor.yy35, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
+  QueryNode_AddChild(yylhsminor.yy35, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
 }
-  yymsp[-1].minor.yy83 = yylhsminor.yy83;
+  yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 31: /* termlist ::= termlist param_term */
 {
-  yylhsminor.yy83 = yymsp[-1].minor.yy83;
-  QueryNode_AddChild(yylhsminor.yy83, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  yylhsminor.yy35 = yymsp[-1].minor.yy35;
+  QueryNode_AddChild(yylhsminor.yy35, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
 }
-  yymsp[-1].minor.yy83 = yylhsminor.yy83;
+  yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 32: /* termlist ::= termlist STOPWORD */
       case 56: /* tag_list ::= tag_list RB */ yytestcase(yyruleno==56);
 {
-    yylhsminor.yy83 = yymsp[-1].minor.yy83;
+    yylhsminor.yy35 = yymsp[-1].minor.yy35;
 }
-  yymsp[-1].minor.yy83 = yylhsminor.yy83;
+  yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 33: /* expr ::= MINUS expr */
       case 34: /* text_expr ::= MINUS text_expr */ yytestcase(yyruleno==34);
 {
-    if (yymsp[0].minor.yy83) {
-        yymsp[-1].minor.yy83 = NewNotNode(yymsp[0].minor.yy83);
+    if (yymsp[0].minor.yy35) {
+        yymsp[-1].minor.yy35 = NewNotNode(yymsp[0].minor.yy35);
     } else {
-        yymsp[-1].minor.yy83 = NULL;
+        yymsp[-1].minor.yy35 = NULL;
     }
 }
         break;
       case 35: /* expr ::= TILDE expr */
       case 36: /* text_expr ::= TILDE text_expr */ yytestcase(yyruleno==36);
 {
-    if (yymsp[0].minor.yy83) {
-        yymsp[-1].minor.yy83 = NewOptionalNode(yymsp[0].minor.yy83);
+    if (yymsp[0].minor.yy35) {
+        yymsp[-1].minor.yy35 = NewOptionalNode(yymsp[0].minor.yy35);
     } else {
-        yymsp[-1].minor.yy83 = NULL;
+        yymsp[-1].minor.yy35 = NULL;
     }
 }
         break;
       case 37: /* prefix ::= PREFIX */
 {
-    yylhsminor.yy83 = NewPrefixNode_WithParams(ctx, &yymsp[0].minor.yy0);
+    yylhsminor.yy35 = NewPrefixNode_WithParams(ctx, &yymsp[0].minor.yy0);
 }
-  yymsp[0].minor.yy83 = yylhsminor.yy83;
+  yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 38: /* text_expr ::= PERCENT param_term PERCENT */
       case 41: /* text_expr ::= PERCENT STOPWORD PERCENT */ yytestcase(yyruleno==41);
 {
-  yymsp[-2].minor.yy83 = NewFuzzyNode_WithParams(ctx, &yymsp[-1].minor.yy0, 1);
+  yymsp[-2].minor.yy35 = NewFuzzyNode_WithParams(ctx, &yymsp[-1].minor.yy0, 1);
 }
         break;
       case 39: /* text_expr ::= PERCENT PERCENT param_term PERCENT PERCENT */
       case 42: /* text_expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */ yytestcase(yyruleno==42);
 {
-  yymsp[-4].minor.yy83 = NewFuzzyNode_WithParams(ctx, &yymsp[-2].minor.yy0, 2);
+  yymsp[-4].minor.yy35 = NewFuzzyNode_WithParams(ctx, &yymsp[-2].minor.yy0, 2);
 }
         break;
       case 40: /* text_expr ::= PERCENT PERCENT PERCENT param_term PERCENT PERCENT PERCENT */
       case 43: /* text_expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */ yytestcase(yyruleno==43);
 {
-  yymsp[-6].minor.yy83 = NewFuzzyNode_WithParams(ctx, &yymsp[-3].minor.yy0, 3);
+  yymsp[-6].minor.yy35 = NewFuzzyNode_WithParams(ctx, &yymsp[-3].minor.yy0, 3);
 }
         break;
       case 44: /* modifier ::= MODIFIER */
@@ -1643,62 +1784,62 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 45: /* modifierlist ::= modifier OR term */
 {
-    yylhsminor.yy18 = NewVector(char *, 2);
+    yylhsminor.yy50 = NewVector(char *, 2);
     char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    Vector_Push(yylhsminor.yy18, s);
+    Vector_Push(yylhsminor.yy50, s);
     s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    Vector_Push(yylhsminor.yy18, s);
+    Vector_Push(yylhsminor.yy50, s);
 }
-  yymsp[-2].minor.yy18 = yylhsminor.yy18;
+  yymsp[-2].minor.yy50 = yylhsminor.yy50;
         break;
       case 46: /* modifierlist ::= modifierlist OR term */
 {
     char *s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    Vector_Push(yymsp[-2].minor.yy18, s);
-    yylhsminor.yy18 = yymsp[-2].minor.yy18;
+    Vector_Push(yymsp[-2].minor.yy50, s);
+    yylhsminor.yy50 = yymsp[-2].minor.yy50;
 }
-  yymsp[-2].minor.yy18 = yylhsminor.yy18;
+  yymsp[-2].minor.yy50 = yylhsminor.yy50;
         break;
       case 47: /* expr ::= modifier COLON tag_list */
 {
-    if (!yymsp[0].minor.yy83) {
-        yylhsminor.yy83= NULL;
+    if (!yymsp[0].minor.yy35) {
+        yylhsminor.yy35= NULL;
     } else {
       // Tag field names must be case sensitive, we can't do rm_strdupcase
         char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
         size_t slen = unescapen((char*)s, yymsp[-2].minor.yy0.len);
 
-        yylhsminor.yy83 = NewTagNode(s, slen);
-        QueryNode_AddChildren(yylhsminor.yy83, yymsp[0].minor.yy83->children, QueryNode_NumChildren(yymsp[0].minor.yy83));
+        yylhsminor.yy35 = NewTagNode(s, slen);
+        QueryNode_AddChildren(yylhsminor.yy35, yymsp[0].minor.yy35->children, QueryNode_NumChildren(yymsp[0].minor.yy35));
         
-        // Set the children count on yymsp[0].minor.yy83 to 0 so they won't get recursively free'd
-        QueryNode_ClearChildren(yymsp[0].minor.yy83, 0);
-        QueryNode_Free(yymsp[0].minor.yy83);
+        // Set the children count on yymsp[0].minor.yy35 to 0 so they won't get recursively free'd
+        QueryNode_ClearChildren(yymsp[0].minor.yy35, 0);
+        QueryNode_Free(yymsp[0].minor.yy35);
     }
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 48: /* tag_list ::= LB param_term */
 {
-  yymsp[-1].minor.yy83 = NewPhraseNode(0);
+  yymsp[-1].minor.yy35 = NewPhraseNode(0);
   if (yymsp[0].minor.yy0.type == QT_TERM)
     yymsp[0].minor.yy0.type = QT_TERM_CASE;
   else if (yymsp[0].minor.yy0.type == QT_PARAM_TERM)
     yymsp[0].minor.yy0.type = QT_PARAM_TERM_CASE;
-  QueryNode_AddChild(yymsp[-1].minor.yy83, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  QueryNode_AddChild(yymsp[-1].minor.yy35, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
 }
         break;
       case 49: /* tag_list ::= LB STOPWORD */
 {
-    yymsp[-1].minor.yy83 = NewPhraseNode(0);
-    QueryNode_AddChild(yymsp[-1].minor.yy83, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yymsp[-1].minor.yy35 = NewPhraseNode(0);
+    QueryNode_AddChild(yymsp[-1].minor.yy35, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
         break;
       case 50: /* tag_list ::= LB prefix */
       case 51: /* tag_list ::= LB termlist */ yytestcase(yyruleno==51);
 {
-    yymsp[-1].minor.yy83 = NewPhraseNode(0);
-    QueryNode_AddChild(yymsp[-1].minor.yy83, yymsp[0].minor.yy83);
+    yymsp[-1].minor.yy35 = NewPhraseNode(0);
+    QueryNode_AddChild(yymsp[-1].minor.yy35, yymsp[0].minor.yy35);
 }
         break;
       case 52: /* tag_list ::= tag_list OR param_term */
@@ -1707,37 +1848,37 @@ static YYACTIONTYPE yy_reduce(
     yymsp[0].minor.yy0.type = QT_TERM_CASE;
   else if (yymsp[0].minor.yy0.type == QT_PARAM_TERM)
     yymsp[0].minor.yy0.type = QT_PARAM_TERM_CASE;
-  QueryNode_AddChild(yymsp[-2].minor.yy83, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
-  yylhsminor.yy83 = yymsp[-2].minor.yy83;
+  QueryNode_AddChild(yymsp[-2].minor.yy35, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 53: /* tag_list ::= tag_list OR STOPWORD */
 {
-    QueryNode_AddChild(yymsp[-2].minor.yy83, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
-    yylhsminor.yy83 = yymsp[-2].minor.yy83;
+    QueryNode_AddChild(yymsp[-2].minor.yy35, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 54: /* tag_list ::= tag_list OR prefix */
       case 55: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==55);
 {
-    QueryNode_AddChild(yymsp[-2].minor.yy83, yymsp[0].minor.yy83);
-    yylhsminor.yy83 = yymsp[-2].minor.yy83;
+    QueryNode_AddChild(yymsp[-2].minor.yy35, yymsp[0].minor.yy35);
+    yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 57: /* expr ::= modifier COLON numeric_range */
 {
-  if (yymsp[0].minor.yy62) {
+  if (yymsp[0].minor.yy78) {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->nf->fieldName = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    yylhsminor.yy83 = NewNumericNode(yymsp[0].minor.yy62);
+    yymsp[0].minor.yy78->nf->fieldName = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+    yylhsminor.yy35 = NewNumericNode(yymsp[0].minor.yy78);
   } else {
-    yylhsminor.yy83 = NewQueryNode(QN_NULL);
+    yylhsminor.yy35 = NewQueryNode(QN_NULL);
   }
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 58: /* numeric_range ::= LSQB param_any param_any RSQB */
 {
@@ -1754,24 +1895,24 @@ static YYACTIONTYPE yy_reduce(
     badToken = &yymsp[-1].minor.yy0;
 
   if (!badToken) {
-    yymsp[-3].minor.yy62 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, yymsp[-2].minor.yy0.inclusive, yymsp[-1].minor.yy0.inclusive);
+    yymsp[-3].minor.yy78 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, yymsp[-2].minor.yy0.inclusive, yymsp[-1].minor.yy0.inclusive);
   } else {
     reportSyntaxError(ctx->status, badToken, "Expecting numeric or parameter");
-    yymsp[-3].minor.yy62 = NULL;
+    yymsp[-3].minor.yy78 = NULL;
   }
 }
         break;
       case 59: /* expr ::= modifier COLON geo_filter */
 {
-  if (yymsp[0].minor.yy62) {
+  if (yymsp[0].minor.yy78) {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->gf->property = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    yylhsminor.yy83 = NewGeofilterNode(yymsp[0].minor.yy62);
+    yymsp[0].minor.yy78->gf->property = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+    yylhsminor.yy35 = NewGeofilterNode(yymsp[0].minor.yy78);
   } else {
-    yylhsminor.yy83 = NewQueryNode(QN_NULL);
+    yylhsminor.yy35 = NewQueryNode(QN_NULL);
   }
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 60: /* geo_filter ::= LSQB param_any param_any param_any param_any RSQB */
 {
@@ -1797,103 +1938,153 @@ static YYACTIONTYPE yy_reduce(
     badToken = &yymsp[-1].minor.yy0;
 
   if (!badToken) {
-    yymsp[-5].minor.yy62 = NewGeoFilterQueryParam_WithParams(ctx, &yymsp[-4].minor.yy0, &yymsp[-3].minor.yy0, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0);
+    yymsp[-5].minor.yy78 = NewGeoFilterQueryParam_WithParams(ctx, &yymsp[-4].minor.yy0, &yymsp[-3].minor.yy0, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0);
   } else {
     reportSyntaxError(ctx->status, badToken, "Syntax error");
-    yymsp[-5].minor.yy62 = NULL;
+    yymsp[-5].minor.yy78 = NULL;
   }
 }
         break;
-      case 61: /* expr ::= modifier COLON vector_filter */
+      case 61: /* query ::= expr ARROW LSQB vector_query RSQB */
+{ // main parse, hybrid query as entire query case.
+  setup_trace(ctx);
+  switch (yymsp[-1].minor.yy35->vn.vq->type) {
+    case VECSIM_QT_TOPK:
+      yymsp[-1].minor.yy35->vn.vq->topk.order = BY_SCORE;
+      break;
+  }
+  ctx->root = yymsp[-1].minor.yy35;
+  QueryNode_AddChild(yymsp[-1].minor.yy35, yymsp[-4].minor.yy35);
+}
+        break;
+      case 62: /* query ::= star ARROW LSQB vector_query RSQB */
+{  yy_destructor(yypParser,50,&yymsp[-4].minor);
+{ // main parse, simple vecsim search as entire query case.
+  setup_trace(ctx);
+  switch (yymsp[-1].minor.yy35->vn.vq->type) {
+    case VECSIM_QT_TOPK:
+      yymsp[-1].minor.yy35->vn.vq->topk.order = BY_SCORE;
+      break;
+  }
+  ctx->root = yymsp[-1].minor.yy35;
+}
+}
+        break;
+      case 63: /* vector_query ::= vector_command vector_attribute_list AS param_term */
 {
-  // we keep the capitalization as is
-  if (yymsp[0].minor.yy62) {
-      yymsp[0].minor.yy62->vf->property = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-      yylhsminor.yy83 = NewVectorNode(yymsp[0].minor.yy62);
-  } else {
-      yylhsminor.yy83 = NewQueryNode(QN_NULL);
+  if (yymsp[-3].minor.yy35->vn.vq->scoreField) {
+    rm_free(yymsp[-3].minor.yy35->vn.vq->scoreField);
+    yymsp[-3].minor.yy35->vn.vq->scoreField = NULL;
   }
+  yymsp[-3].minor.yy35->params = array_grow(yymsp[-3].minor.yy35->params, 1);
+  memset(&array_tail(yymsp[-3].minor.yy35->params), 0, sizeof(*yymsp[-3].minor.yy35->params));
+  QueryNode_SetParam(ctx, &(array_tail(yymsp[-3].minor.yy35->params)), &(yymsp[-3].minor.yy35->vn.vq->scoreField), NULL, &yymsp[0].minor.yy0);
+  yymsp[-3].minor.yy35->vn.vq->params = yymsp[-2].minor.yy74;
+  yylhsminor.yy35 = yymsp[-3].minor.yy35;
 }
-  yymsp[-2].minor.yy83 = yylhsminor.yy83;
+  yymsp[-3].minor.yy35 = yylhsminor.yy35;
         break;
-      case 62: /* vector_filter ::= LSQB param_any param_any param_any RSQB */
+      case 64: /* vector_query ::= vector_command AS param_term */
 {
-  // Update token types to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-  if (yymsp[-3].minor.yy0.type == QT_TERM) {
-    yymsp[-3].minor.yy0.type = QT_VEC;
-    // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
-    //  Equal signs are currently considered as punct (punctuation) and are not included in a
-    //  term, But in base64 encoding, it is used as padding to extend the string to a length
-    //  which is a multiple of 3.
-    size_t len = yymsp[-3].minor.yy0.len;
-    int remainder = len % 3;
-    if (remainder == 1 && *((yymsp[-3].minor.yy0.s) + len) == '=' && *((yymsp[-3].minor.yy0.s) + len + 1) == '=')
-      yymsp[-3].minor.yy0.len = len + 2;
-    else if (remainder == 2 && *((yymsp[-3].minor.yy0.s) + len) == '=')
-      yymsp[-3].minor.yy0.len = len + 1;
-  } else if (yymsp[-3].minor.yy0.type == QT_PARAM_ANY) {
-    yymsp[-3].minor.yy0.type = QT_PARAM_VEC;
-  } else {
-    badToken = &yymsp[-3].minor.yy0;
+  if (yymsp[-2].minor.yy35->vn.vq->scoreField) {
+    rm_free(yymsp[-2].minor.yy35->vn.vq->scoreField);
+    yymsp[-2].minor.yy35->vn.vq->scoreField = NULL;
   }
-
-  if (yymsp[-2].minor.yy0.type == QT_PARAM_ANY) {
-    yymsp[-2].minor.yy0.type = QT_PARAM_VEC_SIM_TYPE;
-  } else if (!badToken && yymsp[-2].minor.yy0.type != QT_TERM) {
-    badToken = &yymsp[-2].minor.yy0;
-  }
-
-  if (yymsp[-1].minor.yy0.type == QT_PARAM_ANY) {
-    yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC;
-  } else if (!badToken && yymsp[-1].minor.yy0.type != QT_NUMERIC) {
-    badToken = &yymsp[-1].minor.yy0;
-  }
-
-  if (!badToken) {
-    yymsp[-4].minor.yy62 = NewVectorFilterQueryParam_WithParams(ctx, &yymsp[-3].minor.yy0, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Syntax error");
-    yymsp[-4].minor.yy62 = NULL;
-  }
+  yymsp[-2].minor.yy35->params = array_grow(yymsp[-2].minor.yy35->params, 1);
+  memset(&array_tail(yymsp[-2].minor.yy35->params), 0, sizeof(*yymsp[-2].minor.yy35->params));
+  QueryNode_SetParam(ctx, &(array_tail(yymsp[-2].minor.yy35->params)), &(yymsp[-2].minor.yy35->vn.vq->scoreField), NULL, &yymsp[0].minor.yy0);
+  yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 63: /* num ::= NUMBER */
+      case 65: /* vector_query ::= vector_command vector_attribute_list */
 {
-    yylhsminor.yy95.num = yymsp[0].minor.yy0.numval;
-    yylhsminor.yy95.inclusive = 1;
+  yymsp[-1].minor.yy35->vn.vq->params = yymsp[0].minor.yy74;
+  yylhsminor.yy35 = yymsp[-1].minor.yy35;
 }
-  yymsp[0].minor.yy95 = yylhsminor.yy95;
+  yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
-      case 64: /* num ::= LP num */
+      case 67: /* vector_command ::= TOP_K param_size modifier ATTRIBUTE */
 {
-    yymsp[-1].minor.yy95=yymsp[0].minor.yy95;
-    yymsp[-1].minor.yy95.inclusive = 0;
+  yymsp[0].minor.yy0.type = QT_PARAM_VEC;
+  yymsp[-3].minor.yy35 = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
+  yymsp[-3].minor.yy35->vn.vq->property = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
+  RedisModule_Assert(-1 != (rm_asprintf(&yymsp[-3].minor.yy35->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy0.len, yymsp[-1].minor.yy0.s)));
 }
         break;
-      case 65: /* num ::= MINUS num */
+      case 68: /* vector_attribute ::= TERM param_term */
 {
-    yymsp[0].minor.yy95.num = -yymsp[0].minor.yy95.num;
-    yymsp[-1].minor.yy95 = yymsp[0].minor.yy95;
+  const char *value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  const char *name = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
+  yylhsminor.yy61.param = (VecSimRawParam){ .name = name, .nameLen = yymsp[-1].minor.yy0.len, .value = value, .valLen = yymsp[0].minor.yy0.len };
+  if (yymsp[0].minor.yy0.type == QT_PARAM_TERM) {
+    yylhsminor.yy61.needResolve = true;
+  }
+  else { // if yymsp[0].minor.yy0.type == QT_TERM
+    yylhsminor.yy61.needResolve = false;
+  }
+}
+  yymsp[-1].minor.yy61 = yylhsminor.yy61;
+        break;
+      case 69: /* vector_attribute_list ::= vector_attribute_list vector_attribute */
+{
+  yylhsminor.yy74.params = array_append(yymsp[-1].minor.yy74.params, yymsp[0].minor.yy61.param);
+  yylhsminor.yy74.needResolve = array_append(yymsp[-1].minor.yy74.needResolve, yymsp[0].minor.yy61.needResolve);
+}
+  yymsp[-1].minor.yy74 = yylhsminor.yy74;
+        break;
+      case 70: /* vector_attribute_list ::= vector_attribute */
+{
+  yylhsminor.yy74.params = array_new(VecSimRawParam, 1);
+  yylhsminor.yy74.needResolve = array_new(bool, 1);
+  yylhsminor.yy74.params = array_append(yylhsminor.yy74.params, yymsp[0].minor.yy61.param);
+  yylhsminor.yy74.needResolve = array_append(yylhsminor.yy74.needResolve, yymsp[0].minor.yy61.needResolve);
+}
+  yymsp[0].minor.yy74 = yylhsminor.yy74;
+        break;
+      case 71: /* num ::= SIZE */
+      case 72: /* num ::= NUMBER */ yytestcase(yyruleno==72);
+{
+    yylhsminor.yy111.num = yymsp[0].minor.yy0.numval;
+    yylhsminor.yy111.inclusive = 1;
+}
+  yymsp[0].minor.yy111 = yylhsminor.yy111;
+        break;
+      case 73: /* num ::= LP num */
+{
+    yymsp[-1].minor.yy111=yymsp[0].minor.yy111;
+    yymsp[-1].minor.yy111.inclusive = 0;
 }
         break;
-      case 66: /* term ::= TERM */
-      case 67: /* term ::= NUMBER */ yytestcase(yyruleno==67);
+      case 74: /* num ::= MINUS num */
+{
+    yymsp[0].minor.yy111.num = -yymsp[0].minor.yy111.num;
+    yymsp[-1].minor.yy111 = yymsp[0].minor.yy111;
+}
+        break;
+      case 75: /* term ::= TERM */
+      case 76: /* term ::= NUMBER */ yytestcase(yyruleno==76);
 {
     yylhsminor.yy0 = yymsp[0].minor.yy0; 
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
-      case 68: /* param_term ::= TERM */
-      case 73: /* param_any ::= TERM */ yytestcase(yyruleno==73);
+      case 77: /* term ::= SIZE */
+{
+    yylhsminor.yy0 = yymsp[0].minor.yy0;
+}
+  yymsp[0].minor.yy0 = yylhsminor.yy0;
+        break;
+      case 78: /* param_term ::= TERM */
+      case 86: /* param_any ::= TERM */ yytestcase(yyruleno==86);
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
   yylhsminor.yy0.type = QT_TERM;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
-      case 69: /* param_term ::= NUMBER */
+      case 79: /* param_term ::= NUMBER */
+      case 80: /* param_term ::= SIZE */ yytestcase(yyruleno==80);
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
   // Number is treated as a term here
@@ -1901,14 +2092,28 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
-      case 70: /* param_term ::= ATTRIBUTE */
+      case 81: /* param_term ::= ATTRIBUTE */
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
   yylhsminor.yy0.type = QT_PARAM_TERM;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
-      case 71: /* param_any ::= ATTRIBUTE */
+      case 82: /* param_size ::= SIZE */
+{
+  yylhsminor.yy0 = yymsp[0].minor.yy0;
+  yylhsminor.yy0.type = QT_SIZE;
+}
+  yymsp[0].minor.yy0 = yylhsminor.yy0;
+        break;
+      case 83: /* param_size ::= ATTRIBUTE */
+{
+  yylhsminor.yy0 = yymsp[0].minor.yy0;
+  yylhsminor.yy0.type = QT_PARAM_SIZE;
+}
+  yymsp[0].minor.yy0 = yylhsminor.yy0;
+        break;
+      case 84: /* param_any ::= ATTRIBUTE */
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
   yylhsminor.yy0.type = QT_PARAM_ANY;
@@ -1916,22 +2121,28 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
-      case 72: /* param_any ::= LP ATTRIBUTE */
+      case 85: /* param_any ::= LP ATTRIBUTE */
 {
   yymsp[-1].minor.yy0 = yymsp[0].minor.yy0;
   yymsp[-1].minor.yy0.type = QT_PARAM_ANY;
   yymsp[-1].minor.yy0.inclusive = 0; // Could be relevant if type is refined
 }
         break;
-      case 74: /* param_any ::= num */
+      case 87: /* param_any ::= num */
 {
-  yylhsminor.yy0.numval = yymsp[0].minor.yy95.num;
-  yylhsminor.yy0.inclusive = yymsp[0].minor.yy95.inclusive;
+  yylhsminor.yy0.numval = yymsp[0].minor.yy111.num;
+  yylhsminor.yy0.inclusive = yymsp[0].minor.yy111.inclusive;
   yylhsminor.yy0.type = QT_NUMERIC;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
+      case 89: /* star ::= LP star RP */
+{
+}
+  yy_destructor(yypParser,50,&yymsp[-1].minor);
+        break;
       default:
+      /* (88) star ::= STAR */ yytestcase(yyruleno==88);
         break;
 /********** End reduce actions ************************************************/
   };

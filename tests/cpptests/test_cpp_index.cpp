@@ -6,6 +6,7 @@
 #include "src/spec.h"
 #include "src/tokenize.h"
 #include "src/varint.h"
+#include "src/hybrid_reader.h"
 
 #include "rmutil/alloc.h"
 #include "rmutil/alloc.h"
@@ -285,54 +286,61 @@ TEST_F(IndexTest, testReadIterator) {
 }
 
 TEST_F(IndexTest, testUnion) {
-  InvertedIndex *w = createIndex(10, 2);
-  InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  int oldConfig = RSGlobalConfig.minUnionIterHeap;
+  for (int cfg = 0; cfg < 2; ++cfg) {
+    InvertedIndex *w = createIndex(10, 2);
+    InvertedIndex *w2 = createIndex(10, 3);
+    IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
+    IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
-  // printf("Reading!\n");
-  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-  irs[0] = NewReadIterator(r1);
-  irs[1] = NewReadIterator(r2);
+    // printf("Reading!\n");
+    IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
+    irs[0] = NewReadIterator(r1);
+    irs[1] = NewReadIterator(r2);
 
-  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
-  RSIndexResult *h = NULL;
-  int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
-  int i = 0;
-  while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
-    // printf("%d <=> %d\n", h.docId, expected[i]);
-    ASSERT_EQ(expected[i], h->docId);
-    i++;
+    IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
+    RSIndexResult *h = NULL;
+    int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
+    int i = 0;
+    while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+      // printf("%d <=> %d\n", h.docId, expected[i]);
+      ASSERT_EQ(expected[i], h->docId);
+      i++;
 
-    RSIndexResult *copy = IndexResult_DeepCopy(h);
-    ASSERT_TRUE(copy != NULL);
-    ASSERT_TRUE(copy != h);
-    ASSERT_TRUE(copy->isCopy);
+      RSIndexResult *copy = IndexResult_DeepCopy(h);
+      ASSERT_TRUE(copy != NULL);
+      ASSERT_TRUE(copy != h);
+      ASSERT_TRUE(copy->isCopy);
 
-    ASSERT_EQ(copy->docId, h->docId);
-    ASSERT_EQ(copy->type, h->type);
+      ASSERT_EQ(copy->docId, h->docId);
+      ASSERT_EQ(copy->type, h->type);
 
-    IndexResult_Free(copy);
+      IndexResult_Free(copy);
 
-    // printf("%d, ", h.docId);
+      // printf("%d, ", h.docId);
+    }
+
+
+    // test read after skip goes to next id
+    ui->Rewind(ui->ctx);
+    ASSERT_EQ(ui->SkipTo(ui->ctx, 6, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->docId, 6);
+    ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->docId, 8);
+    // test for last id
+    ASSERT_EQ(ui->SkipTo(ui->ctx, 30, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->docId, 30);
+    ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_EOF);
+
+    ui->Free(ui);
+    // IndexResult_Free(&h);
+    InvertedIndex_Free(w);
+    InvertedIndex_Free(w2);
+
+    // change config parameter to use UI_ReadHigh and UI_SkipToHigh
+    RSGlobalConfig.minUnionIterHeap = 1;
   }
-
-
-  // test read after skip goes to next id
-  ui->Rewind(ui->ctx);
-  ASSERT_EQ(ui->SkipTo(ui->ctx, 6, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 6);
-  ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 8);
-  // test for last id
-  ASSERT_EQ(ui->SkipTo(ui->ctx, 30, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 30);
-  ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_EOF);
-
-  ui->Free(ui);
-  // IndexResult_Free(&h);
-  InvertedIndex_Free(w);
-  InvertedIndex_Free(w2);
+  RSGlobalConfig.minUnionIterHeap = oldConfig;
 }
 
 TEST_F(IndexTest, testWeight) {
@@ -659,6 +667,84 @@ TEST_F(IndexTest, testIntersection) {
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
+}
+
+TEST_F(IndexTest, testHybridVector) {
+
+  size_t n = 100;
+  size_t step = 4;
+  size_t max_id = n*step;
+  size_t d = 4;
+  size_t k = 10;
+  InvertedIndex *w = createIndex(n, step);
+  IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  IndexIterator *ir = NewReadIterator(r);
+
+  // Create vector index
+  VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
+                      .hnswParams = HNSWParams{.type = VecSimType_FLOAT32,
+                                               .dim = d,
+                                               .metric = VecSimMetric_L2,
+                                               .initialCapacity = max_id,
+                                               .M = 16,
+                                               .efConstruction = 100}};
+  VecSimIndex *index = VecSimIndex_New(&params);
+  for (size_t i = 1; i <= max_id; i++) {
+    float f[d];
+    for (size_t j = 0; j < d; j++) {
+      f[j] = (float)i;
+    }
+    VecSimIndex_AddVector(index, (const void *)f, (int)i);
+  }
+  ASSERT_EQ(VecSimIndex_IndexSize(index), max_id);
+
+  float query[] = {(float)max_id, (float)max_id, (float)max_id, (float)max_id};
+  TopKVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_ID};
+  VecSimQueryParams queryParams;
+  queryParams.hnswRuntimeParams.efRuntime = max_id;
+  IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir);
+
+  RSIndexResult *h = NULL;
+  size_t count = 0;
+
+  // Expect to get top 10 results in reverse order of the distance: 364, 368, ..., 400.
+  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+    count++;
+    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+  ASSERT_EQ(count, k);
+  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+
+  hybridIt->Rewind(hybridIt->ctx);
+  ASSERT_TRUE(hybridIt->HasNext(hybridIt->ctx));
+  ASSERT_EQ(hybridIt->NumEstimated(hybridIt->ctx), k);
+  ASSERT_EQ(hybridIt->Len(hybridIt->ctx), k);
+
+  // check rerun and abort (go over only half of the results)
+  count = 0;
+  for (size_t i = 0; i < k/2; i++) {
+    count++;
+    ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+  ASSERT_EQ(hybridIt->LastDocId(hybridIt->ctx), max_id - step*k/2);
+  hybridIt->Abort(hybridIt->ctx);
+  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+
+  hybridIt->Free(hybridIt);
+  InvertedIndex_Free(w);
+  VecSimIndex_Free(index);
 }
 
 TEST_F(IndexTest, testBuffer) {

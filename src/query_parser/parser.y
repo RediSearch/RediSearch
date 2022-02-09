@@ -5,7 +5,9 @@
 %left MODIFIER.
 %left MINUS.
 %left NUMBER.
+%left SIZE.
 %left STOPWORD.
+%left STAR.
 
 %left TERMLIST.
 %left TERM.
@@ -23,7 +25,10 @@
 %left TEXTEXPR.
 %left ARROW.
 
-%token_type {QueryToken}  
+%right TOP_K.
+%right AS.
+
+%token_type {QueryToken}
 
 %name RSQueryParser_
 
@@ -140,6 +145,7 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 // If a non-terminal is used by C-code, e.g., expr(A)
 // then %destructor code will bot be called for it
 // (C-code is responsible for destroying it)
+// Unless during error handling
 
 %type expr { QueryNode * } 
 %destructor expr { QueryNode_Free($$); }
@@ -162,7 +168,7 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %type text_union { QueryNode *}
 %destructor text_union { QueryNode_Free($$); }
 
-%type text_expr { QueryNode * } 
+%type text_expr { QueryNode * }
 %destructor text_expr { QueryNode_Free($$); }
 
 %type fuzzy { QueryNode *}
@@ -171,12 +177,28 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %type tag_list { QueryNode *}
 %destructor tag_list { QueryNode_Free($$); }
 
-//%type 
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
 
-%type vector_filter { QueryParam *}
-%destructor vector_filter { QueryParam_Free($$); }
+%type vector_query { QueryNode *}
+%destructor vector_query { QueryNode_Free($$); }
+
+%type vector_command { QueryNode *}
+%destructor vector_command { QueryNode_Free($$); }
+
+%type vector_attribute { SingleVectorQueryParam }
+// This destructor is commented out because it's not reachable: every vector_attribute that created
+// successfuly can successfuly be reduced to vector_attribute_list.
+// %destructor vector_attribute { rm_free((char*)($$.param.value)); rm_free((char*)($$.param.name)); }
+
+%type vector_attribute_list { VectorQueryParams }
+%destructor vector_attribute_list {
+  array_free($$.needResolve);
+  array_free_ex($$.params, {
+    rm_free((char*)((VecSimRawParam*)ptr)->value);
+    rm_free((char*)((VecSimRawParam*)ptr)->name);
+  });
+}
 
 %type modifierlist { Vector* }
 %destructor modifierlist { 
@@ -198,16 +220,20 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 query ::= expr(A) . { 
   setup_trace(ctx);
   ctx->root = A;
- 
 }
+
 query ::= . {
   ctx->root = NULL;
 }
 
-query ::= STAR . {
+query ::= star . {
   setup_trace(ctx);
   ctx->root = NewWildcardNode();
 }
+
+star ::= STAR.
+
+star ::= LP star RP.
 
 /////////////////////////////////////////////////////////////////
 // AND Clause / Phrase
@@ -238,16 +264,16 @@ text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
     } else if (rv == NODENN_ONE_NULL) {
         // Nothing- `out` is already assigned
     } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
             B->opts.fieldMask == RS_FIELDMASK_ALL ) {
             A = B;
-        } else {     
+        } else {
             A = NewPhraseNode(0);
             QueryNode_AddChild(A, B);
         }
         QueryNode_AddChild(A, C);
     }
-} 
+}
 
 
 /////////////////////////////////////////////////////////////////
@@ -314,7 +340,7 @@ text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
-    
+
 }
 
 text_union(A) ::= text_union(B) OR text_expr(C). [ORX] {
@@ -410,7 +436,7 @@ attribute_list(A) ::= . {
     A = NULL;
 }
 
-expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
+expr(A) ::= expr(B) ARROW LB attribute_list(C) RB . {
 
     if (B && C) {
         QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
@@ -566,7 +592,7 @@ text_expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [P
 
 
 /////////////////////////////////////////////////////////////////
-// Field Modidiers
+// Field Modifiers
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
@@ -592,6 +618,7 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
 /////////////////////////////////////////////////////////////////
 // Tag Lists - curly braces separated lists of words
 /////////////////////////////////////////////////////////////////
+
 expr(A) ::= modifier(B) COLON tag_list(C) . {
     if (!C) {
         A= NULL;
@@ -666,6 +693,7 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 /////////////////////////////////////////////////////////////////
 // Numeric Ranges
 /////////////////////////////////////////////////////////////////
+
 expr(A) ::= modifier(B) COLON numeric_range(C). {
   if (C) {
     // we keep the capitalization as is
@@ -741,62 +769,120 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
   }
 }
 
-expr(A) ::= modifier(B) COLON vector_filter(C). {
-  // we keep the capitalization as is
-  if (C) {
-      C->vf->property = rm_strndup(B.s, B.len);
-      A = NewVectorNode(C);
-  } else {
-      A = NewQueryNode(QN_NULL);
+/////////////////////////////////////////////////////////////////
+// Vector Queries
+/////////////////////////////////////////////////////////////////
+
+// expr(A) ::= expr(B) ARROW LSQB vector_query(C) RSQB. {} // main parse, hybrid case.
+
+// expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as subquery case.
+//   switch (B->vn.vq->type) {
+//     case VECSIM_QT_TOPK:
+//       B->vn.vq->topk.order = BY_ID;
+//       break;
+//   }
+//   A = B;
+// }
+
+query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid query as entire query case.
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_TOPK:
+      B->vn.vq->topk.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+  QueryNode_AddChild(B, A);
+}
+
+query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_TOPK:
+      B->vn.vq->topk.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+}
+
+// Vector query opt. 1 - full query.
+vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D). {
+  if (B->vn.vq->scoreField) {
+    rm_free(B->vn.vq->scoreField);
+    B->vn.vq->scoreField = NULL;
+  }
+  B->params = array_grow(B->params, 1);
+  memset(&array_tail(B->params), 0, sizeof(*B->params));
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
+  B->vn.vq->params = C;
+  A = B;
+}
+
+// Vector query opt. 2 - score field only, no params.
+vector_query(A) ::= vector_command(B) AS param_term(D). {
+  if (B->vn.vq->scoreField) {
+    rm_free(B->vn.vq->scoreField);
+    B->vn.vq->scoreField = NULL;
+  }
+  B->params = array_grow(B->params, 1);
+  memset(&array_tail(B->params), 0, sizeof(*B->params));
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
+  A = B;
+}
+
+// Vector query opt. 3 - no score field, params only.
+vector_query(A) ::= vector_command(B) vector_attribute_list(C). {
+  B->vn.vq->params = C;
+  A = B;
+}
+
+// Vector query opt. 4 - no score field and no params.
+vector_query(A) ::= vector_command(B). {
+  A = B;
+}
+
+// Every vector query will have basic command part. Right now we only have TOP_K command.
+// It is this rule's job to create the new vector node for the query.
+vector_command(A) ::= TOP_K param_size(B) modifier(C) ATTRIBUTE(D). {
+  D.type = QT_PARAM_VEC;
+  A = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
+  A->vn.vq->property = rm_strndup(C.s, C.len);
+  RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s)));
+}
+
+vector_attribute(A) ::= TERM(B) param_term(C). {
+  const char *value = rm_strndup(C.s, C.len);
+  const char *name = rm_strndup(B.s, B.len);
+  A.param = (VecSimRawParam){ .name = name, .nameLen = B.len, .value = value, .valLen = C.len };
+  if (C.type == QT_PARAM_TERM) {
+    A.needResolve = true;
+  }
+  else { // if C.type == QT_TERM
+    A.needResolve = false;
   }
 }
 
+vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C). {
+  A.params = array_append(B.params, C.param);
+  A.needResolve = array_append(B.needResolve, C.needResolve);
+}
 
-vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [NUMBER] {
-  // Update token types to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-  if (B.type == QT_TERM) {
-    B.type = QT_VEC;
-    // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
-    //  Equal signs are currently considered as punct (punctuation) and are not included in a
-    //  term, But in base64 encoding, it is used as padding to extend the string to a length
-    //  which is a multiple of 3.
-    size_t len = B.len;
-    int remainder = len % 3;
-    if (remainder == 1 && *((B.s) + len) == '=' && *((B.s) + len + 1) == '=')
-      B.len = len + 2;
-    else if (remainder == 2 && *((B.s) + len) == '=')
-      B.len = len + 1;
-  } else if (B.type == QT_PARAM_ANY) {
-    B.type = QT_PARAM_VEC;
-  } else {
-    badToken = &B;
-  }
-
-  if (C.type == QT_PARAM_ANY) {
-    C.type = QT_PARAM_VEC_SIM_TYPE;
-  } else if (!badToken && C.type != QT_TERM) {
-    badToken = &C;
-  }
-
-  if (D.type == QT_PARAM_ANY) {
-    D.type = QT_PARAM_NUMERIC;
-  } else if (!badToken && D.type != QT_NUMERIC) {
-    badToken = &D;
-  }
-
-  if (!badToken) {
-    A = NewVectorFilterQueryParam_WithParams(ctx, &B, &C, &D);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Syntax error");
-    A = NULL;
-  }
+vector_attribute_list(A) ::= vector_attribute(B). {
+  A.params = array_new(VecSimRawParam, 1);
+  A.needResolve = array_new(bool, 1);
+  A.params = array_append(A.params, B.param);
+  A.needResolve = array_append(A.needResolve, B.needResolve);
 }
 
 /////////////////////////////////////////////////////////////////
 // Primitives - numbers and strings
 /////////////////////////////////////////////////////////////////
+
+num(A) ::= SIZE(B). {
+    A.num = B.numval;
+    A.inclusive = 1;
+}
+
 num(A) ::= NUMBER(B). {
     A.num = B.numval;
     A.inclusive = 1;
@@ -820,6 +906,10 @@ term(A) ::= NUMBER(B) . {
     A = B; 
 }
 
+term(A) ::= SIZE(B). {
+    A = B;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
@@ -835,9 +925,25 @@ param_term(A) ::= NUMBER(B). {
   A.type = QT_TERM;
 }
 
+param_term(A) ::= SIZE(B). {
+  A = B;
+  // Number is treated as a term here
+  A.type = QT_TERM;
+}
+
 param_term(A) ::= ATTRIBUTE(B). {
   A = B;
   A.type = QT_PARAM_TERM;
+}
+
+param_size(A) ::= SIZE(B). {
+  A = B;
+  A.type = QT_SIZE;
+}
+
+param_size(A) ::= ATTRIBUTE(B). {
+  A = B;
+  A.type = QT_PARAM_SIZE;
 }
 
 //For generic parameter (param_any) its `type` could be refined by other rules which may have more accurate semantics,
