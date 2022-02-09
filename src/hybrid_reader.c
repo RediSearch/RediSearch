@@ -63,6 +63,25 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
+static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
+                               RSIndexResult *vec_res, float *upper_bound) {
+  AggregateResult_AddChild(res, vec_res);
+  AggregateResult_AddChild(res, child_res);
+  // todo: can we avoid deep copy and reuse memory sometimes (as the sorter does)?
+  RSIndexResult *hit = IndexResult_DeepCopy(res);
+  if (heap_count(hr->topResults) >= hr->query.k) {
+    // Remove and release the worst result to replace it with the new one.
+    RSIndexResult *top_res = heap_poll(hr->topResults);
+    IndexResult_Free(top_res);
+  }
+  // Insert to heap, update the distance upper bound.
+  heap_offerx(hr->topResults, hit);
+  RSIndexResult *top = heap_peek(hr->topResults);
+  *upper_bound = VECTOR_RESULT(top)->dist.distance;
+  // Reset the current result and advance both "sub-iterators".
+  AggregateResult_Reset(res);
+}
+
 static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *vecsim_iter, float *upper_bound) {
   RSIndexResult *cur_vec_res = NewDistanceResult();
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
@@ -74,23 +93,9 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
     if (cur_vec_res->docId == cur_child_res->docId) {
       // Found a match - check if it should be added to the results heap.
       if (heap_count(hr->topResults) < hr->query.k || cur_vec_res->dist.distance < *upper_bound) {
-        // Otherwise, set the vector and child results as the children
-        // before insert result to the heap.
-        AggregateResult_AddChild(cur_res, cur_vec_res);
-        AggregateResult_AddChild(cur_res, cur_child_res);
-        // todo: can we avoid deep copy and reuse memory sometimes (as the sorter does)?
-        RSIndexResult *hit = IndexResult_DeepCopy(cur_res);
-        if (heap_count(hr->topResults) >= hr->query.k) {
-          // Remove and release the worst result to replace it with the new one.
-          RSIndexResult *top_res = heap_poll(hr->topResults);
-          IndexResult_Free(top_res);
-        }
-        // Insert to heap, update the distance upper bound.
-        heap_offerx(hr->topResults, hit);
-        RSIndexResult *top = heap_peek(hr->topResults);
-        *upper_bound = VECTOR_RESULT(top)->dist.distance;
-        // Reset the current result and advance both "sub-iterators".
-        AggregateResult_Reset(cur_res);
+        // Otherwise, set the vector and child results as the children the res
+        // and insert result to the heap.
+        insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, upper_bound);
       }
       int ret_child = hr->child->Read(hr->child->ctx, &cur_child_res);
       int ret_vec = HR_ReadInBatch(hr, &cur_vec_res);
@@ -118,33 +123,19 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
 }
 
 void computeDistances(HybridIterator *hr) {
-  double upper_bound = INFINITY;
+  float upper_bound = INFINITY;
   RSIndexResult *cur_res = hr->base.current;
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
   RSIndexResult *cur_vec_res = NewDistanceResult();
 
   while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
-    double dist = VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, hr->query.vector);
+    float dist = (float)VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, hr->query.vector);
     if (heap_count(hr->topResults) < hr->query.k || dist < upper_bound) {
       // Populate the vector result.
       cur_vec_res->docId = cur_child_res->docId;
       cur_vec_res->dist.distance = dist;
-      cur_child_res->dist.scoreField = hr->scoreField;
-      AggregateResult_AddChild(cur_res, cur_vec_res);
-      AggregateResult_AddChild(cur_res, cur_child_res);
-      // todo: can we avoid deep copy and reuse memory sometimes (as the sorter does)?
-      RSIndexResult *hit = IndexResult_DeepCopy(cur_res);
-      if (heap_count(hr->topResults) >= hr->query.k) {
-        // Remove and release the worst result to replace it with the new one.
-        RSIndexResult *top_res = heap_poll(hr->topResults);
-        IndexResult_Free(top_res);
-      }
-      // Insert to heap, update the distance upper bound.
-      heap_offerx(hr->topResults, hit);
-      RSIndexResult *top = heap_peek(hr->topResults);
-      upper_bound = VECTOR_RESULT(top)->dist.distance;
-      // Reset the current result and advance both "sub-iterators".
-      AggregateResult_Reset(cur_res);
+      cur_vec_res->dist.scoreField = hr->scoreField;
+      insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, &upper_bound);
     }
   }
 }

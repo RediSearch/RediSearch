@@ -671,7 +671,6 @@ TEST_F(IndexTest, testHybridVector) {
   size_t k = 10;
   InvertedIndex *w = createIndex(n, step);
   IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
-  IndexIterator *ir = NewReadIterator(r);
 
   // Create vector index
   VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
@@ -692,15 +691,39 @@ TEST_F(IndexTest, testHybridVector) {
   ASSERT_EQ(VecSimIndex_IndexSize(index), max_id);
 
   float query[] = {(float)max_id, (float)max_id, (float)max_id, (float)max_id};
-  TopKVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_ID};
+  TopKVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
   VecSimQueryParams queryParams;
   queryParams.hnswRuntimeParams.efRuntime = max_id;
-  IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir);
 
+  // Run simple top k query.
+  IndexIterator *vecIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, NULL);
   RSIndexResult *h = NULL;
   size_t count = 0;
 
-  // Expect to get top 10 results in reverse order of the distance: 364, 368, ..., 400.
+  // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
+  while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
+    ASSERT_EQ(h->type, RSResultType_Distance);
+    ASSERT_EQ(h->docId, max_id - count);
+    count++;
+  }
+  ASSERT_EQ(count, k);
+  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+
+  vecIt->Rewind(vecIt->ctx);
+  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
+  ASSERT_EQ(vecIt->NumEstimated(vecIt->ctx), k);
+  ASSERT_EQ(vecIt->Len(vecIt->ctx), k);
+  // Read one result to verify that we get the one with best score after rewind.
+  ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, max_id);
+  vecIt->Free(vecIt);
+
+  // Test in hybrid mode.
+  IndexIterator *ir = NewReadIterator(r);
+  IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir);
+
+  // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
+  count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
     ASSERT_EQ(h->type, RSResultType_HybridDistance);
