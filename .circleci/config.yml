@@ -564,7 +564,6 @@ workflows:
           <<: *on-version-tags
           requires:
             - build-platforms
-            - build-arm-platforms
             - build-macos
       - release-qa-tests:
           context: common
