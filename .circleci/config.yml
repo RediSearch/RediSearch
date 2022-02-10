@@ -557,7 +557,6 @@ workflows:
           <<: *on-integ-branch
           requires:
             - build-platforms
-            - build-arm-platforms
             - build-macos
       - upload-artifacts:
           name: upload-release-artifacts
