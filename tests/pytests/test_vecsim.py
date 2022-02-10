@@ -616,3 +616,25 @@ def test_hybrid_query_batches_non_vector_score(env):
     env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'DOCSCORE', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
+
+
+def test_hybrid_query_adhoc_bf_mode(env):
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    qty = 10000
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 't', 'TEXT')
+    load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
+
+    # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
+    for i in range(1, 11):
+        vector = np.float32([10*i for j in range(dimension)])
+        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+
+    # Expect to get only vector that passes the filter (i.e, has "other" in text field)
+    # since the number of results that passes the filter is 10 and 10/qty = 0.001 < 0.05, this
+    # query will run in BF mode.
+    query_data = np.float32([100 for j in range(dimension)])
+
+    expected_res = [10L, '100', ['__v_score', '0', 't', 'other'], '90', ['__v_score', '12800', 't', 'other'], '80', ['__v_score', '51200', 't', 'other'], '70', ['__v_score', '115200', 't', 'other'], '60', ['__v_score', '204800', 't', 'other'], '50', ['__v_score', '320000', 't', 'other'], '40', ['__v_score', '460800', 't', 'other'], '30', ['__v_score', '627200', 't', 'other'], '20', ['__v_score', '819200', 't', 'other'], '10', ['__v_score', '1036800', 't', 'other']]
+    execute_hybrid_query(env, '(other)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res)

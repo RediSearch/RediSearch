@@ -314,7 +314,7 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, To
 
   if (child_it == NULL) {
     hi->mode = STANDARD_KNN;
-  } else if (UseBF(child_it->NumEstimated(child_it), query, index)) {
+  } else if (UseBF(child_it->NumEstimated(child_it->ctx), query, index)) {
     hi->mode = HYBRID_ADHOC_BF;
   } else {
     hi->mode = HYBRID_BATCHES;

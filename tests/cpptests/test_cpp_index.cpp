@@ -22,6 +22,9 @@
 #include <float.h>
 #include <vector>
 #include <cstdint>
+#include <random>
+#include <chrono>
+#include <iostream>
 
 class IndexTest : public ::testing::Test {};
 
@@ -734,6 +737,112 @@ TEST_F(IndexTest, testHybridVector) {
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
   }
+  ASSERT_EQ(count, k);
+  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+
+  hybridIt->Rewind(hybridIt->ctx);
+  ASSERT_TRUE(hybridIt->HasNext(hybridIt->ctx));
+  ASSERT_EQ(hybridIt->NumEstimated(hybridIt->ctx), k);
+  ASSERT_EQ(hybridIt->Len(hybridIt->ctx), k);
+
+  // check rerun and abort (go over only half of the results)
+  count = 0;
+  for (size_t i = 0; i < k/2; i++) {
+    count++;
+    ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+  ASSERT_EQ(hybridIt->LastDocId(hybridIt->ctx), max_id - step*k/2);
+  hybridIt->Abort(hybridIt->ctx);
+  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+
+  // Rerun in AD_HOC BF MODE.
+  hybridIt->Rewind(hybridIt->ctx);
+  HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
+  hr->mode = HYBRID_ADHOC_BF;
+  count = 0;
+  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+    count++;
+    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+
+  hybridIt->Free(hybridIt);
+  InvertedIndex_Free(w);
+  VecSimIndex_Free(index);
+}
+
+TEST_F(IndexTest, benchmarkHybridVector) {
+
+  size_t NUM_ITERATIONS = 10;
+  size_t n = 10000;
+  size_t step = 10;
+  size_t max_id = n*step;
+  size_t d = 32;
+  size_t k = 10;
+  InvertedIndex *w = createIndex(n, step);
+  IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+
+  // Create vector index with random data
+  std::mt19937 rng;
+  rng.seed(47);
+  std::vector<float> data(max_id * d);
+  std::uniform_real_distribution<> distrib;
+  for (size_t i = 0; i < max_id * d; ++i) {
+    data[i] = (float)distrib(rng);
+  }
+  VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
+                      .hnswParams = HNSWParams{.type = VecSimType_FLOAT32,
+                                               .dim = d,
+                                               .metric = VecSimMetric_L2,
+                                               .initialCapacity = max_id,
+                                               .M = 24,
+                                               .efConstruction = 200}};
+  VecSimIndex *index = VecSimIndex_New(&params);
+  for (size_t i = 0; i < max_id; i++) {
+    VecSimIndex_AddVector(index, data.data() + d * i, (int)i);
+  }
+  ASSERT_EQ(VecSimIndex_IndexSize(index), max_id);
+
+  for (size_t i = 0; i < NUM_ITERATIONS; i++) {
+  float query[d];
+  for (size_t i = 0; i < d; ++i) {
+    query[i] = (float)distrib(rng);
+  }
+  TopKVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
+  VecSimQueryParams queryParams;
+  queryParams.hnswRuntimeParams.efRuntime = max_id;
+
+  RSIndexResult *h = NULL;
+  size_t count = 0;
+  IndexIterator *ir = NewReadIterator(r);
+  IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir);
+
+  // run in batches mode
+  HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
+  hr->mode = HYBRID_ADHOC_BF;
+
+  for (size_t i = 0; i < NUM_ITERATIONS; i++) {
+  auto start = std::chrono::high_resolution_clock::now();
+
+  count = 0;
+  auto begin = system_clock::now();
+  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+    count++
+  }
+
+  elapsed = duration_cast<microseconds>(system_clock::now() - begin);
+  std::cout << "Total time: " << elapsed.count() << std::endl;
   ASSERT_EQ(count, k);
   ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
 
