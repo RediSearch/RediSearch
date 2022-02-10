@@ -332,9 +332,9 @@ void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
 }
 
 void CursorList_Empty(CursorList *cl) {
-  CursorList_Destroy(&RSCursors);
-  Array_Free(&RSCursors.idle);
-  CursorList_Init(&RSCursors);
+  CursorList_Destroy(cl);
+  Array_Free(&cl->idle);
+  CursorList_Init(cl);
 }
 
 void CursorList_Destroy(CursorList *cl) {
