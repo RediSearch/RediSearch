@@ -362,6 +362,38 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(GCCleanNumeric) {
+
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RedisModuleKey *keyp = NULL;
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_NUMERIC);
+  if (!keyName) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+    goto end;
+  }
+  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  if (!rt) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    goto end;
+  }
+
+  NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
+
+  rt->numRanges += rv.numRanges;
+  rt->emptyLeaves += rv.numRanges;
+  
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+  SearchCtx_Free(sctx);
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
+  return REDISMODULE_OK;
+}
+
 DEBUG_COMMAND(ttl) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
@@ -632,6 +664,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"NUMIDX_SUMMARY", NumericIndexSummary},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
+                               {"GC_CLEAN_NUMERIC", GCCleanNumeric},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {NULL, NULL}};

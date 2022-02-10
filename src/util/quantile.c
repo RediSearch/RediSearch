@@ -255,7 +255,7 @@ double QS_Query(QuantStream *stream, double q) {
   }
 
   double t = ceil(q * stream->n);
-  t += ceil(QS_GetMaxVal(stream, t) / 2.0);
+  t += floor(QS_GetMaxVal(stream, t) / 2.0);
   const Sample *prev = stream->firstSample;
   double r = 0;
 
@@ -264,7 +264,7 @@ double QS_Query(QuantStream *stream, double q) {
   }
 
   for (const Sample *cur = prev->next; cur; cur = cur->next) {
-    if (r + cur->g + cur->d > t) {
+    if (r + cur->g + cur->d >= t) {
       break;
     }
     r += cur->g;

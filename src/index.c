@@ -647,7 +647,7 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (ic->docIds[i] != docId) {
       rc = it->SkipTo(it->ctx, docId, &res);
       if (rc != INDEXREAD_EOF) {
-        if (res) ic->docIds[i] = res->docId;
+        if (res) docId = ic->docIds[i] = res->docId;
       }
     }
 
@@ -681,6 +681,7 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (ic->maxSlop == -1 ||
         IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
       ic->lastFoundId = ic->base.current->docId;
+      ic->lastDocId++;
       if (hit) *hit = ic->base.current;
       return INDEXREAD_OK;
     }
@@ -927,11 +928,16 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   // Get the child's last read docId
-  t_docId childId = nc->child->LastDocId(nc->child->ctx);
+  // if lastDocId is 0, Read & Skipto weren't called yet and child lastId
+  // might not be be updated (ex. NUMERIC filter) (PR-2440)
+  t_docId childId = 0;
+  if (nc->lastDocId != 0) {
+    childId = nc->child->LastDocId(nc->child->ctx);
+  }
 
   // If the child is ahead of the skipto id, it means the child doesn't have this id.
   // So we are okay!
-  if (childId > docId) {
+  if (childId > docId || !IITER_HAS_NEXT(nc->child)) {
     goto ok;
   }
 
@@ -1031,7 +1037,7 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
   // If we don't have a child result, or the child result is ahead of the current counter,
   // we just increment our virtual result's id until we hit the child result's
   // in which case we'll read from the child and bypass it by one.
-  if (cr == NULL || cr->docId > nc->base.current->docId) {
+  if (cr == NULL || cr->docId > nc->base.current->docId || !IITER_HAS_NEXT(nc->child)) {
     goto ok;
   }
 
@@ -1045,12 +1051,12 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
     }
   }
 
+ok:
   // make sure we did not overflow
   if (nc->base.current->docId > nc->maxDocId) {
     return INDEXREAD_EOF;
   }
 
-ok:
   // Set the next entry and return ok
   nc->lastDocId = nc->base.current->docId;
   if (hit) *hit = nc->base.current;

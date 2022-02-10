@@ -310,6 +310,18 @@ TEST_F(IndexTest, testUnion) {
     // printf("%d, ", h.docId);
   }
 
+
+  // test read after skip goes to next id
+  ui->Rewind(ui->ctx);
+  ASSERT_EQ(ui->SkipTo(ui->ctx, 6, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 6);
+  ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 8);
+  // test for last id
+  ASSERT_EQ(ui->SkipTo(ui->ctx, 30, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 30);
+  ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_EOF);
+
   ui->Free(ui);
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
@@ -624,6 +636,17 @@ TEST_F(IndexTest, testIntersection) {
   // printf("top freq: %f\n", topFreq);
   ASSERT_EQ(count, 50000);
   ASSERT_EQ(topFreq, 100000.0);
+
+  // test read after skip goes to next id
+  ii->Rewind(ii->ctx);
+  ASSERT_EQ(ii->SkipTo(ii->ctx, 8, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 8);
+  ASSERT_EQ(ii->Read(ii->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 12);
+  // test for last id
+  ASSERT_EQ(ii->SkipTo(ii->ctx, 200000, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 200000);
+  ASSERT_EQ(ii->Read(ii->ctx, &h), INDEXREAD_EOF);
 
   ii->Free(ii);
   // IndexResult_Free(&h);

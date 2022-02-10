@@ -251,7 +251,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
 
   // searching on the index
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
-  RSQNode* tqn = RediSearch_CreateTokenNode(index, NULL, TAG_VALUE);
+  RSQNode* tqn = RediSearch_CreateTagTokenNode(index, TAG_VALUE);
   RediSearch_QueryNodeAddChild(qn, tqn);
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
 
@@ -265,7 +265,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
 
   // prefix search on the index
   qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
-  tqn = RediSearch_CreatePrefixNode(index, NULL, "ta");
+  tqn = RediSearch_CreateTagPrefixNode(index, "ta");
   RediSearch_QueryNodeAddChild(qn, tqn);
   iter = RediSearch_GetResultsIterator(qn, index);
 
@@ -318,7 +318,7 @@ TEST_F(LLApiTest, testMassivePrefix) {
   }
 
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
-  RSQNode* pqn = RediSearch_CreatePrefixNode(index, NULL, "tag-");
+  RSQNode* pqn = RediSearch_CreateTagPrefixNode(index, "tag-");
   RediSearch_QueryNodeAddChild(qn, pqn);
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
@@ -397,20 +397,20 @@ TEST_F(LLApiTest, testRangesOnTags) {
 
   // test with include max and min
   RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  RSQNode* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "Markn", "Markx", 1, 1);
+  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, "Markn", "Markx", 1, 1);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'n', 'x', 11);
 
   // test without include max and min
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "Markn", "Markx", 0, 0);
+  qn = RediSearch_CreateTagLexRangeNode(index, "Markn", "Markx", 0, 0);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'o', 'w', 9);
 
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, NULL, NULL, 1, 1);
+  qn = RediSearch_CreateTagLexRangeNode(index, NULL, NULL, 1, 1);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'a', 'z', 26);
@@ -428,7 +428,7 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
 
   // test with include max and min
   RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  RSQNode* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "C", RSLECRANGE_INF, 0, 1);
+  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, "C", RSLECRANGE_INF, 0, 1);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   RSResultsIterator* iter = RediSearch_GetResultsIterator(tagQn, index);
@@ -441,7 +441,7 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
   RediSearch_ResultsIteratorFree(iter);
 
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, RSLECRANGE_INF, "C", 1, 0);
+  qn = RediSearch_CreateTagLexRangeNode(index, RSLECRANGE_INF, "C", 1, 0);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   iter = RediSearch_GetResultsIterator(tagQn, index);
@@ -490,7 +490,7 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
   }
 
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
-  RSQNode* pqn = RediSearch_CreatePrefixNode(index, NULL, "tag-");
+  RSQNode* pqn = RediSearch_CreateTagPrefixNode(index, "tag-");
   RediSearch_QueryNodeAddChild(qn, pqn);
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
@@ -528,10 +528,10 @@ TEST_F(LLApiTest, testPrefixIntersection) {
   }
 
   RSQNode* qn1 = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
-  RSQNode* pqn1 = RediSearch_CreatePrefixNode(index, NULL, "tag1-");
+  RSQNode* pqn1 = RediSearch_CreateTagPrefixNode(index, "tag1-");
   RediSearch_QueryNodeAddChild(qn1, pqn1);
   RSQNode* qn2 = RediSearch_CreateTagNode(index, TAG_FIELD_NAME2);
-  RSQNode* pqn2 = RediSearch_CreatePrefixNode(index, NULL, "tag2-");
+  RSQNode* pqn2 = RediSearch_CreateTagPrefixNode(index, "tag2-");
   RediSearch_QueryNodeAddChild(qn2, pqn2);
   RSQNode* iqn = RediSearch_CreateIntersectNode(index, 0);
   RediSearch_QueryNodeAddChild(iqn, qn1);
@@ -572,7 +572,7 @@ TEST_F(LLApiTest, testMultitype) {
   ASSERT_EQ("doc1", results[0]);
 
   qn = RediSearch_CreateTagNode(index, "f2");
-  RediSearch_QueryNodeAddChild(qn, RediSearch_CreateTokenNode(index, NULL, "world"));
+  RediSearch_QueryNodeAddChild(qn, RediSearch_CreateTagTokenNode(index, "world"));
   results = search(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
@@ -598,20 +598,20 @@ TEST_F(LLApiTest, testMultitypeNumericTag) {
 
   auto qn = RediSearch_CreateTagNode(index, "f2");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateLexRangeNode(index, "f2", "world", "world", 1, 1));
+                               RediSearch_CreateTagLexRangeNode(index, "world", "world", 1, 1));
   std::vector<std::string> results = search(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
 
   qn = RediSearch_CreateTagNode(index, "f1");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateLexRangeNode(index, "f1", "world", "world", 1, 1));
+                               RediSearch_CreateTagLexRangeNode(index, "world", "world", 1, 1));
   results = search(index, qn);
   ASSERT_EQ(0, results.size());
 
   qn = RediSearch_CreateTagNode(index, "f1");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateLexRangeNode(index, "f1", "World", "world", 1, 1));
+                               RediSearch_CreateTagLexRangeNode(index, "World", "world", 1, 1));
   results = search(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
