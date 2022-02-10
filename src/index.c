@@ -11,6 +11,7 @@
 #include "rmutil/rm_assert.h"
 #include "util/heap.h"
 #include "profile.h"
+#include "hybrid_reader.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit);
@@ -580,6 +581,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
     heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
   }
 
+  ui->minDocId = it->minId;
   *hit = CURRENT_RECORD(ui);
   return rc;
 }
@@ -1063,6 +1065,7 @@ typedef struct {
 
 static void NI_Abort(void *ctx) {
   NotContext *nc = ctx;
+  nc->base.isValid = 0;
   nc->child->Abort(nc->child->ctx);
 }
 
@@ -1070,6 +1073,7 @@ static void NI_Rewind(void *ctx) {
   NotContext *nc = ctx;
   nc->lastDocId = 0;
   nc->base.current->docId = 0;
+  nc->base.isValid = 1;
   nc->child->Rewind(nc->child->ctx);
 }
 
@@ -1092,6 +1096,7 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   // do not skip beyond max doc id
   if (docId > nc->maxDocId) {
+    IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;
   }
 
@@ -1177,6 +1182,7 @@ static int NI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
     }
     ++nc->lastDocId;
   }
+  IITER_SET_EOF(&nc->base);
   return INDEXREAD_EOF;
 }
 
@@ -1184,7 +1190,10 @@ static int NI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
  * NOT node. We simply read until max docId, skipping docIds that exist in the child*/
 static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
   NotContext *nc = ctx;
-  if (nc->lastDocId > nc->maxDocId) return INDEXREAD_EOF;
+  if (nc->lastDocId > nc->maxDocId) {
+    IITER_SET_EOF(&nc->base);
+    return INDEXREAD_EOF;
+  }
 
   RSIndexResult *cr = NULL;
   // if we have a child, get the latest result from the child
@@ -1217,6 +1226,7 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
 ok:
   // make sure we did not overflow
   if (nc->base.current->docId > nc->maxDocId) {
+    IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;
   }
 
@@ -1259,6 +1269,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   nc->maxDocId = maxDocId;
   nc->len = 0;
   nc->weight = weight;
+  nc->base.isValid = 1;
 
   IndexIterator *ret = &nc->base;
   ret->ctx = nc;
@@ -1891,7 +1902,7 @@ PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL", 1);
 PRINT_PROFILE_SINGLE(printWildcardIt, DummyIterator, "WILDCARD", 0);
 PRINT_PROFILE_SINGLE(printIdListIt, DummyIterator, "ID-LIST", 0);
 PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "EMPTY", 0);
-PRINT_PROFILE_SINGLE(printListIt, DummyIterator, "LIST", 0);
+PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator, "VECTOR", 1);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
@@ -1921,7 +1932,7 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
-    case LIST_ITERATOR:       { printListIt(ctx, root, counter, cpuTime, depth, limited);       break; }
+    case HYBRID_ITERATOR:     { printHybridIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
@@ -1941,6 +1952,9 @@ void Profile_AddIters(IndexIterator **root) {
     case OPTIONAL_ITERATOR:
       Profile_AddIters(&((OptionalIterator *)((*root)->ctx))->child);
       break;
+    case HYBRID_ITERATOR:
+      Profile_AddIters(&((HybridIterator *)((*root)->ctx))->child);
+      break;
     case UNION_ITERATOR:
       ui = (*root)->ctx;
       for (int i = 0; i < ui->norig; i++) {
@@ -1956,7 +1970,6 @@ void Profile_AddIters(IndexIterator **root) {
       break;
     case WILDCARD_ITERATOR:
     case READ_ITERATOR:
-    case LIST_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
       break;
