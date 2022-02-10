@@ -17,6 +17,13 @@
 #include <cassert>
 #include <mutex>
 
+#define __ignore__(X) \
+    do { \
+        int rc = (X); \
+        if (rc == -1) \
+            ; \
+    } while(0)
+
 static std::mutex RMCK_GlobalLock;
 
 std::string HashValue::Key::makeKey() const {
@@ -159,7 +166,7 @@ RedisModuleString *RMCK_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt,
   va_list ap;
   va_start(ap, fmt);
   char *outp = NULL;
-  vasprintf(&outp, fmt, ap);
+  __ignore__(vasprintf(&outp, fmt, ap));
   va_end(ap);
   RedisModuleString *ret = RMCK_CreateString(ctx, outp, strlen(outp));
   free(outp);

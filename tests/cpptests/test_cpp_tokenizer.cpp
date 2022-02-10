@@ -1,6 +1,8 @@
-#include <gtest/gtest.h>
+
+#include "gtest/gtest.h"
 #include "stemmer.h"
 #include "tokenize.h"
+
 #include <set>
 
 class TokenizerTest : public ::testing::Test {};

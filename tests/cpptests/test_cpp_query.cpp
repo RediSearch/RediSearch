@@ -1,10 +1,13 @@
-#include "../../src/query.h"
-#include "../../src/query_parser/tokenizer.h"
-#include "../../src/stopwords.h"
-#include "../../src/extension.h"
-#include "../../src/ext/default.h"
+
+#include "src/query.h"
+#include "src/query_parser/tokenizer.h"
+#include "src/stopwords.h"
+#include "src/extension.h"
+#include "src/ext/default.h"
+
+#include "gtest/gtest.h"
+
 #include <stdio.h>
-#include <gtest/gtest.h>
 
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
 

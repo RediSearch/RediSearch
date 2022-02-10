@@ -1,7 +1,7 @@
 #ifndef CNDICT_LOADER_H
 #define CNDICT_LOADER_H
 
-#include "dep/friso/friso.h"
+#include "friso/friso.h"
 
 // Defined in cndict_loader.c
 // Loads the built-in dictionary into the provided dictionary object

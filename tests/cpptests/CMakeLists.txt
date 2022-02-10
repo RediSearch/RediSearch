@@ -1,21 +1,24 @@
-INCLUDE(CTest)
 
-INCLUDE_DIRECTORIES("${gtest_SOURCE_DIR}/include")
-INCLUDE_DIRECTORIES(.)
-ADD_SUBDIRECTORY(redismock)
+include(CTest)
 
-IF (NOT RS_TEST_MODULE)
-    SET(RS_TEST_MODULE redisearch)
-ENDIF()
+include_directories("${gtest_SOURCE_DIR}/include")
+include_directories(.)
 
-FILE(GLOB TEST_SOURCES "test_cpp_*.cpp")
-ADD_EXECUTABLE(rstest ${TEST_SOURCES} common.cpp)
-TARGET_LINK_LIBRARIES(rstest gtest ${RS_TEST_MODULE} redismock dl)
-SET_PROPERTY(TARGET rstest PROPERTY CXX_STANDARD 11)
-ADD_DEPENDENCIES(rstest example_extension)
+add_subdirectory(redismock)
 
-ADD_TEST(NAME rstest COMMAND rstest)
-SET_TESTS_PROPERTIES(rstest PROPERTIES
-    ENVIRONMENT "EXT_TEST_PATH=$<TARGET_FILE:example_extension>"
-)
-ADD_DEFINITIONS(-DEXT_TEST_PATH="$<TARGET_FILE:example_extension>")
+if (NOT RS_TEST_MODULE)
+    set(RS_TEST_MODULE redisearch)
+endif()
+
+file(GLOB TEST_SOURCES "test_cpp_*.cpp")
+
+# add_definitions(-DEXT_TEST_PATH="\\"${binroot}/search/tests/cpptests/example_extension/libexample_extension.so\\"")
+
+add_executable(rstest ${TEST_SOURCES} common.cpp)
+target_link_libraries(rstest gtest ${RS_TEST_MODULE} redismock ${RS_LINK_LIBS})
+set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
+set_property(TARGET rstest PROPERTY CXX_STANDARD 11)
+add_dependencies(rstest example_extension)
+
+add_test(NAME rstest COMMAND rstest)
+# set_tests_properties(rstest PROPERTIES ENVIRONMENT "EXT_TEST_PATH=$<TARGET_FILE:example_extension>")

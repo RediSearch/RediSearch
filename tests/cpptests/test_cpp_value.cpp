@@ -1,5 +1,6 @@
-#include <gtest/gtest.h>
-#include <value.h>
+#include "gtest/gtest.h"
+
+#include "value.h"
 
 class ValueTest : public ::testing::Test {};
 

@@ -1,10 +1,17 @@
-#ifndef CPPTESTS_COMMON_H
-#define CPPTESTS_COMMON_H
+
+#pragma once
 
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "spec.h"
 #include "document.h"
+
+#define __ignore__(X) \
+    do { \
+        int rc = (X); \
+        if (rc == -1) \
+            ; \
+    } while(0)
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,5 +64,3 @@ std::vector<std::string> search(RSIndex *index, RSQueryNode *qn);
 std::vector<std::string> search(RSIndex *index, const char *s);
 
 }  // namespace RS
-
-#endif
