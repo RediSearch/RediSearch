@@ -874,9 +874,16 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-void Indexes_Free() {
-  arrayof(IndexSpec *) specs = array_new(IndexSpec *, 10);
-  dictIterator *iter = dictGetIterator(specDict_g);
+void Indexes_Free(dict *d) {
+  // free the schema dictionary this way avoid iterating over it for each combination of
+  // spec<-->prefix
+  SchemaPrefixes_Free(ScemaPrefixes_g);
+  SchemaPrefixes_Create();
+  // cursor list is iterating through the list as well and consuming a lot of CPU
+  CursorList_Empty(&RSCursors);
+
+  arrayof(IndexSpec *) specs = array_new(IndexSpec *, dictSize(d));
+  dictIterator *iter = dictGetIterator(d);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     IndexSpec *sp = dictGetVal(entry);
@@ -1799,7 +1806,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
-    Indexes_Free();
+    Indexes_Free(specDict_g);
     legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
@@ -1911,21 +1918,11 @@ int IndexSpec_DeleteHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void IndexSpec_CleanAll(void) {
-  dictIterator *it = dictGetSafeIterator(specDict_g);
-  dictEntry *e = NULL;
-  while ((e = dictNext(it))) {
-    IndexSpec *sp = e->v.val;
-    IndexSpec_Free(sp);
-  }
-  dictReleaseIterator(it);
-}
-
 static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   if (subevent != REDISMODULE_SUBEVENT_FLUSHDB_START) {
     return;
   }
-  IndexSpec_CleanAll();
+  Indexes_Free(specDict_g);
   Dictionary_Clear();
 }
 
