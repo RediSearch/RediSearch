@@ -1052,8 +1052,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   }
   invoked = 1;
 
-  
-
+  // First free all indexes
   Indexes_Free(specDict_g);
   dictRelease(specDict_g);
   specDict_g = NULL;
@@ -1066,6 +1065,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   }
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
+  // free global structures
   Extensions_Free();
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();

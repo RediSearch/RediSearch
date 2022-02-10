@@ -81,7 +81,7 @@ def testPrefix2(env):
 
 def testManyPrefixes(env):
     # this test checks that releasing all indexes is faster
-    # it went down from 20 to less than 1 second for 20,000 indexes
+    # it went down from 10 to less than 1 second for 10,000 indexes
     conn = getConnectionByEnv(env)
     start_time = time.time()
     for i in range(10000):
