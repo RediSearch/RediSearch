@@ -334,13 +334,13 @@ jobs:
       - restore_cache:
           keys:
             - date-cache-{{ checksum "cache-timestamp" }}
+      - run:
+          name: Brew upgrade
+          command: brew upgrade
       - save_cache:
           key: date-cache-{{ checksum "cache-timestamp" }}
           paths:
             - "/usr/local"
-      - run:
-          name: Brew upgrade
-          command: brew upgrade
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
