@@ -333,12 +333,12 @@ jobs:
           command: date +%Y-%m > cache-timestamp
       - restore_cache:
           keys:
-            - date-cache-{{ checksum "cache-timestamp" }}
+            - date-cache-v1-{{ checksum "cache-timestamp" }}
       - run:
           name: Brew upgrade
           command: brew upgrade
       - save_cache:
-          key: date-cache-{{ checksum "cache-timestamp" }}
+          key: date-cache-v1-{{ checksum "cache-timestamp" }}
           paths:
             - "/usr/local"
       - run:
