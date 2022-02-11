@@ -329,6 +329,16 @@ jobs:
     steps:
       - early-returns
       - run:
+          name: Timestamp
+          command: date +%Y-%m > cache-timestamp
+      - restore_cache:
+          keys:
+            - date-cache-{{ checksum "cache-timestamp" }}
+      - save_cache:
+          key: date-cache-{{ checksum "cache-timestamp" }}
+          paths:
+            - "/usr/local"
+      - run:
           name: Brew upgrade
           command: brew upgrade
       - run:
@@ -526,10 +536,10 @@ workflows:
           <<: *on-any-branch
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2", "7.0"]
+              #@@redis_version: ["6.0", "6.2", "7"]
+              redis_version: ["7"]
       - build-platforms:
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
@@ -584,12 +594,13 @@ workflows:
                 - /^feature-.*$/
     jobs:
       - build-macos:
+          name: nightly-macos
           persist: "no"
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2"]
+              redis_version: ["6.0", "6.2", "7"]
 
   nightly-benchmarks:
     triggers:
