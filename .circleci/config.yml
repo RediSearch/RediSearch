@@ -522,7 +522,8 @@ workflows:
           <<: *not-on-integ-branch
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *on-any-branch
           matrix:
             parameters:
               redis_version: ["6.0", "6.2", "7.0"]
@@ -532,10 +533,10 @@ workflows:
           context: common
           matrix:
             parameters:
-              #@@ platform: [focal, bionic, xenial, ol8, centos7, bullseye]
-              platform: [bionic, centos7]
+              platform: [focal, bionic, xenial, ol8, centos7, bullseye]
       - build-macos:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *on-any-branch
           context: common
       - coverage:
           <<: *on-any-branch
