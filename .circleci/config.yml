@@ -530,8 +530,7 @@ workflows:
             parameters:
               platform: [focal, bionic, xenial, ol8, centos7, bullseye]
       - build-macos:
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           context: common
       - coverage:
           <<: *on-any-branch
