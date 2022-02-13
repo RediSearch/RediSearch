@@ -43,7 +43,7 @@ void Discard_Globals_Backup() {
   // set backup as globals
   specDict_g = specDict_g_bkup;
   ScemaPrefixes_g = ScemaPrefixes_g_bkup;
-  AliasTable_g = &AliasTable_g_bkup;
+  AliasTable_g = AliasTable_g_bkup;
   // clear data
   Indexes_Free(specDict_g);
   SchemaPrefixes_Free(ScemaPrefixes_g);
