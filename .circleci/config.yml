@@ -587,7 +587,7 @@ workflows:
           <<: *on-integ-and-version-tags
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2", "7.0"]
+              redis_version: ["6.0", "6.2", "7"]
       - build-platforms:
           #@@<<: *on-integ-and-version-tags
           <<: *on-any-branch

@@ -462,15 +462,16 @@ endif # SLOW
 
 ifneq ($(CTEST_PARALLEL),)
 CTEST_ARGS.parallel += -j$(CTEST_PARALLEL)
+CTEST_DEFS += RANDPORTS=1
 endif
 
 override CTEST_ARGS += \
 	--output-on-failure \
 	--timeout 15000 \
-	$(CTEST.debug) \
-	$(CTEST.parallel)
+	$(CTEST_ARGS.debug) \
+	$(CTEST_ARGS.parallel)
 
-CTESTS_DEFS += \
+CTEST_DEFS += \
 	BINROOT=$(BINROOT)
 
 override FLOW_TESTS_ARGS+=\
@@ -496,12 +497,12 @@ RLTEST_PARALLEL ?= 1
 
 test: $(REJSON_SO)
 ifneq ($(TEST),)
-	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) RLTEST_ARGS+="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
 ifeq ($(ARCH),arm64v8)
 	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
-	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) ctest $(CTEST_ARGS)
+	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) ctest $(CTEST_ARGS)
 endif
 ifeq ($(COORD),oss)
 	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))

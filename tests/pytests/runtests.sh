@@ -30,6 +30,8 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1               Perform only one test variant
 		PARALLEL=1            Runs RLTest tests in parallel
+		UNIX=1                Use unix sockets
+		RANDPORTS=1           Use randomized ports
 
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
 		REJSON_BRANCH=branch  Use a snapshot of given branch name
@@ -48,6 +50,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
 		GDB=1                 Enable interactive gdb debugging (in single-test mode)
 
+		PLATFORM_MODE=1       Implies NOFAIL & COLLECT_LOGS into STATFILE
 		COLLECT_LOGS=1        Collect logs into .tar file
 		CLEAR_LOGS=0          Do not remove logs prior to running tests
 		NOFAIL=1              Do not fail on errors (always exit with 0)
@@ -60,6 +63,15 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 	END
 	exit 0
+fi
+
+#----------------------------------------------------------------------------------------------
+
+if [[ $PLATFORM_MODE == 1 ]]; then
+	CLEAR_LOGS=0
+	COLLECT_LOGS=1
+	NOFAIL=1
+	STATFILE=$ROOT/bin/artifacts/tests/status
 fi
 
 #---------------------------------------------------------------------------------------------- 
@@ -115,7 +127,12 @@ SHARDS=${SHARDS:-3}
 
 RLEC_PORT=${RLEC_PORT:-12000}
 
+#---------------------------------------------------------------------------------------------- 
+
 [[ $PARALLEL == 1 ]] && RLTEST_PARALLEL="--parallelism $($READIES/bin/nproc)"
+
+[[ $UNIX == 1 ]] && RLTEST_ARGS+=" --unix"
+[[ $RANDPORTS == 1 ]] && RLTEST_ARGS+=" --randomize-ports"
 
 #---------------------------------------------------------------------------------------------- 
 
@@ -313,9 +330,9 @@ run_tests() {
 
 #---------------------------------------------------------------------------------------------- 
 
-if [[ $CLEAR_LOGS != 0 ]]; then
-	rm -rf $HERE/logs
-fi
+# if [[ $CLEAR_LOGS != 0 ]]; then
+# 	rm -rf $HERE/logs
+# fi
 
 E=0
 
@@ -363,6 +380,8 @@ fi
 if [[ -n $STATFILE ]]; then
 	mkdir -p $(dirname $STATFILE)
 	if [[ -f $STATFILE ]]; then
+		echo "STATFILE=$STATFILE"
+		cat $STATFILE
 		(( E |= `cat $STATFILE || echo 1` ))
 	fi
 	echo $E > $STATFILE
