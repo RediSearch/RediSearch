@@ -1,0 +1,113 @@
+#!/bin/bash
+
+PROGNAME="${BASH_SOURCE[0]}"
+HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
+ROOT=$(cd $HERE/.. && pwd)
+READIES=$ROOT/deps/readies
+. $READIES/shibumi/defs
+
+#----------------------------------------------------------------------------------------------
+
+if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
+	cat <<-END
+		Run flow tests in parallel
+
+		ctest [--help|help]
+
+		Argument variables:
+		BINDIR=dir        Run from directory `dir`
+		TEST=name         Run single test `name`
+		SAN=1             Run with CLang sanitizer
+		COV=1             Run with coverage analysis
+		SLOW=1            Don't run in parallel
+		PARALLEL=1        Run in parallel
+
+		PLATFORM_MODE=1       Implies NOFAIL & COLLECT_LOGS into STATFILE
+		COLLECT_LOGS=1        Collect logs into .tar file
+		CLEAR_LOGS=0          Do not remove logs prior to running tests
+		NOFAIL=1              Do not fail on errors (always exit with 0)
+		STATFILE=file         Write test status (0|1) into `file`
+
+		DIAG=1            Run in diagnostic mode
+		VERBOSE=1         Be verbose
+		CTEST_ARGS=args   Pass args to ctest
+
+		NOP=1             No operation
+		HELP=1            Show help
+
+	END
+	exit 0
+fi
+
+#----------------------------------------------------------------------------------------------
+
+OP=""
+[[ $NOP == 1 ]] && OP=echo
+
+if [[ $PLATFORM_MODE == 1 ]]; then
+	CLEAR_LOGS=0
+	COLLECT_LOGS=1
+	NOFAIL=1
+	STATFILE=$ROOT/bin/artifacts/tests/status
+fi
+
+[[ $CLEAR_LOGS == 1 ]] && rm -rf $ROOT/tests/pytest/logs
+
+#----------------------------------------------------------------------------------------------
+
+# [[ $SAN == 1 ]] && export ASAN_OPTIONS=detect_odr_violation=0
+
+[[ $VERBOSE == 1 ]] && CTEST_ARGS+=" --debug"
+
+JOBS=
+if [[ $SLOW != 1 ]]; then
+	if [[ $SAN == 1 ]]; then
+		JOBS=8
+	else
+	#elif [[ $COV == 1 ]]; then
+		JOBS=`$ROOT/deps/readies/bin/nproc`
+	fi
+fi
+
+if [[ -n $JOBS ]]; then
+	CTEST_ARGS+=" -j$JOBS"
+	export RANDPORTS=1
+fi
+
+CTEST_ARGS+="\
+	--output-on-failure \
+	--timeout 15000"
+
+CTEST_DEFS="PLATFORM_MODE=0 CLEAR_LOGS=0 COLLECT_LOGS=0 NOFAIL=0"
+
+if [[ $NOP != 1 ]]; then
+	{ (cd $BINDIR; eval $CTEST_DEFS ctest $CTEST_ARGS); (( E |= $? )); } || true
+else
+	echo "cd $BINDIR; $CTEST_DEFS ctest $CTEST_ARGS"
+fi
+
+#----------------------------------------------------------------------------------------------
+
+if [[ $COLLECT_LOGS == 1 ]]; then
+	ARCH=`$READIES/bin/platform --arch`
+	OSNICK=`$READIES/bin/platform --osnick`
+	cd $ROOT
+	mkdir -p bin/artifacts/tests
+	find tests/pytests/logs -name "*.log" | tar -czf bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz -T -
+fi
+
+if [[ -n $STATFILE ]]; then
+	mkdir -p $(dirname $STATFILE)
+	if [[ -f $STATFILE ]]; then
+		echo "STATFILE=$STATFILE"
+		cat $STATFILE
+		(( E |= `cat $STATFILE || echo 1` ))
+	fi
+	echo $E > $STATFILE
+fi
+
+if [[ $NOFAIL == 1 ]]; then
+	exit 0
+fi
+
+exit $E

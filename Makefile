@@ -82,9 +82,8 @@ make run           # run redis with RediSearch
 make test          # run all tests (via ctest)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=regex         # run tests that match regex
-  TESTDEBUG=1        # be very verbose (CTest-related)
-  CTEST_ARG=...      # pass args to CTest
-  CTEST_PARALLEL=n   # run tests in give parallelism
+  CTEST_ARGS=...     # pass args to CTest
+  CTEST_PARALLEL=n   # run ctests in n parallel jobs
 make pytest        # run python tests (tests/pytests)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
@@ -443,48 +442,6 @@ endif
 export REJSON ?= 1
 
 ifneq ($(SAN),)
-export ASAN_OPTIONS=detect_odr_violation=0
-endif
-
-ifeq ($(TESTDEBUG),1)
-override CTEST_ARGS.debug += --debug
-endif
-
-ifneq ($(SLOW),1)
-ifneq ($(SAN),)
-CTEST_PARALLEL=8
-else ifeq ($(COV),1)
-CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
-else
-CTEST_PARALLEL=
-endif
-endif # SLOW
-
-ifneq ($(CTEST_PARALLEL),)
-CTEST_ARGS.parallel += -j$(CTEST_PARALLEL)
-CTEST_DEFS += RANDPORTS=1
-endif
-
-override CTEST_ARGS += \
-	--output-on-failure \
-	--timeout 15000 \
-	$(CTEST_ARGS.debug) \
-	$(CTEST_ARGS.parallel)
-
-CTEST_DEFS += \
-	BINROOT=$(BINROOT)
-
-override FLOW_TESTS_ARGS+=\
-	BINROOT=$(BINROOT) \
-	VG=$(VALGRIND) VG_LEAKS=0
-
-ifeq ($(EXT),1)
-FLOW_TESTS_ARGS += EXISTING_ENV=1
-endif
-
-export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
-
-ifneq ($(SAN),)
 REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
 
 $(REJSON_SO):
@@ -493,24 +450,46 @@ else
 REJSON_SO=
 endif
 
+#----------------------------------------------------------------------------------------------
+
+CTEST_DEFS=\
+	BINROOT=$(BINROOT) \
+	BINDIR=$(BINDIR) \
+	COV=$(COV) \
+	SAN=$(SAN) \
+	PARALLEL=$(PARALLEL)
+
+FLOW_TESTS_DEFS=\
+	BINROOT=$(BINROOT) \
+	VG=$(VALGRIND) \
+	VG_LEAKS=0
+
+ifeq ($(EXT),1)
+FLOW_TESTS_DEFS += EXISTING_ENV=1
+endif
+
+export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
+
 RLTEST_PARALLEL ?= 1
 
 test: $(REJSON_SO)
 ifneq ($(TEST),)
-	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) RLTEST_ARGS+="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+#	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) RLTEST_ARGS+="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+	$(SHOW) $(CTEST_DEFS) TEST=$(TEST) $(ROOT)/sbin/ctest
 else
-ifeq ($(ARCH),arm64v8)
-	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
-else
-	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) ctest $(CTEST_ARGS)
-endif
+#ifeq ($(ARCH),arm64v8)
+#	$(SHOW)$(FLOW_TESTS_DEFS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+#else
+#	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) ctest $(CTEST_ARGS)
+	$(SHOW)$(CTEST_DEFS) $(ROOT)/sbin/ctest
+#endif
 ifeq ($(COORD),oss)
-	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)$(FLOW_TESTS_DEFS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
