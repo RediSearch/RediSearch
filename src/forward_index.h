@@ -4,7 +4,7 @@
 #include "util/block_alloc.h"
 #include "util/khtable.h"
 #include "util/mempool.h"
-#include "dep/triemap/triemap.h"
+#include "triemap/triemap.h"
 #include "varint.h"
 #include "tokenize.h"
 #include "document.h"

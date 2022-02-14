@@ -1,12 +1,14 @@
-#include <gtest/gtest.h>
-#include <aggregate/aggregate.h>
+
+#include "gtest/gtest.h"
+#include "aggregate/aggregate.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
 #include "spec.h"
 #include "common.h"
-#include <module.h>
-#include <version.h>
+#include "module.h"
+#include "version.h"
+
 #include <vector>
 #include <array>
 #include <iostream>

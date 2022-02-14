@@ -1,19 +1,24 @@
-#include "../../src/buffer.h"
-#include "../../src/index.h"
-#include "../../src/inverted_index.h"
-#include "../../src/index_result.h"
-#include "../../src/query_parser/tokenizer.h"
-#include "../../src/rmutil/alloc.h"
-#include "../../src/spec.h"
-#include "../../src/tokenize.h"
-#include "../../src/varint.h"
-#include "../../src/rmutil/alloc.h"
+#include "src/buffer.h"
+#include "src/index.h"
+#include "src/inverted_index.h"
+#include "src/index_result.h"
+#include "src/query_parser/tokenizer.h"
+#include "src/spec.h"
+#include "src/tokenize.h"
+#include "src/varint.h"
+
+#include "rmutil/alloc.h"
+#include "rmutil/alloc.h"
+
+#include "gtest/gtest.h"
+
+#include "common.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
-#include <gtest/gtest.h>
 #include <vector>
 #include <cstdint>
 
@@ -205,7 +210,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   InvertedIndex_Free(idx);
 }
 
-INSTANTIATE_TEST_CASE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
+INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
 
 InvertedIndex *createIndex(int size, int idStep) {
   InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1);
@@ -838,7 +843,7 @@ static void fillSchema(std::vector<char *> &args, size_t nfields) {
   args[0] = strdup("SCHEMA");
   size_t n = 1;
   for (unsigned i = 0; i < nfields; i++) {
-    asprintf(&args[n++], "field%u", i);
+    __ignore__(asprintf(&args[n++], "field%u", i));
     if (i % 2 == 0) {
       args[n++] = strdup("TEXT");
     } else {

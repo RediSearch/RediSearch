@@ -11,5 +11,5 @@
 # .git
 /bin/
 /site/
-/build*/
-/artifacts/
+/tests/pytests/logs/
+/1/

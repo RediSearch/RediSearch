@@ -1,5 +1,5 @@
-#include <rlookup.h>
-#include <gtest/gtest.h>
+#include "rlookup.h"
+#include "gtest/gtest.h"
 
 class RLookupTest : public ::testing::Test {};
 

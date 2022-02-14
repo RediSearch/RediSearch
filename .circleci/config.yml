@@ -1,10 +1,5 @@
 version: 2.1
 
-defaults:
-  default_jobs: &default_jobs
-    - centos
-    - ubuntu
-
 commands:
   early-returns:
     steps:
@@ -45,7 +40,7 @@ commands:
             apt-get -q install -y git openssh-client curl ca-certificates make tar gzip
             bash <(curl -fsSL https://raw.githubusercontent.com/docker/docker-install/master/install.sh)
       - setup_remote_docker:
-          version: 20.10.2
+          version: 20.10.7
           docker_layer_caching: true
 
   checkout-all:
@@ -62,6 +57,8 @@ commands:
           command: |
             git submodule update --init deps/readies
             ./deps/readies/bin/getpy2
+            ./deps/readies/bin/getpy3
+            python2 -m pip install awscli
 
   install-prerequisites:
     parameters:
@@ -75,11 +72,15 @@ commands:
       - setup-automation
       - run:
           name: System setup
-          command: ./system-setup.py
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            ./sbin/system-setup.py
+            python2 -m pip list
       - run:
           name: Install Redis
+          shell: /bin/bash -l -eo pipefail
           command: |
-            bash -l -c "python2 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>"
+            python2 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
             redis-server --version
 
   save-tests-logs:
@@ -98,83 +99,180 @@ commands:
   persist-artifacts:
     steps:
       - early-return-for-forked-pull-requests
+      - run:
+          name: List artifacts
+          command: |
+            cd bin/artifacts
+            du -ah --apparent-size *
       - persist_to_workspace:
-          root: artifacts
+          root: bin/
           paths:
-            - '*.zip'
-            - '*.tgz'
-            - snapshots/*.zip
-            - snapshots/*.tgz
+            - artifacts/*.zip
+            - artifacts/*.tgz
+            - artifacts/*.tar
 
   build-steps:
     parameters:
-      platform:
+      redis_version:
         type: string
+        default: "6"
       getredis_params:
         type: string
         default: ""
       build_params:
         type: string
         default: ""
-      test_params:
-        type: string
-        default: ""
     steps:
       - early-returns
       - checkout-all
       - install-prerequisites:
+          redis_version: <<parameters.redis_version>>
           getredis_params: <<parameters.getredis_params>>
       - run:
-          name: Get Dependencies
-          command: ./.circleci/ci_get_deps.sh
+          name: Build (Search)
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make build <<parameters.build_params>> SHOW=1
       - run:
-          name: Build
-          command: bash -l -c "./.circleci/ci_build.sh"
+          name: Build (Search Lite)
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make build LITE=1 <<parameters.build_params>> SHOW=1
       - run:
-          name: Test
+          name: Build (OSS Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: make build COORD=oss <<parameters.build_params>> SHOW=1
+      - run:
+          name: Build (RLEC Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: make build COORD=rlec <<parameters.build_params>> SHOW=1
+      - run:
+          name: Pack
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make pack SHOW=1
+            make pack COORD=rlec SHOW=1
+            make pack LITE=1 SHOW=1
+
+  test-steps:
+    parameters:
+      test_params:
+        type: string
+        default: ""
+    steps:
+      - run:
+          name: Test (Search)
+          shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: bash -l -c "./.circleci/ci_test.sh"
+          command: make test SHOW=1
       - run:
-          name: Package
-          command: bash -l -c "COMPAT_DIR=$BUILD_DIR make pack"
-          environment:
-            - PACKAGE_NAME: redisearch-oss
+          name: Test (OSS Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          no_output_timeout: 30m
+          command: make test COORD=oss SHOW=1
+      - save-tests-logs
+
+  build-platforms-steps:
+    parameters:
+      platform:
+        type: string
+    steps:
+      - early-returns
+      - setup-executor
+      - checkout-all
+      - setup-automation
+      - run:
+          name: Build for platform
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            cd build/docker
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
+          no_output_timeout: 30m
       - save-tests-logs
       - early-return-for-forked-pull-requests
+      - run:
+          name: Upload artifacts to S3
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            if [[ -n $CIRCLE_BRANCH ]]; then
+                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
+            fi
+      - run:
+          name: Publish container
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            docker login -u redisfab -p $DOCKER_REDISFAB_PWD
+            cd build/docker
+            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1 VERBOSE=1
       - persist-artifacts
 
-  benchmark-automation:
+  vm-build-platforms-steps:
+    parameters:
+      platform:
+        type: string
+    steps:
+      - early-returns
+      - checkout-all
+      - setup-automation
+      - run:
+          name: Install Docker
+          shell: /bin/bash -l -eo pipefail
+          command: ./deps/readies/bin/getdocker
+      - run:
+          name: Build for platform
+          command: |
+            cd build/docker
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
+          no_output_timeout: 30m
+      - save-tests-logs
+      - early-return-for-forked-pull-requests
+      - run:
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH ]]; then
+                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
+            fi
+      - run:
+          name: Publish container
+          command: |
+            docker login -u redisfab -p $DOCKER_REDISFAB_PWD
+            cd build/docker
+            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1 VERBOSE=1
+      - persist-artifacts
+
+  benchmark-steps:
     parameters:
       github_actor:
         type: string
         default: $CIRCLE_USERNAME
       module_path:
         type: string
-        default: ../../build-debian/redisearch.so
+        default: bin/linux-x64-release/search/redisearch.so
     steps:
       - run:
-          name: Install remote benchmark tool dependencies
+          name: Prepare automation
           command: |
+            ./deps/readies/bin/getpy3
+            python3 -m pip install -r tests/benchmarks/requirements.txt
             VERSION=0.14.8 ./deps/readies/bin/getterraform
-      - run:
-          name: Install remote benchmark python dependencies
-          command: python3 -m pip install -r ./tests/ci.benchmarks/requirements.txt
       - run:
           name: Run CI benchmarks on aws
           timeout: 60m
           no_output_timeout: 20m
           command: |
-            cd ./tests/ci.benchmarks
+            ROOT="$PWD"
+            cd tests/benchmarks
             export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
             export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
             export AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
             export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
 
             redisbench-admin run-remote \
-              --module_path << parameters.module_path >> \
+              --module_path $ROOT/<< parameters.module_path >> \
               --github_actor << parameters.github_actor >> \
               --github_repo $CIRCLE_PROJECT_REPONAME \
               --github_org $CIRCLE_PROJECT_USERNAME \
+              --required-module search \
               --github_sha $CIRCLE_SHA1 \
               --github_branch $CIRCLE_BRANCH \
               --upload_results_s3 \
@@ -184,91 +282,107 @@ commands:
 #----------------------------------------------------------------------------------------------------------------------------------
 
 jobs:
-  ubuntu:
+  build-linux-debian:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-    environment:
-      - BUILD_DIR: build-debian
+    parameters:
+      redis_version:
+        type: string
+        default: "6"
+      persist:
+        type: string
+        default: "yes"
     steps:
       - build-steps:
-          platform: bullseye
-
-  centos:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-centos7
-    environment:
-      - BUILD_DIR: build-el
-    steps:
-      - build-steps:
-          platform: centos7
-
-  macos:
-    macos:
-      xcode: 11.6.0
-    environment:
-      - BUILD_DIR: build-macos
-    steps:
-      - early-returns
+          redis_version: <<parameters.redis_version>>
+      - test-steps
       - run:
-          name: Update Brew
-          command: brew update
-          no_output_timeout: 20m
-      - build-steps:
-          platform: catalina
-
-  ubuntu-benchmarks:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
-    environment:
-      - BUILD_DIR: build-debian
-    steps:
-      - checkout-all
-      - run:
-          name: Get Dependencies
-          command: ./.circleci/ci_get_deps.sh
-      - run:
-          name: Build
-          command: bash -l -c "./.circleci/ci_build.sh"
-      - benchmark-automation
-
-  deploy-snapshots:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-    steps:
-      - early-returns
-      - early-return-for-forked-pull-requests
-      - attach_workspace:
-          at: ~/workspace
-      - run:
-          name: Deploy Snapshots to S3
+          name: Persist artifacts?
           command: |
-            cd ~/workspace/snapshots
-            for f in *.zip *.tgz; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
-            done
+            if [[ "<<parameters.persist>>" != "yes" ]]; then
+              circleci step halt
+            fi
+      - persist-artifacts
 
-  debug-asan:
+  build-platforms:
+    parameters:
+      platform:
+        type: string
+    # docker:
+    #   - image: debian:bullseye
+    machine:
+      enabled: true
+      image: ubuntu-2004:202010-01
+      resource_class: large
+    steps:
+      - vm-build-platforms-steps:
+          platform: <<parameters.platform>>
+
+  build-macos:
+    macos:
+      xcode: 12.4.0
+    resource_class: macos.x86.medium.gen2
+    parameters:
+      persist:
+        type: string
+        default: "yes"
+    steps:
+      - early-returns
+#      - run:
+#          name: Brew upgrade
+#          command: brew upgrade
+      - build-steps
+      - test-steps
+      - run:
+          name: Persist artifacts?
+          command: |
+            if [[ "<<parameters.persist>>" != "yes" ]]; then
+              circleci step halt
+            fi
+      - run:
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH ]]; then
+                make upload-artifacts SHOW=1
+            fi
+      - persist-artifacts
+
+  coverage:
     docker:
-      - image: redisfab/clang:13-x64-bullseye
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     steps:
       - early-returns
       - checkout-all
+      - install-prerequisites
       - run:
-          name: Run & build tests
-          command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
+          name: Build & Test
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make coverage SHOW=1
+            make upload-cov SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
 
-  debug-msan:
+  sanitize:
     docker:
       - image: redisfab/clang:13-x64-bullseye
+    parameters:
+      san-type:
+        type: string
     steps:
       - early-returns
       - checkout-all
+      - install-prerequisites
       - run:
-          name: Run & build tests
-          command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
+          name: Build & test (Search)
+          shell: /bin/bash -l -eo pipefail
+          command: make SAN=<<parameters.san-type>> build test SHOW=1
           no_output_timeout: 30m
+#      - run:
+#          name: Build & test (OSS Coordinator)
+#          shell: /bin/bash -l -eo pipefail
+#          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
+#          no_output_timeout: 30m
       - save-tests-logs
 
   valgrind-memcheck:
@@ -279,37 +393,57 @@ jobs:
       - checkout-all
       - run:
           name: Build & Test
-          command: bash -l -c "./.circleci/ci_valgrind.sh"
+          shell: /bin/bash -l -eo pipefail
+          command: make VG=1 build test SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
 
-  coverage:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-    steps:
-      - early-returns
-      - checkout-all
-      - run:
-          name: Build & Test
-          command: bash -l -c "./.circleci/ci_coverage.sh"
-          no_output_timeout: 30m
-      - save-tests-logs
-
-  deploy-release:
+  upload-artifacts:
+    parameters:
+      staging-lab:
+        type: string
+        default: "0"
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     steps:
       - early-returns
       - early-return-for-forked-pull-requests
+      - checkout
+      - setup-automation
       - attach_workspace:
           at: ~/workspace
       - run:
-          name: Deploy Releases to S3
+          name: Upload artifacts to S3
           command: |
-            cd ~/workspace
-            for f in *.zip *.tgz; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
-            done
+            mkdir -p bin
+            ln -s ~/workspace/artifacts bin/artifacts
+            if [[ -n $CIRCLE_TAG && "<<parameters.staging-lab>>" != 1 ]]; then
+                make upload-release SHOW=1
+            else
+                make upload-release SHOW=1 STAGING=1
+            fi
+
+  release-qa-tests:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+    steps:
+      - early-returns
+      - early-return-for-forked-pull-requests
+      - checkout
+      - setup-automation
+      - run:
+          name: Run QA Automation
+          command: MODULE_VERSION=$CIRCLE_TAG VERBOSE=1 TEST=release ./tests/qa/run
+      - run:
+          name: Run QA Tests (RediSearch Light)
+          command: MODULE_VERSION=$CIRCLE_TAG VERBOSE=1 TEST=release LIGHT=1 ./tests/qa/run
+
+  benchmarks:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+    steps:
+      - build-steps
+      - benchmark-steps
 
 #----------------------------------------------------------------------------------------------------------------------------------
 
@@ -341,6 +475,7 @@ on-integ-branch: &on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       ignore: /.*/
 
@@ -351,6 +486,7 @@ not-on-integ-branch: &not-on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       ignore: /.*/
 
@@ -368,6 +504,7 @@ on-integ-and-version-tags: &on-integ-and-version-tags
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       only: /^v[0-9].*/
 
@@ -377,32 +514,57 @@ workflows:
   version: 2
   default-flow:
     jobs:
-      - ubuntu:
+      - build-linux-debian:
+          name: build
+          <<: *not-on-integ-branch
+      - build-linux-debian:
+          name: build-with-redis-<<matrix.redis_version>>
+          <<: *on-integ-and-version-tags
+          matrix:
+            parameters:
+              redis_version: ["6.0", "6.2", "7"]
+      - build-platforms:
+          <<: *on-integ-and-version-tags
+          context: common
+          matrix:
+            parameters:
+              platform: [focal, bionic, xenial, ol8, centos7, bullseye]
+      - build-macos:
+          <<: *on-integ-and-version-tags
+          context: common
+      - coverage:
           <<: *on-any-branch
-      - centos:
+      - sanitize:
+          name: sanitize-<< matrix.san-type >>
           <<: *on-any-branch
-      - macos:
-          <<: *on-version-tags
-      - debug-asan:
-          <<: *on-any-branch
-      - debug-msan:
-          <<: *on-any-branch
+          matrix:
+            parameters:
+              san-type: [address] # [address, memory]
       - valgrind-memcheck:
           <<: *never
-      - coverage:
+      - benchmarks:
           context: common
-          <<: *on-any-branch
-      - deploy-snapshots:
-          context: common
-          requires: *default_jobs
           <<: *on-integ-and-version-tags
-      - deploy-release:
+      - upload-artifacts:
+          name: upload-artifacts-to-staging-lab
+          staging-lab: "1"
           context: common
-          requires: *default_jobs
+          <<: *on-integ-branch
+          requires:
+            - build-platforms
+            - build-macos
+      - upload-artifacts:
+          name: upload-release-artifacts
+          context: common
           <<: *on-version-tags
-      - ubuntu-benchmarks:
-          <<: *on-integ-and-version-tags
+          requires:
+            - build-platforms
+            - build-macos
+      - release-qa-tests:
           context: common
+          <<: *on-version-tags
+          requires:
+            - upload-release-artifacts
 
   nightly:
     triggers:
@@ -410,8 +572,31 @@ workflows:
           cron: "20 17 * * 0,3"
           filters:
             branches:
-              only: master
+              only:
+                - master
+                - /^\d+\.\d+.*$/
+                - /^feature-.*$/
     jobs:
-      - macos
-      - ubuntu-benchmarks:
+      - build-macos:
+          name: nightly-macos
+          persist: "no"
+      - build-linux-debian:
+          name: build-with-redis-<<matrix.redis_version>>
+          matrix:
+            parameters:
+              redis_version: ["6.0", "6.2", "7"]
+
+  nightly-benchmarks:
+    triggers:
+      - schedule:
+          cron: "20 17 * * *"
+          filters:
+            branches:
+              only:
+                - master
+                - /^\d+\.\d+.*$/
+                - /^feature-.*$/
+
+    jobs:
+      - benchmarks:
           context: common

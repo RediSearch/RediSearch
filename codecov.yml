@@ -8,6 +8,7 @@ coverage:
         base: auto 
         paths: 
           - "src"
+          - "coord/src"
        # advanced
        # branches: 
        #   - master
