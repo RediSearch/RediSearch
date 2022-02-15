@@ -996,7 +996,20 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+static threadpool cleanPool = NULL;
+
+void CleanPool_ThreadPoolDestroy() {
+  if (cleanPool) {
+    thpool_destroy(cleanPool);
+    cleanPool = NULL;
+  }
+}
+
 void IndexSpec_FreeInternals(IndexSpec *spec) {
+  if (!cleanPool) {
+    cleanPool = thpool_init(1);
+  }
+  
   if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
     dictDelete(specDict_g, spec->name);
   }
@@ -1015,7 +1028,9 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
 
   if (spec->terms) {
-    TrieType_Free(spec->terms);
+    // Free terms' structure off the main thread 
+    thpool_add_work(cleanPool, (thpool_proc)TrieType_Free, spec->terms);
+    spec->terms = NULL;
   }
   DocTable_Free(&spec->docs);
 
@@ -1076,7 +1091,9 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
 
   if (spec->keysDict) {
-    dictRelease(spec->keysDict);
+    // Free fields' structure off the main thread 
+    thpool_add_work(cleanPool, (thpool_proc)dictRelease, spec->keysDict);
+    spec->keysDict = NULL;
   }
 
   if (spec->scanner) {
@@ -1103,8 +1120,6 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
   RedisModule_ThreadSafeContextUnlock(threadCtx);
   RedisModule_FreeThreadSafeContext(threadCtx);
 }
-
-static struct thpool_ *cleanPool = NULL;
 
 void IndexSpec_LegacyFree(void *spec) {
   // free legacy index do nothing, it will be called only
@@ -1693,6 +1708,8 @@ void ReindexPool_ThreadPoolDestroy() {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     thpool_destroy(reindexPool);
     reindexPool = NULL;
+    thpool_destroy(cleanPool);
+    cleanPool = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }

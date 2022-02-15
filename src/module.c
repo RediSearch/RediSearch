@@ -1038,6 +1038,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   return REDISMODULE_OK;
 }
 
+void CleanPool_ThreadPoolDestroy();
 void ReindexPool_ThreadPoolDestroy();
 extern dict *legacySpecDict, *legacySpecRules;
 
@@ -1072,6 +1073,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   mempool_free_global();
   ConcurrentSearch_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
+  CleanPool_ThreadPoolDestroy();
   GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
