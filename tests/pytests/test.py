@@ -579,7 +579,7 @@ def testExplain(env):
     env.assertEqual(expected, res)
 
     # retest when index is not empty
-    r.expect('hset', '1', 'v', 'abababab', 't', "hello").equal(2L)
+    r.expect('hset', '1', 'v', 'abababab', 't', "hello").equal(2)
     res = r.execute_command('ft.explain', 'idx', *q)
     env.assertEqual(expected, res)
 
