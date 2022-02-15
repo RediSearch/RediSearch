@@ -29,35 +29,53 @@
   QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
 
 typedef enum {
-  VECTOR_SIM_INVALID = 0,
-  VECTOR_SIM_TOPK = 1,
+  VECSIM_QT_TOPK,
 } VectorQueryType;
 
-typedef struct VectorFilter {
-  char *property;                 // name of field
-  void *vector;                   // vector data
-  size_t vecLen;                  // vector length
-  VectorQueryType type;           // TOPK
-  bool isBase64;                  // uses base64 strings
-  long long efRuntime;            // efRuntime
-  double value;                   // can hold int for TOPK or double for RANGE.
+// This struct holds VecSimRawParam array and bool array.
+// the arrays should have the same length, for testing if the param in some index needs to be evaluated.
+// `params` params will always hold parameter name and value as allocated string.
+// First, the parser creates the param, holds the key-name and value as they appear in the query,
+// and marks if the value is the literal value or an attribute name.
+// Second, in the parameters evaluation step, if a param was marked as an attribute, we try to resolve it,
+// and free its old value and replace it with the actual value if we succeed.
+// It is the VecSim library job to resolve this strings-key-value params (array) into a VecSimQueryParams struct.
+typedef struct {
+  VecSimRawParam *params;
+  bool *needResolve;
+} VectorQueryParams;
 
-  VecSimQueryResult *results;     // array for K results
-  int resultsLen;                 // length of array
-} VectorFilter;
+typedef struct {
+  void *vector;                   // query vector data
+  size_t vecLen;                  // vector length
+  size_t k;                       // number of vectors to return
+  VecSimQueryResult_Order order;  // specify the result order.
+} TopKVectorQuery;
+
+typedef struct VectorQuery {
+  char *property;                     // name of field
+  char *scoreField;                   // name of score field
+  union {
+    TopKVectorQuery topk;
+  };
+  VectorQueryType type;               // vector similarity query type
+  VectorQueryParams params;           // generic query params array, for the vecsim library to check
+
+  VecSimQueryResult *results;         // array for results
+  int resultsLen;                     // length of array
+} VectorQuery;
 
 // TODO: remove idxKey from all OpenFooIndex functions
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf);
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIterator *child_it, QueryError *status);
 
-void VectorFilter_InitValues(VectorFilter *vf);
-VectorQueryType VectorFilter_ParseType(const char *s, size_t len);
-int VectorFilter_Validate(const VectorFilter *vf, QueryError *status);
-int VectorFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
-void VectorFilter_Free(VectorFilter *vf);
+int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
+int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
+void VectorQuery_Free(VectorQuery *vq);
 
+int VecSimResolveCode_to_QueryErrorCode(int code);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);

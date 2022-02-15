@@ -456,8 +456,6 @@ class Debug:
 
 @no_msan
 def testShortReadSearch(env):
-    env.skip() # flaky - disabled until fixed
-
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
 

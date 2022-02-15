@@ -92,6 +92,11 @@ TEST_F(QueryTest, testParser) {
   // test some valid queries
   assertValidQuery("hello", ctx);
 
+  assertValidQuery("*", ctx);
+  assertValidQuery("(*)", ctx);
+  assertValidQuery("((((((*))))))", ctx);
+  assertInvalidQuery("((((*))))))", ctx);
+
   assertValidQuery("hello wor*", ctx);
   assertValidQuery("hello world", ctx);
   assertValidQuery("hello (world)", ctx);
@@ -214,8 +219,56 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("@tag:{foo | bar} => {$great: 0.5;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
-
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
+
+  // Test basic vector similarity query
+  assertValidQuery("*=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[TOP_K $TOP_K @TOP_K $TOP_K TOPK $TOP_K AS $AS]", ctx); // using reserved word as an attribute or field
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB AS score]", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB EF $ef foo bar x 5 AS score]", ctx);
+  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB foo bar x 5]", ctx);
+
+  // Test basic vector similarity query combined with other expressions
+  // This should fail for now because right now we only allow TOP_K query to be the root node.
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB]=>{$weight: 0.5; $slop: 2}", ctx);
+  assertInvalidQuery("*=>[TOP_K $K1 @vec_field $BLOB1] OR *=>[TOP_K $K2 @vec_field $BLOB2]", ctx);
+
+  // Test basic vector similarity query errors
+  assertInvalidQuery("*=>[TOPK $K @vec_field $BLOB]", ctx); // wrong command name
+  assertInvalidQuery("*=>[TOP_K $K @vec_field BLOB]", ctx); // pass vector as value (must be an attribute)
+  assertInvalidQuery("*=>[TOP_K $K vec_field $BLOB]", ctx); // wrong field value (must be @field)
+  assertInvalidQuery("*=>[TOP_K K @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[TOP_K 3.14 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[TOP_K -42 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB $EF ef foo bar x 5 AS score]", ctx); // parameter as attribute
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x 5 AS ]", ctx); // not specifying score field name
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB AS TOP_K]", ctx); // using reserved word as string parameter
+  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
+
+  // Test simple hybrid vector query
+  //assertInvalidQuery("hello world=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(hello world)=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  const char *vqt = "(hello world)=>[TOP_K 10 @vec_field $BLOB]";
+  QASTCXX v_ast;
+  v_ast.setContext(&ctx);
+  ASSERT_TRUE(v_ast.parse(vqt));
+  QueryNode *vn = v_ast.root;
+  ASSERT_TRUE(vn != NULL);
+  ASSERT_EQ(vn->type, QN_VECTOR);
+  ASSERT_EQ(QueryNode_NumChildren(vn), 1);
+
+  assertValidQuery("(@title:hello)=>[TOP_K 10 @vec_field $BLOB]", ctx);
+
+  assertValidQuery("(hello|world)=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@hello:[0 10]=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(@tit_le|bo_dy:barack @body|title|url|something_else:obama)=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(-hello ~world ~war)=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@tags:{bar* | foo}=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(no -as) => {$weight: 0.5} => [TOP_K 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("(hello world => [TOP_K 10 @vec_field $BLOB]) other phrase", ctx);
+  assertInvalidQuery("(hello world => [TOP_K 10 @vec_field $BLOB]) @title:other", ctx);
+  assertInvalidQuery("hello world => [TOP_K 10 @vec_field $BLOB] OR other => [TOP_K 10 @vec_field $BLOB]", ctx);
 
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;
