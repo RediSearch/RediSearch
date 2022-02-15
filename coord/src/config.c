@@ -9,6 +9,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+extern RedisModuleCtx *RSDummyContext;
+
 #define CONFIG_SETTER(name) \
   static int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
 
@@ -119,9 +121,7 @@ SearchClusterConfig clusterConfig = {0};
  * If we cannot determine, we return OSS type anyway
  */
 MRClusterType DetectClusterType() {
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-
-  RedisModuleCallReply *r = RedisModule_Call(ctx, "INFO", "c", "SERVER");
+  RedisModuleCallReply *r = RedisModule_Call(RSDummyContext, "INFO", "c", "SERVER");
   MRClusterType ret = ClusterType_RedisOSS;
 
   if (r && RedisModule_CallReplyType(r) == REDISMODULE_REPLY_STRING) {
@@ -138,7 +138,6 @@ MRClusterType DetectClusterType() {
     RedisModule_FreeCallReply(r);
   }
   // RedisModule_ThreadSafeContextUnlock(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
   return ret;
 }
 

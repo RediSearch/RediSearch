@@ -39,6 +39,8 @@ int redisMinorVesion = 0;
 int redisPatchVesion = 0;
 //REDISMODULE_INIT_SYMBOLS();
 
+extern RedisModuleCtx *RSDummyContext;
+
 // forward declaration
 int allOKReducer(struct MRCtx *mc, int count, MRReply **replies);
 RSValue *MRReply_ToValue(MRReply *r, RSValueType convertType);
@@ -1181,16 +1183,12 @@ int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
 }
 
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **argv, int argc) {
-  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_AutoMemory(ctx);
-
   searchRequestCtx *req = rscParseRequest(argv, argc);
   if (!req) {
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
     RedisModule_ReplyWithError(clientCtx, "Invalid search request");
     RedisModule_UnblockClient(bc, NULL);
     RedisModule_FreeThreadSafeContext(clientCtx);
-    RedisModule_FreeThreadSafeContext(ctx);
     return REDISMODULE_OK;
   }
 
@@ -1222,7 +1220,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
     // req->withSortingKeys = 1;
   }
 
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, req);
+  struct MRCtx *mrctx = MR_CreateCtx(NULL, req);
   // we prefer the next level to be local - we will only approach nodes on our own shard
   // we also ask only masters to serve the request, to avoid duplications by random
   MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination | MRCluster_MastersOnly);
@@ -1230,7 +1228,6 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
   MRCtx_SetReduceFunction(mrctx, searchResultReducer);
   MRCtx_SetRedisCtx(mrctx, bc);
   MR_Fanout(mrctx, NULL, cmd, false);
-  RedisModule_FreeThreadSafeContext(ctx);
   return REDISMODULE_OK;
 }
 
@@ -1513,8 +1510,7 @@ static void addIndexCursor(const IndexSpec *sp) {
   }
 
 static void getRedisVersion() {
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModuleCallReply *reply = RedisModule_Call(ctx, "info", "c", "server");
+  RedisModuleCallReply *reply = RedisModule_Call(RSDummyContext, "info", "c", "server");
   assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
   size_t len;
   const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
@@ -1525,7 +1521,6 @@ static void getRedisVersion() {
   assert(n == 3);
 
   RedisModule_FreeCallReply(reply);
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 /**
@@ -1562,6 +1557,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   setHiredisAllocators();
+
+  if (!RSDummyContext) {
+    RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
+  }
 
   getRedisVersion();
   RedisModule_Log(ctx, "notice", "redis version observed by redisearch : %d.%d.%d",

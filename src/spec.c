@@ -1092,16 +1092,12 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Freeing index %s in background", spec->name);
 #endif
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
 
-  RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_AutoMemory(threadCtx);
-  RedisModule_ThreadSafeContextLock(threadCtx);
-
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
   Redis_DropIndex(&sctx, spec->cascadeDelete);
 
-  RedisModule_ThreadSafeContextUnlock(threadCtx);
-  RedisModule_FreeThreadSafeContext(threadCtx);
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 }
 
 static struct thpool_ *cleanPool = NULL;
@@ -1141,13 +1137,10 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
   //  Let me know what you think
 
   //   Need a context for this:
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
 
   //@@ TODO: this is called by llapi, provide an explicit argument for cascasedelete
   Redis_DropIndex(&sctx, false);
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1553,9 +1546,7 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
   scanner->spec = spec;
   scanner->scannedKeys = 0;
   scanner->cancelled = false;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  scanner->totalKeys = RedisModule_DbSize(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
+  scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
   if (spec) {
     // scan already in progress?
@@ -1636,7 +1627,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx *ctx = RSDummyContext;
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
 
@@ -1671,8 +1662,6 @@ end:
 
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_ScanCursorDestroy(cursor);
-
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1696,38 +1685,6 @@ void ReindexPool_ThreadPoolDestroy() {
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
-
-//---------------------------------------------------------------------------------------------
-
-#if 0
-
-// todo: remove if not used
-
-static void IndexSpec_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname,
-                                   RedisModuleKey *key, IndexSpec *sp) {
-  // TODO: pass key (if not null) to avoid lookup
-  IndexSpec_UpdateMatchingWithSchemaRules(sp, ctx, keyname);
-}
-
-static void IndexSpec_ScanAndReindexSync(IndexSpec *sp) {
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-
-  __sync_fetch_and_add(&sp->pending_indexing_ops, 1);
-  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
-  while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB) IndexSpec_ScanProc, sp)) {
-  }
-  if (!sp) {
-    Indexes_SetTempSpecsTimers();
-  }
-
-  RedisModule_ScanCursorDestroy(cursor);
-  sp->keysTotal = sp->keysIndexed = RedisModule_DbSize(ctx);;
-  __sync_fetch_and_sub(&sp->pending_indexing_ops, 1);
-
-  RedisModule_FreeThreadSafeContext(ctx);
-}
-
-#endif  // 0
 
 //---------------------------------------------------------------------------------------------
 

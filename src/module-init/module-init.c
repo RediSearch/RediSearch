@@ -50,9 +50,8 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   }
 
   // Can't execute commands on the loading context, so make a new one
-  RedisModuleCtx *confCtx = RedisModule_GetThreadSafeContext(NULL);
   RedisModuleCallReply *reply =
-      RedisModule_Call(confCtx, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
+      RedisModule_Call(RSDummyContext, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
   assert(reply);
   assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
   assert(RedisModule_CallReplyLength(reply) == 2);
@@ -62,11 +61,10 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   // I tried using strcasecmp, but it seems that the yes/no replies have a trailing
   // embedded newline in them
   if (tolower(*value) == 'n') {
-    RedisModule_Log(ctx, "warning", "FATAL: aof-use-rdb-preamble required if AOF is used!");
+    RedisModule_Log(RSDummyContext, "warning", "FATAL: aof-use-rdb-preamble required if AOF is used!");
     rc = 0;
   }
   RedisModule_FreeCallReply(reply);
-  RedisModule_FreeThreadSafeContext(confCtx);
   return rc;
 }
 
@@ -137,7 +135,9 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
          REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
   RS_Initialized = 1;
 
-  RSDummyContext = RedisModule_GetThreadSafeContext(NULL);
+  if (!RSDummyContext) {
+    RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
+  }
 
   if (mode == REDISEARCH_INIT_MODULE && initAsModule(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
