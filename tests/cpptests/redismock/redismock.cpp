@@ -549,6 +549,10 @@ RedisModuleCtx *RMCK_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
   return new RedisModuleCtx();
 }
 
+RedisModuleCtx *RMCK_GetDetachedThreadSafeContext(RedisModuleCtx *ctx) {
+  return RMCK_GetThreadSafeContext(NULL);
+}
+
 void RMCK_FreeThreadSafeContext(RedisModuleCtx *ctx) {
   delete ctx;
 }
