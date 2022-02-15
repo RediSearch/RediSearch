@@ -30,6 +30,7 @@ typedef struct {
   char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
   heap_t *topResults;              // Sorted by score (max heap).
   //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
+  size_t numIterations;
 } HybridIterator;
 
 #ifdef __cplusplus

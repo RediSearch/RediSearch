@@ -157,7 +157,11 @@ void prepareResults(HybridIterator *hr) {
   VecSimBatchIterator *batch_it = VecSimBatchIterator_New(hr->index, hr->query.vector);
   float upper_bound = INFINITY;
   while (VecSimBatchIterator_HasNext(batch_it)) {
-    size_t batch_size = hr->query.k;  // todo: add heuristics here
+    hr->numIterations++;
+    //size_t batch_size = hr->query.k;  // todo: add heuristics here
+    size_t vec_index_size = VecSimIndex_IndexSize(hr->index);
+    size_t n_res_left = hr->query.k - heap_count(hr->topResults);
+    size_t batch_size = n_res_left * ((float)vec_index_size / hr->child->NumEstimated(hr->child->ctx));
     if (hr->list) {
       VecSimQueryResult_Free(hr->list);
     }
@@ -251,6 +255,7 @@ static size_t HR_LastDocId(void *ctx) {
 static void HR_Rewind(void *ctx) {
   HybridIterator *hr = ctx;
   hr->resultsPrepared = false;
+  hr->numIterations = 0;
   if (hr->list) {
     VecSimQueryResult_Free(hr->list);
     hr->list = NULL;
@@ -311,6 +316,7 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, To
   hi->base.isValid = 1;
   hi->list = NULL;
   hi->iter = NULL;
+  hi->numIterations = 0;
 
   if (child_it == NULL) {
     hi->mode = STANDARD_KNN;
