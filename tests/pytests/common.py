@@ -5,6 +5,7 @@ from packaging import version
 from functools import wraps
 import signal
 import platform
+import itertools
 
 from includes import *
 
@@ -46,6 +47,22 @@ def waitForIndex(env, idx):
             break
         time.sleep(0.1)
 
+def python2sort(x):
+    it = iter(x)
+    groups = [[next(it)]]
+    for item in it:
+        for group in groups:
+            try:
+                item < group[0]  # exception if not comparable
+                group.append(item)
+                break
+            except TypeError:
+                continue
+        else:  # did not break, make new group
+            groups.append([item])
+    # print(groups)  # for debugging
+    return itertools.chain.from_iterable(python2sort(group) for group in groups)
+
 def toSortedFlatList(res):
     if isinstance(res, str):
         return [res]
@@ -53,7 +70,8 @@ def toSortedFlatList(res):
         finalList = []
         for e in res:
             finalList += toSortedFlatList(e)
-        return sorted(finalList)
+
+        return python2sort(finalList)
     return [res]
 
 def assertInfoField(env, idx, field, expected):

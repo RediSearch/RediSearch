@@ -87,7 +87,7 @@ def testUnionIdList(env):
 
     res = r.execute_command(
         'ft.search', 'test', "@waypoint:[-113.52 53.52 20 mi]|@tags:{ontario}", 'nocontent')
-    env.assertEqual(res, [2L, '1', '2'])
+    env.assertEqual(res, [2, '1', '2'])
 
 def testAttributes(env):
     env.assertOk(env.cmd('ft.create', 'idx','ON', 'HASH',
@@ -99,17 +99,17 @@ def testAttributes(env):
 
     res = env.cmd(
         'ft.search', 'idx', '(@title:(t1 t2) => {$weight: 0.2}) |(@body:(t1 t2) => {$weight: 0.5})', 'nocontent')
-    env.assertListEqual([2L, 'doc2', 'doc1'], res)
+    env.assertListEqual([2, 'doc2', 'doc1'], res)
     res = env.cmd(
         'ft.search', 'idx', '(@title:(t1 t2) => {$weight: 2.5}) |(@body:(t1 t2) => {$weight: 0.5})', 'nocontent')
-    env.assertListEqual([2L, 'doc1', 'doc2'], res)
+    env.assertListEqual([2, 'doc1', 'doc2'], res)
 
     res = env.cmd(
         'ft.search', 'idx', '(t3 t5) => {$slop: 4}', 'nocontent')
-    env.assertListEqual([2L, 'doc2', 'doc1'], res)
+    env.assertListEqual([2, 'doc2', 'doc1'], res)
     res = env.cmd(
         'ft.search', 'idx', '(t5 t3) => {$slop: 0}', 'nocontent')
-    env.assertListEqual([1L, 'doc2'], res)
+    env.assertListEqual([1, 'doc2'], res)
     res = env.cmd(
         'ft.search', 'idx', '(t5 t3) => {$slop: 0; $inorder:true}', 'nocontent')
     env.assertListEqual([0], res)
@@ -179,7 +179,7 @@ def testSearch(env):
     for _ in r.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
         res = r.execute_command('ft.search', 'idx', 'hello')
-        expected = [2L, 'doc2', ['title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem'],
+        expected = [2, 'doc2', ['title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem'],
                     'doc1', ['title', 'hello world', 'body', 'lorem ist ipsum']]
         env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected))
 
@@ -192,14 +192,14 @@ def testSearch(env):
             'ft.search', 'idx', 'hello', 'nocontent')
         env.assertTrue(len(res) == 3)
         expected = ['doc2', 'doc1']
-        env.assertEqual(res[0], 2L)
+        env.assertEqual(res[0], 2)
         for item in expected:
             env.assertIn(item, res)
 
         # Test searching WITHSCORES
         res = r.execute_command('ft.search', 'idx', 'hello', 'WITHSCORES')
         env.assertEqual(len(res), 7)
-        env.assertEqual(res[0], 2L)
+        env.assertEqual(res[0], 2)
         for item in expected:
             env.assertIn(item, res)
         env.assertTrue(float(res[2]) > 0)
@@ -208,7 +208,7 @@ def testSearch(env):
         # Test searching WITHSCORES NOCONTENT
         res = r.execute_command('ft.search', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT')
         env.assertEqual(len(res), 5)
-        env.assertEqual(res[0], 2L)
+        env.assertEqual(res[0], 2)
         for item in expected:
             env.assertIn(item, res)
         env.assertTrue(float(res[2]) > 0)
@@ -528,12 +528,12 @@ def testOptional(env):
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc3',
                                     1.0, 'fields', 'foo', 'hello world werld'))
 
-    expected = [3L, 'doc1', 'doc2', 'doc3']
+    expected = [3, 'doc1', 'doc2', 'doc3']
     res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent')
     env.assertEqual(res, expected)
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual([2L, 'doc2', 'doc3'], res)
+    env.assertEqual([2, 'doc2', 'doc3'], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
     env.assertEqual(res, expected)
@@ -542,7 +542,7 @@ def testOptional(env):
     env.assertEqual(res, expected)
     res = r.execute_command(
         'ft.search', 'idx', '~world ~werld hello', 'withscores', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, [3L, 'doc3', '3', 'doc2', '2', 'doc1', '1'])
+    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '2', 'doc1', '1'])
 
 def testExplain(env):
 
@@ -611,10 +611,10 @@ def testPartial(env):
                                     'foo', 'hello world', 'num', 2, 'extra', 'abba'))
     res = r.execute_command('ft.search', 'idx', 'hello world',
                             'sortby', 'num', 'asc', 'nocontent', 'withsortkeys')
-    env.assertListEqual([2L, 'doc1', '#1', 'doc2', '#2'], res)
+    env.assertListEqual([2, 'doc1', '#1', 'doc2', '#2'], res)
     res = r.execute_command('ft.search', 'idx', 'hello world',
                             'sortby', 'num', 'desc', 'nocontent', 'withsortkeys')
-    env.assertListEqual([2L, 'doc2', '#2', 'doc1', '#1'], res)
+    env.assertListEqual([2, 'doc2', '#2', 'doc1', '#1'], res)
 
     # Updating non indexed fields doesn't affect search results
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'replace', 'partial',
@@ -624,7 +624,7 @@ def testPartial(env):
 
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'sortby', 'num', 'desc',)
-    assertResultsEqual(env, [2L, 'doc1', ['foo', 'hello world', 'num', '3','extra', 'jorem gipsum'],
+    assertResultsEqual(env, [2, 'doc1', ['foo', 'hello world', 'num', '3','extra', 'jorem gipsum'],
         'doc2', ['foo', 'hello world', 'num', '2', 'extra', 'abba']], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello', 'nocontent', 'withscores')
@@ -633,15 +633,15 @@ def testPartial(env):
                                     'fields', 'foo', 'wat wet'))
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'nocontent')
-    env.assertListEqual([1L, 'doc2'], res)
+    env.assertListEqual([1, 'doc2'], res)
     res = r.execute_command('ft.search', 'idx', 'wat', 'nocontent')
-    env.assertListEqual([1L, 'doc1'], res)
+    env.assertListEqual([1, 'doc1'], res)
 
     # Test updating of score and no fields
     res = r.execute_command(
         'ft.search', 'idx', 'wat', 'nocontent', 'withscores')
     env.assertLess(float(res[2]), 1)
-    # env.assertListEqual([1L, 'doc1'], res)
+    # env.assertListEqual([1, 'doc1'], res)
     env.assertOk(r.execute_command('ft.add', 'idx',
                                     'doc1', '1.0', 'replace', 'partial', 'fields'))
     res = r.execute_command(
@@ -740,33 +740,33 @@ def testSortBy(env):
         waitForIndex(r, 'idx')
         res = r.execute_command(
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
-        env.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
+        env.assertEqual([100, 'doc0', 'doc1', 'doc2', 'doc3',
                           'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
         res = r.execute_command(
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
-        env.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
+        env.assertEqual([100, 'doc99', 'doc98', 'doc97', 'doc96',
                           'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
         res = r.execute_command(
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
-        env.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
+        env.assertEqual([100, 'doc0', 'doc1', 'doc2', 'doc3',
                           'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
         res = r.execute_command(
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
-        env.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
+        env.assertEqual([100, 'doc99', 'doc98', 'doc97', 'doc96',
                           'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
 
         res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
         env.assertEqual(
-            [100L, 'doc2', '1', 'doc3', '1', 'doc4', '1', 'doc5', '1', 'doc6', '1'], res)
+            [100, 'doc2', '1', 'doc3', '1', 'doc4', '1', 'doc5', '1', 'doc6', '1'], res)
 
         res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                 'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
         env.assertListEqual(
-            [100L, 'doc0', '#100', 'doc1', '#99', 'doc2', '#98', 'doc3', '#97', 'doc4', '#96'], res)
+            [100, 'doc0', '#100', 'doc1', '#99', 'doc2', '#98', 'doc3', '#97', 'doc4', '#96'], res)
         res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                 'sortby', 'foo', 'desc', 'withsortkeys', 'limit', 0, 5)
-        env.assertListEqual([100L, 'doc99', '$hello099 world', 'doc98', '$hello098 world', 'doc97', '$hello097 world', 'doc96',
+        env.assertListEqual([100, 'doc99', '$hello099 world', 'doc98', '$hello098 world', 'doc97', '$hello097 world', 'doc96',
                               '$hello096 world', 'doc95', '$hello095 world'], res)
 
 def testSortByWithoutSortable(env):
@@ -783,36 +783,36 @@ def testSortByWithoutSortable(env):
         # test text
         res = r.execute_command(
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
-        env.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
+        env.assertEqual([100, 'doc0', 'doc1', 'doc2', 'doc3',
                           'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
         res = r.execute_command(
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
-        env.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
+        env.assertEqual([100, 'doc99', 'doc98', 'doc97', 'doc96',
                           'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
         res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                 'sortby', 'foo', 'desc', 'withsortkeys', 'limit', 0, 5)
-        env.assertListEqual([100L, 'doc99', '$hello099 world', 'doc98', '$hello098 world', 'doc97', '$hello097 world', 'doc96',
+        env.assertListEqual([100, 'doc99', '$hello099 world', 'doc98', '$hello098 world', 'doc97', '$hello097 world', 'doc96',
                               '$hello096 world', 'doc95', '$hello095 world'], res)
 
         # test numeric
         res = r.execute_command(
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
-        env.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
+        env.assertEqual([100, 'doc0', 'doc1', 'doc2', 'doc3',
                           'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
         res = r.execute_command(
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
-        env.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
+        env.assertEqual([100, 'doc99', 'doc98', 'doc97', 'doc96',
                           'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
 
         res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
         env.assertEqual(
-            [100L, 'doc2', '1', 'doc3', '1', 'doc4', '1', 'doc5', '1', 'doc6', '1'], res)
+            [100, 'doc2', '1', 'doc3', '1', 'doc4', '1', 'doc5', '1', 'doc6', '1'], res)
 
         res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                 'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
         env.assertListEqual(
-            [100L, 'doc0', '#100', 'doc1', '#99', 'doc2', '#98', 'doc3', '#97', 'doc4', '#96'], res)
+            [100, 'doc0', '#100', 'doc1', '#99', 'doc2', '#98', 'doc3', '#97', 'doc4', '#96'], res)
 
 def testNot(env):
     r = env
@@ -987,9 +987,9 @@ def testSlopInOrderIssue1986(env):
                                     'title', 't1'))
 
     # before fix, both queries returned `doc2`
-    env.assertEqual([1L, 'doc2', ['title', 't2 t1']], r.execute_command(
+    env.assertEqual([1, 'doc2', ['title', 't2 t1']], r.execute_command(
         'ft.search', 'idx', 't2 t1', 'slop', '0', 'inorder'))
-    env.assertEqual([1L, 'doc1', ['title', 't1 t2']], r.execute_command(
+    env.assertEqual([1, 'doc1', ['title', 't1 t2']], r.execute_command(
         'ft.search', 'idx', 't1 t2', 'slop', '0', 'inorder'))
 
 def testExact(env):
@@ -1021,7 +1021,7 @@ def testGeoErrors(env):
     env.expect('flushall')
     env.expect('ft.create idx ON HASH schema name text location geo').equal('OK')
     env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').equal('OK')
-    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 km').equal([0L])
+    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 km').equal([0])
 
     # Insert error - works fine with out of keyspace implementation
     # env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', '1, 1').error()   \
@@ -1791,7 +1791,7 @@ def testBinaryKeys(env):
     env.cmd('ft.add', 'idx', 'Hello\x00World', 1.0, 'fields', 'txt', 'Bin match')
     for _ in env.reloading_iterator():
         waitForIndex(env, 'idx')
-        exp = [2L, 'Hello\x00World', ['txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']]
+        exp = [2, 'Hello\x00World', ['txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']]
         res = env.cmd('ft.search', 'idx', 'match')
         for r in res:
             env.assertIn(r, exp)
@@ -1827,7 +1827,7 @@ def testDuplicateFields(env):
 
     env.expect('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS',
         'txt', 'foo', 'txt', 'bar', 'txt', 'baz').ok()
-    env.expect('FT.SEARCH idx *').equal([1L, 'doc', ['txt', 'baz']])
+    env.expect('FT.SEARCH idx *').equal([1, 'doc', ['txt', 'baz']])
 
 def testDuplicateSpec(env):
     with env.assertResponseError():
@@ -1843,7 +1843,7 @@ def testSortbyMissingFieldSparse(env):
     res = env.cmd('ft.search', 'idx', 'mark', 'WITHSORTKEYS', "SORTBY",
                    "firstName", "ASC", "limit", 0, 100)
     # commented because we don't filter out exclusive sortby fields
-    # env.assertEqual([1L, 'doc1', None, ['lastName', 'mark']], res)
+    # env.assertEqual([1, 'doc1', None, ['lastName', 'mark']], res)
 
 def testLuaAndMulti(env):
     env.skip() # addhash isn't supported
@@ -1873,7 +1873,7 @@ def testLanguageField(env):
     env.cmd('FT.ADD', 'idx', 'doc1', 1.0,
              'FIELDS', 'language', 'gibberish')
     res = env.cmd('FT.SEARCH', 'idx', 'gibberish')
-    env.assertEqual([1L, 'doc1', ['language', 'gibberish']], res)
+    env.assertEqual([1, 'doc1', ['language', 'gibberish']], res)
     # The only way I can verify that LANGUAGE is parsed twice is ensuring we
     # provide a wrong language. This is much easier to test than trying to
     # figure out how a given word is stemmed
@@ -1934,7 +1934,7 @@ def testAlterIndex(env):
     # RS 2.0 reindex and after reload both documents are found
     # for _ in env.retry_with_reload():
     res = env.cmd('FT.SEARCH', 'idx', 'world')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2L, 'doc2', ['f1', 'hello', 'f2', 'world'], 'doc1', ['f1', 'hello', 'f2', 'world']]))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc2', ['f1', 'hello', 'f2', 'world'], 'doc1', ['f1', 'hello', 'f2', 'world']]))
     # env.assertEqual([1, 'doc2', ['f1', 'hello', 'f2', 'world']], ret)
 
     env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f3', 'TEXT', 'SORTABLE')
@@ -2127,7 +2127,7 @@ def testTimeout(env):
                   'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                   'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
                   'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
-    env.assertEqual(res[0], 1L)
+    env.assertEqual(res[0], 1)
 
     # test grouper
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
@@ -2208,7 +2208,7 @@ def testAlias(env):
     env.cmd('ft.aliasAdd', 'alias2', 'idx2')
     env.cmd('ft.add', 'myIndex', 'doc2', 1.0, 'fields', 't1', 'hello')
     r = env.cmd('ft.search', 'alias2', 'hello')
-    env.assertEqual([1L, 'doc2', ['t1', 'hello']], r)
+    env.assertEqual([1, 'doc2', ['t1', 'hello']], r)
 
     # check that aliasing one alias to another returns an error. This will
     # end up being confusing
@@ -2226,12 +2226,12 @@ def testAlias(env):
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'myIndex')
         r = env.cmd('ft.search', 'myIndex', 'foo')
-        env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
+        env.assertEqual([1, 'doc3', ['t1', 'foo']], r)
 
     # Check that we can move an alias from one index to another
     env.cmd('ft.aliasUpdate', 'myIndex', 'idx2')
     r = env.cmd('ft.search', 'myIndex', "hello")
-    env.assertEqual([1L, 'doc2', ['t1', 'hello']], r)
+    env.assertEqual([1, 'doc2', ['t1', 'hello']], r)
 
     # Test that things like ft.get, ft.aggregate, etc. work
     r = env.cmd('ft.get', 'myIndex', 'doc2')
@@ -2266,7 +2266,7 @@ def testSpellCheck(env):
     env.assertEqual([['TERM', '111111', []]], rv)
     if not env.isCluster():
         rv = env.cmd('FT.SPELLCHECK', 'idx', '111111', 'FULLSCOREINFO')
-        env.assertEqual([1L, ['TERM', '111111', []]], rv)
+        env.assertEqual([1, ['TERM', '111111', []]], rv)
 
 # Standalone functionality
 def testIssue484(env):
@@ -2326,7 +2326,7 @@ def testIssue621(env):
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'uuid', 'foo', 'title', 'bar').equal('OK')
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
     res = env.cmd('ft.search', 'test', '@uuid:{foo}')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'a', ['uuid', 'foo', 'title', 'bar']]))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'a', ['uuid', 'foo', 'title', 'bar']]))
 
 # Server crash on doc names that conflict with index keys #666
 # again this test is not relevant cause index is out of key space
@@ -2436,7 +2436,7 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
 
-    expected_res = sorted([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
+    expected_res = sorted([2, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
     actual_res = sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
     env.assertEqual(expected_res, actual_res)
 
@@ -2468,7 +2468,7 @@ def testIssue_884(env):
     env.expect('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'title', 'conversation the conversation - a drama about conversation, the science of conversation.').equal('OK')
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'title', 'mohsin conversation with the mohsin').equal('OK')
 
-    expected = [2L, 'doc2', ['title', 'conversation the conversation - a drama about conversation, the science of conversation.'], 'doc4', ['title', 'mohsin conversation the conversation tahir']]
+    expected = [2, 'doc2', ['title', 'conversation the conversation - a drama about conversation, the science of conversation.'], 'doc4', ['title', 'mohsin conversation the conversation tahir']]
     res = env.cmd('FT.SEARCH', 'idx', '@title:(conversation) (@title:(conversation the conversation))=>{$inorder: true;$slop: 0}')
     env.assertEquals(len(expected), len(res))
     for v in expected:
@@ -2479,7 +2479,7 @@ def testIssue_848(env):
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test1', 'foo').equal('OK')
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'test2', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'test1', 'foo', 'test2', 'bar').equal('OK')
-    env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2L, 'doc1', ['test1', 'foo'], 'doc2', ['test2', 'bar', 'test1', 'foo']])
+    env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2, 'doc1', ['test1', 'foo'], 'doc2', ['test2', 'bar', 'test1', 'foo']])
 
 def testMod_309(env):
     n = 10000 if VALGRIND else 100000
@@ -2566,7 +2566,7 @@ def testWrongResultsReturnedBySkipOptimization(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo', 'f2', 'bar').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f1', 'moo', 'f2', 'foo').equal('OK')
-    env.expect('ft.search', 'idx', 'foo @f2:moo').equal([0L])
+    env.expect('ft.search', 'idx', 'foo @f2:moo').equal([0])
 
 def testErrorWithApply(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
@@ -2676,7 +2676,7 @@ def testGroupbyWithSort(env):
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', '1').equal('OK')
     env.expect('ft.add', 'idx', 'doc3', '1.0', 'FIELDS', 'test', '2').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@test', 'ASC',
-               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as', 'count').equal([2L, ['test', '2', 'count', '1'], ['test', '1', 'count', '2']])
+               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as', 'count').equal([2, ['test', '2', 'count', '1'], ['test', '1', 'count', '2']])
 
 def testApplyError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -2717,14 +2717,14 @@ def testBadFilterExpression(env):
 def testWithSortKeysOnNoneSortableValue(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.search', 'idx', '*', 'WITHSORTKEYS', 'SORTBY', 'test').equal([1L, 'doc1', '$foo', ['test', 'foo']])
+    env.expect('ft.search', 'idx', '*', 'WITHSORTKEYS', 'SORTBY', 'test').equal([1, 'doc1', '$foo', ['test', 'foo']])
 
 def testWithWithRawIds(env):
     env.skipOnCluster() # todo: remove once fix on coordinator
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     waitForIndex(env, 'idx')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.search', 'idx', '*', 'WITHRAWIDS').equal([1L, 'doc1', 1L, ['test', 'foo']])
+    env.expect('ft.search', 'idx', '*', 'WITHRAWIDS').equal([1, 'doc1', 1, ['test', 'foo']])
 
 def testUnkownIndex(env):
     env.skipOnCluster() # todo: remove once fix on coordinator
@@ -2769,18 +2769,18 @@ def testSubStrErrors(env):
 def testToUpperLower(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(@test)', 'as', 'a').equal([1L, ['test', 'foo', 'a', 'foo']])
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower("FOO")', 'as', 'a').equal([1L, ['test', 'foo', 'a', 'foo']])
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(@test)', 'as', 'a').equal([1L, ['test', 'foo', 'a', 'FOO']])
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper("foo")', 'as', 'a').equal([1L, ['test', 'foo', 'a', 'FOO']])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(@test)', 'as', 'a').equal([1, ['test', 'foo', 'a', 'foo']])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower("FOO")', 'as', 'a').equal([1, ['test', 'foo', 'a', 'foo']])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(@test)', 'as', 'a').equal([1, ['test', 'foo', 'a', 'FOO']])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper("foo")', 'as', 'a').equal([1, ['test', 'foo', 'a', 'FOO']])
 
     err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper()', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
     err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower()', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(1)', 'as', 'a').equal([1L, ['test', 'foo', 'a', None]])
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(1)', 'as', 'a').equal([1L, ['test', 'foo', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(1)', 'as', 'a').equal([1, ['test', 'foo', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(1)', 'as', 'a').equal([1, ['test', 'foo', 'a', None]])
 
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
     err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(1,2)', 'as', 'a')[1]
@@ -2791,11 +2791,11 @@ def testToUpperLower(env):
 def testMatchedTerms(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a').equal([1L, ['test', 'foo', 'a', None]])
-    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
-    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(100)', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
-    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(-100)', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
-    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms("test")', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a').equal([1, ['test', 'foo', 'a', None]])
+    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
+    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(100)', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
+    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(-100)', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
+    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms("test")', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
 
 def testStrFormatError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -2815,11 +2815,11 @@ def testStrFormatError(env):
     err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format(5)', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'upper(1)', 'as', 'b', 'APPLY', 'format("%s", @b)', 'as', 'a').equal([1L, ['test', 'foo', 'b', None, 'a', '(null)']])
+    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'upper(1)', 'as', 'b', 'APPLY', 'format("%s", @b)', 'as', 'a').equal([1, ['test', 'foo', 'b', None, 'a', '(null)']])
 
     # working example
-    env.expect('ft.aggregate', 'idx', 'foo', 'APPLY', 'format("%%s-test", "test")', 'as', 'a').equal([1L, ['a', '%s-test']])
-    env.expect('ft.aggregate', 'idx', 'foo', 'APPLY', 'format("%s-test", "test")', 'as', 'a').equal([1L, ['a', 'test-test']])
+    env.expect('ft.aggregate', 'idx', 'foo', 'APPLY', 'format("%%s-test", "test")', 'as', 'a').equal([1, ['a', '%s-test']])
+    env.expect('ft.aggregate', 'idx', 'foo', 'APPLY', 'format("%s-test", "test")', 'as', 'a').equal([1, ['a', 'test-test']])
 
 def testTimeFormatError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
@@ -2838,27 +2838,27 @@ def testTimeFormatError(env):
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(@test, 4)', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt("awfawf")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt("awfawf")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
 
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(235325153152356426246246246254)', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(235325153152356426246246246254)', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
 
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(@test, "%s")' % ('d' * 2048), 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(@test, "%s")' % ('d' * 2048), 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
 
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'hour("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'minute("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'day("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'month("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'dayofweek("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'dayofmonth("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'dayofyear("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'year("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'hour("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'minute("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'day("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'month("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'dayofweek("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'dayofmonth("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'dayofyear("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'year("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
 
 def testMonthOfYear(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
 
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear(@test)', 'as', 'a').equal([1L, ['test', '12234556', 'a', '4']])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear(@test)', 'as', 'a').equal([1, ['test', '12234556', 'a', '4']])
 
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear(@test, 112)', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
@@ -2866,7 +2866,7 @@ def testMonthOfYear(env):
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear()', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("bad")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("bad")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
 
 def testParseTime(env):
     conn = getConnectionByEnv(env)
@@ -2885,14 +2885,14 @@ def testParseTime(env):
 
     # valid test
     res = conn.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(@test, "%Y%m%d")', 'as', 'a')
-    assertEqualIgnoreCluster(env, res, [1L, ['test', '20210401', 'a', '1617235200']])
+    assertEqualIgnoreCluster(env, res, [1, ['test', '20210401', 'a', '1617235200']])
 
 def testMathFunctions(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
 
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'exp(@test)', 'as', 'a').equal([1L, ['test', '12234556', 'a', 'inf']])
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'ceil(@test)', 'as', 'a').equal([1L, ['test', '12234556', 'a', '12234556']])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'exp(@test)', 'as', 'a').equal([1, ['test', '12234556', 'a', 'inf']])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'ceil(@test)', 'as', 'a').equal([1, ['test', '12234556', 'a', '12234556']])
 
 def testErrorOnOpperation(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
@@ -2933,7 +2933,7 @@ def testIssue919(env):
             'schema', 't1', 'text', 'sortable', 'n1', 'numeric', 'sortable')
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 'n1', 42)
     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 't1', 'desc')
-    env.assertEqual([1L, 'doc1', ['n1', '42']], rv)
+    env.assertEqual([1, 'doc1', ['n1', '42']], rv)
 
 
 def testIssue1074(env):
@@ -2943,7 +2943,7 @@ def testIssue1074(env):
             'schema', 't1', 'text', 'n1', 'numeric', 'sortable')
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 'n1', 1581011976800)
     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 'n1')
-    env.assertEqual([1L, 'doc1', ['n1', '1581011976800', 't1', 'hello']], rv)
+    env.assertEqual([1, 'doc1', ['n1', '1581011976800', 't1', 'hello']], rv)
 
 def testIssue1085(env):
     env.skipOnCluster()
@@ -2951,7 +2951,7 @@ def testIssue1085(env):
     for i in range(1, 10):
         env.cmd('FT.ADD issue1085 document_%d 1 REPLACE FIELDS foo foo%d bar %d' % (i, i, i))
     res = env.cmd('FT.SEARCH', 'issue1085', '@bar:[8 8]')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'document_8', ['foo', 'foo8', 'bar', '8']]))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'document_8', ['foo', 'foo8', 'bar', '8']]))
 
     for i in range(1, 10):
         env.cmd('FT.ADD issue1085 document_8 1 REPLACE FIELDS foo foo8 bar 8')
@@ -3012,7 +3012,7 @@ def testUnseportedSortableTypeErrorOnTags(env):
     res = env.cmd('HGETALL doc1')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2', '__score', '1.0']))
     res = env.cmd('FT.SEARCH idx *')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']]))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']]))
 
 
 def testIssue1158(env):
@@ -3043,7 +3043,7 @@ def testIssue1169(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA txt1 TEXT txt2 TEXT')
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 foo')
 
-    env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1L, ['txt1', 'foo', 'test', None]])
+    env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1, ['txt1', 'foo', 'test', None]])
 
 def testIssue1184(env):
     env.skipOnCluster()
@@ -3062,7 +3062,7 @@ def testIssue1184(env):
         value = '42'
         env.assertOk(env.execute_command('FT.ADD idx doc0 1 FIELD field ' + value))
         doc = env.cmd('FT.SEARCH idx *')
-        env.assertEqual(doc, [1L, 'doc0', ['field', value]])
+        env.assertEqual(doc, [1, 'doc0', ['field', value]])
 
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -3098,9 +3098,9 @@ def testIssue1208(env):
     env.cmd('FT.ADD idx doc1 1 FIELDS n 1.0321e5')
     env.cmd('FT.ADD idx doc2 1 FIELDS n 101.11')
     env.cmd('FT.ADD idx doc3 1 FIELDS n 0.0011')
-    env.expect('FT.SEARCH', 'idx', '@n:[1.1432E3 inf]').equal([1L, 'doc1', ['n', '1.0321e5']])
-    env.expect('FT.SEARCH', 'idx', '@n:[-1.12E-3 1.12E-1]').equal([1L, 'doc3', ['n', '0.0011']])
-    res = [3L, 'doc1', ['n', '1.0321e5'], 'doc2', ['n', '101.11'], 'doc3', ['n', '0.0011']]
+    env.expect('FT.SEARCH', 'idx', '@n:[1.1432E3 inf]').equal([1, 'doc1', ['n', '1.0321e5']])
+    env.expect('FT.SEARCH', 'idx', '@n:[-1.12E-3 1.12E-1]').equal([1, 'doc3', ['n', '0.0011']])
+    res = [3, 'doc1', ['n', '1.0321e5'], 'doc2', ['n', '101.11'], 'doc3', ['n', '0.0011']]
     env.expect('FT.SEARCH', 'idx', '@n:[-inf inf]').equal(res)
 
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n>42e3 FIELDS n 100').equal('NOADD')
@@ -3117,58 +3117,58 @@ def testFieldsCaseSensetive(env):
     # make sure text fields are case sesitive
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
-    env.expect('ft.search idx @f:test').equal([1L, 'doc2', ['f', 'test']])
+    env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
     env.expect('ft.search idx @F:test').equal([0])
 
     # make sure numeric fields are case sesitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
-    env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc4', ['n', '1.0']])
+    env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
     env.expect('ft.search', 'idx', '@N:[0 2]').equal([0])
 
     # make sure tag fields are case sesitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
-    env.expect('ft.search', 'idx', '@t:{tag}').equal([1L, 'doc6', ['t', 'tag']])
+    env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
     env.expect('ft.search', 'idx', '@T:{tag}').equal([0])
 
     # make sure geo fields are case sesitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
-    env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1L, 'doc9', ['g', '-113.524,53.5244']])
+    env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
     env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').equal([0])
 
     # make sure search filter are case sensitive
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'n', 0, 2).equal([1L, 'doc4', ['n', '1.0']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'n', 0, 2).equal([1, 'doc4', ['n', '1.0']])
     env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'N', 0, 2).equal([0])
 
     # make sure RETURN are case sensitive
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1L, 'doc4', ['n', '1']])
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1L, 'doc4', []])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1, 'doc4', ['n', '1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1, 'doc4', []])
 
     # make sure SORTBY are case sensitive
     conn.execute_command('hset', 'doc7', 'n', '1.1')
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2L, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
     env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
 
     # make sure aggregation load are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n').equal([1L, ['n', '1'], ['n', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@N').equal([1L, [], []])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n').equal([1, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@N').equal([1, [], []])
 
     # make sure aggregation apply are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1L, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
 
     # make sure aggregation filter are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@n==1.0').equal([1L, ['n', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@n==1.0').equal([1, ['n', '1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
 
     # make sure aggregation groupby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2L, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
 
     # make sure aggregation sortby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@n').equal([2L, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@n').equal([2, ['n', '1'], ['n', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@N').error().contains('not loaded')
 
 def testSortedFieldsCaseSensetive(env):
@@ -3181,54 +3181,54 @@ def testSortedFieldsCaseSensetive(env):
     # make sure text fields are case sesitive
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
-    env.expect('ft.search idx @f:test').equal([1L, 'doc2', ['f', 'test']])
+    env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
     env.expect('ft.search idx @F:test').equal([0])
 
     # make sure numeric fields are case sesitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
-    env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc4', ['n', '1.0']])
+    env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
     env.expect('ft.search', 'idx', '@N:[0 2]').equal([0])
 
     # make sure tag fields are case sesitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
-    env.expect('ft.search', 'idx', '@t:{tag}').equal([1L, 'doc6', ['t', 'tag']])
+    env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
     env.expect('ft.search', 'idx', '@T:{tag}').equal([0])
 
     # make sure geo fields are case sesitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
-    env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1L, 'doc9', ['g', '-113.524,53.5244']])
+    env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
     env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').equal([0])
 
     # make sure search filter are case sensitive
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'n', 0, 2).equal([1L, 'doc4', ['n', '1.0']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'n', 0, 2).equal([1, 'doc4', ['n', '1.0']])
     env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'N', 0, 2).equal([0])
 
     # make sure RETURN are case sensitive
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1L, 'doc4', ['n', '1']])
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1L, 'doc4', []])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1, 'doc4', ['n', '1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1, 'doc4', []])
 
     # make sure SORTBY are case sensitive
     conn.execute_command('hset', 'doc7', 'n', '1.1')
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2L, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
     env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
 
     # make sure aggregation apply are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1L, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
 
     # make sure aggregation filter are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@n==1.0').equal([1L, ['n', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@n==1.0').equal([1, ['n', '1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
 
     # make sure aggregation groupby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2L, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
 
     # make sure aggregation sortby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@n').equal([2L, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@n').equal([2, ['n', '1'], ['n', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@N').error().contains('not loaded')
 
 def testScoreLangPayloadAreReturnedIfCaseNotMatchToSpecialFields(env):
@@ -3236,13 +3236,13 @@ def testScoreLangPayloadAreReturnedIfCaseNotMatchToSpecialFields(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE')
     conn.execute_command('hset', 'doc1', 'n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10')
     res = env.cmd('ft.search', 'idx', '@n:[0 2]')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'doc1', ['n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10']]))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'doc1', ['n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10']]))
 
 def testReturnSameFieldDifferentCase(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE')
     conn.execute_command('hset', 'doc1', 'n', '1.0', 'N', '2.0')
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '2', 'n', 'N').equal([1L, 'doc1', ['n', '1', 'N', '2']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '2', 'n', 'N').equal([1, 'doc1', ['n', '1', 'N', '2']])
 
 def testCreateIfNX(env):
     env.expect('FT._CREATEIFNX idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE').ok()
@@ -3281,7 +3281,7 @@ def testEmptyDoc(env):
     env.expect('FT.SEARCH idx * limit 0 0').equal([4])
     conn.execute_command('DEL', 'doc1')
     conn.execute_command('DEL', 'doc3')
-    env.expect('FT.SEARCH idx *').equal([2L, 'doc2', ['t', 'foo'], 'doc4', ['t', 'foo']])
+    env.expect('FT.SEARCH idx *').equal([2, 'doc2', ['t', 'foo'], 'doc4', ['t', 'foo']])
 
 def testRED47209(env):
     conn = getConnectionByEnv(env)
@@ -3289,9 +3289,9 @@ def testRED47209(env):
     conn.execute_command('hset', 'doc1', 't', 'foo')
     if env.isCluster():
         # on cluster we have WITHSCORES set unconditionally for FT.SEARCH
-        res = [1L, 'doc1', ['t', 'foo']]
+        res = [1, 'doc1', ['t', 'foo']]
     else:
-        res = [1L, 'doc1', None, ['t', 'foo']]
+        res = [1, 'doc1', None, ['t', 'foo']]
     env.expect('FT.SEARCH idx foo WITHSORTKEYS LIMIT 0 1').equal(res)
 
 def testInvertedIndexWasEntirelyDeletedDuringCursor():
@@ -3304,7 +3304,7 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env.expect('HSET doc2 t foo').equal(1)
 
     res, cursor = env.cmd('FT.AGGREGATE idx foo WITHCURSOR COUNT 1')
-    env.assertEqual(res, [1L, []])
+    env.assertEqual(res, [1, []])
 
     # delete both documents and run the GC to clean 'foo' inverted index
     env.expect('DEL doc1').equal(1)
@@ -3318,7 +3318,7 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
     # read from the cursor
     res, cursor = env.cmd('FT.CURSOR READ idx %d' % cursor)
 
-    env.assertEqual(res, [0L])
+    env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
 def testNegativeOnly(env):
@@ -3326,15 +3326,15 @@ def testNegativeOnly(env):
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
     conn.execute_command('HSET', 'doc1', 'not', 'foo')
 
-    env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['not', 'foo']])
-    env.expect('FT.SEARCH', 'idx', '-bar').equal([1L, 'doc1', ['not', 'foo']])
+    env.expect('FT.SEARCH idx *').equal([1, 'doc1', ['not', 'foo']])
+    env.expect('FT.SEARCH', 'idx', '-bar').equal([1, 'doc1', ['not', 'foo']])
 
 def testNotOnly(env):
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt1', 'hello', 'txt2', 'world')
   conn.execute_command('HSET', 'b', 'txt1', 'world', 'txt2', 'hello')
-  env.assertEqual(toSortedFlatList(env.cmd('ft.search idx !world')), toSortedFlatList([1L, 'b', ['txt1', 'world', 'txt2', 'hello']]))
+  env.assertEqual(toSortedFlatList(env.cmd('ft.search idx !world')), toSortedFlatList([1, 'b', ['txt1', 'world', 'txt2', 'hello']]))
 
 def testServerVersion(env):
     env.assertTrue(server_version_at_least(env, "6.0.0"))
@@ -3347,44 +3347,44 @@ def testSchemaWithAs(env):
   conn.execute_command('HSET', 'b', 'foo', 'world')
 
   for _ in env.retry_with_rdb_reload():
-    env.expect('ft.search idx @txt:hello').equal([0L])
-    env.expect('ft.search idx @txt:world').equal([0L])
-    env.expect('ft.search idx @foo:hello').equal([1L, 'a', ['txt', 'hello']])
-    env.expect('ft.search idx @foo:world').equal([0L])
+    env.expect('ft.search idx @txt:hello').equal([0])
+    env.expect('ft.search idx @txt:world').equal([0])
+    env.expect('ft.search idx @foo:hello').equal([1, 'a', ['txt', 'hello']])
+    env.expect('ft.search idx @foo:world').equal([0])
 
     # RETURN from schema
-    env.expect('ft.search idx hello RETURN 1 txt').equal([1L, 'a', ['txt', 'hello']])
-    env.expect('ft.search idx hello RETURN 1 foo').equal([1L, 'a', ['foo', 'hello']])
-    env.expect('ft.search idx hello RETURN 3 txt AS baz').equal([1L, 'a', ['baz', 'hello']])
-    env.expect('ft.search idx hello RETURN 3 foo AS baz').equal([1L, 'a', ['baz', 'hello']])
-    env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS bar').equal([1L, 'a', ['baz', 'hello', 'bar', 'hello']])
-    env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS baz').equal([1L, 'a', ['baz', 'hello']])
+    env.expect('ft.search idx hello RETURN 1 txt').equal([1, 'a', ['txt', 'hello']])
+    env.expect('ft.search idx hello RETURN 1 foo').equal([1, 'a', ['foo', 'hello']])
+    env.expect('ft.search idx hello RETURN 3 txt AS baz').equal([1, 'a', ['baz', 'hello']])
+    env.expect('ft.search idx hello RETURN 3 foo AS baz').equal([1, 'a', ['baz', 'hello']])
+    env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS bar').equal([1, 'a', ['baz', 'hello', 'bar', 'hello']])
+    env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS baz').equal([1, 'a', ['baz', 'hello']])
 
     # RETURN outside of schema
     conn.execute_command('HSET', 'a', 'not_in_schema', '42')
     res = conn.execute_command('HGETALL', 'a')
     env.assertEqual(res, {'txt': 'hello', 'not_in_schema': '42'})
-    env.expect('ft.search idx hello RETURN 3 not_in_schema AS txt2').equal([1L, 'a', ['txt2', '42']])
-    env.expect('ft.search idx hello RETURN 1 not_in_schema').equal([1L, 'a', ['not_in_schema', '42']])
-    env.expect('ft.search idx hello').equal([1L, 'a', ['txt', 'hello', 'not_in_schema', '42']])
+    env.expect('ft.search idx hello RETURN 3 not_in_schema AS txt2').equal([1, 'a', ['txt2', '42']])
+    env.expect('ft.search idx hello RETURN 1 not_in_schema').equal([1, 'a', ['not_in_schema', '42']])
+    env.expect('ft.search idx hello').equal([1, 'a', ['txt', 'hello', 'not_in_schema', '42']])
 
-    env.expect('ft.search idx hello RETURN 3 not_exist as txt2').equal([1L, 'a', []])
-    env.expect('ft.search idx hello RETURN 1 not_exist').equal([1L, 'a', []])
+    env.expect('ft.search idx hello RETURN 3 not_exist as txt2').equal([1, 'a', []])
+    env.expect('ft.search idx hello RETURN 1 not_exist').equal([1, 'a', []])
 
     env.expect('ft.search idx hello RETURN 3 txt as as').error().contains('Alias for RETURN cannot be `AS`')
 
     # LOAD for FT.AGGREGATE
     # for path - can rename
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@txt').equal([1L, ['txt', 'hello']])
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@txt', 'AS', 'txt1').equal([1L, ['txt1', 'hello']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@txt').equal([1, ['txt', 'hello']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@txt', 'AS', 'txt1').equal([1, ['txt1', 'hello']])
 
     # for name - cannot rename
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@foo').equal([1L, ['foo', 'hello']])
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1L, ['foo1', 'hello']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@foo').equal([1, ['foo', 'hello']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1, ['foo1', 'hello']])
 
     # for for not in schema - can rename
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@not_in_schema').equal([1L, ['not_in_schema', '42']])
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@not_in_schema', 'AS', 'NIS').equal([1L, ['NIS', '42']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@not_in_schema').equal([1, ['not_in_schema', '42']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@not_in_schema', 'AS', 'NIS').equal([1, ['NIS', '42']])
 
     conn.execute_command('HDEL', 'a', 'not_in_schema')
 
@@ -3398,9 +3398,9 @@ def testSchemaWithAs_Alter(env):
   # FT.ALTER
   conn.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'foo', 'AS', 'bar', 'TEXT')
   waitForIndex(env, 'idx')
-  env.expect('ft.search idx @bar:hello').equal([0L])
-  env.expect('ft.search idx @bar:world').equal([1L, 'b', ['foo', 'world']])
-  env.expect('ft.search idx @foo:world').equal([0L])
+  env.expect('ft.search idx @bar:hello').equal([0])
+  env.expect('ft.search idx @bar:world').equal([1, 'b', ['foo', 'world']])
+  env.expect('ft.search idx @foo:world').equal([0])
 
 def testSchemaWithAs_Duplicates(env):
     conn = getConnectionByEnv(env)
@@ -3414,10 +3414,10 @@ def testSchemaWithAs_Duplicates(env):
     res = env.expect('FT.CREATE', 'conflict2', 'SCHEMA', 'txt', 'AS', 'foo1', 'TEXT',
                                                         'txt', 'AS', 'foo2', 'TEXT').ok()
     waitForIndex(env, 'conflict2')
-    env.expect('ft.search conflict2 @foo1:hello').equal([1L, 'a', ['txt', 'hello']])
-    env.expect('ft.search conflict2 @foo2:hello').equal([1L, 'a', ['txt', 'hello']])
-    env.expect('ft.search conflict2 @foo1:world').equal([0L])
-    env.expect('ft.search conflict2 @foo2:world').equal([0L])
+    env.expect('ft.search conflict2 @foo1:hello').equal([1, 'a', ['txt', 'hello']])
+    env.expect('ft.search conflict2 @foo2:hello').equal([1, 'a', ['txt', 'hello']])
+    env.expect('ft.search conflict2 @foo1:world').equal([0])
+    env.expect('ft.search conflict2 @foo2:world').equal([0])
 
 def testMod1407(env):
     conn = getConnectionByEnv(env)
@@ -3427,13 +3427,13 @@ def testMod1407(env):
     conn.execute_command('HSET', 'doc1', 'limit', 'foo1', 'LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1')
     conn.execute_command('HSET', 'doc2', 'limit', 'foo2', 'LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2')
 
-    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '3', '@limit', '@LimitationTypeID', 'ASC').equal([2L, ['limit', 'foo1', 'LimitationTypeID', 'boo1'], ['limit', 'foo2', 'LimitationTypeID', 'boo2']])
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '3', '@limit', '@LimitationTypeID', 'ASC').equal([2, ['limit', 'foo1', 'LimitationTypeID', 'boo1'], ['limit', 'foo2', 'LimitationTypeID', 'boo2']])
 
     # make sure the crashed query is not crashing anymore
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', 'LLimitationTypeID', 'LLimitationTypeDesc', 'REDUCE', 'COUNT', '0')
 
     # make sure correct query not crashing and return the right results
-    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@LimitationTypeID', '@LimitationTypeDesc', 'REDUCE', 'COUNT', '0').equal([2L, ['LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2', '__generated_aliascount', '1'], ['LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1', '__generated_aliascount', '1']])
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@LimitationTypeID', '@LimitationTypeDesc', 'REDUCE', 'COUNT', '0').equal([2, ['LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2', '__generated_aliascount', '1'], ['LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1', '__generated_aliascount', '1']])
 
 def testMod1452(env):
     if not env.isCluster():
@@ -3463,19 +3463,19 @@ def test_mod1548(env):
 
     # Supported jsonpath
     res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'name')
-    env.assertEqual(res,  [2L, 'prod:1', ['name', 'foo'], 'prod:2', ['name', 'bar']])
+    env.assertEqual(res,  [2, 'prod:1', ['name', 'foo'], 'prod:2', ['name', 'bar']])
 
     # Supported jsonpath (actual path contains a colon using the bracket notation)
     res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id')
-    env.assertEqual(res,  [2L, 'prod:1', ['prod:id', '35114964'], 'prod:2', ['prod:id', '35114965']])
+    env.assertEqual(res,  [2, 'prod:1', ['prod:id', '35114964'], 'prod:2', ['prod:id', '35114965']])
 
     # Currently unsupported jsonpath (actual path contains a colon using the dot notation)
     res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
-    env.assertEqual(res, [2L, 'prod:1', [], 'prod:2', []])
+    env.assertEqual(res, [2, 'prod:1', [], 'prod:2', []])
 
 def test_empty_field_name(env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()
     conn.execute_command('hset', 'doc1', '', 'foo')
-    env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['', 'foo']])
+    env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])

@@ -22,7 +22,7 @@ def test_sanity(env):
         conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
         conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
 
-        res = [4L, 'a', ['v_score', '0', 'v', 'aaaaaaaa'],
+        res = [4, 'a', ['v_score', '0', 'v', 'aaaaaaaa'],
                    'b', ['v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
                    'c', ['v_score', '2.02824096037e+31', 'v', 'aaaaabaa'],
                    'd', ['v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
@@ -30,7 +30,7 @@ def test_sanity(env):
         env.assertEqual(res, res1)
 
         # todo: make test work on coordinator
-        res = [4L, 'c', ['v_score', '0', 'v', 'aaaaabaa'],
+        res = [4, 'c', ['v_score', '0', 'v', 'aaaaabaa'],
                    'b', ['v_score', '2.01242627636e+31', 'v', 'aaaabaaa'],
                    'a', ['v_score', '2.02824096037e+31', 'v', 'aaaaaaaa'],
                    'd', ['v_score', '1.31886368448e+36', 'v', 'aaaaaaba']]
@@ -136,7 +136,7 @@ def testDel(env):
 
         '''
         This test returns 4 results instead of the expected 3. The HNSW library return the additional results.
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([3, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
         '''
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
@@ -149,11 +149,11 @@ def testDelReuse(env):
         vecsim_type = ['FLAT', 'HNSW']
         for vs_type in vecsim_type:
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
-            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
+            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0])
             conn.execute_command('HSET', 'a', 'v', 'redislab')
-            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'redislab']])
+            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1, 'a', ['v', 'redislab']])
             conn.execute_command('DEL', 'a')
-            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
+            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0])
             conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
     def del_insert(env):
@@ -164,7 +164,7 @@ def testDelReuse(env):
         conn.execute_command('DEL', 'c')
         conn.execute_command('DEL', 'd')
 
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([0L])
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([0])
 
         res = [''.join(random.choice(string.lowercase) for x in range(8)),
             ''.join(random.choice(string.lowercase) for x in range(8)),
@@ -182,15 +182,15 @@ def testDelReuse(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
 
     vecs = del_insert(env)
-    res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
+    res = [4, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
 
     vecs = del_insert(env)
-    res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
+    res = [4, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
 
     vecs = del_insert(env)
-    res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
+    res = [4, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
@@ -223,7 +223,7 @@ def testDelReuseLarge(env):
     for _ in range(3):
         query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
         res = query_vector(env, INDEX_NAME, query_vec)
-        print res
+        print(res)
         for i in range(4):
             env.assertLessEqual(float(res[2 + i * 2][1]), float(res[2 + (i + 1) * 2][1]))
 
@@ -234,7 +234,7 @@ def testCreate(env):
     for _ in env.retry_with_rdb_reload():
         info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR']]
         assertInfoField(env, 'idx1', 'attributes', info)
-        env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx1", "v")[:-1], ['ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIMENSION', 1024L, 'METRIC', 'IP', 'INDEX_SIZE', 0L, 'M', 16L, 'EF_CONSTRUCTION', 200L, 'EF_RUNTIME', 10L, 'MAX_LEVEL', -1L, 'ENTRYPOINT', -1L, 'MEMORY'])
+        env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx1", "v")[:-1], ['ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIMENSION', 1024, 'METRIC', 'IP', 'INDEX_SIZE', 0, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'MEMORY'])
 
     # Uncomment these tests when support for FLOAT64, INT32, INT64, is added.
     # Trying to run these tests right now will cause 'Bad arguments for vector similarity HNSW index type' error

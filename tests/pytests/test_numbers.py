@@ -23,7 +23,7 @@ def testCompression(env):
 
 	for i in range(repeat):
 		value = accuracy * i
-		env.expect('ft.search', 'idx', ('@n:[%s %s]' % (value, value))).equal([1L, str(i), ['n', str(value)]])
+		env.expect('ft.search', 'idx', ('@n:[%s %s]' % (value, value))).equal([1, str(i), ['n', str(value)]])
   
 def testSanity(env):
 	env.skipOnCluster()
@@ -35,7 +35,7 @@ def testSanity(env):
 		conn.execute_command('hset', i, 'n', i % 100)
 	env.expect('ft.search', 'idx', ('@n:[0 %d]' % (repeat)), 'limit', 0 ,0).equal([repeat])
 	env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'n') \
-				.equal(['numRanges', 12L, 'numEntries', 100000L, 'lastDocId', 100000L, 'revisionId', 11L])
+				.equal(['numRanges', 12, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 11])
 
 def testCompressionConfig(env):
 	env.skipOnCluster()
@@ -48,7 +48,7 @@ def testCompressionConfig(env):
 	  env.execute_command('hset', i, 'n', str(1 + i / 100.0))
 	for i in range(100):
 		num = str(1 + i / 100.0)
-		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1L, str(i), ['n', num]])
+		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1, str(i), ['n', num]])
 
 	# with compression. no exact number match.
 	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
@@ -63,7 +63,7 @@ def testCompressionConfig(env):
 
 	for i in range(100):
 		num = str(1 + i / 100.0)
-		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([0L])
+		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([0])
 
 def testRangeParentsConfig(env):
 	env.skipOnCluster()
@@ -74,7 +74,7 @@ def testRangeParentsConfig(env):
 	if str(concurrent[0][1]) == 'true':
 		env.skip()
 
-	result = [['numRanges', 6L], ['numRanges', 8L]]
+	result = [['numRanges', 6], ['numRanges', 8]]
 	for test in range(2):
 		# check number of ranges
 		env.cmd('ft.create', 'idx0', 'SCHEMA', 'n', 'numeric')

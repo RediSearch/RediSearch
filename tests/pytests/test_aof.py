@@ -13,7 +13,7 @@ def aofTestCommon(env, reloadfn):
 
         reloadfn()
         waitForIndex(env, 'idx')
-        exp = [9L, 'doc1', ['field1', 'myText1', 'field2', '20'], 'doc2', ['field1', 'myText2', 'field2', '40'],
+        exp = [9, 'doc1', ['field1', 'myText1', 'field2', '20'], 'doc2', ['field1', 'myText2', 'field2', '40'],
                    'doc3', ['field1', 'myText3', 'field2', '60'], 'doc4', ['field1', 'myText4', 'field2', '80'],
                    'doc5', ['field1', 'myText5', 'field2', '100'], 'doc6', ['field1', 'myText6', 'field2', '120'],
                    'doc7', ['field1', 'myText7', 'field2', '140'], 'doc8', ['field1', 'myText8', 'field2', '160'],
@@ -102,7 +102,7 @@ def testAofRewriteTags():
     env.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
     res = env.cmd('FT.SEARCH', 'idx', '@bar:{1}', 'SORTBY', 'foo', 'ASC',
                   'RETURN', '1', 'foo', 'WITHSORTKEYS')
-    env.assertEqual([2L, '1', '$a', ['foo', 'A'],
+    env.assertEqual([2, '1', '$a', ['foo', 'A'],
                      '2', '$b', ['foo', 'B']], res)
 
 

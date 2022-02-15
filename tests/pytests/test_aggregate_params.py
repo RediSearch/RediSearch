@@ -54,7 +54,7 @@ class TestAggregateParams:
 
         res = self.env.cmd(*cmd)
         self.env.assertIsNotNone(res)
-        self.env.assertEqual([292L, ['brand', '', 'count', '1518'], ['brand', 'mad catz', 'count', '43'],
+        self.env.assertEqual([292, ['brand', '', 'count', '1518'], ['brand', 'mad catz', 'count', '43'],
                                     ['brand', 'generic', 'count', '40'], ['brand', 'steelseries', 'count', '37'],
                                     ['brand', 'logitech', 'count', '35']], res)
 

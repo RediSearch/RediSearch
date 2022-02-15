@@ -43,13 +43,13 @@ def testSummarization(env):
                   'SUMMARIZE', 'FIELDS', 1, 'txt',
                   'SEPARATOR', '\r\n',
                   'FRAGS', 4, 'LEN', 3)
-    env.assertEqual([1L, 'gen1', [
+    env.assertEqual([1, 'gen1', [
                      'txt', 'name Isaac: and\r\nwith Isaac,\r\nIsaac. {21:4} And Abraham circumcised his son Isaac\r\nson Isaac was\r\n']], res)
 
     # Attempt a query which doesn't have a corresponding matched term
     res = env.cmd('FT.SEARCH', 'idx', '-blah', 'SUMMARIZE', 'LEN', 3)
     env.assertEqual(
-        [1L, 'gen1', ['txt', ' The First Book of Moses, called Genesis {1:1} In']], res)
+        [1, 'gen1', ['txt', ' The First Book of Moses, called Genesis {1:1} In']], res)
 
     # Try the same, but attempting to highlight
     res = env.cmd('FT.SEARCH', 'idx', '-blah', 'HIGHLIGHT')
@@ -64,9 +64,9 @@ def testPrefixExpansion(env):
 
     # Prefix expansion uses "early exit" strategy, so the term highlighted won't necessarily be the
     # best term
-    possibilities = [[1L, 'gen1', ['txt', 'is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']],
-                     [1L, 'gen1', ['txt', 'First Book of Moses, called Genesis {1:1} In the <b>beginning</b> God created the heaven and the earth. {1:2} And the earth... the mighty hunter before the LORD. {10:10} And the <b>beginning</b> of his kingdom was Babel, and Erech, and Accad, and Calneh... is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']],
-                     [1L, 'gen1', ['txt', '49:3} Reuben, thou [art] my firstborn, my might, and the <b>beginning of</b> my strength, the excellency of dignity, and the excellency... ']]]
+    possibilities = [[1, 'gen1', ['txt', 'is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']],
+                     [1, 'gen1', ['txt', 'First Book of Moses, called Genesis {1:1} In the <b>beginning</b> God created the heaven and the earth. {1:2} And the earth... the mighty hunter before the LORD. {10:10} And the <b>beginning</b> of his kingdom was Babel, and Erech, and Accad, and Calneh... is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']],
+                     [1, 'gen1', ['txt', '49:3} Reuben, thou [art] my firstborn, my might, and the <b>beginning of</b> my strength, the excellency of dignity, and the excellency... ']]]
     env.assertIn(res, possibilities)
 
 def testSummarizationMultiField(env):
@@ -88,7 +88,7 @@ def testSummarizationMultiField(env):
     res = env.cmd('FT.SEARCH', 'idx', 'memory persistence salvatore',
                    'SUMMARIZE', 'FIELDS', 2, 'txt1', 'txt2', 'LEN', 5)
 
-    env.assertEqual(1L, res[0])
+    env.assertEqual(1, res[0])
     env.assertEqual('redis', res[1])
     for term in ['txt1', 'memory database project implementing a networked, in-memory ... by Salvatore Sanfilippo... ', 'txt2',
                  'dataset in memory. Versions... as virtual memory[19] in... persistent durability mode where the dataset is asynchronously transferred from memory... ']:
@@ -119,7 +119,7 @@ def testSummarizationNoSave(env):
     res = env.cmd('FT.SEARCH', 'idx', 'hello',
                    'SUMMARIZE', 'RETURN', 1, 'body')
     # print res
-    env.assertEqual([1L, 'doc', []], res)
+    env.assertEqual([1, 'doc', []], res)
 
 def testSummarizationMeta(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text', 'bar', 'text', 'baz', 'text')
@@ -139,7 +139,7 @@ def testSummarizationMeta(env):
 
     res = env.cmd('ft.search', 'idx', 'pill pillow piller',
                    'RETURN', 3, 'foo', 'bar', 'baz', 'SUMMARIZE')
-    env.assertEqual([1L, 'doc1', ['foo', 'pill... ', 'bar',
+    env.assertEqual([1, 'doc1', ['foo', 'pill... ', 'bar',
                                    'pillow... ', 'baz', 'piller... ']], res)
 
 
@@ -154,7 +154,7 @@ def testOverflow1(env):
             "Parents strongly cautioned. May be unsuitable for children ages 14 and under.",
             "description", "90", "year", "2017", "uscore", "91", "usize", "80")
     res = env.cmd('ft.search', 'netflix', 'vampire', 'highlight')
-    env.assertEqual(1L, res[0])
+    env.assertEqual(1, res[0])
     env.assertEqual('15ad80086ccc7f', res[1])
     for term in ['title', 'The <b>Vampire</b> Diaries', 'rating', 'TV-14', 'level',
                  'Parents strongly cautioned. May be unsuitable for children ages 14 and under.',
@@ -176,7 +176,7 @@ def testIssue364(env):
             'description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the end')
 
     ret = env.cmd('FT.SEARCH', 'idx', 'retail', 'RETURN', 1, 'description', 'SUMMARIZE')
-    expected = [2L, 'doc2', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the'], 'doc1', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips)']]
+    expected = [2, 'doc2', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the'], 'doc1', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips)']]
     env.assertEqual(toSortedFlatList(expected), toSortedFlatList(ret))
 
 def grouper(iterable, n, fillvalue=None):
@@ -192,13 +192,13 @@ def testFailedHighlight(env):
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT', 'NOINDEX')
     waitForIndex(env, 'idx')
     env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz')
-    env.assertEqual(toSortedFlatList([1L, 'doc1', ['f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz']]),
+    env.assertEqual(toSortedFlatList([1, 'doc1', ['f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz']]),
         toSortedFlatList(env.cmd('ft.search idx foo')))
-    env.assertEqual(toSortedFlatList([1L, 'doc1', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'bar bar bar', 'f3', 'baz baz baz']]),
+    env.assertEqual(toSortedFlatList([1, 'doc1', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'bar bar bar', 'f3', 'baz baz baz']]),
         toSortedFlatList(env.cmd('ft.search', 'idx', 'foo', 'highlight', 'fields', '1', 'f1')))
-    env.assertEqual(toSortedFlatList([1L, 'doc1', ['f2', 'bar bar bar', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),
+    env.assertEqual(toSortedFlatList([1, 'doc1', ['f2', 'bar bar bar', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),
         toSortedFlatList(env.cmd('ft.search idx foo highlight fields 1 f2')))
-    env.assertEqual(toSortedFlatList([1L, 'doc1', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', 'bar bar bar']]),
+    env.assertEqual(toSortedFlatList([1, 'doc1', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', 'bar bar bar']]),
         toSortedFlatList(env.cmd('ft.search idx foo highlight fields 1 f3')))
 
     #test empty string
@@ -206,11 +206,11 @@ def testFailedHighlight(env):
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT')
     waitForIndex(env, 'idx')
     env.cmd('ft.add', 'idx2', 'doc2', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', '', 'f3', 'baz baz baz')
-    env.assertEqual(toSortedFlatList([1L, 'doc2', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', '', 'f3', 'baz baz baz']]),
+    env.assertEqual(toSortedFlatList([1, 'doc2', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', '', 'f3', 'baz baz baz']]),
         toSortedFlatList(env.cmd('ft.search idx2 foo highlight fields 1 f1')))
-    env.assertEqual(toSortedFlatList([1L, 'doc2', ['f2', '', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),
+    env.assertEqual(toSortedFlatList([1, 'doc2', ['f2', '', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),
         toSortedFlatList(env.cmd('ft.search idx2 foo highlight fields 1 f2')))
-    env.assertEqual(toSortedFlatList([1L, 'doc2', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', '']]),
+    env.assertEqual(toSortedFlatList([1, 'doc2', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', '']]),
         toSortedFlatList(env.cmd('ft.search idx2 foo highlight fields 1 f3')))
 
     #test stop word list
@@ -218,9 +218,9 @@ def testFailedHighlight(env):
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT')
     waitForIndex(env, 'idx')
     env.cmd('ft.add', 'idx3', 'doc3', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', 'not a', 'f3', 'baz baz baz')
-    env.assertEqual(toSortedFlatList([1L, 'doc3', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'not a', 'f3', 'baz baz baz']]),
+    env.assertEqual(toSortedFlatList([1, 'doc3', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'not a', 'f3', 'baz baz baz']]),
         toSortedFlatList(env.cmd('ft.search idx3 foo highlight fields 1 f1')))
-    env.assertEqual(toSortedFlatList([1L, 'doc3', ['f2', 'not a', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),
+    env.assertEqual(toSortedFlatList([1, 'doc3', ['f2', 'not a', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),
         toSortedFlatList(env.cmd('ft.search idx3 foo highlight fields 1 f2')))
-    env.assertEqual(toSortedFlatList([1L, 'doc3', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', 'not a']]),
+    env.assertEqual(toSortedFlatList([1, 'doc3', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', 'not a']]),
         toSortedFlatList(env.cmd('ft.search idx3 foo highlight fields 1 f3')))

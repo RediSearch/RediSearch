@@ -14,7 +14,7 @@ def testBasicSynonymsUseCase(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
 
 def testTermOnTwoSynonymsGroup(env):
@@ -31,11 +31,11 @@ def testTermOnTwoSynonymsGroup(env):
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
 
-    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
 
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
 
 def testSynonymGroupWithThreeSynonyms(env):
@@ -50,10 +50,10 @@ def testSynonymGroupWithThreeSynonyms(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res[0:2], [1L, 'doc1',])
+    env.assertEqual(res[0:2], [1, 'doc1',])
     env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
 
 def testSynonymWithMultipleDocs(env):
@@ -72,7 +72,7 @@ def testSynonymWithMultipleDocs(env):
                                     'body', 'the child sister'))
 
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res[0], 2L)
+    env.assertEqual(res[0], 2)
     env.assertEqual(res[1], 'doc1')
     env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
     env.assertEqual(res[3], 'doc2')
@@ -97,7 +97,7 @@ def testSynonymUpdate(env):
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
     # synonyms are applied from the moment they were added, previuse docs are not reindexed
-    env.assertEqual(res[0:2], [1L, 'doc2'])
+    env.assertEqual(res[0:2], [1, 'doc2'])
     env.assertEqual(set(res[2]), set(['title', 'he is another baby', 'body', 'another test']))
 
 def testSynonymDump(env):
@@ -167,7 +167,7 @@ def testTwoSynonymsSearch(env):
 
     res = r.execute_command('ft.search', 'idx', 'offspring offspring', 'EXPANDER', 'SYNONYM')
     # synonyms are applied from the moment they were added, previuse docs are not reindexed
-    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'he is a boy child boy', 'body', 'another test']))
 
 def testSynonymsIntensiveLoad(env):
@@ -186,7 +186,7 @@ def testSynonymsIntensiveLoad(env):
         waitForIndex(r, 'idx')
         for i in range(iterations):
             res = r.execute_command('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYNONYM')
-            env.assertEqual(res[0:2], [1L, 'doc%d' % i])
+            env.assertEqual(res[0:2], [1, 'doc%d' % i])
             env.assertEqual(set(res[2]), set(['title', 'he is a boy%d' % i, 'body', 'this is a test']))
 
 def testSynonymsLowerCase(env):
@@ -196,7 +196,7 @@ def testSynonymsLowerCase(env):
     env.assertEqual(toSortedFlatList(dump), toSortedFlatList((['ahalan', ['id1'], 'shalom', ['id1'], 'hello', ['id1']])))
     env.expect('FT.ADD lowcase doc1 1 FIELDS foo hello').ok()
     env.expect('FT.ADD lowcase doc2 1 FIELDS foo HELLO').ok()
-    res = [2L, 'doc1', ['foo', 'hello'], 'doc2', ['foo', 'HELLO']]
+    res = [2, 'doc1', ['foo', 'hello'], 'doc2', ['foo', 'HELLO']]
     env.expect('FT.SEARCH lowcase SHALOM').equal(res)
     env.expect('FT.SEARCH lowcase shalom').equal(res)
 
@@ -207,13 +207,13 @@ def testSkipInitialIndex(env):
     env.expect('FT.CREATE idx2 SCHEMA foo text').ok()
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
 
-    env.expect('FT.SEARCH idx1 @foo:xyz').equal([0L])
-    env.expect('FT.SEARCH idx2 @foo:xyz').equal([0L])
+    env.expect('FT.SEARCH idx1 @foo:xyz').equal([0])
+    env.expect('FT.SEARCH idx2 @foo:xyz').equal([0])
 
     env.expect('FT.SYNUPDATE idx1 g1 bar xyz').ok()
     env.expect('FT.SYNUPDATE idx2 g2 SKIPINITIALSCAN bar xyz').ok()
 
     waitForIndex(env, 'idx1')
 
-    env.expect('FT.SEARCH idx1 @foo:xyz').equal([1L, 'doc1', ['foo', 'bar']])
-    env.expect('FT.SEARCH idx2 @foo:xyz').equal([0L])
+    env.expect('FT.SEARCH idx1 @foo:xyz').equal([1, 'doc1', ['foo', 'bar']])
+    env.expect('FT.SEARCH idx2 @foo:xyz').equal([0])

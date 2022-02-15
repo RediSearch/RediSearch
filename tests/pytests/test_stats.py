@@ -53,7 +53,7 @@ def runTestWithSeed(env, s=None):
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
     for i in range(count):
-        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([1L, 'doc%d' % i, ['n', str(i)]])
+        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([1, 'doc%d' % i, ['n', str(i)]])
     #check_not_empty(env, idx)
 
     for i in range(cleaning_loops):
@@ -64,7 +64,7 @@ def runTestWithSeed(env, s=None):
             forceInvokeGC(env, 'idx')
 
     for i in range(count):
-        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0L])
+        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0])
     check_empty(env, idx)
 
     ### test random integers
@@ -85,7 +85,7 @@ def runTestWithSeed(env, s=None):
     check_empty(env, idx)
 
     for i in range(count):
-        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0L])
+        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0])
     check_empty(env, idx)
 
     ## test random floats
