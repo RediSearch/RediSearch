@@ -48,7 +48,6 @@ term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
 prefix = (term.star | number.star | attr.star) $1;
-topk = 'TOP_K';
 as = 'AS';
 
 main := |*
@@ -98,15 +97,6 @@ main := |*
     tok.len = te - ts;
     tok.s = ts+1;
     RSQuery_Parse(pParser, ARROW, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
-  topk => {
-    tok.pos = ts-q->raw;
-    tok.len = te - ts;
-    tok.s = ts;
-    RSQuery_Parse(pParser, TOP_K, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
