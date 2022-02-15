@@ -200,6 +200,33 @@ def testProfileTag(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
   env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Counter', 2, 'Size', 2]])
 
+def testProfileVector(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT').ok()
+  conn.execute_command('hset', '1', 'v', 'abababab', 't', "hello")
+  conn.execute_command('hset', '2', 'v', 'babababa', 't', "hello")
+  conn.execute_command('hset', '3', 'v', 'aabbaabb', 't', "hello")
+  conn.execute_command('hset', '4', 'v', 'bbaabbaa', 't', "hello world")
+  conn.execute_command('hset', '5', 'v', 'aaaabbbb', 't', "hello world")
+
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*=>[TOP_K 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 3L]]
+  expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 3L]
+  env.assertEqual(actual_res[0], [3L, '1', '2', '4'])
+  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(actual_res[1][4][3], expected_vecsim_rp_res)
+
+  # Test with hybrid query
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[TOP_K 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 2L, 'Child iterator', ['Type', 'INTERSECT', 'Counter', 4L, 'Child iterators', ['Type', 'TEXT', 'Term', 'world', 'Counter', 4L, 'Size', 2L], ['Type', 'TEXT', 'Term', 'hello', 'Counter', 4L, 'Size', 5L]]]]
+  expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 2L]
+  env.assertEqual(actual_res[0], [2L, '4', '5'])
+  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(actual_res[1][4][3], expected_vecsim_rp_res)
+
 def testResultProcessorCounter(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)

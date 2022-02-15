@@ -43,15 +43,9 @@ static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
 }
 
 static void QueryVectorNode_Free(QueryVectorNode *vn) {
-  if (vn->vf) {
-    if (vn->vf->vector) {
-      rm_free(vn->vf->vector); 
-    }
-    if (vn->vf->property) {
-      rm_free(vn->vf->property); 
-    }
-    rm_free(vn->vf);
-    vn->vf = NULL;
+  if (vn->vq) {
+    VectorQuery_Free(vn->vq);
+    vn->vq = NULL;
   }
 }
 
@@ -268,15 +262,22 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   return ret;
 }
 
-QueryNode *NewVectorNode(QueryParam *p) {
-  assert(p->type == QP_VEC_FILTER);
+// TODO: to be more generic, consider using variadic function, or use different functions for each command
+QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec) {
   QueryNode *ret = NewQueryNode(QN_VECTOR);
-  // Move data and params pointers
-  ret->vn.vf = p->vf;
-  ret->params = p->params;
-  p->vf = NULL;
-  p->params = NULL;
-  rm_free(p);
+  VectorQuery *vq = rm_calloc(1, sizeof(*vq));
+  ret->vn.vq = vq;
+  vq->type = type;
+  switch (type) {
+    case VECSIM_QT_TOPK:
+      QueryNode_InitParams(ret, 2);
+      QueryNode_SetParam(q, &ret->params[0], &vq->topk.vector, &vq->topk.vecLen, vec);
+      QueryNode_SetParam(q, &ret->params[1], &vq->topk.k, NULL, value);
+      break;
+    default:
+      QueryNode_Free(ret);
+      return NULL;
+  }
   return ret;
 }
 
@@ -627,14 +628,32 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   return NewGeoRangeIterator(q->sctx, node->gn.gf);
 }
 
-static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryVectorNode *node) {
+static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
+  if (qn->type != QN_VECTOR) {
+    return NULL;
+  }
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->vf->property, strlen(node->vf->property));
+      IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     return NULL;
   }
-
-  return NewVectorIterator(q->sctx, node->vf);
+  // Add the score field name to the ast score field names array.
+  // This macro creates the array if it's the first name, and ensure its size is sufficient.
+  array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
+  IndexIterator *child_it = NULL;
+  if (QueryNode_NumChildren(qn) > 0) {
+    RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
+    child_it = Query_EvalNode(q, qn->children[0]);
+    // If child iterator is in valid or empty, the hybrid iterator is empty as well.
+    if (child_it == NULL) {
+      return NULL;
+    }
+  }
+  IndexIterator *it = NewVectorIterator(q->sctx, qn->vn.vq, child_it, q->status);
+  if (it == NULL && child_it != NULL) {
+    child_it->Free(child_it);
+  }
+  return it;
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
@@ -916,7 +935,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_GEO:
       return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_VECTOR:
-      return Query_EvalVectorNode(q, &n->vn);
+      return Query_EvalVectorNode(q, n);
     case QN_IDS:
       return Query_EvalIdFilterNode(q, &n->fn);
     case QN_WILDCARD:
@@ -974,7 +993,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
   return REDISMODULE_OK;
 }
 
-IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
+IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
                             ConcurrentSearchCtx *conc, QueryError *status) {
   QueryEvalCtx qectx = {
       .conc = conc,
@@ -983,6 +1002,7 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
       .status = status,
+      .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
@@ -995,6 +1015,8 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
+  array_free(q->vecScoreFieldNames);
+  q->vecScoreFieldNames = NULL;
   q->numTokens = 0;
   q->numParams = 0;
   rm_free(q->query);
@@ -1039,7 +1061,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
       res = GeoFilter_EvalParams(params, n, status);
       break;
     case QN_VECTOR:
-      res = VectorFilter_EvalParams(params, n, status);
+      res = VectorQuery_EvalParams(params, n, status);
       break;
     case QN_TOKEN:
     case QN_NUMERIC:
@@ -1231,21 +1253,40 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_IDS:
 
-      s = sdscat(s, "IDS { ");
+      s = sdscat(s, "IDS {");
       for (int i = 0; i < qs->fn.len; i++) {
         s = sdscatprintf(s, "%llu,", (unsigned long long)qs->fn.ids[i]);
       }
       break;
     case QN_VECTOR:
-      // TODO: add vector query params
-      s = sdscat(s, "VECTOR { ");
-      VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(qs->vn.vf->results);
-      VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
-      while (res) {
-        s = sdscatprintf(s, "[%lu,%lf]", VecSimQueryResult_GetId(res), VecSimQueryResult_GetScore(res));
-        res = VecSimQueryResult_IteratorNext(iter);
+      s = sdscat(s, "VECTOR {");
+      if (QueryNode_NumChildren(qs) > 0) {
+        s = sdscat(s, "\n");
+        s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+        s = doPad(s, depth);
+        s = sdscat(s, "} => {");
       }
-      VecSimQueryResult_IteratorFree(iter);
+      switch (qs->vn.vq->type) {
+        case VECSIM_QT_TOPK: {
+          s = sdscatprintf(s, "TOP K=%zu vectors similar to ", qs->vn.vq->topk.k);
+          // This loop finds the vector param name.
+          for (size_t i = 0; i < array_len(qs->params); i++) {
+            if (qs->params[i].type != PARAM_NONE && qs->params[i].target == &qs->vn.vq->topk.vector) {
+              s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
+              break;
+            }
+          }
+          s = sdscatprintf(s, "in @%s", qs->vn.vq->property);
+          for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
+            s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
+            s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
+          }
+          if (qs->vn.vq->scoreField) {
+            s = sdscatprintf(s, ", AS `%s`", qs->vn.vq->scoreField);
+          }
+          break;
+        }
+      }
       break;
     case QN_WILDCARD:
 
@@ -1380,41 +1421,6 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     }
     // qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
     //                                          will be enable if field was declared phonetic
-
-  } else if (STR_EQCASE(attr->name, attr->namelen, "base64")) {
-    if (qn->type != QN_VECTOR) {
-      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Attribute %s requires vector node",
-                             attr->name);
-      return 0;
-    }
-
-    // Apply base64 for vector similarity : true|false
-    int b;
-    if (qn->type != QN_VECTOR || !ParseBoolean(attr->value, &b)) {
-      MK_INVALID_VALUE();
-      return 0;
-    }
-    if (b) {
-      // The query string will be converted back to regular string
-      qn->vn.vf->isBase64 = true;
-    } else {
-      qn->vn.vf->isBase64 = false;
-    }
-
-  } else if (STR_EQCASE(attr->name, attr->namelen, "efRuntime")) {
-    if (qn->type != QN_VECTOR) {
-      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Attribute %s requires vector node",
-                             attr->name);
-      return 0;
-    }
-
-    // Apply base64 for vector similarity: [1...INF]
-    long long val;
-    if (!ParseInteger(attr->value, &val) || val < 1) {
-      MK_INVALID_VALUE();
-      return 0;
-    }
-    qn->vn.vf->efRuntime = val;
 
   } else {
     QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,

@@ -38,31 +38,6 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
   return ret;
 }
 
-QueryParam *NewVectorFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *vec, QueryToken *type, QueryToken *value) {
-  QueryParam *ret = NewQueryParam(QP_VEC_FILTER);
-  VectorFilter *vf = rm_calloc(1, sizeof(*vf));
-  VectorFilter_InitValues(vf);
-  ret->vf = vf;
-  int prevNumParams = q->numParams;
-  QueryParam_InitParams(ret, 3);
-  QueryParam_SetParam(q, &ret->params[0], &vf->vector, &vf->vecLen, vec);
-  assert (type->type != QT_TERM_CASE);
-  if (type->type == QT_TERM) {
-    vf->type = VectorFilter_ParseType(type->s, type->len);
-  } else {
-    QueryParam_SetParam(q, &ret->params[1], &vf->type, NULL, type);
-  }
-  QueryParam_SetParam(q, &ret->params[2], &vf->value, NULL, value);
-  if (prevNumParams == q->numParams) {
-    // No parameters were used - need to validate now
-    if (!VectorFilter_Validate(vf, q->status)) {
-      QueryParam_Free(ret);
-      return NULL;
-    }
-  }
-  return ret;
-}
-
 void QueryParam_Free(QueryParam *p) {
   switch (p->type) {
     case QP_GEO_FILTER:
@@ -70,9 +45,6 @@ void QueryParam_Free(QueryParam *p) {
       break;
     case QP_NUMERIC_FILTER:
       NumericFilter_Free(p->nf);
-      break;
-    case QP_VEC_FILTER:
-      VectorFilter_Free(p->vf);
       break;
   }
   size_t n = QueryParam_NumParams(p);
@@ -109,13 +81,9 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     *(double *)target_value = source->numval;
     return false; // done
 
-  case QT_VEC:
+  case QT_SIZE:
     target_param->type = PARAM_NONE;
-    char *data = rm_malloc(source->len);
-    memcpy(data, source->s, source->len);
-    *(void**)target_value = data;
-    assert(target_len);
-    *target_len = source->len;
+    *(size_t *)target_value = (size_t)source->numval;
     return false; // done
 
   case QT_PARAM_ANY:
@@ -142,11 +110,11 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   case QT_PARAM_GEO_COORD:
     type = PARAM_GEO_COORD;
     break;
-  case QT_PARAM_VEC_SIM_TYPE:
-    type = PARAM_VEC_SIM_TYPE;
-    break;
   case QT_PARAM_VEC:
     type = PARAM_VEC;
+    break;
+  case QT_PARAM_SIZE:
+    type = PARAM_SIZE;
     break;
   }
   target_param->type = type;
@@ -179,17 +147,25 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_ANY:
     case PARAM_TERM:
       *(char**)param->target = rm_strdupcase(val, val_len);
-      *param->target_len = strlen(*(char**)param->target);
+      if (param->target_len) *param->target_len = strlen(*(char**)param->target);
       return 1;
 
     case PARAM_TERM_CASE:
       *(char**)param->target = rm_strdup(val);
-      *param->target_len = val_len;
+      if (param->target_len) *param->target_len = val_len;
       return 1;
 
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
       if (!ParseDouble(val, (double*)param->target)) {
+        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
+        val, param->name);
+        return -1;
+      }
+      return 1;
+
+    case PARAM_SIZE:
+      if (!ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
         QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
         val, param->name);
         return -1;
@@ -211,15 +187,8 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       *(GeoDistance*)param->target = GeoDistance_Parse(val);
       return 1;
 
-    case PARAM_VEC_SIM_TYPE:
-      *(VectorQueryType*)param->target = VectorFilter_ParseType(val, strlen(val));
-      return 1;
-
     case PARAM_VEC: {
-      char *blob = rm_malloc(val_len);
-      memcpy(blob, val, val_len);  // FIXME: if the same value can be shared among multiple $param
-                                   // usages (is it read-only?) - reuse it
-      *(char **)param->target = blob;
+      *(const char **)param->target = val;
       *param->target_len = val_len;
       return 1;
     }
