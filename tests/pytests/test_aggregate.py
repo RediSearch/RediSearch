@@ -176,7 +176,7 @@ class TestAggregate():
         for row in self.env.cmd(*cmd)[1:]:
             self.env.assertIsInstance(row[5], list)
             self.env.assertGreater(len(row[5]), 0)
-            self.env.assertGreaterEqual(row[3], len(row[5]))
+            self.env.assertGreaterEqual(int(row[3]), len(row[5]))
 
             self.env.assertLessEqual(len(row[5]), 10)
 

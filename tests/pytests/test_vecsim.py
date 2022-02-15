@@ -91,8 +91,8 @@ def testDel(env):
 
         # '''
         # This test returns 4 results instead of the expected 3. The HNSW library return the additional results.
-        env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v')
-           .equal([3, 'b', ['v', 'aaaaaaba'], 'c', ['v', 'aaaabaaa'], 'd', ['v', 'aaaaabaa']])
+        env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').\
+            equal([3, 'b', ['v', 'aaaaaaba'], 'c', ['v', 'aaaabaaa'], 'd', ['v', 'aaaaabaa']])
         # '''
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
@@ -398,8 +398,8 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
                    'SORTBY', '__v_score',
                    'PARAMS', 2, 'vec_param', query_data.tobytes(),
                    'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
-        if env.isCluster() and query.res[0] > 10L:
-            query.res[0] = 10L
+        if env.isCluster() and query.res[0] > 10:
+            query.res[0] = 10
         return query
 
     else:
@@ -418,9 +418,9 @@ def test_hybrid_query_batches_mode_with_text(env):
     query_data = np.float32([qty for j in range(dimension)])
 
     # expect to find no result (internally, build the child iterator as empty iterator).
-    execute_hybrid_query(env, '(nothing)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal([0L])
+    execute_hybrid_query(env, '(nothing)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal([0])
 
-    expected_res_1 = [10L, '100', ['__v_score', '0', 't', 'text value'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
+    expected_res_1 = [10, '100', ['__v_score', '0', 't', 'text value'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
     execute_hybrid_query(env, '(@t:(text value))=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_1)
     execute_hybrid_query(env, '(text value)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_1)
     execute_hybrid_query(env, '("text value")=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_1)
@@ -431,22 +431,31 @@ def test_hybrid_query_batches_mode_with_text(env):
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
 
     # Expect to get only vector that passes the filter (i.e, has "other" in t field)
-    expected_res_2 = [10L, '100', ['__v_score', '0', 't', 'other'], '90', ['__v_score', '12800', 't', 'other'], '80', ['__v_score', '51200', 't', 'other'], '70', ['__v_score', '115200', 't', 'other'], '60', ['__v_score', '204800', 't', 'other'], '50', ['__v_score', '320000', 't', 'other'], '40', ['__v_score', '460800', 't', 'other'], '30', ['__v_score', '627200', 't', 'other'], '20', ['__v_score', '819200', 't', 'other'], '10', ['__v_score', '1036800', 't', 'other']]
+    expected_res_2 = [10, '100', ['__v_score', '0', 't', 'other'],
+                          '90', ['__v_score', '12800', 't', 'other'],
+                          '80', ['__v_score', '51200', 't', 'other'],
+                          '70', ['__v_score', '115200', 't', 'other'],
+                          '60', ['__v_score', '204800', 't', 'other'],
+                          '50', ['__v_score', '320000', 't', 'other'],
+                          '40', ['__v_score', '460800', 't', 'other'],
+                          '30', ['__v_score', '627200', 't', 'other'],
+                          '20', ['__v_score', '819200', 't', 'other'],
+                          '10', ['__v_score', '1036800', 't', 'other']]
     execute_hybrid_query(env, '(other)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_2)
 
     # Test with union - expect that all docs will pass the filter.
-    expected_res_3 = [10L, '100', ['__v_score', '0', 't', 'other'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
+    expected_res_3 = [10, '100', ['__v_score', '0', 't', 'other'], '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value']]
     execute_hybrid_query(env, '(@t:other|text)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_3)
 
     # Expect empty score for the intersection (disjoint sets of results)
-    execute_hybrid_query(env, '(@t:other text)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal([0L])
+    execute_hybrid_query(env, '(@t:other text)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal([0])
 
     # Expect the same results as in expected_res_2 ('other AND NOT text')
     execute_hybrid_query(env, '(@t:other -text)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_2)
 
     # Expect for top 10 results from vector search that still has the original text "text value"
     # (i.e., expected_res_1 without 100, and with 89 instead)
-    expected_res_4 = [10L, '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value'], '89', ['__v_score', '15488', 't', 'text value']]
+    expected_res_4 = [10, '99', ['__v_score', '128', 't', 'text value'], '98', ['__v_score', '512', 't', 'text value'], '97', ['__v_score', '1152', 't', 'text value'], '96', ['__v_score', '2048', 't', 'text value'], '95', ['__v_score', '3200', 't', 'text value'], '94', ['__v_score', '4608', 't', 'text value'], '93', ['__v_score', '6272', 't', 'text value'], '92', ['__v_score', '8192', 't', 'text value'], '91', ['__v_score', '10368', 't', 'text value'], '89', ['__v_score', '15488', 't', 'text value']]
     execute_hybrid_query(env, '(te*)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_4)
     # This time the fuzzy matching should return only documents with the original 'text value'.
     execute_hybrid_query(env, '(%test%)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res_4)
@@ -469,9 +478,9 @@ def test_hybrid_query_batches_mode_with_tags(env):
         conn.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid')
     p.execute()
     query_data = np.float32([index_size/2 for j in range(dimension)])
-    execute_hybrid_query(env, '(@tags:{nothing})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal([0L])
-    execute_hybrid_query(env, '(@tags:{hybrid} @text:hello)=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal([0L])
-    expected_res_1 = [10L, '50', ['__v_score', '0', 'tags', 'hybrid'], '51', ['__v_score', '128', 'tags', 'hybrid'], '49', ['__v_score', '128', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid']]
+    execute_hybrid_query(env, '(@tags:{nothing})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal([0])
+    execute_hybrid_query(env, '(@tags:{hybrid} @text:hello)=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal([0])
+    expected_res_1 = [10, '50', ['__v_score', '0', 'tags', 'hybrid'], '51', ['__v_score', '128', 'tags', 'hybrid'], '49', ['__v_score', '128', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid']]
     execute_hybrid_query(env, '(@tags:{hybrid})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal(expected_res_1)
 
     # Change the tag values to 'different, tag' for 10 vectors (with id 10, 20, ..., 100)
@@ -479,14 +488,14 @@ def test_hybrid_query_batches_mode_with_tags(env):
         vector = np.float32([10*i for j in range(dimension)])
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 'tags', 'different, tag')
 
-    expected_res_2 = [10L, '50', ['__v_score', '0', 'tags', 'different, tag'], '60', ['__v_score', '12800', 'tags', 'different, tag'], '40', ['__v_score', '12800', 'tags', 'different, tag'], '70', ['__v_score', '51200', 'tags', 'different, tag'], '30', ['__v_score', '51200', 'tags', 'different, tag'], '80', ['__v_score', '115200', 'tags', 'different, tag'], '20', ['__v_score', '115200', 'tags', 'different, tag'], '90', ['__v_score', '204800', 'tags', 'different, tag'], '10', ['__v_score', '204800', 'tags', 'different, tag'], '100', ['__v_score', '320000', 'tags', 'different, tag']]
+    expected_res_2 = [10, '50', ['__v_score', '0', 'tags', 'different, tag'], '60', ['__v_score', '12800', 'tags', 'different, tag'], '40', ['__v_score', '12800', 'tags', 'different, tag'], '70', ['__v_score', '51200', 'tags', 'different, tag'], '30', ['__v_score', '51200', 'tags', 'different, tag'], '80', ['__v_score', '115200', 'tags', 'different, tag'], '20', ['__v_score', '115200', 'tags', 'different, tag'], '90', ['__v_score', '204800', 'tags', 'different, tag'], '10', ['__v_score', '204800', 'tags', 'different, tag'], '100', ['__v_score', '320000', 'tags', 'different, tag']]
     execute_hybrid_query(env, '(@tags:{different})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal(expected_res_2)
-    expected_res_3 = [10L, '51', ['__v_score', '128', 'tags', 'hybrid'], '49', ['__v_score', '128', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '55', ['__v_score', '3200', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid']]
+    expected_res_3 = [10, '51', ['__v_score', '128', 'tags', 'hybrid'], '49', ['__v_score', '128', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '55', ['__v_score', '3200', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid']]
     execute_hybrid_query(env, '(@tags:{hybrid})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal(expected_res_3)
     execute_hybrid_query(env, '(@tags:{hy*})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal(expected_res_3)
 
     # Search with tag list. Expect that docs with 'hybrid' will have lower score, since they are more frequent.
-    expected_res_4 = [10L, '50', '3', ['__v_score', '0', 'tags', 'different, tag'], '45', '1', ['__v_score', '3200', 'tags', 'hybrid'], '46', '1', ['__v_score', '2048', 'tags', 'hybrid'], '47', '1', ['__v_score', '1152', 'tags', 'hybrid'], '48', '1', ['__v_score', '512', 'tags', 'hybrid'], '49', '1', ['__v_score', '128', 'tags', 'hybrid'], '51', '1', ['__v_score', '128', 'tags', 'hybrid'], '52', '1', ['__v_score', '512', 'tags', 'hybrid'], '53', '1', ['__v_score', '1152', 'tags', 'hybrid'], '54', '1', ['__v_score', '2048', 'tags', 'hybrid']]
+    expected_res_4 = [10, '50', '3', ['__v_score', '0', 'tags', 'different, tag'], '45', '1', ['__v_score', '3200', 'tags', 'hybrid'], '46', '1', ['__v_score', '2048', 'tags', 'hybrid'], '47', '1', ['__v_score', '1152', 'tags', 'hybrid'], '48', '1', ['__v_score', '512', 'tags', 'hybrid'], '49', '1', ['__v_score', '128', 'tags', 'hybrid'], '51', '1', ['__v_score', '128', 'tags', 'hybrid'], '52', '1', ['__v_score', '512', 'tags', 'hybrid'], '53', '1', ['__v_score', '1152', 'tags', 'hybrid'], '54', '1', ['__v_score', '2048', 'tags', 'hybrid']]
     execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[TOP_K 10 @v $vec_param]', query_data, 'tags', sort_by_vector=False).equal(expected_res_4)
 
 
@@ -504,19 +513,19 @@ def test_hybrid_query_batches_mode_with_numeric_and_geo(env):
     p.execute()
 
     query_data = np.float32([index_size for j in range(dimension)])
-    execute_hybrid_query(env, '(@num:[0 0.5])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal([0L])
+    execute_hybrid_query(env, '(@num:[0 0.5])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal([0])
 
     # Expect to get all the results by the distance order (higher id has a better __v_score)
-    expected_res_1 = [10L, '100', ['__v_score', '0', 'num', '100'], '99', ['__v_score', '128', 'num', '99'], '98', ['__v_score', '512', 'num', '98'], '97', ['__v_score', '1152', 'num', '97'], '96', ['__v_score', '2048', 'num', '96'], '95', ['__v_score', '3200', 'num', '95'], '94', ['__v_score', '4608', 'num', '94'], '93', ['__v_score', '6272', 'num', '93'], '92', ['__v_score', '8192', 'num', '92'], '91', ['__v_score', '10368', 'num', '91']]
+    expected_res_1 = [10, '100', ['__v_score', '0', 'num', '100'], '99', ['__v_score', '128', 'num', '99'], '98', ['__v_score', '512', 'num', '98'], '97', ['__v_score', '1152', 'num', '97'], '96', ['__v_score', '2048', 'num', '96'], '95', ['__v_score', '3200', 'num', '95'], '94', ['__v_score', '4608', 'num', '94'], '93', ['__v_score', '6272', 'num', '93'], '92', ['__v_score', '8192', 'num', '92'], '91', ['__v_score', '10368', 'num', '91']]
     execute_hybrid_query(env, '(@num:[0 100])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal(expected_res_1)
     execute_hybrid_query(env, '(@num:[0 inf])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal(expected_res_1)
 
     # Expect to get results with maximum numeric value of 50
-    expected_res_2 = [10L, '50', ['__v_score', '320000', 'num', '50'], '49', ['__v_score', '332928', 'num', '49'], '48', ['__v_score', '346112', 'num', '48'], '47', ['__v_score', '359552', 'num', '47'], '46', ['__v_score', '373248', 'num', '46'], '45', ['__v_score', '387200', 'num', '45'], '44', ['__v_score', '401408', 'num', '44'], '43', ['__v_score', '415872', 'num', '43'], '42', ['__v_score', '430592', 'num', '42'], '41', ['__v_score', '445568', 'num', '41']]
+    expected_res_2 = [10, '50', ['__v_score', '320000', 'num', '50'], '49', ['__v_score', '332928', 'num', '49'], '48', ['__v_score', '346112', 'num', '48'], '47', ['__v_score', '359552', 'num', '47'], '46', ['__v_score', '373248', 'num', '46'], '45', ['__v_score', '387200', 'num', '45'], '44', ['__v_score', '401408', 'num', '44'], '43', ['__v_score', '415872', 'num', '43'], '42', ['__v_score', '430592', 'num', '42'], '41', ['__v_score', '445568', 'num', '41']]
     execute_hybrid_query(env, '(@num:[-inf 50])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal(expected_res_2)
     execute_hybrid_query(env, '(@num:[-inf 40] | @num:[40 50])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal(expected_res_2)
 
-    expected_res_3 = [5L, '49', ['__v_score', '332928', 'num', '49'], '48', ['__v_score', '346112', 'num', '48'], '47', ['__v_score', '359552', 'num', '47'], '46', ['__v_score', '373248', 'num', '46'], '45', ['__v_score', '387200', 'num', '45']]
+    expected_res_3 = [5, '49', ['__v_score', '332928', 'num', '49'], '48', ['__v_score', '346112', 'num', '48'], '47', ['__v_score', '359552', 'num', '47'], '46', ['__v_score', '373248', 'num', '46'], '45', ['__v_score', '387200', 'num', '45']]
     execute_hybrid_query(env, '(@num:[45 (50])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal(expected_res_3)
 
     # Testing with geo-filters
@@ -530,10 +539,10 @@ def test_hybrid_query_batches_mode_with_numeric_and_geo(env):
         conn.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i)+","+str(i))
     p.execute()
 
-    execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[TOP_K 10 @v $vec_param]', query_data, 'coordinate').equal([0L])
+    execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[TOP_K 10 @v $vec_param]', query_data, 'coordinate').equal([0])
 
     # Expect that ids 1-32 will pass the geo filter, and that the top 10 from these will return.
-    expected_res_4 = [10L, '32', ['__v_score', '591872', 'coordinate', '32,32'], '31', ['__v_score', '609408', 'coordinate', '31,31'], '30', ['__v_score', '627200', 'coordinate', '30,30'], '29', ['__v_score', '645248', 'coordinate', '29,29'], '28', ['__v_score', '663552', 'coordinate', '28,28'], '27', ['__v_score', '682112', 'coordinate', '27,27'], '26', ['__v_score', '700928', 'coordinate', '26,26'], '25', ['__v_score', '720000', 'coordinate', '25,25'], '24', ['__v_score', '739328', 'coordinate', '24,24'], '23', ['__v_score', '758912', 'coordinate', '23,23']]
+    expected_res_4 = [10, '32', ['__v_score', '591872', 'coordinate', '32,32'], '31', ['__v_score', '609408', 'coordinate', '31,31'], '30', ['__v_score', '627200', 'coordinate', '30,30'], '29', ['__v_score', '645248', 'coordinate', '29,29'], '28', ['__v_score', '663552', 'coordinate', '28,28'], '27', ['__v_score', '682112', 'coordinate', '27,27'], '26', ['__v_score', '700928', 'coordinate', '26,26'], '25', ['__v_score', '720000', 'coordinate', '25,25'], '24', ['__v_score', '739328', 'coordinate', '24,24'], '23', ['__v_score', '758912', 'coordinate', '23,23']]
     execute_hybrid_query(env, '(@coordinate:[0.0 0.0 5000 km])=>[TOP_K 10 @v $vec_param]', query_data, 'coordinate').equal(expected_res_4)
 
 
@@ -554,9 +563,9 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
     query_data = np.float32([index_size for j in range(dimension)])
 
     # test modifier list
-    expected_res_1 = [10L, '30', ['__v_score', '627200', 't1', 'text value', 't2', 'hybrid query'], '29', ['__v_score', '645248', 't1', 'text value', 't2', 'hybrid query'], '28', ['__v_score', '663552', 't1', 'text value', 't2', 'hybrid query'], '27', ['__v_score', '682112', 't1', 'text value', 't2', 'hybrid query'], '26', ['__v_score', '700928', 't1', 'text value', 't2', 'hybrid query'], '25', ['__v_score', '720000', 't1', 'text value', 't2', 'hybrid query'], '24', ['__v_score', '739328', 't1', 'text value', 't2', 'hybrid query'], '23', ['__v_score', '758912', 't1', 'text value', 't2', 'hybrid query'], '22', ['__v_score', '778752', 't1', 'text value', 't2', 'hybrid query'], '21', ['__v_score', '798848', 't1', 'text value', 't2', 'hybrid query']]
+    expected_res_1 = [10, '30', ['__v_score', '627200', 't1', 'text value', 't2', 'hybrid query'], '29', ['__v_score', '645248', 't1', 'text value', 't2', 'hybrid query'], '28', ['__v_score', '663552', 't1', 'text value', 't2', 'hybrid query'], '27', ['__v_score', '682112', 't1', 'text value', 't2', 'hybrid query'], '26', ['__v_score', '700928', 't1', 'text value', 't2', 'hybrid query'], '25', ['__v_score', '720000', 't1', 'text value', 't2', 'hybrid query'], '24', ['__v_score', '739328', 't1', 'text value', 't2', 'hybrid query'], '23', ['__v_score', '758912', 't1', 'text value', 't2', 'hybrid query'], '22', ['__v_score', '778752', 't1', 'text value', 't2', 'hybrid query'], '21', ['__v_score', '798848', 't1', 'text value', 't2', 'hybrid query']]
     if env.isCluster():
-        expected_res_1[0] = 20L
+        expected_res_1[0] = 20
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:value text @num:[10 30])=>[TOP_K 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
@@ -567,7 +576,7 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
                'SORTBY', '__v_score',
                'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, 't1', 't2').equal([0L])
+               'RETURN', 2, 't1', 't2').equal([0])
 
 
 def test_hybrid_query_batches_non_vector_score(env):
@@ -588,27 +597,36 @@ def test_hybrid_query_batches_non_vector_score(env):
     query_data = np.float32([qty for j in range(dimension)])
     # All documents should match, so TOP 10 takes the 10 with the largest ids. Since we sort by default score
     # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
-    expected_res_1 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '2', ['__v_score', '10368', 't', 'text value'], '92', '2', ['__v_score', '8192', 't', 'text value'], '93', '2', ['__v_score', '6272', 't', 'text value'], '94', '2', ['__v_score', '4608', 't', 'text value'], '95', '2', ['__v_score', '3200', 't', 'text value'], '96', '2', ['__v_score', '2048', 't', 'text value'], '97', '2', ['__v_score', '1152', 't', 'text value'], '98', '2', ['__v_score', '512', 't', 'text value'], '99', '2', ['__v_score', '128', 't', 'text value']]
+    expected_res_1 = [10, '100', '3', ['__v_score', '0', 't', 'other'], 
+                          '91', '2', ['__v_score', '10368', 't', 'text value'],
+                          '92', '2', ['__v_score', '8192', 't', 'text value'],
+                          '93', '2', ['__v_score', '6272', 't', 'text value'],
+                          '94', '2', ['__v_score', '4608', 't', 'text value'],
+                          '95', '2', ['__v_score', '3200', 't', 'text value'],
+                          '96', '2', ['__v_score', '2048', 't', 'text value'],
+                          '97', '2', ['__v_score', '1152', 't', 'text value'],
+                          '98', '2', ['__v_score', '512', 't', 'text value'],
+                          '99', '2', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
-    expected_res_2 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
+    expected_res_2 = [10, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_2)
 
     # use TFIDF.DOCNORM scorer
-    expected_res_3 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'], '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'], '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'], '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'], '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'], '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'], '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'], '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'], '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
+    expected_res_3 = [10, '100', '3', ['__v_score', '0', 't', 'other'], '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'], '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'], '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'], '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'], '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'], '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'], '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'], '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'], '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
     env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_3)
 
     # use BM25 scorer
-    expected_res_4 = [10L, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
+    expected_res_4 = [10, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
     env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_4)
 
     # use DISMAX scorer
-    expected_res_5 = [10L, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
+    expected_res_5 = [10, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
     env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'DISMAX', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_5)

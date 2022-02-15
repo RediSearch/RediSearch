@@ -64,7 +64,7 @@ def compareResults(env, r, num_unions=2, toks_per_union=7):
     qr = set((int(x) for x in r.execute_command('ft.search', 'idx',
                                                 q, 'nocontent', 'limit', 0, 100)[1:]))
 
-    # print sorted(result), '<=>', sorted(qr)
+    # print py2sorted(result), '<=>', py2sorted(qr)
     return result.difference(qr)
 
 def testFuzzy(env):

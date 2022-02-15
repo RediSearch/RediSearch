@@ -47,7 +47,7 @@ def waitForIndex(env, idx):
             break
         time.sleep(0.1)
 
-def python2sort(x):
+def _py2sorted(x):
     it = iter(x)
     groups = [[next(it)]]
     for item in it:
@@ -61,7 +61,10 @@ def python2sort(x):
         else:  # did not break, make new group
             groups.append([item])
     # print(groups)  # for debugging
-    return itertools.chain.from_iterable(python2sort(group) for group in groups)
+    return itertools.chain.from_iterable(py2sorted(group) for group in groups)
+
+def py2sorted(x):
+    return _py2sorted(x)
 
 def toSortedFlatList(res):
     if isinstance(res, str):
@@ -71,7 +74,7 @@ def toSortedFlatList(res):
         for e in res:
             finalList += toSortedFlatList(e)
 
-        return python2sort(finalList)
+        return list(py2sorted(finalList))
     return [res]
 
 def assertInfoField(env, idx, field, expected):
@@ -92,7 +95,7 @@ def sortedResults(res):
             data.append(y)
             y = []
 
-    data = sorted(data)
+    data = py2sorted(data)
     res = [n] + [item for sublist in data for item in sublist]
     return res
 

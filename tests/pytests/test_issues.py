@@ -274,10 +274,11 @@ def testMemAllocated(env):
 def testUNF(env):
   conn = getConnectionByEnv(env)
 
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE',
-                                                      'txt_unf', 'TEXT', 'SORTABLE', 'UNF',
-                                                      'tag', 'TAG', 'SORTABLE',
-                                                      'tag_unf', 'TAG', 'SORTABLE', 'UNF')
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                       'txt', 'TEXT', 'SORTABLE',
+                       'txt_unf', 'TEXT', 'SORTABLE', 'UNF',
+                       'tag', 'TAG', 'SORTABLE',
+                       'tag_unf', 'TAG', 'SORTABLE', 'UNF')
   conn.execute_command('HSET', 'doc1', 'txt', 'FOO', 'txt_unf', 'FOO',
                                        'tag', 'FOO', 'tag_unf', 'FOO')
 
@@ -286,18 +287,18 @@ def testUNF(env):
     .equal([1, ['txt', 'foo', 'txt_unf', 'FOO', 'tag', 'foo', 'tag_unf', 'FOO']])
 
   # test `Maße`
-  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße',
-                                       'tag', 'Maße', 'tag_unf', 'Maße')
+  conn.execute_command('HSET', 'doc1', 'txt', u'Maße', 'txt_unf', u'Maße',
+                                       'tag', u'Maße', 'tag_unf', u'Maße')
   env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
-    .equal([1, ['txt', 'masse', 'txt_unf', 'Ma\xc3\x9fe', 'tag', 'masse', 'tag_unf', 'Ma\xc3\x9fe']])
+    .equal([1, ['txt', 'masse', 'txt_unf', u'Ma\xc3\x9fe', 'tag', 'masse', 'tag_unf', u'Ma\xc3\x9fe']])
 
   # test `Maße` with LOAD
-  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße',
-                                       'tag', 'Maße', 'tag_unf', 'Maße')
+  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', u'Maße',
+                                       'tag', 'Maße', 'tag_unf', u'Maße')
   env.expect('FT.AGGREGATE', 'idx', '*',                              \
              'LOAD',    '4', '@txt', '@txt_unf', '@tag', '@tag_unf',  \
              'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
-    .equal([1, ['txt', 'Ma\xc3\x9fe', 'txt_unf', 'Ma\xc3\x9fe', 'tag', 'Ma\xc3\x9fe', 'tag_unf', 'Ma\xc3\x9fe']])
+    .equal([1, ['txt', u'Ma\xc3\x9fe', 'txt_unf', u'Ma\xc3\x9fe', 'tag', u'Ma\xc3\x9fe', 'tag_unf', 'Ma\xc3\x9fe']])
 
 def test_MOD_1517(env):
   conn = getConnectionByEnv(env)

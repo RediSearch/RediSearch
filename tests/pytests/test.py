@@ -401,8 +401,20 @@ def testDrop(env):
     if not env.is_cluster():
         env.assertOk(r.execute_command('ft.drop', 'idx', 'KEEPDOCS'))
         keys = r.keys('*')
-        env.assertListEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15', 'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22', 'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3', 'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37', 'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44', 'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51', 'doc52', 'doc53',
-                              'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59', 'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66', 'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73', 'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80', 'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88', 'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95', 'doc96', 'doc97', 'doc98', 'doc99'], sorted(keys))
+        env.assertListEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15',
+                             'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22',
+                             'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3',
+                             'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37',
+                             'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44',
+                             'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51',
+                             'doc52', 'doc53', 'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59',
+                             'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66',
+                             'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73',
+                             'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80',
+                             'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88',
+                             'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95',
+                             'doc96', 'doc97', 'doc98', 'doc99'],
+                             py2sorted(keys))
 
     env.expect('FT.DROP', 'idx', 'KEEPDOCS', '666').error().contains("wrong number of arguments")
 
@@ -437,7 +449,7 @@ def testDelete(env):
     if not env.is_cluster():
         r.expect('FT.DROPINDEX', 'idx').ok()
         keys = r.keys('*')
-        env.assertListEqual(sorted("doc%d" %k for k in range(100)), sorted(keys))
+        env.assertListEqual(py2sorted("doc%d" %k for k in range(100)), py2sorted(keys))
 
     env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("wrong number of arguments")
 
@@ -579,7 +591,7 @@ def testExplain(env):
     env.assertEqual(expected, res)
 
     # retest when index is not empty
-    r.expect('hset', '1', 'v', 'abababab', 't', "hello").equal(2L)
+    r.expect('hset', '1', 'v', 'abababab', 't', "hello").equal(2)
     res = r.execute_command('ft.explain', 'idx', *q)
     env.assertEqual(expected, res)
 
@@ -1083,22 +1095,22 @@ def testGeo(env):
         env.assertIn('hotel21', res)
         env.assertIn('hotel79', res)
         res2 = gsearch_inline('hilton', "-0.1757", "51.5156", '1')
-        env.assertListEqual(sorted(res), sorted(res2))
+        env.assertListEqual(py2sorted(res), py2sorted(res2))
 
         res = gsearch('hilton', "-0.1757", "51.5156", '10')
         env.assertEqual(14, res[0])
 
         res2 = gsearch('hilton', "-0.1757", "51.5156", '10000', 'm')
-        env.assertListEqual(sorted(res), sorted(res2))
+        env.assertListEqual(py2sorted(res), py2sorted(res2))
         res2 = gsearch_inline('hilton', "-0.1757", "51.5156", '10')
-        env.assertListEqual(sorted(res), sorted(res2))
+        env.assertListEqual(py2sorted(res), py2sorted(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '10', 'm')
         env.assertEqual(1, res[0])
         env.assertEqual('hotel94', res[1])
         res2 = gsearch_inline(
             'heathrow', -0.44155, 51.45865, '10', 'm')
-        env.assertListEqual(sorted(res), sorted(res2))
+        env.assertListEqual(py2sorted(res), py2sorted(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '10', 'km')
         env.assertEqual(5, res[0])
@@ -1106,14 +1118,14 @@ def testGeo(env):
         res2 = gsearch_inline(
             'heathrow', -0.44155, 51.45865, '10', 'km')
         env.assertEqual(5, res2[0])
-        env.assertListEqual(sorted(res), sorted(res2))
+        env.assertListEqual(py2sorted(res), py2sorted(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '5', 'km')
         env.assertEqual(3, res[0])
         env.assertIn('hotel94', res)
         res2 = gsearch_inline(
             'heathrow', -0.44155, 51.45865, '5', 'km')
-        env.assertListEqual(sorted(res), sorted(res2))
+        env.assertListEqual(py2sorted(res), py2sorted(res2))
 
 def testTagErrors(env):
     env.expect("ft.create", "test", 'ON', 'HASH',
@@ -1253,23 +1265,23 @@ def testFieldSelectors(env):
     env.assertEqual(res, [0])
     res = r.execute_command(
         'ft.search', 'idx', '@BoDy:(hello|foo) @TiTle:(world|bar)', 'nocontent')
-    env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
+    env.assertEqual(list(py2sorted(res)), list(py2sorted([2, 'doc1', 'doc2'])))
 
     res = r.execute_command(
         'ft.search', 'idx', '@BoDy:(hello|foo world|bar)', 'nocontent')
-    env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
+    env.assertEqual(list(py2sorted(res)), list(py2sorted([2, 'doc1', 'doc2'])))
 
     res = r.execute_command(
         'ft.search', 'idx', '@BoDy|TiTle:(hello world)', 'nocontent')
-    env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
+    env.assertEqual(list(py2sorted(res)), list(py2sorted([2, 'doc1', 'doc2'])))
 
     res = r.execute_command(
         'ft.search', 'idx', '@יוניקוד:(unicode)', 'nocontent')
-    env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
+    env.assertEqual(list(py2sorted(res)), list(py2sorted([2, 'doc1', 'doc2'])))
 
     res = r.execute_command(
         'ft.search', 'idx', '@field\\.with\\,punct:(punt)', 'nocontent')
-    env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
+    env.assertEqual(py2sorted(res), list(py2sorted([2, 'doc1', 'doc2'])))
 
 def testStemming(env):
     r = env
@@ -1920,9 +1932,9 @@ def assertAggrowsEqual(env, exp, got):
     env.assertEqual(len(exp), len(got))
 
     # and now, it's just free form:
-    exp = sorted(to_dict(x) for x in exp[1:])
-    got = sorted(to_dict(x) for x in got[1:])
-    env.assertEqual(exp, got)
+    exp = py2sorted(to_dict(x) for x in exp[1:])
+    got = py2sorted(to_dict(x) for x in got[1:])
+    env.assertEqual(list(exp), list(got))
 
 def assertResultsEqual(env, exp, got, inorder=True):
     from pprint import pprint
@@ -2454,9 +2466,9 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
 
-    expected_res = sorted([2, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
-    actual_res = sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
-    env.assertEqual(expected_res, actual_res)
+    expected_res = py2sorted([2, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
+    actual_res = py2sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
+    env.assertEqual(list(expected_res), list(actual_res))
 
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',
@@ -2546,7 +2558,7 @@ def testIssue_779(env):
     # OK is expected since 4001 < 4002 and the doc2 is updated
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf DOG ot1 4002').equal('OK')
     res = env.cmd('FT.GET idx2 doc2')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList(["newf", "DOG", "ot1", "4002"]))
+    env.assertEqual(toSortedFlatList(res), toSortedSortedFlatList(["newf", "DOG", "ot1", "4002"]))
 
     # OK is NOT expected since 4002 is not < 4002
     # We expect NOADD and doc2 update; however, we get OK and doc2 updated
@@ -3005,7 +3017,7 @@ def testHindiStemmer(env):
     env.cmd('FT.ADD', 'idxTest', 'doc1', 1.0, 'LANGUAGE', 'hindi', 'FIELDS', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
     res = env.cmd('FT.SEARCH', 'idxTest', u'अँगरेज़')
     res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
-    env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res1['body'], 'utf-8'))
+    env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])
 
 def testMOD507(env):
     env.skipOnCluster()
