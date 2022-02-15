@@ -103,6 +103,9 @@ TEST_F(QueryTest, testParser) {
 
   assertValidQuery("\"hello world\"", ctx);
   assertValidQuery("\"hello\"", ctx);
+  assertValidQuery("\"$hello\"", ctx);
+  assertValidQuery("\"\\$hello\"", ctx);
+  assertValidQuery("\"\\@hello\"", ctx);
 
   assertValidQuery("\"hello world\" \"foo bar\"", ctx);
   assertValidQuery("\"hello world\"|\"foo bar\"", ctx);
@@ -181,6 +184,8 @@ TEST_F(QueryTest, testParser) {
   assertValidQuery("@tags:{bar* | foo}", ctx);
   assertValidQuery("@tags:{bar* | foo*}", ctx);
 
+  assertInvalidQuery("@title:{{foo}}}}}", ctx);
+  assertInvalidQuery("@title:{{{{{{foo}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|", ctx);
   assertInvalidQuery("{foo|bar\\ baz}", ctx);
@@ -243,7 +248,6 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("*=>[TOP_K -42 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
   assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB $EF ef foo bar x 5 AS score]", ctx); // parameter as attribute
   assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x 5 AS ]", ctx); // not specifying score field name
-  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB AS TOP_K]", ctx); // using reserved word as string parameter
   assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
 
   // Test simple hybrid vector query
@@ -258,7 +262,7 @@ TEST_F(QueryTest, testParser) {
   ASSERT_EQ(vn->type, QN_VECTOR);
   ASSERT_EQ(QueryNode_NumChildren(vn), 1);
 
-  assertValidQuery("(@title:hello)=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@title:hello=>[TOP_K 10 @vec_field $BLOB]", ctx);
 
   assertValidQuery("(hello|world)=>[TOP_K 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@hello:[0 10]=>[TOP_K 10 @vec_field $BLOB]", ctx);
