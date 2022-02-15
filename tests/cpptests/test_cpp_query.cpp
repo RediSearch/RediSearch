@@ -184,8 +184,8 @@ TEST_F(QueryTest, testParser) {
   assertValidQuery("@tags:{bar* | foo}", ctx);
   assertValidQuery("@tags:{bar* | foo*}", ctx);
 
-  assertInvalidQuery("@title:{{foo}}}}}", ctx);
-  assertInvalidQuery("@title:{{{{{{foo}", ctx);
+  assertInvalidQuery("@title:{foo}}}}}", ctx);
+  assertInvalidQuery("@title:{{{{{foo}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|", ctx);
   assertInvalidQuery("{foo|bar\\ baz}", ctx);
@@ -228,7 +228,7 @@ TEST_F(QueryTest, testParser) {
 
   // Test basic vector similarity query
   assertValidQuery("*=>[TOP_K 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("*=>[TOP_K $TOP_K @TOP_K $TOP_K TOPK $TOP_K AS $AS]", ctx); // using reserved word as an attribute or field
+  assertValidQuery("*=>[TOP_K $TOP_K @TOP_K $TOP_K TOP_K $TOP_K AS $AS]", ctx); // using reserved word as an attribute or field
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]", ctx);
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB AS score]", ctx);
   assertValidQuery("*=>[TOP_K $K @vec_field $BLOB EF $ef foo bar x 5 AS score]", ctx);
@@ -241,6 +241,7 @@ TEST_F(QueryTest, testParser) {
 
   // Test basic vector similarity query errors
   assertInvalidQuery("*=>[TOPK $K @vec_field $BLOB]", ctx); // wrong command name
+  assertInvalidQuery("*=>[top_k $K @vec_field $BLOB]", ctx); // wrong command name lowercase
   assertInvalidQuery("*=>[TOP_K $K @vec_field BLOB]", ctx); // pass vector as value (must be an attribute)
   assertInvalidQuery("*=>[TOP_K $K vec_field $BLOB]", ctx); // wrong field value (must be @field)
   assertInvalidQuery("*=>[TOP_K K @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
@@ -262,6 +263,9 @@ TEST_F(QueryTest, testParser) {
   ASSERT_EQ(vn->type, QN_VECTOR);
   ASSERT_EQ(QueryNode_NumChildren(vn), 1);
 
+  assertValidQuery("(TOP_K)=>[TOP_K 10 @vec_field $BLOB]", ctx); // using TOP_K command for other context
+
+  assertValidQuery("(@title:hello)=>[TOP_K 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@title:hello=>[TOP_K 10 @vec_field $BLOB]", ctx);
 
   assertValidQuery("(hello|world)=>[TOP_K 10 @vec_field $BLOB]", ctx);
