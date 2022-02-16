@@ -768,8 +768,8 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 
 // expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as subquery case.
 //   switch (B->vn.vq->type) {
-//     case VECSIM_QT_TOPK:
-//       B->vn.vq->topk.order = BY_ID;
+//     case VECSIM_QT_KNN:
+//       B->vn.vq->knn.order = BY_ID;
 //       break;
 //   }
 //   A = B;
@@ -778,8 +778,8 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid query as entire query case.
   setup_trace(ctx);
   switch (B->vn.vq->type) {
-    case VECSIM_QT_TOPK:
-      B->vn.vq->topk.order = BY_SCORE;
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
       break;
   }
   ctx->root = B;
@@ -789,8 +789,8 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid quer
 query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
   switch (B->vn.vq->type) {
-    case VECSIM_QT_TOPK:
-      B->vn.vq->topk.order = BY_SCORE;
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
       break;
   }
   ctx->root = B;
@@ -832,12 +832,12 @@ vector_query(A) ::= vector_command(B). {
   A = B;
 }
 
-// Every vector query will have basic command part. Right now we only have TOP_K command.
+// Every vector query will have basic command part. Right now we only have KNN command.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
-  if (!strncmp("TOP_K", T.s, T.len)) {
+  if (!strncmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
-    A = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
+    A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->property = rm_strndup(C.s, C.len);
     RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s)));
   } else {

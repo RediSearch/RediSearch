@@ -1922,8 +1922,8 @@ static YYACTIONTYPE yy_reduce(
 { // main parse, hybrid query as entire query case.
   setup_trace(ctx);
   switch (yymsp[-1].minor.yy97->vn.vq->type) {
-    case VECSIM_QT_TOPK:
-      yymsp[-1].minor.yy97->vn.vq->topk.order = BY_SCORE;
+    case VECSIM_QT_KNN:
+      yymsp[-1].minor.yy97->vn.vq->knn.order = BY_SCORE;
       break;
   }
   ctx->root = yymsp[-1].minor.yy97;
@@ -1935,8 +1935,8 @@ static YYACTIONTYPE yy_reduce(
 { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
   switch (yymsp[-1].minor.yy97->vn.vq->type) {
-    case VECSIM_QT_TOPK:
-      yymsp[-1].minor.yy97->vn.vq->topk.order = BY_SCORE;
+    case VECSIM_QT_KNN:
+      yymsp[-1].minor.yy97->vn.vq->knn.order = BY_SCORE;
       break;
   }
   ctx->root = yymsp[-1].minor.yy97;
@@ -1979,9 +1979,9 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 66: /* vector_command ::= TERM param_size modifier ATTRIBUTE */
 {
-  if (!strncmp("TOP_K", yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len)) {
+  if (!strncmp("KNN", yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len)) {
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
-    yylhsminor.yy97 = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
+    yylhsminor.yy97 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy97->vn.vq->property = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
     RedisModule_Assert(-1 != (rm_asprintf(&yylhsminor.yy97->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy0.len, yymsp[-1].minor.yy0.s)));
   } else {
