@@ -9,6 +9,9 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
 static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
 static int MRConn_Connect(MRConn *conn);
@@ -352,6 +355,70 @@ static int MRConn_SendAuth(MRConn *conn) {
   }
 }
 
+/* Callback for passing a keyfile password stored as an sds to OpenSSL */
+static int MRConn_TlsPasswordCallback(char *buf, int size, int rwflag, void *u) {
+    const char *pass = u;
+    size_t pass_len;
+
+    if (!pass) return -1;
+    pass_len = strlen(pass);
+    if (pass_len > (size_t) size) return -1;
+    memcpy(buf, pass, pass_len);
+
+    return (int) pass_len;
+}
+
+static SSL_CTX* MRConn_CreateSSLContext(const char *cacert_filename,
+				         const char *cert_filename,
+					 const char *private_key_filename,
+					 const char *private_key_pass,
+					 redisSSLContextError *error)
+{
+    SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+    if (!ssl_ctx) {
+        if (error) *error = REDIS_SSL_CTX_CREATE_FAILED;
+        goto error;
+    }
+
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
+
+    /* always set the callback, otherwise if key is encrypted and password
+     * was not given, we will be waiting on stdin. */
+    SSL_CTX_set_default_passwd_cb(ssl_ctx, MRConn_TlsPasswordCallback);
+    SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *) private_key_pass);
+
+    if ((cert_filename != NULL && private_key_filename == NULL) ||
+            (private_key_filename != NULL && cert_filename == NULL)) {
+        if (error) *error = REDIS_SSL_CTX_CERT_KEY_REQUIRED;
+        goto error;
+    }
+
+    if (cacert_filename) {
+        if (!SSL_CTX_load_verify_locations(ssl_ctx, cacert_filename, NULL)) {
+            if (error) *error = REDIS_SSL_CTX_CA_CERT_LOAD_FAILED;
+            goto error;
+        }
+    }
+
+    if (cert_filename) {
+        if (!SSL_CTX_use_certificate_chain_file(ssl_ctx, cert_filename)) {
+            if (error) *error = REDIS_SSL_CTX_CLIENT_CERT_LOAD_FAILED;
+            goto error;
+        }
+        if (!SSL_CTX_use_PrivateKey_file(ssl_ctx, private_key_filename, SSL_FILETYPE_PEM)) {
+            if (error) *error = REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED;
+            goto error;
+        }
+    }
+
+    return ssl_ctx;
+
+error:
+    if (ssl_ctx) SSL_CTX_free(ssl_ctx);
+    return NULL;
+}
+
 /* hiredis async connect callback */
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   MRConn *conn = c->data;
@@ -379,23 +446,27 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   char* client_cert = NULL;
   char* client_key = NULL;
   char* ca_cert = NULL;
-  if(checkTLS(&client_key, &client_cert, &ca_cert)){
+  char* key_file_pass = NULL;
+  if(checkTLS(&client_key, &client_cert, &ca_cert, &key_file_pass)){
     redisSSLContextError ssl_error = 0;
-    redisSSLContext *ssl_context = redisCreateSSLContext(ca_cert, NULL, client_cert, client_key, NULL, &ssl_error);
+    SSL_CTX *ssl_context = MRConn_CreateSSLContext(ca_cert, client_cert, client_key, key_file_pass, &ssl_error);
+    rm_free(client_key);
+    rm_free(client_cert);
+    rm_free(ca_cert);
+    if (key_file_pass) rm_free(key_file_pass);
     if(ssl_context == NULL || ssl_error != 0) {
       CONN_LOG(conn, "Error on ssl contex creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
       return;
     }
-    if (redisInitiateSSLWithContext((redisContext *)(&c->c), ssl_context) != REDIS_OK) {
+    SSL *ssl = SSL_new(ssl_context);
+    if (redisInitiateSSL((redisContext *)(&c->c), ssl) != REDIS_OK) {
       CONN_LOG(conn, "Error on tls auth");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
       return;
     }
-    rm_free(client_key);
-    rm_free(client_cert);
   }
 
 
