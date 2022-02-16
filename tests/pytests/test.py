@@ -3498,38 +3498,53 @@ def test_empty_field_name(env):
     conn.execute_command('hset', 'doc1', '', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['', 'foo']])
 
-
-def test_clear_fields(env):
-    # Skipping test as it is heavy
-    # To test, run a second time with RS_GLOBAL_DTORS=1 and check the difference
-    # in flushing time
-    # For ~4M docs with 10 TAG field, flush time decreased from 25 to 5 seconds.
-    # This include removal of keys from redis 
-    env.skip()
-
+@no_msan
+def test_free_resources(env):
+    env = Env()
     conn = getConnectionByEnv(env)
     pl = conn.pipeline()
+    results = []
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TAG', 'SORTABLE',
-                                             't2', 'TAG', 'SORTABLE',
-                                             't3', 'TAG', 'SORTABLE',
-                                             't4', 'TAG', 'SORTABLE',
-                                             't5', 'TAG', 'SORTABLE',
-                                             't6', 'TAG', 'SORTABLE',
-                                             't7', 'TAG', 'SORTABLE',
-                                             't8', 'TAG', 'SORTABLE',
-                                             't9', 'TAG', 'SORTABLE',
-                                             't10', 'TAG', 'SORTABLE').ok()
-    start_time = time.time()
-    for i in range(1024*1024*4):
-        pl.execute_command('HSET', i, 't1', i, 't2', i, 't3', i, 't4', i, 't5', i,
-                                      't6', i, 't7', i, 't8', i, 't9', i, 't10', i)
-        if i % 10000 == 0:
-            pl.execute()
-    pl.execute()
-    end_time = time.time()
-    print(end_time - start_time)
-    start_time = end_time
-    conn.execute_command('FLUSHALL')
-    end_time = time.time()
-    print(end_time - start_time)    
+    for _ in range(2):
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TAG', 'SORTABLE',
+                                                 't2', 'TAG', 'SORTABLE',
+                                                 't3', 'TAG', 'SORTABLE',
+                                                 't4', 'TAG', 'SORTABLE',
+                                                 't5', 'TAG', 'SORTABLE',
+                                                 't6', 'TAG', 'SORTABLE',
+                                                 't7', 'TAG', 'SORTABLE',
+                                                 't8', 'TAG', 'SORTABLE',
+                                                 't9', 'TAG', 'SORTABLE',
+                                                 't10', 'TAG', 'SORTABLE',
+                                                 't11', 'TAG', 'SORTABLE',
+                                                 't12', 'TAG', 'SORTABLE',
+                                                 't13', 'TAG', 'SORTABLE',
+                                                 't14', 'TAG', 'SORTABLE',
+                                                 't15', 'TAG', 'SORTABLE',
+                                                 't16', 'TAG', 'SORTABLE',
+                                                 't17', 'TAG', 'SORTABLE',
+                                                 't18', 'TAG', 'SORTABLE',
+                                                 't19', 'TAG', 'SORTABLE',
+                                                 't20', 'TAG', 'SORTABLE').ok()
+        for i in range(1024 * 32):
+            pl.execute_command('HSET', i, 't1', i, 't2', i, 't3', i, 't4', i, 't5', i,
+                                          't6', i, 't7', i, 't8', i, 't9', i, 't10', i,
+                                          't11', i, 't12', i, 't13', i, 't14', i, 't15', i,
+                                          't16', i, 't17', i, 't18', i, 't19', i, 't20', i)
+            if i % 1000 == 0:
+                pl.execute()
+        pl.execute()
+
+        start_time = end_time
+        conn.execute_command('FLUSHALL')
+        end_time = time.time()
+
+        results.append(end_time - start_time)
+
+        conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE', 'true')
+
+    # ensure freeing resources on a 2nd thread is more than 10 times quicker
+    # than freeing it on the main thread
+    env.assertLess(results[0] * 10, results[1])
+
+    conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE', 'false')

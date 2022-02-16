@@ -1042,7 +1042,7 @@ void ReindexPool_ThreadPoolDestroy();
 extern dict *legacySpecDict, *legacySpecRules;
 
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
-  if (!getenv("RS_GLOBAL_DTORS")) {  // used only with sanitizer or valgrind
+  if (!getenv("RS_GLOBAL_DTORS") && RSGlobalConfig.freeResources == false) {  // used only with sanitizer or valgrind
     return; 
   }
   
