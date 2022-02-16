@@ -998,6 +998,12 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
 static threadpool cleanPool = NULL;
 
+void CleanPool_ThreadPoolStart() {
+  if (!cleanPool) {
+    cleanPool = thpool_init(1);
+  }
+}
+
 void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
     thpool_destroy(cleanPool);
@@ -1005,7 +1011,10 @@ void CleanPool_ThreadPoolDestroy() {
   }
 }
 
-static void IndexSpec_FreeData(IndexSpec *spec) {
+/*
+ * Free resources of unlinked index spec 
+ */ 
+static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free all documents metadata
   DocTable_Free(&spec->docs);
   // Free TEXT field trie and inverted indexes
@@ -1052,17 +1061,22 @@ static void IndexSpec_FreeData(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
-  // ahhhm
+  // Free spec name
   rm_free(spec->name);
   // Free sortable list
   if (spec->sortables) {
     SortingTable_Free(spec->sortables);
     spec->sortables = NULL;
   }
-
+  // Free spec struct
   rm_free(spec);
 }
 
+/*
+ * This function unlinks the index spec from any global structures and frees
+ * all struct that requires acquiring the GIL.
+ * Other resources are freed using IndexSpec_FreeData.
+ */
 void IndexSpec_FreeInternals(IndexSpec *spec) {
   // Remove spec from global index list
   if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
@@ -1108,12 +1122,9 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
   // Free data complex data structures on a different thread
   if (getenv("RS_GLOBAL_DTORS")) {  // used only with sanitizer or valgrind
-    IndexSpec_FreeData(spec);
+    IndexSpec_FreeUnlinkedData(spec);
   } else {
-    if (!cleanPool) {
-      cleanPool = thpool_init(1);
-    }
-    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeData, spec);
+    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeUnlinkedData, spec);
   }
 }
 
@@ -1143,9 +1154,6 @@ void IndexSpec_LegacyFree(void *spec) {
 
 void IndexSpec_Free(IndexSpec *spec) {
   if (spec->flags & Index_Temporary) {
-    if (!cleanPool) {
-      cleanPool = thpool_init(1);
-    }
     // we are taking the index to a background thread to be released.
     // before we do it we need to delete it from the index dictionary
     // to prevent it from been freed again.c
@@ -1722,8 +1730,6 @@ void ReindexPool_ThreadPoolDestroy() {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     thpool_destroy(reindexPool);
     reindexPool = NULL;
-    thpool_destroy(cleanPool);
-    cleanPool = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
