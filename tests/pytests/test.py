@@ -3497,3 +3497,39 @@ def test_empty_field_name(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()
     conn.execute_command('hset', 'doc1', '', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['', 'foo']])
+
+
+def test_clear_fields(env):
+    # Skipping test as it is heavy
+    # To test, run a second time with RS_GLOBAL_DTORS=1 and check the difference
+    # in flushing time
+    # For ~4M docs with 10 TAG field, flush time decreased from 25 to 5 seconds.
+    # This include removal of keys from redis 
+    env.skip()
+
+    conn = getConnectionByEnv(env)
+    pl = conn.pipeline()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TAG', 'SORTABLE',
+                                             't2', 'TAG', 'SORTABLE',
+                                             't3', 'TAG', 'SORTABLE',
+                                             't4', 'TAG', 'SORTABLE',
+                                             't5', 'TAG', 'SORTABLE',
+                                             't6', 'TAG', 'SORTABLE',
+                                             't7', 'TAG', 'SORTABLE',
+                                             't8', 'TAG', 'SORTABLE',
+                                             't9', 'TAG', 'SORTABLE',
+                                             't10', 'TAG', 'SORTABLE').ok()
+    start_time = time.time()
+    for i in range(1024*1024*4):
+        pl.execute_command('HSET', i, 't1', i, 't2', i, 't3', i, 't4', i, 't5', i,
+                                      't6', i, 't7', i, 't8', i, 't9', i, 't10', i)
+        if i % 10000 == 0:
+            pl.execute()
+    pl.execute()
+    end_time = time.time()
+    print(end_time - start_time)
+    start_time = end_time
+    conn.execute_command('FLUSHALL')
+    end_time = time.time()
+    print(end_time - start_time)    
