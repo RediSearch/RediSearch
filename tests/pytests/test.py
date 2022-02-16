@@ -1265,23 +1265,23 @@ def testFieldSelectors(env):
     env.assertEqual(res, [0])
     res = r.execute_command(
         'ft.search', 'idx', '@BoDy:(hello|foo) @TiTle:(world|bar)', 'nocontent')
-    env.assertEqual(list(py2sorted(res)), list(py2sorted([2, 'doc1', 'doc2'])))
+    env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
         'ft.search', 'idx', '@BoDy:(hello|foo world|bar)', 'nocontent')
-    env.assertEqual(list(py2sorted(res)), list(py2sorted([2, 'doc1', 'doc2'])))
+    env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
         'ft.search', 'idx', '@BoDy|TiTle:(hello world)', 'nocontent')
-    env.assertEqual(list(py2sorted(res)), list(py2sorted([2, 'doc1', 'doc2'])))
+    env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
         'ft.search', 'idx', '@יוניקוד:(unicode)', 'nocontent')
-    env.assertEqual(list(py2sorted(res)), list(py2sorted([2, 'doc1', 'doc2'])))
+    env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
         'ft.search', 'idx', '@field\\.with\\,punct:(punt)', 'nocontent')
-    env.assertEqual(py2sorted(res), list(py2sorted([2, 'doc1', 'doc2'])))
+    env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
 
 def testStemming(env):
     r = env
@@ -2994,10 +2994,10 @@ def testIssue1085(env):
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
-    from itertools import izip_longest
+    from itertools import zip_longest
     # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
     args = [iter(iterable)] * n
-    return izip_longest(fillvalue=fillvalue, *args)
+    return zip_longest(fillvalue=fillvalue, *args)
 
 
 def to_dict(r):

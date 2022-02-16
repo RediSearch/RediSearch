@@ -554,9 +554,9 @@ class TestAggregateSecondUseCases():
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
-    from itertools import izip_longest
+    from itertools import zip_longest
     args = [iter(iterable)] * n
-    return izip_longest(fillvalue=fillvalue, *args)
+    return zip_longest(fillvalue=fillvalue, *args)
 
 def testAggregateGroupByOnEmptyField(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
