@@ -46,7 +46,7 @@ def testRewriteAofSortables():
     env.broadcast('SAVE')
 
     # Load some documents
-    for x in xrange(100):
+    for x in range(100):
         env.cmd('FT.ADD', 'idx', 'doc{}'.format(x), 1.0, 'FIELDS',
                 'field1', 'txt{}'.format(random.random()),
                 'num1', random.random())

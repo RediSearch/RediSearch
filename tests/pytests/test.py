@@ -1352,7 +1352,7 @@ def testNumericRange(env):
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, 'inf').error().contains("Bad upper range: inf")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5).error().contains("Bad lower range: inf")
 
-    for i in xrange(100):
+    for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
                                         'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i))
 
@@ -1430,7 +1430,7 @@ def testNotIter(env):
     env.assertOk(conn.execute_command(
         'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))
 
-    for i in xrange(8):
+    for i in range(8):
         conn.execute_command('HSET', 'doc%d' % i, 'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i)
 
     # middle shunk
@@ -1661,7 +1661,7 @@ def testInfoCommand(env):
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text'))
     N = 50
-    for i in xrange(N):
+    for i in range(N):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'replace', 'fields',
                                         'title', 'hello term%d' % i))
     for _ in r.retry_with_rdb_reload():
@@ -2558,7 +2558,7 @@ def testIssue_779(env):
     # OK is expected since 4001 < 4002 and the doc2 is updated
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf DOG ot1 4002').equal('OK')
     res = env.cmd('FT.GET idx2 doc2')
-    env.assertEqual(toSortedFlatList(res), toSortedSortedFlatList(["newf", "DOG", "ot1", "4002"]))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(["newf", "DOG", "ot1", "4002"]))
 
     # OK is NOT expected since 4002 is not < 4002
     # We expect NOADD and doc2 update; however, we get OK and doc2 updated

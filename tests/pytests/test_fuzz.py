@@ -2,6 +2,7 @@ import random
 import time
 from includes import *
 from common import waitForIndex
+from functools import reduce
 
 
 _tokens = {}
@@ -35,7 +36,7 @@ def createIndex(env, r):
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text').ok()
     waitForIndex(r, 'idx')
 
-    for i in xrange(1000):
+    for i in range(1000):
         did, tokens = generate_random_doc(env)
 
         r.execute_command('ft.add', 'idx', did,

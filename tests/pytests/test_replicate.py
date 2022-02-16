@@ -6,7 +6,7 @@ from RLTest import Env
 import time
 import random
 from includes import *
-from common import waitForIndex
+from common import *
 
 
 class TimeoutException(Exception):
@@ -116,8 +116,8 @@ def testDropReplicate():
   master.execute_command('WAIT', 1, 1000)
 
   # check that same docs were deleted by master and slave
-  master_keys = py2sorted(master.execute_command('KEYS', '*'))
-  slave_keys = py2sorted(slave.execute_command('KEYS', '*'))
+  master_keys = sorted(master.execute_command('KEYS', '*'))
+  slave_keys = sorted(slave.execute_command('KEYS', '*'))
   env.assertEqual(len(master_keys), len(slave_keys))
   env.assertEqual(master_keys, slave_keys)
 
@@ -134,8 +134,8 @@ def testDropReplicate():
 
   # check that same docs were deleted by master and slave
   time.sleep(0.01)
-  master_keys = py2sorted(master.execute_command('KEYS', '*'))
-  slave_keys = py2sorted(slave.execute_command('KEYS', '*'))
+  master_keys = sorted(master.execute_command('KEYS', '*'))
+  slave_keys = sorted(slave.execute_command('KEYS', '*'))
   env.assertEqual(len(master_keys), len(slave_keys))
   env.assertEqual(master_keys, slave_keys)
 
