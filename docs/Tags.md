@@ -67,7 +67,9 @@ FT.SEARCH idx "@title:hello @price:[0 100] @tags:{ foo bar | hello world }
 Tags support prefix matching with the regular `*` character:
 
 ```
-FT.SEARCH idx "@tags:{ hello w* }
+FT.SEARCH idx "@tags:{ hell* }"
+FT.SEARCH idx "@tags:{ hello\\ w* }"
+
 ```
 
 ## Multiple tags in a single filter
