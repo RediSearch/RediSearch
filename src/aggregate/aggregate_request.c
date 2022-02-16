@@ -114,41 +114,29 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-#define ARG_HANDLED 1
-#define ARG_ERROR -1
-#define ARG_UNKNOWN 0
+static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
 
-static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
-  ArgsCursor paramsArgs = {0};
-  int rv = AC_GetVarArgs(ac, &paramsArgs);
+  ArgsCursor args = {0};
+  int rv = AC_GetVarArgs(ac, &args);
   if (rv != AC_OK) {
-    QERR_MKBADARGS_AC(status, "PARAMS", rv);
-    return REDISMODULE_ERR;
-  }
-  if (req->searchopts.params) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Multiple PARAMS are not allowed. Parameters can be defined only once");
-    return REDISMODULE_ERR;
-  }
-  if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
+    QERR_MKBADARGS_AC(status, "_REQUIRED_FIELDS", rv);
     return REDISMODULE_ERR;
   }
 
-  dict *params = Param_DictCreate();
-  size_t value_len;
-  while (!AC_IsAtEnd(&paramsArgs)) {
-    const char *param = AC_GetStringNC(&paramsArgs, NULL);
-    const char *value = AC_GetStringNC(&paramsArgs, &value_len);
-    // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
-    if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
-      Param_DictFree(params);
-      return REDISMODULE_ERR;
-    }
+  int requiredFieldNum = AC_NumArgs(&args);
+  const char** requiredFields = array_new(const char*, requiredFieldNum);
+  for(size_t i=0; i < requiredFieldNum; i++) {
+    requiredFields = array_append(requiredFields, AC_GetStringNC(&args, NULL));
   }
-  req->searchopts.params = params;
+
+  req->requiredFields = requiredFields;
 
   return REDISMODULE_OK;
 }
+
+#define ARG_HANDLED 1
+#define ARG_ERROR -1
+#define ARG_UNKNOWN 0
 
 static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
@@ -209,9 +197,14 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     req->reqflags |= QEXEC_F_SENDRAWIDS;
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
-    if (parseParams(req, ac, status) != REDISMODULE_OK) {
+    if (parseParams(&(req->searchopts.params), ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if(AC_AdvanceIfMatch(ac, "_REQUIRED_FIELDS")) {
+    if (parseRequiredFields(req, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+    req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
   } else {
     return ARG_UNKNOWN;
   }
@@ -930,11 +923,10 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 
 static ResultProcessor *getVecSimRP(AREQ *req, AGGPlan *pln, ResultProcessor *up, QueryError *status) {
   RLookup *lk = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
-  char **scoreFields = req->ast.vecScoreFieldNames;
-  size_t len = array_len(scoreFields);
-  RLookupKey **keys = rm_calloc(len, sizeof(*keys));
+  RLookupKey **keys = rm_calloc(array_len(req->ast.vecScoreFieldNames), sizeof(*keys));
 
-  for (size_t i = 0; i < len; i++) {
+  char **scoreFields = req->ast.vecScoreFieldNames;
+  for (size_t i = 0; i < array_len(scoreFields); i++) {
     if (IndexSpec_GetField(req->sctx->spec, scoreFields[i], strlen(scoreFields[i]))) {
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", scoreFields[i]);
       rm_free(keys);
@@ -1341,6 +1333,9 @@ void AREQ_Free(AREQ *req) {
   FieldList_Free(&req->outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);
+  }
+  if(req->requiredFields) {
+    array_free(req->requiredFields);
   }
   rm_free(req->args);
   rm_free(req);
