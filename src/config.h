@@ -93,7 +93,7 @@ typedef struct {
   int filterCommands;
 
   // free resource on shutdown
-  int freeResources;
+  int freeResourcesThread;
   // compress double to float
   int numericCompress;
   // keep numeric ranges in parents of leafs
@@ -186,7 +186,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
-    .forkGCCleanNumericEmptyNodes = true, .freeResources = false,                                 \
+    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = false,                           \
   }
 
 #define REDIS_ARRAY_LIMIT 7

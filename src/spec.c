@@ -1120,8 +1120,8 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
   }
-  // Free data complex data structures on a different thread
-  if (getenv("RS_GLOBAL_DTORS") || RSGlobalConfig.freeResources == true) {  // used only with sanitizer or valgrind
+  // Free unlinked index spec on a second thread
+  if (getenv("RS_GLOBAL_DTORS") || RSGlobalConfig.freeResourcesThread == true) {
     IndexSpec_FreeUnlinkedData(spec);
   } else {
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeUnlinkedData, spec);

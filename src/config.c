@@ -351,9 +351,9 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
 CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
-// _FREE_RESOURCE
-CONFIG_BOOLEAN_SETTER(setFreeResources, freeResources)
-CONFIG_BOOLEAN_GETTER(getFreeResources, freeResources, 0)
+// _FREE_RESOURCE_ON_THREAD
+CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
+CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
 
 // _PRINT_PROFILE_CLOCK
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, printProfileClock)
@@ -681,10 +681,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable legacy compression of double to float.",
          .setValue = setNumericCompress,
          .getValue = getNumericCompress},
-        {.name = "_FREE_RESOURCE",
-         .helpText = "Determine whether resources are freed on server shutdown.",
-         .setValue = setFreeResources,
-         .getValue = getFreeResources},
+        {.name = "_FREE_RESOURCE_ON_THREAD",
+         .helpText = "Determine whether some index resources are free on a second thread.",
+         .setValue = setFreeResourcesThread,
+         .getValue = getFreeResourcesThread},
         {.name = "_PRINT_PROFILE_CLOCK",
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,

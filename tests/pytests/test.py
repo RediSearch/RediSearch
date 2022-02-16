@@ -3499,7 +3499,7 @@ def test_empty_field_name(env):
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['', 'foo']])
 
 @no_msan
-def test_free_resources(env):
+def test_free_resources_on_thread(env):
     env = Env()
     conn = getConnectionByEnv(env)
     pl = conn.pipeline()
@@ -3535,16 +3535,16 @@ def test_free_resources(env):
                 pl.execute()
         pl.execute()
 
-        start_time = end_time
+        start_time = time.time()
         conn.execute_command('FLUSHALL')
         end_time = time.time()
 
         results.append(end_time - start_time)
 
-        conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE', 'true')
+        conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
 
     # ensure freeing resources on a 2nd thread is more than 10 times quicker
     # than freeing it on the main thread
     env.assertLess(results[0] * 10, results[1])
 
-    conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE', 'false')
+    conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'false')
