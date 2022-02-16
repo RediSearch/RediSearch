@@ -64,6 +64,12 @@ You can combine a full-text search on the _title_ field, a numerical range on _p
 FT.SEARCH idx "@title:hello @price:[0 100] @tags:{ foo bar | hello world }
 ```
 
+Tags support prefix matching with the regular `*` character:
+
+```
+FT.SEARCH idx "@tags:{ hello w* }
+```
+
 ## Multiple tags in a single filter
 
 Notice that including multiple tags in the same clause creates a union of all documents that contain any of the included tags. To create an intersection of documents containing *all* of the given tags, you should repeat the tag filter several times.
