@@ -33,14 +33,14 @@ def runTestWithSeed(env, s=None):
 
     env.expect('FLUSHALL')
     if s == None:
-        s = time()
+        s = int(time())
     env.debugPrint('seed: %s' % str(s), force=True)
     seed(s)
 
     idx = 'idx'
     count = 10000
     cleaning_loops = 5
-    loop_count = count / cleaning_loops
+    loop_count = int(count / cleaning_loops)
 
     ### test increasing integers
     env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()

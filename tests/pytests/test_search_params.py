@@ -140,13 +140,13 @@ def test_binary_data(env):
     env.assertEqual(conn.execute_command('HSET', 'key2', 'bin', bin_data2), 1)
 
     # Compare results with and without param - data1
-    res1 = conn.execute_command('FT.SEARCH', 'idx', '@bin:' + bin_data2, 'NOCONTENT')
+    res1 = conn.execute_command('FT.SEARCH', 'idx', b'@bin:' + bin_data2, 'NOCONTENT')
     env.assertEqual(res1, [1, 'key2'])
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', '10010101001010101100101011001101010101')
     env.assertEqual(res2, res1)
 
     # Compare results with and without param - data2
-    res1 = conn.execute_command('FT.SEARCH', 'idx', '@bin:' + bin_data1, 'NOCONTENT')
+    res1 = conn.execute_command('FT.SEARCH', 'idx', b'@bin:' + bin_data1, 'NOCONTENT')
     env.assertEqual(res1, [1, 'key1'])
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', bin_data1)
     env.assertEqual(res2, res1)
@@ -159,10 +159,10 @@ def test_binary_data(env):
     env.assertEqual(res2, res1)
 
     # Compare results with and without param using Prefix - data2
-    res1 = conn.execute_command('FT.SEARCH', 'idx', '@bin:\xd7\x93\xd7\x90*', 'NOCONTENT')
+    res1 = conn.execute_command('FT.SEARCH', 'idx', b'@bin:\xd7\x93\xd7\x90*', 'NOCONTENT')
     env.assertEqual(res1, [1, 'key1'])
 
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@bin:$val*', 'NOCONTENT', 'PARAMS', '2', 'val', '\xd7\x93\xd7\x90')
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@bin:$val*', 'NOCONTENT', 'PARAMS', '2', 'val', b'\xd7\x93\xd7\x90')
     env.assertEqual(res2, res1)
 
 

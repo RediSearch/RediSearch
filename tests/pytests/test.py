@@ -579,13 +579,13 @@ def testExplain(env):
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(expected, res)
 
-    q = ['* => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    q = ['* => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', 'abcdefgh']
     res = r.execute_command('ft.explain', 'idx', *q)
     expected = """VECTOR {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # test with hybrid query
-    q = ['(@t:hello world) => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    q = ['(@t:hello world) => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', 'abcdefgh']
     res = r.execute_command('ft.explain', 'idx', *q)
     expected = """VECTOR {\n  @t:INTERSECT {\n    @t:hello\n    @t:world\n  }\n} => {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
@@ -1470,12 +1470,12 @@ def testNotIter(env):
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[0 7]', 'verbatim', "nocontent")
     env.assertEqual(0, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(str(len(res)), force=True)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[0 7]', 'verbatim', "nocontent")
     env.assertEqual(0, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(str(len(res)), force=True)
 
 def testPayload(env):
     r = env
@@ -1926,16 +1926,6 @@ def testUninitSortvector(env):
 def normalize_row(row):
     return to_dict(row)
 
-
-def assertAggrowsEqual(env, exp, got):
-    env.assertEqual(exp[0], got[0])
-    env.assertEqual(len(exp), len(got))
-
-    # and now, it's just free form:
-    exp = py2sorted(to_dict(x) for x in exp[1:])
-    got = py2sorted(to_dict(x) for x in got[1:])
-    env.assertEqual(list(exp), list(got))
-
 def assertResultsEqual(env, exp, got, inorder=True):
     from pprint import pprint
     # pprint(exp)
@@ -2095,7 +2085,7 @@ def testIssue417(env):
         try:
             env.execute_command('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 't0', '1')
         except redis.ResponseError as e:
-            env.assertTrue('already' in e.message.lower())
+            env.assertTrue('already' in str(e))
 
 # >FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
 # >FT.ADD myIdx doc1 1.0 FIELDS title "hello world" body "lorem ipsum" url "www.google.com"
@@ -2330,7 +2320,8 @@ def testIssue484(env):
         'REDUCE', 'COUNT', '0', 'as', 'value_count',
         'SORTBY', '4', '@value_count', 'DESC', '@value', 'ASC')
     expected = [6, ['value', 'white', 'value_count', '2'], ['value', 'cars', 'value_count', '2'], ['value', 'small cars', 'value_count', '1'], ['value', 'blue', 'value_count', '2'], ['value', 'Big cars', 'value_count', '2'], ['value', 'green', 'value_count', '1']]
-    assertAggrowsEqual(env, expected, res)
+    env.assertEqual(toSortedFlatList(expected), toSortedFlatList(res))
+
     for var in expected:
         env.assertIn(var, res)
 

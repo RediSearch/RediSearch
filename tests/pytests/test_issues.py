@@ -290,7 +290,7 @@ def testUNF(env):
   conn.execute_command('HSET', 'doc1', 'txt', u'Maße', 'txt_unf', u'Maße',
                                        'tag', u'Maße', 'tag_unf', u'Maße')
   env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
-    .equal([1, ['txt', 'masse', 'txt_unf', u'Ma\xc3\x9fe', 'tag', 'masse', 'tag_unf', u'Ma\xc3\x9fe']])
+    .equal([1, ['txt', 'masse', 'txt_unf', u'Maße', 'tag', 'masse', 'tag_unf', u'Maße']])
 
   # test `Maße` with LOAD
   conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', u'Maße',
@@ -298,7 +298,7 @@ def testUNF(env):
   env.expect('FT.AGGREGATE', 'idx', '*',                              \
              'LOAD',    '4', '@txt', '@txt_unf', '@tag', '@tag_unf',  \
              'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
-    .equal([1, ['txt', u'Ma\xc3\x9fe', 'txt_unf', u'Ma\xc3\x9fe', 'tag', u'Ma\xc3\x9fe', 'tag_unf', 'Ma\xc3\x9fe']])
+    .equal([1, ['txt', u'Maße', 'txt_unf', u'Maße', 'tag', u'Maße', 'tag_unf', 'Maße']])
 
 def test_MOD_1517(env):
   conn = getConnectionByEnv(env)
