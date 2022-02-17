@@ -122,10 +122,10 @@ def testDelReuse(env):
 
         env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0])
 
-        res = [''.join(random.choice(string.lowercase) for x in range(8)),
-            ''.join(random.choice(string.lowercase) for x in range(8)),
-            ''.join(random.choice(string.lowercase) for x in range(8)),
-            ''.join(random.choice(string.lowercase) for x in range(8))]
+        res = [''.join(random.choice(str(x).lower()) for x in range(8)),
+               ''.join(random.choice(str(x).lower()) for x in range(8)),
+               ''.join(random.choice(str(x).lower()) for x in range(8)),
+               ''.join(random.choice(str(x).lower()) for x in range(8))]
 
         conn.execute_command('HSET', 'a', 'v', res[0])
         conn.execute_command('HSET', 'b', 'v', res[1])

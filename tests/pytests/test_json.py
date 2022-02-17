@@ -217,8 +217,8 @@ def testNonEnglish(env):
 
     env.expect('ft.search', 'idx1', '*', 'RETURN', '3', '$.t', 'AS', 'MyReturnLabel') \
         .equal([2,
-                'doc:4', ['MyReturnLabel', '\xe3\x83\x89\xe3\x83\xa9\xe3\x82\xb4\xe3\x83\xb3'],
-                'doc:5', ['MyReturnLabel', '\xe8\xb8\xaa\xe8\xbf\xb9']])
+                'doc:4', ['MyReturnLabel', 'ドラゴン'],
+                'doc:5', ['MyReturnLabel', '踪迹']])
 
 @no_msan
 def testSet(env):
