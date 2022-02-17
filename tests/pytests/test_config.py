@@ -116,7 +116,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_NUMERIC_RANGES_PARENTS'][0], '0')
     env.assertEqual(res_dict['FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
     env.assertEqual(res_dict['_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
-    env.assertEqual(res_dict['_FREE_RESOURCE_ON_THREAD'][0], 'false')
+    env.assertEqual(res_dict['_FREE_RESOURCE_ON_THREAD'][0], 'true')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')

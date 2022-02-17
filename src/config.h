@@ -186,7 +186,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
-    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = false,                           \
+    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true,                           \
   }
 
 #define REDIS_ARRAY_LIMIT 7
