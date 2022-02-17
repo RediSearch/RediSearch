@@ -1121,7 +1121,7 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     spec->stopwords = NULL;
   }
   // Free unlinked index spec on a second thread
-  if (getenv("RS_GLOBAL_DTORS") || RSGlobalConfig.freeResourcesThread == false) {
+  if (RSGlobalConfig.freeResourcesThread == false) {
     IndexSpec_FreeUnlinkedData(spec);
   } else {
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeUnlinkedData, spec);

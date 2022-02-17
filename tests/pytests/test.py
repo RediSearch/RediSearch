@@ -3500,7 +3500,7 @@ def test_empty_field_name(env):
 
 @no_msan
 def test_free_resources_on_thread(env):
-    env = Env()
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     pl = conn.pipeline()
     results = []
