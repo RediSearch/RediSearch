@@ -49,11 +49,11 @@ def testSummarization(env):
     # Attempt a query which doesn't have a corresponding matched term
     res = env.cmd('FT.SEARCH', 'idx', '-blah', 'SUMMARIZE', 'LEN', 3)
     env.assertEqual(
-        [1, 'gen1', ['txt', ' The First Book of Moses, called Genesis {1:1} In']], res)
+        [1, 'gen1', ['txt', ' The First Book of Moses, called Genesis {1:1} In the']], res)
 
     # Try the same, but attempting to highlight
     res = env.cmd('FT.SEARCH', 'idx', '-blah', 'HIGHLIGHT')
-    env.assertEqual(214894, len(res[2][1]))
+    env.assertEqual(211500, len(res[2][1]))
 
 def testPrefixExpansion(env):
     # Search with prefix
