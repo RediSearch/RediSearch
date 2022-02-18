@@ -91,6 +91,9 @@ typedef struct {
   int noMemPool;
 
   int filterCommands;
+
+  // free resource on shutdown
+  int freeResourcesThread;
 } RSConfig;
 
 typedef enum {
@@ -172,7 +175,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
-    .forkGCCleanNumericEmptyNodes = 0,                                                            \
+    .forkGCCleanNumericEmptyNodes = 0, .freeResourcesThread = true,                               \
   }
 
 #define REDIS_ARRAY_LIMIT 7
