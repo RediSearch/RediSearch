@@ -30,11 +30,11 @@ typedef struct {
 } cachedVars;
 
 static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
-  if(key->t == RSValue_Reference) {
-    key = RSValue_Dereference(key);
-  }
   RedisModuleString *rskey = NULL;
   if (key) {
+    if(key->t == RSValue_Reference) {
+      key = RSValue_Dereference(key);
+    }
     switch (key->t) {
       case RSValue_Number:
         /* Serialize double - by prepending "%" to the number, so the coordinator/client can
