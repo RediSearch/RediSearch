@@ -540,6 +540,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   // marks the user set WITHSCORES. internally it's always set
   req->withScores = RMUtil_ArgExists("WITHSCORES", argv, argc, argvOffset) != 0;
   req->withExplainScores = RMUtil_ArgExists("EXPLAINSCORE", argv, argc, argvOffset) != 0;
+  req->specialCases = NULL;
 
 
   req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
@@ -1160,9 +1161,11 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     for(size_t i =0; i < nSpecialCases; i++) {
       if(req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
         specialCaseCtx* knnCtx = req->specialCases[i];
+        knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
         heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
         rCtx.processReply = proccessKNNSearchReply;
         rCtx.postProcess = knnPostProcess;
+        rCtx.reduceSpecialCaseCtx = knnCtx;
         break;
       }
     }
