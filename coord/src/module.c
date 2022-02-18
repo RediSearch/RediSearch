@@ -863,8 +863,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
 
     scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
     resWrapper->result = res;
-    MRReply *scoreReply = MRReply_ArrayElement(arr, j + scoreOffset);
-    if (!MRReply_ToDouble(MRReply_ArrayElement(scoreReply, 0), &resWrapper->score)) {
+    if (!MRReply_ToDouble(MRReply_ArrayElement(arr, j + scoreOffset), &resWrapper->score)) {
       rm_free(resWrapper);
       rCtx->errorOccured = true;
       // invalid result - usually means something is off with the response, and we should just
