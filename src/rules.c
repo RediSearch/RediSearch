@@ -169,8 +169,6 @@ void SchemaRule_FilterFields(SchemaRule *rule) {
 }
 
 void SchemaRule_Free(SchemaRule *rule) {
-  SchemaPrefixes_RemoveSpec(rule->spec);
-
   rm_free((void *)rule->lang_field);
   rm_free((void *)rule->score_field);
   rm_free((void *)rule->payload_field);
