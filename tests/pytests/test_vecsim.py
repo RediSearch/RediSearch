@@ -207,7 +207,6 @@ def testCreate(env):
     # assertInfoField(env, 'idx5', 'attributes', info)
 
 def testCreateErrors(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     # missing init args
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR').error().contains('Bad arguments for vector similarity algorithm')
@@ -252,7 +251,6 @@ def testCreateErrors(env):
 
 
 def testSearchErrors(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
@@ -454,8 +452,6 @@ def test_hybrid_query_batches_mode_with_text(env):
 
 
 def test_hybrid_query_batches_mode_with_tags(env):
-    # Todo: enable this when the coordinator will be able to run TOP K queries and sortby score
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     dimension = 128
     index_size = 100
@@ -570,8 +566,6 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
 
 
 def test_hybrid_query_batches_non_vector_score(env):
-    # Todo: enable this when the coordinator will be able to run TOP K queries and sortby score
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100

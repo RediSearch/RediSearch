@@ -787,12 +787,10 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
       }
     }
   }
-  offsets->firstField = specialCasesMaxOffset +1;
-  offsets->step = offsets->firstField + 1;
 
   if(specialCasesMaxOffset > 0) {
-    offsets->step+=specialCasesMaxOffset;
-    offsets->firstField+=specialCasesMaxOffset;
+    offsets->firstField==specialCasesMaxOffset+1;
+    offsets->step=offsets->firstField+1;
   }
 
   // nocontent - one less field, and the offset is -1 to avoid parsing it
