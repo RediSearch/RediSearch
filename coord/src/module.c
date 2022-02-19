@@ -323,6 +323,7 @@ typedef struct {
       bool shouldSort;        // Should run presort before the coordinator sort
       size_t offset;          // Reply offset
       heap_t *pq;             // Priority queue
+      QueryNode* queryNode;   // Query node
 } knnContext;
 
 typedef struct {
@@ -405,6 +406,9 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
     size_t specialCasesLen = array_len(r->specialCases);
     for(size_t i = 0; i< specialCasesLen; i ++) {
       specialCaseCtx* ctx = r->specialCases[i];
+      if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
+        QueryNode_Free(ctx->knn.queryNode);
+      }
       SpecialCaseCtx_Free(ctx);
     }
     array_free(r->specialCases);
@@ -465,6 +469,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
         //fail
       }
       QueryNode_EvalParamsCommon(params, queryNode, &status);
+      Param_DictFree(params);
     }
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->topk.k;
@@ -540,6 +545,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   req->withScores = RMUtil_ArgExists("WITHSCORES", argv, argc, argvOffset) != 0;
   req->withExplainScores = RMUtil_ArgExists("EXPLAINSCORE", argv, argc, argvOffset) != 0;
   req->specialCases = NULL;
+  req->requiredFields = NULL;
 
 
   req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
