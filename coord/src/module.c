@@ -842,13 +842,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   int step = rCtx->offsets.step;
   specialCaseCtx* reduceSpecialCaseCtx = rCtx->reduceSpecialCaseCtx;
   int scoreOffset = reduceSpecialCaseCtx->knn.offset;
-  // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
-  //         scoreOffset, fieldsOffset, sortKeyOffset);
-
-    RedisModule_Log(
-          ctx, "warning",
-          "response len %d step is %d", len, step);
-
   for (int j = 1; j < len; j += step) {
     if (j + step > len) {
       RedisModule_Log(
@@ -881,9 +874,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   
     // As long as we don't have k results, keep insert
     if (heap_count(reduceSpecialCaseCtx->knn.pq) < reduceSpecialCaseCtx->knn.k) {
-        RedisModule_Log(
-          ctx, "warning",
-          "pushing KKN result to heap");
       heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
     } else {
       // Check for upper bound
@@ -895,17 +885,11 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
         heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
         rCtx->cachedResult = largest->result;
         rm_free(largest);
-        RedisModule_Log(
-          ctx, "warning",
-          "swapping KKN result to heap");
       } 
     }
   }
   // We can always get at most K results
   rCtx->totalReplies = heap_count(reduceSpecialCaseCtx->knn.pq);
-          RedisModule_Log(
-          ctx, "warning",
-          "results count %d",  rCtx->totalReplies);
 }
 
 static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
