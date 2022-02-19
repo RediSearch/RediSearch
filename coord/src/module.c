@@ -503,15 +503,14 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
 void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc, int sortByIndex) {
   const char* sortkey = RedisModule_StringPtrLen(argv[sortByIndex + 1], NULL);
   specialCaseCtx *ctx = SpecialCaseCtx_New();
+  ctx->specialCaseType = SPECIAL_CASE_SORTBY;
   ctx->sortby.sortKey = sortkey;
+  ctx->sortby.asc = true;
+  req->sortAscending = true;
   if (req->withSortby && sortByIndex + 2 < argc) {
     if (RMUtil_StringEqualsCaseC(argv[sortByIndex + 2], "DESC")) {
       ctx->sortby.asc = false;
       req->sortAscending = false;
-    }
-    else {
-      ctx->sortby.asc = true;
-      req->sortAscending = true;
     }
   }
   if(!req->specialCases) {
@@ -575,6 +574,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   // Parse it ALWAYS first so the sortkey will be send first
   int sortByIndex = RMUtil_ArgIndex("SORTBY", argv, argc);
   if(sortByIndex > 2) {
+    req->withSortby = true;
     // Check for command error where no sortkey is given.
     if(sortByIndex + 1 >= argc) {
       free(req);
@@ -789,7 +789,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
   }
 
   if(specialCasesMaxOffset > 0) {
-    offsets->firstField==specialCasesMaxOffset+1;
+    offsets->firstField=specialCasesMaxOffset+1;
     offsets->step=offsets->firstField+1;
   }
 
@@ -813,8 +813,7 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
   } else if (score1 > score2) {
     return 1;
   }
-  return s1->result->id < s2->result->id;
-
+  return cmpStrings(s1->result->id, s1->result->idLen, s2->result->id, s2->result->idLen);
 }
 
 static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
@@ -839,6 +838,11 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   int scoreOffset = reduceSpecialCaseCtx->knn.offset;
   // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
   //         scoreOffset, fieldsOffset, sortKeyOffset);
+
+    RedisModule_Log(
+          ctx, "warning",
+          "response len %d step is %d", len, step);
+
   for (int j = 1; j < len; j += step) {
     if (j + step > len) {
       RedisModule_Log(
@@ -861,32 +865,41 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
 
     scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
     resWrapper->result = res;
-    if (!MRReply_ToDouble(MRReply_ArrayElement(arr, j + scoreOffset), &resWrapper->score)) {
-      rm_free(resWrapper);
-      rCtx->errorOccured = true;
-      // invalid result - usually means something is off with the response, and we should just
-      // quit this response
-      rCtx->cachedResult = res;
-      break;
-    }
+    size_t len;
+    char* score = MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), &len);
+    RedisModule_Assert(score[0] == '#');
+    char *eptr;
+    double d = strtod(score + 1, &eptr);
+    RedisModule_Assert(eptr != res->sortKey + 1 && *eptr == 0);
+    resWrapper->score = d;
+  
     // As long as we don't have k results, keep insert
-    if (heap_count(reduceSpecialCaseCtx->knn.pq) < heap_size(reduceSpecialCaseCtx->knn.pq)) {
-      heap_offerx(rCtx->pq, res);
+    if (heap_count(reduceSpecialCaseCtx->knn.pq) < reduceSpecialCaseCtx->knn.k) {
+        RedisModule_Log(
+          ctx, "warning",
+          "pushing KKN result to heap");
+      heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
     } else {
       // Check for upper bound
       scoredSearchResultWrapper *largest = heap_peek(reduceSpecialCaseCtx->knn.pq);
-      int c = cmp_scored_results(res, largest, rCtx->searchCtx);
+      int c = cmp_scored_results(resWrapper, largest, rCtx->searchCtx);
       if (c < 0) {
         // Current result is smaller then upper bound, replace them.
         largest = heap_poll(reduceSpecialCaseCtx->knn.pq);
-        heap_offerx(reduceSpecialCaseCtx->knn.pq, res);
+        heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
         rCtx->cachedResult = largest->result;
         rm_free(largest);
+        RedisModule_Log(
+          ctx, "warning",
+          "swapping KKN result to heap");
       } 
     }
   }
   // We can always get at most K results
   rCtx->totalReplies = heap_count(reduceSpecialCaseCtx->knn.pq);
+          RedisModule_Log(
+          ctx, "warning",
+          "results count %d",  rCtx->totalReplies);
 }
 
 static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
@@ -987,8 +1000,8 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         free(res);
       }
     }
-    heap_free(reducerSpecialCaseCtx->knn.pq);
   }
+  heap_free(reducerSpecialCaseCtx->knn.pq);
 }
 
 static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
@@ -1158,12 +1171,14 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     for(size_t i =0; i < nSpecialCases; i++) {
       if(req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
         specialCaseCtx* knnCtx = req->specialCases[i];
-        knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
-        heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
-        rCtx.processReply = proccessKNNSearchReply;
-        rCtx.postProcess = knnPostProcess;
-        rCtx.reduceSpecialCaseCtx = knnCtx;
-        break;
+        if(knnCtx->knn.shouldSort) {
+          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
+          heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
+          rCtx.processReply = proccessKNNSearchReply;
+          rCtx.postProcess = knnPostProcess;
+          rCtx.reduceSpecialCaseCtx = knnCtx;
+          break;
+        }
       }
     }
   }
@@ -1546,7 +1561,6 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   
   for(size_t i=0; i < specialCasesLen; i++) {
     specialCaseCtx* ctx = req->specialCases[i];
-    const char* sortKey = NULL;
     size_t offset = 0;
 
     // Handle sortby    
@@ -1557,7 +1571,6 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
         req->requiredFields = array_new(const char*, 1);
       }
       req->requiredFields = array_append(req->requiredFields, ctx->sortby.sortKey);
-      sortKey = ctx->sortby.sortKey;
       // Sortkey is the first required key value to return
       ctx->sortby.offset = 0;
       offset++;
@@ -1565,12 +1578,10 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 
     if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
       // Before requesting for a new field, see if it is not the sortkey.
-      if(sortKey) {
-        if(strcmp(sortKey, ctx->knn.fieldName)==0) {
+      if(!ctx->knn.shouldSort) {
           // We have already requested this field, we will not append it.
           ctx->knn.offset = 0;
           continue;
-        }
       }
       // Fall back into appending new required field.
       if(req->requiredFields == NULL) {
