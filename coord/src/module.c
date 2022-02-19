@@ -1564,10 +1564,9 @@ int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   size_t specialCasesLen = array_len(req->specialCases);
-  
+  size_t offset = 0;
   for(size_t i=0; i < specialCasesLen; i++) {
     specialCaseCtx* ctx = req->specialCases[i];
-    size_t offset = 0;
 
     // Handle sortby    
     if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {

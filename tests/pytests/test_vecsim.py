@@ -389,20 +389,25 @@ def test_memory_info(env):
     env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
 
-def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True):
+def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field = False):
     if sort_by_vector:
         query = env.expect('FT.SEARCH', 'idx', query_string,
                    'SORTBY', '__v_score',
                    'PARAMS', 2, 'vec_param', query_data.tobytes(),
                    'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
-        if env.isCluster() and query.res[0] > 10L:
-            query.res[0] = 10L
         return query
 
     else:
-        return env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
-                   'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                   'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
+        if sort_by_non_vector_field:
+            return env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+                'SORTBY', non_vector_field,
+                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
+
+        else:
+            return env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
 
 def test_hybrid_query_batches_mode_with_text(env):
@@ -583,10 +588,13 @@ def test_hybrid_query_batches_non_vector_score(env):
     # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
     expected_res_1 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '2', ['__v_score', '10368', 't', 'text value'], '92', '2', ['__v_score', '8192', 't', 'text value'], '93', '2', ['__v_score', '6272', 't', 'text value'], '94', '2', ['__v_score', '4608', 't', 'text value'], '95', '2', ['__v_score', '3200', 't', 'text value'], '96', '2', ['__v_score', '2048', 't', 'text value'], '97', '2', ['__v_score', '1152', 't', 'text value'], '98', '2', ['__v_score', '512', 't', 'text value'], '99', '2', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_1)
+    execute_hybrid_query(env, '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True).equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
     expected_res_2 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_2)
+    execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True).equal(expected_res_2)
+
 
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'], '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'], '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'], '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'], '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'], '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'], '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'], '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'], '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
