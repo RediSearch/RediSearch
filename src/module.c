@@ -1072,6 +1072,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   mempool_free_global();
   ConcurrentSearch_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
+  CleanPool_ThreadPoolDestroy();
   GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();

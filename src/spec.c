@@ -996,59 +996,50 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void IndexSpec_FreeInternals(IndexSpec *spec) {
-  if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
-    dictDelete(specDict_g, spec->name);
-  }
-  SchemaPrefixes_RemoveSpec(spec);
+static threadpool cleanPool = NULL;
 
-  if (spec->isTimerSet) {
-    RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
-    spec->isTimerSet = false;
+void CleanPool_ThreadPoolStart() {
+  if (!cleanPool) {
+    cleanPool = thpool_init(1);
   }
+}
 
-  if (spec->indexer) {
-    Indexer_Free(spec->indexer);
+void CleanPool_ThreadPoolDestroy() {
+  if (cleanPool) {
+    thpool_destroy(cleanPool);
+    cleanPool = NULL;
   }
-  if (spec->gc) {
-    GCContext_Stop(spec->gc);
-  }
+}
 
+/*
+ * Free resources of unlinked index spec 
+ */ 
+static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
+  // Free all documents metadata
+  DocTable_Free(&spec->docs);
+  // Free TEXT field trie and inverted indexes
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
-  DocTable_Free(&spec->docs);
-
-  if (spec->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    Cursors_PurgeWithName(&RSCursors, spec->name);
-    CursorList_RemoveSpec(&RSCursors, spec->name);
+  // Free NUMERIC, TAG and GEO fields trie and inverted indexes
+  if (spec->keysDict) {
+    dictRelease(spec->keysDict);
   }
-
+  // Free synonym data
+  if (spec->smap) {
+    SynonymMap_Free(spec->smap);
+  }
+  // Destroy spec rule
   if (spec->rule) {
     SchemaRule_Free(spec->rule);
     spec->rule = NULL;
   }
-
-  rm_free(spec->name);
-  if (spec->sortables) {
-    SortingTable_Free(spec->sortables);
-    spec->sortables = NULL;
-  }
-  if (spec->stopwords) {
-    StopWordList_Unref(spec->stopwords);
-    spec->stopwords = NULL;
-  }
-
-  if (spec->smap) {
-    SynonymMap_Free(spec->smap);
-  }
+  // Free fields cache data
   if (spec->spcache) {
     IndexSpecCache_Decref(spec->spcache);
     spec->spcache = NULL;
   }
-
+  // Free fields formatted names
   if (spec->indexStrs) {
     for (size_t ii = 0; ii < spec->numFields; ++ii) {
       IndexSpecFmtStrings *fmts = spec->indexStrs + ii;
@@ -1060,6 +1051,7 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     }
     rm_free(spec->indexStrs);
   }
+  // Free fields data
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
       if (spec->fields[i].name != spec->fields[i].path) {
@@ -1069,21 +1061,71 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
+  // Free spec name
+  rm_free(spec->name);
+  // Free sortable list
+  if (spec->sortables) {
+    SortingTable_Free(spec->sortables);
+    spec->sortables = NULL;
+  }
+  // Free spec struct
+  rm_free(spec);
+}
+
+/*
+ * This function unlinks the index spec from any global structures and frees
+ * all struct that requires acquiring the GIL.
+ * Other resources are freed using IndexSpec_FreeData.
+ */
+void IndexSpec_FreeInternals(IndexSpec *spec) {
+  // Remove spec from global index list
+  if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
+    dictDelete(specDict_g, spec->name);
+  }
+  // Stop scanner
+  if (spec->scanner) {
+    spec->scanner->cancelled = true;
+    spec->scanner->spec = NULL;
+  }
+  // Remove spec from global aliases list
   if (spec->uniqueId) {
     // If uniqueid is 0, it means the index was not initialized
     // and is being freed now during an error.
     IndexSpec_ClearAliases(spec);
   }
-
-  if (spec->keysDict) {
-    dictRelease(spec->keysDict);
+  // Remove spec prefix from global index list
+  SchemaPrefixes_RemoveSpec(spec);
+  // For temporary index
+  if (spec->isTimerSet) {
+    RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
+    spec->isTimerSet = false;
   }
-
-  if (spec->scanner) {
-    spec->scanner->cancelled = true;
-    spec->scanner->spec = NULL;
+  // Stop and destroy indexer
+  if (spec->indexer) {
+    Indexer_Free(spec->indexer);
   }
-  rm_free(spec);
+  // Stop and destroy garbage collector
+  if (spec->gc) {
+    GCContext_Stop(spec->gc);
+  }
+  // Remove existing cursors from global list
+  if (spec->uniqueId) {
+    // If uniqueid is 0, it means the index was not initialized
+    // and is being freed now during an error.
+    Cursors_PurgeWithName(&RSCursors, spec->name);
+    CursorList_RemoveSpec(&RSCursors, spec->name);
+  }
+  // Free stopwords list (might use global pointer to default list)
+  if (spec->stopwords) {
+    StopWordList_Unref(spec->stopwords);
+    spec->stopwords = NULL;
+  }
+  // Free unlinked index spec on a second thread
+  if (RSGlobalConfig.freeResourcesThread == false) {
+    IndexSpec_FreeUnlinkedData(spec);
+  } else {
+    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeUnlinkedData, spec);
+  }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1104,8 +1146,6 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
   RedisModule_FreeThreadSafeContext(threadCtx);
 }
 
-static struct thpool_ *cleanPool = NULL;
-
 void IndexSpec_LegacyFree(void *spec) {
   // free legacy index do nothing, it will be called only
   // when the index key will be deleted and we keep the legacy
@@ -1114,9 +1154,6 @@ void IndexSpec_LegacyFree(void *spec) {
 
 void IndexSpec_Free(IndexSpec *spec) {
   if (spec->flags & Index_Temporary) {
-    if (!cleanPool) {
-      cleanPool = thpool_init(1);
-    }
     // we are taking the index to a background thread to be released.
     // before we do it we need to delete it from the index dictionary
     // to prevent it from been freed again.c
