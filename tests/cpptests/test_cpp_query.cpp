@@ -252,23 +252,15 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
 
   // Test simple hybrid vector query
-  assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("@title:hello world", ctx);
+  assertValidQuery("(KNN)=>[KNN 10 @vec_field $BLOB]", ctx); // using KNN command in other context
+
+  // assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  // assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(hello world)=>[KNN 10 @vec_field $BLOB]", ctx);
-  const char *vqt = "(hello world)=>[KNN 10 @vec_field $BLOB]";
-  QASTCXX v_ast;
-  v_ast.setContext(&ctx);
-  ASSERT_TRUE(v_ast.parse(vqt));
-  QueryNode *vn = v_ast.root;
-  ASSERT_TRUE(vn != NULL);
-  ASSERT_EQ(vn->type, QN_VECTOR);
-  ASSERT_EQ(QueryNode_NumChildren(vn), 1);
-
-  assertValidQuery("(KNN)=>[KNN 10 @vec_field $BLOB]", ctx); // using KNN command for other context
-
   assertValidQuery("(@title:hello)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB]", ctx);
 
+  assertValidQuery("hello=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(hello|world)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@hello:[0 10]=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(@tit_le|bo_dy:barack @body|title|url|something_else:obama)=>[KNN 10 @vec_field $BLOB]", ctx);
@@ -321,6 +313,43 @@ TEST_F(QueryTest, testParser) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.str);
   QAST_Destroy(&ast);
+  IndexSpec_Free(ctx.spec);
+}
+
+TEST_F(QueryTest, testVectorHybridQuery) {
+  static const char *args[] = {"SCHEMA", "title", "text", "vec", "vector", "HNSW", "6",
+                               "TYPE", "FLOAT32", "DIM", "5", "DISTANCE_METRIC", "L2"};
+  QueryError err = {QueryErrorCode(0)};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  QASTCXX ast;
+  ast.setContext(&ctx);
+  
+  const char *vqt[] = {
+    "(hello world)=>[KNN 10 @vec $BLOB]",
+    "@title:(hello|world)=>[KNN 10 @vec $BLOB]",
+    "@title:hello=>[KNN 10 @vec $BLOB]",
+    NULL};
+
+  for (size_t i = 0; vqt[i] != NULL; i++) {
+    ASSERT_TRUE(ast.parse(vqt[i]));
+    QueryNode *vn = ast.root;
+    // ast.print();
+    ASSERT_TRUE(vn != NULL);
+    ASSERT_EQ(vn->type, QN_VECTOR);
+    ASSERT_EQ(QueryNode_NumChildren(vn), 1);
+  }
+
+  ast.parse(vqt[0]);
+  ASSERT_EQ(ast.root->children[0]->type, QN_PHRASE);
+  ASSERT_EQ(ast.root->children[0]->opts.fieldMask, -1);
+  ast.parse(vqt[1]);
+  ASSERT_EQ(ast.root->children[0]->type, QN_UNION);
+  ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
+  ast.parse(vqt[2]);
+  ASSERT_EQ(ast.root->children[0]->type, QN_TOKEN);
+  ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
+
   IndexSpec_Free(ctx.spec);
 }
 
