@@ -1,29 +1,35 @@
 %left LOWEST.
-%left TILDE.
-%left TAGLIST.
-%left QUOTE.
+
+%right LP LB LSQB.
+%left RP RB RSQB.
+// needs to be above lp/rp
 %left MODIFIER.
+
+%left TILDE.
 %left MINUS.
+
+%left TEXTEXPR.
+
+%left OR.
+%left ORX.
+%left TERM.
+%left AND.
+
+%left QUOTE.
+
+%left ARROW.
+%left COLON.
+
 %left NUMBER.
 %left SIZE.
 %left STOPWORD.
 %left STAR.
 
+%left TAGLIST.
 %left TERMLIST.
-%left TERM.
 %left PREFIX.
 %left PERCENT.
 %left ATTRIBUTE.
-
-%right LP LB LSQB.
-%left RP RB RSQB.
-// needs to be above lp/rp
-%left AND.
-%left OR.
-%left ORX.
-%left ARROW.
-%left COLON.
-%left TEXTEXPR.
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
@@ -238,7 +244,7 @@ star ::= STAR.
 
 star ::= LP star RP.
 
-expr(A) ::= text_expr(B). [TEXTEXPR]{
+expr(A) ::= text_expr(B). [TEXTEXPR] {
   A = B;
 }
 
@@ -247,6 +253,24 @@ expr(A) ::= text_expr(B). [TEXTEXPR]{
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= expr(B) expr(C) . [AND] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
+}
+
+expr(A) ::= text_expr(B) expr(C) . [AND] {
     int rv = one_not_null(B, C, (void**)&A);
     if (rv == NODENN_BOTH_INVALID) {
         A = NULL;
@@ -282,13 +306,12 @@ text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
     }
 }
 
-
 /////////////////////////////////////////////////////////////////
 // Unions
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= union(B) . [ORX] {
-    A = B;
+  A = B;
 }
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
@@ -305,7 +328,6 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
             QueryNode_AddChild(A, B);
             A->opts.fieldMask |= B->opts.fieldMask;
         }
-
         // Handle C
         QueryNode_AddChild(A, C);
         A->opts.fieldMask |= C->opts.fieldMask;
@@ -322,8 +344,29 @@ union(A) ::= union(B) OR expr(C). [ORX] {
     }
 }
 
+union(A) ::= text_expr(B) OR expr(C) . [OR] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+}
+
 text_expr(A) ::= text_union(B) . [ORX] {
-    A = B;
+  A = B;
 }
 
 text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
@@ -340,13 +383,11 @@ text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
             QueryNode_AddChild(A, B);
             A->opts.fieldMask |= B->opts.fieldMask;
         }
-
         // Handle C
         QueryNode_AddChild(A, C);
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
-
 }
 
 text_union(A) ::= text_union(B) OR text_expr(C). [ORX] {
@@ -395,11 +436,11 @@ expr(A) ::= modifierlist(B) COLON text_expr(C) . {
 }
 
 expr(A) ::= LP expr(B) RP . {
-    A = B;
+  A = B;
 }
 
 text_expr(A) ::= LP text_expr(B) RP . {
-    A = B;
+  A = B;
 }
 
 /////////////////////////////////////////////////////////////////
@@ -431,11 +472,11 @@ attribute_list(A) ::= attribute_list(B) SEMICOLON attribute(C) . {
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON . {
-    A = B;
+  A = B;
 }
 
 attribute_list(A) ::= . {
-    A = NULL;
+  A = NULL;
 }
 
 expr(A) ::= expr(B) ARROW LB attribute_list(C) RB . {
@@ -490,15 +531,11 @@ text_expr(A) ::= param_term(B) . [LOWEST]  {
 }
 
 text_expr(A) ::= prefix(B) . [PREFIX]  {
-    A = B;
-}
-
-text_expr(A) ::= termlist(B) .  [TERMLIST] {
-        A = B;
+A = B;
 }
 
 text_expr(A) ::= STOPWORD . [STOPWORD] {
-    A = NULL;
+  A = NULL;
 }
 
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
@@ -513,7 +550,7 @@ termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
-    A = B;
+  A = B;
 }
 
 /////////////////////////////////////////////////////////////////
@@ -792,6 +829,17 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid quer
   }
 }
 
+query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid query as entire query case.
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+  QueryNode_AddChild(B, A);
+}
+
 query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
   switch (B->vn.vq->type) {
@@ -891,35 +939,35 @@ vector_attribute_list(A) ::= vector_attribute(B). {
 /////////////////////////////////////////////////////////////////
 
 num(A) ::= SIZE(B). {
-    A.num = B.numval;
-    A.inclusive = 1;
+  A.num = B.numval;
+  A.inclusive = 1;
 }
 
 num(A) ::= NUMBER(B). {
-    A.num = B.numval;
-    A.inclusive = 1;
+  A.num = B.numval;
+  A.inclusive = 1;
 }
 
 num(A) ::= LP num(B). {
-    A=B;
-    A.inclusive = 0;
+  A=B;
+  A.inclusive = 0;
 }
 
 num(A) ::= MINUS num(B). {
-    B.num = -B.num;
-    A = B;
+  B.num = -B.num;
+  A = B;
 }
 
 term(A) ::= TERM(B) . {
-    A = B;
+  A = B;
 }
 
 term(A) ::= NUMBER(B) . {
-    A = B;
+  A = B;
 }
 
 term(A) ::= SIZE(B). {
-    A = B;
+  A = B;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -931,15 +979,15 @@ param_term(A) ::= TERM(B). {
   A.type = QT_TERM;
 }
 
+// Number is treated as a term here
 param_term(A) ::= NUMBER(B). {
   A = B;
-  // Number is treated as a term here
   A.type = QT_TERM;
 }
 
+// Number is treated as a term here
 param_term(A) ::= SIZE(B). {
   A = B;
-  // Number is treated as a term here
   A.type = QT_TERM;
 }
 
