@@ -271,6 +271,39 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) @title:other", ctx);
   assertInvalidQuery("hello world => [KNN 10 @vec_field $BLOB] OR other => [KNN 10 @vec_field $BLOB]", ctx);
 
+  assertValidQuery("@title:((hello world)|((hello world)|(hallo world|werld) | hello world werld))", ctx);
+  assertValidQuery("(hello world)|((hello world)|(hallo world|werld) | hello world werld)", ctx);
+  // const char *vqt = "(hello world)|((hello world)|(hallo world|werld) | hello world werld)";
+  // QASTCXX vast;
+  // vast.setContext(&ctx);
+  // ASSERT_TRUE(vast.parse(vqt));
+  // QAST_Print(&vast, ctx.spec);
+
+  // UNION {
+  //   INTERSECT {
+  //     hello
+  //     world
+  //   }
+  //   UNION {
+  //     INTERSECT {
+  //       hello
+  //       world
+  //     }
+  //     UNION {
+  //       INTERSECT {
+  //         hallo
+  //         world
+  //       }
+  //       werld
+  //     }
+  //     INTERSECT {
+  //       hello
+  //       world
+  //       werld
+  //     }
+  //   }
+  // }
+
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;
   ast.setContext(&ctx);
@@ -384,9 +417,9 @@ TEST_F(QueryTest, testGeoQuery) {
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_TRUE((n->opts.fieldMask == RS_FIELDMASK_ALL));
-  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+  ASSERT_EQ(QueryNode_NumChildren(n), 3);
 
-  QueryNode *gn = n->children[1];
+  QueryNode *gn = n->children[2];
   ASSERT_EQ(gn->type, QN_GEO);
   ASSERT_STREQ(gn->gn.gf->property, "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
@@ -408,7 +441,8 @@ TEST_F(QueryTest, testFieldSpec) {
   //ast.print();
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
-  ASSERT_EQ(n->opts.fieldMask, 0x01);
+  ASSERT_EQ(n->opts.fieldMask, -1);
+  ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
 
   qt = "(@title:hello) (@body:world)";
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
