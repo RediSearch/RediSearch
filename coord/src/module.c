@@ -477,6 +477,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
     ctx->knn.fieldName = scoreField;
+    ctx->knn.pq = NULL;
     ctx->specialCaseType = SPECIAL_CASE_KNN;
     if(!req->specialCases) {
       req->specialCases = array_new(specialCaseCtx*, 1);
@@ -888,8 +889,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
       } 
     }
   }
-  // We can always get at most K results
-  rCtx->totalReplies = heap_count(reduceSpecialCaseCtx->knn.pq);
 }
 
 static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
@@ -971,27 +970,32 @@ static void noOp(searchReducerCtx *rCtx){
 static void knnPostProcess(searchReducerCtx *rCtx) {
   specialCaseCtx* reducerSpecialCaseCtx = rCtx->reduceSpecialCaseCtx;
   RedisModule_Assert(reducerSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN);
-  size_t numberOfResults = heap_count(reducerSpecialCaseCtx->knn.pq);
-  for (size_t i = 0; i < numberOfResults; i++) {
-    scoredSearchResultWrapper* wrappedResult = heap_poll(reducerSpecialCaseCtx->knn.pq);
-    searchResult* res = wrappedResult->result;
-    rm_free(wrappedResult);
-    if(heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-       heap_offerx(rCtx->pq, res);
-    }
-    else {
-      searchResult *smallest = heap_peek(rCtx->pq);
-      int c = cmp_results(res, smallest, rCtx->searchCtx);
-      if (c < 0) {
-        smallest = heap_poll(rCtx->pq);
+  if(reducerSpecialCaseCtx->knn.pq) {
+    size_t numberOfResults = heap_count(reducerSpecialCaseCtx->knn.pq);
+    for (size_t i = 0; i < numberOfResults; i++) {
+      scoredSearchResultWrapper* wrappedResult = heap_poll(reducerSpecialCaseCtx->knn.pq);
+      searchResult* res = wrappedResult->result;
+      rm_free(wrappedResult);
+      if(heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
         heap_offerx(rCtx->pq, res);
-        free(smallest);
-      } else {
-        free(res);
+      }
+      else {
+        searchResult *smallest = heap_peek(rCtx->pq);
+        int c = cmp_results(res, smallest, rCtx->searchCtx);
+        if (c < 0) {
+          smallest = heap_poll(rCtx->pq);
+          heap_offerx(rCtx->pq, res);
+          free(smallest);
+        } else {
+          free(res);
+        }
       }
     }
+    heap_free(reducerSpecialCaseCtx->knn.pq);
   }
-  heap_free(reducerSpecialCaseCtx->knn.pq);
+  // We can always get at most K results
+  rCtx->totalReplies = heap_count(rCtx->pq);
+
 }
 
 static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
@@ -1168,6 +1172,10 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
           rCtx.postProcess = knnPostProcess;
           rCtx.reduceSpecialCaseCtx = knnCtx;
           break;
+        }
+        else {
+          rCtx.postProcess = knnPostProcess;
+          rCtx.reduceSpecialCaseCtx = knnCtx;
         }
       }
     }
