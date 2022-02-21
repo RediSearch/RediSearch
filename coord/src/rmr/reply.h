@@ -11,6 +11,7 @@
 #define MR_REPLY_NIL 4
 #define MR_REPLY_STATUS 5
 #define MR_REPLY_ERROR 6
+#define MR_REPLY_DOUBLE 7
 
 typedef struct redisReply MRReply;
 
@@ -20,6 +21,10 @@ static inline void MRReply_Free(MRReply *reply) {
 
 static inline int MRReply_Type(MRReply *reply) {
   return reply->type;
+}
+
+static inline double MRReply_Double(MRReply *reply) {
+  return reply->dval;
 }
 
 static inline long long MRReply_Integer(MRReply *reply) {
