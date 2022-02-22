@@ -1,4 +1,5 @@
 
+from sys import flags
 import unittest
 from random import random, seed
 from includes import *
@@ -240,3 +241,36 @@ def testDocTableInfo(env):
     env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(int(d['doc_table_size_mb']), 0)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
+
+def testVecsimInfo(env):
+    n = 200
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n)
+
+    d = ft_info_to_dict(env, 'idx')
+    env.assertEqual(int(d['num_docs']), 0)
+    env.assertEqual(float(d['vector_index_sz_mb']), 0)
+
+    for x in range(n):
+        conn.execute_command('HSET', str(x), 'v', 'aaaaaaaa')
+
+    # check
+    d = ft_info_to_dict(env, 'idx')
+    env.assertEqual(int(d['num_docs']), n)
+    vs_index_size1 = float(d['vector_index_sz_mb'])
+    env.assertGreater(vs_index_size1, 0)
+
+    # check size after an update with identical vector
+    conn.execute_command('HSET', '0', 'v', 'bbbbbbbb')
+    d = ft_info_to_dict(env, 'idx')
+    env.assertEqual(int(d['num_docs']), n)
+    vs_index_size2 = float(d['vector_index_sz_mb'])
+    env.assertEqual(vs_index_size1, vs_index_size2)
+
+    # check 0 after deletion
+    for x in range(n):
+        conn.execute_command('DEL', str(x))
+    d = ft_info_to_dict(env, 'idx')
+    env.assertEqual(int(d['num_docs']), 0)
+    # adding 16 bytes per vector due to memory management of vector index.
+    env.assertGreaterEqual(vs_index_size1 + (n * 0.00001525878), float(d['vector_index_sz_mb']))
