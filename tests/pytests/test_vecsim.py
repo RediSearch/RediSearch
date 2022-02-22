@@ -599,12 +599,14 @@ def test_hybrid_query_batches_non_vector_score(env):
     # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
     expected_res_1 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '2', ['__v_score', '10368', 't', 'text value'], '92', '2', ['__v_score', '8192', 't', 'text value'], '93', '2', ['__v_score', '6272', 't', 'text value'], '94', '2', ['__v_score', '4608', 't', 'text value'], '95', '2', ['__v_score', '3200', 't', 'text value'], '96', '2', ['__v_score', '2048', 't', 'text value'], '97', '2', ['__v_score', '1152', 't', 'text value'], '98', '2', ['__v_score', '512', 't', 'text value'], '99', '2', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_1)
-    execute_hybrid_query(env, '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True).equal(expected_res_1)
+    if env.isCluster():
+        execute_hybrid_query(env, '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True).equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
     expected_res_2 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_2)
-    execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True).equal(expected_res_2)
+    if env.isCluster():
+        execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True).equal(expected_res_2)
 
 
     # use TFIDF.DOCNORM scorer
