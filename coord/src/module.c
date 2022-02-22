@@ -547,6 +547,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   req->withExplainScores = RMUtil_ArgExists("EXPLAINSCORE", argv, argc, argvOffset) != 0;
   req->specialCases = NULL;
   req->requiredFields = NULL;
+ 
 
 
   req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
@@ -588,6 +589,9 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
       return NULL;
     }
     prepareSortbyCase(req, argv, argc, sortByIndex);
+  }
+  else {
+    req->withSortby = false;
   }
 
   // Note: currently there is only one single case. For extending those cases we should use a trie here.
