@@ -588,10 +588,6 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
       return NULL;
     }
     prepareSortbyCase(req, argv, argc, sortByIndex);
-  } else if(req->withSortingKeys) {
-    // In case we have sorting keys request without sort by.
-    free(req);
-    return NULL;
   }
 
   // Note: currently there is only one single case. For extending those cases we should use a trie here.
@@ -798,6 +794,10 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
   if(specialCasesMaxOffset > 0) {
     offsets->firstField=specialCasesMaxOffset+1;
     offsets->step=offsets->firstField+1;
+  }
+  else if(ctx->withSortingKeys) {
+    offsets->step++;
+    offsets->sortKey = offsets->firstField++;
   }
 
   // nocontent - one less field, and the offset is -1 to avoid parsing it
