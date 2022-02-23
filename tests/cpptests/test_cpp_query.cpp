@@ -254,8 +254,8 @@ TEST_F(QueryTest, testParser) {
   // Test simple hybrid vector query
   assertValidQuery("(KNN)=>[KNN 10 @vec_field $BLOB]", ctx); // using KNN command in other context
 
-  // assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
-  // assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(hello world)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(@title:hello)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB]", ctx);
@@ -273,36 +273,8 @@ TEST_F(QueryTest, testParser) {
 
   assertValidQuery("@title:((hello world)|((hello world)|(hallo world|werld) | hello world werld))", ctx);
   assertValidQuery("(hello world)|((hello world)|(hallo world|werld) | hello world werld)", ctx);
-  // const char *vqt = "(hello world)|((hello world)|(hallo world|werld) | hello world werld)";
-  // QASTCXX vast;
-  // vast.setContext(&ctx);
-  // ASSERT_TRUE(vast.parse(vqt));
-  // QAST_Print(&vast, ctx.spec);
 
-  // UNION {
-  //   INTERSECT {
-  //     hello
-  //     world
-  //   }
-  //   UNION {
-  //     INTERSECT {
-  //       hello
-  //       world
-  //     }
-  //     UNION {
-  //       INTERSECT {
-  //         hallo
-  //         world
-  //       }
-  //       werld
-  //     }
-  //     INTERSECT {
-  //       hello
-  //       world
-  //       werld
-  //     }
-  //   }
-  // }
+  assertValidQuery("hello 13 again", ctx);
 
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;
