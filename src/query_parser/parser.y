@@ -1,21 +1,23 @@
+
+// The priorities here are very important. please modify with care and test your changes!
+
 %left LOWEST.
-
-%right LP LB LSQB.
-%left RP RB RSQB.
-// needs to be above lp/rp
-%left MODIFIER.
-
-%left TILDE.
-%left MINUS.
 
 %left TEXTEXPR.
 
-%left OR.
 %left ORX.
-%left TERM.
-%left AND.
+%left OR.
 
+%left MODIFIER.
+
+%left RP RB RSQB.
+
+%left TERM.
 %left QUOTE.
+%left LP LB LSQB.
+
+%left TILDE MINUS.
+%left AND.
 
 %left ARROW.
 %left COLON.
@@ -244,6 +246,8 @@ star ::= STAR.
 
 star ::= LP star RP.
 
+// This rule switches from text contex to regular context.
+// In general, we want to stay in text contex as long as we can (mostly for use of field modifiers).
 expr(A) ::= text_expr(B). [TEXTEXPR] {
   A = B;
 }
@@ -270,7 +274,27 @@ expr(A) ::= expr(B) expr(C) . [AND] {
     }
 }
 
+// This rule is needed for queries like "hello (world @loc:[15.65 -15.65 30 ft])", when we descover too late that
+// inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 expr(A) ::= text_expr(B) expr(C) . [AND] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
+}
+
+expr(A) ::= expr(B) text_expr(C) . [AND] {
     int rv = one_not_null(B, C, (void**)&A);
     if (rv == NODENN_BOTH_INVALID) {
         A = NULL;
@@ -344,7 +368,30 @@ union(A) ::= union(B) OR expr(C). [ORX] {
     }
 }
 
+// This rule is needed for queries like "hello (world @loc:[15.65 -15.65 30 ft])", when we descover too late that
+// inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 union(A) ::= text_expr(B) OR expr(C) . [OR] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+}
+
+union(A) ::= expr(B) OR text_expr(C) . [OR] {
     int rv = one_not_null(B, C, (void**)&A);
     if (rv == NODENN_BOTH_INVALID) {
         A = NULL;
