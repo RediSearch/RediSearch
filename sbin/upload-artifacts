@@ -43,6 +43,7 @@ OS=$($READIES/bin/platform --os)
 [[ $OSNICK == focal ]] && OSNICK=ubuntu20.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
+[[ $OSNICK == ol8 ]] && OSNICK=rhel8
 
 PLATFORM="$OS-$OSNICK-$ARCH"
 
@@ -87,14 +88,14 @@ s3_upload_file() {
 	local s3_dir="$2"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
 	
-	$OP python2 -m awscli s3 cp $file $s3_dir --acl public-read --no-progress
+	$OP python3 -m awscli s3 cp $file $s3_dir --acl public-read --no-progress
 }
 
 s3_ls() {
 	local s3_dir="$1"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
 	
-	$OP python2 -m awscli s3 ls $s3_dir
+	$OP python3 -m awscli s3 ls $s3_dir
 }
 
 s3_upload() {

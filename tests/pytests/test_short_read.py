@@ -186,7 +186,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
     for i in range(1, num_keys + 1):
         if isHash:
             cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, 'a' + rand_name(5), rand_num(2), 'b' + rand_name(5), rand_num(3)]
-            env.assertEqual(conn.execute_command(*cmd), 2L)
+            env.assertEqual(conn.execute_command(*cmd), 2)
         else:
             cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'}']
             env.assertOk(conn.execute_command(*cmd))
@@ -499,9 +499,9 @@ def sendShortReads(env, rdb_file, expected_index):
     add_index(env, False, 'idxBackup2', 'b', 5, 10)
 
     res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
-    env.assertEqual(res[0], 5L)
+    env.assertEqual(res[0], 5)
     res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
-    env.assertEqual(res[0], 5L)
+    env.assertEqual(res[0], 5)
 
     with open(rdb_file, mode='rb') as f:
         full_rdb = f.read()
@@ -569,9 +569,9 @@ def runShortRead(env, data, total_len, expected_index):
             # Verify original data, that existed before the failed attempt to short-read, is restored
             env.assertEqual(res, ['idxBackup2', 'idxBackup1'])
             res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
-            env.assertEqual(res[0], 5L)
+            env.assertEqual(res[0], 5)
             res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
-            env.assertEqual(res[0], 5L)
+            env.assertEqual(res[0], 5)
         else:
             # Verify new data was loaded and the backup was discarded
             # TODO: How to verify internal backup was indeed discarded

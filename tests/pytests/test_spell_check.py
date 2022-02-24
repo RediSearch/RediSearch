@@ -190,7 +190,7 @@ def testSpellCheckResultsOrder():
 
 def testSpellCheckDictReleadRDB():
     env = Env()
-    env.expect('FT.DICTADD test 1 2 3').equal(3L)
+    env.expect('FT.DICTADD test 1 2 3').equal(3)
     for _ in env.retry_with_rdb_reload():
         env.expect('FT.DICTDUMP test').equal(['1', '2', '3'])
 

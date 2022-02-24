@@ -19,72 +19,72 @@ def testProfileSearch(env):
 
   # test WILDCARD
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
-  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'WILDCARD', 'Counter', 2L]])
+  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'WILDCARD', 'Counter', 2]])
 
   # test EMPTY
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'redis', 'nocontent')
-  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'EMPTY', 'Counter', 0L]])
+  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'EMPTY', 'Counter', 0]])
 
   # test single term
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello', 'nocontent')
-  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]])
+  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]])
 
   # test UNION
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
-  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'UNION', 'Counter', 2L, 'Child iterators',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1L, 'Size', 1L]]] 
+  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'UNION', 'Counter', 2, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test INTERSECT
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
-  expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 0L, 'Child iterators',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1L, 'Size', 1L]]]
+  expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 0, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test NOT
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '-hello', 'nocontent')
-  expected_res = ['Iterators profile', ['Type', 'NOT', 'Counter', 1L, 'Child iterator',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]
+  expected_res = ['Iterators profile', ['Type', 'NOT', 'Counter', 1, 'Child iterator',
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test OPTIONAL
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '~hello', 'nocontent')
-  expected_res = ['Iterators profile', ['Type', 'OPTIONAL', 'Counter', 2L, 'Child iterator',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]
+  expected_res = ['Iterators profile', ['Type', 'OPTIONAL', 'Counter', 2, 'Child iterator',
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test PREFIX
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hel*', 'nocontent')
-  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 1L, 'Child iterators',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]
+  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 1, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test FUZZY
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '%%hel%%', 'nocontent')
-  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'FUZZY - hel', 'Counter', 1L, 'Child iterators',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]
+  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'FUZZY - hel', 'Counter', 1, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test ID LIST iter with INKEYS
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello', 'inkeys', 1, '1')
-  expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-                    ['Type', 'ID-LIST', 'Counter', 1L],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]
+  expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                    ['Type', 'ID-LIST', 'Counter', 1],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test no crash on reaching deep reply array
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello(hello(hello(hello(hello))))', 'nocontent')
-  expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                    ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                      ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-                        ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                        ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]]]]
+  expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                    ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                        ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                        ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   if server_version_less_than(env, '6.2.0'):
@@ -92,17 +92,17 @@ def testProfileSearch(env):
 
   actual_res = env.execute_command('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
   expected_res = ['Iterators profile',
-                  ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                    ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                      ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-                        ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                        ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                          ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-                            ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                            ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]]]]]
+                  ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                    ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                        ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                        ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                          ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                            ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                            ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]]]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
 def testProfileSearchLimited(env):
@@ -117,9 +117,9 @@ def testProfileSearchLimited(env):
   conn.execute_command('hset', '4', 't', 'helowa')
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'limited', 'query',  '%hell% hel*')
-  expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 3L, 'Child iterators',
-                  ['Type', 'UNION', 'Query type', 'FUZZY - hell', 'Counter', 3L, 'Child iterators', 'The number of iterators in the union is 3'],
-                  ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 3L, 'Child iterators', 'The number of iterators in the union is 4']]]
+  expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 3, 'Child iterators',
+                  ['Type', 'UNION', 'Query type', 'FUZZY - hell', 'Counter', 3, 'Child iterators', 'The number of iterators in the union is 3'],
+                  ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 3, 'Child iterators', 'The number of iterators in the union is 4']]]
   env.assertEqual(actual_res[1][3], expected_res)
 
 def testProfileAggregate(env):
@@ -132,18 +132,18 @@ def testProfileAggregate(env):
   conn.execute_command('hset', '2', 't', 'world')
 
   expected_res = ['Result processors profile',
-                  ['Type', 'Index', 'Counter', 1L],
-                  ['Type', 'Loader', 'Counter', 1L],
-                  ['Type', 'Grouper', 'Counter', 1L]]
+                  ['Type', 'Index', 'Counter', 1],
+                  ['Type', 'Loader', 'Counter', 1],
+                  ['Type', 'Grouper', 'Counter', 1]]
   actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', 'hello',
                                     'groupby', 1, '@t',
                                     'REDUCE', 'count', '0', 'as', 'sum')
   env.assertEqual(actual_res[1][4], expected_res)
 
   expected_res = ['Result processors profile',
-                  ['Type', 'Index', 'Counter', 2L],
-                  ['Type', 'Loader', 'Counter', 2L],
-                  ['Type', 'Projector - Function startswith', 'Counter', 2L]]
+                  ['Type', 'Index', 'Counter', 2],
+                  ['Type', 'Loader', 'Counter', 2],
+                  ['Type', 'Projector - Function startswith', 'Counter', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
                 'load', 1, 't',
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix')
@@ -181,9 +181,9 @@ def testProfileNumeric(env):
   conn.execute_command('hset', '5', 'n', '-14')
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[0,100]', 'nocontent')
-  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 4L, 'Child iterators',
-                    ['Type', 'NUMERIC', 'Term', '-14 - 1.35', 'Counter', 1L, 'Size', 2L],
-                    ['Type', 'NUMERIC', 'Term', '1.35 - 8.2', 'Counter', 3L, 'Size', 3L]]]
+  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 4, 'Child iterators',
+                    ['Type', 'NUMERIC', 'Term', '-14 - 1.35', 'Counter', 1, 'Size', 2],
+                    ['Type', 'NUMERIC', 'Term', '1.35 - 8.2', 'Counter', 3, 'Size', 3]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
 def testProfileTag(env):
@@ -198,7 +198,7 @@ def testProfileTag(env):
 
   # tag profile
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
-  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Counter', 2L, 'Size', 2L]])
+  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Counter', 2, 'Size', 2]])
 
 def testResultProcessorCounter(env):
   env.skipOnCluster()
@@ -210,10 +210,10 @@ def testResultProcessorCounter(env):
   conn.execute_command('hset', '2', 't', 'bar')
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo|bar', 'limit', '0', '0')
-  env.assertEqual(actual_res[0], [2L])
+  env.assertEqual(actual_res[0], [2])
   res =  ['Result processors profile',
-            ['Type', 'Index', 'Counter', 2L],
-            ['Type', 'Counter', 'Counter', 1L]]
+            ['Type', 'Index', 'Counter', 2],
+            ['Type', 'Counter', 'Counter', 1]]
   env.assertEqual(actual_res[1][4], res)
 
 def testProfileMaxPrefixExpansion(env):
@@ -242,19 +242,19 @@ def testNotIterator(env):
   conn.execute_command('HSET', '2', 't', 'bar')
 
   #before the fix, we would not get an empty iterator
-  res = [[1L, '1', ['t', 'foo']],
-         [['Total profile time'], 
+  res = [[1, '1', ['t', 'foo']],
+         [['Total profile time'],
           ['Parsing time'],
           ['Pipeline creation time'],
           ['Iterators profile',
-            ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
-              ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1L, 'Size', 1L],
-              ['Type', 'NOT', 'Counter', 1L, 'Child iterator',
-                ['Type', 'EMPTY', 'Counter', 0L]]]],
+            ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+              ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1],
+              ['Type', 'NOT', 'Counter', 1, 'Child iterator',
+                ['Type', 'EMPTY', 'Counter', 0]]]],
           ['Result processors profile',
-            ['Type', 'Index', 'Counter', 1L],
-            ['Type', 'Scorer', 'Counter', 1L],
-            ['Type', 'Sorter', 'Counter', 1L], ['Type',
-            'Loader', 'Counter', 1L]]]]
+            ['Type', 'Index', 'Counter', 1],
+            ['Type', 'Scorer', 'Counter', 1],
+            ['Type', 'Sorter', 'Counter', 1], ['Type',
+            'Loader', 'Counter', 1]]]]
 
   env.expect('ft.profile', 'idx', 'search', 'query', 'foo -@t:baz').equal(res)
