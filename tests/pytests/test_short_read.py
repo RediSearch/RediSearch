@@ -18,16 +18,11 @@ from enum import Enum, auto
 from common import *
 
 
-Defaults.decode_responses = True
-
 CREATE_INDICES_TARGET_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
-
-CODE_COVERAGE = int(os.getenv('CODE_COVERAGE', '0'))
-SANITIZER = int(os.getenv('SANITIZER', '0'))
 
 
 RDBS_SHORT_READS = [
@@ -184,10 +179,10 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
                        get_identifier('myScore', isHash), 'numeric',
                        ])
     conn = getConnectionByEnv(env)
-    env.assertOk(conn.execute_command(*cmd_create))
-    waitForIndex(conn, index_name)
-    env.assertOk(conn.execute_command('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón'))
-    env.assertOk(conn.execute_command('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar'))
+    env.assertOk(env.execute_command(*cmd_create))
+    waitForIndex(env, index_name)
+    env.assertOk(env.execute_command('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón'))
+    env.assertOk(env.execute_command('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar'))
 
     # Add keys
     for i in range(1, num_keys + 1):
@@ -476,7 +471,7 @@ def testShortReadSearch(env):
     if env.env.endswith('existing-env') and os.environ.get('CI'):
         env.skip()
 
-    if OSNICK == 'macos':
+    if OS == 'macos':
         env.skip()
 
     seed = str(time.time())
