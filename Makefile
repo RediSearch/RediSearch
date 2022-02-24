@@ -5,6 +5,10 @@ else
 DRY_RUN:=
 endif
 
+ifneq ($(BB),)
+SLOW:=1
+endif
+
 ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
 COV=1
 endif
@@ -470,7 +474,11 @@ else
 REJSON_SO=
 endif
 
+ifneq ($(SLOW),1)
 RLTEST_PARALLEL ?= 1
+else
+RLTEST_PARALLEL=0
+endif
 
 test: $(REJSON_SO)
 ifneq ($(TEST),)

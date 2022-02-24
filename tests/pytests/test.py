@@ -369,6 +369,7 @@ def testReplace(env):
         env.assertEqual('doc1', res[1])
 
 def testDrop(env):
+    env.skipOnCluster()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo'))
@@ -3326,7 +3327,7 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
 
 def testNegativeOnly(env):
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     conn.execute_command('HSET', 'doc1', 'not', 'foo')
 
     env.expect('FT.SEARCH idx *').equal([1, 'doc1', ['not', 'foo']])
@@ -3334,7 +3335,7 @@ def testNegativeOnly(env):
 
 def testNotOnly(env):
   conn = getConnectionByEnv(env)
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT').ok()
   conn.execute_command('HSET', 'a', 'txt1', 'hello', 'txt2', 'world')
   conn.execute_command('HSET', 'b', 'txt1', 'world', 'txt2', 'hello')
   env.assertEqual(toSortedFlatList(env.cmd('ft.search idx !world')), toSortedFlatList([1, 'b', ['txt1', 'world', 'txt2', 'hello']]))
@@ -3394,12 +3395,12 @@ def testSchemaWithAs(env):
 def testSchemaWithAs_Alter(env):
   conn = getConnectionByEnv(env)
   # sanity
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt', 'hello')
   conn.execute_command('HSET', 'b', 'foo', 'world')
 
   # FT.ALTER
-  conn.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'foo', 'AS', 'bar', 'TEXT')
+  env.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'foo', 'AS', 'bar', 'TEXT')
   waitForIndex(env, 'idx')
   env.expect('ft.search idx @bar:hello').equal([0])
   env.expect('ft.search idx @bar:world').equal([1, 'b', ['foo', 'world']])
@@ -3456,7 +3457,11 @@ def testMod1452(env):
 def test_mod1548(env):
     conn = getConnectionByEnv(env)
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$["prod:id"]', 'AS', 'prod:id', 'TEXT', '$.prod:id', 'AS', 'prod:id_unsupported', 'TEXT', '$.name', 'AS', 'name', 'TEXT', '$.categories', 'AS', 'categories', 'TAG', 'SEPARATOR' ,',').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$["prod:id"]', 'AS', 'prod:id', 'TEXT',
+               '$.prod:id', 'AS', 'prod:id_unsupported', 'TEXT',
+               '$.name', 'AS', 'name', 'TEXT',
+               '$.categories', 'AS', 'categories', 'TAG', 'SEPARATOR' ,',').ok()
     waitForIndex(env, 'idx')
 
     res = conn.execute_command('JSON.SET', 'prod:1', '$', '{"prod:id": "35114964", "SKU": "35114964", "name":"foo", "categories":"abcat0200000"}')
@@ -3465,15 +3470,15 @@ def test_mod1548(env):
     env.assertOk(res)
 
     # Supported jsonpath
-    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'name')
+    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'name')
     env.assertEqual(res,  [2, 'prod:1', ['name', 'foo'], 'prod:2', ['name', 'bar']])
 
     # Supported jsonpath (actual path contains a colon using the bracket notation)
-    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id')
+    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id')
     env.assertEqual(res,  [2, 'prod:1', ['prod:id', '35114964'], 'prod:2', ['prod:id', '35114965']])
 
     # Currently unsupported jsonpath (actual path contains a colon using the dot notation)
-    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
+    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
     env.assertEqual(res, [2, 'prod:1', [], 'prod:2', []])
 
 def test_empty_field_name(env):

@@ -1,10 +1,11 @@
 from common import getConnectionByEnv
 
 def testFlushall(env):
+  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
-  env.expect('FT.ADD idx doc1 1 FIELDS t RediSearch').ok()
-  env.expect('FT.SEARCH idx *').equal([1, 'doc1', ['t', 'RediSearch']])
+  env.expect('FT.ADD', 'idx', 'doc1', 1, 'FIELDS', 't', 'RediSearch').ok()
+  env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc1', ['t', 'RediSearch']])
   res = conn.execute_command('KEYS', '*')
   env.assertEqual(res, ['doc1'])
 
@@ -14,7 +15,7 @@ def testFlushall(env):
   env.expect('KEYS *').equal([])
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
-  env.expect('FT.ADD idx doc1 1 FIELDS t RediSearch').ok()
-  env.expect('FT.SEARCH idx *').equal([1, 'doc1', ['t', 'RediSearch']])
+  env.expect('FT.ADD', 'idx', 'doc1', '1', 'FIELDS', 't', 'RediSearch').ok()
+  env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc1', ['t', 'RediSearch']])
   res = conn.execute_command('KEYS', '*')
   env.assertEqual(res, ['doc1'])
