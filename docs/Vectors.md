@@ -14,7 +14,7 @@ At present, the key functionalites offered are:
 
 * Realtime vector update/delete - triggering update of the index.
 
-* Top K queries supporting 3 distance metrics to measure the degree of similarity between vectors. Metrics:
+* K nearest neighbors queries supporting 3 distance metrics to measure the degree of similarity between vectors. Metrics:
 
     * L2 - Euclidean distance between two vectors.
 
@@ -38,7 +38,7 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
 
     **HNSW** - Hierarchical Navigable Small World algorithm.
 
-    The `algorithm` attribute specify which algorithm to use when searching for the top-k most similar vectors in the index.
+    The `algorithm` attribute specify which algorithm to use when searching for the k most similar vectors in the index.
 
 * `{count}`
 
@@ -121,7 +121,7 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
         Number the maximal allowed potential outgoing edges candidates for each node in the graph, during the graph building. Defaults to 200.
 
     * **EF_RUNTIME** - 
-        Number the maximal allowed potential candidates during the top-K query. Defaults to 10.
+        Number the maximal allowed potential candidates during the KNN query. Defaults to 10.
 
 * Example
 
@@ -143,15 +143,15 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
 
 We allow using vector similarity queries in the `FT.SEARCH` "query" parameter. The syntax for vector similarity queries is `*=>[{vector similarity query}]` for running the query on an entire vector field, or `{primary filter query}=>[{vector similarity query}]` for running similarity query on the result of the primary filter query.
 
-As of version 2.4, we allow vector similarity to be used **once** in the query, and on the entire query as its primary filter.
+As of version 2.4, we allow vector similarity to be used **once** in the query.
 
-* Invalid example: `"(@t:hello)=>[TOP_K 10 @v $B] AND @year:[2020 2022]"`
+* Invalid example: `"(@title:Matrix)=>[KNN 10 @v $B] @year:[2020 2022]"`
 
-* Valid example: `"(@t:hello AND @year:[2020 2022])=>[TOP_K 10 @v $B]"`
+* Valid example: `"(@title:Matrix @year:[2020 2022])=>[KNN 10 @v $B]"`
 
 The `{vector similarity query}` part inside the square brackets needs to be in the following format:
 
-    TOP_K { number | $number_attribute } @{vector field} $blob_attribute [{vector query param name} {value|$value_attribute} [...]] [ AS {score field name | $score_field_name_attribute}]
+    KNN { number | $number_attribute } @{vector field} $blob_attribute [{vector query param name} {value|$value_attribute} [...]] [ AS {score field name | $score_field_name_attribute}]
 
 Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](Commands.md#ftsearch) section.
 
@@ -168,17 +168,17 @@ Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](C
 ### Examples for querying vector fields
 
 *   ```
-    FT.SEARCH idx "*=>[TOP_K 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c"
+    FT.SEARCH idx "*=>[KNN 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c"
     ```
 
 *   ```
-    FT.SEARCH idx "*=>[TOP_K 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY vec_score
+    FT.SEARCH idx "*=>[KNN 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY vec_score
     ```
 
 *   ```
-    FT.SEARCH idx "*=>[TOP_K $K @vec $BLOB EF_RUNTIME $EF]" PARAMS 6 BLOB "\12\a9\f5\6c" K 10 EF 150
+    FT.SEARCH idx "*=>[KNN $K @vec $BLOB EF_RUNTIME $EF]" PARAMS 6 BLOB "\12\a9\f5\6c" K 10 EF 150
     ```
 
 *   ```
-    FT.SEARCH idx "*=>[TOP_K $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores
+    FT.SEARCH idx "*=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores
     ```
