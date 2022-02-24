@@ -274,7 +274,7 @@ expr(A) ::= expr(B) expr(C) . [AND] {
     }
 }
 
-// This rule is needed for queries like "hello (world @loc:[15.65 -15.65 30 ft])", when we descover too late that
+// This rule is needed for queries like "hello (world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 expr(A) ::= text_expr(B) expr(C) . [AND] {
     int rv = one_not_null(B, C, (void**)&A);
@@ -312,6 +312,8 @@ expr(A) ::= expr(B) text_expr(C) . [AND] {
     }
 }
 
+// This rule is identical to "expr ::= expr expr",  "expr ::= text_expr expr", "expr ::= expr text_expr",
+// but keeps the text context
 text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
     int rv = one_not_null(B, C, (void**)&A);
     if (rv == NODENN_BOTH_INVALID) {
@@ -368,7 +370,7 @@ union(A) ::= union(B) OR expr(C). [ORX] {
     }
 }
 
-// This rule is needed for queries like "hello (world @loc:[15.65 -15.65 30 ft])", when we descover too late that
+// This rule is needed for queries like "hello|(world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 union(A) ::= text_expr(B) OR expr(C) . [OR] {
     int rv = one_not_null(B, C, (void**)&A);
@@ -416,6 +418,7 @@ text_expr(A) ::= text_union(B) . [ORX] {
   A = B;
 }
 
+// This rule is identical to "union ::= expr OR expr", but keeps the text context.
 text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
     int rv = one_not_null(B, C, (void**)&A);
     if (rv == NODENN_BOTH_INVALID) {
