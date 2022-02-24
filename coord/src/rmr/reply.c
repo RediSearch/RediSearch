@@ -105,10 +105,6 @@ int MRReply_ToDouble(MRReply *reply, double *d) {
   if (reply == NULL) return 0;
 
   switch (MRReply_Type(reply)) {
-
-    case MR_REPLY_DOUBLE:
-      *d = MRReply_Double(reply);
-      return 1;
     case MR_REPLY_INTEGER:
       *d = (double)MRReply_Integer(reply);
       return 1;
