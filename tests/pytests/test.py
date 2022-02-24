@@ -541,7 +541,7 @@ def testOptional(env):
         'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
     env.assertEqual(res, expected)
     res = r.execute_command(
-        'ft.search', 'idx', '~world ~werld hello', 'withscores', 'nocontent', 'scorer', 'DISMAX')
+        'ft.search', 'idx', '~world ~(werld hello)', 'withscores', 'nocontent', 'scorer', 'DISMAX')
     env.assertEqual(res, [3L, 'doc3', '3', 'doc2', '2', 'doc1', '1'])
 
 def testExplain(env):
