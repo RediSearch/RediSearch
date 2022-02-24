@@ -6,6 +6,7 @@ from functools import wraps
 import signal
 import platform
 import itertools
+from redis.client import NEVER_DECODE
 
 from includes import *
 

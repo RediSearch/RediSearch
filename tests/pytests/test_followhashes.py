@@ -521,7 +521,7 @@ def testRestore(env):
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
     env.expect('HSET doc1 test foo').equal(1)
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-    dump = env.cmd('dump doc1', **{'NEVER_DECODE': []})
+    dump = env.cmd('dump doc1', **{NEVER_DECODE: []})
     env.expect('DEL doc1').equal(1)
     env.expect('FT.SEARCH idx foo').equal([0])
     env.expect('RESTORE', 'doc1', 0, dump)
