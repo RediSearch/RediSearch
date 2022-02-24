@@ -13,15 +13,22 @@ import gevent.queue
 import gevent.server
 import gevent.socket
 import time
-
+from RLTest import Defaults
+from enum import Enum, auto
 from common import *
-from includes import *
+
+
+Defaults.decode_responses = True
 
 CREATE_INDICES_TARGET_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
+
+CODE_COVERAGE = int(os.getenv('CODE_COVERAGE', '0'))
+SANITIZER = int(os.getenv('SANITIZER', '0'))
+
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
@@ -239,44 +246,45 @@ class Connection(object):
         return self.sock.getsockname()[1]
 
     def read(self, bytes):
-        return self.sockf.read(bytes)
+        return self.decoder(self.sockf.read(bytes))
+
+    def read(self, size):
+        return self.decoder(self.sockf.read(size))
 
     def read_at_most(self, bytes, timeout=0.01):
         self.sock.settimeout(timeout)
-        return self.sock.recv(bytes)
+        return self.decoder(self.sock.recv(bytes))
 
     def send(self, data):
-        self.sockf.write(data)
+        self.sockf.write(self.encoder(data))
         self.sockf.flush()
+
+    def encoder(self, value):
+        if isinstance(value, str):
+            return value.encode('utf-8')
+        else:
+            return value
+
+    def decoder(self, value):
+        if isinstance(value, bytes):
+            return value.decode('utf-8')
+        else:
+            return value
 
     def readline(self):
-        return self.sockf.readline()
-
-    def send_bulk_header(self, data_len):
-        self.sockf.write('$%d\r\n' % data_len)
-        self.sockf.flush()
+        return self.decoder(self.sockf.readline())
 
     def send_bulk(self, data):
-        self.sockf.write('$%d\r\n%s\r\n' % (len(data), data))
+        data = self.encoder(data)
+        binary_data = b'$%d\r\n%s\r\n' % (len(data), data)
+        self.sockf.write(binary_data)
         self.sockf.flush()
 
     def send_status(self, data):
-        self.sockf.write('+%s\r\n' % data)
+        binary_data = b'+%s\r\n' % self.encoder(data)
+        self.sockf.write(binary_data)
         self.sockf.flush()
 
-    def send_error(self, data):
-        self.sockf.write('-%s\r\n' % data)
-        self.sockf.flush()
-
-    def send_integer(self, data):
-        self.sockf.write(':%u\r\n' % data)
-        self.sockf.flush()
-
-    def send_mbulk(self, data):
-        self.sockf.write('*%d\r\n' % len(data))
-        for elem in data:
-            self.sockf.write('$%d\r\n%s\r\n' % (len(elem), elem))
-        self.sockf.flush()
 
     def read_mbulk(self, args_count=None):
         if args_count is None:
@@ -354,7 +362,7 @@ class Connection(object):
                 raise Exception('Invalid bulk response: %s' % line)
             if bulk_len == -1:
                 return None
-            data = self.sockf.read(bulk_len + 2)
+            data = self.read(bulk_len + 2)
             if len(data) < bulk_len:
                 self.peer_closed = True
                 self.close()
@@ -442,12 +450,14 @@ class Debug:
         if len(data):
             ch = data[self.dbg_ndx]
             printable_ch = ch
-            if ord(ch) < 32 or ord(ch) == 127:
-                printable_ch = '\?'
+            if ch < 32 or ch == 127:
+                printable_ch = '\\?'
+            else:
+                printable_ch = chr(printable_ch)
         else:
             ch = '\0'
-            printable_ch = '\!'  # no data (zero length)
-        self.dbg_str = '{} {:=0{}n}:{:<2}({:<3})'.format(self.dbg_str, self.dbg_ndx, byte_count_width, printable_ch, ord(ch))
+            printable_ch = '\\!'  # no data (zero length)
+        self.dbg_str = '{} {:=0{}n}:{:<2}({:<3})'.format(self.dbg_str, self.dbg_ndx, byte_count_width, printable_ch, ch)
         if not (self.dbg_ndx + 1) % 10:
             self.dbg_str = self.dbg_str + "\n"
         self.dbg_ndx = self.dbg_ndx + 1
@@ -473,9 +483,7 @@ def testShortReadSearch(env):
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
-    try:
-        temp_dir = tempfile.mkdtemp(prefix="short-read_")
-        # TODO: In python3 use "with tempfile.TemporaryDirectory()"
+    with tempfile.TemporaryDirectory(prefix="short-read_") as temp_dir:
         if not downloadFiles(temp_dir):
             env.assertTrue(False, "downloadFiles failed")
 
@@ -486,8 +494,6 @@ def testShortReadSearch(env):
             fullfilePath = os.path.join(temp_dir, f)
             env.assertNotEqual(fullfilePath, None, message='testShortReadSearch')
             sendShortReads(env, fullfilePath, expected_index)
-    finally:
-        shutil.rmtree(temp_dir)
 
 
 def sendShortReads(env, rdb_file, expected_index):
@@ -526,6 +532,7 @@ def runShortRead(env, data, total_len, expected_index):
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
         res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
+        env.assertTrue(res)
         res = env.cmd('replicaof', '127.0.0.1', shardMock.server_port)
         env.assertTrue(res)
         conn = shardMock.GetConnection()
@@ -549,10 +556,12 @@ def runShortRead(env, data, total_len, expected_index):
         conn.send_status('FULLRESYNC ' + some_guid + ' 0')
         is_shortread = total_len != len(data)
         if is_shortread:
-            conn.send('$%d\r\n%s' % (total_len, data))
+            # Send without the trailing '\r\n' (send data not according to RESP protocol)
+            binary_data = b'$%d\r\n%s' % (total_len, data)
+            conn.send(binary_data)
         else:
-            # Allow to succeed with a full read (protocol expects a trailing '\r\n')
-            conn.send('$%d\r\n%s\r\n' % (total_len, data))
+            # Allow to succeed with a full read (send data according to RESP protocol)
+            conn.send_bulk(data)
         conn.flush()
 
         # Close during replica is waiting for more RDB data (so replica will re-connect to master)
