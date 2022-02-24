@@ -374,16 +374,3 @@ void MRCommand_FPrint(FILE *fd, MRCommand *cmd) {
   }
   fprintf(fd, "\n");
 }
-
-int MRCommand_Contains(MRCommand *cmd, const char *s) {
-  for(int i = 0; i < cmd->num; i++) {
-    if(strcmp(cmd->strs[i], s) == 0) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-const char* MRCommand_Get(MRCommand *cmd, int idx) {
-  return cmd->strs[idx];
-}
