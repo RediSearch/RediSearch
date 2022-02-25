@@ -94,9 +94,9 @@ def testTFIDFScorerExplanation(env):
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
 
-    conn.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
-    conn.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
-    conn.execute_command('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem')
+    env.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
+    env.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
+    env.execute_command('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem')
 
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE')
     env.assertEqual(res[0], 3)
@@ -114,9 +114,6 @@ def testTFIDFScorerExplanation(env):
                                 '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]])
 
     # test depth limit
-
-    # TODO: re-enable this
-    env.skipOnCluster()
 
     res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
     env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',

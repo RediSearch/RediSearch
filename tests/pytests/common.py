@@ -7,6 +7,7 @@ import signal
 import platform
 import itertools
 from redis.client import NEVER_DECODE
+import RLTest
 
 from includes import *
 
@@ -162,8 +163,14 @@ def skipOnCrdtEnv(env):
         env.skip()
 
 def waitForRdbSaveToFinish(env):
+    # info command does not take a key therefore a cluster env is no good here
+    if env is RLTest.Env or env is RLTest.StandardEnv:
+        conn = env.getConnection()
+    else:
+        # probably not an Env but a Connection
+        conn = env
     while True:
-        if not env.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
+        if not conn.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
             break
 
 def forceInvokeGC(env, idx):

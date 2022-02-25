@@ -1410,7 +1410,7 @@ def testNumericRange(env):
 
 def testNotIter(env):
     conn = getConnectionByEnv(env)
-    env.assertOk(conn.execute_command(
+    env.assertOk(env.execute_command(
         'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))
 
     for i in range(8):
@@ -2748,10 +2748,10 @@ def testBadCursor(env):
     env.expect('FT.CURSOR', 'bad', 'idx', '1111').error()
 
 def testGroupByWithApplyError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count')[1]
-    assertEqualIgnoreCluster(env, str(err[0]), 'Invalid number of arguments for split')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').ok()
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').ok()
+    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count')[1][0]
+    assertEqualIgnoreCluster(env, 'Invalid number of arguments for split', str(err))
 
 def testSubStrErrors(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -2874,21 +2874,21 @@ def testMonthOfYear(env):
 
 def testParseTime(env):
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TAG')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TAG')
     conn.execute_command('HSET', 'doc1', 'test', '20210401')
 
     # check for errors
-    err = conn.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime()', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    err = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime()', 'as', 'a')[1][0]
+    env.assertEqual("Invalid arguments for function 'parsetime'", str(err))
 
-    err = conn.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11)', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    err = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11)', 'as', 'a')[1][0]
+    env.assertEqual("Invalid arguments for function 'parsetime'", str(err))
 
-    err = conn.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11,22)', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    err = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11,22)', 'as', 'a')[1][0]
+    env.assertEqual("Invalid type (1) for argument 0 in function 'parsetime'. VALIDATE_ARG__STRING(v, 0) was false.", str(err))
 
     # valid test
-    res = conn.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(@test, "%Y%m%d")', 'as', 'a')
+    res = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(@test, "%Y%m%d")', 'as', 'a')
     assertEqualIgnoreCluster(env, res, [1, ['test', '20210401', 'a', '1617235200']])
 
 def testMathFunctions(env):
@@ -3346,7 +3346,7 @@ def testServerVersion(env):
 def testSchemaWithAs(env):
   conn = getConnectionByEnv(env)
   # sanity
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt', 'hello')
   conn.execute_command('HSET', 'b', 'foo', 'world')
 

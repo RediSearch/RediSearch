@@ -495,9 +495,9 @@ class TestAggregate():
     def testCountError(self):
         # With 0 values
         conn = getConnectionByEnv(self.env)
-        res = conn.execute_command('ft.aggregate', 'games', '*',
-                           'GROUPBY', '2', '@brand', '@price',
-                           'REDUCE', 'COUNT', 0)
+        res = self.env.execute_command('ft.aggregate', 'games', '*',
+                                       'GROUPBY', '2', '@brand', '@price',
+                                       'REDUCE', 'COUNT', 0)
         self.env.assertEqual(len(res), 1245)
 
         # With count 1 and 1 value
@@ -702,8 +702,8 @@ def testLoadAll(env):
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)
-    conn.execute_command('ft.create', 'idx', 'SCHEMA', 'PrimaryKey', 'TEXT', 'SORTABLE',
-                         'CreatedDateTimeUTC', 'NUMERIC', 'SORTABLE')
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 'PrimaryKey', 'TEXT', 'SORTABLE',
+                        'CreatedDateTimeUTC', 'NUMERIC', 'SORTABLE')
     conn.execute_command('HSET', 'doc1', 'PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984')
     conn.execute_command('HSET', 'doc2', 'PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016')
     conn.execute_command('HSET', 'doc3', 'PrimaryKey', '9::362326', 'CreatedDateTimeUTC', '637386176589869952')
@@ -723,27 +723,27 @@ def testLimitIssue(env):
           ['PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016'],
           ['PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000']]
 
-    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
-                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '8')
+    actual_res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+                                     'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                                     'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '8')
     env.assertEqual(actual_res, _res)
 
     res = [_res[0]] + _res[1:3]
-    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
-                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '2')
+    actual_res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+                                     'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                                     'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '2')
     env.assertEqual(actual_res, res)
 
     res = [_res[0]] + _res[2:4]
-    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
-                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '1', '2')
+    actual_res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+                                     'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                                     'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '1', '2')
     env.assertEqual(actual_res, res)
 
     res = [_res[0]] + _res[3:5]
-    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
-                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
+    actual_res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+                                     'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                                     'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
     env.assertEqual(actual_res, res)
 
 def testMaxAggResults(env):
@@ -751,7 +751,7 @@ def testMaxAggResults(env):
         env.skip()
     env = Env(moduleArgs="MAXAGGREGATERESULTS 100")
     conn = getConnectionByEnv(env)
-    conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
     env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
        .contains('LIMIT exceeds maximum of 100')
 
@@ -763,7 +763,7 @@ def testMaxAggInf(env):
 def testLoadPosition(env):
     conn = getConnectionByEnv(env)
     env.execute_command('ft.create', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
-    conn.execute_command('ft.add', 'idx', 'doc1', 1, 'FIELDS', 't1', 'hello', 't2', 'world')
+    conn.execute_command('hset', 'doc1', 't1', 'hello', 't2', 'world')
 
     # LOAD then SORTBY
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1', 'SORTBY', '2', '@t1', 'ASC') \
@@ -779,13 +779,13 @@ def testLoadPosition(env):
 
     # two LOADs with an apply for error
     res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
-                                           'APPLY', '@t2', 'AS', 'load_error',
-                                           'LOAD', '1', 't2')
+                  'APPLY', '@t2', 'AS', 'load_error',
+                  'LOAD', '1', 't2')
     env.assertContains('Value was not found in result', str(res[1]))
 
 def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
-    conn.execute_command('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
+    env.execute_command('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
     for i in range(101):
         conn.execute_command('HSET', 'doc%s' % i, 't', 'text', 'num', i)
 
@@ -793,15 +793,15 @@ def testAggregateGroup0Field(env):
                                     'REDUCE', 'QUANTILE', '2', 'num', '0.95', 'AS', 'q95')
     env.assertEqual(res, [1, ['q95', '95']])
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
-                                    'REDUCE', 'QUANTILE', '2', 'num', '0.9', 'AS', 'q90')
+                  'REDUCE', 'QUANTILE', '2', 'num', '0.9', 'AS', 'q90')
     env.assertEqual(res, [1, ['q90', '90']])
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
-                                    'REDUCE', 'QUANTILE', '2', 'num', '0.5', 'AS', 'q50')
+                  'REDUCE', 'QUANTILE', '2', 'num', '0.5', 'AS', 'q50')
     env.assertEqual(res, [1, ['q50', '50']])
 
 
     conn.execute_command('FLUSHALL')
-    conn.execute_command('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
+    env.execute_command('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
 
     values = [880000.0, 685000.0, 590000.0, 1200000.0, 1170000.0, 1145000.0,
               3950000.0, 620000.0, 758000.0, 4850000.0, 800000.0, 340000.0,
@@ -812,20 +812,20 @@ def testAggregateGroup0Field(env):
 
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
-                                    'REDUCE', 'QUANTILE', '2', 'num', '0.95', 'AS', 'q95')
+                  'REDUCE', 'QUANTILE', '2', 'num', '0.95', 'AS', 'q95')
     env.assertEqual(res, [1, ['q95', '3950000']])
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
-                                    'REDUCE', 'QUANTILE', '2', 'num', '0.9', 'AS', 'q90')
+                  'REDUCE', 'QUANTILE', '2', 'num', '0.9', 'AS', 'q90')
     env.assertEqual(res, [1, ['q90', '2500000']])
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
-                                    'REDUCE', 'QUANTILE', '2', 'num', '0.8', 'AS', 'q80')
+                  'REDUCE', 'QUANTILE', '2', 'num', '0.8', 'AS', 'q80')
     env.assertEqual(res, [1, ['q80', '1380000']])
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
-                                    'REDUCE', 'QUANTILE', '2', 'num', '0.7', 'AS', 'q70')
+                  'REDUCE', 'QUANTILE', '2', 'num', '0.7', 'AS', 'q70')
     env.assertEqual(res, [1, ['q70', '1170000']])
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
-                                    'REDUCE', 'QUANTILE', '2', 'num', '0.6', 'AS', 'q60')
+                  'REDUCE', 'QUANTILE', '2', 'num', '0.6', 'AS', 'q60')
     env.assertEqual(res, [1, ['q60', '880000']])
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
-                                    'REDUCE', 'QUANTILE', '2', 'num', '0.5', 'AS', 'q50')
+                  'REDUCE', 'QUANTILE', '2', 'num', '0.5', 'AS', 'q50')
     env.assertEqual(res, [1, ['q50', '758000']])
