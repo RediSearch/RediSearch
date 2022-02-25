@@ -3,8 +3,9 @@
 from common import *
 
 def test_1282(env):
+  conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'txt1', 'TEXT').ok()
-  env.expect('hset', 'doc1', 'txt1', 'foo').equal(1)
+  env.assertEqual(conn.execute_command('hset', 'doc1', 'txt1', 'foo'), 1)
 
   # optional search for new word would crash server
   env.expect('FT.SEARCH idx', '~foo').equal([1, 'doc1', ['txt1', 'foo']])

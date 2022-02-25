@@ -279,8 +279,7 @@ def testDelete(env):
         'ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text'))
 
     for i in range(100):
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'f', 'hello world'))
+        env.assertEqual(1, r.execute_command('hset', 'doc%d' % i, 'f', 'hello world'))
 
     env.expect('ft.del', 'fake_idx', 'doc1').error()
 
@@ -291,8 +290,7 @@ def testDelete(env):
         env.assertEqual(1, r.execute_command(
            'ft.del', 'idx', 'doc%d' % i, 'DD' if i % 2 == 0 else ''))
         # second delete should return 0
-        env.assertEqual(0, r.execute_command(
-            'ft.del', 'idx', 'doc%d' % i))
+        env.assertEqual(0, r.execute_command('ft.del', 'idx', 'doc%d' % i))
         # second delete should return 0
 
         # TODO: return 0 if doc wasn't found
@@ -304,29 +302,24 @@ def testDelete(env):
             env.assertFalse(r.exists('doc%d' % i))
         else:
             r.expect('ft.get', 'idx', 'doc%d' % i).notRaiseError()
-        res = r.execute_command(
-            'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
+        res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
         env.assertNotIn('doc%d' % i, res)
         env.assertEqual(res[0], 100 - i - 1)
         env.assertEqual(len(res), 100 - i)
 
         # test reinsertion
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'f', 'hello world'))
-        res = r.execute_command(
-            'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
+        env.assertEqual(1, r.execute_command('hset', 'doc%d' % i, 'f', 'hello world'))
+        res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
         env.assertIn('doc%d' % i, res)
-        env.assertEqual(1, r.execute_command(
-            'ft.del', 'idx', 'doc%d' % i))
+        env.assertEqual(1, r.execute_command('ft.del', 'idx', 'doc%d' % i))
+
     for _ in r.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
         did = 'rrrr'
-        env.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
-                                        'f', 'hello world'))
+        env.assertEqual(1, r.execute_command('hset', did, 'f', 'hello world'))
         env.assertEqual(1, r.execute_command('ft.del', 'idx', did))
         env.assertEqual(0, r.execute_command('ft.del', 'idx', did))
-        env.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
-                                        'f', 'hello world'))
+        env.assertEqual(1, r.execute_command('hset', 'idx', did, 'f', 'hello world'))
         env.assertEqual(1, r.execute_command('ft.del', 'idx', did))
         env.assertEqual(0, r.execute_command('ft.del', 'idx', did))
 
@@ -420,20 +413,27 @@ def testDrop(env):
     env.expect('FT.DROP', 'idx', 'KEEPDOCS', '666').error().contains("wrong number of arguments")
 
 def testDelete(env):
+    def countKeys():
+        if not env.is_cluster():
+            return len(env.keys('*'))
+        keys = 0
+        for shard in range(0, env.shardsCount):
+            conn = env.getConnection(shard)
+            keys += len(conn.keys('*'))
+        return keys
+
+    conn = getConnectionByEnv(env)
     r = env
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
 
     for i in range(100):
-        r.expect('ft.add', 'idx', 'doc%d' % i, 1.0,
-                 'fields', 'f', 'hello world', 'n', 666, 't', 'foo bar',
-                 'g', '19.04,47.497').ok()
-    keys = r.keys('*')
-    env.assertGreaterEqual(len(keys), 100)
+        res = conn.execute_command('hset', 'doc%d' % i,
+                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        env.assertEqual(4, res)
+    env.assertGreaterEqual(countKeys(), 100)
 
     r.expect('FT.DROPINDEX', 'idx', 'dd').ok()
-    keys = r.keys('*')
-
-    env.assertEqual(0, len(keys))
+    env.assertEqual(0, countKeys())
     env.flush()
 
     # Now do the same with KEEPDOCS
@@ -441,11 +441,10 @@ def testDelete(env):
                'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
 
     for i in range(100):
-        r.expect('ft.add', 'idx', 'doc%d' % i, 1.0,
-                 'fields', 'f', 'hello world', 'n', 666, 't', 'foo bar',
-                 'g', '19.04,47.497').ok()
-    keys = r.keys('*')
-    env.assertGreaterEqual(len(keys), 100)
+        res = conn.execute_command('hset', 'doc%d' % i,
+                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        env.assertEqual(4, res)
+    env.assertGreaterEqual(countKeys(), 100)
 
     if not env.is_cluster():
         r.expect('FT.DROPINDEX', 'idx').ok()
