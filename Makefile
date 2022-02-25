@@ -403,7 +403,7 @@ endif # DEPS
 
 setup:
 	@echo Setting up system...
-	$(SHOW)./deps/readies/bin/getpy2
+	$(SHOW)./deps/readies/bin/getpy3
 	$(SHOW)./sbin/system-setup.py 
 
 #----------------------------------------------------------------------------------------------
