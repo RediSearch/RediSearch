@@ -18,8 +18,8 @@ def test_1304(env):
 def test_1414(env):
   env.skipOnCluster()
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
-  env.expect('hset', 'doc', 'foo', 'hello', 'bar', 'world').ok()
-  env.expect('ft.search' 'idx' '*', 'limit', '0', '1234567').error().contains('LIMIT exceeds maximum of 1000000')
+  env.cmd('hset', 'doc', 'foo', 'hello', 'bar', 'world')
+  env.expect('ft.search', 'idx', '*', 'limit', '0', '1234567').error().contains('LIMIT exceeds maximum of 1000000')
   env.expect('FT.CONFIG', 'set', 'MAXSEARCHRESULTS', '-1').ok()
   env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx', '*', 'limit', '0', '1234567')),
                   toSortedFlatList([1, 'doc', ['foo', 'hello', 'bar', 'world']]))
