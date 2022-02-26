@@ -31,6 +31,9 @@ RS_PLATFORMS = {
     'centos8': {
         'platform': 'Linux-rhel8',
         'env': 'rhel8-x86_64-aws' }
+    'ol8': {
+        'platform': 'Linux-rhel8',
+        'env': 'rhel8-x86_64-aws' }
 }
 
 
