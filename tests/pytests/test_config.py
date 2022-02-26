@@ -114,7 +114,6 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_NUMERIC_COMPRESS'][0], 'false')
     env.assertEqual(res_dict['_NUMERIC_RANGES_PARENTS'][0], '0')
     env.assertEqual(res_dict['FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
-    env.assertEqual(res_dict['_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
     env.assertEqual(res_dict['_FREE_RESOURCE_ON_THREAD'][0], 'true')
 
     # skip ctest configured tests
@@ -188,8 +187,6 @@ def testInitConfig(env):
     test_arg_str('MAXAGGREGATERESULTS', '-1', 'unlimited')
     test_arg_str('RAW_DOCID_ENCODING', 'false', 'false')
     test_arg_str('RAW_DOCID_ENCODING', 'true', 'true')
-    test_arg_str('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'false', 'false')
-    test_arg_str('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true', 'true')
     test_arg_str('_FREE_RESOURCE_ON_THREAD', 'false', 'false')
     test_arg_str('_FREE_RESOURCE_ON_THREAD', 'true', 'true')
 
