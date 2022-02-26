@@ -15,7 +15,7 @@ file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 # add_definitions(-DEXT_TEST_PATH="\\"${binroot}/search/tests/cpptests/example_extension/libexample_extension.so\\"")
 
 add_executable(rstest ${TEST_SOURCES} common.cpp)
-target_link_libraries(rstest gtest ${RS_TEST_MODULE} redismock dl)
+target_link_libraries(rstest gtest ${RS_TEST_MODULE} redismock dl rt)
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 set_property(TARGET rstest PROPERTY CXX_STANDARD 11)
 add_dependencies(rstest example_extension)
