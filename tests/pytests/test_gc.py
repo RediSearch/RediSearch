@@ -20,9 +20,9 @@ def testBasicGC(env):
                              'id', '5',
                              't', 'tag1'))
 
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [long(i) for i in range(1, 102)])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[long(i) for i in range(1, 102)]])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [long(i) for i in range(1, 102)]]])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [int(i) for i in range(1, 102)])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[int(i) for i in range(1, 102)]])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [int(i) for i in range(1, 102)]]])
 
     env.assertEqual(env.cmd('ft.del', 'idx', 'doc0'), 1)
 
@@ -31,9 +31,9 @@ def testBasicGC(env):
         forceInvokeGC(env, 'idx')
 
     # check that the gc collected the deleted docs
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [long(i) for i in range(2, 102)])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[long(i) for i in range(2, 102)]])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [long(i) for i in range(2, 102)]]])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [int(i) for i in range(2, 102)])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[int(i) for i in range(2, 102)]])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [int(i) for i in range(2, 102)]]])
 
 def testBasicGCWithEmptyInvIdx(env):
     if env.isCluster():
@@ -141,7 +141,7 @@ def testDeleteEntireBlock(env):
     for i in range(400, 501):
         env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
     res = env.cmd('FT.SEARCH', 'idx', '@test:checking @test2:checking250')
-    env.assertEqual(res[0:2],[1L, 'doc250'])
+    env.assertEqual(res[0:2],[1, 'doc250'])
     env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))
 
     # actually clean the inverted index, make sure the binary search are not braken, check also after rdb reload
@@ -151,7 +151,7 @@ def testDeleteEntireBlock(env):
     for _ in env.reloading_iterator():
         waitForIndex(env, 'idx')
         res = env.cmd('FT.SEARCH', 'idx', '@test:checking @test2:checking250')
-        env.assertEqual(res[0:2],[1L, 'doc250'])
+        env.assertEqual(res[0:2],[1, 'doc250'])
         env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))
 
 def testGCIntegrationWithRedisFork(env):

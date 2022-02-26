@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 import sys
 import os
@@ -29,11 +29,12 @@ class RediSearchSetup(paella.Setup):
         self.install("libatomic1")
         self.run("%s/bin/getgcc" % READIES)
         self.install("libtool m4 automake libssl-dev")
-        self.install("python-dev")
+        self.install("python3-dev")
 
         if self.platform.is_arm():
             if self.dist == 'ubuntu' and self.os_version[0] < 20:
-                self.install("python-gevent")
+                # self.install("python3-gevent")
+                pass
             else:
                 self.install("libffi-dev")
 
@@ -44,10 +45,11 @@ class RediSearchSetup(paella.Setup):
 
         self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake openssl-devel")
-        self.install("python2-devel")
+        self.install("python3-devel")
 
         if self.platform.is_arm():
-            self.install("python-gevent")
+            # self.install("python-gevent")
+            pass
         else:
             self.install_linux_gnu_tar()
 
@@ -72,7 +74,7 @@ class RediSearchSetup(paella.Setup):
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),
                  sudo=self.os != 'macos')
-        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall".format(PYTHON=self.python, READIES=READIES))
+        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall --modern".format(PYTHON=self.python, READIES=READIES))
         if self.dist != "arch":
             self.install("lcov")
         else:

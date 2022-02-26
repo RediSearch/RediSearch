@@ -112,7 +112,7 @@ SHARDS=${SHARDS:-3}
 
 RLEC_PORT=${RLEC_PORT:-12000}
 
-[[ $PARALLEL == 1 ]] && RLTEST_PARALLEL="--parallelism $($READIES/bin/nproc)"
+[[ $PARALLEL == 1 ]] && RLTEST_PARALLEL_ARG="--parallelism $($READIES/bin/nproc)"
 
 #---------------------------------------------------------------------------------------------- 
 
@@ -244,7 +244,7 @@ run_tests() {
 			--module $MODULE
 			--module-args '$MODARGS'
 			$RLTEST_ARGS
-			$RLTEST_PARALLEL
+			$RLTEST_PARALLEL_ARG
 			$REJSON_ARGS
 			$VALGRIND_ARGS
 			$SAN_ARGS
@@ -294,9 +294,9 @@ run_tests() {
 
 	local E=0
 	if [[ $NOP != 1 ]]; then
-		{ $OP python2 -m RLTest @$rltest_config; (( E |= $? )); } || true
+		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
 	else
-		$OP python2 -m RLTest @$rltest_config
+		$OP python3 -m RLTest @$rltest_config
 	fi
 	rm -f $rltest_config
 
@@ -331,7 +331,8 @@ elif [[ $COORD == oss ]]; then
 		tls_args="--tls \
 			--tls-cert-file $ROOT/bin/tls/redis.crt \
 			--tls-key-file $ROOT/bin/tls/redis.key \
-			--tls-ca-cert-file $ROOT/bin/tls/ca.crt"
+			--tls-ca-cert-file $ROOT/bin/tls/ca.crt \
+			--tls-passphrase foobar"
 
 		$ROOT/sbin/gen-test-certs.sh
 		{ (RLTEST_ARGS+=" ${oss_cluster_args} ${tls_args}" \

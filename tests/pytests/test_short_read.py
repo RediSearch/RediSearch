@@ -13,7 +13,8 @@ import gevent.queue
 import gevent.server
 import gevent.socket
 import time
-
+from RLTest import Defaults
+from enum import Enum, auto
 from common import *
 from includes import *
 
@@ -22,6 +23,7 @@ BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdb
 
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
+
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
@@ -177,16 +179,16 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
                        get_identifier('myScore', isHash), 'numeric',
                        ])
     conn = getConnectionByEnv(env)
-    env.assertOk(conn.execute_command(*cmd_create))
-    waitForIndex(conn, index_name)
-    env.assertOk(conn.execute_command('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón'))
-    env.assertOk(conn.execute_command('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar'))
+    env.expect(*cmd_create).ok()
+    waitForIndex(env, index_name)
+    env.expect('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón').ok()
+    env.expect('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar').ok()
 
     # Add keys
     for i in range(1, num_keys + 1):
         if isHash:
             cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, 'a' + rand_name(5), rand_num(2), 'b' + rand_name(5), rand_num(3)]
-            env.assertEqual(conn.execute_command(*cmd), 2L)
+            env.assertEqual(conn.execute_command(*cmd), 2)
         else:
             cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'}']
             env.assertOk(conn.execute_command(*cmd))
@@ -239,43 +241,43 @@ class Connection(object):
         return self.sock.getsockname()[1]
 
     def read(self, bytes):
-        return self.sockf.read(bytes)
+        return self.decoder(self.sockf.read(bytes))
+
+    def read(self, size):
+        return self.decoder(self.sockf.read(size))
 
     def read_at_most(self, bytes, timeout=0.01):
         self.sock.settimeout(timeout)
-        return self.sock.recv(bytes)
+        return self.decoder(self.sock.recv(bytes))
 
     def send(self, data):
-        self.sockf.write(data)
+        self.sockf.write(self.encoder(data))
         self.sockf.flush()
+
+    def encoder(self, value):
+        if isinstance(value, str):
+            return value.encode('utf-8')
+        else:
+            return value
+
+    def decoder(self, value):
+        if isinstance(value, bytes):
+            return value.decode('utf-8')
+        else:
+            return value
 
     def readline(self):
-        return self.sockf.readline()
-
-    def send_bulk_header(self, data_len):
-        self.sockf.write('$%d\r\n' % data_len)
-        self.sockf.flush()
+        return self.decoder(self.sockf.readline())
 
     def send_bulk(self, data):
-        self.sockf.write('$%d\r\n%s\r\n' % (len(data), data))
+        data = self.encoder(data)
+        binary_data = b'$%d\r\n%s\r\n' % (len(data), data)
+        self.sockf.write(binary_data)
         self.sockf.flush()
 
     def send_status(self, data):
-        self.sockf.write('+%s\r\n' % data)
-        self.sockf.flush()
-
-    def send_error(self, data):
-        self.sockf.write('-%s\r\n' % data)
-        self.sockf.flush()
-
-    def send_integer(self, data):
-        self.sockf.write(':%u\r\n' % data)
-        self.sockf.flush()
-
-    def send_mbulk(self, data):
-        self.sockf.write('*%d\r\n' % len(data))
-        for elem in data:
-            self.sockf.write('$%d\r\n%s\r\n' % (len(elem), elem))
+        binary_data = b'+%s\r\n' % self.encoder(data)
+        self.sockf.write(binary_data)
         self.sockf.flush()
 
     def read_mbulk(self, args_count=None):
@@ -354,7 +356,7 @@ class Connection(object):
                 raise Exception('Invalid bulk response: %s' % line)
             if bulk_len == -1:
                 return None
-            data = self.sockf.read(bulk_len + 2)
+            data = self.read(bulk_len + 2)
             if len(data) < bulk_len:
                 self.peer_closed = True
                 self.close()
@@ -442,12 +444,14 @@ class Debug:
         if len(data):
             ch = data[self.dbg_ndx]
             printable_ch = ch
-            if ord(ch) < 32 or ord(ch) == 127:
-                printable_ch = '\?'
+            if ch < 32 or ch == 127:
+                printable_ch = '\\?'
+            else:
+                printable_ch = chr(printable_ch)
         else:
             ch = '\0'
-            printable_ch = '\!'  # no data (zero length)
-        self.dbg_str = '{} {:=0{}n}:{:<2}({:<3})'.format(self.dbg_str, self.dbg_ndx, byte_count_width, printable_ch, ord(ch))
+            printable_ch = '\\!'  # no data (zero length)
+        self.dbg_str = '{} {:=0{}n}:{:<2}({:<3})'.format(self.dbg_str, self.dbg_ndx, byte_count_width, printable_ch, ch)
         if not (self.dbg_ndx + 1) % 10:
             self.dbg_str = self.dbg_str + "\n"
         self.dbg_ndx = self.dbg_ndx + 1
@@ -466,16 +470,14 @@ def testShortReadSearch(env):
     if env.env.endswith('existing-env') and os.environ.get('CI'):
         env.skip()
 
-    if OSNICK == 'macos':
+    if OS == 'macos':
         env.skip()
 
     seed = str(time.time())
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
-    try:
-        temp_dir = tempfile.mkdtemp(prefix="short-read_")
-        # TODO: In python3 use "with tempfile.TemporaryDirectory()"
+    with tempfile.TemporaryDirectory(prefix="short-read_") as temp_dir:
         if not downloadFiles(temp_dir):
             env.assertTrue(False, "downloadFiles failed")
 
@@ -486,8 +488,6 @@ def testShortReadSearch(env):
             fullfilePath = os.path.join(temp_dir, f)
             env.assertNotEqual(fullfilePath, None, message='testShortReadSearch')
             sendShortReads(env, fullfilePath, expected_index)
-    finally:
-        shutil.rmtree(temp_dir)
 
 
 def sendShortReads(env, rdb_file, expected_index):
@@ -499,9 +499,9 @@ def sendShortReads(env, rdb_file, expected_index):
     add_index(env, False, 'idxBackup2', 'b', 5, 10)
 
     res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
-    env.assertEqual(res[0], 5L)
+    env.assertEqual(res[0], 5)
     res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
-    env.assertEqual(res[0], 5L)
+    env.assertEqual(res[0], 5)
 
     with open(rdb_file, mode='rb') as f:
         full_rdb = f.read()
@@ -526,6 +526,7 @@ def runShortRead(env, data, total_len, expected_index):
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
         res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
+        env.assertTrue(res)
         res = env.cmd('replicaof', '127.0.0.1', shardMock.server_port)
         env.assertTrue(res)
         conn = shardMock.GetConnection()
@@ -549,10 +550,12 @@ def runShortRead(env, data, total_len, expected_index):
         conn.send_status('FULLRESYNC ' + some_guid + ' 0')
         is_shortread = total_len != len(data)
         if is_shortread:
-            conn.send('$%d\r\n%s' % (total_len, data))
+            # Send without the trailing '\r\n' (send data not according to RESP protocol)
+            binary_data = b'$%d\r\n%s' % (total_len, data)
+            conn.send(binary_data)
         else:
-            # Allow to succeed with a full read (protocol expects a trailing '\r\n')
-            conn.send('$%d\r\n%s\r\n' % (total_len, data))
+            # Allow to succeed with a full read (send data according to RESP protocol)
+            conn.send_bulk(data)
         conn.flush()
 
         # Close during replica is waiting for more RDB data (so replica will re-connect to master)
@@ -569,9 +572,9 @@ def runShortRead(env, data, total_len, expected_index):
             # Verify original data, that existed before the failed attempt to short-read, is restored
             env.assertEqual(res, ['idxBackup2', 'idxBackup1'])
             res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
-            env.assertEqual(res[0], 5L)
+            env.assertEqual(res[0], 5)
             res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
-            env.assertEqual(res[0], 5L)
+            env.assertEqual(res[0], 5)
         else:
             # Verify new data was loaded and the backup was discarded
             # TODO: How to verify internal backup was indeed discarded

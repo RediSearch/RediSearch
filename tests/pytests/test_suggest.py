@@ -45,8 +45,8 @@ def testSuggestions(env):
         env.assertTrue(float(res[1]) > 0)
         env.assertTrue(float(res[3]) > 0)
 
-    r.expect('ft.SUGDEL', 'ac', 'hello world').equal(1L)
-    r.expect('ft.SUGDEL', 'ac', 'world').equal(0L)
+    r.expect('ft.SUGDEL', 'ac', 'hello world').equal(1)
+    r.expect('ft.SUGDEL', 'ac', 'world').equal(0)
 
     r.expect('ft.SUGGET', 'ac', 'hello').equal(['hello werld'])
 

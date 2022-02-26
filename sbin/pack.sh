@@ -126,12 +126,12 @@ pack_ramp() {
 		RAMP_YAML=$ROOT/ramp.yml
 	fi
 	
-	python2 $READIES/bin/xtx \
+	python3 $READIES/bin/xtx \
 		$xtx_vars \
 		-e NUMVER -e SEMVER \
 		$RAMP_YAML > /tmp/ramp.yml
 
-	local ramp="$(command -v python2) -m RAMP.ramp"
+	local ramp="$(command -v python3) -m RAMP.ramp"
 	rm -f /tmp/ramp.fname
 	
 	# ROOT is required so ramp will detect the right git commit
