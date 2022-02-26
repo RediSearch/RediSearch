@@ -24,7 +24,7 @@ def testCompression(env):
 	for i in range(repeat):
 		value = accuracy * i
 		env.expect('ft.search', 'idx', ('@n:[%s %s]' % (value, value))).equal([1, str(i), ['n', str(value)]])
-  
+
 def testSanity(env):
 	env.skipOnCluster()
 	skipOnExistingEnv(env)
@@ -54,7 +54,7 @@ def testCompressionConfig(env):
 	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
 	for i in range(100):
 	  env.execute_command('hset', i, 'n', str(1 + i / 100.0))
-	
+
 	# delete keys where compression does not change value
 	env.execute_command('del', '0')
 	env.execute_command('del', '25')

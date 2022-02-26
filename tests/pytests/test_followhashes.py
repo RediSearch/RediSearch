@@ -85,9 +85,9 @@ def testManyPrefixes(env):
     conn = getConnectionByEnv(env)
     start_time = time.time()
     for i in range(10000):
-        conn.execute_command('ft.create', i, 'ON', 'HASH',
-                'PREFIX', '1', i,
-                'SCHEMA', 'name', 'text')
+        env.execute_command('ft.create', i, 'ON', 'HASH',
+                            'PREFIX', '1', i,
+                            'SCHEMA', 'name', 'text')
     env.debugPrint(str(time.time() - start_time), force=True)
     start_time = time.time()
     conn.execute_command('FLUSHALL')
@@ -426,13 +426,13 @@ def testCreateDropCreate(env):
     conn.execute_command('hset', 'thing:bar', 'name', 'foo')
     env.expect('ft.create', 'things', 'ON', 'HASH',
                'PREFIX', '1', 'thing:', 'SCHEMA', 'name', 'text').ok()
-    waitForIndex(conn, 'things')
+    waitForIndex(env, 'things')
     env.expect('ft.search', 'things', 'foo') \
        .equal([1, 'thing:bar', ['name', 'foo']])
     env.expect('ft.dropindex things').ok()
     env.expect('ft.create', 'things', 'ON', 'HASH',
                'PREFIX', '1', 'thing:', 'SCHEMA', 'name', 'text').ok()
-    waitForIndex(conn, 'things')
+    waitForIndex(env, 'things')
     env.expect('ft.search', 'things', 'foo') \
        .equal([1, 'thing:bar', ['name', 'foo']])
 
@@ -521,7 +521,7 @@ def testRestore(env):
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
     env.expect('HSET doc1 test foo').equal(1)
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-    dump = env.cmd('dump doc1')
+    dump = env.cmd('dump doc1', **{NEVER_DECODE: []})
     env.expect('DEL doc1').equal(1)
     env.expect('FT.SEARCH idx foo').equal([0])
     env.expect('RESTORE', 'doc1', 0, dump)

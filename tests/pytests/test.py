@@ -279,8 +279,7 @@ def testDelete(env):
         'ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text'))
 
     for i in range(100):
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'f', 'hello world'))
+        env.assertEqual(1, r.execute_command('hset', 'doc%d' % i, 'f', 'hello world'))
 
     env.expect('ft.del', 'fake_idx', 'doc1').error()
 
@@ -291,8 +290,7 @@ def testDelete(env):
         env.assertEqual(1, r.execute_command(
            'ft.del', 'idx', 'doc%d' % i, 'DD' if i % 2 == 0 else ''))
         # second delete should return 0
-        env.assertEqual(0, r.execute_command(
-            'ft.del', 'idx', 'doc%d' % i))
+        env.assertEqual(0, r.execute_command('ft.del', 'idx', 'doc%d' % i))
         # second delete should return 0
 
         # TODO: return 0 if doc wasn't found
@@ -304,29 +302,24 @@ def testDelete(env):
             env.assertFalse(r.exists('doc%d' % i))
         else:
             r.expect('ft.get', 'idx', 'doc%d' % i).notRaiseError()
-        res = r.execute_command(
-            'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
+        res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
         env.assertNotIn('doc%d' % i, res)
         env.assertEqual(res[0], 100 - i - 1)
         env.assertEqual(len(res), 100 - i)
 
         # test reinsertion
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'f', 'hello world'))
-        res = r.execute_command(
-            'ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
+        env.assertEqual(1, r.execute_command('hset', 'doc%d' % i, 'f', 'hello world'))
+        res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
         env.assertIn('doc%d' % i, res)
-        env.assertEqual(1, r.execute_command(
-            'ft.del', 'idx', 'doc%d' % i))
+        env.assertEqual(1, r.execute_command('ft.del', 'idx', 'doc%d' % i))
+
     for _ in r.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
         did = 'rrrr'
-        env.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
-                                        'f', 'hello world'))
+        env.assertEqual(1, r.execute_command('hset', did, 'f', 'hello world'))
         env.assertEqual(1, r.execute_command('ft.del', 'idx', did))
         env.assertEqual(0, r.execute_command('ft.del', 'idx', did))
-        env.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
-                                        'f', 'hello world'))
+        env.assertEqual(1, r.execute_command('hset', 'idx', did, 'f', 'hello world'))
         env.assertEqual(1, r.execute_command('ft.del', 'idx', did))
         env.assertEqual(0, r.execute_command('ft.del', 'idx', did))
 
@@ -377,13 +370,11 @@ def testDrop(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'f', 'hello world', 'n', 666, 't', 'foo bar',
                                         'g', '19.04,47.497'))
-    keys = r.keys('*')
-    env.assertGreaterEqual(len(keys), 100)
+    env.assertGreaterEqual(countKeys(env), 100)
 
     env.assertOk(r.execute_command('ft.drop', 'idx'))
-    keys = r.keys('*')
 
-    env.assertEqual(0, len(keys))
+    env.assertEqual(0, countKeys(env))
     env.flush()
 
     # Now do the same with KEEPDOCS
@@ -395,8 +386,7 @@ def testDrop(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'f', 'hello world', 'n', 666, 't', 'foo bar',
                                         'g', '19.04,47.497'))
-    keys = r.keys('*')
-    env.assertGreaterEqual(len(keys), 100)
+    env.assertGreaterEqual(countKeys(env), 100)
 
     if not env.is_cluster():
         env.assertOk(r.execute_command('ft.drop', 'idx', 'KEEPDOCS'))
@@ -419,20 +409,18 @@ def testDrop(env):
     env.expect('FT.DROP', 'idx', 'KEEPDOCS', '666').error().contains("wrong number of arguments")
 
 def testDelete(env):
+    conn = getConnectionByEnv(env)
     r = env
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
 
     for i in range(100):
-        r.expect('ft.add', 'idx', 'doc%d' % i, 1.0,
-                 'fields', 'f', 'hello world', 'n', 666, 't', 'foo bar',
-                 'g', '19.04,47.497').ok()
-    keys = r.keys('*')
-    env.assertGreaterEqual(len(keys), 100)
+        res = conn.execute_command('hset', 'doc%d' % i,
+                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        env.assertEqual(4, res)
+    env.assertGreaterEqual(countKeys(env), 100)
 
     r.expect('FT.DROPINDEX', 'idx', 'dd').ok()
-    keys = r.keys('*')
-
-    env.assertEqual(0, len(keys))
+    env.assertEqual(0, countKeys(env))
     env.flush()
 
     # Now do the same with KEEPDOCS
@@ -440,11 +428,10 @@ def testDelete(env):
                'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
 
     for i in range(100):
-        r.expect('ft.add', 'idx', 'doc%d' % i, 1.0,
-                 'fields', 'f', 'hello world', 'n', 666, 't', 'foo bar',
-                 'g', '19.04,47.497').ok()
-    keys = r.keys('*')
-    env.assertGreaterEqual(len(keys), 100)
+        res = conn.execute_command('hset', 'doc%d' % i,
+                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        env.assertEqual(4, res)
+    env.assertGreaterEqual(countKeys(env), 100)
 
     if not env.is_cluster():
         r.expect('FT.DROPINDEX', 'idx').ok()
@@ -1427,7 +1414,7 @@ def testNumericRange(env):
 
 def testNotIter(env):
     conn = getConnectionByEnv(env)
-    env.assertOk(conn.execute_command(
+    env.assertOk(env.execute_command(
         'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))
 
     for i in range(8):
@@ -2765,10 +2752,10 @@ def testBadCursor(env):
     env.expect('FT.CURSOR', 'bad', 'idx', '1111').error()
 
 def testGroupByWithApplyError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count')[1]
-    assertEqualIgnoreCluster(env, str(err[0]), 'Invalid number of arguments for split')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').ok()
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').ok()
+    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count')[1][0]
+    assertEqualIgnoreCluster(env, 'Invalid number of arguments for split', str(err))
 
 def testSubStrErrors(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -2891,21 +2878,21 @@ def testMonthOfYear(env):
 
 def testParseTime(env):
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TAG')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TAG')
     conn.execute_command('HSET', 'doc1', 'test', '20210401')
 
     # check for errors
-    err = conn.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime()', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    err = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime()', 'as', 'a')[1][0]
+    env.assertEqual("Invalid arguments for function 'parsetime'", str(err))
 
-    err = conn.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11)', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    err = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11)', 'as', 'a')[1][0]
+    env.assertEqual("Invalid arguments for function 'parsetime'", str(err))
 
-    err = conn.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11,22)', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    err = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11,22)', 'as', 'a')[1][0]
+    env.assertEqual("Invalid type (1) for argument 0 in function 'parsetime'. VALIDATE_ARG__STRING(v, 0) was false.", str(err))
 
     # valid test
-    res = conn.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(@test, "%Y%m%d")', 'as', 'a')
+    res = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(@test, "%Y%m%d")', 'as', 'a')
     assertEqualIgnoreCluster(env, res, [1, ['test', '20210401', 'a', '1617235200']])
 
 def testMathFunctions(env):
@@ -3344,7 +3331,7 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
 
 def testNegativeOnly(env):
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     conn.execute_command('HSET', 'doc1', 'not', 'foo')
 
     env.expect('FT.SEARCH idx *').equal([1, 'doc1', ['not', 'foo']])
@@ -3352,7 +3339,7 @@ def testNegativeOnly(env):
 
 def testNotOnly(env):
   conn = getConnectionByEnv(env)
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT').ok()
   conn.execute_command('HSET', 'a', 'txt1', 'hello', 'txt2', 'world')
   conn.execute_command('HSET', 'b', 'txt1', 'world', 'txt2', 'hello')
   env.assertEqual(toSortedFlatList(env.cmd('ft.search idx !world')), toSortedFlatList([1, 'b', ['txt1', 'world', 'txt2', 'hello']]))
@@ -3363,7 +3350,7 @@ def testServerVersion(env):
 def testSchemaWithAs(env):
   conn = getConnectionByEnv(env)
   # sanity
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt', 'hello')
   conn.execute_command('HSET', 'b', 'foo', 'world')
 
@@ -3412,12 +3399,12 @@ def testSchemaWithAs(env):
 def testSchemaWithAs_Alter(env):
   conn = getConnectionByEnv(env)
   # sanity
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt', 'hello')
   conn.execute_command('HSET', 'b', 'foo', 'world')
 
   # FT.ALTER
-  conn.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'foo', 'AS', 'bar', 'TEXT')
+  env.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'foo', 'AS', 'bar', 'TEXT')
   waitForIndex(env, 'idx')
   env.expect('ft.search idx @bar:hello').equal([0])
   env.expect('ft.search idx @bar:world').equal([1, 'b', ['foo', 'world']])
@@ -3474,7 +3461,11 @@ def testMod1452(env):
 def test_mod1548(env):
     conn = getConnectionByEnv(env)
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$["prod:id"]', 'AS', 'prod:id', 'TEXT', '$.prod:id', 'AS', 'prod:id_unsupported', 'TEXT', '$.name', 'AS', 'name', 'TEXT', '$.categories', 'AS', 'categories', 'TAG', 'SEPARATOR' ,',').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$["prod:id"]', 'AS', 'prod:id', 'TEXT',
+               '$.prod:id', 'AS', 'prod:id_unsupported', 'TEXT',
+               '$.name', 'AS', 'name', 'TEXT',
+               '$.categories', 'AS', 'categories', 'TAG', 'SEPARATOR' ,',').ok()
     waitForIndex(env, 'idx')
 
     res = conn.execute_command('JSON.SET', 'prod:1', '$', '{"prod:id": "35114964", "SKU": "35114964", "name":"foo", "categories":"abcat0200000"}')
@@ -3483,15 +3474,15 @@ def test_mod1548(env):
     env.assertOk(res)
 
     # Supported jsonpath
-    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'name')
+    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'name')
     env.assertEqual(res,  [2, 'prod:1', ['name', 'foo'], 'prod:2', ['name', 'bar']])
 
     # Supported jsonpath (actual path contains a colon using the bracket notation)
-    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id')
+    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id')
     env.assertEqual(res,  [2, 'prod:1', ['prod:id', '35114964'], 'prod:2', ['prod:id', '35114965']])
 
     # Currently unsupported jsonpath (actual path contains a colon using the dot notation)
-    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
+    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
     env.assertEqual(res, [2, 'prod:1', [], 'prod:2', []])
 
 def test_empty_field_name(env):

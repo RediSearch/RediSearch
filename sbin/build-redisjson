@@ -53,6 +53,11 @@ fi
 $OP cd RedisJSON
 runn git checkout $BRANCH
 runn git pull --quiet --recurse-submodules
+if is_command python3; then
+	runn python3 -m pip install virtualenv
+	runn python3 -m virtualenv venv
+	. venv/bin/activate
+fi
 runn $READIES/bin/getpy3
 runn ./sbin/system-setup.py
 $OP source /etc/profile.d/rust.sh

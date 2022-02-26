@@ -33,7 +33,7 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'UNION', 'Counter', 2, 'Child iterators',
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1]]] 
+                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test INTERSECT
@@ -221,9 +221,9 @@ def testProfileVector(env):
 
   # Test with hybrid query
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[TOP_K 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
-  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 2, 'Child iterator', 
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 2, 'Child iterator',
                                                  ['Type', 'INTERSECT', 'Counter', 4, 'Child iterators',
-                                                 ['Type', 'TEXT', 'Term', 'world', 'Counter', 4, 'Size', 2], 
+                                                 ['Type', 'TEXT', 'Term', 'world', 'Counter', 4, 'Size', 2],
                                                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 4, 'Size', 5]]]]
   expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 2]
   env.assertEqual(actual_res[0], [2, '4', '5'])
@@ -273,7 +273,7 @@ def testNotIterator(env):
 
   #before the fix, we would not get an empty iterator
   res = [[1, '1', ['t', 'foo']],
-         [['Total profile time'], 
+         [['Total profile time'],
           ['Parsing time'],
           ['Pipeline creation time'],
           ['Iterators profile',

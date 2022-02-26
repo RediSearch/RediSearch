@@ -66,7 +66,7 @@ def testGeoDistanceSimple(env):
              'LOAD', '1', '@location',
              'APPLY', 'geodistance(@location,1.25,4.5)', 'AS', 'distance',
              'GROUPBY', '1', '@distance',
-             'SORTBY', 2, '@distance', 'ASC').equal,(res)
+             'SORTBY', 2, '@distance', 'ASC').equal(res)
 
   # geodistance(@field,"lon,lat")
   env.expect('ft.aggregate', 'idx', '*',
@@ -80,7 +80,7 @@ def testGeoDistanceSimple(env):
              'LOAD', '1', '@location',
              'APPLY', 'geodistance(1.2,4.5,1.25,4.5)', 'AS', 'distance',
              'GROUPBY', '1', '@distance',
-             'SORTBY', 2, '@distance', 'ASC').equal,(res)
+             'SORTBY', 2, '@distance', 'ASC').equal([1, ['distance', '5544.17']])
 
   # geodistance("lon,lat","lon,lat")
   env.expect('ft.aggregate', 'idx', '*',

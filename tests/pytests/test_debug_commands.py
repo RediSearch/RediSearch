@@ -10,7 +10,7 @@ class TestDebugCommands(object):
         self.env.skipOnCluster()
         self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                         'name', 'TEXT', 'SORTABLE',
-                        'age', 'NUMERIC', 'SORTABLE', 
+                        'age', 'NUMERIC', 'SORTABLE',
                         't', 'TAG', 'SORTABLE').ok()
         waitForIndex(self.env, 'idx')
         self.env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'name', 'meir', 'age', '29', 't', 'test').ok()
