@@ -159,6 +159,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   GC_ThreadPoolStart();
 
+  CleanPool_ThreadPoolStart();
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
