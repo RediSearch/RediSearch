@@ -215,12 +215,6 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(OS),macos)
-STATIC_LIBSTDCXX ?= 0
-else
-STATIC_LIBSTDCXX ?= 0
-endif
-
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
 endif
@@ -285,7 +279,7 @@ CMAKE_FLAGS=\
 	-DRS_MODULE_NAME=$(RAMP_MODULE_NAME)
 
 CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_COV) \
-	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
+	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
 
 #----------------------------------------------------------------------------------------------
 
