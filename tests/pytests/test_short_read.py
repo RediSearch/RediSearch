@@ -16,7 +16,7 @@ import time
 from RLTest import Defaults
 from enum import Enum, auto
 from common import *
-
+from includes import *
 
 CREATE_INDICES_TARGET_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
@@ -179,10 +179,10 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
                        get_identifier('myScore', isHash), 'numeric',
                        ])
     conn = getConnectionByEnv(env)
-    env.assertOk(env.execute_command(*cmd_create))
+    env.expect(*cmd_create).ok()
     waitForIndex(env, index_name)
-    env.assertOk(env.execute_command('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón'))
-    env.assertOk(env.execute_command('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar'))
+    env.expect('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón').ok()
+    env.expect('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar').ok()
 
     # Add keys
     for i in range(1, num_keys + 1):
@@ -279,7 +279,6 @@ class Connection(object):
         binary_data = b'+%s\r\n' % self.encoder(data)
         self.sockf.write(binary_data)
         self.sockf.flush()
-
 
     def read_mbulk(self, args_count=None):
         if args_count is None:

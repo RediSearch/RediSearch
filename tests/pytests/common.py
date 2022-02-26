@@ -173,6 +173,24 @@ def waitForRdbSaveToFinish(env):
         if not conn.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
             break
 
+def countKeys(env, pattern='*'):
+    if not env.is_cluster():
+        return len(env.keys(pattern))
+    keys = 0
+    for shard in range(0, env.shardsCount):
+        conn = env.getConnection(shard)
+        keys += len(conn.keys(pattern))
+    return keys
+
+def collectKeys(env, pattern='*'):
+    if not env.is_cluster():
+        return sorted(env.keys(pattern))
+    keys = []
+    for shard in range(0, env.shardsCount):
+        conn = env.getConnection(shard)
+        keys.extend(conn.keys(pattern))
+    return sorted(keys)
+
 def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
     env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)

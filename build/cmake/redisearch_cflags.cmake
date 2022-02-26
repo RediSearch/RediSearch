@@ -1,4 +1,5 @@
-INCLUDE(CheckCCompilerFlag)
+
+include(CheckCCompilerFlag)
 
 # This file exposes the following:
 # RS_C_FLAGS
@@ -8,7 +9,7 @@ INCLUDE(CheckCCompilerFlag)
 
 function(ADD_LDFLAGS _TARGET NEW_FLAGS)
     get_target_property(LD_FLAGS ${_TARGET} LINK_FLAGS)
-    if(LD_FLAGS)
+    if (LD_FLAGS)
         set(NEW_FLAGS "${LD_FLAGS} ${NEW_FLAGS}")
     endif()
     set_target_properties(${_TARGET} PROPERTIES LINK_FLAGS ${NEW_FLAGS})

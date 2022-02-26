@@ -362,7 +362,6 @@ def testReplace(env):
         env.assertEqual('doc1', res[1])
 
 def testDrop(env):
-    env.skipOnCluster()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo'))
@@ -371,13 +370,11 @@ def testDrop(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'f', 'hello world', 'n', 666, 't', 'foo bar',
                                         'g', '19.04,47.497'))
-    keys = r.keys('*')
-    env.assertGreaterEqual(len(keys), 100)
+    env.assertGreaterEqual(countKeys(env), 100)
 
     env.assertOk(r.execute_command('ft.drop', 'idx'))
-    keys = r.keys('*')
 
-    env.assertEqual(0, len(keys))
+    env.assertEqual(0, countKeys(env))
     env.flush()
 
     # Now do the same with KEEPDOCS
@@ -389,8 +386,7 @@ def testDrop(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'f', 'hello world', 'n', 666, 't', 'foo bar',
                                         'g', '19.04,47.497'))
-    keys = r.keys('*')
-    env.assertGreaterEqual(len(keys), 100)
+    env.assertGreaterEqual(countKeys(env), 100)
 
     if not env.is_cluster():
         env.assertOk(r.execute_command('ft.drop', 'idx', 'KEEPDOCS'))
@@ -413,15 +409,6 @@ def testDrop(env):
     env.expect('FT.DROP', 'idx', 'KEEPDOCS', '666').error().contains("wrong number of arguments")
 
 def testDelete(env):
-    def countKeys():
-        if not env.is_cluster():
-            return len(env.keys('*'))
-        keys = 0
-        for shard in range(0, env.shardsCount):
-            conn = env.getConnection(shard)
-            keys += len(conn.keys('*'))
-        return keys
-
     conn = getConnectionByEnv(env)
     r = env
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
@@ -430,10 +417,10 @@ def testDelete(env):
         res = conn.execute_command('hset', 'doc%d' % i,
                                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
         env.assertEqual(4, res)
-    env.assertGreaterEqual(countKeys(), 100)
+    env.assertGreaterEqual(countKeys(env), 100)
 
     r.expect('FT.DROPINDEX', 'idx', 'dd').ok()
-    env.assertEqual(0, countKeys())
+    env.assertEqual(0, countKeys(env))
     env.flush()
 
     # Now do the same with KEEPDOCS
@@ -444,7 +431,7 @@ def testDelete(env):
         res = conn.execute_command('hset', 'doc%d' % i,
                                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
         env.assertEqual(4, res)
-    env.assertGreaterEqual(countKeys(), 100)
+    env.assertGreaterEqual(countKeys(env), 100)
 
     if not env.is_cluster():
         r.expect('FT.DROPINDEX', 'idx').ok()

@@ -306,7 +306,7 @@ def test_MOD_1517(env):
   conn = getConnectionByEnv(env)
 
   env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'field1', 'TAG', 'SORTABLE',
-                                                     'field2', 'TAG', 'SORTABLE')
+                                                    'field2', 'TAG', 'SORTABLE')
   # both fields exist
   conn.execute_command('HSET', 'doc1', 'field1', 'val1', 'field2', 'val2', 'amount1', '1', 'amount2', '1')
   # first tag is nil
