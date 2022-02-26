@@ -1,5 +1,6 @@
 
 ROOT=../..
+MK.pyver:=3
 include $(ROOT)/deps/readies/mk/main
 
 define HELPTEXT
