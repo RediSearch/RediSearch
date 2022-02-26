@@ -44,7 +44,6 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_NUMERIC_RANGES_PARENTS').res[0][0] =='_NUMERIC_RANGES_PARENTS'
     assert env.expect('ft.config', 'get', 'RAW_DOCID_ENCODING').res[0][0] =='RAW_DOCID_ENCODING'
     assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] =='FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
-    assert env.expect('ft.config', 'get', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] =='_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
     assert env.expect('ft.config', 'get', '_FREE_RESOURCE_ON_THREAD').res[0][0] =='_FREE_RESOURCE_ON_THREAD'
 
 '''
