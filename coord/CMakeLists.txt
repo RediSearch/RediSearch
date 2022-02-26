@@ -4,8 +4,8 @@ if(NOT DEFINED root)
 	set(root ${RS_DIR})
 endif()
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
-message("# coord root: " ${RS_DIR})
-message("# coord binroot: " ${binroot})
+message("# RediSearch/coord root: " ${RS_DIR})
+message("# RediSearch/coord binroot: " ${binroot})
 
 include(${RS_DIR}/build/cmake/common.cmake)
 

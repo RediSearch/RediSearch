@@ -7,6 +7,7 @@ import click
 import re
 import json
 import requests
+import urllib3
 
 HERE = os.path.dirname(__file__)
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
@@ -14,9 +15,13 @@ READIES = os.path.abspath(os.path.join(ROOT, "deps/readies"))
 sys.path.insert(0, READIES)
 import paella
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
 VERBOSE = 0
 NOP = False
 OPERETO3_URL = "opereto.qa.redislabs.com"
+
 
 RS_PLATFORMS = {
     'xenial': { 
@@ -29,6 +34,9 @@ RS_PLATFORMS = {
         'platform': 'Linux-rhel7',
         'env': 'rhel7.7-x86_64-aws' },
     'centos8': {
+        'platform': 'Linux-rhel8',
+        'env': 'rhel8-x86_64-aws' }
+    'ol8': {
         'platform': 'Linux-rhel8',
         'env': 'rhel8-x86_64-aws' }
 }
