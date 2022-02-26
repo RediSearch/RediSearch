@@ -216,7 +216,7 @@ export PACKAGE_NAME
 #----------------------------------------------------------------------------------------------
 
 ifneq ($(OS),macos)
-STATIC_LIBSTDCXX ?= 1
+STATIC_LIBSTDCXX ?= 0
 else
 STATIC_LIBSTDCXX ?= 0
 endif
