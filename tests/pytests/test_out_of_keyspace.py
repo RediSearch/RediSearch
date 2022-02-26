@@ -1,4 +1,4 @@
-from common import getConnectionByEnv
+from common import *
 
 def testFlushall(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
