@@ -15,7 +15,8 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | Java (Lettuce client library) | [LettuceMod][lettucemod-url] | [Redis Inc][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
 | Java | [Spring LettuceMod][lettucemod-url] | [Redis Labs][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
-| Go | [redisearch-go][redisearch-go-url] | [Redis Inc][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
+| Go | [redisearch-go][redisearch-go-url] | [Redis][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
+| JavaScript | [node-redis][node-redis-url] | [Redis][node-redis-author] | MIT | [![node-redis-stars]][node-redis-url] |
 | JavaScript | [RedRediSearch][RedRediSearch-url] | [Kyle J. Davis][RedRediSearch-author] | MIT |[![RedRediSearch-stars]][RedRediSearch-url]|
 | JavaScript | [redis-redisearch][redis-redisearch-url] | [Kyle J. Davis][redis-redisearch-author] | MIT | [![redis-redisearch-stars]][redis-redisearch-url]|
 | JavaScript | [Redis-om][redis-om-node-url] | [Redis][redis-om-node-author] | BSD-3-Clause | [![redis-om-node-stars]][redis-om-node-url] |
@@ -53,6 +54,10 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redisearch-go-url]: https://github.com/RediSearch/redisearch-go
 [redisearch-go-author]: https://redis.com
 [redisearch-go-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-go.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[node-redis-url]: https://github.com/redis/node-redis
+[node-redis-author]: https://github.com
+[node-redis-stars]: https://img.shields.io/github/stars/redis/node-redis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [RedRediSearch-url]: https://github.com/stockholmux/redredisearch
 [RedRediSearch-author]: https://github.com/stockholmux
