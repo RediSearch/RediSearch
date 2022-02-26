@@ -1,4 +1,5 @@
-INCLUDE(CheckCCompilerFlag)
+
+include(CheckCCompilerFlag)
 
 # This file exposes the following:
 # RS_C_FLAGS
@@ -8,7 +9,7 @@ INCLUDE(CheckCCompilerFlag)
 
 function(ADD_LDFLAGS _TARGET NEW_FLAGS)
     get_target_property(LD_FLAGS ${_TARGET} LINK_FLAGS)
-    if(LD_FLAGS)
+    if (LD_FLAGS)
         set(NEW_FLAGS "${LD_FLAGS} ${NEW_FLAGS}")
     endif()
     set_target_properties(${_TARGET} PROPERTIES LINK_FLAGS ${NEW_FLAGS})
@@ -18,9 +19,9 @@ CHECK_C_COMPILER_FLAG("-Wincompatible-pointer-types" HAVE_W_INCOMPATIBLE_POINTER
 CHECK_C_COMPILER_FLAG("-Wincompatible-pointer-types-discards-qualifiers" HAVE_W_DISCARDS_QUALIFIERS)
 
 set(RS_COMMON_FLAGS "-Wall -Wno-unused-function -Wno-unused-variable -Wno-sign-compare")
-set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fPIC -Werror=implicit-function-declaration")
-set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
-set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-strict-aliasing")
+set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fPIC -pthread -fno-strict-aliasing")
+
+set(RS_C_FLAGS "${RS_C_FLAGS} -Werror=implicit-function-declaration")
 
 if (HAVE_W_INCOMPATIBLE_POINTER_TYPES)
     set(RS_C_FLAGS "${RS_C_FLAGS} -Werror=incompatible-pointer-types")
@@ -72,6 +73,12 @@ set(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
 set(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
 
 #----------------------------------------------------------------------------------------------
+
+if (${OS} STREQUAL "linux")
+	set(RS_LINK_LIBS m dl rt)
+elseif (${OS} STREQUAL "macos")
+	set(RS_LINK_LIBS m dl)
+endif()
 
 if (NOT APPLE)
     set(RS_SO_FLAGS "-Wl,-Bsymbolic,-Bsymbolic-functions")
