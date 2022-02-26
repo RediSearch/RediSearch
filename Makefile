@@ -5,6 +5,10 @@ else
 DRY_RUN:=
 endif
 
+ifneq ($(BB),)
+SLOW:=1
+endif
+
 ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
 COV=1
 endif
@@ -51,6 +55,7 @@ ifeq ($(wildcard $(ROOT)/deps/readies/*),)
 ___:=$(shell git submodule update --init --recursive &> /dev/null)
 endif
 
+MK.pyver:=3
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -400,7 +405,7 @@ endif # DEPS
 
 setup:
 	@echo Setting up system...
-	$(SHOW)./deps/readies/bin/getpy2
+	$(SHOW)./deps/readies/bin/getpy3
 	$(SHOW)./sbin/system-setup.py 
 
 #----------------------------------------------------------------------------------------------
@@ -471,7 +476,11 @@ else
 REJSON_SO=
 endif
 
+ifneq ($(SLOW),1)
 RLTEST_PARALLEL ?= 1
+else
+RLTEST_PARALLEL=0
+endif
 
 test: $(REJSON_SO)
 ifneq ($(TEST),)

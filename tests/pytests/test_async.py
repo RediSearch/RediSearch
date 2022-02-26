@@ -12,7 +12,7 @@ def testCreateIndex(env):
     N = 1000
     for i in range(N):
         res = conn.execute_command('hset', 'foo:%d' % i, 'name', 'john doe')
-        env.assertEqual(res, 1L)
+        env.assertEqual(res, 1)
 
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     waitForIndex(r, 'idx')
@@ -26,7 +26,7 @@ def testAlterIndex(env):
     N = 10000
     for i in range(N):
         res = conn.execute_command('hset', 'foo:%d' % i, 'name', 'john doe', 'age', str(10 + i))
-        env.assertEqual(res, 2L)
+        env.assertEqual(res, 2)
 
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     env.cmd('ft.alter', 'idx', 'schema', 'add', 'age', 'numeric')
@@ -42,7 +42,7 @@ def testDeleteIndex(env):
     N = 100
     for i in range(N):
         res = conn.execute_command('hset', 'foo:%d' % i, 'name', 'john doe')
-        env.assertEqual(res, 1L)
+        env.assertEqual(res, 1)
 
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     r.expect('ft.drop', 'idx').ok()

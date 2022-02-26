@@ -1,3 +1,4 @@
-rltest==0.4.2
 redis >= 3.0.0
 packaging >= 20.8
+RLTest ~= 0.5.0
+ramp-packer ~= 2.3.0

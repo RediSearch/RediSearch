@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 import sys
 import os
@@ -44,7 +44,7 @@ class RediSearchSetup(paella.Setup):
 
         self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake openssl-devel")
-        self.install("python2-devel")
+        self.install("python-devel")
 
         if self.platform.is_arm():
             self.install("python-gevent")
@@ -72,7 +72,7 @@ class RediSearchSetup(paella.Setup):
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),
                  sudo=self.os != 'macos')
-        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall".format(PYTHON=self.python, READIES=READIES))
+        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall --modern".format(PYTHON=self.python, READIES=READIES))
         if self.dist != "arch":
             self.install("lcov")
         else:

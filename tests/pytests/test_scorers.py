@@ -38,27 +38,27 @@ def testScoreTagIndex(env):
         env.expect('ft.add', 'idx', 'doc%d' % n, sc, 'fields',
                    'title', 'hello world ' * n, 'body', 'lorem ipsum ' * n).ok()
     results_single = [
-        [24L, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
+        [24, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
             1.91, 'doc4', 1.88, 'doc5', 1.85],
-        [24L, 'doc1', 0.9, 'doc2', 0.59, 'doc3',
+        [24, 'doc1', 0.9, 'doc2', 0.59, 'doc3',
             0.43, 'doc4', 0.34, 'doc5', 0.28],
-        [24L, 'doc4', 1.75, 'doc5', 1.75, 'doc3',
+        [24, 'doc4', 1.75, 'doc5', 1.75, 'doc3',
             1.74, 'doc6', 1.74, 'doc7', 1.72],
-        [24L, 'doc24', 480.0, 'doc23', 460.0, 'doc22',
+        [24, 'doc24', 480.0, 'doc23', 460.0, 'doc22',
             440.0, 'doc21', 420.0, 'doc20', 400.0],
-        [24L, 'doc1', 0.99, 'doc2', 0.97, 'doc3',
+        [24, 'doc1', 0.99, 'doc2', 0.97, 'doc3',
             0.96, 'doc4', 0.94, 'doc5', 0.93]
     ]
     results_cluster = [
-        [24L, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
+        [24, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
             1.91, 'doc4', 1.88, 'doc5', 1.85],
-        [24L, 'doc1', 0.9, 'doc2', 0.59, 'doc3',
+        [24, 'doc1', 0.9, 'doc2', 0.59, 'doc3',
             0.43, 'doc4', 0.34, 'doc5', 0.28],
-        [24L, 'doc4', 1.76, 'doc5', 1.75, 'doc3',
+        [24, 'doc4', 1.76, 'doc5', 1.75, 'doc3',
             1.74, 'doc6', 1.73, 'doc7', 1.72],
-        [24L, 'doc24', 480.0, 'doc23', 460.0, 'doc22',
+        [24, 'doc24', 480.0, 'doc23', 460.0, 'doc22',
             440.0, 'doc21', 420.0, 'doc20', 400.0],
-        [24L, 'doc1', 0.99, 'doc2', 0.97, 'doc3',
+        [24, 'doc1', 0.99, 'doc2', 0.97, 'doc3',
             0.96, 'doc4', 0.94, 'doc5', 0.93],
     ]
 
@@ -83,7 +83,7 @@ def testDocscoreScorerExplanation(env):
     env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
     env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'DOCSCORE')
-    env.assertEqual(res[0], 3L)
+    env.assertEqual(res[0], 3)
     env.assertEqual(res[2][1], "Document's score is 1.00")
     env.assertEqual(res[5][1], "Document's score is 0.50")
     env.assertEqual(res[8][1], "Document's score is 0.10")
@@ -94,12 +94,12 @@ def testTFIDFScorerExplanation(env):
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
 
-    conn.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
-    conn.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
-    conn.execute_command('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem')
+    env.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
+    env.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
+    env.execute_command('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem')
 
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE')
-    env.assertEqual(res[0], 3L)
+    env.assertEqual(res[0], 3)
     env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 20.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 20.00)',
                                 ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
@@ -115,9 +115,6 @@ def testTFIDFScorerExplanation(env):
 
     # test depth limit
 
-    # TODO: re-enable this
-    env.skipOnCluster()
-        
     res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
     env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 30.00)',
@@ -155,7 +152,7 @@ def testBM25ScorerExplanation(env):
     env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
     env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25')
-    env.assertEqual(res[0], 3L)
+    env.assertEqual(res[0], 3)
     if env.isCluster():
         env.assertContains('Final BM25', res[2][1][0])
         env.assertContains('Final BM25', res[5][1][0])
@@ -183,7 +180,7 @@ def testDisMaxScorerExplanation(env):
     env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
     env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'DISMAX')
-    env.assertEqual(res[0], 3L)
+    env.assertEqual(res[0], 3)
     env.assertEqual(res[2][1], ['20.00 = Weight 1.00 * children DISMAX 20.00',
             ['DISMAX 10.00 = Weight 1.00 * Frequency 10', 'DISMAX 10.00 = Weight 1.00 * Frequency 10']])
     env.assertEqual(res[5][1], ['20.00 = Weight 1.00 * children DISMAX 20.00',
@@ -197,13 +194,13 @@ def testScoreReplace(env):
     waitForIndex(env, 'idx')
     conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
     conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
-    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1L, 'doc1', '1'])
+    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '1'])
     conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
-    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1L, 'doc1', '0'])
+    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '0'])
     if not env.isCluster:
         env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
         env.expect('ft.debug GC_FORCEINVOKE idx').equal('DONE')
-        env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1L, 'doc1', '1'])
+        env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '1'])
 
 def testScoreDecimal(env):
     env.expect('ft.create idx ON HASH schema title text').ok()
