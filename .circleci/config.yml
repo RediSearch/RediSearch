@@ -348,9 +348,9 @@ jobs:
       xcode: 12.4.0
     steps:
       - early-returns
-      - run:
-          name: Brew upgrade
-          command: brew upgrade
+      # - run:
+      #     name: Brew upgrade
+      #     command: brew upgrade
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace

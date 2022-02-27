@@ -20,11 +20,19 @@ runn "openssl req \
     -days 3650 \
     -subj '/O=Redis Test/CN=Certificate Authority' \
     -out ca.crt"
-runn openssl genrsa -aes256 -passout pass:foobar -out redis.key 2048
+
+PASSOUT=""
+PASSIN=""
+if [[ $PASSPHRASE != 0 ]]; then
+	PASSOUT="-aes256 -passout pass:foobar"
+	PASSIN="-passin pass:foobar"
+fi
+
+runn openssl genrsa $PASSOUT -out redis.key 2048
 runn "openssl req \
     -new -sha256 \
     -key redis.key \
-    -passin pass:foobar \
+    $PASSIN \
     -subj '/O=Redis Test/CN=Server' | \
     openssl x509 \
         -req -sha256 \
