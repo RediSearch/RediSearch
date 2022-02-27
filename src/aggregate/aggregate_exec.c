@@ -37,7 +37,7 @@ static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
     }
     switch (key->t) {
       case RSValue_Number:
-        /* Serialize double - by prepending "%" to the number, so the coordinator/client can
+        /* Serialize double - by prepending "#" to the number, so the coordinator/client can
           * tell it's a double and not just a numeric string value */
         rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", key->numval);
         break;
