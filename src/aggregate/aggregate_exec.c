@@ -31,7 +31,10 @@ typedef struct {
 
 static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
   RedisModuleString *rskey = NULL;
-  if (key) {
+  if (!key) {
+    RedisModule_ReplyWithNull(outctx); 
+  }
+  else {
     if(key->t == RSValue_Reference) {
       key = RSValue_Dereference(key);
     }
@@ -62,8 +65,6 @@ static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
     } else {
       RedisModule_ReplyWithNull(outctx);
     }
-  } else {
-    RedisModule_ReplyWithNull(outctx);
   }
 }
 

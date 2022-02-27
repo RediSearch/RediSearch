@@ -974,7 +974,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 /************************ Result post processing callbacks ********************/
 
 
-static void noOp(searchReducerCtx *rCtx){
+static void noOpPostProcess(searchReducerCtx *rCtx){
   return;
 }
 
@@ -1168,7 +1168,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   // Default result process and post process operations
   rCtx.processReply = processSearchReply;
-  rCtx.postProcess = noOp;
+  rCtx.postProcess = noOpPostProcess;
 
 
   if(req->specialCases) {
@@ -1658,7 +1658,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
   struct MRCtx *mrctx = MR_CreateCtx(ctx, req);
   // we prefer the next level to be local - we will only approach nodes on our own shard
   // we also ask only masters to serve the request, to avoid duplications by random
-  MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination);
+  MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination | MRCluster_MastersOnly);
 
   MRCtx_SetReduceFunction(mrctx, searchResultReducer);
   MRCtx_SetRedisCtx(mrctx, bc);
@@ -1676,7 +1676,7 @@ typedef struct SearchCmdCtx {
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
   FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->argv, sCmdCtx->argc);
-  for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
+  for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {\
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
   rm_free(sCmdCtx->argv);

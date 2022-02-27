@@ -471,6 +471,8 @@ def test_hybrid_query_batches_mode_with_tags(env):
     query_data = np.float32([index_size/2 for j in range(dimension)])
     execute_hybrid_query(env, '(@tags:{nothing})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal([0L])
     execute_hybrid_query(env, '(@tags:{hybrid} @text:hello)=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal([0L])
+    # on single shard case, on sorter result processor, the tie-breaker in case of equal sort value is the document internal id (number).
+    # on the coordinator (cluster), the tie breaker is the document key name (lexicographic order).
     if env.isCluster():
         expected_res_1 = [10L, '50', ['__v_score', '0', 'tags', 'hybrid'], '49', ['__v_score', '128', 'tags', 'hybrid'], '51', ['__v_score', '128', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid']]
     else:
@@ -482,6 +484,8 @@ def test_hybrid_query_batches_mode_with_tags(env):
         vector = np.float32([10*i for j in range(dimension)])
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 'tags', 'different, tag')
 
+    # on single shard case, on sorter result processor, the tie-breaker in case of equal sort value is the document internal id (number).
+    # on the coordinator (cluster), the tie breaker is the document key name (lexicographic order).
     if env.isCluster():
         expected_res_2 = [10L, '50', ['__v_score', '0', 'tags', 'different, tag'], '40', ['__v_score', '12800', 'tags', 'different, tag'], '60', ['__v_score', '12800', 'tags', 'different, tag'], '30', ['__v_score', '51200', 'tags', 'different, tag'], '70', ['__v_score', '51200', 'tags', 'different, tag'], '20', ['__v_score', '115200', 'tags', 'different, tag'], '80', ['__v_score', '115200', 'tags', 'different, tag'], '10', ['__v_score', '204800', 'tags', 'different, tag'], '90', ['__v_score', '204800', 'tags', 'different, tag'], '100', ['__v_score', '320000', 'tags', 'different, tag']]
     else:
@@ -489,6 +493,8 @@ def test_hybrid_query_batches_mode_with_tags(env):
 
     execute_hybrid_query(env, '(@tags:{different})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal(expected_res_2)
     
+    # on single shard case, on sorter result processor, the tie-breaker in case of equal sort value is the document internal id (number).
+    # on the coordinator (cluster), the tie breaker is the document key name (lexicographic order).
     if env.isCluster():
         expected_res_3 = [10L, '49', ['__v_score', '128', 'tags', 'hybrid'], '51', ['__v_score', '128', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid'], '55', ['__v_score', '3200', 'tags', 'hybrid']]
     else:

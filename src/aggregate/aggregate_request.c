@@ -126,7 +126,13 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
   int requiredFieldNum = AC_NumArgs(&args);
   const char** requiredFields = array_new(const char*, requiredFieldNum);
   for(size_t i=0; i < requiredFieldNum; i++) {
-    requiredFields = array_append(requiredFields, AC_GetStringNC(&args, NULL));
+    const char *s = AC_GetStringNC(&args, NULL); {
+      if(!s) {
+        array_free(requiredFields);
+        return REDISMODULE_ERR;
+      }
+    }
+    requiredFields = array_append(requiredFields, s);
   }
 
   req->requiredFields = requiredFields;
