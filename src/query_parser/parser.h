@@ -25,5 +25,6 @@
 #define ARROW                           25
 #define COLON                           26
 #define TEXTEXPR                        27
-#define AS                              28
-#define SEMICOLON                       29
+#define AS_S                            28
+#define AS_T                            29
+#define SEMICOLON                       30
