@@ -310,8 +310,6 @@ def get_vecsim_memory(env, index_key, field_name):
 
 
 def test_memory_info(env):
-    # Skip on cluster as FT.DEBUG not supported.
-    env.skipOnCluster()
     # This test flow adds two vectors and deletes them. The test checks for memory increase in Redis and RediSearch upon insertion and decrease upon delete.
     conn = getConnectionByEnv(env)
     dimension = 128
@@ -321,11 +319,13 @@ def test_memory_info(env):
     # Create index. Flat index implementation will free memory when deleting vectors, so it is a good candidate for this test with respect to memory consumption.
     conn.execute_command('FT.CREATE', index_key, 'SCHEMA', vector_field, 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'BLOCK_SiZE', '1')
     # Verify redis memory >= redisearch index memory
-    vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+    if not env.isCluster():
+        vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
     redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     redis_memory = get_redis_memory_in_mb(env)
+    if not env.isCluster():
+        env.assertEqual(redisearch_memory, vecsim_memory)
     env.assertLessEqual(redisearch_memory, redis_memory)
-    env.assertEqual(redisearch_memory, vecsim_memory)
     vector = np.float32(np.random.random((1, dimension)))
 
     # Add vector.
@@ -333,60 +333,64 @@ def test_memory_info(env):
     # Verify current memory readings > previous memory readings.
     cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     env.assertLessEqual(redisearch_memory, cur_redisearch_memory)
-    cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
-    env.assertLessEqual(vecsim_memory, cur_vecsim_memory)
     redis_memory = get_redis_memory_in_mb(env)
     redisearch_memory = cur_redisearch_memory
-    vecsim_memory = cur_vecsim_memory
     # Verify redis memory >= redisearch index memory
     env.assertLessEqual(redisearch_memory, redis_memory)
-    #verify vecsim memory == redisearch memory
-    env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
+    if not env.isCluster():
+        cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+        env.assertLessEqual(vecsim_memory, cur_vecsim_memory)
+        vecsim_memory = cur_vecsim_memory
+        #verify vecsim memory == redisearch memory
+        env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
     # Add vector.
     conn.execute_command('HSET', 2, vector_field, vector.tobytes())
     # Verify current memory readings > previous memory readings.
     cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     env.assertLessEqual(redisearch_memory, cur_redisearch_memory)
-    cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
-    env.assertLessEqual(vecsim_memory, cur_vecsim_memory)
     redis_memory = get_redis_memory_in_mb(env)
     redisearch_memory = cur_redisearch_memory
-    vecsim_memory = cur_vecsim_memory
     # Verify redis memory >= redisearch index memory
     env.assertLessEqual(redisearch_memory, redis_memory)
-    #verify vecsim memory == redisearch memory
-    env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
+    if not env.isCluster():
+        cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+        env.assertLessEqual(vecsim_memory, cur_vecsim_memory)
+        vecsim_memory = cur_vecsim_memory
+        #verify vecsim memory == redisearch memory
+        env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
     # Delete vector
     conn.execute_command('DEL', 2)
     # Verify current memory readings < previous memory readings.
     cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     env.assertLessEqual(cur_redisearch_memory, redisearch_memory)
-    cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
-    env.assertLessEqual(cur_vecsim_memory, vecsim_memory)
     redis_memory = get_redis_memory_in_mb(env)
     redisearch_memory = cur_redisearch_memory
-    vecsim_memory = cur_vecsim_memory
     # Verify redis memory >= redisearch index memory
     env.assertLessEqual(redisearch_memory, redis_memory)
-    #verify vecsim memory == redisearch memory
-    env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
+    if not env.isCluster():
+        cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+        env.assertLessEqual(cur_vecsim_memory, vecsim_memory)
+        vecsim_memory = cur_vecsim_memory
+        #verify vecsim memory == redisearch memory
+        env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
     # Delete vector
     conn.execute_command('DEL', 1)
     # Verify current memory readings < previous memory readings.
     cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     env.assertLessEqual(cur_redisearch_memory, redisearch_memory)
-    cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
-    env.assertLessEqual(cur_vecsim_memory, vecsim_memory)
     redis_memory = get_redis_memory_in_mb(env)
     redisearch_memory = cur_redisearch_memory
-    vecsim_memory = cur_vecsim_memory
     # Verify redis memory >= redisearch index memory
     env.assertLessEqual(redisearch_memory, redis_memory)
-    #verify vecsim memory == redisearch memory
-    env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
+    if not env.isCluster():
+        cur_vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
+        env.assertLessEqual(cur_vecsim_memory, vecsim_memory)
+        vecsim_memory = cur_vecsim_memory
+        #verify vecsim memory == redisearch memory
+        env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field = False):
