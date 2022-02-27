@@ -8,7 +8,7 @@ We support a simple syntax for complex queries with the following rules:
 * NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. As of version 0.19.3, purely negative queries (i.e. `-foo` or `-@title:(foo|bar)`) are supported.
 * Prefix matches (all terms starting with a prefix) are expressed with a `*`. For performance reasons, a minimum prefix length is enforced (2 by default, but is configurable)
 * A special "wildcard query" that returns all results in the index - `*` (cannot be combined with anything else).
-* Selection of specific fields using the syntax `@field:hello world`.
+* Selection of specific fields using the syntax `hello @field:world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`
 * Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tag fields|/Tags].
@@ -31,9 +31,9 @@ As of version 0.12 it is possible to specify field modifiers in the query and no
 
 Per query expression or sub-expression, it is possible to specify which fields it matches, by prepending the expression with the `@` symbol, the field name and a `:` (colon) symbol.
 
-If a field modifier precedes multiple words, they are considered to be a phrase with the same modifier.
+If a field modifier precedes multiple words or expressions, it applies **only** to the adjacent expression.
 
-If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses.
+If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses. The expretion should be valid for the specified field.
 
 Multiple modifiers can be combined to create complex filtering on several fields. For example, if we have an index of car models, with a vehicle class, country of origin and engine type, we can search for SUVs made in Korea with hybrid or diesel engines - with the following query:
 
@@ -47,7 +47,7 @@ Multiple modifiers can be applied to the same term or grouped terms. e.g.:
 FT.SEARCH idx "@title|body:(hello world) @url|image:mydomain"
 ```
 
-This will search for documents that have "hello world" either in the body or the title, and the term "mydomain" in their url or image fields.
+This will search for documents that have "hello" and "world" either in the body or the title, and the term "mydomain" in their url or image fields.
 
 ## Numeric filters in query
 
