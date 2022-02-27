@@ -784,7 +784,9 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid quer
       break;
   }
   ctx->root = B;
-  QueryNode_AddChild(B, A);
+  if (A) {
+    QueryNode_AddChild(B, A);
+  }
 }
 
 query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.

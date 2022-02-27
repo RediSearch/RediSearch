@@ -1981,7 +1981,9 @@ static YYACTIONTYPE yy_reduce(
       break;
   }
   ctx->root = yymsp[-1].minor.yy111;
-  QueryNode_AddChild(yymsp[-1].minor.yy111, yymsp[-4].minor.yy111);
+  if (yymsp[-4].minor.yy111) {
+    QueryNode_AddChild(yymsp[-1].minor.yy111, yymsp[-4].minor.yy111);
+  }
 }
         break;
       case 61: /* query ::= star ARROW LSQB vector_query RSQB */
