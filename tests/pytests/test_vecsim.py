@@ -549,21 +549,29 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
                          't1', 'TEXT', 't2', 'TEXT')
 
     p = conn.pipeline(transaction=False)
+    np.random.seed(10)
     for i in range(1, index_size+1):
-        vector = np.float32([i for j in range(dimension)])
-        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
+        vector = np.random.rand(1, dimension).astype(np.float32)
+        if i % 5 != 0:
+            conn.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
+        else:
+            conn.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i, 't1', 'other', 't2', 'hybrid query')
     p.execute()
-
-    query_data = np.float32([index_size for j in range(dimension)])
-
-    # test modifier list
-    expected_res_1 = [10L, '30', ['__v_score', '627200', 't1', 'text value', 't2', 'hybrid query'], '29', ['__v_score', '645248', 't1', 'text value', 't2', 'hybrid query'], '28', ['__v_score', '663552', 't1', 'text value', 't2', 'hybrid query'], '27', ['__v_score', '682112', 't1', 'text value', 't2', 'hybrid query'], '26', ['__v_score', '700928', 't1', 'text value', 't2', 'hybrid query'], '25', ['__v_score', '720000', 't1', 'text value', 't2', 'hybrid query'], '24', ['__v_score', '739328', 't1', 'text value', 't2', 'hybrid query'], '23', ['__v_score', '758912', 't1', 'text value', 't2', 'hybrid query'], '22', ['__v_score', '778752', 't1', 'text value', 't2', 'hybrid query'], '21', ['__v_score', '798848', 't1', 'text value', 't2', 'hybrid query']]
-    if env.isCluster():
-        expected_res_1[0] = 20L
-    env.expect('FT.SEARCH', 'idx', '(@t1|t2:value text @num:[10 30])=>[TOP_K 10 @v $vec_param]',
+    query_data = np.random.rand(1, dimension).astype(np.float32)
+    expected_res_1 = [10L, '78', ['__v_score', '19.0101547241', 't1', 'text value', 't2', 'hybrid query'], '38', ['__v_score', '19.2180976868', 't1', 'text value', 't2', 'hybrid query'], '97', ['__v_score', '19.5337314606', 't1', 'text value', 't2', 'hybrid query'], '76', ['__v_score', '19.570526123', 't1', 'text value', 't2', 'hybrid query'], '26', ['__v_score', '19.8271446228', 't1', 'text value', 't2', 'hybrid query'], '51', ['__v_score', '20.8728256226', 't1', 'text value', 't2', 'hybrid query'], '88', ['__v_score', '21.1075077057', 't1', 'text value', 't2', 'hybrid query'], '1', ['__v_score', '21.3107700348', 't1', 'text value', 't2', 'hybrid query'], '13', ['__v_score', '21.4335460663', 't1', 'text value', 't2', 'hybrid query'], '89', ['__v_score', '21.5522575378', 't1', 'text value', 't2', 'hybrid query']]
+    env.expect('FT.SEARCH', 'idx', '(@t2:(hybrid query) -@t1:other)=>[TOP_K 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 3, 't1', 't2', '__v_score').equal(expected_res_1)
+
+    # test modifier list
+    expected_res_2 = [10L, '26', ['__v_score', '19.8271446228', 't1', 'text value', 't2', 'hybrid query'], '13', ['__v_score', '21.4335460663', 't1', 'text value', 't2', 'hybrid query'], '17', ['__v_score', '22.996723175', 't1', 'text value', 't2', 'hybrid query'], '12', ['__v_score', '23.2721576691', 't1', 'text value', 't2', 'hybrid query'], '27', ['__v_score', '23.6116294861', 't1', 'text value', 't2', 'hybrid query'], '21', ['__v_score', '23.9178962708', 't1', 'text value', 't2', 'hybrid query'], '16', ['__v_score', '24.8495121002', 't1', 'text value', 't2', 'hybrid query'], '18', ['__v_score', '25.0025997162', 't1', 'text value', 't2', 'hybrid query'], '22', ['__v_score', '25.0873565674', 't1', 'text value', 't2', 'hybrid query'], '14', ['__v_score', '26.1211452484', 't1', 'text value', 't2', 'hybrid query']]
+    if env.isCluster():
+        expected_res_1[0] = 20L
+    env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text) @num:[10 30])=>[TOP_K 10 @v $vec_param]',
+               'SORTBY', '__v_score',
+               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'RETURN', 3, 't1', 't2', '__v_score').equal(expected_res_2)
 
     # test with query attributes
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text)=>{$inorder: true} @num:[10 30])=>[TOP_K 10 @v $vec_param]',
