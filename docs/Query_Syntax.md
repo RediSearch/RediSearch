@@ -97,11 +97,11 @@ As of version 0.21, it is possible to add geo radius queries directly into the q
 
 Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: `chinese restaurant @location:[-122.41 37.77 5 km]`.
 
-## Vector Similarity filter in query
+## Vector Similarity search in query
 
 It is possible to add vector similarity queries directly into the query language.
 The basic syntax is `"*=>[ KNN {num|$num} @vector $query_vec ]"` for running K nearest neighbors query on @vector field.
-It is also possilbe to run a Hybrid Query on a filtered result.
+It is also possilbe to run a Hybrid Query on filtered results.
 
 A Hybrid query allows the user to specify a filter criteria that ALL results in a KNN query must satisfy. The filter criteria can only include fields with non-vector indexes (e.g. indexes created on scalar values such as TEXT, PHONETIC, NUMERIC, GEO, etc)
 

@@ -57,7 +57,7 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
 
     Algorithm attributes for the creation of the vector index. Every algorithm has its own mandatory and optional attributes.
 
-## Specific attributse per algorithm
+## Specific creation attributse per algorithm
 
 ### FLAT
 
@@ -115,13 +115,13 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
         Initial vector capacity in the index. Effects memory allocation size of the index.
 
     * **M** - 
-        Number the maximal allowed outgoing edges for each node in the graph. Defaults to 16.
+        Number the maximal allowed outgoing edges for each node in the graph in each layer. on layer zero the maximal number of outgoing edges will be `2M`. Defaults to 16.
 
     * **EF_CONSTRUCTION** - 
         Number the maximal allowed potential outgoing edges candidates for each node in the graph, during the graph building. Defaults to 200.
 
     * **EF_RUNTIME** - 
-        Number the maximal allowed potential candidates during the KNN query. Defaults to 10.
+        The number of maximum top candidates to hold during the KNN search. Higher values of `EF_RUNTIME` will lead to a more accurate results on the expense of a longer runtime. Defaults to 10.
 
 * Example
 
@@ -143,7 +143,7 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
 
 We allow using vector similarity queries in the `FT.SEARCH` "query" parameter. The syntax for vector similarity queries is `*=>[{vector similarity query}]` for running the query on an entire vector field, or `{primary filter query}=>[{vector similarity query}]` for running similarity query on the result of the primary filter query.
 
-As of version 2.4, we allow vector similarity to be used **once** in the query.
+As of version 2.4, we allow vector similarity to be used **once** in the query, and over the entire query filter.
 
 * Invalid example: `"(@title:Matrix)=>[KNN 10 @v $B] @year:[2020 2022]"`
 
@@ -161,9 +161,28 @@ Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](C
 
 *   `$blob_attribute` - An attribute that holds the query vector as blob. must be passed through the `PARAMS` section.
 
-*   `[{vector query param name} {value|$value_attribute} [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. see what [parameters](Vectors.md#specific_attributse_per_algorithm) are valid for each algorithm.
+*   `[{vector query param name} {value|$value_attribute} [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. see what [runtime parameters](Vectors.md#specific_runtime_attributse_per_algorithm) are valid for each algorithm.
 
 *   `[ AS {score field name | $score_field_name_attribute}]` - An optional part for specifing a score field name, for later sorting by the similarity score. By default the score field name is "`__{vector field}_score`" and it can be used for sorting without using `AS {score field name}` in the query.
+
+## Specific runtime attributse per algorithm
+
+### FLAT
+
+Currently there are no runtime parameters available for FLAT indexes
+
+### HNSW
+
+* **Optional parameters**
+
+    * **EF_RUNTIME** - 
+        The number of maximum top candidates to hold during the KNN search. Higher values of `EF_RUNTIME` will lead to a more accurate results on the expense of a longer runtime. Defaults to 10.
+
+### A few notes
+
+1. Although specifing `K` requested results, the default `LIMIT` in RediSearch is 10, so for getting all the returned results, make sure to specify `LIMIT 0 {K}` in your command.
+
+2. By default, the resluts are sorted by their documents default RediSearch score. for getting the results sorted by similarity score, use `SORTBY {score field name}` as explained earlier.
 
 ### Examples for querying vector fields
 
@@ -172,7 +191,7 @@ Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](C
     ```
 
 *   ```
-    FT.SEARCH idx "*=>[KNN 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY vec_score
+    FT.SEARCH idx "*=>[KNN 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY __vec_score
     ```
 
 *   ```
@@ -181,4 +200,12 @@ Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](C
 
 *   ```
     FT.SEARCH idx "*=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores
+    ```
+
+*   ```
+    FT.SEARCH idx "(@title:Dune @num:[2020 2022])=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores
+    ```
+
+*   ```
+    FT.SEARCH idx "(@type:{shirt} ~@color:{blue})=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores
     ```
