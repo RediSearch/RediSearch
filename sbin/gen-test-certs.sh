@@ -24,11 +24,11 @@ runn "openssl req \
 PASSOUT=""
 PASSIN=""
 if [[ $PASSPHRASE != 0 ]]; then
-	PASSOUT="-passout pass:foobar"
+	PASSOUT=" -aes256 -passout pass:foobar"
 	PASSIN="-passin pass:foobar"
 fi
 
-runn openssl genrsa -aes256 $PASSOUT -out redis.key 2048
+runn openssl genrsa $PASSOUT -out redis.key 2048
 runn "openssl req \
     -new -sha256 \
     -key redis.key \
