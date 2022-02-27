@@ -558,20 +558,24 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
             conn.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i, 't1', 'other', 't2', 'hybrid query')
     p.execute()
     query_data = np.random.rand(1, dimension).astype(np.float32)
-    expected_res_1 = [10L, '78', ['__v_score', '19.0101547241', 't1', 'text value', 't2', 'hybrid query'], '38', ['__v_score', '19.2180976868', 't1', 'text value', 't2', 'hybrid query'], '97', ['__v_score', '19.5337314606', 't1', 'text value', 't2', 'hybrid query'], '76', ['__v_score', '19.570526123', 't1', 'text value', 't2', 'hybrid query'], '26', ['__v_score', '19.8271446228', 't1', 'text value', 't2', 'hybrid query'], '51', ['__v_score', '20.8728256226', 't1', 'text value', 't2', 'hybrid query'], '88', ['__v_score', '21.1075077057', 't1', 'text value', 't2', 'hybrid query'], '1', ['__v_score', '21.3107700348', 't1', 'text value', 't2', 'hybrid query'], '13', ['__v_score', '21.4335460663', 't1', 'text value', 't2', 'hybrid query'], '89', ['__v_score', '21.5522575378', 't1', 'text value', 't2', 'hybrid query']]
+    expected_res_1 = [10L, '78', '38', '97', '76', '26', '51', '88', '1', '13', '89']
+    if env.isCluster():
+        # todo: change this when coordinator changes are available
+        expected_res_1[0] = 30L
     env.expect('FT.SEARCH', 'idx', '(@t2:(hybrid query) -@t1:other)=>[TOP_K 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 3, 't1', 't2', '__v_score').equal(expected_res_1)
+               'RETURN', 0).equal(expected_res_1)
 
     # test modifier list
-    expected_res_2 = [10L, '26', ['__v_score', '19.8271446228', 't1', 'text value', 't2', 'hybrid query'], '13', ['__v_score', '21.4335460663', 't1', 'text value', 't2', 'hybrid query'], '17', ['__v_score', '22.996723175', 't1', 'text value', 't2', 'hybrid query'], '12', ['__v_score', '23.2721576691', 't1', 'text value', 't2', 'hybrid query'], '27', ['__v_score', '23.6116294861', 't1', 'text value', 't2', 'hybrid query'], '21', ['__v_score', '23.9178962708', 't1', 'text value', 't2', 'hybrid query'], '16', ['__v_score', '24.8495121002', 't1', 'text value', 't2', 'hybrid query'], '18', ['__v_score', '25.0025997162', 't1', 'text value', 't2', 'hybrid query'], '22', ['__v_score', '25.0873565674', 't1', 'text value', 't2', 'hybrid query'], '14', ['__v_score', '26.1211452484', 't1', 'text value', 't2', 'hybrid query']]
+    expected_res_2 = [10L, '26', '13', '17', '12', '27', '21', '16', '18', '22', '14']
     if env.isCluster():
-        expected_res_1[0] = 20L
+        # todo: change this when coordinator changes are available
+        expected_res_2[0] = 20L
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text) @num:[10 30])=>[TOP_K 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 3, 't1', 't2', '__v_score').equal(expected_res_2)
+               'RETURN', 0).equal(expected_res_2)
 
     # test with query attributes
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text)=>{$inorder: true} @num:[10 30])=>[TOP_K 10 @v $vec_param]',
