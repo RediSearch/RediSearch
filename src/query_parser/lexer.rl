@@ -48,7 +48,7 @@ term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
 prefix = (term.star | number.star | attr.star) $1;
-as = 'AS';
+as = 'AS'|'aS'|'As'|'as';
 
 main := |*
 
@@ -105,7 +105,11 @@ main := |*
     tok.pos = ts-q->raw;
     tok.len = te - ts;
     tok.s = ts;
-    RSQuery_Parse(pParser, AS, tok, q);
+    if (StopWordList_Contains(q->opts->stopwords, "as", 2)) {
+      RSQuery_Parse(pParser, AS_S, tok, q);
+    } else {
+      RSQuery_Parse(pParser, AS_T, tok, q);
+    }
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

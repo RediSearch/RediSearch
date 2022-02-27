@@ -25,7 +25,8 @@
 %left COLON.
 %left TEXTEXPR.
 
-%right AS.
+%fallback STOPWORD AS_S.
+%fallback TERM AS_T.
 
 %token_type {QueryToken}
 
@@ -797,7 +798,7 @@ query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim 
 }
 
 // Vector query opt. 1 - full query.
-vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D). {
+vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_filed(D). {
   if (B->vn.vq->scoreField) {
     rm_free(B->vn.vq->scoreField);
     B->vn.vq->scoreField = NULL;
@@ -810,7 +811,7 @@ vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D).
 }
 
 // Vector query opt. 2 - score field only, no params.
-vector_query(A) ::= vector_command(B) AS param_term(D). {
+vector_query(A) ::= vector_command(B) vector_score_filed(D). {
   if (B->vn.vq->scoreField) {
     rm_free(B->vn.vq->scoreField);
     B->vn.vq->scoreField = NULL;
@@ -832,10 +833,20 @@ vector_query(A) ::= vector_command(B). {
   A = B;
 }
 
+as ::= AS_T.
+as ::= AS_S.
+vector_score_filed(A) ::= as param_term(B). {
+  A = B;
+}
+vector_score_filed(A) ::= as STOPWORD(B). {
+  A = B;
+  A.type = QT_TERM;
+}
+
 // Every vector query will have basic command part. Right now we only have KNN command.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
-  if (!strncmp("KNN", T.s, T.len)) {
+  if (!strncasecmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->property = rm_strndup(C.s, C.len);

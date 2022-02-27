@@ -228,6 +228,7 @@ TEST_F(QueryTest, testParser) {
 
   // Test basic vector similarity query
   assertValidQuery("*=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[knn $K @vec_field $BLOB as as]", ctx); // wrong command name lowercase
   assertValidQuery("*=>[KNN $KNN @KNN $KNN KNN $KNN AS $AS]", ctx); // using reserved word as an attribute or field
   assertValidQuery("*=>[KNN $K @vec_field $BLOB]", ctx);
   assertValidQuery("*=>[KNN $K @vec_field $BLOB AS score]", ctx);
@@ -241,7 +242,6 @@ TEST_F(QueryTest, testParser) {
 
   // Test basic vector similarity query errors
   assertInvalidQuery("*=>[ANN $K @vec_field $BLOB]", ctx); // wrong command name
-  assertInvalidQuery("*=>[knn $K @vec_field $BLOB]", ctx); // wrong command name lowercase
   assertInvalidQuery("*=>[KNN $K @vec_field BLOB]", ctx); // pass vector as value (must be an attribute)
   assertInvalidQuery("*=>[KNN $K vec_field $BLOB]", ctx); // wrong field value (must be @field)
   assertInvalidQuery("*=>[KNN K @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
