@@ -220,6 +220,7 @@ void thpool_destroy(thpool_* thpool_p) {
   int n;
   for (n = 0; n < threads_total; n++) {
     thread_destroy(thpool_p->threads[n]);
+    thpool_p->threads[n] = NULL;
   }
   rm_free(thpool_p->threads);
   rm_free(thpool_p);
@@ -230,6 +231,7 @@ void thpool_pause(thpool_* thpool_p) {
   int n;
   for (n = 0; n < thpool_p->num_threads_alive; n++) {
     pthread_kill(thpool_p->threads[n]->pthread, SIGUSR2);
+    thpool_p->threads[n] = NULL;
   }
 }
 

@@ -337,10 +337,13 @@ elif [[ $COORD == oss ]]; then
 		redis_major=$(echo "$redis_ver" | cut -d. -f1)
 		redis_minor=$(echo "$redis_ver" | cut -d. -f2)
 		if [[ $redis_major == 7 || $redis_major == 6 && $redis_minor == 2 ]]; then
+			PASSPHRASE=1
 			tls_args+=" --tls-passphrase foobar"
+		else
+			PASSPHRASE=0
 		fi
 
-		$ROOT/sbin/gen-test-certs.sh
+		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs.sh
 		{ (RLTEST_ARGS+=" ${oss_cluster_args} ${tls_args}" \
 		   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
 	fi # QUICK
