@@ -24,7 +24,7 @@ runn "openssl req \
 PASSOUT=""
 PASSIN=""
 if [[ $PASSPHRASE != 0 ]]; then
-	PASSOUT=" -aes256 -passout pass:foobar"
+	PASSOUT="-aes256 -passout pass:foobar"
 	PASSIN="-passin pass:foobar"
 fi
 

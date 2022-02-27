@@ -583,12 +583,10 @@ workflows:
           <<: *not-on-integ-branch
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           matrix:
             parameters:
-              #@@redis_version: ["6.0", "6.2"]
-              redis_version: ["6.0"]
+              redis_version: ["6.0", "6.2"]
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -603,8 +601,7 @@ workflows:
               platform: [bionic]
       - build-macos:
           context: common
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
       - coverage:
           <<: *on-any-branch
       - sanitize:
