@@ -155,7 +155,7 @@ The `{vector similarity query}` part inside the square brackets needs to be in t
 
 Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](Commands.md#ftsearch) section.
 
-*   `{ number | $number_attribute }` - The number of results ("K").
+*   `{ number | $number_attribute }` - The number of requested results ("K").
 
 *   `@{vector field}` - `vector field` should be a name of a vector field in the index.
 
