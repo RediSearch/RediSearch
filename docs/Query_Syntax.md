@@ -20,7 +20,7 @@ We support a simple syntax for complex queries with the following rules:
 
 ## Pure negative queries
 
-As of version 0.19.3 it is possible to have a query consisting of just a negative expression, e.g. `-hello` or `-(@title:foo|bar)`. The results will be all the documents *NOT* containing the query terms.
+As of version 0.19.3 it is possible to have a query consisting of just a negative expression, e.g. `-hello` or `-(@title:(foo|bar))`. The results will be all the documents *NOT* containing the query terms.
 
 !!! warning
     Any complex expression can be negated this way, however, caution should be taken here: if a negative expression has little or no results, this is equivalent to traversing and ranking all the documents in the index, which can be slow and cause high CPU consumption.
