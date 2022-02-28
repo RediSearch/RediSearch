@@ -22,5 +22,15 @@ def testInfo(env):
     env.assertGreater(float(idx_info['key_table_size_mb']), 0)
     env.assertGreater(float(idx_info['vector_index_sz_mb']), 0)
 
-
+def test_required_fields(env):
+    # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol
+    env.skipOnCluster()
+    env.assertOk(env.execute_command('ft.create', 'idx', 'schema', 't', 'text'))
+    env.execute_command('HSET', '0', 't', 'hello')
+    env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS').error()
+    env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '2', 't').error()
+    env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '1', 't').equal([1L, '0', '$hello', ['t', 'hello']])
+    env.expect('ft.search', 'idx', 'hello', 'nocontent', 'SORTBY', 't', '_REQUIRED_FIELDS', '1', 't').equal([1L, '0', '$hello'])
+    # Field is not in Rlookup, will not load
+    env.expect('ft.search', 'idx', 'hello', 'nocontent', '_REQUIRED_FIELDS', '1', 't').equal([1L, '0', None])
     

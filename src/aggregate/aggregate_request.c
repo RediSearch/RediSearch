@@ -124,6 +124,8 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
   }
 
   int requiredFieldNum = AC_NumArgs(&args);
+  // This array contains shallow copy of the required fields names. Those copies are to use only for lookup.
+  // If we need to use them in reply we should make a copy of those strings.
   const char** requiredFields = array_new(const char*, requiredFieldNum);
   for(size_t i=0; i < requiredFieldNum; i++) {
     const char *s = AC_GetStringNC(&args, NULL); {

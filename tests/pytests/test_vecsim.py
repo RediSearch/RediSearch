@@ -643,3 +643,17 @@ def test_hybrid_query_batches_non_vector_score(env):
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'DOCSCORE', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
+    
+def test_single_entry(env):
+    SkipOnNonCluster(env)
+    # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator. Execution should finish without failure.
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    vector = np.random.rand(1, dimension).astype(np.float32)
+    conn.execute_command('HSET', 0, 'v', vector.tobytes())
+    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 10 @v $vec_param]',
+               'SORTBY', '__v_score',
+               'RETURN', '0',
+               'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1L, '0'])
+
