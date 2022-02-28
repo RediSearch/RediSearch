@@ -835,15 +835,14 @@ def testSortByWithoutSortable(env):
 
 
 def testSortByWithTie(env):
-    r = env
-    env.assertOk(r.execute_command('ft.create', 'idx', 'schema', 't', 'text', 'sortable'))
-
+    conn = getConnectionByEnv(env)
+    env.assertOk(conn.execute_command('ft.create', 'idx', 'schema', 't', 'text'))
     for i in range(10):
-        env.assertEqual(r.execute_command('hset', i, 't', 'hello'), 1L)
+        conn.execute_command('hset', i, 't', 'hello')
 
     # Assert that the order of results is the same in both configurations (by ascending id).
-    res1 = r.execute_command('ft.search', 'idx', 'hello', 'nocontent')
-    res2 = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 't')
+    res1 = conn.execute_command('ft.search', 'idx', 'hello', 'nocontent')
+    res2 = conn.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 't')
     env.assertEqual(res1, res2)
 
 
