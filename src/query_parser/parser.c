@@ -704,7 +704,7 @@ static const char *const yyTokenName[] = {
   /*   52 */ "param_term",
   /*   53 */ "term",
   /*   54 */ "param_any",
-  /*   55 */ "vector_score_filed",
+  /*   55 */ "vector_score_field",
   /*   56 */ "as",
   /*   57 */ "param_size",
 };
@@ -780,12 +780,12 @@ static const char *const yyRuleName[] = {
  /*  63 */ "query ::= expr ARROW LSQB vector_query RSQB",
  /*  64 */ "query ::= text_expr ARROW LSQB vector_query RSQB",
  /*  65 */ "query ::= star ARROW LSQB vector_query RSQB",
- /*  66 */ "vector_query ::= vector_command vector_attribute_list vector_score_filed",
- /*  67 */ "vector_query ::= vector_command vector_score_filed",
+ /*  66 */ "vector_query ::= vector_command vector_attribute_list vector_score_field",
+ /*  67 */ "vector_query ::= vector_command vector_score_field",
  /*  68 */ "vector_query ::= vector_command vector_attribute_list",
  /*  69 */ "vector_query ::= vector_command",
- /*  70 */ "vector_score_filed ::= as param_term",
- /*  71 */ "vector_score_filed ::= as STOPWORD",
+ /*  70 */ "vector_score_field ::= as param_term",
+ /*  71 */ "vector_score_field ::= as STOPWORD",
  /*  72 */ "vector_command ::= TERM param_size modifier ATTRIBUTE",
  /*  73 */ "vector_attribute ::= TERM param_term",
  /*  74 */ "vector_attribute_list ::= vector_attribute_list vector_attribute",
@@ -945,7 +945,7 @@ static void yy_destructor(
     case 52: /* param_term */
     case 53: /* term */
     case 54: /* param_any */
-    case 55: /* vector_score_filed */
+    case 55: /* vector_score_field */
     case 56: /* as */
     case 57: /* param_size */
 {
@@ -1363,12 +1363,12 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     49,  /* (63) query ::= expr ARROW LSQB vector_query RSQB */
     49,  /* (64) query ::= text_expr ARROW LSQB vector_query RSQB */
     49,  /* (65) query ::= star ARROW LSQB vector_query RSQB */
-    42,  /* (66) vector_query ::= vector_command vector_attribute_list vector_score_filed */
-    42,  /* (67) vector_query ::= vector_command vector_score_filed */
+    42,  /* (66) vector_query ::= vector_command vector_attribute_list vector_score_field */
+    42,  /* (67) vector_query ::= vector_command vector_score_field */
     42,  /* (68) vector_query ::= vector_command vector_attribute_list */
     42,  /* (69) vector_query ::= vector_command */
-    55,  /* (70) vector_score_filed ::= as param_term */
-    55,  /* (71) vector_score_filed ::= as STOPWORD */
+    55,  /* (70) vector_score_field ::= as param_term */
+    55,  /* (71) vector_score_field ::= as STOPWORD */
     43,  /* (72) vector_command ::= TERM param_size modifier ATTRIBUTE */
     44,  /* (73) vector_attribute ::= TERM param_term */
     45,  /* (74) vector_attribute_list ::= vector_attribute_list vector_attribute */
@@ -1465,12 +1465,12 @@ static const signed char yyRuleInfoNRhs[] = {
    -5,  /* (63) query ::= expr ARROW LSQB vector_query RSQB */
    -5,  /* (64) query ::= text_expr ARROW LSQB vector_query RSQB */
    -5,  /* (65) query ::= star ARROW LSQB vector_query RSQB */
-   -3,  /* (66) vector_query ::= vector_command vector_attribute_list vector_score_filed */
-   -2,  /* (67) vector_query ::= vector_command vector_score_filed */
+   -3,  /* (66) vector_query ::= vector_command vector_attribute_list vector_score_field */
+   -2,  /* (67) vector_query ::= vector_command vector_score_field */
    -2,  /* (68) vector_query ::= vector_command vector_attribute_list */
    -1,  /* (69) vector_query ::= vector_command */
-   -2,  /* (70) vector_score_filed ::= as param_term */
-   -2,  /* (71) vector_score_filed ::= as STOPWORD */
+   -2,  /* (70) vector_score_field ::= as param_term */
+   -2,  /* (71) vector_score_field ::= as STOPWORD */
    -4,  /* (72) vector_command ::= TERM param_size modifier ATTRIBUTE */
    -2,  /* (73) vector_attribute ::= TERM param_term */
    -2,  /* (74) vector_attribute_list ::= vector_attribute_list vector_attribute */
@@ -2043,7 +2043,7 @@ yylhsminor.yy111 = yymsp[0].minor.yy111;
 }
 }
         break;
-      case 66: /* vector_query ::= vector_command vector_attribute_list vector_score_filed */
+      case 66: /* vector_query ::= vector_command vector_attribute_list vector_score_field */
 {
   if (yymsp[-2].minor.yy111->vn.vq->scoreField) {
     rm_free(yymsp[-2].minor.yy111->vn.vq->scoreField);
@@ -2057,7 +2057,7 @@ yylhsminor.yy111 = yymsp[0].minor.yy111;
 }
   yymsp[-2].minor.yy111 = yylhsminor.yy111;
         break;
-      case 67: /* vector_query ::= vector_command vector_score_filed */
+      case 67: /* vector_query ::= vector_command vector_score_field */
 {
   if (yymsp[-1].minor.yy111->vn.vq->scoreField) {
     rm_free(yymsp[-1].minor.yy111->vn.vq->scoreField);
@@ -2077,14 +2077,14 @@ yylhsminor.yy111 = yymsp[0].minor.yy111;
 }
   yymsp[-1].minor.yy111 = yylhsminor.yy111;
         break;
-      case 70: /* vector_score_filed ::= as param_term */
+      case 70: /* vector_score_field ::= as param_term */
 {  yy_destructor(yypParser,56,&yymsp[-1].minor);
 {
   yymsp[-1].minor.yy0 = yymsp[0].minor.yy0;
 }
 }
         break;
-      case 71: /* vector_score_filed ::= as STOPWORD */
+      case 71: /* vector_score_field ::= as STOPWORD */
 {  yy_destructor(yypParser,56,&yymsp[-1].minor);
 {
   yymsp[-1].minor.yy0 = yymsp[0].minor.yy0;

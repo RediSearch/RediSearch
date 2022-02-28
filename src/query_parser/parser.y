@@ -903,7 +903,7 @@ query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim 
 }
 
 // Vector query opt. 1 - full query.
-vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_filed(D). {
+vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_field(D). {
   if (B->vn.vq->scoreField) {
     rm_free(B->vn.vq->scoreField);
     B->vn.vq->scoreField = NULL;
@@ -916,7 +916,7 @@ vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_file
 }
 
 // Vector query opt. 2 - score field only, no params.
-vector_query(A) ::= vector_command(B) vector_score_filed(D). {
+vector_query(A) ::= vector_command(B) vector_score_field(D). {
   if (B->vn.vq->scoreField) {
     rm_free(B->vn.vq->scoreField);
     B->vn.vq->scoreField = NULL;
@@ -940,10 +940,10 @@ vector_query(A) ::= vector_command(B). {
 
 as ::= AS_T.
 as ::= AS_S.
-vector_score_filed(A) ::= as param_term(B). {
+vector_score_field(A) ::= as param_term(B). {
   A = B;
 }
-vector_score_filed(A) ::= as STOPWORD(B). {
+vector_score_field(A) ::= as STOPWORD(B). {
   A = B;
   A.type = QT_TERM;
 }
