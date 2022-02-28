@@ -57,7 +57,7 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
 
     Algorithm attributes for the creation of the vector index. Every algorithm has its own mandatory and optional attributes.
 
-## Specific creation attributse per algorithm
+## Specific creation attributes per algorithm
 
 ### FLAT
 
@@ -165,7 +165,7 @@ Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](C
 
 *   `[ AS {score field name | $score_field_name_attribute}]` - An optional part for specifing a score field name, for later sorting by the similarity score. By default the score field name is "`__{vector field}_score`" and it can be used for sorting without using `AS {score field name}` in the query.
 
-## Specific runtime attributse per algorithm
+## Specific runtime attributes per algorithm
 
 ### FLAT
 
@@ -176,7 +176,7 @@ Currently there are no runtime parameters available for FLAT indexes
 * **Optional parameters**
 
     * **EF_RUNTIME** - 
-        The number of maximum top candidates to hold during the KNN search. Higher values of `EF_RUNTIME` will lead to a more accurate results on the expense of a longer runtime. Defaults to 10.
+        The number of maximum top candidates to hold during the KNN search. Higher values of `EF_RUNTIME` will lead to a more accurate results on the expense of a longer runtime. Defaults to the `EF_RUNTIME` value passed on creation (which defaults to 10).
 
 ### A few notes
 
