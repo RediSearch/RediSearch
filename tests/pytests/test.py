@@ -787,6 +787,7 @@ def testSortBy(env):
         env.assertListEqual([100L, 'doc99', '$hello099 world', 'doc98', '$hello098 world', 'doc97', '$hello097 world', 'doc96',
                               '$hello096 world', 'doc95', '$hello095 world'], res)
 
+
 def testSortByWithoutSortable(env):
     r = env
     env.assertOk(r.execute_command(
@@ -831,6 +832,20 @@ def testSortByWithoutSortable(env):
                                 'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
         env.assertListEqual(
             [100L, 'doc0', '#100', 'doc1', '#99', 'doc2', '#98', 'doc3', '#97', 'doc4', '#96'], res)
+
+
+def testSortByWithTie(env):
+    r = env
+    env.assertOk(r.execute_command('ft.create', 'idx', 'schema', 't', 'text', 'sortable'))
+
+    for i in range(10):
+        env.assertEqual(r.execute_command('hset', i, 't', 'hello'), 1L)
+
+    # Assert that the order of results is the same in both configurations (by ascending id).
+    res1 = r.execute_command('ft.search', 'idx', 'hello', 'nocontent')
+    res2 = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 't')
+    env.assertEqual(res1, res2)
+
 
 def testNot(env):
     r = env
