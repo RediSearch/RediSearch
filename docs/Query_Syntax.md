@@ -217,7 +217,7 @@ The supported attributes are:
 
 * Combined AND, OR with field specifiers:
 
-        @title:hello world @body:(foo bar) @category:(articles|biographies)
+        @title:"hello world" @body:(foo bar) @category:(articles|biographies)
 
 * Prefix Queries:
 
