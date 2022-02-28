@@ -91,16 +91,24 @@ static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, cha
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
 char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data) {
   char **ret = array_new(char *, 4);
-  if (data->unionType == FLD_VAR_T_RMS) {
-    const char *str = (char *)RedisModule_StringPtrLen(data->text, NULL);
+  const char *str;
+  switch (data->unionType) {
+  case FLD_VAR_T_RMS:
+    str = (char *)RedisModule_StringPtrLen(data->text, NULL);
     tokenizeTagString(str, sep, flags, &ret);
-  } else if (data->unionType == FLD_VAR_T_CSTR) {
+    break;
+  case FLD_VAR_T_CSTR:
     tokenizeTagString(data->strval, sep, flags, &ret);
-  } else if (data->unionType == FLD_VAR_T_ARRAY) {
+    break;
+  case FLD_VAR_T_ARRAY:
     for (int i = 0; i < data->arrayLen; i++) {
       tokenizeTagString(data->multiVal[i], sep, flags, &ret);
     }
-  } else {
+    break;
+  case FLD_VAR_T_NULL:
+    break;
+  case FLD_VAR_T_GEO:
+  case FLD_VAR_T_NUM:  
     RS_LOG_ASSERT(0, "nope")
   }
   return ret;
