@@ -571,7 +571,7 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
     expected_res_2 = [10L, '26', '13', '17', '12', '27', '21', '16', '18', '22', '14']
     if env.isCluster():
         # todo: change this when coordinator changes are available
-        expected_res_2[0] = 20L
+        expected_res_2[0] = 16L
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text) @num:[10 30])=>[TOP_K 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
