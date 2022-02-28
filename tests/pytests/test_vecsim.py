@@ -566,7 +566,7 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
     # The child iterator will point to 2, and return NOT_FOUND. This test makes sure that the hybrid iterator can
     # handle this situation (without going into infinite loop).
     env.expect('FT.SEARCH', 'idx', '(@t2:(hybrid query) -@t1:other)=>[TOP_K 2 @v $vec_param]',
-               'SORTBY', '__v_score',
+               'SORTBY', '__v_score', 'LIMIT', 0, 2,
                'PARAMS', 2, 'vec_param', close_vector.tobytes(),
                'RETURN', 0).equal(expected_res_1)
 
