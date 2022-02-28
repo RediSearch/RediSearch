@@ -458,8 +458,6 @@ def test_hybrid_query_batches_mode_with_text(env):
 
 
 def test_hybrid_query_batches_mode_with_tags(env):
-    # Todo: enable this when the coordinator will be able to run TOP K queries and sortby score
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     dimension = 128
     index_size = 100
@@ -474,7 +472,7 @@ def test_hybrid_query_batches_mode_with_tags(env):
     query_data = np.float32([index_size/2 for j in range(dimension)])
     execute_hybrid_query(env, '(@tags:{nothing})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal([0L])
     execute_hybrid_query(env, '(@tags:{hybrid} @text:hello)=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal([0L])
-    expected_res_1 = [10L, '50', ['__v_score', '0', 'tags', 'hybrid'], '51', ['__v_score', '128', 'tags', 'hybrid'], '49', ['__v_score', '128', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid']]
+    expected_res_1 = [10L, '50', ['__v_score', '0', 'tags', 'hybrid'], '49', ['__v_score', '128', 'tags', 'hybrid'], '51', ['__v_score', '128', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid']]
     execute_hybrid_query(env, '(@tags:{hybrid})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal(expected_res_1)
 
     # Change the tag values to 'different, tag' for 10 vectors (with id 10, 20, ..., 100)
@@ -482,12 +480,15 @@ def test_hybrid_query_batches_mode_with_tags(env):
         vector = np.float32([10*i for j in range(dimension)])
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 'tags', 'different, tag')
 
-    expected_res_2 = [10L, '50', ['__v_score', '0', 'tags', 'different, tag'], '60', ['__v_score', '12800', 'tags', 'different, tag'], '40', ['__v_score', '12800', 'tags', 'different, tag'], '70', ['__v_score', '51200', 'tags', 'different, tag'], '30', ['__v_score', '51200', 'tags', 'different, tag'], '80', ['__v_score', '115200', 'tags', 'different, tag'], '20', ['__v_score', '115200', 'tags', 'different, tag'], '90', ['__v_score', '204800', 'tags', 'different, tag'], '10', ['__v_score', '204800', 'tags', 'different, tag'], '100', ['__v_score', '320000', 'tags', 'different, tag']]
+    expected_res_2 = [10L, '50', ['__v_score', '0', 'tags', 'different, tag'], '40', ['__v_score', '12800', 'tags', 'different, tag'], '60', ['__v_score', '12800', 'tags', 'different, tag'], '30', ['__v_score', '51200', 'tags', 'different, tag'], '70', ['__v_score', '51200', 'tags', 'different, tag'], '20', ['__v_score', '115200', 'tags', 'different, tag'], '80', ['__v_score', '115200', 'tags', 'different, tag'], '10', ['__v_score', '204800', 'tags', 'different, tag'], '90', ['__v_score', '204800', 'tags', 'different, tag'], '100', ['__v_score', '320000', 'tags', 'different, tag']]
     execute_hybrid_query(env, '(@tags:{different})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal(expected_res_2)
-    expected_res_3 = [10L, '51', ['__v_score', '128', 'tags', 'hybrid'], '49', ['__v_score', '128', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '55', ['__v_score', '3200', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid']]
+    expected_res_3 = [10L, '49', ['__v_score', '128', 'tags', 'hybrid'], '51', ['__v_score', '128', 'tags', 'hybrid'], '48', ['__v_score', '512', 'tags', 'hybrid'], '52', ['__v_score', '512', 'tags', 'hybrid'], '47', ['__v_score', '1152', 'tags', 'hybrid'], '53', ['__v_score', '1152', 'tags', 'hybrid'], '46', ['__v_score', '2048', 'tags', 'hybrid'], '54', ['__v_score', '2048', 'tags', 'hybrid'], '45', ['__v_score', '3200', 'tags', 'hybrid'], '55', ['__v_score', '3200', 'tags', 'hybrid']]
     execute_hybrid_query(env, '(@tags:{hybrid})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal(expected_res_3)
     execute_hybrid_query(env, '(@tags:{hy*})=>[TOP_K 10 @v $vec_param]', query_data, 'tags').equal(expected_res_3)
 
+    if env.isCluster():
+        # todo: change this when coordinator changes are available
+        return
     # Search with tag list. Expect that docs with 'hybrid' will have lower score, since they are more frequent.
     expected_res_4 = [10L, '50', '3', ['__v_score', '0', 'tags', 'different, tag'], '45', '1', ['__v_score', '3200', 'tags', 'hybrid'], '46', '1', ['__v_score', '2048', 'tags', 'hybrid'], '47', '1', ['__v_score', '1152', 'tags', 'hybrid'], '48', '1', ['__v_score', '512', 'tags', 'hybrid'], '49', '1', ['__v_score', '128', 'tags', 'hybrid'], '51', '1', ['__v_score', '128', 'tags', 'hybrid'], '52', '1', ['__v_score', '512', 'tags', 'hybrid'], '53', '1', ['__v_score', '1152', 'tags', 'hybrid'], '54', '1', ['__v_score', '2048', 'tags', 'hybrid']]
     execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[TOP_K 10 @v $vec_param]', query_data, 'tags', sort_by_vector=False).equal(expected_res_4)
@@ -535,10 +536,6 @@ def test_hybrid_query_batches_mode_with_numeric_and_geo(env):
 
     execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[TOP_K 10 @v $vec_param]', query_data, 'coordinate').equal([0L])
 
-    # Expect that ids 1-32 will pass the geo filter, and that the top 10 from these will return.
-    expected_res_4 = [10L, '32', ['__v_score', '591872', 'coordinate', '32,32'], '31', ['__v_score', '609408', 'coordinate', '31,31'], '30', ['__v_score', '627200', 'coordinate', '30,30'], '29', ['__v_score', '645248', 'coordinate', '29,29'], '28', ['__v_score', '663552', 'coordinate', '28,28'], '27', ['__v_score', '682112', 'coordinate', '27,27'], '26', ['__v_score', '700928', 'coordinate', '26,26'], '25', ['__v_score', '720000', 'coordinate', '25,25'], '24', ['__v_score', '739328', 'coordinate', '24,24'], '23', ['__v_score', '758912', 'coordinate', '23,23']]
-    execute_hybrid_query(env, '(@coordinate:[0.0 0.0 5000 km])=>[TOP_K 10 @v $vec_param]', query_data, 'coordinate').equal(expected_res_4)
-
 
 def test_hybrid_query_batches_mode_with_complex_queries(env):
     conn = getConnectionByEnv(env)
@@ -549,39 +546,45 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
                          't1', 'TEXT', 't2', 'TEXT')
 
     p = conn.pipeline(transaction=False)
-    np.random.seed(10)
-    for i in range(1, index_size+1):
-        vector = np.random.rand(1, dimension).astype(np.float32)
-        if i % 5 != 0:
-            conn.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
-        else:
-            conn.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i, 't1', 'other', 't2', 'hybrid query')
+    close_vector = np.float32([1 for j in range(dimension)])
+    distant_vector = np.float32([10 for j in range(dimension)])
+    conn.execute_command('HSET', 1, 'v', close_vector.tobytes(), 'num', 1, 't1', 'text value', 't2', 'hybrid query')
+    conn.execute_command('HSET', 2, 'v', distant_vector.tobytes(), 'num', 2, 't1', 'text value', 't2', 'hybrid query')
+    conn.execute_command('HSET', 3, 'v', distant_vector.tobytes(), 'num', 3, 't1', 'other', 't2', 'hybrid query')
+    conn.execute_command('HSET', 4, 'v', close_vector.tobytes(), 'num', 4, 't1', 'other', 't2', 'hybrid query')
+    for i in range(5, index_size+1):
+        conn.execute_command('HSET', i, 'v', close_vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
     p.execute()
-    query_data = np.random.rand(1, dimension).astype(np.float32)
-    expected_res_1 = [10L, '78', '38', '97', '76', '26', '51', '88', '1', '13', '89']
+    expected_res_1 = [2L, '1', '5']
     if env.isCluster():
         # todo: change this when coordinator changes are available
-        expected_res_1[0] = 30L
-    env.expect('FT.SEARCH', 'idx', '(@t2:(hybrid query) -@t1:other)=>[TOP_K 10 @v $vec_param]',
+        expected_res_1[0] = 6L
+    # Search for the "close_vector" that some the vector in the index contain. The batch of vectors should start with
+    # ids 1, 4. The intersection "child iterator" has two children - intersection iterator (@t2:(hybrid query))
+    # and not iterator (-@t1:other). When the hybrid iterator will perform "skipTo(4)" for the child iterator,
+    # the inner intersection iterator will skip to 4, but the not iterator will stay at 2 (4 is not a valid id).
+    # The child iterator will point to 2, and return NOT_FOUND. This test makes sure that the hybrid iterator can
+    # handle this situation (without going into infinite loop).
+    env.expect('FT.SEARCH', 'idx', '(@t2:(hybrid query) -@t1:other)=>[TOP_K 2 @v $vec_param]',
                'SORTBY', '__v_score',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'PARAMS', 2, 'vec_param', close_vector.tobytes(),
                'RETURN', 0).equal(expected_res_1)
 
     # test modifier list
-    expected_res_2 = [10L, '26', '13', '17', '12', '27', '21', '16', '18', '22', '14']
+    expected_res_2 = [10L, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
     if env.isCluster():
         # todo: change this when coordinator changes are available
-        expected_res_2[0] = 16L
+        expected_res_2[0] = 20L
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text) @num:[10 30])=>[TOP_K 10 @v $vec_param]',
                'SORTBY', '__v_score',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'PARAMS', 2, 'vec_param', close_vector.tobytes(),
                'RETURN', 0).equal(expected_res_2)
 
     # test with query attributes
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text)=>{$inorder: true} @num:[10 30])=>[TOP_K 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'WITHSCORES',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'PARAMS', 2, 'vec_param', close_vector.tobytes(),
                'RETURN', 2, 't1', 't2').equal([0L])
 
 
