@@ -33,4 +33,4 @@ def test_required_fields(env):
     env.expect('ft.search', 'idx', 'hello', 'nocontent', 'SORTBY', 't', '_REQUIRED_FIELDS', '1', 't').equal([1L, '0', '$hello'])
     # Field is not in Rlookup, will not load
     env.expect('ft.search', 'idx', 'hello', 'nocontent', '_REQUIRED_FIELDS', '1', 't').equal([1L, '0', None])
-    
+
