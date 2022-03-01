@@ -536,6 +536,10 @@ def test_hybrid_query_batches_mode_with_numeric_and_geo(env):
 
     execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[TOP_K 10 @v $vec_param]', query_data, 'coordinate').equal([0L])
 
+    # Expect that ids 1-32 will pass the geo filter, and that the top 10 from these will return.
+    expected_res_4 = [10L, '32', ['__v_score', '591872', 'coordinate', '32,32'], '31', ['__v_score', '609408', 'coordinate', '31,31'], '30', ['__v_score', '627200', 'coordinate', '30,30'], '29', ['__v_score', '645248', 'coordinate', '29,29'], '28', ['__v_score', '663552', 'coordinate', '28,28'], '27', ['__v_score', '682112', 'coordinate', '27,27'], '26', ['__v_score', '700928', 'coordinate', '26,26'], '25', ['__v_score', '720000', 'coordinate', '25,25'], '24', ['__v_score', '739328', 'coordinate', '24,24'], '23', ['__v_score', '758912', 'coordinate', '23,23']]
+    execute_hybrid_query(env, '(@coordinate:[0.0 0.0 5000 km])=>[TOP_K 10 @v $vec_param]', query_data, 'coordinate').equal(expected_res_4)
+
 
 def test_hybrid_query_batches_mode_with_complex_queries(env):
     conn = getConnectionByEnv(env)
