@@ -490,9 +490,6 @@ def test_hybrid_query_batches_mode_with_tags(env):
     execute_hybrid_query(env, '(@tags:{hy*})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res_3)
 
 
-    if env.isCluster():
-        # todo: change this when coordinator changes are available
-        return
     # Search with tag list. Expect that docs with 'hybrid' will have lower score, since they are more frequent.
     expected_res_4 = [10L, '50', '3', ['__v_score', '0', 'tags', 'different, tag'], '45', '1', ['__v_score', '3200', 'tags', 'hybrid'], '46', '1', ['__v_score', '2048', 'tags', 'hybrid'], '47', '1', ['__v_score', '1152', 'tags', 'hybrid'], '48', '1', ['__v_score', '512', 'tags', 'hybrid'], '49', '1', ['__v_score', '128', 'tags', 'hybrid'], '51', '1', ['__v_score', '128', 'tags', 'hybrid'], '52', '1', ['__v_score', '512', 'tags', 'hybrid'], '53', '1', ['__v_score', '1152', 'tags', 'hybrid'], '54', '1', ['__v_score', '2048', 'tags', 'hybrid']]
     execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[KNN 10 @v $vec_param]', query_data, 'tags', sort_by_vector=False).equal(expected_res_4)
@@ -565,9 +562,6 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
         conn.execute_command('HSET', i, 'v', further_vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
     p.execute()
     expected_res_1 = [2L, '1', '5']
-    if env.isCluster():
-        # todo: change this when coordinator changes are available
-        expected_res_1[0] = 6L
     # Search for the "close_vector" that some the vector in the index contain. The batch of vectors should start with
     # ids 1, 4. The intersection "child iterator" has two children - intersection iterator (@t2:(hybrid query))
     # and not iterator (-@t1:other). When the hybrid iterator will perform "skipTo(4)" for the child iterator,
@@ -580,8 +574,6 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
                'RETURN', 0).equal(expected_res_1)
 
     # test modifier list
-    expected_res_1 = [10L, '30', ['__v_score', '627200', 't1', 'text value', 't2', 'hybrid query'], '29', ['__v_score', '645248', 't1', 'text value', 't2', 'hybrid query'], '28', ['__v_score', '663552', 't1', 'text value', 't2', 'hybrid query'], '27', ['__v_score', '682112', 't1', 'text value', 't2', 'hybrid query'], '26', ['__v_score', '700928', 't1', 'text value', 't2', 'hybrid query'], '25', ['__v_score', '720000', 't1', 'text value', 't2', 'hybrid query'], '24', ['__v_score', '739328', 't1', 'text value', 't2', 'hybrid query'], '23', ['__v_score', '758912', 't1', 'text value', 't2', 'hybrid query'], '22', ['__v_score', '778752', 't1', 'text value', 't2', 'hybrid query'], '21', ['__v_score', '798848', 't1', 'text value', 't2', 'hybrid query']]
-    env.expect('FT.SEARCH', 'idx', '(@t1|t2:value text @num:[10 30])=>[KNN 10 @v $vec_param]',
     expected_res_2 = [10L, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text) @num:[10 30])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score',
