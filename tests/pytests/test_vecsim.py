@@ -207,7 +207,6 @@ def testCreate(env):
     # assertInfoField(env, 'idx5', 'attributes', info)
 
 def testCreateErrors(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     # missing init args
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR').error().contains('Bad arguments for vector similarity algorithm')
@@ -252,7 +251,6 @@ def testCreateErrors(env):
 
 
 def testSearchErrors(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
@@ -395,20 +393,25 @@ def test_memory_info(env):
         env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
 
-def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True):
+def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field = False):
     if sort_by_vector:
         query = env.expect('FT.SEARCH', 'idx', query_string,
                    'SORTBY', '__v_score',
                    'PARAMS', 2, 'vec_param', query_data.tobytes(),
                    'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
-        if env.isCluster() and query.res[0] > 10L:
-            query.res[0] = 10L
         return query
 
     else:
-        return env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
-                   'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                   'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
+        if sort_by_non_vector_field:
+            return env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+                'SORTBY', non_vector_field,
+                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
+
+        else:
+            return env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
 
 def test_hybrid_query_batches_mode_with_text(env):
@@ -486,9 +489,7 @@ def test_hybrid_query_batches_mode_with_tags(env):
     execute_hybrid_query(env, '(@tags:{hybrid})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res_3)
     execute_hybrid_query(env, '(@tags:{hy*})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res_3)
 
-    if env.isCluster():
-        # todo: change this when coordinator changes are available
-        return
+
     # Search with tag list. Expect that docs with 'hybrid' will have lower score, since they are more frequent.
     expected_res_4 = [10L, '50', '3', ['__v_score', '0', 'tags', 'different, tag'], '45', '1', ['__v_score', '3200', 'tags', 'hybrid'], '46', '1', ['__v_score', '2048', 'tags', 'hybrid'], '47', '1', ['__v_score', '1152', 'tags', 'hybrid'], '48', '1', ['__v_score', '512', 'tags', 'hybrid'], '49', '1', ['__v_score', '128', 'tags', 'hybrid'], '51', '1', ['__v_score', '128', 'tags', 'hybrid'], '52', '1', ['__v_score', '512', 'tags', 'hybrid'], '53', '1', ['__v_score', '1152', 'tags', 'hybrid'], '54', '1', ['__v_score', '2048', 'tags', 'hybrid']]
     execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[KNN 10 @v $vec_param]', query_data, 'tags', sort_by_vector=False).equal(expected_res_4)
@@ -561,9 +562,6 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
         conn.execute_command('HSET', i, 'v', further_vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
     p.execute()
     expected_res_1 = [2L, '1', '5']
-    if env.isCluster():
-        # todo: change this when coordinator changes are available
-        expected_res_1[0] = 6L
     # Search for the "close_vector" that some the vector in the index contain. The batch of vectors should start with
     # ids 1, 4. The intersection "child iterator" has two children - intersection iterator (@t2:(hybrid query))
     # and not iterator (-@t1:other). When the hybrid iterator will perform "skipTo(4)" for the child iterator,
@@ -577,9 +575,6 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
 
     # test modifier list
     expected_res_2 = [10L, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
-    if env.isCluster():
-        # todo: change this when coordinator changes are available
-        expected_res_2[0] = 20L
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text) @num:[10 30])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'PARAMS', 2, 'vec_param', close_vector.tobytes(),
@@ -594,8 +589,6 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
 
 
 def test_hybrid_query_batches_non_vector_score(env):
-    # Todo: enable this when the coordinator will be able to run TOP K queries and sortby score
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -613,10 +606,14 @@ def test_hybrid_query_batches_non_vector_score(env):
     # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
     expected_res_1 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '2', ['__v_score', '10368', 't', 'text value'], '92', '2', ['__v_score', '8192', 't', 'text value'], '93', '2', ['__v_score', '6272', 't', 'text value'], '94', '2', ['__v_score', '4608', 't', 'text value'], '95', '2', ['__v_score', '3200', 't', 'text value'], '96', '2', ['__v_score', '2048', 't', 'text value'], '97', '2', ['__v_score', '1152', 't', 'text value'], '98', '2', ['__v_score', '512', 't', 'text value'], '99', '2', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_1)
+    if env.isCluster():
+        execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True).equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
     expected_res_2 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_2)
+    if env.isCluster():
+        execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True).equal(expected_res_2)
 
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'], '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'], '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'], '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'], '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'], '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'], '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'], '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'], '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
@@ -624,19 +621,35 @@ def test_hybrid_query_batches_non_vector_score(env):
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_3)
 
-    # use BM25 scorer
-    expected_res_4 = [10L, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
-    env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_4)
+    # Those scorers are scoring per shard.
+    if not env.isCluster():
+        # use BM25 scorer
+        expected_res_4 = [10L, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
+        env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
+                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_4)
 
-    # use DISMAX scorer
-    expected_res_5 = [10L, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
-    env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DISMAX', 'WITHSCORES',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_5)
+        # use DISMAX scorer
+        expected_res_5 = [10L, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
+        env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DISMAX', 'WITHSCORES',
+                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_5)
 
-    # use DOCSCORE scorer
-    env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DOCSCORE', 'WITHSCORES',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
+        # use DOCSCORE scorer
+        env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
+    
+def test_single_entry(env):
+    SkipOnNonCluster(env)
+    # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator. Execution should finish without failure.
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    vector = np.random.rand(1, dimension).astype(np.float32)
+    conn.execute_command('HSET', 0, 'v', vector.tobytes())
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]',
+               'SORTBY', '__v_score',
+               'RETURN', '0',
+               'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1L, '0'])
+
