@@ -551,7 +551,7 @@ def testExplain(env):
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'foo', 'text', 'bar', 'numeric', 'sortable',
         'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2', 't', 'TEXT'))
-    q = '(hello world) "what what" (hello|world) (@bar:[10 100]|@bar:[200 300])'
+    q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
     res = r.execute_command('ft.explain', 'idx', q)
     # print res.replace('\n', '\\n')
     # expected = """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
