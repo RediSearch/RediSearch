@@ -103,7 +103,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIter
     return NULL;
   }
   switch (vq->type) {
-    case VECSIM_QT_TOPK: {
+    case VECSIM_QT_KNN: {
       VecSimQueryParams qParams;
       int err;
       if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params),
@@ -113,12 +113,12 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIter
                                QueryError_Strerror(err));
         return NULL;
       }
-      if (!isFit(vecsim, vq->topk.vecLen)) {
+      if (!isFit(vecsim, vq->knn.vecLen)) {
         QueryError_SetError(status, QUERY_EINVAL,
                             "Error parsing vector similarity query: query vector does not match index's type or dimension.");
         return NULL;
       }
-      return NewHybridVectorIterator(vecsim, vq->scoreField, vq->topk, qParams, child_it);
+      return NewHybridVectorIterator(vecsim, vq->scoreField, vq->knn, qParams, child_it);
     }
   }
   return NULL;
@@ -159,7 +159,7 @@ void VectorQuery_Free(VectorQuery *vq) {
   if (vq->property) rm_free((char *)vq->property);
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
-    case VECSIM_QT_TOPK: // no need to free the vector as we pointes to the query dictionary
+    case VECSIM_QT_KNN: // no need to free the vector as we pointes to the query dictionary
     default:
       break;
   }

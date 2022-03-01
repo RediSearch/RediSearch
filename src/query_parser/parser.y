@@ -15,30 +15,33 @@
 %left PERCENT.
 %left ATTRIBUTE.
 
-%right LP.
-%left RP.
+%right LP LB LSQB.
+%left RP RB RSQB.
 // needs to be above lp/rp
-%left COLON.
 %left AND.
 %left OR.
 %left ORX.
-%left TEXTEXPR.
 %left ARROW.
+%left COLON.
+%left TEXTEXPR.
 
-%right TOP_K.
-%right AS.
+// Thanks to these fallback directives, Any "as" appearing in the query,
+// other than in a vector_query, Will either be considered as a term,
+// if "as" is not a stop-word, Or be considered as a stop-word if it is a stop-word.
+%fallback STOPWORD AS_S.
+%fallback TERM AS_T.
 
 %token_type {QueryToken}
 
 %name RSQueryParser_
 
-%syntax_error {  
+%syntax_error {
     QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
         "Syntax error at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 }
-   
-%include {   
+
+%include {
 
 #include <stdlib.h>
 #include <string.h>
@@ -60,7 +63,7 @@ char *strdupcase(const char *s, size_t len) {
   char *dst = ret;
   char *src = dst;
   while (*src) {
-      // unescape 
+      // unescape
       if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
           ++src;
           continue;
@@ -71,18 +74,18 @@ char *strdupcase(const char *s, size_t len) {
 
   }
   *dst = '\0';
-  
+
   return ret;
 }
 
-// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself 
+// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 size_t unescapen(char *s, size_t sz) {
-  
+
   char *dst = s;
   char *src = dst;
   char *end = s + sz;
   while (src < end) {
-      // unescape 
+      // unescape
       if (*src == '\\' && src + 1 < end &&
          (ispunct(*(src+1)) || isspace(*(src+1)))) {
           ++src;
@@ -90,17 +93,17 @@ size_t unescapen(char *s, size_t sz) {
       }
       *dst++ = *src++;
   }
- 
+
   return (size_t)(dst - s);
 }
 
 #define NODENN_BOTH_VALID 0
 #define NODENN_BOTH_INVALID -1
-#define NODENN_ONE_NULL 1 
+#define NODENN_ONE_NULL 1
 // Returns:
 // 0 if a && b
 // -1 if !a && !b
-// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out` 
+// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out`
 static int one_not_null(void *a, void *b, void *out) {
     if (a && b) {
         return NODENN_BOTH_VALID;
@@ -135,7 +138,7 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   }
 }
 
-} // END %include  
+} // END %include
 
 %extra_argument { QueryParseCtx *ctx }
 %default_type { QueryToken }
@@ -147,7 +150,7 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 // (C-code is responsible for destroying it)
 // Unless during error handling
 
-%type expr { QueryNode * } 
+%type expr { QueryNode * }
 %destructor expr { QueryNode_Free($$); }
 
 %type attribute { QueryAttribute }
@@ -156,10 +159,10 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 %type attribute_list {QueryAttribute *}
 %destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
 
-%type prefix { QueryNode * } 
+%type prefix { QueryNode * }
 %destructor prefix { QueryNode_Free($$); }
 
-%type termlist { QueryNode * } 
+%type termlist { QueryNode * }
 %destructor termlist { QueryNode_Free($$); }
 
 %type union { QueryNode *}
@@ -201,13 +204,13 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 }
 
 %type modifierlist { Vector* }
-%destructor modifierlist { 
+%destructor modifierlist {
     for (size_t i = 0; i < Vector_Size($$); i++) {
         char *s;
         Vector_Get($$, i, &s);
         rm_free(s);
     }
-    Vector_Free($$); 
+    Vector_Free($$);
 }
 
 %type num { RangeNumber }
@@ -217,7 +220,7 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   QueryParam_Free($$);
 }
 
-query ::= expr(A) . { 
+query ::= expr(A) . {
   setup_trace(ctx);
   ctx->root = A;
 }
@@ -235,6 +238,10 @@ star ::= STAR.
 
 star ::= LP star RP.
 
+expr(A) ::= text_expr(B). [TEXTEXPR]{
+  A = B;
+}
+
 /////////////////////////////////////////////////////////////////
 // AND Clause / Phrase
 /////////////////////////////////////////////////////////////////
@@ -246,16 +253,16 @@ expr(A) ::= expr(B) expr(C) . [AND] {
     } else if (rv == NODENN_ONE_NULL) {
         // Nothing- `out` is already assigned
     } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 && 
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
             B->opts.fieldMask == RS_FIELDMASK_ALL ) {
             A = B;
-        } else {     
+        } else {
             A = NewPhraseNode(0);
             QueryNode_AddChild(A, B);
         }
         QueryNode_AddChild(A, C);
     }
-} 
+}
 
 text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
     int rv = one_not_null(B, C, (void**)&A);
@@ -304,7 +311,6 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
-    
 }
 
 union(A) ::= union(B) OR expr(C). [ORX] {
@@ -356,10 +362,6 @@ text_union(A) ::= text_union(B) OR text_expr(C). [ORX] {
 // Text Field Filters
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= text_expr(B). [TEXTEXPR]{
-  A = B;
-}
-
 expr(A) ::= modifier(B) COLON text_expr(C) . {
     if (C == NULL) {
         A = NULL;
@@ -367,22 +369,22 @@ expr(A) ::= modifier(B) COLON text_expr(C) . {
         if (ctx->sctx->spec) {
             QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
         }
-        A = C; 
+        A = C;
     }
 }
 
 expr(A) ::= modifierlist(B) COLON text_expr(C) . {
-    
+
     if (C == NULL) {
         A = NULL;
     } else {
         //C->opts.fieldMask = 0;
-        t_fieldMask mask = 0; 
+        t_fieldMask mask = 0;
         if (ctx->sctx->spec) {
             for (int i = 0; i < Vector_Size(B); i++) {
                 char *p;
                 Vector_Get(B, i, &p);
-                mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
+                mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p));
                 rm_free(p);
             }
         }
@@ -590,7 +592,6 @@ text_expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [P
   A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
 
-
 /////////////////////////////////////////////////////////////////
 // Field Modifiers
 /////////////////////////////////////////////////////////////////
@@ -598,7 +599,7 @@ text_expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [P
 modifier(A) ::= MODIFIER(B) . {
     B.len = unescapen((char*)B.s, B.len);
     A = B;
- } 
+ }
 
 modifierlist(A) ::= modifier(B) OR term(C). {
     A = NewVector(char *, 2);
@@ -619,9 +620,9 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
 // Tag Lists - curly braces separated lists of words
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= modifier(B) COLON tag_list(C) . {
+expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     if (!C) {
-        A= NULL;
+        A = NULL;
     } else {
       // Tag field names must be case sensitive, we can't do rm_strdupcase
         char *s = rm_strndup(B.s, B.len);
@@ -629,14 +630,14 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
 
         A = NewTagNode(s, slen);
         QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
-        
+
         // Set the children count on C to 0 so they won't get recursively free'd
         QueryNode_ClearChildren(C, 0);
         QueryNode_Free(C);
     }
 }
 
-tag_list(A) ::= LB param_term(B) . [TAGLIST] {
+tag_list(A) ::= param_term(B) . [TAGLIST] {
   A = NewPhraseNode(0);
   if (B.type == QT_TERM)
     B.type = QT_TERM_CASE;
@@ -645,17 +646,17 @@ tag_list(A) ::= LB param_term(B) . [TAGLIST] {
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
-tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
+tag_list(A) ::= STOPWORD(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
 }
 
-tag_list(A) ::= LB prefix(B) . [TAGLIST] {
+tag_list(A) ::= prefix(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= LB termlist(B) . [TAGLIST] {
+tag_list(A) ::= termlist(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
 }
@@ -683,12 +684,6 @@ tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
     QueryNode_AddChild(B, C);
     A = B;
 }
-
-
-tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
-    A = B;
-}
-
 
 /////////////////////////////////////////////////////////////////
 // Numeric Ranges
@@ -777,8 +772,8 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 
 // expr(A) ::= STAR ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as subquery case.
 //   switch (B->vn.vq->type) {
-//     case VECSIM_QT_TOPK:
-//       B->vn.vq->topk.order = BY_ID;
+//     case VECSIM_QT_KNN:
+//       B->vn.vq->knn.order = BY_ID;
 //       break;
 //   }
 //   A = B;
@@ -787,26 +782,28 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
 query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid query as entire query case.
   setup_trace(ctx);
   switch (B->vn.vq->type) {
-    case VECSIM_QT_TOPK:
-      B->vn.vq->topk.order = BY_SCORE;
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
       break;
   }
   ctx->root = B;
-  QueryNode_AddChild(B, A);
+  if (A) {
+    QueryNode_AddChild(B, A);
+  }
 }
 
 query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
   switch (B->vn.vq->type) {
-    case VECSIM_QT_TOPK:
-      B->vn.vq->topk.order = BY_SCORE;
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
       break;
   }
   ctx->root = B;
 }
 
 // Vector query opt. 1 - full query.
-vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D). {
+vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_filed(D). {
   if (B->vn.vq->scoreField) {
     rm_free(B->vn.vq->scoreField);
     B->vn.vq->scoreField = NULL;
@@ -819,7 +816,7 @@ vector_query(A) ::= vector_command(B) vector_attribute_list(C) AS param_term(D).
 }
 
 // Vector query opt. 2 - score field only, no params.
-vector_query(A) ::= vector_command(B) AS param_term(D). {
+vector_query(A) ::= vector_command(B) vector_score_filed(D). {
   if (B->vn.vq->scoreField) {
     rm_free(B->vn.vq->scoreField);
     B->vn.vq->scoreField = NULL;
@@ -841,13 +838,28 @@ vector_query(A) ::= vector_command(B). {
   A = B;
 }
 
-// Every vector query will have basic command part. Right now we only have TOP_K command.
+as ::= AS_T.
+as ::= AS_S.
+vector_score_filed(A) ::= as param_term(B). {
+  A = B;
+}
+vector_score_filed(A) ::= as STOPWORD(B). {
+  A = B;
+  A.type = QT_TERM;
+}
+
+// Every vector query will have basic command part. Right now we only have KNN command.
 // It is this rule's job to create the new vector node for the query.
-vector_command(A) ::= TOP_K param_size(B) modifier(C) ATTRIBUTE(D). {
-  D.type = QT_PARAM_VEC;
-  A = NewVectorNode_WithParams(ctx, VECSIM_QT_TOPK, &B, &D);
-  A->vn.vq->property = rm_strndup(C.s, C.len);
-  RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s)));
+vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
+  if (!strncasecmp("KNN", T.s, T.len)) {
+    D.type = QT_PARAM_VEC;
+    A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
+    A->vn.vq->property = rm_strndup(C.s, C.len);
+    RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s)));
+  } else {
+    reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
+    A = NULL;
+  }
 }
 
 vector_attribute(A) ::= TERM(B) param_term(C). {
@@ -899,11 +911,11 @@ num(A) ::= MINUS num(B). {
 }
 
 term(A) ::= TERM(B) . {
-    A = B; 
+    A = B;
 }
 
 term(A) ::= NUMBER(B) . {
-    A = B; 
+    A = B;
 }
 
 term(A) ::= SIZE(B). {
