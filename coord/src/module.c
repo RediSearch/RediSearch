@@ -473,7 +473,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
       Param_DictFree(params);
     }
     QueryVectorNode queryVectorNode = queryNode->vn;
-    size_t k = queryVectorNode.vq->topk.k;
+    size_t k = queryVectorNode.vq->knn.k;
     const char* scoreField = queryVectorNode.vq->scoreField;
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
@@ -596,7 +596,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   }
 
   // Note: currently there is only one single case. For extending those cases we should use a trie here.
-  if(strstr(req->queryString, "TOP_K")) {
+  if(strcasestr(req->queryString, "KNN")) {
     prepareOptionalTopKCase(req, argv, argc);
   }
 
