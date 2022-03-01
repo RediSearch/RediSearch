@@ -550,14 +550,15 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
                          't1', 'TEXT', 't2', 'TEXT')
 
     p = conn.pipeline(transaction=False)
-    close_vector = np.float32([1 for j in range(dimension)])
-    distant_vector = np.float32([10 for j in range(dimension)])
+    close_vector = np.full(dimension, 1, dtype='float32')
+    distant_vector = np.full(dimension, 10, dtype='float32')
     conn.execute_command('HSET', 1, 'v', close_vector.tobytes(), 'num', 1, 't1', 'text value', 't2', 'hybrid query')
     conn.execute_command('HSET', 2, 'v', distant_vector.tobytes(), 'num', 2, 't1', 'text value', 't2', 'hybrid query')
     conn.execute_command('HSET', 3, 'v', distant_vector.tobytes(), 'num', 3, 't1', 'other', 't2', 'hybrid query')
     conn.execute_command('HSET', 4, 'v', close_vector.tobytes(), 'num', 4, 't1', 'other', 't2', 'hybrid query')
     for i in range(5, index_size+1):
-        conn.execute_command('HSET', i, 'v', close_vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
+        further_vector = np.full(dimension, i, dtype='float32')
+        conn.execute_command('HSET', i, 'v', further_vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
     p.execute()
     expected_res_1 = [2L, '1', '5']
     if env.isCluster():
