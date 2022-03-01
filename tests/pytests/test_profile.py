@@ -212,7 +212,7 @@ def testProfileVector(env):
   conn.execute_command('hset', '4', 'v', 'bbaabbaa', 't', "hello world")
   conn.execute_command('hset', '5', 'v', 'aaaabbbb', 't', "hello world")
 
-  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*=>[TOP_K 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*=>[KNN 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 3L]]
   expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 3L]
   env.assertEqual(actual_res[0], [3L, '1', '2', '4'])
@@ -220,7 +220,7 @@ def testProfileVector(env):
   env.assertEqual(actual_res[1][4][3], expected_vecsim_rp_res)
 
   # Test with hybrid query
-  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[TOP_K 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 2L, 'Child iterator', ['Type', 'INTERSECT', 'Counter', 4L, 'Child iterators', ['Type', 'TEXT', 'Term', 'world', 'Counter', 4L, 'Size', 2L], ['Type', 'TEXT', 'Term', 'hello', 'Counter', 4L, 'Size', 5L]]]]
   expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 2L]
   env.assertEqual(actual_res[0], [2L, '4', '5'])
