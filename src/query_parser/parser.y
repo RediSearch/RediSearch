@@ -43,10 +43,17 @@
 
 %name RSQueryParser_
 
+%stack_size 256
+
+%stack_overflow {
+  QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+    "Parser stack overflow. Try moving nested parentheses more to the left");
+}
+
 %syntax_error {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-        "Syntax error at offset %d near %.*s",
-        TOKEN.pos, TOKEN.len, TOKEN.s);
+  QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+    "Syntax error at offset %d near %.*s",
+    TOKEN.pos, TOKEN.len, TOKEN.s);
 }
 
 %include {

@@ -229,7 +229,7 @@ typedef union {
   QueryNode * yy111;
 } YYMINORTYPE;
 #ifndef YYSTACKDEPTH
-#define YYSTACKDEPTH 100
+#define YYSTACKDEPTH 256
 #endif
 #define RSQueryParser_ARG_SDECL  QueryParseCtx *ctx ;
 #define RSQueryParser_ARG_PDECL , QueryParseCtx *ctx 
@@ -1226,6 +1226,9 @@ static void yyStackOverflow(yyParser *yypParser){
    /* Here code is inserted which will execute if the parser
    ** stack every overflows */
 /******** Begin %stack_overflow code ******************************************/
+
+  QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+    "Parser stack overflow. Try moving nested parentheses more to the left");
 /******** End %stack_overflow code ********************************************/
    RSQueryParser_ARG_STORE /* Suppress warning about unused %extra_argument var */
    RSQueryParser_CTX_STORE
@@ -2005,6 +2008,7 @@ yylhsminor.yy111 = yymsp[0].minor.yy111;
 }
         break;
       case 63: /* query ::= expr ARROW LSQB vector_query RSQB */
+      case 64: /* query ::= text_expr ARROW LSQB vector_query RSQB */ yytestcase(yyruleno==64);
 { // main parse, hybrid query as entire query case.
   setup_trace(ctx);
   switch (yymsp[-1].minor.yy111->vn.vq->type) {
@@ -2016,18 +2020,6 @@ yylhsminor.yy111 = yymsp[0].minor.yy111;
   if (yymsp[-4].minor.yy111) {
     QueryNode_AddChild(yymsp[-1].minor.yy111, yymsp[-4].minor.yy111);
   }
-}
-        break;
-      case 64: /* query ::= text_expr ARROW LSQB vector_query RSQB */
-{ // main parse, hybrid query as entire query case.
-  setup_trace(ctx);
-  switch (yymsp[-1].minor.yy111->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-1].minor.yy111->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
-  ctx->root = yymsp[-1].minor.yy111;
-  QueryNode_AddChild(yymsp[-1].minor.yy111, yymsp[-4].minor.yy111);
 }
         break;
       case 65: /* query ::= star ARROW LSQB vector_query RSQB */
@@ -2287,9 +2279,9 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-        "Syntax error at offset %d near %.*s",
-        TOKEN.pos, TOKEN.len, TOKEN.s);
+  QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+    "Syntax error at offset %d near %.*s",
+    TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/
   RSQueryParser_ARG_STORE /* Suppress warning about unused %extra_argument variable */
   RSQueryParser_CTX_STORE
