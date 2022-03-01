@@ -53,6 +53,7 @@ struct DocumentIndexer;
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
+#define SPEC_SUFFIX_STR "SUFFIX"
 
 #define DEFAULT_SCORE 1.0
 
@@ -148,6 +149,7 @@ typedef enum {
   Index_FromLLAPI = 0x2000,
   Index_HasFieldAlias = 0x4000,
   Index_HasVecSim = 0x8000,
+  Index_HasSuffix = 0x10000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -361,6 +363,11 @@ t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len)
  * require it.
  */
 int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
+
+/**
+ * Get fieldmask of all fields which contain suffix Trie.
+ */
+t_fieldMask IndexSpec_GetSuffixMask(const IndexSpec *sp, int *array);
 
 /* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
  * not sortable */

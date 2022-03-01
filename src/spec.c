@@ -100,6 +100,24 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
   return 0;
 }
 
+t_fieldMask IndexSpec_GetSuffixMask(const IndexSpec *sp, int *array) {
+  t_fieldMask fm = (t_fieldMask)0;
+
+  if (!(sp->flags & Index_HasSuffix)) {
+    return fm;
+  }
+
+  array = array_new(int, sp->numFields);
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    FieldSpec *field = sp->fields + ii;
+    if (field->options & FieldSpec_Suffix) {
+      fm |= FIELD_BIT(field);
+      array = array_append(array, ii);
+    }
+  }
+  return fm;
+}
+
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
   if (!sp->sortables) return -1;
   return RSSortingTable_GetFieldIdx(sp->sortables, name);
@@ -311,7 +329,9 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       }
       fs->options |= FieldSpec_Phonetics;
       continue;
-
+    } else if(AC_AdvanceIfMatch(ac, SPEC_SUFFIX_STR)) {
+      fs->options |= FieldSpec_Suffix;
+      fs->suffixTrie = NewTrieMap();
     } else {
       break;
     }
@@ -601,6 +621,11 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
   } else {  // not numeric and not text - nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
+  }
+
+  // mark spec as having suffix fields
+  if (fs->options & FieldSpec_Suffix) {
+    sp->flags |= Index_HasSuffix;
   }
 
   while (!AC_IsAtEnd(ac)) {
@@ -1011,6 +1036,7 @@ void CleanPool_ThreadPoolDestroy() {
   }
 }
 
+void SuffixTrieFree(TrieMap *suffix);
 /*
  * Free resources of unlinked index spec 
  */ 
@@ -1054,10 +1080,17 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free fields data
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
-      if (spec->fields[i].name != spec->fields[i].path) {
-        rm_free(spec->fields[i].name);
+      FieldSpec *field = spec->fields + i; 
+      if (field->name != field->path) {
+        rm_free(field->name);
       }
-      rm_free(spec->fields[i].path);
+      rm_free(field->path);
+      // free the suffix trie if exist
+      if (field->options & FieldSpec_Suffix) {
+        if (field->types == INDEXFLD_T_FULLTEXT) {
+          SuffixTrieFree(field->suffixTrie);
+        }
+      }
     }
     rm_free(spec->fields);
   }

@@ -4,6 +4,7 @@
 #include "redisearch.h"
 #include "value.h"
 #include "VecSim/vec_sim.h"
+#include "triemap/triemap.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -52,6 +53,7 @@ typedef enum {
   FieldSpec_Phonetics = 0x08,
   FieldSpec_Dynamic = 0x10,
   FieldSpec_UNF = 0x20,
+  FieldSpec_Suffix = 0x40,
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
@@ -92,6 +94,9 @@ typedef struct FieldSpec {
 
   // Vector similarity index parameters.
   VecSimParams vecSimParams;
+
+  // Suffix trie for contains queries
+  TrieMap *suffixTrie;
 
   // TODO: More options here..
 } FieldSpec;

@@ -434,6 +434,11 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     Token tok = {0};
     uint32_t newTokPos;
     while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
+      /*if (fs->options & FieldSpec_Suffix) {
+        if (!TrieNode_Find(fs->suffix, tok.tok, tok.tokLen)) {
+          for (int i = tok.tokLen; i < ; )
+        }
+      }*/
       forwardIndexTokenFunc(&tokCtx, &tok);
     }
     uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;

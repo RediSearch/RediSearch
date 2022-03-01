@@ -7,6 +7,7 @@
 #include "index.h"
 #include "redis_index.h"
 #include "rmutil/rm_assert.h"
+#include "suffix.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -212,31 +213,45 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
 static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
   
+  IndexSpec *spec =ctx->spec;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
+  // create fieldmask of suffix
+  int *suffixArray = NULL; 
+  t_fieldMask suffixMask = IndexSpec_GetSuffixMask(spec, suffixArray);
+
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
-    IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
+    IndexSpec_AddTerm(spec, entry->term, entry->len);
 
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      writeIndexEntry(ctx->spec, invidx, encoder, entry);
+      writeIndexEntry(spec, invidx, encoder, entry);
     }
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
+    
+    if (suffixMask & entry->fieldMask) {
+      for (int i = 0; i < array_len(suffixArray); ++i) {
+        FieldSpec *field = spec->fields + suffixArray[i];
+        writeSuffixTrie(field->suffixTrie, entry->term, entry->len);
+      }
+    }
 
     entry = ForwardIndexIterator_Next(&it);
-    if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
+    if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && spec == NULL) {
       QueryError_SetError(&aCtx->status, QUERY_ENOINDEX, NULL);
       return;
     }
   }
+
+  if (suffixArray) array_free(suffixArray);
 }
 
 /** Assigns a document ID to a single document. */
