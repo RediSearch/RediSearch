@@ -3558,6 +3558,6 @@ def test_free_resources_on_thread(env):
 
     # ensure freeing resources on a 2nd thread is more than 5 times quicker
     # than freeing it on the main thread
-    env.assertLess(results[0], results[1])
+    env.assertLess(results[0] * 2, results[1])
 
     conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
