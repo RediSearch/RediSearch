@@ -378,6 +378,12 @@ Searching for books with "Python" in any TEXT attribute, returning the price sto
 FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 ```
 
+Searching for books with semantically similar "title" to "Planet Earth", Return top 10 results sorted by distance.
+
+```sql
+FT.SEARCH books-idx "*=>[KNN 10 @title_embedding $query_vec AS title_score]" PARAMS 2 query_vec <"Planet Earth" embedding BLOB> SORTBY title_score
+```
+
 !!! tip "More examples"
     For more details and query examples, see [query syntax](Query_Syntax.md).
 
