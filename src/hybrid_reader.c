@@ -103,7 +103,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
       // It may be the case where we skipped to an invalid result (in NOT iterator for example),
       // so we read to get the next valid result.
       // If we passed cur_vec_res->docId, we found the next valid id of the child.
-      if (rc == INDEXREAD_NOTFOUND && cur_child_res->docId == cur_vec_res->docId) {
+      if (rc == INDEXREAD_NOTFOUND && cur_child_res->docId <= cur_vec_res->docId) {
         rc = HR_ReadInBatch(hr, &cur_vec_res);
         if (rc == INDEXREAD_EOF) break;
       }
