@@ -550,27 +550,46 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
                          't1', 'TEXT', 't2', 'TEXT')
 
     p = conn.pipeline(transaction=False)
-    for i in range(1, index_size+1):
-        vector = np.float32([i for j in range(dimension)])
-        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
+    close_vector = np.full(dimension, 1, dtype='float32')
+    distant_vector = np.full(dimension, 10, dtype='float32')
+    conn.execute_command('HSET', 1, 'v', close_vector.tobytes(), 'num', 1, 't1', 'text value', 't2', 'hybrid query')
+    conn.execute_command('HSET', 2, 'v', distant_vector.tobytes(), 'num', 2, 't1', 'text value', 't2', 'hybrid query')
+    conn.execute_command('HSET', 3, 'v', distant_vector.tobytes(), 'num', 3, 't1', 'other', 't2', 'hybrid query')
+    conn.execute_command('HSET', 4, 'v', close_vector.tobytes(), 'num', 4, 't1', 'other', 't2', 'hybrid query')
+    for i in range(5, index_size+1):
+        further_vector = np.full(dimension, i, dtype='float32')
+        conn.execute_command('HSET', i, 'v', further_vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
     p.execute()
-
-    query_data = np.float32([index_size for j in range(dimension)])
+    expected_res_1 = [2L, '1', '5']
+    if env.isCluster():
+        # todo: change this when coordinator changes are available
+        expected_res_1[0] = 6L
+    # Search for the "close_vector" that some the vector in the index contain. The batch of vectors should start with
+    # ids 1, 4. The intersection "child iterator" has two children - intersection iterator (@t2:(hybrid query))
+    # and not iterator (-@t1:other). When the hybrid iterator will perform "skipTo(4)" for the child iterator,
+    # the inner intersection iterator will skip to 4, but the not iterator will stay at 2 (4 is not a valid id).
+    # The child iterator will point to 2, and return NOT_FOUND. This test makes sure that the hybrid iterator can
+    # handle this situation (without going into infinite loop).
+    env.expect('FT.SEARCH', 'idx', '(@t2:(hybrid query) -@t1:other)=>[KNN 2 @v $vec_param]',
+               'SORTBY', '__v_score', 'LIMIT', 0, 2,
+               'PARAMS', 2, 'vec_param', close_vector.tobytes(),
+               'RETURN', 0).equal(expected_res_1)
 
     # test modifier list
-    expected_res_1 = [10L, '30', ['__v_score', '627200', 't1', 'text value', 't2', 'hybrid query'], '29', ['__v_score', '645248', 't1', 'text value', 't2', 'hybrid query'], '28', ['__v_score', '663552', 't1', 'text value', 't2', 'hybrid query'], '27', ['__v_score', '682112', 't1', 'text value', 't2', 'hybrid query'], '26', ['__v_score', '700928', 't1', 'text value', 't2', 'hybrid query'], '25', ['__v_score', '720000', 't1', 'text value', 't2', 'hybrid query'], '24', ['__v_score', '739328', 't1', 'text value', 't2', 'hybrid query'], '23', ['__v_score', '758912', 't1', 'text value', 't2', 'hybrid query'], '22', ['__v_score', '778752', 't1', 'text value', 't2', 'hybrid query'], '21', ['__v_score', '798848', 't1', 'text value', 't2', 'hybrid query']]
+    expected_res_2 = [10L, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
     if env.isCluster():
-        expected_res_1[0] = 20L
-    env.expect('FT.SEARCH', 'idx', '(@t1|t2:value text @num:[10 30])=>[KNN 10 @v $vec_param]',
+        # todo: change this when coordinator changes are available
+        expected_res_2[0] = 20L
+    env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text) @num:[10 30])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 3, 't1', 't2', '__v_score').equal(expected_res_1)
+               'PARAMS', 2, 'vec_param', close_vector.tobytes(),
+               'RETURN', 0).equal(expected_res_2)
 
     # test with query attributes
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text)=>{$inorder: true} @num:[10 30])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'WITHSCORES',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'PARAMS', 2, 'vec_param', close_vector.tobytes(),
                'RETURN', 2, 't1', 't2').equal([0L])
 
 
