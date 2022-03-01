@@ -567,15 +567,15 @@ def testExplain(env):
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(expected, res)
 
-    q = ['* => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    q = ['* => [KNN $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
-    expected = """VECTOR {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
+    expected = """VECTOR {K=10 nearest vectors to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # test with hybrid query
-    q = ['(@t:hello world) => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
-    expected = """VECTOR {\n  @t:INTERSECT {\n    @t:hello\n    @t:world\n  }\n} => {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
+    expected = """VECTOR {\n  @t:INTERSECT {\n    @t:hello\n    @t:world\n  }\n} => {K=10 nearest vectors to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # retest when index is not empty

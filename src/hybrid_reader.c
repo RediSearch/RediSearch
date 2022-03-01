@@ -198,7 +198,7 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
-static bool UseBF(size_t T, TopKVectorQuery query, VecSimIndex *index) {
+static bool UseBF(size_t T, KNNVectorQuery query, VecSimIndex *index) {
   // todo: have more sophisticated heuristics here, currently this is disabled.
   // return (float)T < (0.05 * (float)VecSimIndex_IndexSize(index));
   return false;
@@ -275,7 +275,7 @@ void HybridIterator_Free(struct indexIterator *self) {
   rm_free(it);
 }
 
-IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, TopKVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it) {
+IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KNNVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it) {
   HybridIterator *hi = rm_new(HybridIterator);
   hi->lastDocId = 0;
   hi->child = child_it;
