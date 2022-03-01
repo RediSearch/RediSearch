@@ -588,13 +588,11 @@ workflows:
             parameters:
               redis_version: ["6.0", "6.2"]
       - build-platforms:
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              #@@platform: [focal, bionic, xenial, centos7, rocky8, bullseye]
-              platform: [rocky8]
+              platform: [focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -638,7 +636,8 @@ workflows:
           context: common
           requires:
             - upload-release-artifacts
-          <<: *on-version-tags
+          #@@<<: *on-version-tags
+          <<: *never
 
   nightly:
     triggers:
