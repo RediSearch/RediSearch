@@ -33,7 +33,7 @@ Per query expression or sub-expression, it is possible to specify which fields i
 
 If a field modifier precedes multiple words or expressions, it applies **only** to the adjacent expression.
 
-If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses. The expretion should be valid for the specified field.
+If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses. The expression should be valid for the specified field.
 
 Multiple modifiers can be combined to create complex filtering on several fields. For example, if we have an index of car models, with a vehicle class, country of origin and engine type, we can search for SUVs made in Korea with hybrid or diesel engines - with the following query:
 
