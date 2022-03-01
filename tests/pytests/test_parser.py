@@ -281,3 +281,31 @@ INTERSECT {\n\
   }\n\
 }\n'
     env.assertEqual(exp_res, res)
+
+def nest_exp(modifier, term, is_and, i):
+    if i == 1:
+        return '(@' + modifier + ':' + term + str(i) + ')'
+    return '(' + term + str(i) + (' ' if is_and else '|') + nest_exp(modifier, term, is_and, i - 1) + ')'
+
+def testDeepNesting(env):
+    nest_level = 200
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
+    
+    and_exp = nest_exp('mod', 'a', True, nest_level)
+    or_exp = nest_exp('mod', 'a', False, nest_level)
+    # env.debugPrint(and_exp, force=True)
+    # env.debugPrint(or_exp, force=True)
+    env.expect('ft.search', 'idx', and_exp).error().contains('Parser stack overflow.')
+    env.expect('ft.search', 'idx', or_exp).error().contains('Parser stack overflow.')
+
+def testShallowNesting(env):
+    nest_level = 84
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
+    
+    and_exp = nest_exp('mod', 'a', True, nest_level)
+    or_exp = nest_exp('mod', 'a', False, nest_level)
+    # env.debugPrint(and_exp, force=True)
+    # env.debugPrint(or_exp, force=True)
+    env.expect('ft.search', 'idx', and_exp).equal([0])
+    env.expect('ft.search', 'idx', or_exp).equal([0])
+    
