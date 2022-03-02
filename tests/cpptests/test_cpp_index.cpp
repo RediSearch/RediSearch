@@ -699,10 +699,10 @@ TEST_F(IndexTest, testHybridVector) {
   ASSERT_EQ(VecSimIndex_IndexSize(index), max_id);
 
   float query[] = {(float)max_id, (float)max_id, (float)max_id, (float)max_id};
-  TopKVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_ID};
+  KNNVectorQuery knn_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_ID};
   VecSimQueryParams queryParams;
   queryParams.hnswRuntimeParams.efRuntime = max_id;
-  IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir);
+  IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", knn_query, queryParams, ir);
 
   RSIndexResult *h = NULL;
   size_t count = 0;

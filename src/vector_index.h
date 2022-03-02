@@ -29,7 +29,7 @@
   QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
 
 typedef enum {
-  VECSIM_QT_TOPK,
+  VECSIM_QT_KNN,
 } VectorQueryType;
 
 // This struct holds VecSimRawParam array and bool array.
@@ -50,13 +50,13 @@ typedef struct {
   size_t vecLen;                  // vector length
   size_t k;                       // number of vectors to return
   VecSimQueryResult_Order order;  // specify the result order.
-} TopKVectorQuery;
+} KNNVectorQuery;
 
 typedef struct VectorQuery {
   char *property;                     // name of field
   char *scoreField;                   // name of score field
   union {
-    TopKVectorQuery topk;
+    KNNVectorQuery knn;
   };
   VectorQueryType type;               // vector similarity query type
   VectorQueryParams params;           // generic query params array, for the vecsim library to check
