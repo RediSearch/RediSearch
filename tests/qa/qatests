@@ -23,21 +23,21 @@ NOP = False
 OPERETO3_URL = "opereto.qa.redislabs.com"
 
 
-RS_PLATFORMS = {
+RLEC_PLATFORMS = {
     'xenial': { 
-        'platform':  'Linux-ubuntu16.04',
+        'os':  'Linux-ubuntu16.04',
         'env': 'xenial-amd64-aws' },
     'bionic': {
-        'platform': 'Linux-ubuntu18.04',
+        'os': 'Linux-ubuntu18.04',
         'env': 'bionic-amd64-aws' },
     'centos7': {
-        'platform': 'Linux-rhel7',
+        'os': 'Linux-rhel7',
         'env': 'rhel7.7-x86_64-aws' },
-    'centos8': {
-        'platform': 'Linux-rhel8',
-        'env': 'rhel8-x86_64-aws' }
-    'ol8': {
-        'platform': 'Linux-rhel8',
+#    'centos8': {
+#        'os': 'Linux-rhel8',
+#        'env': 'rhel8-x86_64-aws' },
+    'rocky8': {
+        'os': 'Linux-rhel8',
         'env': 'rhel8-x86_64-aws' }
 }
 
@@ -73,7 +73,7 @@ RS_VERSIONS file includes Redis Enterprive versions for release tests.
 
 
 class Test:
-    def __init__(self, token, test_fname, modver, snapshot, rsver, osnick, light):
+    def __init__(self, token, test_fname, modver, snapshot, rlecver, osnick, light):
         global NOP, VERBOSE
 
         self.token = token
@@ -81,51 +81,54 @@ class Test:
         modver = re.sub(r'^v(.*)', r'\1', modver)
         self.modver = modver
         self.snapshot = snapshot
-        self.rsver = rsver
+        self.rlecver = rlecver
         self.osnick = osnick
         self.light = light
+        self.module_name = "RediSearchLight" if self.light else "RediSearch"
 
-        os.environ['RS_MODULE_DIR'] = 'redisearch'
-        if light:
-            self.rsmod = 'RedisearchLight'
-            ENV['RS_MODULE_FILE_PREFIX'] = 'redisearch-light'
+        ENV['SEARCH_VERSION'] = modver
+        os.environ['SEARCH_DIR'] = 'redisearch'
+
+        if not light:
+            ENV['SEARCH_FILE_PREFIX'] = 'redisearch'
+            ENV['SEARCH_DOWNLOAD_NAME'] = 'search'
+            ENV['SEARCH_TEST_NAME'] = 'RediSearchEnterprise'
         else:
-            self.rsmod = 'RediSearchEnterprise'
-            ENV['RS_MODULE_FILE_PREFIX'] = 'redisearch'
+            ENV['SEARCH_FILE_PREFIX'] = 'redisearch-light'
+            ENV['SEARCH_DOWNLOAD_NAME'] = 'searchlight'
+            ENV['SEARCH_TEST_NAME'] = 'RedisearchLight'
+
         if snapshot:
-            ENV['RS_MODULE_FILE_PREFIX'] = "snapshots/" + ENV['RS_MODULE_FILE_PREFIX']
+            ENV['SEARCH_FILE_PREFIX'] = "snapshots/" + ENV['SEARCH_FILE_PREFIX']
 
-        ENV['RS_MODULE'] = self.rsmod
-        ENV['MODULE_VERSION'] = modver
-        ENV['RS_VERSION'] = rsver
+        ENV['RLEC_VERSION'] = rlecver
+        ENV['RLEC_ARCH'] = 'x86_64'
         
-        ENV['REJSON_MODULE_DIR'] = 'rejson'
+        ENV['REJSON_VERSION'] = '2.0.7'
+        ENV['REJSON_DIR'] = 'rejson'
         ENV['REJSON_FILE_PREFIX'] = 'rejson'
-        ENV['REJSON_VERSION'] = '2.0.6'
 
-        self.xtx_vars = ['RS_MODULE', 'RS_MODULE_DIR', 'RS_MODULE_FILE_PREFIX',
-                         'RS_VERSION', 'RS_ENV', 'RS_MODULE_OS',
-                         'MODULE_VERSION',
-                         'REJSON_VERSION', 'REJSON_MODULE_DIR', 'REJSON_FILE_PREFIX']
+        self.xtx_vars = ['SEARCH_VERSION', 'SEARCH_DIR', 'SEARCH_FILE_PREFIX',
+                         'SEARCH_TEST_NAME', 'SEARCH_DOWNLOAD_NAME',
+                         'RLEC_VERSION', 'RLEC_ENV', 'RLEC_OS', 'RLEC_ARCH',
+                         'REJSON_VERSION', 'REJSON_DIR', 'REJSON_FILE_PREFIX']
 
     def run(self):
         found_osnick = False
-        for osnick in RS_PLATFORMS.keys():
+        click.echo(f"Testing {self.module_name}/{self.modver} for RS {self.rlecver}:")
+        for osnick in RLEC_PLATFORMS.keys():
             if self.osnick is None or osnick == self.osnick:
                 found_osnick = True
-                rs_platform = RS_PLATFORMS[osnick]['platform']
-                rs_env = RS_PLATFORMS[osnick]['env']
-                self.run_for_os(rs_platform, rs_env)
+                rlec_os = RLEC_PLATFORMS[osnick]['os']
+                rlec_env = RLEC_PLATFORMS[osnick]['env']
+                self.run_for_os(rlec_os, rlec_env)
         if not found_osnick:
-            click.echo(f"osnick {self.osnick}: not found")
+            click.echo(f"    osnick {osnick}: not found")
 
-    def run_for_os(self, rs_mod_os, rs_env):
-        ENV['RS_ENV'] = rs_env
-        ENV['RS_MODULE_OS'] = rs_mod_os
-        
-        desc = f"{self.rsmod}/{self.modver}/{rs_mod_os} for RS {self.rsver}"
-        click.echo(f"Testing {desc}")
-        
+    def run_for_os(self, rlec_os, rlec_env):
+        ENV['RLEC_OS'] = rlec_os
+        ENV['RLEC_ENV'] = rlec_env
+
         global NOP, VERBOSE
         var_args = ' '.join(map(lambda v: f"-e {v}", self.xtx_vars))
         
@@ -146,42 +149,41 @@ class Test:
             fatal(x)
 
         if NOP:
+            click.echo(f"    {rlec_os}: https://{OPERETO3_URL}/ui#dashboard/flow/...")
             return 0
 
-        BB()
         res = requests.post(f"https://{OPERETO3_URL}/processes", verify=False,
                             headers={'Authorization': f'Bearer {self.token}',
                                      'Content-Type': 'application/json'},
                             data=rest)
         if not res.ok:
-            click.echo(f"Failed to run tests on {desc}: {res.reason} [{res.status_code}]")
+            click.echo(f"    {rlec_os}: error: {res.reason} [{res.status_code}]")
             return 1
         j = json.loads(res.content)
         if j['status'] != 'success':
             err = j['text']
-            click.echo(f"Failed to run tests on {desc}: {err}")
+            click.echo(f"    {rlec_os}: error: {err}")
             return 1
 
         self.id = j['data'][0]
         # click.echo(f"Tests running on {desc}")
-        click.echo(f"Results: https://{OPERETO3_URL}/ui#dashboard/flow/{self.id}")
+        click.echo(f"    {rlec_os}: https://{OPERETO3_URL}/ui#dashboard/flow/{self.id}")
         return 0
 
 
 @click.command(help='Invoke QA Automation tests', cls=Command1)
 @click.option('--token', default=None, help='QA automation (Opereto) token (also: QA_AUTOMATION_TOKEN env var)')
-@click.option('--test', '-t', default='release', help='Name of .json parameters file')
+@click.option('--test', '-t', default='common', help='Name of .json parameters file')
 @click.option('--modver', '-m', default='master', help='Module version to test. Default: master')
 @click.option('--snapshot', '-s', is_flag=True, default=False, help='Test a snapshoy module version')
-@click.option('--rsver', default=None, help='Test for a RS version`')
+@click.option('--rlecver', '-r', default=None, help='Test for a RLEC version`')
 @click.option('--osnick', default=None, help='Test for OSNICK`')
 @click.option('--light', is_flag=True, default=False, help='Test RediSearch Light')
 @click.option('--quick', is_flag=True, default=False, help='Only test one RS version')
 @click.option('--nop', is_flag=True, default=False, help='Dry run')
 @click.option('--verbose', '-v', is_flag=True, default=False, help='Be verbose')
 @click.option('--verbosity', type=int, default=0, help='Verbosity level')
-def main(token, test, modver, snapshot, rsver, osnick, light, quick, nop, verbose, verbosity, *args, **kwargs):
-    BB()
+def main(token, test, modver, snapshot, rlecver, osnick, light, quick, nop, verbose, verbosity, *args, **kwargs):
     global NOP, VERBOSE
     VERBOSE = 1 if verbose else verbosity
     NOP = nop
@@ -194,14 +196,14 @@ def main(token, test, modver, snapshot, rsver, osnick, light, quick, nop, verbos
     if not os.path.exists(test_fname):
         raise click.ClickException(f"Invalid test name: {test}")
 
-    if rsver is not None:
-        Test(token, test_fname, modver, snapshot, rsver, osnick, light).run()
+    if rlecver is not None:
+        Test(token, test_fname, modver, snapshot, rlecver, osnick, light).run()
     else:
         rs_versions = paella.flines(os.path.join(HERE, 'RS_VERSIONS'))
         if quick:
             rs_versions = [rs_versions[0]]
-        for rsver in rs_versions:
-            Test(token, test_fname, modver, snapshot, rsver, osnick, light).run()
+        for rlecver in rs_versions:
+            Test(token, test_fname, modver, snapshot, rlecver, osnick, light).run()
 
 
 if __name__ == '__main__':

@@ -592,7 +592,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, ol8, bullseye]
+              platform: [focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -636,7 +636,8 @@ workflows:
           context: common
           requires:
             - upload-release-artifacts
-          <<: *on-version-tags
+          #@@<<: *on-version-tags
+          <<: *never
 
   nightly:
     triggers:

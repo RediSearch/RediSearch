@@ -51,7 +51,7 @@ RUN set -e ;\
 {% endif %}
 
 #----------------------------------------------------------------------------------------------
-FROM redisfab/rejson:{{REJSON_VERSION}}-{{ARCH}}-{{OSNICK}} AS json
+FROM redisfab/rejson:{{REJSON_VERSION}}-{{ARCH}}-{{REJSON_OSNICK}} AS json
 FROM redisfab/redis:{{REDIS_VERSION}}-{{ARCH}}-{{OSNICK}}
 
 WORKDIR /data
