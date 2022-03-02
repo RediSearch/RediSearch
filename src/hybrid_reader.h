@@ -17,7 +17,7 @@ typedef enum {
 typedef struct {
   IndexIterator base;
   VecSimIndex *index;
-  TopKVectorQuery query;
+  KNNVectorQuery query;
   VecSimQueryParams runtimeParams;   // Evaluated runtime params.
   IndexIterator *child;
   VecSearchMode mode;
@@ -37,7 +37,7 @@ typedef struct {
 extern "C" {
 #endif
 
-IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, TopKVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it);
+IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KNNVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it);
 
 #ifdef __cplusplus
 }

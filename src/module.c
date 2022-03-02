@@ -1052,11 +1052,12 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   }
   invoked = 1;
 
-  CursorList_Destroy(&RSCursors);
-
+  // First free all indexes
   Indexes_Free(specDict_g);
   dictRelease(specDict_g);
   specDict_g = NULL;
+
+  CursorList_Destroy(&RSCursors);
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
@@ -1064,12 +1065,14 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   }
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
+  // free global structures
   Extensions_Free();
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();
   mempool_free_global();
   ConcurrentSearch_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
+  CleanPool_ThreadPoolDestroy();
   GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
