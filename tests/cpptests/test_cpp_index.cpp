@@ -227,7 +227,7 @@ InvertedIndex *createIndex(int size, int idStep, int start_with=0) {
   InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1);
 
   IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
-  t_docId id = idStep+start_with;
+  t_docId id = start_with>0 ? start_with : idStep;
   for (int i = 0; i < size; i++) {
     // if (i % 10000 == 1) {
     //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
@@ -784,158 +784,179 @@ TEST_F(IndexTest, testHybridVector) {
 
 TEST_F(IndexTest, benchmarkHybridVector) {
 
-  for (size_t max_id : {500000, 1000000, 2000000}) {
-    //size_t max_id = 1000000;
-    size_t d = 100;
+  // Create vector index with random data
+  std::mt19937 rng;
+  rng.seed(47);
+  std::uniform_real_distribution<> distrib;
+  for (size_t max_id = 2e5; max_id <= 2e5; max_id *=10) {
+    for (size_t d=240; d<=240; d+=10) {
+      std::vector<float> data(max_id * d);
+      //if ((d == 500 && max_id == 5e6) || (d==50 && max_id==5e5)) continue;
+      for (size_t M = 32; M <= 32; M *= 2) {
+        std::cout << std::endl << std::endl << "d is: " << d << std::endl;
+        std::cout << "Index size is: " << max_id << std::endl;
+        // std::cout << "M is: " << M << std::endl;
+        // size_t max_id = 1e6;
+        // size_t d = 100;
 
-    // Create vector index with random data
-    std::mt19937 rng;
-    rng.seed(47);
-    std::vector<float> data(max_id * d);
-    std::uniform_real_distribution<> distrib;
-    for (size_t i = 0; i < max_id * d; ++i) {
-      data[i] = (float)distrib(rng);
-    }
-    VecSimParams params{.algo = VecSimAlgo_BF,
-                        .bfParams = BFParams{.type = VecSimType_FLOAT32,
-                                             .dim = d,
-                                             .metric = VecSimMetric_L2,
-                                             .initialCapacity = max_id,
-                                             .blockSize = max_id}};
-    VecSimIndex *index = VecSimIndex_New(&params);
-    auto start = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < max_id; i++) {
-      VecSimIndex_AddVector(index, data.data() + d * i, (int)i);
-    }
-//    char *location = getcwd(NULL, 0);
-//    auto file_name = std::string(location) + "/../VectorSimilarity/tests/benchmark/data/random-1M-100-l2.hnsw";
-//    VecSimIndex_Load(index, file_name.c_str());
-    auto elapsed = std::chrono::high_resolution_clock::now() - start;
-    long long search_time = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-    std::cout << std::endl << "Total build time: " << search_time << std::endl;
-    ASSERT_EQ(VecSimIndex_IndexSize(index), max_id);
+//        char *location = getcwd(NULL, 0);
+//        //auto file_name = std::string(location) + "/../VectorSimilarity/tests/benchmark/data/random-1M-100-l2.hnsw";
+//        auto file_name = std::string(location) +
+//                         "/../VectorSimilarity/tests/benchmark/data/l2-random-size=" + std::to_string(max_id) +
+//                         "d=" + std::to_string(d) + "M=" + std::to_string(M) + ".hnsw";
+//        VecSimIndex_Load(index, file_name.c_str());
+//        char *location = getcwd(NULL, 0);
+//        auto file_name = std::string(location) +
+//                         "/../VectorSimilarity/tests/benchmark/data/l2-random-size=" + std::to_string(max_id) +
+//                         "d=" + std::to_string(d) + "M=" + std::to_string(M) + ".hnsw";
+//        VecSimIndex_Save(index, file_name.c_str());
+        for (size_t k = 100; k <= 100; k *= 10) {
+          for (size_t percent = 100; percent <= 500; percent += 100) {
+            for (size_t i = 0; i < max_id * d; ++i) {
+              data[i] = (float)distrib(rng);
+            }
+            // size_t M = 16;
+            // size_t ef = 200;
+            VecSimParams params{.algo = VecSimAlgo_BF,
+                                .bfParams = BFParams{.type = VecSimType_FLOAT32,
+                                                     .dim = d,
+                                                     .metric = VecSimMetric_L2,
+                                                     .initialCapacity = max_id,
+                                                     .blockSize = max_id}};
+            VecSimIndex *index = VecSimIndex_New(&params);
+            auto start = std::chrono::high_resolution_clock::now();
+            for (size_t i = 1; i <= max_id; i++) {
+              VecSimIndex_AddVector(index, data.data() + d * i, (int)i);
+            }
+            auto elapsed = std::chrono::high_resolution_clock::now() - start;
+            long long search_time =
+                std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+            std::cout << std::endl << "Total build time: " << search_time << std::endl;
+            ASSERT_EQ(VecSimIndex_IndexSize(index), max_id);
+            size_t NUM_ITERATIONS = 100;
+            size_t step = 1000;
+            size_t n = max_id / step;
+            //size_t k = 100;
 
-    size_t NUM_ITERATIONS = 20;
-    size_t step = 2;
-    size_t n = max_id / step;
-    size_t k = 50;
+            std::cout << std::endl
+                      << "ratio between child and index size is: " << percent / 1000.0 << std::endl;
+            std::cout << "k is: " << k << std::endl;
 
-    std::cout << std::endl << "d is: " << d << std::endl;
-    std::cout << "Index size is: " << max_id << std::endl;
-    std::cout << "k is: " << k << std::endl;
+            InvertedIndex *inv_indices[percent];
+            IndexReader *ind_readers[percent];
+            for (size_t i = 0; i < percent; i++) {
+              InvertedIndex *w = createIndex(n, step, i);
+              inv_indices[i] = w;
+              IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+              ind_readers[i] = r;
+            }
 
-    InvertedIndex *w = createIndex(n, step);
-    IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
-//    InvertedIndex *w2 = createIndex(n/2, 2*step);
-//    IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);
-//    InvertedIndex *w3 = createIndex(n, step, 1);
-//    IndexReader *r3 = NewTermIndexReader(w3, NULL, RS_FIELDMASK_ALL, NULL, 1);
-//    InvertedIndex *w4 = createIndex(n/2, 2*step, 1);
-//    IndexReader *r4 = NewTermIndexReader(w4, NULL, RS_FIELDMASK_ALL, NULL, 1);
+            float query[NUM_ITERATIONS][d];
+            TopKVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
+            VecSimQueryParams queryParams;
+            queryParams.hnswRuntimeParams.efRuntime = 500;
 
-    float query[NUM_ITERATIONS][d];
-    TopKVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
-    VecSimQueryParams queryParams;
-    queryParams.hnswRuntimeParams.efRuntime = 500;
+            RSIndexResult *h = NULL;
+            IndexIterator **irs = (IndexIterator **)calloc(percent, sizeof(IndexIterator *));
+            for (size_t i = 0; i < percent; i++) {
+              irs[i] = NewReadIterator(ind_readers[i]);
+            }
+            IndexIterator *ui = NewUnionIterator(irs, percent, NULL, 0, 1, QN_UNION, NULL);
+            std::cout << "Expected child res: " << ui->NumEstimated(ui->ctx) << std::endl;
 
-    RSIndexResult *h = NULL;
-//    IndexIterator **irs_1 = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-//    irs_1[0] = NewReadIterator(r);
-//    irs_1[1] = NewReadIterator(r2);
-//    //NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
-//    //IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
-//    IndexIterator *ii1 = NewIntersecIterator(irs_1, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
-//    IndexIterator **irs_2 = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-//    irs_2[0] = NewReadIterator(r3);
-//    irs_2[1] = NewReadIterator(r4);
-//    IndexIterator *ii2 = NewIntersecIterator(irs_2, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
-//    IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-//    irs[0] = ii1;
-//    irs[1] = ii2;
-//    IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
-    IndexIterator *ir = NewReadIterator(r);
-    std::cout << "Expected child res: " << ir->NumEstimated(ir->ctx) << std::endl;
+            IndexIterator *hybridIt =
+                NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ui);
 
-    //IndexIterator *ir = NewReadIterator(r);
+            // run in batches mode
+            HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
+            hr->mode = HYBRID_BATCHES;
 
-    IndexIterator *hybridIt =
-        NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir);
+            size_t hnsw_ids[NUM_ITERATIONS][k];
+            int count = 0;
+            int num_batches_count = 0;
+            start = std::chrono::high_resolution_clock::now();
+            for (size_t i = 0; i < NUM_ITERATIONS; i++) {
+              count = 0;
+              for (size_t j = 0; j < d; ++j) {
+                query[i][j] = (float)distrib(rng);
+              }
+              hr->query.vector = query[i];
+              while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+                hnsw_ids[i][count++] = h->docId;
+              }
+              num_batches_count += hr->numIterations;
+              //      std::cout << "results: ";
+              //      for (size_t j = 0; j < k; j++) {
+              //        std::cout << hnsw_ids[i][j] << " - ";
+              //      }
+              //      std::cout << std::endl;
+              if (i != NUM_ITERATIONS - 1) hybridIt->Rewind(hybridIt->ctx);
+            }
+            elapsed = std::chrono::high_resolution_clock::now() - start;
+            search_time = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+            std::cout << "Avg number of batches: " << (float)num_batches_count / NUM_ITERATIONS
+                      << std::endl;
+            std::cout << "Total search time batches mode: " << search_time / NUM_ITERATIONS
+                      << std::endl;
+            //    std::cout << "results: ";
+            //    for (size_t i = 0; i < k; i++) {
+            //      std::cout << hnsw_ids[i] << " - ";
+            //    }
+            //    std::cout << std::endl;
 
-    // run in batches mode
-    HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
-    hr->mode = HYBRID_BATCHES;
+            hybridIt->Rewind(hybridIt->ctx);
+            ASSERT_TRUE(hybridIt->HasNext(hybridIt->ctx));
 
-    size_t hnsw_ids[NUM_ITERATIONS][k];
-    int count = 0;
-    int num_batches_count = 0;
-    start = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < NUM_ITERATIONS; i++) {
-      count = 0;
-      for (size_t j = 0; j < d; ++j) {
-        query[i][j] = (float)distrib(rng);
-      }
-      hr->query.vector = query[i];
-      while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
-        hnsw_ids[i][count++] = h->docId;
-      }
-      num_batches_count += hr->numIterations;
-//      std::cout << "results: ";
-//      for (size_t j = 0; j < k; j++) {
-//        std::cout << hnsw_ids[i][j] << " - ";
-//      }
-//      std::cout << std::endl;
-      if (i != NUM_ITERATIONS - 1) hybridIt->Rewind(hybridIt->ctx);
-    }
-    elapsed = std::chrono::high_resolution_clock::now() - start;
-    search_time = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-    std::cout << "Avg number of batches: " << (float)num_batches_count/NUM_ITERATIONS << std::endl;
-    std::cout << "Total search time bathes mode: " << search_time / NUM_ITERATIONS << std::endl;
-//    std::cout << "results: ";
-//    for (size_t i = 0; i < k; i++) {
-//      std::cout << hnsw_ids[i] << " - ";
-//    }
-//    std::cout << std::endl;
+            // Rerun in AD_HOC BF MODE.
+            hybridIt->Rewind(hybridIt->ctx);
+            hr->mode = HYBRID_ADHOC_BF;
+            start = std::chrono::high_resolution_clock::now();
+            size_t bf_ids[NUM_ITERATIONS][k];
+            for (size_t i = 0; i < NUM_ITERATIONS; i++) {
+              count = 0;
+              hr->query.vector = query[i];
+              while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+                bf_ids[i][count++] = h->docId;
+              }
+              //      std::cout << "results: ";
+              //      for (size_t j = 0; j< k; j++) {
+              //        std::cout << bf_ids[i][j] << " - ";
+              //      }
+              //      std::cout << std::endl;
+              hybridIt->Rewind(hybridIt->ctx);
+            }
+            elapsed = std::chrono::high_resolution_clock::now() - start;
+            search_time = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+            std::cout << "Total search time ad-hoc mode: " << search_time / NUM_ITERATIONS
+                      << std::endl;
+            // std::cout << search_time / NUM_ITERATIONS << ", ";
+            int correct = 0;
+            for (size_t it = 0; it < NUM_ITERATIONS; it++) {
+              for (size_t i = 0; i < k; i++) {
+                bool found = false;
+                for (size_t j = 0; j < k; j++) {
+                  if (hnsw_ids[it][j] == bf_ids[it][i]) {
+                    correct++;
+                    found = true;
+                    break;
+                  }
+                }
+                if (!found) {
+                  std::cout << "iter: "<< it <<" id wasn't found: " << bf_ids[it][i] << std::endl;
+                }
+              }
+            }
+            std::cout << "Recall is: " << (float)(correct) / (k * NUM_ITERATIONS) << std::endl;
 
-    hybridIt->Rewind(hybridIt->ctx);
-    ASSERT_TRUE(hybridIt->HasNext(hybridIt->ctx));
-
-    // Rerun in AD_HOC BF MODE.
-    hybridIt->Rewind(hybridIt->ctx);
-    hr->mode = HYBRID_ADHOC_BF;
-    start = std::chrono::high_resolution_clock::now();
-    size_t bf_ids[NUM_ITERATIONS][k];
-    for (size_t i = 0; i < NUM_ITERATIONS; i++) {
-      count = 0;
-      hr->query.vector = query[i];
-      while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
-        bf_ids[i][count++] = h->docId;
-      }
-//      std::cout << "results: ";
-//      for (size_t j = 0; j< k; j++) {
-//        std::cout << bf_ids[i][j] << " - ";
-//      }
-//      std::cout << std::endl;
-      hybridIt->Rewind(hybridIt->ctx);
-    }
-    elapsed = std::chrono::high_resolution_clock::now() - start;
-    search_time = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-    std::cout << "Total search time ad-hoc mode: " << search_time / NUM_ITERATIONS << std::endl;
-    int correct = 0;
-    for (size_t it=0 ; it< NUM_ITERATIONS; it++) {
-      for (size_t i = 0; i < k; i++) {
-        for (size_t j = 0; j < k; j++) {
-          if (hnsw_ids[it][i] == bf_ids[it][j]) {
-            correct++;
-            break;
+            hybridIt->Free(hybridIt);
+            for (size_t i = 0; i < percent; i++) {
+              InvertedIndex_Free(inv_indices[i]);
+            }
+            VecSimIndex_Free(index);
           }
         }
       }
     }
-    std::cout << "Recall is: " << (float)(correct) / (k*NUM_ITERATIONS) << std::endl;
-
-    hybridIt->Free(hybridIt);
-    InvertedIndex_Free(w);
-    VecSimIndex_Free(index);
   }
 }
 

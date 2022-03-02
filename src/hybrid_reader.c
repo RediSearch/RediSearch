@@ -5,7 +5,7 @@
 
 #define VECTOR_RESULT(p) p->agg.children[0]
 
-void prepareResults(HybridIterator *hr); // forward declaration
+static void prepareResults(HybridIterator *hr); // forward declaration
 
 static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata) {
   const RSIndexResult *e1 = p1, *e2 = p2;
@@ -140,7 +140,7 @@ void computeDistances(HybridIterator *hr) {
   }
 }
 
-void prepareResults(HybridIterator *hr) {
+static void prepareResults(HybridIterator *hr) {
     if (hr->mode == STANDARD_KNN) {
       hr->list =
           VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, &(hr->runtimeParams), hr->query.order);
@@ -158,7 +158,6 @@ void prepareResults(HybridIterator *hr) {
   float upper_bound = INFINITY;
   while (VecSimBatchIterator_HasNext(batch_it)) {
     hr->numIterations++;
-    //size_t batch_size = hr->query.k;  // todo: add heuristics here
     size_t vec_index_size = VecSimIndex_IndexSize(hr->index);
     size_t n_res_left = hr->query.k - heap_count(hr->topResults);
     size_t batch_size = n_res_left * ((float)vec_index_size / hr->child->NumEstimated(hr->child->ctx));
@@ -228,7 +227,8 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
 
 static bool UseBF(size_t T, TopKVectorQuery query, VecSimIndex *index) {
   // todo: have more sophisticated heuristics here...
-  return (float)T < (0.05 * (float)VecSimIndex_IndexSize(index));
+  //return (float)T <= (0.05 * (float)VecSimIndex_IndexSize(index));
+  return false;
 }
 
 static size_t HR_NumEstimated(void *ctx) {
