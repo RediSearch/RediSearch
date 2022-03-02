@@ -205,27 +205,44 @@ def testProfileVector(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
-  env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT').ok()
+  env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT').ok()
   conn.execute_command('hset', '1', 'v', 'abababab', 't', "hello")
   conn.execute_command('hset', '2', 'v', 'babababa', 't', "hello")
   conn.execute_command('hset', '3', 'v', 'aabbaabb', 't', "hello")
   conn.execute_command('hset', '4', 'v', 'bbaabbaa', 't', "hello world")
   conn.execute_command('hset', '5', 'v', 'aaaabbbb', 't', "hello world")
 
-  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*=>[KNN 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*=>[KNN 3 @v $vec]', 'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 3L]]
   expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 3L]
-  env.assertEqual(actual_res[0], [3L, '1', '2', '4'])
+  env.assertEqual(actual_res[0], [3L, '4', '2', '1'])
   env.assertEqual(actual_res[1][3], expected_iterators_res)
-  env.assertEqual(actual_res[1][4][3], expected_vecsim_rp_res)
+  env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
+  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'STANDARD_KNN')
 
-  # Test with hybrid query
-  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
-  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 2L, 'Child iterator', ['Type', 'INTERSECT', 'Counter', 4L, 'Child iterators', ['Type', 'TEXT', 'Term', 'world', 'Counter', 4L, 'Size', 2L], ['Type', 'TEXT', 'Term', 'hello', 'Counter', 4L, 'Size', 5L]]]]
+# Test with hybrid query variations
+  # Expect ad-hoc BF to take place - going over child iterator exactly once (reading 2 results)
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]', 'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 2L, 'Child iterator', ['Type', 'INTERSECT', 'Counter', 2L, 'Child iterators', ['Type', 'TEXT', 'Term', 'world', 'Counter', 2L, 'Size', 2L], ['Type', 'TEXT', 'Term', 'hello', 'Counter', 2L, 'Size', 5L]]]]
   expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 2L]
   env.assertEqual(actual_res[0], [2L, '4', '5'])
   env.assertEqual(actual_res[1][3], expected_iterators_res)
-  env.assertEqual(actual_res[1][4][3], expected_vecsim_rp_res)
+  env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
+  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+
+  for i in range(6, 10001):
+    conn.execute_command('hset', str(i), 'v', 'babababa', 't', "hello world")
+
+  # Expect batched search to take place - going over child iterator exactly once (reading 2 results)
+  # Expect in the first batch to get 1, 2, 4, and then ask for one more batch - and get the next results 6 and 7.
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]', 'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  env.assertEqual(actual_res[0], [3L, '4', '6', '7'])
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 3L, 'Child iterator', ['Type', 'INTERSECT', 'Counter', 5L, 'Child iterators', ['Type', 'TEXT', 'Term', 'world', 'Counter', 5L, 'Size', 9997L], ['Type', 'TEXT', 'Term', 'hello', 'Counter', 5L, 'Size', 10000L]]]]
+  expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 3L]
+  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
+  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+
 
 def testResultProcessorCounter(env):
   env.skipOnCluster()

@@ -7,12 +7,12 @@
 #include "util/heap.h"
 
 typedef enum {
-  STANDARD_KNN,     // Run k-nn query over the entire vector index.
-  HYBRID_ADHOC_BF,  // Measure ad-hoc the distance for every result that passes the filters,
-                    // and take the top k results.
-  HYBRID_BATCHES    // Get the top vector results in batches upon demand, and keep the results that
-                    // passes the filters until we reach k results.
-} VecSearchMode;
+  VECSIM_STANDARD_KNN,     // Run k-nn query over the entire vector index.
+  VECSIM_HYBRID_ADHOC_BF,  // Measure ad-hoc the distance for every result that passes the filters,
+                           // and take the top k results.
+  VECSIM_HYBRID_BATCHES    // Get the top vector results in batches upon demand, and keep the results that
+                           // passes the filters until we reach k results.
+} VecSimSearchMode;
 
 typedef struct {
   IndexIterator base;
@@ -20,7 +20,7 @@ typedef struct {
   KNNVectorQuery query;
   VecSimQueryParams runtimeParams;   // Evaluated runtime params.
   IndexIterator *child;
-  VecSearchMode mode;
+  VecSimSearchMode mode;
   bool resultsPrepared;             // Indicates if the results were already processed
                          // (should occur in the first call to Read)
   VecSimQueryResult_List list;

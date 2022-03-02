@@ -771,7 +771,7 @@ TEST_F(IndexTest, testHybridVector) {
   // Rerun in AD_HOC BF MODE.
   hybridIt->Rewind(hybridIt->ctx);
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
-  hr->mode = HYBRID_ADHOC_BF;
+  hr->mode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
@@ -876,7 +876,7 @@ TEST_F(IndexTest, benchmarkHybridVector) {
 
             // run in batches mode
             HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
-            hr->mode = HYBRID_BATCHES;
+            hr->mode = VECSIM_HYBRID_BATCHES;
 
             size_t hnsw_ids[NUM_ITERATIONS][k];
             int count = 0;
@@ -916,7 +916,7 @@ TEST_F(IndexTest, benchmarkHybridVector) {
 
             // Rerun in AD_HOC BF MODE.
             hybridIt->Rewind(hybridIt->ctx);
-            hr->mode = HYBRID_ADHOC_BF;
+            hr->mode = VECSIM_HYBRID_ADHOC_BF;
             start = std::chrono::high_resolution_clock::now();
             size_t bf_ids[NUM_ITERATIONS][k];
             for (size_t i = 0; i < NUM_ITERATIONS; i++) {
