@@ -195,3 +195,35 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
   }
   return -1;
 }
+
+int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status) {
+  ArgsCursor paramsArgs = {0};
+  int rv = AC_GetVarArgs(ac, &paramsArgs);
+  if (rv != AC_OK) {
+    QERR_MKBADARGS_AC(status, "PARAMS", rv);
+    return REDISMODULE_ERR;
+  }
+  if (*destParams) {
+    QueryError_SetError(status, QUERY_EADDARGS,"Multiple PARAMS are not allowed. Parameters can be defined only once");
+    return REDISMODULE_ERR;
+  }
+  if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
+    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
+    return REDISMODULE_ERR;
+  }
+
+  dict *params = Param_DictCreate();
+  size_t value_len;
+  while (!AC_IsAtEnd(&paramsArgs)) {
+    const char *param = AC_GetStringNC(&paramsArgs, NULL);
+    const char *value = AC_GetStringNC(&paramsArgs, &value_len);
+    // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
+    if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
+      Param_DictFree(params);
+      return REDISMODULE_ERR;
+    }
+  }
+  *destParams = params;
+
+  return REDISMODULE_OK;
+}

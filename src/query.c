@@ -947,8 +947,6 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   return NULL;
 }
 
-QueryNode *RSQuery_ParseRaw(QueryParseCtx *);
-
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
                const char *q, size_t n, QueryError *status) {
   if (!dst->query) {
