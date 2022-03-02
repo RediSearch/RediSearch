@@ -220,7 +220,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
   // create fieldmask of suffix
-  int *suffixArray = NULL; 
+  arrayof(int) suffixArray = NULL; 
   t_fieldMask suffixMask = IndexSpec_GetSuffixMask(spec, suffixArray);
 
   while (entry != NULL) {

@@ -83,7 +83,7 @@ int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void
 /* Mark a node as deleted. It also optimizes the trie by merging nodes if
  * needed. If freeCB is given, it will be used to free the value of the deleted
  * node. If it doesn't, we simply call free() */
-int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *));
+int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, void (*freeCB)(void *));
 
 /* Free the trie's root and all its children recursively. If freeCB is given, we
  * call it to free individual payload values. If not, free() is used instead. */

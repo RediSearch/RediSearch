@@ -5,6 +5,7 @@ typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 
 typedef struct suffixNodeInfo {
   int wordExists; // exact match to string exists already
+  char *term;
   char **array;   // list of words containing the string
 } suffixNodeInfo;
 
@@ -15,17 +16,30 @@ void *addCb(void *oldval, void *newval) {
   return node;
 }
 
+void *addTermCb(void *oldval, void *newval) {
+  suffixNodeInfo *node = oldval;
+  node->term = newval;
+  return node;
+}
+
 void delCb(void *val) {
   suffixNodeInfo *node = val;
-  array_free_ex(node->array, { rm_free(ptr); });
+  array_free_ex(node->array, NULL);
+  if (node->term) {
+    rm_free(node->term);
+  }
   rm_free(node);
 }
 
 static suffixNodeInfo *createSuffixNode(char *str, int exists) {
-  suffixNodeInfo *node = rm_malloc(sizeof(*node));
-  node->wordExists = exists;
+  suffixNodeInfo *node = rm_calloc(1, sizeof(*node));
+  // node->wordExists = exists;
   node->array = array_new(char *, 1);
-  array_append(node->array, str);
+  if (exists) {
+    node->term = str;
+  } else {
+    array_append(node->array, str);
+  }
   return node;
 }
 
@@ -34,7 +48,7 @@ void writeSuffixTrie(TrieMap *trie, const char *str, uint32_t len) {
   RS_LOG_ASSERT(node, "Node should not be null")
 
   // if string was added in the past, skip
-  if (node != TRIEMAP_NOTFOUND && node->wordExists) {
+  if (node != TRIEMAP_NOTFOUND && node->term) {
     return;
   }
 
@@ -43,19 +57,19 @@ void writeSuffixTrie(TrieMap *trie, const char *str, uint32_t len) {
     node = createSuffixNode(strCopy, 1);
     TrieMap_Add(trie, str, len, node, NULL);
   } else {
-    node->wordExists = 1;
-    TrieMap_Add(trie, str, len, strCopy, addCb);
+    // node->wordExists = 1;
+    TrieMap_Add(trie, str, len, strCopy, addTermCb);
   }
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
   for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
-    node = TrieMap_Find(trie, str, len);
+    node = TrieMap_Find(trie, str + j, len - j);
     if (node == TRIEMAP_NOTFOUND) {
       node = createSuffixNode(strCopy, 0);
-      TrieMap_Add(trie, str, len, node, NULL);
+      TrieMap_Add(trie, str + j, len - j, node, NULL);
     } else {
-      TrieMap_Add(trie, str, len, strCopy, addCb);
+      TrieMap_Add(trie, str + j, len - j, strCopy, addCb);
     }
   }
 }
