@@ -1,4 +1,4 @@
-RLTest
+rltest ~= 0.4.2
 redis >= 3.0.0
 packaging >= 20.8
 numpy >= 1.16.6
