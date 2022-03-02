@@ -225,12 +225,6 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
-static bool UseBF(size_t T, KNNVectorQuery query, VecSimIndex *index) {
-  // todo: have more sophisticated heuristics here...
-  //return (float)T <= (0.05 * (float)VecSimIndex_IndexSize(index));
-  return false;
-}
-
 static size_t HR_NumEstimated(void *ctx) {
   HybridIterator *hr = ctx;
   size_t vec_res_num = MIN(hr->query.k, VecSimIndex_IndexSize(hr->index));
@@ -320,11 +314,12 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KN
 
   if (child_it == NULL) {
     hi->mode = STANDARD_KNN;
-  } else if (UseBF(child_it->NumEstimated(child_it->ctx), query, index)) {
-    hi->mode = HYBRID_ADHOC_BF;
+  } else if (VecSimIndex_PreferAdHocSearch(index, child_it->NumEstimated(child_it->ctx), query.k)) {
+    //hi->mode = HYBRID_ADHOC_BF;
+    hi->mode = HYBRID_BATCHES;
+
   } else {
     hi->mode = HYBRID_BATCHES;
-    //Todo: apply heuristics (batch_size = k / (vec_index_size*child_it->NumEstimated(child_it)))
   }
   if (hi->mode != STANDARD_KNN) {
     hi->topResults = rm_malloc(heap_sizeof(query.k));

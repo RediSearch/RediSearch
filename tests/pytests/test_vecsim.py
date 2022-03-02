@@ -673,4 +673,4 @@ def test_hybrid_query_adhoc_bf_mode(env):
     query_data = np.float32([100 for j in range(dimension)])
 
     expected_res = [10L, '100', ['__v_score', '0', 't', 'other'], '90', ['__v_score', '12800', 't', 'other'], '80', ['__v_score', '51200', 't', 'other'], '70', ['__v_score', '115200', 't', 'other'], '60', ['__v_score', '204800', 't', 'other'], '50', ['__v_score', '320000', 't', 'other'], '40', ['__v_score', '460800', 't', 'other'], '30', ['__v_score', '627200', 't', 'other'], '20', ['__v_score', '819200', 't', 'other'], '10', ['__v_score', '1036800', 't', 'other']]
-    execute_hybrid_query(env, '(other)=>[TOP_K 10 @v $vec_param]', query_data, 't').equal(expected_res)
+    execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
