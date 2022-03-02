@@ -5,9 +5,7 @@ remote:
  - type: oss-standalone
  - setup: redisearch-m5d
 dbconfig:
-  # - init_commands:
-  #     - '"FT.CREATE" "idx" "SCHEMA" "title" "TEXT" "SORTABLE" "number" "NUMERIC" "SORTABLE" "hnsw_vector" "VECTOR" "HNSW" "6" "TYPE" "FLOAT32" "DIM" "2" "DISTANCE_METRIC" "L2" "flat_vector" "VECTOR" "FLAT" "6" "TYPE" "FLOAT32" "DIM" "2" "DISTANCE_METRIC" "L2"'
-  - dataset: "dump.rdb"
+  - dataset: "s3://benchmarks.redislabs/redisearch/datasets/vecsim/hybrid-glove100-index-1.rdb"
 clientconfig:
   - tool: redis-benchmark
   - min-tool-version: "6.2.0"
