@@ -92,6 +92,8 @@ typedef struct FieldSpec {
 
   // Vector similarity index parameters.
   VecSimParams vecSimParams;
+  // expected size of vector blob.
+  size_t expBlobSize;
 
   // TODO: More options here..
 } FieldSpec;

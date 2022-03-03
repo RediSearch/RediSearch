@@ -69,11 +69,10 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   return openVectorKeysDict(ctx, keyName, 1);
 }
 
-static bool isFit (VecSimIndex *ind, size_t size) {
+static size_t expBlobSize (VecSimIndex *ind) {
   VecSimIndexInfo info = VecSimIndex_Info(ind);
   size_t dim = 0;
-  VecSimType type = 0;
-  bool res = false;
+  VecSimType type = (VecSimType)0;
   switch (info.algo) {
     case VecSimAlgo_HNSWLIB:
       dim = info.hnswInfo.dim;
@@ -84,15 +83,7 @@ static bool isFit (VecSimIndex *ind, size_t size) {
       type = info.bfInfo.type;
       break;
   }
-  switch (type) {
-    case VecSimType_FLOAT32:
-    case VecSimType_FLOAT64:
-    case VecSimType_INT32:
-    case VecSimType_INT64:
-      res = ((dim * sizeof(float)) == size);
-      break;
-  }
-  return res;
+  return (dim * VecSimType_sizeof(type));
 }
 
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIterator *child_it, QueryError *status) {
@@ -113,9 +104,10 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIter
                                QueryError_Strerror(err));
         return NULL;
       }
-      if (!isFit(vecsim, vq->knn.vecLen)) {
-        QueryError_SetError(status, QUERY_EINVAL,
-                            "Error parsing vector similarity query: query vector does not match index's type or dimension.");
+      if (expBlobSize(vecsim) != vq->knn.vecLen) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: query vector blob size (%d) does not match index's expected size (%d).",
+                               vq->knn.vecLen, expBlobSize(vecsim));
         return NULL;
       }
       return NewHybridVectorIterator(vecsim, vq->scoreField, vq->knn, qParams, child_it);
@@ -180,6 +172,16 @@ const char *VecSimType_ToString(VecSimType type) {
     case VecSimType_INT64: return VECSIM_TYPE_INT64;
   }
   return NULL;
+}
+
+size_t VecSimType_sizeof (VecSimType type) {
+    switch (type) {
+        case VecSimType_FLOAT32: return sizeof(float);
+        case VecSimType_FLOAT64: return sizeof(double);
+        case VecSimType_INT32: return sizeof(int32_t);
+        case VecSimType_INT64: return sizeof(int64_t);
+    }
+    return 0;
 }
 
 const char *VecSimMetric_ToString(VecSimMetric metric) {

@@ -495,10 +495,13 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(vectorPreprocessor) {
-  // TODO: check input validity
   size_t len;
   fdata->vector = RedisModule_StringPtrLen(field->text, &len);
   fdata->vecLen = len;
+  if (len != fs->expBlobSize) {
+    QueryError_SetErrorFmt(status, QUERY_EBADATTR, "Could not add vector with blob size %d (expected size %d)", len, fs->expBlobSize);
+    return -1;
+  }
   aCtx->fwIdx->maxFreq++;
   return 0;
 }
