@@ -1,4 +1,5 @@
-rltest==0.4.2
+RLTest ~= 0.4.2
+ramp-packer ~= 2.2.1
 redis >= 3.0.0
 packaging >= 20.8
 numpy >= 1.16.6
