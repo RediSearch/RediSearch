@@ -4,6 +4,7 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "rmutil/rm_assert.h"
+#include "profile.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -761,9 +762,10 @@ typedef struct {
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  clock_t rpStartTime = clock();
+  clock_t rpStartTime;
+  if (PROFILE_VERBOSE) rpStartTime = clock();
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += clock() - rpStartTime;
+  if (PROFILE_VERBOSE) self->profileTime += clock() - rpStartTime;
   self->profileCount++;
   return rc;
 }

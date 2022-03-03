@@ -1706,22 +1706,24 @@ typedef struct {
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  clock_t begin = clock();
+  clock_t begin;
+  if (PROFILE_VERBOSE) begin = clock();
   int ret = pi->child->Read(pi->child->ctx, e);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  if (PROFILE_VERBOSE) pi->cpuTime += clock() - begin;
   return ret;
 }
 
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  clock_t begin = clock();
+  clock_t begin;
+  if (PROFILE_VERBOSE) begin = clock();
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  if (PROFILE_VERBOSE) pi->cpuTime += clock() - begin;
   return ret;
 }
 
