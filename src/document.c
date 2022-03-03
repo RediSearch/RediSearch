@@ -499,7 +499,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   fdata->vector = RedisModule_StringPtrLen(field->text, &len);
   fdata->vecLen = len;
   if (len != fs->expBlobSize) {
-    QueryError_SetErrorFmt(status, QUERY_EBADATTR, "Could not add vector with blob size %d (expected size %d)", len, fs->expBlobSize);
+    QueryError_SetErrorFmt(status, QUERY_EBADATTR, "Could not add vector with blob size %zu (expected size %zu)", len, fs->expBlobSize);
     return -1;
   }
   aCtx->fwIdx->maxFreq++;

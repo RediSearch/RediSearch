@@ -106,7 +106,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIter
       }
       if (expBlobSize(vecsim) != vq->knn.vecLen) {
         QueryError_SetErrorFmt(status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: query vector blob size (%d) does not match index's expected size (%d).",
+                               "Error parsing vector similarity query: query vector blob size (%zu) does not match index's expected size (%zu).",
                                vq->knn.vecLen, expBlobSize(vecsim));
         return NULL;
       }
