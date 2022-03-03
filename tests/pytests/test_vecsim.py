@@ -475,7 +475,7 @@ def test_hybrid_query_batches_mode_with_text(env):
     # Expect for top 10 results from vector search that still has the original text "text value".
     expected_res = [10L]
     res_count = 0
-    for i in range(index_size):
+    for i in range(13):
         # The desired ids are the top 10 ids that do not divide by 5.
         if (index_size-i) % 5 == 0:
             continue
@@ -589,7 +589,6 @@ def test_hybrid_query_with_numeric_and_geo(env):
     for i in range(10):
         expected_res.append(str(index_size-100-i))
         expected_res.append(['__v_score', str(dim*(100+i)**2), 'num', str(index_size-100-i)])
-    expected_res_2 = [10L, '1000', ['__v_score', '100000000', 'num', '1000'], '999', ['__v_score', '100040000', 'num', '999'], '998', ['__v_score', '100080016', 'num', '998'], '997', ['__v_score', '100120032', 'num', '997'], '996', ['__v_score', '100160064', 'num', '996'], '995', ['__v_score', '100200096', 'num', '995'], '994', ['__v_score', '100240144', 'num', '994'], '993', ['__v_score', '100280192', 'num', '993'], '992', ['__v_score', '100320256', 'num', '992'], '991', ['__v_score', '100360320', 'num', '991']]
     execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-100), query_data, 'num').equal(expected_res)
     execute_hybrid_query(env, '(@num:[-inf {}] | @num:[100 {}])=>[KNN 10 @v $vec_param]'
                          .format(index_size-200, index_size-100), query_data, 'num').equal(expected_res)
