@@ -20,6 +20,17 @@ static bool trieInsert(Trie *t, const std::string &s) {
   return trieInsert(t, s.c_str(), s.size());
 }
 
+static int rangeFunc(const rune *u16, size_t nrune, void *ctx) {
+  size_t n;
+  char *s = runesToStr(u16, nrune, &n);
+  std::string xs(s, n);
+  free(s);
+  ElemSet *e = (ElemSet *)ctx;
+  assert(e->end() == e->find(xs));
+  e->insert(xs);
+  return REDISEARCH_OK;
+}
+
 static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const char *end,
                              size_t nend) {
   rune r1[256] = {0};
@@ -44,16 +55,7 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
 
   ElemSet foundElements;
   TrieNode_IterateRange(t->root, r1Ptr, nr1, true, r2Ptr, nr2, false,
-                        [](const rune *u16, size_t nrune, void *ctx) {
-                          size_t n;
-                          char *s = runesToStr(u16, nrune, &n);
-                          std::string xs(s, n);
-                          free(s);
-                          ElemSet *e = (ElemSet *)ctx;
-                          ASSERT_EQ(e->end(), e->find(xs));
-                          e->insert(xs);
-                        },
-                        &foundElements);
+                        rangeFunc, &foundElements);
   return foundElements;
 }
 
@@ -121,3 +123,30 @@ TEST_F(TrieTest, testDeepEntry) {
   ASSERT_EQ(maxbuf, ret.size());
   TrieType_Free(t);
 }
+
+/*
+static ElemSet trieIterContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
+                              TrieRangeCallback callback, void *ctx) {
+
+  rune r1[256] = {0};
+  size_t nr1, nr2;
+
+  rune *r1Ptr = r1;
+
+  nr1 = strToRunesN(str, nstr, r1);
+
+  if (!str) {
+    r1Ptr = NULL;
+    nr1 = -1;
+  }
+
+  ElemSet foundElements;
+  TrieNode_IterateContains(t->root, 
+                        rangeFunc, &foundElements);
+  return foundElements;
+}
+
+static ElemSet trieIterContains(Trie *t, const char *begin, const char *end) {
+  return trieIterContains(t, begin, begin ? strlen(begin) : 0, end, end ? strlen(end) : 0);
+}
+*/

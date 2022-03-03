@@ -80,7 +80,11 @@ typedef struct {
  * tokenizers. Later this gets passed to scoring functions in a Term object. See RSIndexRecord */
 typedef RSToken QueryTokenNode;
 
-typedef RSToken QueryPrefixNode;
+typedef struct {
+  RSToken tok;
+  bool prefix;
+  bool suffix;
+} QueryPrefixNode;
 
 typedef struct {
   RSToken tok;
@@ -111,6 +115,12 @@ typedef struct {
   char *end;
   bool includeEnd;
 } QueryLexRangeNode;
+
+typedef struct {
+  char *str;
+  bool prefix;
+  bool suffix;
+} QueryContainsNode;
 
 typedef enum {
   QueryNode_Verbatim = 0x01,
@@ -159,6 +169,7 @@ typedef struct RSQueryNode {
     QueryTagNode tag;
     QueryFuzzyNode fz;
     QueryLexRangeNode lxrng;
+    QueryContainsNode con;
   };
 
   /* The node type, for resolving the union access */

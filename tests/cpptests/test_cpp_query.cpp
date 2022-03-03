@@ -311,7 +311,7 @@ TEST_F(QueryTest, testParser) {
   ASSERT_STREQ("baz", _n->children[0]->tn.str);
 
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
-  ASSERT_STREQ("boo", _n->children[1]->pfx.str);
+  ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
   IndexSpec_Free(ctx.spec);
 }

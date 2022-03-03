@@ -3,7 +3,25 @@
 #include "util/bsearch.h"
 #include "sparse_vector.h"
 #include "redisearch.h"
+#include "rmutil/rm_assert.h"
 #include "util/arr.h"
+
+typedef struct {
+  rune *buf;
+  TrieRangeCallback *callback;
+  void *cbctx;
+  // for lexrange
+  bool includeMin;
+  bool includeMax;
+  // for prefix, suffix, contains
+  bool prefix;
+  bool suffix;
+  // stop if reach limit
+  bool stop;
+  const rune *origStr;
+  int nOrigStr;
+  rune leadingChar;
+} RangeCtx;
 
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);
@@ -217,13 +235,14 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
   return 1;
 }
 
-float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
+TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len, bool exact, int *offsetOut) {
   t_len offset = 0;
   while (n && offset < len) {
     // printf("n %.*s offset %d, len %d\n", n->len, n->str, offset,
     // len);
     t_len localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
+      // printf("%d %c %d %c\n", offset, str[offset], localOffset, n->str[localOffset]);
       if (str[offset] != n->str[localOffset]) {
         break;
       }
@@ -231,7 +250,12 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
 
     if (offset == len) {
       // we're at the end of both strings!
-      if (localOffset == n->len) return __trieNode_isDeleted(n) ? 0 : n->score;
+      if (localOffset == n->len || !exact) {
+        if (offsetOut) {
+          *offsetOut = offset - localOffset;
+        }
+        return __trieNode_isDeleted(n) ? NULL : n;
+      }
 
     } else if (localOffset == n->len) {
       // we've reached the end of the node's string but not the search string
@@ -251,12 +275,32 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
       n = nextChild;
 
     } else {
-      return 0;
+      return NULL;
     }
   }
 
-  return 0;
+  return NULL;
 }
+
+//TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len);
+float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
+  TrieNode *res = TrieNode_Get(n, str, len, true, NULL);
+  return res ? res->score : 0;
+}
+/*
+static TrieNode *TrieNode_Contain(TrieNode *n, rune *str, t_len len, t_len offset, RangeCtx *r) {
+  if (n->len != 1) RS_LOG_ASSERT(0, "todo");
+  if (offset == 0) {
+    r->callback(r->buf, array_len(r->buf), r->cbctx);
+  }
+
+  for (t_len i = 0; i < n->numChildren; i++) {
+    if (str[offset] == n->str[0]) {
+
+    }
+  }
+  
+}*/
 
 void __trieNode_sortChildren(TrieNode *n);
 
@@ -664,30 +708,32 @@ static int rsbComparePrefix(const void *h, const void *e) {
   return rsbCompareCommon(h, e, 1);
 }
 
-typedef struct {
-  rune *buf;
-  TrieRangeCallback *callback;
-  void *cbctx;
-  bool includeMin;
-  bool includeMax;
-} RangeCtx;
-
-static void rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
+static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
   // Push string to stack
+  size_t len;
+  char *before_str = runesToStr(r->buf, array_len(r->buf), &len);
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
-
+  char *after_str = runesToStr(r->buf, array_len(r->buf), &len);
   if (__trieNode_isTerminal(n)) {
-    r->callback(r->buf, array_len(r->buf), r->cbctx);
+    if (r->callback(r->buf, array_len(r->buf), r->cbctx) != REDISEARCH_OK) {
+      r->stop = 1;
+      return REDISEARCH_ERR;
+    }
   }
 
   TrieNode **arr = __trieNode_children(n);
 
   for (size_t ii = 0; ii < n->numChildren; ++ii) {
     // printf("Descending to index %lu\n", ii);
-    rangeIterateSubTree(arr[ii], r);
+    if (rangeIterateSubTree(arr[ii], r) != REDISEARCH_OK) {
+      return REDISEARCH_ERR;
+    }
   }
 
   array_trimm_len(r->buf, array_len(r->buf) - n->len);
+  // char *final_str = runesToStr(r->buf, array_len(r->buf), &len);
+  // printf("%s %s %s\n", before_str, after_str, final_str);
+  return REDISEARCH_OK;
 }
 
 /**
@@ -857,4 +903,138 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
   rangeIterate(n, min, nmin, max, nmax, &r);
   array_free(r.buf);
+}
+
+static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r);
+
+// Contains iteration.
+void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
+                              TrieRangeCallback callback, void *ctx) {
+  // exact match - should not be used. change to assert
+  if (!prefix && !suffix) {
+    if (TrieNode_Find(n, (rune *)str, nstr) != 0) {
+      callback(str, nstr, ctx);
+    }
+    return;
+  }
+
+  RangeCtx r = {
+      .callback = callback,
+      .cbctx = ctx,
+
+      .origStr = str,
+      .nOrigStr = nstr,
+      .prefix = prefix,
+      .suffix = suffix,
+  };
+  
+  r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
+
+  // prefix mode
+  if (prefix && !suffix) {
+    r.buf = array_ensure_append(r.buf, str, nstr, rune);
+    int offset = 0;
+    TrieNode *res = TrieNode_Get(n, (rune *)str, nstr, false, &offset);
+    if (res) {
+      array_trimm_len(r.buf, offset);
+      rangeIterateSubTree(res , &r);
+    }
+    goto done;
+  }
+
+  // contains and suffix mode
+  r.origStr = str;
+  r.nOrigStr = nstr;
+  r.prefix = prefix;
+  r.suffix = suffix;
+  r.leadingChar = str[0];
+  containsIterate(n, 0, 0, &r);
+
+done:
+  array_free(r.buf);
+}
+
+
+#define printStats(stage)                               \
+// str = runesToStr(r->buf, array_len(r->buf), &len);   \
+// printf("%s:%s %ld\n", stage, str, len);
+
+#define trimOne(n, r)                                   \
+if (n->len) array_trimm_len(r->buf, array_len(r->buf) - 1)
+
+// check next char on node or children
+static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
+  if (n->len == localOffset + 1 || n->len == 0 ) {
+    TrieNode **children = __trieNode_children(n);
+    for (t_len i = 0; i < n->numChildren; ++i) {
+      containsIterate(children[i], 0, globalOffset, r);
+      if (children[i]->str[0] == r->leadingChar) {
+        containsIterate(children[i], 0, 0, r);
+      }
+    }
+  } else {
+    containsIterate(n, localOffset + 1, globalOffset, r);
+    if (n->str[localOffset + 1] == r->leadingChar) {
+      containsIterate(n, localOffset + 1, 0, r);
+    }
+  }
+  trimOne(n, r);
+}
+
+/**
+ * Try to place as many of the common arguments in rangectx, so that the stack
+ * size is not negatively impacted and prone to attack.
+ */
+static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
+  size_t len;
+  char *str;
+  printStats("start");
+
+  // No match
+  if ((n->numChildren == 0 && r->nOrigStr - globalOffset > n->len) || r->stop) {
+    return;
+  }
+
+  if (n->len != 0) { // not root
+    r->buf = array_ensure_append(r->buf, &n->str[localOffset], 1, rune);
+  }
+  printStats("append");
+  TrieNode **children = __trieNode_children(n);
+
+  // next char matches
+  if (n->str[localOffset] == r->origStr[globalOffset]) {
+    /* full match found */
+    if (globalOffset + 1 == r->nOrigStr) {
+      if (r->prefix) { // contains mode
+        array_trimm_len(r->buf, array_len(r->buf) - (localOffset + 1));
+        //char *str = runesToStr(r->buf, array_len(r->buf), &len);
+        //printf("%s %d %d %d\n", str, array_len(r->buf), localOffset + 1, globalOffset + 1);
+        rangeIterateSubTree(n, r);
+        r->buf = array_ensure_append(r->buf, &n->str[0], localOffset, rune);
+        return;
+      } else { // suffix mode
+        // it is suffix match if node is terminal and have no extra characters.
+        if (__trieNode_isTerminal(n) && localOffset + 1 == n->len) {
+          if (r->callback(r->buf, array_len(r->buf), r->cbctx) == REDISMODULE_ERR) {
+            r->stop = 1;
+          }
+        }
+        // check if there are more suffixes downstream
+        containsNext(n, localOffset, 0, r);
+        return;
+      }
+    }
+
+    /* partial match found */
+    // if node string is exhausted, check children
+    containsNext(n, localOffset, globalOffset + 1, r);
+  // no fit
+  // try from the string begining
+  } else if (globalOffset != 0 && n->str[localOffset] == r->origStr[0]) {
+    containsNext(n, localOffset, 1, r);
+  } else { //try on next character
+    containsNext(n, localOffset, 0, r);
+  }
+  printStats("return");
+  return;
 }

@@ -47,7 +47,9 @@ escaped_character = escape (punct | space | escape);
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $ 0 ;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
-prefix = (term.star | number.star | attr.star) $1;
+contains = (star.term.star | star.number.star | star.attr.star) $2;
+prefix = (term.star | number.star | attr.star) $2;
+suffix = (star.term | star.number | star.attr) $2;
 as = 'AS'|'aS'|'As'|'as';
 
 main := |*
@@ -252,6 +254,34 @@ main := |*
     tok.pos = ts-q->raw;
 
     RSQuery_Parse(pParser, PREFIX, tok, q);
+    
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  suffix => {
+    int is_attr = (*(ts+1) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.len = te - (ts + 1 + is_attr);
+    tok.s = ts + 1 + is_attr;
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+
+    RSQuery_Parse(pParser, SUFFIX, tok, q);
+    
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  contains => {
+    int is_attr = (*(ts+1) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.len = te - (ts + 2 + is_attr);
+    tok.s = ts + 1 + is_attr;
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+
+    RSQuery_Parse(pParser, CONTAINS, tok, q);
     
     if (!QPCTX_ISOK(q)) {
       fbreak;
