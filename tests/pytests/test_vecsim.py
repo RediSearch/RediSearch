@@ -413,149 +413,221 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
+    # in cluster mode, we send `_FT.DEBUG' to the local shard.
+    prefix = '_' if env.isCluster() else ''
     if batches_mode:
-        env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+        env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
     else:
-        env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+        env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
     return ret
 
 
 def test_hybrid_query_batches_mode_with_text(env):
     conn = getConnectionByEnv(env)
-    dimension = 2
-    qty = 31000    # size is chosen so that batches mode will be selected by the heuristics.
+    # Index size is chosen so that batches mode will be selected by the heuristics.
+    dim = 2
+    index_size = 6000 * env.shardsCount
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
-    load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
-    query_data = np.float32([qty for j in range(dimension)])
+                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+    load_vectors_with_texts_into_redis(conn, 'v', dim, index_size)
+    query_data = np.full(dim, index_size, dtype='float32')
 
-    # expect to find no result (internally, build the child iterator as empty iterator).
+    # Expect to find no result (internally, build the child iterator as empty iterator).
     env.expect('FT.SEARCH', 'idx', '(nothing)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0L])
 
-    expected_res_1 = [10L, '31000', ['__v_score', '0', 't', 'text value'], '30999', ['__v_score', '2', 't', 'text value'], '30998', ['__v_score', '8', 't', 'text value'], '30997', ['__v_score', '18', 't', 'text value'], '30996', ['__v_score', '32', 't', 'text value'], '30995', ['__v_score', '50', 't', 'text value'], '30994', ['__v_score', '72', 't', 'text value'], '30993', ['__v_score', '98', 't', 'text value'], '30992', ['__v_score', '128', 't', 'text value'], '30991', ['__v_score', '162', 't', 'text value']]
-    execute_hybrid_query(env, '(@t:(text value))=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res_1)
-    execute_hybrid_query(env, '(text value)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res_1)
-    execute_hybrid_query(env, '("text value")=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res_1)
+    expected_res = [10L]
+    # Expect to get result in reverse order to the id, starting from the max id in the index.
+    for i in range(10):
+        expected_res.append(str(index_size-i))
+        expected_res.append(['__v_score', str(dim*i**2), 't', 'text value'])
+    execute_hybrid_query(env, '(@t:(text value))=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
+    execute_hybrid_query(env, '(text value)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
+    execute_hybrid_query(env, '("text value")=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
-    # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., 31000)
-    for i in range(1, qty/10 + 1):
-        vector = np.float32([10*i for j in range(dimension)])
-        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+    # Change the text value to 'other' for 20% of the vectors (with ids 5, 10, ..., index_size)
+    for i in range(1, index_size/5 + 1):
+        vector = np.full(dim, 5*i, dtype='float32')
+        conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 't', 'other')
 
     # Expect to get only vector that passes the filter (i.e, has "other" in t field)
-    expected_res_2 = [10L, '31000', ['__v_score', '0', 't', 'other'], '30990', ['__v_score', '200', 't', 'other'], '30980', ['__v_score', '800', 't', 'other'], '30970', ['__v_score', '1800', 't', 'other'], '30960', ['__v_score', '3200', 't', 'other'], '30950', ['__v_score', '5000', 't', 'other'], '30940', ['__v_score', '7200', 't', 'other'], '30930', ['__v_score', '9800', 't', 'other'], '30920', ['__v_score', '12800', 't', 'other'], '30910', ['__v_score', '16200', 't', 'other']]
-    execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res_2)
-
-    # Test with union - expect that all docs will pass the filter.
-    expected_res_3 = [10L, '31000', ['__v_score', '0', 't', 'other'], '30999', ['__v_score', '2', 't', 'text value'], '30998', ['__v_score', '8', 't', 'text value'], '30997', ['__v_score', '18', 't', 'text value'], '30996', ['__v_score', '32', 't', 'text value'], '30995', ['__v_score', '50', 't', 'text value'], '30994', ['__v_score', '72', 't', 'text value'], '30993', ['__v_score', '98', 't', 'text value'], '30992', ['__v_score', '128', 't', 'text value'], '30991', ['__v_score', '162', 't', 'text value']]
-    execute_hybrid_query(env, '(@t:other|text)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res_3)
+    expected_res = [10L]
+    for i in range(10):
+        expected_res.append(str(index_size-5*i))
+        expected_res.append(['__v_score', str(dim*(5*i)**2), 't', 'other'])
+    execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
     # Expect empty score for the intersection (disjoint sets of results)
     execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't').equal([0L])
 
-    # Expect the same results as in expected_res_2 ('other AND NOT text')
-    execute_hybrid_query(env, '(@t:other -text)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res_2)
+    # Expect the same results as in above ('other AND NOT text')
+    execute_hybrid_query(env, '(@t:other -text)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
-    # Expect for top 10 results from vector search that still has the original text "text value"
-    # (i.e., expected_res_1 without 100, and with 89 instead)
-    expected_res_4 = [10L, '30999', ['__v_score', '2', 't', 'text value'], '30998', ['__v_score', '8', 't', 'text value'], '30997', ['__v_score', '18', 't', 'text value'], '30996', ['__v_score', '32', 't', 'text value'], '30995', ['__v_score', '50', 't', 'text value'], '30994', ['__v_score', '72', 't', 'text value'], '30993', ['__v_score', '98', 't', 'text value'], '30992', ['__v_score', '128', 't', 'text value'], '30991', ['__v_score', '162', 't', 'text value'], '30989', ['__v_score', '242', 't', 'text value']]
-    execute_hybrid_query(env, '(te*)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res_4)
+    # Test with union - expect that all docs will pass the filter.
+    expected_res = [10L]
+    for i in range(10):
+        expected_res.append(str(index_size-i))
+        expected_res.append(['__v_score', str(dim*i**2), 't', 'other' if i % 5 == 0 else 'text value'])
+    execute_hybrid_query(env, '(@t:other|text)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
+
+    # Expect for top 10 results from vector search that still has the original text "text value".
+    expected_res = [10L]
+    res_count = 0
+    for i in range(index_size):
+        # The desired ids are the top 10 ids that do not divide by 5.
+        if (index_size-i) % 5 == 0:
+            continue
+        expected_res.append(str(index_size-i))
+        expected_res.append(['__v_score', str(dim*i**2), 't', 'text value'])
+        res_count += 1
+        if res_count == 10:
+            break
+    execute_hybrid_query(env, '(te*)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
     # This time the fuzzy matching should return only documents with the original 'text value'.
-    execute_hybrid_query(env, '(%test%)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res_4)
+    execute_hybrid_query(env, '(%test%)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
-    execute_hybrid_query(env, '(-(@t:other))=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res_4)
+    execute_hybrid_query(env, '(-(@t:other))=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
 
 def test_hybrid_query_batches_mode_with_tags(env):
     conn = getConnectionByEnv(env)
-    dimension = 4
-    index_size = 6000   # size is chosen so that batches mode will be selected by the heuristics.
+    # Index size is chosen so that batches mode will be selected by the heuristics.
+    dim = 2
+    index_size = 6000 * env.shardsCount
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
+                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
-        vector = np.float32([i for j in range(dimension)])
+        vector = np.full(dim, i, dtype='float32')
         conn.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid')
     p.execute()
-    query_data = np.float32([index_size/2 for j in range(dimension)])
-    expected_res_1 = [10L, '3000', ['__v_score', '0', 'tags', 'hybrid'], '2999', ['__v_score', '4', 'tags', 'hybrid'], '3001', ['__v_score', '4', 'tags', 'hybrid'], '2998', ['__v_score', '16', 'tags', 'hybrid'], '3002', ['__v_score', '16', 'tags', 'hybrid'], '2997', ['__v_score', '36', 'tags', 'hybrid'], '3003', ['__v_score', '36', 'tags', 'hybrid'], '2996', ['__v_score', '64', 'tags', 'hybrid'], '3004', ['__v_score', '64', 'tags', 'hybrid'], '2995', ['__v_score', '100', 'tags', 'hybrid']]
-    execute_hybrid_query(env, '(@tags:{hybrid})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res_1)
+
+    query_data = np.full(dim, index_size/2, dtype='float32')
+
+    expected_res = [10L]
+    # Expect to get result which are around index_size/2, closer results will come before (secondary sorting by id).
+    expected_res.extend([str(index_size/2), ['__v_score', str(0), 'tags', 'hybrid']])
+    for i in range(1, 10):
+        expected_res.append(str(index_size/2 + (-1*(i+1)/2 if i % 2 else i/2)))
+        expected_res.append(['__v_score', str(dim*((i+1)/2)**2), 'tags', 'hybrid'])
+    execute_hybrid_query(env, '(@tags:{hybrid})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
     execute_hybrid_query(env, '(@tags:{nothing})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal([0L])
     execute_hybrid_query(env, '(@tags:{hybrid} @text:hello)=>[KNN 10 @v $vec_param]', query_data, 'tags').equal([0L])
 
     # Change the tag values to 'different, tag' for vectors with ids 5, 10, 20, ..., 6000)
     for i in range(1, index_size/5 + 1):
-        vector = np.float32([5*i for j in range(dimension)])
+        vector = np.full(dim, 5*i, dtype='float32')
         conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 'tags', 'different, tag')
 
-    expected_res_2 = [10L, '3000', ['__v_score', '0', 'tags', 'different, tag'], '2995', ['__v_score', '100', 'tags', 'different, tag'], '3005', ['__v_score', '100', 'tags', 'different, tag'], '2990', ['__v_score', '400', 'tags', 'different, tag'], '3010', ['__v_score', '400', 'tags', 'different, tag'], '2985', ['__v_score', '900', 'tags', 'different, tag'], '3015', ['__v_score', '900', 'tags', 'different, tag'], '2980', ['__v_score', '1600', 'tags', 'different, tag'], '3020', ['__v_score', '1600', 'tags', 'different, tag'], '2975', ['__v_score', '2500', 'tags', 'different, tag']]
-    execute_hybrid_query(env, '(@tags:{different})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res_2)
-    expected_res_3 = [10L, '2999', ['__v_score', '4', 'tags', 'hybrid'], '3001', ['__v_score', '4', 'tags', 'hybrid'], '2998', ['__v_score', '16', 'tags', 'hybrid'], '3002', ['__v_score', '16', 'tags', 'hybrid'], '2997', ['__v_score', '36', 'tags', 'hybrid'], '3003', ['__v_score', '36', 'tags', 'hybrid'], '2996', ['__v_score', '64', 'tags', 'hybrid'], '3004', ['__v_score', '64', 'tags', 'hybrid'], '2994', ['__v_score', '144', 'tags', 'hybrid'], '3006', ['__v_score', '144', 'tags', 'hybrid']]
-    execute_hybrid_query(env, '(@tags:{hybrid})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res_3)
-    execute_hybrid_query(env, '(@tags:{hy*})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res_3)
+    expected_res = [10L]
+    # Expect to get result which are around index_size/2 that divide by 5, closer results
+    # will come before (secondary sorting by id).
+    expected_res.extend([str(index_size/2), ['__v_score', str(0), 'tags', 'different, tag']])
+    for i in range(1, 10):
+        expected_res.append(str(index_size/2 + (-1*(5*i+5)/2 if i % 2 else 5*i/2)))
+        expected_res.append(['__v_score', str(dim*(5*((i+1)/2))**2), 'tags', 'different, tag'])
+    execute_hybrid_query(env, '(@tags:{different})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
+    # Expect for top 10 results from vector search that still has the original text "text value".
+    expected_res = [10L]
+    res_count = 0
+    for i in range(index_size):
+        # The desired ids are the top 10 ids that do not divide by 5.
+        if (index_size/2 + (i+1)/2) % 5 == 0:
+            continue
+        expected_res.append(str(index_size/2 + (-1*(i+1)/2 if i % 2 else i/2)))
+        expected_res.append(['__v_score', str(dim*((i+1)/2)**2), 'tags', 'hybrid'])
+        res_count += 1
+        if res_count == 10:
+            break
+    execute_hybrid_query(env, '(@tags:{hybrid})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
+    execute_hybrid_query(env, '(@tags:{hy*})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
 
-    # Search with tag list. Expect that docs with 'hybrid' will have lower score, since they are more frequent.
-    expected_res_4 = [10L, '2995', '2', ['__v_score', '100', 'tags', 'different, tag'], '3000', '2', ['__v_score', '0', 'tags', 'different, tag'], '2996', '1', ['__v_score', '64', 'tags', 'hybrid'], '2997', '1', ['__v_score', '36', 'tags', 'hybrid'], '2998', '1', ['__v_score', '16', 'tags', 'hybrid'], '2999', '1', ['__v_score', '4', 'tags', 'hybrid'], '3001', '1', ['__v_score', '4', 'tags', 'hybrid'], '3002', '1', ['__v_score', '16', 'tags', 'hybrid'], '3003', '1', ['__v_score', '36', 'tags', 'hybrid'], '3004', '1', ['__v_score', '64', 'tags', 'hybrid']]
-    execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[KNN 10 @v $vec_param]', query_data, 'tags', sort_by_vector=False).equal(expected_res_4)
+    # Search with tag list. Expect that docs with 'hybrid' will have lower score (1 vs 2), since they are more frequent.
+    expected_res = [10L]
+    expected_res.extend([str(index_size/2 - 5), '2', ['__v_score', str(dim*5**2), 'tags',  'different, tag'],
+                         str(index_size/2), '2', ['__v_score', str(0), 'tags',  'different, tag']])
+    for i in range(1, 10):
+        if i == 5:      # ids that divide by 5 were already inserted.
+            continue
+        expected_res.extend([str(index_size/2 - 5 + i), '1'])
+        expected_res.append(['__v_score', str(dim*abs(5-i)**2), 'tags', 'hybrid'])
+    execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[KNN 10 @v $vec_param]', query_data, 'tags',
+                         sort_by_vector=False).equal(expected_res)
 
 
 def test_hybrid_query_with_numeric_and_geo(env):
     conn = getConnectionByEnv(env)
-    dimension = 4
-    index_size = 6000
+    dim = 2
+    index_size = 6000 * env.shardsCount
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'num', 'NUMERIC')
+                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 1000, 'num', 'NUMERIC')
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
-        vector = np.float32([i for j in range(dimension)])
+        vector = np.full(dim, i, dtype='float32')
         conn.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i)
     p.execute()
 
-    query_data = np.float32([index_size for j in range(dimension)])
+    query_data = np.full(dim, index_size, dtype='float32')
+    expected_res = [10L]
+    # Expect to get result in reverse order to the id, starting from the max id in the index.
+    for i in range(10):
+        expected_res.append(str(index_size-i))
+        expected_res.append(['__v_score', str(dim*i**2), 'num', str(index_size-i)])
 
-    # Expect to get all the results by the distance order (higher id has a better __v_score)
-    expected_res_1 = [10L, '6000', ['__v_score', '0', 'num', '6000'], '5999', ['__v_score', '4', 'num', '5999'], '5998', ['__v_score', '16', 'num', '5998'], '5997', ['__v_score', '36', 'num', '5997'], '5996', ['__v_score', '64', 'num', '5996'], '5995', ['__v_score', '100', 'num', '5995'], '5994', ['__v_score', '144', 'num', '5994'], '5993', ['__v_score', '196', 'num', '5993'], '5992', ['__v_score', '256', 'num', '5992'], '5991', ['__v_score', '324', 'num', '5991']]
-    execute_hybrid_query(env, '(@num:[0 6000])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res_1)
-    execute_hybrid_query(env, '(@num:[0 inf])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res_1)
+    execute_hybrid_query(env, '(@num:[0 {}])=>[KNN 10 @v $vec_param]'.format(index_size), query_data, 'num').equal(expected_res)
+    execute_hybrid_query(env, '(@num:[0 inf])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res)
 
     # Expect that no result will pass the filter.
     execute_hybrid_query(env, '(@num:[0 0.5])=>[KNN 10 @v $vec_param]', query_data, 'num').equal([0L])
 
-    # Expect to get results with maximum numeric value of 1000
+    # Expect to get results with maximum numeric value of index_size-100
+    expected_res = [10L]
+    for i in range(10):
+        expected_res.append(str(index_size-100-i))
+        expected_res.append(['__v_score', str(dim*(100+i)**2), 'num', str(index_size-100-i)])
     expected_res_2 = [10L, '1000', ['__v_score', '100000000', 'num', '1000'], '999', ['__v_score', '100040000', 'num', '999'], '998', ['__v_score', '100080016', 'num', '998'], '997', ['__v_score', '100120032', 'num', '997'], '996', ['__v_score', '100160064', 'num', '996'], '995', ['__v_score', '100200096', 'num', '995'], '994', ['__v_score', '100240144', 'num', '994'], '993', ['__v_score', '100280192', 'num', '993'], '992', ['__v_score', '100320256', 'num', '992'], '991', ['__v_score', '100360320', 'num', '991']]
-    execute_hybrid_query(env, '(@num:[-inf 1000])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res_2)
-    execute_hybrid_query(env, '(@num:[-inf 100] | @num:[100 1000])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res_2)
+    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-100), query_data, 'num').equal(expected_res)
+    execute_hybrid_query(env, '(@num:[-inf {}] | @num:[100 {}])=>[KNN 10 @v $vec_param]'
+                         .format(index_size-200, index_size-100), query_data, 'num').equal(expected_res)
 
-    # Expect for 5 results only, this will use ad-hoc BF since ratio between docs that pass the filter to
+    # Expect for 5 results only (45-49), this will use ad-hoc BF since ratio between docs that pass the filter to
     # index size is low.
-    expected_res_3 = [5L, '49', ['__v_score', '141657600', 'num', '49'], '48', ['__v_score', '141705216', 'num', '48'], '47', ['__v_score', '141752832', 'num', '47'], '46', ['__v_score', '141800464', 'num', '46'], '45', ['__v_score', '141848096', 'num', '45']]
-    execute_hybrid_query(env, '(@num:[45 (50])=>[KNN 10 @v $vec_param]', query_data, 'num', batches_mode=False).equal(expected_res_3)
+    expected_res = [5L]
+    expected_res.extend([str(50-i) for i in range(1, 6)])
+    env.expect('FT.SEARCH', 'idx', '(@num:[45 (50])=>[KNN 10 @v $vec_param]',
+               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 0).equal(expected_res)
+    prefix = "_" if env.isCluster() else ""
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
 
     # Testing with geo-filters
     conn.execute_command('FT.DROPINDEX', 'idx')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO')
+                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO')
 
     index_size = 1000   # for this index size, ADHOC BF mode will always be selected by the heuristics.
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
-        vector = np.float32([i for j in range(dimension)])
+        vector = np.full(dim, i, dtype='float32')
         conn.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i)+","+str(i))
     p.execute()
 
     # Expect that ids 1-32 will pass the geo filter, and that the top 10 from these will return.
-    expected_res_4 = [10L, '32', ['__v_score', '142468096', 'coordinate', '32,32'], '31', ['__v_score', '142515840', 'coordinate', '31,31'], '30', ['__v_score', '142563600', 'coordinate', '30,30'], '29', ['__v_score', '142611360', 'coordinate', '29,29'], '28', ['__v_score', '142659136', 'coordinate', '28,28'], '27', ['__v_score', '142706912', 'coordinate', '27,27'], '26', ['__v_score', '142754704', 'coordinate', '26,26'], '25', ['__v_score', '142802496', 'coordinate', '25,25'], '24', ['__v_score', '142850304', 'coordinate', '24,24'], '23', ['__v_score', '142898112', 'coordinate', '23,23']]
-    execute_hybrid_query(env, '(@coordinate:[0.0 0.0 5000 km])=>[KNN 10 @v $vec_param]', query_data, 'coordinate', batches_mode=False).equal(expected_res_4)
+    expected_res = [10L]
+    for i in range(10):
+        expected_res.append(str(32-i))
+        expected_res.append(['coordinate', str(32-i)+","+str(32-i)])
+    env.expect('FT.SEARCH', 'idx', '(@coordinate:[0.0 0.0 5000 km])=>[KNN 10 @v $vec_param]',
+               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 1, 'coordinate').equal(expected_res)
 
+    # Expect that no results will pass the filter
     execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate', batches_mode=False).equal([0L])
 
 
 def test_hybrid_query_batches_mode_with_complex_queries(env):
     conn = getConnectionByEnv(env)
     dimension = 4
-    index_size = 6000
+    index_size = 6000 * env.shardsCount
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                          'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'num', 'NUMERIC',
                          't1', 'TEXT', 't2', 'TEXT')
@@ -582,7 +654,8 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
                'SORTBY', '__v_score', 'LIMIT', 0, 2,
                'PARAMS', 2, 'vec_param', close_vector.tobytes(),
                'RETURN', 0).equal(expected_res_1)
-    env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+    prefix = "_" if env.isCluster() else ""
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
 
     # test modifier list
     expected_res_2 = [10L, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
@@ -651,9 +724,11 @@ def test_hybrid_query_non_vector_score(env):
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
 
+
 def test_single_entry(env):
     SkipOnNonCluster(env)
-    # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator. Execution should finish without failure.
+    # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator.
+    # Execution should finish without failure.
     conn = getConnectionByEnv(env)
     dimension = 128
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
