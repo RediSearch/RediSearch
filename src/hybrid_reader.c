@@ -142,6 +142,7 @@ void computeDistances(HybridIterator *hr) {
       insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, &upper_bound);
     }
   }
+  IndexResult_Free(cur_vec_res);
 }
 
 static void prepareResults(HybridIterator *hr) {
