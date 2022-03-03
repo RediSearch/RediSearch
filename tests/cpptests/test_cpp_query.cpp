@@ -103,6 +103,9 @@ TEST_F(QueryTest, testParser) {
 
   assertValidQuery("\"hello world\"", ctx);
   assertValidQuery("\"hello\"", ctx);
+  assertValidQuery("\"$hello\"", ctx);
+  assertValidQuery("\"\\$hello\"", ctx);
+  assertValidQuery("\"\\@hello\"", ctx);
 
   assertValidQuery("\"hello world\" \"foo bar\"", ctx);
   assertValidQuery("\"hello world\"|\"foo bar\"", ctx);
@@ -181,6 +184,8 @@ TEST_F(QueryTest, testParser) {
   assertValidQuery("@tags:{bar* | foo}", ctx);
   assertValidQuery("@tags:{bar* | foo*}", ctx);
 
+  assertInvalidQuery("@title:{foo}}}}}", ctx);
+  assertInvalidQuery("@title:{{{{{foo}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|", ctx);
   assertInvalidQuery("{foo|bar\\ baz}", ctx);
@@ -222,53 +227,49 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
 
   // Test basic vector similarity query
-  assertValidQuery("*=>[TOP_K 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("*=>[TOP_K $TOP_K @TOP_K $TOP_K TOPK $TOP_K AS $AS]", ctx); // using reserved word as an attribute or field
-  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB]", ctx);
-  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB AS score]", ctx);
-  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB EF $ef foo bar x 5 AS score]", ctx);
-  assertValidQuery("*=>[TOP_K $K @vec_field $BLOB foo bar x 5]", ctx);
+  assertValidQuery("*=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[knn $K @vec_field $BLOB as as]", ctx); // wrong command name lowercase
+  assertValidQuery("*=>[KNN $KNN @KNN $KNN KNN $KNN AS $AS]", ctx); // using reserved word as an attribute or field
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB AS score]", ctx);
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB EF $ef foo bar x 5 AS score]", ctx);
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB foo bar x 5]", ctx);
 
   // Test basic vector similarity query combined with other expressions
-  // This should fail for now because right now we only allow TOP_K query to be the root node.
-  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB]=>{$weight: 0.5; $slop: 2}", ctx);
-  assertInvalidQuery("*=>[TOP_K $K1 @vec_field $BLOB1] OR *=>[TOP_K $K2 @vec_field $BLOB2]", ctx);
+  // This should fail for now because right now we only allow KNN query to be the root node.
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB]=>{$weight: 0.5; $slop: 2}", ctx);
+  assertInvalidQuery("*=>[KNN $K1 @vec_field $BLOB1] OR *=>[KNN $K2 @vec_field $BLOB2]", ctx);
 
   // Test basic vector similarity query errors
-  assertInvalidQuery("*=>[TOPK $K @vec_field $BLOB]", ctx); // wrong command name
-  assertInvalidQuery("*=>[TOP_K $K @vec_field BLOB]", ctx); // pass vector as value (must be an attribute)
-  assertInvalidQuery("*=>[TOP_K $K vec_field $BLOB]", ctx); // wrong field value (must be @field)
-  assertInvalidQuery("*=>[TOP_K K @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
-  assertInvalidQuery("*=>[TOP_K 3.14 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
-  assertInvalidQuery("*=>[TOP_K -42 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
-  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB $EF ef foo bar x 5 AS score]", ctx); // parameter as attribute
-  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x 5 AS ]", ctx); // not specifying score field name
-  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB AS TOP_K]", ctx); // using reserved word as string parameter
-  assertInvalidQuery("*=>[TOP_K $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
+  assertInvalidQuery("*=>[ANN $K @vec_field $BLOB]", ctx); // wrong command name
+  assertInvalidQuery("*=>[KNN $K @vec_field BLOB]", ctx); // pass vector as value (must be an attribute)
+  assertInvalidQuery("*=>[KNN $K vec_field $BLOB]", ctx); // wrong field value (must be @field)
+  assertInvalidQuery("*=>[KNN K @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[KNN 3.14 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[KNN -42 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB $EF ef foo bar x 5 AS score]", ctx); // parameter as attribute
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF ef foo bar x 5 AS ]", ctx); // not specifying score field name
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
 
   // Test simple hybrid vector query
-  //assertInvalidQuery("hello world=>[TOP_K 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("(hello world)=>[TOP_K 10 @vec_field $BLOB]", ctx);
-  const char *vqt = "(hello world)=>[TOP_K 10 @vec_field $BLOB]";
-  QASTCXX v_ast;
-  v_ast.setContext(&ctx);
-  ASSERT_TRUE(v_ast.parse(vqt));
-  QueryNode *vn = v_ast.root;
-  ASSERT_TRUE(vn != NULL);
-  ASSERT_EQ(vn->type, QN_VECTOR);
-  ASSERT_EQ(QueryNode_NumChildren(vn), 1);
+  assertValidQuery("(KNN)=>[KNN 10 @vec_field $BLOB]", ctx); // using KNN command in other context
 
-  assertValidQuery("(@title:hello)=>[TOP_K 10 @vec_field $BLOB]", ctx);
+  // assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  // assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(hello world)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(@title:hello)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB]", ctx);
 
-  assertValidQuery("(hello|world)=>[TOP_K 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("@hello:[0 10]=>[TOP_K 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("(@tit_le|bo_dy:barack @body|title|url|something_else:obama)=>[TOP_K 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("(-hello ~world ~war)=>[TOP_K 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("@tags:{bar* | foo}=>[TOP_K 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("(no -as) => {$weight: 0.5} => [TOP_K 10 @vec_field $BLOB]", ctx);
-  assertInvalidQuery("(hello world => [TOP_K 10 @vec_field $BLOB]) other phrase", ctx);
-  assertInvalidQuery("(hello world => [TOP_K 10 @vec_field $BLOB]) @title:other", ctx);
-  assertInvalidQuery("hello world => [TOP_K 10 @vec_field $BLOB] OR other => [TOP_K 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("hello=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(hello|world)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@hello:[0 10]=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(@tit_le|bo_dy:barack @body|title|url|something_else:obama)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(-hello ~world ~war)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@tags:{bar* | foo}=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(no -as) => {$weight: 0.5} => [KNN 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) other phrase", ctx);
+  assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) @title:other", ctx);
+  assertInvalidQuery("hello world => [KNN 10 @vec_field $BLOB] OR other => [KNN 10 @vec_field $BLOB]", ctx);
 
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;
@@ -312,6 +313,43 @@ TEST_F(QueryTest, testParser) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.str);
   QAST_Destroy(&ast);
+  IndexSpec_Free(ctx.spec);
+}
+
+TEST_F(QueryTest, testVectorHybridQuery) {
+  static const char *args[] = {"SCHEMA", "title", "text", "vec", "vector", "HNSW", "6",
+                               "TYPE", "FLOAT32", "DIM", "5", "DISTANCE_METRIC", "L2"};
+  QueryError err = {QueryErrorCode(0)};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  QASTCXX ast;
+  ast.setContext(&ctx);
+  
+  const char *vqt[] = {
+    "(hello world)=>[KNN 10 @vec $BLOB]",
+    "@title:(hello|world)=>[KNN 10 @vec $BLOB]",
+    "@title:hello=>[KNN 10 @vec $BLOB]",
+    NULL};
+
+  for (size_t i = 0; vqt[i] != NULL; i++) {
+    ASSERT_TRUE(ast.parse(vqt[i]));
+    QueryNode *vn = ast.root;
+    // ast.print();
+    ASSERT_TRUE(vn != NULL);
+    ASSERT_EQ(vn->type, QN_VECTOR);
+    ASSERT_EQ(QueryNode_NumChildren(vn), 1);
+  }
+
+  ast.parse(vqt[0]);
+  ASSERT_EQ(ast.root->children[0]->type, QN_PHRASE);
+  ASSERT_EQ(ast.root->children[0]->opts.fieldMask, -1);
+  ast.parse(vqt[1]);
+  ASSERT_EQ(ast.root->children[0]->type, QN_UNION);
+  ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
+  ast.parse(vqt[2]);
+  ASSERT_EQ(ast.root->children[0]->type, QN_TOKEN);
+  ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
+
   IndexSpec_Free(ctx.spec);
 }
 

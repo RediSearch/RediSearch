@@ -567,15 +567,15 @@ def testExplain(env):
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(expected, res)
 
-    q = ['* => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    q = ['* => [KNN $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
-    expected = """VECTOR {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
+    expected = """VECTOR {K=10 nearest vectors to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # test with hybrid query
-    q = ['(@t:hello world) => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
-    expected = """VECTOR {\n  @t:INTERSECT {\n    @t:hello\n    @t:world\n  }\n} => {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
+    expected = """VECTOR {\n  @t:INTERSECT {\n    @t:hello\n    @t:world\n  }\n} => {K=10 nearest vectors to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # retest when index is not empty
@@ -787,6 +787,7 @@ def testSortBy(env):
         env.assertListEqual([100L, 'doc99', '$hello099 world', 'doc98', '$hello098 world', 'doc97', '$hello097 world', 'doc96',
                               '$hello096 world', 'doc95', '$hello095 world'], res)
 
+
 def testSortByWithoutSortable(env):
     r = env
     env.assertOk(r.execute_command(
@@ -831,6 +832,19 @@ def testSortByWithoutSortable(env):
                                 'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
         env.assertListEqual(
             [100L, 'doc0', '#100', 'doc1', '#99', 'doc2', '#98', 'doc3', '#97', 'doc4', '#96'], res)
+
+
+def testSortByWithTie(env):
+    conn = getConnectionByEnv(env)
+    env.assertOk(conn.execute_command('ft.create', 'idx', 'schema', 't', 'text'))
+    for i in range(10):
+        conn.execute_command('hset', i, 't', 'hello')
+
+    # Assert that the order of results is the same in both configurations (by ascending id).
+    res1 = conn.execute_command('ft.search', 'idx', 'hello', 'nocontent')
+    res2 = conn.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 't')
+    env.assertEqual(res1, res2)
+
 
 def testNot(env):
     r = env
@@ -3497,3 +3511,53 @@ def test_empty_field_name(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()
     conn.execute_command('hset', 'doc1', '', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['', 'foo']])
+
+def test_free_resources_on_thread(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+    pl = conn.pipeline()
+    results = []
+
+    for _ in range(2):
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TAG', 'SORTABLE',
+                                                 't2', 'TAG', 'SORTABLE',
+                                                 't3', 'TAG', 'SORTABLE',
+                                                 't4', 'TAG', 'SORTABLE',
+                                                 't5', 'TAG', 'SORTABLE',
+                                                 't6', 'TAG', 'SORTABLE',
+                                                 't7', 'TAG', 'SORTABLE',
+                                                 't8', 'TAG', 'SORTABLE',
+                                                 't9', 'TAG', 'SORTABLE',
+                                                 't10', 'TAG', 'SORTABLE',
+                                                 't11', 'TAG', 'SORTABLE',
+                                                 't12', 'TAG', 'SORTABLE',
+                                                 't13', 'TAG', 'SORTABLE',
+                                                 't14', 'TAG', 'SORTABLE',
+                                                 't15', 'TAG', 'SORTABLE',
+                                                 't16', 'TAG', 'SORTABLE',
+                                                 't17', 'TAG', 'SORTABLE',
+                                                 't18', 'TAG', 'SORTABLE',
+                                                 't19', 'TAG', 'SORTABLE',
+                                                 't20', 'TAG', 'SORTABLE').ok()
+        for i in range(1024 * 32):
+            pl.execute_command('HSET', i, 't1', i, 't2', i, 't3', i, 't4', i, 't5', i,
+                                          't6', i, 't7', i, 't8', i, 't9', i, 't10', i,
+                                          't11', i, 't12', i, 't13', i, 't14', i, 't15', i,
+                                          't16', i, 't17', i, 't18', i, 't19', i, 't20', i)
+            if i % 1000 == 0:
+                pl.execute()
+        pl.execute()
+
+        start_time = time.time()
+        conn.execute_command('FLUSHALL')
+        end_time = time.time()
+
+        results.append(end_time - start_time)
+
+        conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'false')
+
+    # ensure freeing resources on a 2nd thread is more than 5 times quicker
+    # than freeing it on the main thread
+    env.assertLess(results[0] * 2, results[1])
+
+    conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
