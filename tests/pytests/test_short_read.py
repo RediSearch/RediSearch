@@ -179,10 +179,10 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
                        get_identifier('myScore', isHash), 'numeric',
                        ])
     conn = getConnectionByEnv(env)
-    env.assertOk(conn.execute_command(*cmd_create))
-    waitForIndex(conn, index_name)
-    env.assertOk(conn.execute_command('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón'))
-    env.assertOk(conn.execute_command('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar'))
+    env.expect(*cmd_create).ok()
+    waitForIndex(env, index_name)
+    env.expect('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón').ok()
+    env.expect('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar').ok()
 
     # Add keys
     for i in range(1, num_keys + 1):
@@ -526,6 +526,7 @@ def runShortRead(env, data, total_len, expected_index):
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
         res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
+        env.assertTrue(res)
         res = env.cmd('replicaof', '127.0.0.1', shardMock.server_port)
         env.assertTrue(res)
         conn = shardMock.GetConnection()

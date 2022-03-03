@@ -1771,6 +1771,10 @@ def testDoubleAdd(env):
     env.assertEqual('goodbye world', env.cmd('ft.get', 'idx', 'doc1')[1])
 
 def testConcurrentErrors(env):
+    # Workaround for: Can't pickle local object 'testConcurrentErrors.<locals>.thrfn'
+    if sys.version_info >= (3, 9):
+        env.skip()
+
     from multiprocessing import Process
     import random
 

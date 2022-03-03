@@ -69,7 +69,7 @@ def testMultiSortby(env):
 
 def test_1667(env):
   conn = getConnectionByEnv(env)
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT')
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT')
   env.expect('ft.search idx @tag:{a}').equal([0])
   env.expect('ft.search idx @tag:{b}').equal([0])
 

@@ -10,13 +10,14 @@ from RLTest import Env
 
 from common import *
 from includes import *
+from redis.client import NEVER_DECODE
 
 
 def test_sanity(env):
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
     for vs_type in vecsim_type:
-        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+        env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
         conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
         conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
         conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
@@ -26,7 +27,7 @@ def test_sanity(env):
                   'b', ['score', '3.09485009821e+26', 'v', 'aaaabaaa'],
                   'c', ['score', '2.02824096037e+31', 'v', 'aaaaabaa'],
                   'd', ['score', '1.32922799578e+36', 'v', 'aaaaaaba']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'score', 'ASC')
+        res1 = env.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'score', 'ASC')
         env.assertEqual(res, res1)
 
         # todo: make test work on coordinator
@@ -34,28 +35,28 @@ def test_sanity(env):
                   'b', ['score', '2.01242627636e+31', 'v', 'aaaabaaa'],
                   'a', ['score', '2.02824096037e+31', 'v', 'aaaaaaaa'],
                   'd', ['score', '1.31886368448e+36', 'v', 'aaaaaaba']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'score', 'ASC')
+        res1 = env.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'score', 'ASC')
         env.assertEqual(res, res1)
 
         expected_res = ['__v_score', '0', 'v', 'aaaaaaaa']
-        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $blob]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
+        res = env.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $blob]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[2], expected_res)
 
         #####################
         ## another example ##
         #####################
         message = 'aaaaabaa'
-        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', message, 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
+        res = env.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', message, 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[2], ['__v_score', '0', 'v', 'aaaaabaa'])
 
-        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+        env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 def testDel(env):
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
     for vs_type in vecsim_type:
-        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+        env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
 
         conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
         conn.execute_command('HSET', 'b', 'v', 'aaaaaaba')
@@ -95,7 +96,7 @@ def testDel(env):
             equal([3, 'b', ['v', 'aaaaaaba'], 'c', ['v', 'aaaabaaa'], 'd', ['v', 'aaaaabaa']])
         # '''
 
-        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+        env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 def testDelReuse(env):
@@ -104,13 +105,13 @@ def testDelReuse(env):
         conn = getConnectionByEnv(env)
         vecsim_type = ['FLAT', 'HNSW']
         for vs_type in vecsim_type:
-            conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+            env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
             env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0])
             conn.execute_command('HSET', 'a', 'v', 'redislab')
             env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([1, 'a', ['v', 'redislab']])
             conn.execute_command('DEL', 'a')
             env.expect('FT.SEARCH', 'idx', '*=>[TOP_K 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0])
-            conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+            env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
     def del_insert(env):
         conn = getConnectionByEnv(env)
@@ -135,7 +136,7 @@ def testDelReuse(env):
 
     # test start
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
 
     vecs = del_insert(env)
     res = [4, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
@@ -159,9 +160,8 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
     return query_vec
 
 def query_vector(env, idx, query_vec):
-    conn = getConnectionByEnv(env)
-    return conn.execute_command('FT.SEARCH', idx, '*=>[TOP_K 5 @vector $v AS score]', 'PARAMS', '2', 'v', query_vec.tobytes(),
-                                'SORTBY', 'score', 'ASC', 'RETURN', 1, 'score', 'LIMIT', 0, 5)
+    return env.execute_command('FT.SEARCH', idx, '*=>[TOP_K 5 @vector $v AS score]', 'PARAMS', '2', 'v', query_vec.tobytes(),
+                               'SORTBY', 'score', 'ASC', 'RETURN', 1, 'score', 'LIMIT', 0, 5, **{NEVER_DECODE: []})
 
 def testDelReuseLarge(env):
     conn = getConnectionByEnv(env)
@@ -171,8 +171,8 @@ def testDelReuseLarge(env):
     query_vec_index = 3
     vec_size = 1280
 
-    conn.execute_command('FT.CREATE', INDEX_NAME, 'ON', 'HASH',
-                         'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1280', 'DISTANCE_METRIC', 'L2')
+    env.execute_command('FT.CREATE', INDEX_NAME, 'ON', 'HASH',
+                        'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1280', 'DISTANCE_METRIC', 'L2')
     for _ in range(3):
         query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
         res = query_vector(env, INDEX_NAME, query_vec)
@@ -182,7 +182,7 @@ def testDelReuseLarge(env):
 def testCreate(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10')
+    env.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10')
     for _ in env.retry_with_rdb_reload():
         info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR']]
         assertInfoField(env, 'idx1', 'attributes', info)
@@ -255,7 +255,7 @@ def testCreateErrors(env):
 def testSearchErrors(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
     conn.execute_command('HSET', 'b', 'v', 'bbbbbbbb')
     conn.execute_command('HSET', 'c', 'v', 'cccccccc')
@@ -294,7 +294,7 @@ def test_with_fields(env):
     dimension = 128
     qty = 100
 
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
 
     query_data = np.float32(np.random.random((1, dimension)))
@@ -322,7 +322,7 @@ def test_memory_info(env):
     vector_field = 'v'
 
     # Create index. Flat index implementation will free memory when deleting vectors, so it is a good candidate for this test with respect to memory consumption.
-    conn.execute_command('FT.CREATE', index_key, 'SCHEMA', vector_field, 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'BLOCK_SiZE', '1')
+    env.execute_command('FT.CREATE', index_key, 'SCHEMA', vector_field, 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'BLOCK_SiZE', '1')
     # Verify redis memory >= redisearch index memory
     vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
     redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
@@ -412,8 +412,8 @@ def test_hybrid_query_batches_mode_with_text(env):
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+                        'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
     query_data = np.float32([qty for j in range(dimension)])
 
@@ -469,8 +469,8 @@ def test_hybrid_query_batches_mode_with_tags(env):
     conn = getConnectionByEnv(env)
     dimension = 128
     index_size = 100
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                        'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
@@ -503,8 +503,8 @@ def test_hybrid_query_batches_mode_with_numeric_and_geo(env):
     conn = getConnectionByEnv(env)
     dimension = 128
     index_size = 100
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'num', 'NUMERIC')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                        'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'num', 'NUMERIC')
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
@@ -521,17 +521,32 @@ def test_hybrid_query_batches_mode_with_numeric_and_geo(env):
     execute_hybrid_query(env, '(@num:[0 inf])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal(expected_res_1)
 
     # Expect to get results with maximum numeric value of 50
-    expected_res_2 = [10, '50', ['__v_score', '320000', 'num', '50'], '49', ['__v_score', '332928', 'num', '49'], '48', ['__v_score', '346112', 'num', '48'], '47', ['__v_score', '359552', 'num', '47'], '46', ['__v_score', '373248', 'num', '46'], '45', ['__v_score', '387200', 'num', '45'], '44', ['__v_score', '401408', 'num', '44'], '43', ['__v_score', '415872', 'num', '43'], '42', ['__v_score', '430592', 'num', '42'], '41', ['__v_score', '445568', 'num', '41']]
+    expected_res_2 = [10,
+                      '50', ['__v_score', '320000', 'num', '50'],
+                      '49', ['__v_score', '332928', 'num', '49'],
+                      '48', ['__v_score', '346112', 'num', '48'],
+                      '47', ['__v_score', '359552', 'num', '47'],
+                      '46', ['__v_score', '373248', 'num', '46'],
+                      '45', ['__v_score', '387200', 'num', '45'],
+                      '44', ['__v_score', '401408', 'num', '44'],
+                      '43', ['__v_score', '415872', 'num', '43'],
+                      '42', ['__v_score', '430592', 'num', '42'],
+                      '41', ['__v_score', '445568', 'num', '41']]
     execute_hybrid_query(env, '(@num:[-inf 50])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal(expected_res_2)
     execute_hybrid_query(env, '(@num:[-inf 40] | @num:[40 50])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal(expected_res_2)
 
-    expected_res_3 = [5, '49', ['__v_score', '332928', 'num', '49'], '48', ['__v_score', '346112', 'num', '48'], '47', ['__v_score', '359552', 'num', '47'], '46', ['__v_score', '373248', 'num', '46'], '45', ['__v_score', '387200', 'num', '45']]
+    expected_res_3 = [5,
+                      '49', ['__v_score', '332928', 'num', '49'],
+                      '48', ['__v_score', '346112', 'num', '48'],
+                      '47', ['__v_score', '359552', 'num', '47'],
+                      '46', ['__v_score', '373248', 'num', '46'],
+                      '45', ['__v_score', '387200', 'num', '45']]
     execute_hybrid_query(env, '(@num:[45 (50])=>[TOP_K 10 @v $vec_param]', query_data, 'num').equal(expected_res_3)
 
     # Testing with geo-filters
-    conn.execute_command('FT.DROPINDEX', 'idx')
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO')
+    env.execute_command('FT.DROPINDEX', 'idx')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                        'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO')
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
@@ -542,7 +557,17 @@ def test_hybrid_query_batches_mode_with_numeric_and_geo(env):
     execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[TOP_K 10 @v $vec_param]', query_data, 'coordinate').equal([0])
 
     # Expect that ids 1-32 will pass the geo filter, and that the top 10 from these will return.
-    expected_res_4 = [10, '32', ['__v_score', '591872', 'coordinate', '32,32'], '31', ['__v_score', '609408', 'coordinate', '31,31'], '30', ['__v_score', '627200', 'coordinate', '30,30'], '29', ['__v_score', '645248', 'coordinate', '29,29'], '28', ['__v_score', '663552', 'coordinate', '28,28'], '27', ['__v_score', '682112', 'coordinate', '27,27'], '26', ['__v_score', '700928', 'coordinate', '26,26'], '25', ['__v_score', '720000', 'coordinate', '25,25'], '24', ['__v_score', '739328', 'coordinate', '24,24'], '23', ['__v_score', '758912', 'coordinate', '23,23']]
+    expected_res_4 = [10,
+                      '32', ['__v_score', '591872', 'coordinate', '32,32'],
+                      '31', ['__v_score', '609408', 'coordinate', '31,31'],
+                      '30', ['__v_score', '627200', 'coordinate', '30,30'],
+                      '29', ['__v_score', '645248', 'coordinate', '29,29'],
+                      '28', ['__v_score', '663552', 'coordinate', '28,28'],
+                      '27', ['__v_score', '682112', 'coordinate', '27,27'],
+                      '26', ['__v_score', '700928', 'coordinate', '26,26'],
+                      '25', ['__v_score', '720000', 'coordinate', '25,25'],
+                      '24', ['__v_score', '739328', 'coordinate', '24,24'],
+                      '23', ['__v_score', '758912', 'coordinate', '23,23']]
     execute_hybrid_query(env, '(@coordinate:[0.0 0.0 5000 km])=>[TOP_K 10 @v $vec_param]', query_data, 'coordinate').equal(expected_res_4)
 
 
@@ -550,9 +575,9 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
     conn = getConnectionByEnv(env)
     dimension = 128
     index_size = 100
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'num', 'NUMERIC',
-                         't1', 'TEXT', 't2', 'TEXT')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                        'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'num', 'NUMERIC',
+                        't1', 'TEXT', 't2', 'TEXT')
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
@@ -563,13 +588,23 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
     query_data = np.float32([index_size for j in range(dimension)])
 
     # test modifier list
-    expected_res_1 = [10, '30', ['__v_score', '627200', 't1', 'text value', 't2', 'hybrid query'], '29', ['__v_score', '645248', 't1', 'text value', 't2', 'hybrid query'], '28', ['__v_score', '663552', 't1', 'text value', 't2', 'hybrid query'], '27', ['__v_score', '682112', 't1', 'text value', 't2', 'hybrid query'], '26', ['__v_score', '700928', 't1', 'text value', 't2', 'hybrid query'], '25', ['__v_score', '720000', 't1', 'text value', 't2', 'hybrid query'], '24', ['__v_score', '739328', 't1', 'text value', 't2', 'hybrid query'], '23', ['__v_score', '758912', 't1', 'text value', 't2', 'hybrid query'], '22', ['__v_score', '778752', 't1', 'text value', 't2', 'hybrid query'], '21', ['__v_score', '798848', 't1', 'text value', 't2', 'hybrid query']]
+    expected_res_1 = [10, 
+                      '30', ['__v_score', '627200', 't1', 'text value', 't2', 'hybrid query'],
+                      '29', ['__v_score', '645248', 't1', 'text value', 't2', 'hybrid query'],
+                      '28', ['__v_score', '663552', 't1', 'text value', 't2', 'hybrid query'],
+                      '27', ['__v_score', '682112', 't1', 'text value', 't2', 'hybrid query'],
+                      '26', ['__v_score', '700928', 't1', 'text value', 't2', 'hybrid query'],
+                      '25', ['__v_score', '720000', 't1', 'text value', 't2', 'hybrid query'],
+                      '24', ['__v_score', '739328', 't1', 'text value', 't2', 'hybrid query'],
+                      '23', ['__v_score', '758912', 't1', 'text value', 't2', 'hybrid query'],
+                      '22', ['__v_score', '778752', 't1', 'text value', 't2', 'hybrid query'],
+                      '21', ['__v_score', '798848', 't1', 'text value', 't2', 'hybrid query']]
     if env.isCluster():
         expected_res_1[0] = 20
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:value text @num:[10 30])=>[TOP_K 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 3, 't1', 't2', '__v_score').equal(expected_res_1)
+               'RETURN', 3, 't1', 't2', '__v_score', **{'NEVER_DECODE': []}).equal(expected_res_1)
 
     # test with query attributes
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text)=>{$inorder: true} @num:[10 30])=>[TOP_K 10 @v $vec_param]',
@@ -585,8 +620,8 @@ def test_hybrid_query_batches_non_vector_score(env):
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+                        'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
 
     # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
@@ -595,6 +630,7 @@ def test_hybrid_query_batches_non_vector_score(env):
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
 
     query_data = np.float32([qty for j in range(dimension)])
+
     # All documents should match, so TOP 10 takes the 10 with the largest ids. Since we sort by default score
     # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
     expected_res_1 = [10, '100', '3', ['__v_score', '0', 't', 'other'], 
@@ -610,23 +646,63 @@ def test_hybrid_query_batches_non_vector_score(env):
     execute_hybrid_query(env, '((text ~value)|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
-    expected_res_2 = [10, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
+    expected_res_2 = [10,
+                      '100', '3', ['__v_score', '0', 't', 'other'],
+                      '91', '1', ['__v_score', '10368', 't', 'text value'],
+                      '92', '1', ['__v_score', '8192', 't', 'text value'],
+                      '93', '1', ['__v_score', '6272', 't', 'text value'],
+                      '94', '1', ['__v_score', '4608', 't', 'text value'],
+                      '95', '1', ['__v_score', '3200', 't', 'text value'],
+                      '96', '1', ['__v_score', '2048', 't', 'text value'],
+                      '97', '1', ['__v_score', '1152', 't', 'text value'],
+                      '98', '1', ['__v_score', '512', 't', 'text value'],
+                      '99', '1', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '(%test%|other)=>[TOP_K 10 @v $vec_param]', query_data, 't', sort_by_vector=False).equal(expected_res_2)
 
     # use TFIDF.DOCNORM scorer
-    expected_res_3 = [10, '100', '3', ['__v_score', '0', 't', 'other'], '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'], '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'], '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'], '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'], '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'], '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'], '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'], '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'], '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
+    expected_res_3 = [10,
+                      '100', '3', ['__v_score', '0', 't', 'other'],
+                      '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'],
+                      '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'],
+                      '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'],
+                      '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'],
+                      '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'],
+                      '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'],
+                      '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'],
+                      '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'],
+                      '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
     env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_3)
 
     # use BM25 scorer
-    expected_res_4 = [10, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
+    expected_res_4 = [10,
+                      '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'],
+                      '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'],
+                      '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'],
+                      '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'],
+                      '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'],
+                      '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'],
+                      '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'],
+                      '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'],
+                      '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'],
+                      '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
     env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_4)
 
     # use DISMAX scorer
-    expected_res_5 = [10, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
+    expected_res_5 = [10,
+                      '91', '1', ['__v_score', '10368', 't', 'text value'],
+                      '92', '1', ['__v_score', '8192', 't', 'text value'],
+                      '93', '1', ['__v_score', '6272', 't', 'text value'],
+                      '94', '1', ['__v_score', '4608', 't', 'text value'],
+                      '95', '1', ['__v_score', '3200', 't', 'text value'],
+                      '96', '1', ['__v_score', '2048', 't', 'text value'],
+                      '97', '1', ['__v_score', '1152', 't', 'text value'],
+                      '98', '1', ['__v_score', '512', 't', 'text value'],
+                      '99', '1', ['__v_score', '128', 't', 'text value'],
+                      '100', '1', ['__v_score', '0', 't', 'other']]
     env.expect('FT.SEARCH', 'idx', '(text|other)=>[TOP_K 10 @v $vec_param]', 'SCORER', 'DISMAX', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_5)
