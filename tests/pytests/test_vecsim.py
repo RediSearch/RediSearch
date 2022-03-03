@@ -261,8 +261,8 @@ def testSearchErrors(env):
     env.expect('FT.SEARCH', 'idx', '*=>[REDIS 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN str @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
 
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('query vector does not match index\'s type or dimension.')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('query vector does not match index\'s type or dimension.')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('Error parsing vector similarity query: query vector blob size (7) does not match index\'s expected size (8).')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('Error parsing vector similarity query: query vector blob size (9) does not match index\'s expected size (8).')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @t $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0]) # wrong field
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS v]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `v` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS s]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `s` already exists in schema')
@@ -653,3 +653,18 @@ def test_single_entry(env):
                'RETURN', '0',
                'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1L, '0'])
 
+def test_wrong_vector_size(env):
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    for i in range(3):
+        vector = np.random.rand(1+dimension).astype(np.float32)
+        conn.execute_command('HSET', i, 'v', vector[:dimension-2+i].tobytes())
+
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+
+    for i in range(3):
+        vector = np.random.rand(1+dimension).astype(np.float32)
+        conn.execute_command('HSET', i+3, 'v', vector[:dimension-2+i].tobytes())
+    
+    waitForIndex(env, 'idx')
+    assertInfoField(env, 'idx', 'num_docs', '2')
