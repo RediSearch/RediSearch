@@ -98,6 +98,8 @@ def testDropReplicate():
   env.assertTrue(master.execute_command("ping"))
   env.assertTrue(slave.execute_command("ping"))
 
+  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+
   '''
   This test first creates documents
   Next, it creates an index so all documents are scanned into the index
@@ -110,10 +112,10 @@ def testDropReplicate():
     master.execute_command('HSET', 'doc%d' % j, 't', 'hello%d' % j, 'tg', 'world%d' % j, 'n', j, 'g', geo)
 
   # test for FT.DROPINDEX
-  master.execute_command('WAIT', 1, 1000)
+  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
   master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
   master.execute_command('FT.DROPINDEX', 'idx', 'DD')
-  master.execute_command('WAIT', 1, 1000)
+  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
 
   # check that same docs were deleted by master and slave
   master_keys = sorted(master.execute_command('KEYS', '*'))
