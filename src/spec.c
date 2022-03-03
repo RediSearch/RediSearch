@@ -443,8 +443,8 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC);
     return 0;
   }
+  fs->expBlobSize = fs->vecSimParams.hnswParams.dim * VecSimType_sizeof(fs->vecSimParams.hnswParams.type);
   return 1;
-  
 }
 
 static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
@@ -518,6 +518,7 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_BF, VECSIM_DISTANCE_METRIC);
     return 0;
   }
+  fs->expBlobSize = fs->vecSimParams.bfParams.dim * VecSimType_sizeof(fs->vecSimParams.bfParams.type);
   return 1;
 }
 
@@ -539,21 +540,18 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     fs->vecSimParams.algo = VecSimAlgo_BF;
     fs->vecSimParams.bfParams.initialCapacity = 1000;
     fs->vecSimParams.bfParams.blockSize = BF_DEFAULT_BLOCK_SIZE;
-    rc = parseVectorField_flat(fs, ac, status);
-    fs->expBlobSize = fs->vecSimParams.bfParams.dim * VecSimType_sizeof(fs->vecSimParams.bfParams.type);
+    return parseVectorField_flat(fs, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vecSimParams.algo = VecSimAlgo_HNSWLIB;
     fs->vecSimParams.hnswParams.initialCapacity = 1000;
     fs->vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
     fs->vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     fs->vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
-    rc = parseVectorField_hnsw(fs, ac, status);
-    fs->expBlobSize = fs->vecSimParams.hnswParams.dim * VecSimType_sizeof(fs->vecSimParams.hnswParams.type);
+    return parseVectorField_hnsw(fs, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
     return 0;
   }
-  return rc;
 }
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
