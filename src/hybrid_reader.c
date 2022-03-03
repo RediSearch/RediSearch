@@ -159,6 +159,9 @@ static void prepareResults(HybridIterator *hr) {
     return;
   }
   // Batches mode.
+  if (hr->child->NumEstimated(hr->child->ctx) == 0) {
+    return;
+  }
   VecSimBatchIterator *batch_it = VecSimBatchIterator_New(hr->index, hr->query.vector);
   float upper_bound = INFINITY;
   while (VecSimBatchIterator_HasNext(batch_it)) {

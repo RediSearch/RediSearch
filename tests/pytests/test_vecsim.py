@@ -185,7 +185,10 @@ def testCreate(env):
     for _ in env.retry_with_rdb_reload():
         info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR']]
         assertInfoField(env, 'idx1', 'attributes', info)
-        env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx1", "v")[:-3], ['ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIMENSION', 1024L, 'METRIC', 'IP', 'INDEX_SIZE', 0L, 'M', 16L, 'EF_CONSTRUCTION', 200L, 'EF_RUNTIME', 10L, 'MAX_LEVEL', -1L, 'ENTRYPOINT', -1L, 'MEMORY'])
+        info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx1", "v")
+        env.assertEqual(info_data[:-3], ['ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIMENSION', 1024L, 'METRIC', 'IP', 'INDEX_SIZE', 0L, 'M', 16L, 'EF_CONSTRUCTION', 200L, 'EF_RUNTIME', 10L, 'MAX_LEVEL', -1L, 'ENTRYPOINT', -1L, 'MEMORY'])
+        # skip the memory value
+        env.assertEqual(info_data[-2:], ['LAST_SEARCH_MODE', 'EMPTY_MODE'])
 
     # Uncomment these tests when support for FLOAT64, INT32, INT64, is added.
     # Trying to run these tests right now will cause 'Bad arguments for vector similarity HNSW index type' error
