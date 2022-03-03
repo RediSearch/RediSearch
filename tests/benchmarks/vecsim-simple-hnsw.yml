@@ -1,6 +1,6 @@
 
-name: "vecsim_simple_perf"
-description: "first try"
+name: "vecsim_simple_HNSW"
+description: "plane hnsw"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5d
