@@ -656,15 +656,18 @@ def test_single_entry(env):
 def test_wrong_vector_size(env):
     conn = getConnectionByEnv(env)
     dimension = 128
-    for i in range(3):
-        vector = np.random.rand(1+dimension).astype(np.float32)
-        conn.execute_command('HSET', i, 'v', vector[:dimension-2+i].tobytes())
+    
+    vector = np.random.rand(1+dimension).astype(np.float32)
+    conn.execute_command('HSET', '0', 'v', vector[:dimension-1].tobytes())
+    conn.execute_command('HSET', '1', 'v', vector[:dimension].tobytes())
+    conn.execute_command('HSET', '2', 'v', vector[:dimension+1].tobytes())
 
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
 
-    for i in range(3):
-        vector = np.random.rand(1+dimension).astype(np.float32)
-        conn.execute_command('HSET', i+3, 'v', vector[:dimension-2+i].tobytes())
+    vector = np.random.rand(1+dimension).astype(np.float32)
+    conn.execute_command('HSET', '3', 'v', vector[:dimension-1].tobytes())
+    conn.execute_command('HSET', '4', 'v', vector[:dimension].tobytes())
+    conn.execute_command('HSET', '5', 'v', vector[:dimension+1].tobytes())
     
     waitForIndex(env, 'idx')
     assertInfoField(env, 'idx', 'num_docs', '2')
