@@ -60,6 +60,7 @@ nav:
     - 'Document Payloads': payloads.md
     - 'Spelling Correction': Spellcheck.md
     - 'Phonetic Matching': Phonetic_Matching.md
+    - 'Vector Fields': 'Vectors.md'
   - Design Documents:
     - 'Garbage Collection': 'design/gc.md'
   - 'Indexing JSON': 'Indexing_JSON.md'
