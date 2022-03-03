@@ -57,9 +57,10 @@ def toSortedFlatList(res):
     return [res]
 
 def assertInfoField(env, idx, field, expected):
-    res = env.cmd('ft.info', idx)
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    env.assertEqual(d[field], expected)
+    if not env.isCluster():
+        res = env.cmd('ft.info', idx)
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertEqual(d[field], expected)
 
 def sortedResults(res):
     n = res[0]
