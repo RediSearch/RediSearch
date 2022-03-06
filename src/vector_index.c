@@ -69,7 +69,7 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   return openVectorKeysDict(ctx, keyName, 1);
 }
 
-static size_t expBlobSize (VecSimIndex *ind) {
+static size_t expBlobSize(VecSimIndex *ind) {
   VecSimIndexInfo info = VecSimIndex_Info(ind);
   size_t dim = 0;
   VecSimType type = (VecSimType)0;
@@ -174,7 +174,7 @@ const char *VecSimType_ToString(VecSimType type) {
   return NULL;
 }
 
-size_t VecSimType_sizeof (VecSimType type) {
+size_t VecSimType_sizeof(VecSimType type) {
     switch (type) {
         case VecSimType_FLOAT32: return sizeof(float);
         case VecSimType_FLOAT64: return sizeof(double);

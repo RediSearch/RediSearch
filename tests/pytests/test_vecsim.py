@@ -671,3 +671,4 @@ def test_wrong_vector_size(env):
     
     waitForIndex(env, 'idx')
     assertInfoField(env, 'idx', 'num_docs', '2')
+    assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
