@@ -81,19 +81,24 @@ typedef struct FieldSpec {
   /** Unique field index. Each field has a unique index regardless of its type */
   uint16_t index;
 
-  // Flags for tag options
-  TagFieldFlags tagFlags : 16;
-  char tagSep;
+  union {
+    struct {
+      // Flags for tag options
+      TagFieldFlags tagFlags : 16;
+      char tagSep;
+    } tagOpts;
+    struct {
+      // Vector similarity index parameters.
+      VecSimParams vecSimParams;
+      // expected size of vector blob.
+      size_t expBlobSize;
+    } vectorOpts;
+  };
 
   // weight in frequency calculations
   double ftWeight;
   // ID used to identify the field within the field mask
   t_fieldId ftId;
-
-  // Vector similarity index parameters.
-  VecSimParams vecSimParams;
-  // expected size of vector blob.
-  size_t expBlobSize;
 
   // TODO: More options here..
 } FieldSpec;

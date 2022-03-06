@@ -498,8 +498,8 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   size_t len;
   fdata->vector = RedisModule_StringPtrLen(field->text, &len);
   fdata->vecLen = len;
-  if (len != fs->expBlobSize) {
-    QueryError_SetErrorFmt(status, QUERY_EBADATTR, "Could not add vector with blob size %zu (expected size %zu)", len, fs->expBlobSize);
+  if (len != fs->vectorOpts.expBlobSize) {
+    QueryError_SetErrorFmt(status, QUERY_EBADATTR, "Could not add vector with blob size %zu (expected size %zu)", len, fs->vectorOpts.expBlobSize);
     return -1;
   }
   aCtx->fwIdx->maxFreq++;
@@ -561,7 +561,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
-  fdata->tags = TagIndex_Preprocess(fs->tagSep, fs->tagFlags, field);
+  fdata->tags = TagIndex_Preprocess(fs->tagOpts.tagSep, fs->tagOpts.tagFlags, field);
 
   if (fdata->tags == NULL) {
     return 0;

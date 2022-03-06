@@ -162,16 +162,16 @@ void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
 void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
   FieldSpec* fs = sp->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
-  fs->tagSep = sep;
+  fs->tagOpts.tagSep = sep;
 }
 
 void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable) {
   FieldSpec* fs = sp->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   if (enable) {
-    fs->tagFlags |= TagField_CaseSensitive;
+    fs->tagOpts.tagFlags |= TagField_CaseSensitive;
   } else {
-    fs->tagFlags &= ~TagField_CaseSensitive;
+    fs->tagOpts.tagFlags &= ~TagField_CaseSensitive;
   }
 }
 
@@ -706,8 +706,8 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
   }
   if (specField->types & INDEXFLD_T_TAG) {
     infoField->types |= RSFLDTYPE_TAG;
-    infoField->tagSeperator = specField->tagSep;
-    infoField->tagCaseSensitive = specField->tagFlags & TagField_CaseSensitive ? 1 : 0;
+    infoField->tagSeperator = specField->tagOpts.tagSep;
+    infoField->tagCaseSensitive = specField->tagOpts.tagFlags & TagField_CaseSensitive ? 1 : 0;
   }
   if (specField->types & INDEXFLD_T_GEO) {
     infoField->types |= RSFLDTYPE_GEO;
