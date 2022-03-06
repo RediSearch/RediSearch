@@ -223,7 +223,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int isLegacy) {
   // Prevent multiple SORTBY steps
   if (arng->sortKeys != NULL) {
-    QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    if (isLegacy) {
+      QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed");
+    } else {
+      QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    }
     return REDISMODULE_ERR;
   }
 

@@ -76,7 +76,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       // Run in batches mode.
       HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
       RSIndexResult *h = NULL;
-      hr->mode = VECSIM_HYBRID_BATCHES;
+      hr->searchMode = VECSIM_HYBRID_BATCHES;
 
       size_t hnsw_ids[NUM_ITERATIONS][k];
       int count = 0;
@@ -118,7 +118,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       // Rerun in AD_HOC BF mode with the same queries.
       hybridIt->Rewind(hybridIt->ctx);
       assert(hybridIt->HasNext(hybridIt->ctx));
-      hr->mode = VECSIM_HYBRID_ADHOC_BF;
+      hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
       start = std::chrono::high_resolution_clock::now();
 
       size_t bf_ids[NUM_ITERATIONS][k];

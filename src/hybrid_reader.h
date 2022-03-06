@@ -20,7 +20,7 @@ typedef struct {
   KNNVectorQuery query;
   VecSimQueryParams runtimeParams;   // Evaluated runtime params.
   IndexIterator *child;
-  VecSimSearchMode mode;
+  VecSimSearchMode searchMode;
   bool resultsPrepared;             // Indicates if the results were already processed
                          // (should occur in the first call to Read)
   VecSimQueryResult_List list;
