@@ -287,7 +287,7 @@ def nest_exp(modifier, term, is_and, i):
         return '(@' + modifier + ':' + term + str(i) + ')'
     return '(' + term + str(i) + (' ' if is_and else '|') + nest_exp(modifier, term, is_and, i - 1) + ')'
 
-def testDeepNesting(env):
+def testUnsupportedNesting(env):
     nest_level = 200
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
     
@@ -298,7 +298,7 @@ def testDeepNesting(env):
     env.expect('ft.search', 'idx', and_exp).error().contains('Parser stack overflow.')
     env.expect('ft.search', 'idx', or_exp).error().contains('Parser stack overflow.')
 
-def testShallowNesting(env):
+def testSupportedNesting(env):
     nest_level = 84
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
     
