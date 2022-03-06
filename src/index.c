@@ -1883,6 +1883,13 @@ PRINT_PROFILE_FUNC(name) {                                                      
   }                                                                                 \
   printProfileCounter(counter);                                                     \
   nlen += 2;                                                                        \
+  if (root->type == HYBRID_ITERATOR) {                                              \
+    HybridIterator *hi = root->ctx;                                                 \
+    if (hi->searchMode == VECSIM_HYBRID_BATCHES) {                                  \
+        printProfileNumBatches(hi);                                                 \
+        nlen += 2;                                                                  \
+    }                                                                               \
+  }                                                                                 \
                                                                                     \
   if (addChild) {                                                                   \
     RedisModule_ReplyWithSimpleString(ctx, "Child iterator");                       \

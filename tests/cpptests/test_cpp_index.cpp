@@ -731,6 +731,8 @@ TEST_F(IndexTest, testHybridVector) {
   // Test in hybrid mode.
   IndexIterator *ir = NewReadIterator(r);
   IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir);
+  HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
+  hr->searchMode = VECSIM_HYBRID_BATCHES;
 
   // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
   count = 0;
@@ -770,8 +772,7 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Rerun in AD_HOC BF MODE.
   hybridIt->Rewind(hybridIt->ctx);
-  HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
-  hr->mode = VECSIM_HYBRID_ADHOC_BF;
+  hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;

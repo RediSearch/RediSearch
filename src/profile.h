@@ -25,6 +25,12 @@
     RedisModule_ReplyWithLongLong(ctx, vcounter);     \
   } while (0)
 
+#define printProfileNumBatches(hybrid_reader)                         \
+  do {                                                                \
+    RedisModule_ReplyWithSimpleString(ctx, "Batches number");         \
+    RedisModule_ReplyWithLongLong(ctx, hybrid_reader->numIterations);\
+  } while (0)
+
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req);
 
 void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,

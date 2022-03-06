@@ -146,14 +146,14 @@ void computeDistances(HybridIterator *hr) {
 }
 
 static void prepareResults(HybridIterator *hr) {
-    if (hr->mode == VECSIM_STANDARD_KNN) {
+    if (hr->searchMode == VECSIM_STANDARD_KNN) {
       hr->list =
           VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, &(hr->runtimeParams), hr->query.order);
       hr->iter = VecSimQueryResult_List_GetIterator(hr->list);
     return;
   }
 
-  if (hr->mode == VECSIM_HYBRID_ADHOC_BF) {
+  if (hr->searchMode == VECSIM_HYBRID_ADHOC_BF) {
     // Go over child_it results, compute distances, sort and store results in topResults.
     computeDistances(hr);
     return;
@@ -271,7 +271,7 @@ static void HR_Rewind(void *ctx) {
   hr->lastDocId = 0;
   hr->base.isValid = 1;
 
-  if (hr->mode != VECSIM_STANDARD_KNN) {
+  if (hr->searchMode == VECSIM_HYBRID_ADHOC_BF || hr->searchMode == VECSIM_HYBRID_BATCHES) {
     // Clean the saved and returned results (in case of HYBRID mode).
     while (heap_count(hr->topResults) > 0) {
       IndexResult_Free(heap_poll(hr->topResults));
@@ -289,7 +289,7 @@ void HybridIterator_Free(struct indexIterator *self) {
   if (it == NULL) {
     return;
   }
-  if (it->mode != VECSIM_STANDARD_KNN) {
+  if (it->searchMode == VECSIM_HYBRID_ADHOC_BF || it->searchMode == VECSIM_HYBRID_BATCHES) {
     while (heap_count(it->topResults) > 0) {
       IndexResult_Free(heap_poll(it->topResults));
     }
@@ -323,22 +323,24 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KN
   hi->numIterations = 0;
 
   if (child_it == NULL) {
-    hi->mode = VECSIM_STANDARD_KNN;
+    hi->searchMode = VECSIM_STANDARD_KNN;
   } else {
+    // hi->searchMode is VECSIM_HYBRID_ADHOC_BF || VECSIM_HYBRID_BATCHES
+    hi->topResults = rm_malloc(heap_sizeof(query.k));
+    heap_init(hi->topResults, cmpVecSimResByScore, NULL, query.k);
+    hi->returnedResults = array_new(RSIndexResult *, query.k);
+    // Get the estimated number of results that pass the child "sub-query filter". Note that
+    // this is an upper bound, and might even be larger than the total vector index size.
     size_t subset_size = child_it->NumEstimated(child_it->ctx);
     if (subset_size > VecSimIndex_IndexSize(index)) {
       subset_size = VecSimIndex_IndexSize(index);
     }
+    // Use a pre-defined heuristics that determines which approach should be faster.
     if (VecSimIndex_PreferAdHocSearch(index, subset_size, query.k)) {
-      hi->mode = VECSIM_HYBRID_ADHOC_BF;
+      hi->searchMode = VECSIM_HYBRID_ADHOC_BF;
     } else {
-      hi->mode = VECSIM_HYBRID_BATCHES;
+      hi->searchMode = VECSIM_HYBRID_BATCHES;
     }
-  }
-  if (hi->mode != VECSIM_STANDARD_KNN) {
-    hi->topResults = rm_malloc(heap_sizeof(query.k));
-    heap_init(hi->topResults, cmpVecSimResByScore, NULL, query.k);
-    hi->returnedResults = array_new(RSIndexResult *, query.k);
   }
 
   IndexIterator *ri = &hi->base;
@@ -355,7 +357,7 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KN
   ri->Rewind = HR_Rewind;
   ri->HasNext = HR_HasNext;
   ri->SkipTo = NULL; // As long as we return results by score (unsorted by id), this has no meaning.
-  if (hi->mode == VECSIM_STANDARD_KNN) {
+  if (hi->searchMode == VECSIM_STANDARD_KNN) {
     ri->Read = HR_ReadKnnUnsorted;
     ri->current = NewDistanceResult();
   } else {
