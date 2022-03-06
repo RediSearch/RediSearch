@@ -3484,7 +3484,7 @@ def test_free_resources_on_thread(env):
     pl = conn.pipeline()
     results = []
 
-    for _ in range(2):
+    for _ in range(5):
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TAG', 'SORTABLE',
                                                  't2', 'TAG', 'SORTABLE',
                                                  't3', 'TAG', 'SORTABLE',
@@ -3505,7 +3505,7 @@ def test_free_resources_on_thread(env):
                                                  't18', 'TAG', 'SORTABLE',
                                                  't19', 'TAG', 'SORTABLE',
                                                  't20', 'TAG', 'SORTABLE').ok()
-        for i in range(1024 * 32):
+        for i in range(1024 * 8):
             pl.execute_command('HSET', i, 't1', i, 't2', i, 't3', i, 't4', i, 't5', i,
                                           't6', i, 't7', i, 't8', i, 't9', i, 't10', i,
                                           't11', i, 't12', i, 't13', i, 't14', i, 't15', i,
@@ -3522,8 +3522,8 @@ def test_free_resources_on_thread(env):
 
         conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'false')
 
-    # ensure freeing resources on a 2nd thread is more than 5 times quicker
+    # ensure freeing resources on a 2nd thread is quicker
     # than freeing it on the main thread
-    env.assertLess(results[0] * 5, results[1])
+    env.assertLess(results[0], results[1])
 
     conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
