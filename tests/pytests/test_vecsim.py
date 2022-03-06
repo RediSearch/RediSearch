@@ -663,6 +663,7 @@ def test_wrong_vector_size(env):
     conn.execute_command('HSET', '2', 'v', vector[:dimension+1].tobytes())
 
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    waitForIndex(env, 'idx')
 
     vector = np.random.rand(1+dimension).astype(np.float32)
     conn.execute_command('HSET', '3', 'v', vector[:dimension-1].tobytes())
@@ -672,3 +673,4 @@ def test_wrong_vector_size(env):
     waitForIndex(env, 'idx')
     assertInfoField(env, 'idx', 'num_docs', '2')
     assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2L, '1', '4'])
