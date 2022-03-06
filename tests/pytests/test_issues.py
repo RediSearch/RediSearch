@@ -61,6 +61,8 @@ def testMultiSortby(env):
   env.expect('ft.search idx foo nocontent sortby t2 asc').equal(sortby_t2)
   env.expect('ft.search idx foo nocontent sortby t1 sortby t3').error()\
     .contains('Multiple SORTBY steps are not allowed')
+  env.expect('ft.aggregate idx foo nocontent sortby 2 @t1 asc sortby 2 @t3 desc').error()\
+    .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
   #TODO: allow multiple sortby steps
   #env.expect('ft.search idx foo nocontent sortby t1 sortby t3').equal(sortby_t1)
   #env.expect('ft.search idx foo nocontent sortby t2 sortby t3').equal(sortby_t2)
