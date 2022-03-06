@@ -254,8 +254,8 @@ TEST_F(QueryTest, testParser) {
   // Test simple hybrid vector query
   assertValidQuery("(KNN)=>[KNN 10 @vec_field $BLOB]", ctx); // using KNN command in other context
 
-  // assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
-  // assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(hello world)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(@title:hello)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB]", ctx);
@@ -270,6 +270,11 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) other phrase", ctx);
   assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) @title:other", ctx);
   assertInvalidQuery("hello world => [KNN 10 @vec_field $BLOB] OR other => [KNN 10 @vec_field $BLOB]", ctx);
+
+  assertValidQuery("@title:((hello world)|((hello world)|(hallo world|werld) | hello world werld))", ctx);
+  assertValidQuery("(hello world)|((hello world)|(hallo world|werld) | hello world werld)", ctx);
+
+  assertValidQuery("hello 13 again", ctx);
 
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;
@@ -384,9 +389,9 @@ TEST_F(QueryTest, testGeoQuery) {
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_TRUE((n->opts.fieldMask == RS_FIELDMASK_ALL));
-  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+  ASSERT_EQ(QueryNode_NumChildren(n), 3);
 
-  QueryNode *gn = n->children[1];
+  QueryNode *gn = n->children[2];
   ASSERT_EQ(gn->type, QN_GEO);
   ASSERT_STREQ(gn->gn.gf->property, "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
@@ -408,7 +413,8 @@ TEST_F(QueryTest, testFieldSpec) {
   //ast.print();
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
-  ASSERT_EQ(n->opts.fieldMask, 0x01);
+  ASSERT_EQ(n->opts.fieldMask, -1);
+  ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
 
   qt = "(@title:hello) (@body:world)";
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
