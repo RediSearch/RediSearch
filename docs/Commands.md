@@ -784,7 +784,7 @@ Return value has an array with two elements:
     * **Pipeline creation time** - Creation time of execution plan including iterators,
   result processors and reducers creation.
     * **Iterators profile** - Index iterators information including their type, term, count and time data.
-  Inverted-index iterators have in addition the number of elements they contain.
+  Inverted-index iterators have in addition the number of elements they contain. Hybrid vector iterators returning the top results from the vector index in batches, include the number of batches.
     * **Result processors profile** - Result processors chain with type, count and time data.
 
 #### Example
