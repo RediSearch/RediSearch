@@ -615,7 +615,7 @@ workflows:
           <<: *never
       - benchmark:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *on-any-branch # revert before merging
       - upload-artifacts:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"
