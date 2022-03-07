@@ -331,6 +331,12 @@ void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
   Cursors_ForEach(cl, purgeCb, info);
 }
 
+void CursorList_Empty(CursorList *cl) {
+  CursorList_Destroy(cl);
+  Array_Free(&cl->idle);
+  CursorList_Init(cl);
+}
+
 void CursorList_Destroy(CursorList *cl) {
   Cursors_GCInternal(cl, 1);
   for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
