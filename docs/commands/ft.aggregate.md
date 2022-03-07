@@ -56,6 +56,8 @@ Runs a search query on an index, and performs aggregate transformations on the r
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result.
   They are is applied post-query and relate to the current state of the pipeline.
 
+* **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
+
 @return
 
 @array-reply where each row is an @array-reply and represents a single aggregate result.
