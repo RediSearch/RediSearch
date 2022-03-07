@@ -1,4 +1,7 @@
-<img src="img/logo.svg" alt="logo" width="200"/>
+---
+title: RediSearch - Redis Secondary Index & Query Engine
+linkTitle: RediSearch
+---
 
 # RediSearch - Redis Secondary Index & Query Engine
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redislabs.com/c/modules/redisearch/)
