@@ -7,7 +7,6 @@ remote:
 
 setups:
   - oss-standalone
-  - oss-cluster-03-primaries
 
 clientconfig:
   tool: ann-benchmarks
