@@ -114,41 +114,37 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-#define ARG_HANDLED 1
-#define ARG_ERROR -1
-#define ARG_UNKNOWN 0
+static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
 
-static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
-  ArgsCursor paramsArgs = {0};
-  int rv = AC_GetVarArgs(ac, &paramsArgs);
+  ArgsCursor args = {0};
+  int rv = AC_GetVarArgs(ac, &args);
   if (rv != AC_OK) {
-    QERR_MKBADARGS_AC(status, "PARAMS", rv);
-    return REDISMODULE_ERR;
-  }
-  if (req->searchopts.params) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Multiple PARAMS are not allowed. Parameters can be defined only once");
-    return REDISMODULE_ERR;
-  }
-  if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
+    QERR_MKBADARGS_AC(status, "_REQUIRED_FIELDS", rv);
     return REDISMODULE_ERR;
   }
 
-  dict *params = Param_DictCreate();
-  size_t value_len;
-  while (!AC_IsAtEnd(&paramsArgs)) {
-    const char *param = AC_GetStringNC(&paramsArgs, NULL);
-    const char *value = AC_GetStringNC(&paramsArgs, &value_len);
-    // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
-    if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
-      Param_DictFree(params);
-      return REDISMODULE_ERR;
+  int requiredFieldNum = AC_NumArgs(&args);
+  // This array contains shallow copy of the required fields names. Those copies are to use only for lookup.
+  // If we need to use them in reply we should make a copy of those strings.
+  const char** requiredFields = array_new(const char*, requiredFieldNum);
+  for(size_t i=0; i < requiredFieldNum; i++) {
+    const char *s = AC_GetStringNC(&args, NULL); {
+      if(!s) {
+        array_free(requiredFields);
+        return REDISMODULE_ERR;
+      }
     }
+    requiredFields = array_append(requiredFields, s);
   }
-  req->searchopts.params = params;
+
+  req->requiredFields = requiredFields;
 
   return REDISMODULE_OK;
 }
+
+#define ARG_HANDLED 1
+#define ARG_ERROR -1
+#define ARG_UNKNOWN 0
 
 static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
@@ -209,9 +205,14 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     req->reqflags |= QEXEC_F_SENDRAWIDS;
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
-    if (parseParams(req, ac, status) != REDISMODULE_OK) {
+    if (parseParams(&(req->searchopts.params), ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if(AC_AdvanceIfMatch(ac, "_REQUIRED_FIELDS")) {
+    if (parseRequiredFields(req, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+    req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
   } else {
     return ARG_UNKNOWN;
   }
@@ -222,7 +223,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int isLegacy) {
   // Prevent multiple SORTBY steps
   if (arng->sortKeys != NULL) {
-    QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    if (isLegacy) {
+      QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed");
+    } else {
+      QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    }
     return REDISMODULE_ERR;
   }
 
@@ -928,7 +933,28 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
   return pushRP(req, groupRP, rpUpstream);
 }
 
-#define _SCORE_LEN 6
+static ResultProcessor *getVecSimRP(AREQ *req, AGGPlan *pln, ResultProcessor *up, QueryError *status) {
+  RLookup *lk = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
+  char **scoreFields = req->ast.vecScoreFieldNames;
+  size_t nScoreFields = array_len(scoreFields);
+  RLookupKey **keys = rm_calloc(nScoreFields, sizeof(*keys));
+  for (size_t i = 0; i < nScoreFields; i++) {
+    if (IndexSpec_GetField(req->sctx->spec, scoreFields[i], strlen(scoreFields[i]))) {
+      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", scoreFields[i]);
+      rm_free(keys);
+      return NULL;
+    }
+    keys[i] = RLookup_GetKey(lk, scoreFields[i], RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+    if (!keys[i]) {
+      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", scoreFields[i]);
+      rm_free(keys);
+      return NULL;
+    }
+  }
+
+  ResultProcessor *rp = RPVecSim_New((const RLookupKey **)keys, array_len(req->ast.vecScoreFieldNames));
+  return pushRP(req, rp, up);
+}
 
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up) {
@@ -936,7 +962,6 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
   IndexSpec *spec = req->sctx ? req->sctx->spec : NULL; // check for sctx?
-  SortByType sortbyType = SORTBY_FIELD;
 
   if (!astp) {
     astp = &astp_s;
@@ -965,33 +990,12 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       const char *keystr = astp->sortKeys[ii];
       sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_NOINCREF);
       if (!sortkeys[ii]) {
-        // check if key is a vector
-        if (nkeys == 1 && spec && spec->flags & Index_HasVecSim) {
-          // we check if field contains "_score"
-          int keystrlen = strlen(keystr) - _SCORE_LEN;
-          if (keystrlen > 0 && !strcmp(keystr + keystrlen, "_score")) {
-            char buf[keystrlen + 1 + _SCORE_LEN];
-            strncpy(buf, keystr, keystrlen);
-            buf[keystrlen] = '\0';
-            const FieldSpec *vecField = IndexSpec_GetField(spec, buf, strlen(buf));
-            if (vecField && vecField->types == INDEXFLD_T_VECTOR) {
-              strcpy(buf + keystrlen, "_score");
-              buf[keystrlen + _SCORE_LEN] = '\0';
-              sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_OCREAT);
-              sortbyType = SORTBY_DISTANCE;
-              // astp->sortAscMap = 0; // forcing ascending sort on vector distance
-            }
-          }
-        }
-        if (!sortkeys[ii]) {
-          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema",
-                                 keystr);
-          return NULL;
-        }
+        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
+        return NULL;
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, sortbyType);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
     up = pushRP(req, rp, up);
   }
 
@@ -1145,6 +1149,15 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
+
+  // Load vecsim results according to their score fields.
+  // We need this RP only if vecScoreFieldNames is not empty.
+  if (req->ast.vecScoreFieldNames) {
+    rpUpstream = getVecSimRP(req, pln, rpUpstream, status);
+    if (!rpUpstream) {
+      goto error;
+    }
+  }
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
@@ -1332,6 +1345,9 @@ void AREQ_Free(AREQ *req) {
   FieldList_Free(&req->outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);
+  }
+  if(req->requiredFields) {
+    array_free(req->requiredFields);
   }
   rm_free(req->args);
   rm_free(req);

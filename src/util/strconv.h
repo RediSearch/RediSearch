@@ -18,8 +18,8 @@
 static int ParseInteger(const char *arg, long long *val) {
 
   char *e = NULL;
-  *val = strtoll(arg, &e, 10);
   errno = 0;
+  *val = strtoll(arg, &e, 10);
   if ((errno == ERANGE && (*val == LONG_MAX || *val == LONG_MIN)) || (errno != 0 && *val == 0) ||
       *e != '\0') {
     *val = -1;

@@ -380,5 +380,3 @@ The way to address this challenge is to employ a technique called Index Partitio
 * We query all shards concurrently and merge the results from all of them into a single result.
 
 To enable that, a new component is added to the cluster, called a Coordinator. When searching for documents, the coordinator receives the query, and sends it to N partitions, each holding a sub-index of 1/N documents. Since we’re only interested in the top K results of all partitions, each partition returns just its own top K results. We then merge the N lists of K elements and extract the top K elements from the merged list.
-
-This feature is currently available only with the Enterprise version of RediSearch.

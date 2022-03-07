@@ -23,8 +23,9 @@ void RSQuery_ParseFree(void *p, void (*freeProc)(void *));
 
 machine query;
 
-inf = ['+\-']? 'inf' $ 3;
-number = '-'? digit+('.' digit+)? (('E'|'e') '-'? digit+)? $ 2;
+inf = ['+\-']? 'inf' $ 4;
+size = digit+ $ 2;
+number = '-'? digit+('.' digit+)? (('E'|'e') '-'? digit+)? $ 3;
 
 quote = '"';
 or = '|';
@@ -47,9 +48,21 @@ term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
 prefix = (term.star | number.star | attr.star) $1;
+as = 'AS'|'aS'|'As'|'as';
 
 main := |*
 
+  size => { 
+    tok.s = ts;
+    tok.len = te-ts;
+    char *ne = (char*)te;
+    tok.numval = strtod(tok.s, &ne);
+    tok.pos = ts-q->raw;
+    RSQuery_Parse(pParser, SIZE, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
   number => { 
     tok.s = ts;
     tok.len = te-ts;
@@ -60,7 +73,6 @@ main := |*
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
-    
   };
   mod => {
     tok.pos = ts-q->raw;
@@ -85,6 +97,19 @@ main := |*
     tok.len = te - ts;
     tok.s = ts+1;
     RSQuery_Parse(pParser, ARROW, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  as => {
+    tok.pos = ts-q->raw;
+    tok.len = te - ts;
+    tok.s = ts;
+    if (StopWordList_Contains(q->opts->stopwords, "as", 2)) {
+      RSQuery_Parse(pParser, AS_S, tok, q);
+    } else {
+      RSQuery_Parse(pParser, AS_T, tok, q);
+    }
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

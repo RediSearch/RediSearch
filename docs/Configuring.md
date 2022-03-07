@@ -407,3 +407,22 @@ $ redis-server --loadmodule ./redisearch.so UPGRADE_INDEX idx PREFIX 1 tt LANGUA
 
 * If the RDB file does not contain a legacy index that's specified in the configuration, a warning message will be added to the log file and loading will continue.
 * If the RDB file contains a legacy index that wasn't specified in the configuration loading will fail and the server won't start.
+
+## OSS_GLOBAL_PASSWORD
+
+Global oss cluster password that will be used to connect to other shards.
+
+### Default
+
+Not set
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so OSS_GLOBAL_PASSWORD password
+```
+
+### Notes
+
+* only relevant when Coordinator is used
+* added in v2.0.3

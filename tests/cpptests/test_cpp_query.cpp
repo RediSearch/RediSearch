@@ -92,12 +92,20 @@ TEST_F(QueryTest, testParser) {
   // test some valid queries
   assertValidQuery("hello", ctx);
 
+  assertValidQuery("*", ctx);
+  assertValidQuery("(*)", ctx);
+  assertValidQuery("((((((*))))))", ctx);
+  assertInvalidQuery("((((*))))))", ctx);
+
   assertValidQuery("hello wor*", ctx);
   assertValidQuery("hello world", ctx);
   assertValidQuery("hello (world)", ctx);
 
   assertValidQuery("\"hello world\"", ctx);
   assertValidQuery("\"hello\"", ctx);
+  assertValidQuery("\"$hello\"", ctx);
+  assertValidQuery("\"\\$hello\"", ctx);
+  assertValidQuery("\"\\@hello\"", ctx);
 
   assertValidQuery("\"hello world\" \"foo bar\"", ctx);
   assertValidQuery("\"hello world\"|\"foo bar\"", ctx);
@@ -176,6 +184,8 @@ TEST_F(QueryTest, testParser) {
   assertValidQuery("@tags:{bar* | foo}", ctx);
   assertValidQuery("@tags:{bar* | foo*}", ctx);
 
+  assertInvalidQuery("@title:{foo}}}}}", ctx);
+  assertInvalidQuery("@title:{{{{{foo}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|", ctx);
   assertInvalidQuery("{foo|bar\\ baz}", ctx);
@@ -214,8 +224,57 @@ TEST_F(QueryTest, testParser) {
   assertInvalidQuery("@tag:{foo | bar} => {$great: 0.5;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
-
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
+
+  // Test basic vector similarity query
+  assertValidQuery("*=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[knn $K @vec_field $BLOB as as]", ctx); // wrong command name lowercase
+  assertValidQuery("*=>[KNN $KNN @KNN $KNN KNN $KNN AS $AS]", ctx); // using reserved word as an attribute or field
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB]", ctx);
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB AS score]", ctx);
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB EF $ef foo bar x 5 AS score]", ctx);
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB foo bar x 5]", ctx);
+
+  // Test basic vector similarity query combined with other expressions
+  // This should fail for now because right now we only allow KNN query to be the root node.
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB]=>{$weight: 0.5; $slop: 2}", ctx);
+  assertInvalidQuery("*=>[KNN $K1 @vec_field $BLOB1] OR *=>[KNN $K2 @vec_field $BLOB2]", ctx);
+
+  // Test basic vector similarity query errors
+  assertInvalidQuery("*=>[ANN $K @vec_field $BLOB]", ctx); // wrong command name
+  assertInvalidQuery("*=>[KNN $K @vec_field BLOB]", ctx); // pass vector as value (must be an attribute)
+  assertInvalidQuery("*=>[KNN $K vec_field $BLOB]", ctx); // wrong field value (must be @field)
+  assertInvalidQuery("*=>[KNN K @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[KNN 3.14 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[KNN -42 @vec_field $BLOB]", ctx); // wrong k value (can be an attribute or integer)
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB $EF ef foo bar x 5 AS score]", ctx); // parameter as attribute
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF ef foo bar x 5 AS ]", ctx); // not specifying score field name
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
+
+  // Test simple hybrid vector query
+  assertValidQuery("(KNN)=>[KNN 10 @vec_field $BLOB]", ctx); // using KNN command in other context
+
+  assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(hello world)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(@title:hello)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB]", ctx);
+
+  assertValidQuery("hello=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(hello|world)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@hello:[0 10]=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(@tit_le|bo_dy:barack @body|title|url|something_else:obama)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(-hello ~world ~war)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@tags:{bar* | foo}=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(no -as) => {$weight: 0.5} => [KNN 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) other phrase", ctx);
+  assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) @title:other", ctx);
+  assertInvalidQuery("hello world => [KNN 10 @vec_field $BLOB] OR other => [KNN 10 @vec_field $BLOB]", ctx);
+
+  assertValidQuery("@title:((hello world)|((hello world)|(hallo world|werld) | hello world werld))", ctx);
+  assertValidQuery("(hello world)|((hello world)|(hallo world|werld) | hello world werld)", ctx);
+
+  assertValidQuery("hello 13 again", ctx);
 
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;
@@ -262,6 +321,43 @@ TEST_F(QueryTest, testParser) {
   IndexSpec_Free(ctx.spec);
 }
 
+TEST_F(QueryTest, testVectorHybridQuery) {
+  static const char *args[] = {"SCHEMA", "title", "text", "vec", "vector", "HNSW", "6",
+                               "TYPE", "FLOAT32", "DIM", "5", "DISTANCE_METRIC", "L2"};
+  QueryError err = {QueryErrorCode(0)};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  QASTCXX ast;
+  ast.setContext(&ctx);
+  
+  const char *vqt[] = {
+    "(hello world)=>[KNN 10 @vec $BLOB]",
+    "@title:(hello|world)=>[KNN 10 @vec $BLOB]",
+    "@title:hello=>[KNN 10 @vec $BLOB]",
+    NULL};
+
+  for (size_t i = 0; vqt[i] != NULL; i++) {
+    ASSERT_TRUE(ast.parse(vqt[i]));
+    QueryNode *vn = ast.root;
+    // ast.print();
+    ASSERT_TRUE(vn != NULL);
+    ASSERT_EQ(vn->type, QN_VECTOR);
+    ASSERT_EQ(QueryNode_NumChildren(vn), 1);
+  }
+
+  ast.parse(vqt[0]);
+  ASSERT_EQ(ast.root->children[0]->type, QN_PHRASE);
+  ASSERT_EQ(ast.root->children[0]->opts.fieldMask, -1);
+  ast.parse(vqt[1]);
+  ASSERT_EQ(ast.root->children[0]->type, QN_UNION);
+  ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
+  ast.parse(vqt[2]);
+  ASSERT_EQ(ast.root->children[0]->type, QN_TOKEN);
+  ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
+
+  IndexSpec_Free(ctx.spec);
+}
+
 TEST_F(QueryTest, testPureNegative) {
   const char *qs[] = {"-@title:hello", "-hello", "@title:-hello", "-(foo)", "-foo", "(-foo)", NULL};
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
@@ -293,9 +389,9 @@ TEST_F(QueryTest, testGeoQuery) {
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_TRUE((n->opts.fieldMask == RS_FIELDMASK_ALL));
-  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+  ASSERT_EQ(QueryNode_NumChildren(n), 3);
 
-  QueryNode *gn = n->children[1];
+  QueryNode *gn = n->children[2];
   ASSERT_EQ(gn->type, QN_GEO);
   ASSERT_STREQ(gn->gn.gf->property, "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
@@ -317,7 +413,8 @@ TEST_F(QueryTest, testFieldSpec) {
   //ast.print();
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
-  ASSERT_EQ(n->opts.fieldMask, 0x01);
+  ASSERT_EQ(n->opts.fieldMask, -1);
+  ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
 
   qt = "(@title:hello) (@body:world)";
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();

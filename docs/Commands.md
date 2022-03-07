@@ -379,6 +379,12 @@ Searching for books with "Python" in any TEXT attribute, returning the price sto
 FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 ```
 
+Searching for books with semantically similar "title" to "Planet Earth", Return top 10 results sorted by distance.
+
+```sql
+FT.SEARCH books-idx "*=>[KNN 10 @title_embedding $query_vec AS title_score]" PARAMS 2 query_vec <"Planet Earth" embedding BLOB> SORTBY title_score
+```
+
 !!! tip "More examples"
     For more details and query examples, see [query syntax](Query_Syntax.md).
 
@@ -784,7 +790,7 @@ Return value has an array with two elements:
     * **Pipeline creation time** - Creation time of execution plan including iterators,
   result processors and reducers creation.
     * **Iterators profile** - Index iterators information including their type, term, count and time data.
-  Inverted-index iterators have in addition the number of elements they contain.
+  Inverted-index iterators have in addition the number of elements they contain. Hybrid vector iterators returning the top results from the vector index in batches, include the number of batches.
     * **Result processors profile** - Result processors chain with type, count and time data.
 
 #### Example
