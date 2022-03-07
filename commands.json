@@ -12,8 +12,8 @@
       {
         "name": "data_type",
         "command": "ON",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
           "HASH", "JSON"
         ],
         "optional": true
@@ -21,7 +21,7 @@
       {
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "integer",
@@ -66,8 +66,8 @@
       },
       {
           "name": "maxtextfields",
-          "type": "enum",
-          "enum": [
+          "type": "oneof",
+          "arguments": [
               "MAXTEXTFIELDS"
           ],
           "optional": true
@@ -80,32 +80,32 @@
       },
       {
         "name": "nooffsets",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
             "NOOFFSETS"
         ],
         "optional": true
       },
       {
         "name": "nohl",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
             "NOHL"
         ],
         "optional": true
       },
       {
         "name": "nofields",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
             "NOFIELDS"
         ],
         "optional": true
       },
       {
         "name": "nofreqs",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
             "NOFREQS"
         ],
         "optional": true
@@ -114,7 +114,7 @@
         "type": "block",
         "optional": true,
         "command":"STOPWORDS",
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "integer"
@@ -128,8 +128,8 @@
       },
       {
         "name": "schema",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
             "SCHEMA"
         ]
       },
@@ -137,7 +137,7 @@
         "name": "field",
         "type": "block",
         "multiple": true,
-        "block": [
+        "arguments": [
           {
             "name": "field_name",
             "type": "string"
@@ -150,8 +150,8 @@
           },
           {
             "name": "field_type",
-            "type": "enum",
-            "enum": [
+            "type": "oneof",
+            "arguments": [
               "TEXT", "TAG", "NUMERIC", "GEO"
             ]
           },
@@ -159,18 +159,18 @@
             "name": "sortable",
             "type": "block",
             "optional": true,
-            "block": [
+            "arguments": [
               {
                 "name": "sortable",
-                "type": "enum",
-                "enum": [ 
+                "type": "oneof",
+                "arguments": [ 
                   "SORTABLE"
                 ]
               },
               {
                 "name": "UNF",
-                "type": "enum",
-                "enum": [ 
+                "type": "oneof",
+                "arguments": [ 
                   "UNF"
                 ],
                 "optional": true
@@ -179,9 +179,9 @@
           },
           {
             "name": "noindex",
-            "type": "enum",
+            "type": "oneof",
             "optional": true,
-            "enum": [
+            "arguments": [
               "NOINDEX"
             ]
           }
@@ -245,15 +245,15 @@
       },
       {
         "name": "schema",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
           "SCHEMA"
         ]
       },
       {
         "name": "add",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
           "ADD"
         ]
       },
@@ -279,8 +279,8 @@
       },
       {
         "name": "delete docs",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
           "DD"
         ],
         "optional": true
@@ -367,8 +367,8 @@
       },
       {
         "name": "increment score",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
           "INCR"
         ],
         "optional": true
@@ -397,24 +397,24 @@
       },
       {
         "name": "fuzzy",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
           "FUZZY"
         ],
         "optional": true
       },
       {
         "name": "withscores",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
           "WITHSCORES"
         ],
         "optional": true
       },
       {
         "name": "withpayloads",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
           "WITHPAYLOADS"
         ],
         "optional": true
@@ -471,8 +471,8 @@
       },
       {
         "name": "skipinitialscan",
-        "type": "enum",
-        "enum": [
+        "type": "oneof",
+        "arguments": [
           "SKIPINITIALSCAN"
         ],
         "optional": true
@@ -521,11 +521,11 @@
         "command": "TERMS",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "inclusion",
-            "type": "enum",
-            "enum": [
+            "type": "oneof",
+            "arguments": [
               "INCLUDE", "EXCLUDE"
             ]
           },
@@ -651,49 +651,49 @@
       },
       {
         "name": "nocontent",
-        "type": "enum",
+        "type": "oneof",
         "optional": true,
-        "enum": [
+        "arguments": [
           "NOCONTENT"
         ]
       },
       {
         "name": "verbatim",
-        "type": "enum",
+        "type": "oneof",
         "optional": true,
-        "enum": [
+        "arguments": [
           "VERBATIM"
         ]
       },
       {
         "name": "nostopwords",
-        "type": "enum",
+        "type": "oneof",
         "optional": true,
-        "enum": [
+        "arguments": [
           "NOSTOPWORDS"
         ]
       },
       {
         "name": "withscores",
-        "type": "enum",
+        "type": "oneof",
         "optional": true,
-        "enum": [
+        "arguments": [
           "WITHSCORES"
         ]
       },
       {
         "name": "withpayloads",
-        "type": "enum",
+        "type": "oneof",
         "optional": true,
-        "enum": [
+        "arguments": [
           "WITHPAYLOADS"
         ]
       },
       {
         "name": "withsortkeys",
-        "type": "enum",
+        "type": "oneof",
         "optional": true,
-        "enum": [
+        "arguments": [
           "WITHSORTKEYS"
         ]
       },
@@ -702,7 +702,7 @@
         "type": "block",
         "optional": true,
         "multiple": true,
-        "block": [
+        "arguments": [
           {
             "name": "numeric_field",
             "type": "string",
@@ -723,7 +723,7 @@
         "type": "block",
         "optional": true,
         "multiple": true,
-        "block": [
+        "arguments": [
           {
             "name": "geo_field",
             "type": "string",
@@ -743,8 +743,8 @@
           },
           {
             "name": "radius_type",
-            "type": "enum",
-            "enum": [
+            "type": "oneof",
+            "arguments": [
               "m", "km", "mi", "ft"
             ]
           }
@@ -754,7 +754,7 @@
         "name": "in_keys",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "string",
@@ -771,7 +771,7 @@
         "name": "in_fields",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "string",
@@ -788,7 +788,7 @@
         "name": "return",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "string",
@@ -805,11 +805,11 @@
         "name": "summarize",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "summarize",
-            "type": "enum",
-            "enum": [
+            "type": "oneof",
+            "arguments": [
               "SUMMARIZE"
             ]
           },
@@ -817,7 +817,7 @@
             "name": "fields",
             "type": "block",
             "optional": true,
-            "block": [
+            "arguments": [
               {
                 "name": "count",
                 "type": "string",
@@ -854,11 +854,11 @@
         "name": "highlight",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "highlight",
-            "type": "enum",
-            "enum": [
+            "type": "oneof",
+            "arguments": [
               "HIGHLIGHT"
             ]
           },
@@ -866,7 +866,7 @@
             "name": "fields",
             "type": "block",
             "optional": true,
-            "block": [
+            "arguments": [
               {
                 "name": "count",
                 "type": "string",
@@ -883,11 +883,11 @@
             "name": "tags",
             "type": "block",
             "optional": true,
-            "block": [
+            "arguments": [
               {
                 "name": "tags",
-                "type": "enum",
-                "enum": [
+                "type": "oneof",
+                "arguments": [
                   "TAGS"
                 ]
               },
@@ -907,9 +907,9 @@
       },
       {
         "name": "tags",
-        "type": "enum",
+        "type": "oneof",
         "optional": true,
-        "enum": [
+        "arguments": [
           "INORDER"
         ]
       },
@@ -933,9 +933,9 @@
       },
       {
         "name": "explainscore",
-        "type": "enum",
+        "type": "oneof",
         "optional": true,
-        "enum": [
+        "arguments": [
           "EXPLAINSCORE"
         ]
       },
@@ -949,7 +949,7 @@
         "name": "sortby",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "sortby",
             "type": "string",
@@ -957,9 +957,9 @@
           },
           {
             "name": "order",
-            "type": "enum",
+            "type": "oneof",
             "optional": true,
-            "enum": [
+            "arguments": [
               "ASC", "DESC"
             ]
           }
@@ -969,11 +969,11 @@
         "name": "limit",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "limit",
-            "type": "enum",
-            "enum": [
+            "type": "oneof",
+            "arguments": [
               "LIMIT"
             ]
           },
@@ -1002,9 +1002,9 @@
       },
       {
         "name": "verbatim",
-        "type": "enum",
+        "type": "oneof",
         "optional": true,
-        "enum": [
+        "arguments": [
           "VERBATIM"
         ]
       },
@@ -1012,7 +1012,7 @@
         "name": "load",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "string",
@@ -1027,9 +1027,9 @@
       },
       {
         "name": "loadall",
-        "type": "enum",
+        "type": "oneof",
         "optional": true,
-        "enum": [
+        "arguments": [
           "LOAD *"
         ]
       },
@@ -1038,7 +1038,7 @@
         "type": "block",
         "optional": true,
         "multiple": true,
-        "block" : [
+        "arguments": [
           {
             "name": "nargs",
             "type": "integer",
@@ -1054,7 +1054,7 @@
             "type": "block",
             "optional": true,
             "multiple": true,
-            "block" : [
+            "arguments": [
               {
                 "name": "function",
                 "type": "string",
@@ -1083,7 +1083,7 @@
         "name": "sortby",
         "type": "block",
         "optional": true,
-        "block" : [
+        "arguments": [
           {
             "name": "nargs",
             "type": "integer",
@@ -1094,15 +1094,15 @@
             "type": "block",
             "optional": true,
             "multiple": true,
-            "block" : [
+            "arguments": [
               {
                 "name": "property",
                 "type": "string"
               },
               {
                 "name": "order",
-                "type": "enum",
-                "enum": [
+                "type": "oneof",
+                "arguments": [
                   "ASC", "DESC"
                 ]
               }
@@ -1121,7 +1121,7 @@
         "type": "block",
         "optional": true,
         "multiple": true,
-        "block" : [
+        "arguments": [
           {
             "name": "expression",
             "type": "string",
@@ -1138,11 +1138,11 @@
         "name": "limit",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "limit",
-            "type": "enum",
-            "enum": [
+            "type": "oneof",
+            "arguments": [
               "LIMIT"
             ]
           },
@@ -1162,11 +1162,11 @@
         "name": "cursor",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "withcursor",
-            "type": "enum",
-            "enum": ["WITHCURSOR"]
+            "type": "oneof",
+            "arguments": ["WITHCURSOR"]
           },
           {
             "name": "read_size",
