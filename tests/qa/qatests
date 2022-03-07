@@ -34,6 +34,9 @@ RS_PLATFORMS = {
     'ol8': {
         'platform': 'Linux-rhel8',
         'env': 'rhel8-x86_64-aws' }
+    'rocky8': {
+        'platform': 'Linux-rhel8',
+        'env': 'rhel8-x86_64-aws' }
 }
 
 
