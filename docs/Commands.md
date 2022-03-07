@@ -313,6 +313,8 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [PAYLOAD {payload}]
   [SORTBY {attribute} [ASC|DESC]]
   [LIMIT offset num]
+  [TIMEOUT {milliseconds}]
+  [PARAMS {nargs} {name} {value} ... ]
 ```
 
 #### Description
@@ -443,6 +445,10 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 !!! tip
     `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
 
+- **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
+
+* **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the query string by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
+
 #### Complexity
 
 O(n) for single word queries. `n` is the number of the results in the result set. Finding all the documents that have a specific term is O(1), however, a scan on all those documents is needed to load the documents data from redis hashes and return them.
@@ -477,6 +483,8 @@ FT.AGGREGATE {index_name}
   [APPLY {expr} AS {alias}] ...
   [LIMIT {offset} {num}] ...
   [FILTER {expr}] ...
+  [TIMEOUT {milliseconds}]
+  [PARAMS {nargs} {name} {value} ... ]
 ```
 
 #### Description
@@ -570,6 +578,10 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
 
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result.
   They are is applied post-query and relate to the current state of the pipeline.
+
+* **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
+
+* **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the query string by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
 
 #### Complexity
 
