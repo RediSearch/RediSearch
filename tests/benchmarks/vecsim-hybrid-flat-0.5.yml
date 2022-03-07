@@ -5,8 +5,10 @@ remote:
  - type: oss-standalone
  - setup: redisearch-m5d
 dbconfig:
+  - dataset_name: "hybrid-glove100-index-1"
   - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/vecsim/hybrid-glove100-index-1.rdb"
 clientconfig:
+  - benchmark_type: "read-only"
   - tool: redis-benchmark
   - min-tool-version: "6.2.0"
   - parameters:
