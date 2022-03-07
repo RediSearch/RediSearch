@@ -28,10 +28,10 @@ RS_PLATFORMS = {
     'centos7': {
         'platform': 'Linux-rhel7',
         'env': 'rhel7.7-x86_64-aws' },
-    'centos8': {
-        'platform': 'Linux-rhel8',
-        'env': 'rhel8-x86_64-aws' }
-    'ol8': {
+#    'centos8': {
+#        'platform': 'Linux-rhel8',
+#        'env': 'rhel8-x86_64-aws' },
+    'rocky8': {
         'platform': 'Linux-rhel8',
         'env': 'rhel8-x86_64-aws' }
 }
