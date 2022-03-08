@@ -119,7 +119,6 @@ class Test:
     def run(self):
         found_osnick = False
         click.echo(f"Testing {self.module_name}/{self.modver} for RS {self.rlecver}:")
-        BB()
         for osnick in RLEC_PLATFORMS.keys():
             if self.osnick is None:
                 if 'run' in RLEC_PLATFORMS[osnick] and RLEC_PLATFORMS[osnick]['run'] is False:
@@ -201,7 +200,6 @@ def main(token, test, modver, snapshot, jsonver, rlecver, osnick, light, quick, 
     if token is None and not nop:
         raise click.ClickException('QA automation token is missing.')
     test_fname = os.path.join(HERE, f'{test}.json')
-    BB()
     if not os.path.exists(test_fname):
         raise click.ClickException(f"Invalid test name: {test}")
 
