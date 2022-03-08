@@ -1,13 +1,3 @@
-
-### FT.DICTDEL
-
-#### Format
-```
-  FT.DICTDEL {dict} {term} [{term} ...]
-```
-
-#### Description
-
 Deletes terms from a dictionary.
 
 #### Parameters
