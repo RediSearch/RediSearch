@@ -140,7 +140,26 @@
             "name": "field_type",
             "type": "oneof",
             "arguments": [
-              "TEXT", "TAG", "NUMERIC", "GEO"
+              {
+                "name": "text",
+                "type": "pure-token",
+                "token": "TEXT"
+              },
+              {
+                "name": "tag",
+                "type": "pure-token",
+                "token": "TAG"
+              },
+              {
+                "name": "numeric",
+                "type": "pure-token",
+                "token": "NUMERIC"
+              },
+              {
+                "name": "geo",
+                "type": "pure-token",
+                "token": "GEO"
+              }
             ]
           },
           {
@@ -649,11 +668,8 @@
       },
       {
         "name": "verbatim",
-        "type": "oneof",
-        "optional": true,
-        "arguments": [
-          "VERBATIM"
-        ]
+        "type": "pure-token",
+        "token":"VERBATIM"
       },
       {
         "name": "nostopwords",
@@ -956,7 +972,16 @@
             "type": "oneof",
             "optional": true,
             "arguments": [
-              "ASC", "DESC"
+              {
+                "name": "asc",
+                "type": "pure-token",
+                "token": "ASC"
+              },
+              {
+                "name": "desc",
+                "type": "pure-token",
+                "token": "DESC"
+              }
             ]
           }
         ]
@@ -1029,11 +1054,9 @@
       },
       {
         "name": "loadall",
-        "type": "oneof",
-        "optional": true,
-        "arguments": [
-          "LOAD *"
-        ]
+        "type": "pure-token",
+        "token": "LOAD *",
+        "optional": true
       },
       {
         "name": "groupby",
@@ -1105,7 +1128,16 @@
                 "name": "order",
                 "type": "oneof",
                 "arguments": [
-                  "ASC", "DESC"
+                  {
+                    "name": "asc",
+                    "type": "pure-token",
+                    "token": "ASC"
+                  },
+                  {
+                    "name": "desc",
+                    "type": "pure-token",
+                    "token": "DESC"
+                  }
                 ]
               }
             ]
