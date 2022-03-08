@@ -119,7 +119,8 @@
       {
         "name": "schema",
         "type": "pure-token",
-        "token": "SCHEMA"
+        "token": "SCHEMA",
+        "optional": false
       },
       {
         "name": "field",
@@ -253,10 +254,8 @@
       },
       {
         "name": "add",
-        "type": "oneof",
-        "arguments": [
-          "ADD"
-        ]
+        "type": "pure-token",
+        "token": "ADD"
       },
       {
         "name": "field",
@@ -406,26 +405,20 @@
       },
       {
         "name": "fuzzy",
-        "type": "oneof",
-        "arguments": [
-          "FUZZY"
-        ],
+        "type": "pure-token",
+        "token": "FUZZY",
         "optional": true
       },
       {
         "name": "withscores",
-        "type": "oneof",
-        "arguments": [
-          "WITHSCORES"
-        ],
+        "type": "pure-token",
+        "token": "WITHSCORES",
         "optional": true
       },
       {
         "name": "withpayloads",
-        "type": "oneof",
-        "arguments": [
-          "WITHPAYLOADS"
-        ],
+        "type": "pure-token",
+        "token": "WITHPAYLOADS",
         "optional": true
       },
       {
@@ -480,10 +473,8 @@
       },
       {
         "name": "skipinitialscan",
-        "type": "oneof",
-        "arguments": [
-          "SKIPINITIALSCAN"
-        ],
+        "type": "pure-token",
+        "token": "SKIPINITIALSCAN",
         "optional": true
       },
       {
@@ -535,7 +526,16 @@
             "name": "inclusion",
             "type": "oneof",
             "arguments": [
-              "INCLUDE", "EXCLUDE"
+              {
+                "name": "include",
+                "type": "pure-token",
+                "token": "INCLUDE"
+              },
+              {
+                "name": "exclude",
+                "type": "pure-token",
+                "token": "EXCLUDE"
+              }
             ]
           },
           {
@@ -660,11 +660,9 @@
       },
       {
         "name": "nocontent",
-        "type": "oneof",
-        "optional": true,
-        "arguments": [
-          "NOCONTENT"
-        ]
+        "type": "pure-token",
+        "token": "NOCONTENT",
+        "optional": true
       },
       {
         "name": "verbatim",
@@ -673,35 +671,27 @@
       },
       {
         "name": "nostopwords",
-        "type": "oneof",
-        "optional": true,
-        "arguments": [
-          "NOSTOPWORDS"
-        ]
+        "type": "pure-token",
+        "token": "NOSTOPWORDS",
+        "optional": true
       },
       {
         "name": "withscores",
-        "type": "oneof",
-        "optional": true,
-        "arguments": [
-          "WITHSCORES"
-        ]
+        "type": "pure-token",
+        "token": "WITHSCORES",
+        "optional": true
       },
       {
         "name": "withpayloads",
-        "type": "oneof",
-        "optional": true,
-        "arguments": [
-          "WITHPAYLOADS"
-        ]
+        "type": "pure-token",
+        "token": "WITHPAYLOADS",
+        "optional": true
       },
       {
         "name": "withsortkeys",
-        "type": "oneof",
-        "optional": true,
-        "arguments": [
-          "WITHSORTKEYS"
-        ]
+        "type": "pure-token",
+        "token": "WITHSORTKEYS",
+        "optional": true
       },
       {
         "name": "filter",
@@ -1233,23 +1223,28 @@
         "name": "querytype",
         "type": "oneof",
         "arguments": [
-          "SEARCH",
-          "AGGREGATE"
+          {
+            "name": "search",
+            "type": "pure-token",
+            "token": "SEARCH"
+          },
+          {
+            "name": "aggregate",
+            "type": "pure-token",
+            "token": "AGGREGATE"
+          }
         ]
       },
       {
         "name": "limited",
-        "type": "oneof",
-        "arguments": [
-          "LIMITED"
-        ]
+        "type": "pure-token",
+        "token": "LIMITED",
+        "optional": true
       },
       {
         "name": "queryword",
-        "type": "oneof",
-        "arguments": [
-          "QUERY"
-        ]
+        "type": "pure-token",
+        "token": "QUERY"
       },
       {
         "name": "query",
