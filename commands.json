@@ -14,7 +14,16 @@
         "command": "ON",
         "type": "oneof",
         "arguments": [
-          "HASH", "JSON"
+          {
+              "name": "hash",
+              "type": "pure-token",
+              "token": "HASH"
+          },
+          {
+              "name": "json",
+              "type": "pure-token",
+              "token": "JSON"
+          }
         ],
         "optional": true
       },
@@ -667,7 +676,8 @@
       {
         "name": "verbatim",
         "type": "pure-token",
-        "token":"VERBATIM"
+        "token":"VERBATIM",
+        "optional": true
       },
       {
         "name": "nostopwords",
@@ -741,7 +751,26 @@
             "name": "radius_type",
             "type": "oneof",
             "arguments": [
-              "m", "km", "mi", "ft"
+              {
+                "name": "m",
+                "type": "pure-token",
+                "token": "m"
+              },
+              {
+                "name": "km",
+                "type": "pure-token",
+                "token": "km"
+              },
+              {
+                "name": "mi",
+                "type": "pure-token",
+                "token": "mi"
+              },
+              {
+                "name": "ft",
+                "type": "pure-token",
+                "token": "ft"
+              }
             ]
           }
         ]
@@ -804,10 +833,9 @@
         "arguments": [
           {
             "name": "summarize",
-            "type": "oneof",
-            "arguments": [
-              "SUMMARIZE"
-            ]
+            "type": "pure-token",
+            "token": "SUMMARIZE",
+            "optional": true
           },
           {
             "name": "fields",
@@ -853,10 +881,9 @@
         "arguments": [
           {
             "name": "highlight",
-            "type": "oneof",
-            "arguments": [
-              "HIGHLIGHT"
-            ]
+            "type": "pure-token",
+            "token": "HIGHLIGHT",
+            "optional": true
           },
           {
             "name": "fields",
@@ -882,10 +909,9 @@
             "arguments": [
               {
                 "name": "tags",
-                "type": "oneof",
-                "arguments": [
-                  "TAGS"
-                ]
+                "type": "pure-token",
+                "token": "TAGS",
+                "optional": true
               },
               {
                 "name": ["open", "close"],
@@ -908,12 +934,10 @@
         "command":"TIMEOUT"
       },
       {
-        "name": "tags",
-        "type": "oneof",
-        "optional": true,
-        "arguments": [
-          "INORDER"
-        ]
+        "name": "inorder",
+        "type": "pure-token",
+        "token": "INORDER",
+        "optional": true
       },
       {
         "name": "language",
@@ -935,11 +959,9 @@
       },
       {
         "name": "explainscore",
-        "type": "oneof",
-        "optional": true,
-        "arguments": [
-          "EXPLAINSCORE"
-        ]
+        "type": "pure-token",
+        "token": "EXPLAINSCORE",
+        "optional": true
       },
       {
         "name": "payload",
@@ -983,10 +1005,9 @@
         "arguments": [
           {
             "name": "limit",
-            "type": "oneof",
-            "arguments": [
-              "LIMIT"
-            ]
+            "type": "pure-token",
+            "token": "LIMIT",
+            "optional": true
           },
           {
             "name": ["offset", "num"],
@@ -1189,8 +1210,9 @@
         "arguments": [
           {
             "name": "withcursor",
-            "type": "oneof",
-            "arguments": ["WITHCURSOR"]
+            "type": "pure-token",
+            "token": "WITHCURSOR",
+            "optional": true
           },
           {
             "name": "read_size",
