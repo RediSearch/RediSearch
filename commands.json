@@ -66,10 +66,8 @@
       },
       {
           "name": "maxtextfields",
-          "type": "oneof",
-          "arguments": [
-              "MAXTEXTFIELDS"
-          ],
+          "type": "pure-token",
+          "token": "MAXTEXTFIELDS",
           "optional": true
       },
       {
@@ -80,34 +78,26 @@
       },
       {
         "name": "nooffsets",
-        "type": "oneof",
-        "arguments": [
-            "NOOFFSETS"
-        ],
+        "type": "pure-token",
+        "token": "NOOFFSETS",
         "optional": true
       },
       {
         "name": "nohl",
-        "type": "oneof",
-        "arguments": [
-            "NOHL"
-        ],
+        "type": "pure-token",
+        "token": "NOHL",
         "optional": true
       },
       {
         "name": "nofields",
-        "type": "oneof",
-        "arguments": [
-            "NOFIELDS"
-        ],
+        "type": "pure-token",
+        "token": "NOFIELDS",
         "optional": true
       },
       {
         "name": "nofreqs",
-        "type": "oneof",
-        "arguments": [
-            "NOFREQS"
-        ],
+        "type": "pure-token",
+        "token": "NOFREQS",
         "optional": true
       },
       {
@@ -128,10 +118,8 @@
       },
       {
         "name": "schema",
-        "type": "oneof",
-        "arguments": [
-            "SCHEMA"
-        ]
+        "type": "pure-token",
+        "token": "SCHEMA"
       },
       {
         "name": "field",
@@ -162,28 +150,22 @@
             "arguments": [
               {
                 "name": "sortable",
-                "type": "oneof",
-                "arguments": [ 
-                  "SORTABLE"
-                ]
+                "type": "pure-token",
+                "token": "SORTABLE"
               },
               {
                 "name": "UNF",
-                "type": "oneof",
-                "arguments": [ 
-                  "UNF"
-                ],
+                "type": "pure-token",
+                "token": "UNF",
                 "optional": true
               }
             ]
           },
           {
             "name": "noindex",
-            "type": "oneof",
-            "optional": true,
-            "arguments": [
-              "NOINDEX"
-            ]
+            "type": "pure-token",
+            "token": "NOINDEX",
+            "optional": true
           }
         ]
       }
@@ -281,7 +263,11 @@
         "name": "delete docs",
         "type": "oneof",
         "arguments": [
-          "DD"
+          {
+            "name": "delete docs",
+            "type": "pure-token",
+            "token":"DD"
+          }
         ],
         "optional": true
       }
@@ -369,7 +355,11 @@
         "name": "increment score",
         "type": "oneof",
         "arguments": [
-          "INCR"
+          {
+            "name": "incr",
+            "type": "pure-token",
+            "token":"INCR"
+          }
         ],
         "optional": true
       },
