@@ -31,13 +31,14 @@ typedef struct {
   heap_t *topResults;              // Sorted by score (max heap).
   //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
   size_t numIterations;
+  bool ignoreScores;               // Ignore the document scores, only vector score matters.
 } HybridIterator;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KNNVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it);
+IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KNNVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it, bool ignoreScores);
 
 #ifdef __cplusplus
 }

@@ -86,7 +86,7 @@ static size_t expBlobSize(VecSimIndex *ind) {
   return (dim * VecSimType_sizeof(type));
 }
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIterator *child_it, QueryError *status) {
+IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIterator *child_it, bool ignoreScores, QueryError *status) {
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
@@ -110,7 +110,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIter
                                vq->knn.vecLen, expBlobSize(vecsim));
         return NULL;
       }
-      return NewHybridVectorIterator(vecsim, vq->scoreField, vq->knn, qParams, child_it);
+      return NewHybridVectorIterator(vecsim, vq->scoreField, vq->knn, qParams, child_it, ignoreScores);
     }
   }
   return NULL;

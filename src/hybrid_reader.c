@@ -3,7 +3,7 @@
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
 
-#define VECTOR_RESULT(p) p->agg.children[0]
+#define VECTOR_RESULT(p) (p->type == RSResultType_Distance ? p : p->agg.children[0])
 
 static void prepareResults(HybridIterator *hr); // forward declaration
 
@@ -65,20 +65,33 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
                                RSIndexResult *vec_res, float *upper_bound) {
-  AggregateResult_AddChild(res, vec_res);
-  AggregateResult_AddChild(res, child_res);
-  // todo: can we avoid deep copy and reuse memory sometimes (as the sorter does)?
-  RSIndexResult *hit = IndexResult_DeepCopy(res);
-  if (heap_count(hr->topResults) >= hr->query.k) {
-    // Remove and release the worst result to replace it with the new one.
-    RSIndexResult *top_res = heap_poll(hr->topResults);
-    IndexResult_Free(top_res);
+
+  RSIndexResult *hit;
+  // If we ignore the document score, hit is single node of type DISTANCE.
+  if (hr->ignoreScores) {
+    if (heap_count(hr->topResults) < hr->query.k) {
+      hit = NewDistanceResult();
+    } else {
+      hit = heap_poll(hr->topResults); // Reuse the memory of the worst result and replace it.
+    }
+    *hit = *vec_res; // Shallow copy.
+  } else {
+    // Otherwise, first child is the vector distance, and the second contains a subtree with
+    // the terms that the scorer will use later on in the pipeline.
+    AggregateResult_AddChild(res, vec_res);
+    AggregateResult_AddChild(res, child_res);
+    hit = IndexResult_DeepCopy(res);
+    if (heap_count(hr->topResults) >= hr->query.k) {
+      // Remove and release the worst result to replace it with the new one.
+      RSIndexResult *top_res = heap_poll(hr->topResults);
+      IndexResult_Free(top_res);
+    }
   }
   // Insert to heap, update the distance upper bound.
   heap_offerx(hr->topResults, hit);
   RSIndexResult *top = heap_peek(hr->topResults);
   *upper_bound = VECTOR_RESULT(top)->dist.distance;
-  // Reset the current result and advance both "sub-iterators".
+  // Reset the current result.
   AggregateResult_Reset(res);
 }
 
@@ -308,7 +321,7 @@ void HybridIterator_Free(struct indexIterator *self) {
   rm_free(it);
 }
 
-IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KNNVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it) {
+IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KNNVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it, bool ignoreScores) {
   HybridIterator *hi = rm_new(HybridIterator);
   hi->lastDocId = 0;
   hi->child = child_it;
@@ -321,6 +334,7 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KN
   hi->list = NULL;
   hi->iter = NULL;
   hi->numIterations = 0;
+  hi->ignoreScores = ignoreScores;
 
   if (child_it == NULL) {
     hi->searchMode = VECSIM_STANDARD_KNN;
@@ -361,8 +375,13 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KN
     ri->Read = HR_ReadKnnUnsorted;
     ri->current = NewDistanceResult();
   } else {
+    // Hybrid query - save the RSIndexResult subtree which is not the vector distance only if required.
     ri->Read = HR_ReadHybridUnsorted;
-    ri->current = NewHybridResult();
+    if (ignoreScores) {
+      ri->current = NewDistanceResult();
+    } else {
+      ri->current = NewHybridResult();
+    }
   }
   return ri;
 }
