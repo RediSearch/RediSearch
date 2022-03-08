@@ -7,12 +7,14 @@ remote:
 dbconfig:
   - dataset_name: "hybrid-glove100-index-1"
   - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/vecsim/hybrid-glove100-index-1.rdb"
-  - dataset_load_timeout_secs: 1200
+  - dataset_load_timeout_secs: 1800
+setups:
+  - oss-standalone
 clientconfig:
   - benchmark_type: "read-only"
   - tool: redis-benchmark
   - min-tool-version: "6.2.0"
   - parameters:
     - clients: 16
-    - requests: 5000000
+    - requests: 500000
     - command: 'FT.SEARCH idx "text5=>[KNN $k @flat_vector $BLOB]" PARAMS 4 k 10 BLOB aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
