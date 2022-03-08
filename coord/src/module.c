@@ -1012,7 +1012,7 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
 static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
   // Reverse the top N results
 
-  rCtx->postProcess(rCtx);
+  rCtx->postProcess((struct searchReducerCtx *)rCtx);
 
   searchRequestCtx *req = rCtx->searchCtx;
 
@@ -1167,8 +1167,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   heap_init(rCtx.pq, cmp_results, req, num);
 
   // Default result process and post process operations
-  rCtx.processReply = processSearchReply;
-  rCtx.postProcess = noOpPostProcess;
+  rCtx.processReply = (void (*)(struct redisReply *, struct searchReducerCtx *, RedisModuleCtx *))processSearchReply;
+  rCtx.postProcess = (void (*)(struct searchReducerCtx *))noOpPostProcess;
 
 
   if(req->specialCases) {
@@ -1176,12 +1176,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     for(size_t i =0; i < nSpecialCases; i++) {
       if(req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
         specialCaseCtx* knnCtx = req->specialCases[i];
-        rCtx.postProcess = knnPostProcess;
+        rCtx.postProcess = (void (*)(struct searchReducerCtx *))knnPostProcess;
         rCtx.reduceSpecialCaseCtx = knnCtx;
         if(knnCtx->knn.shouldSort) {
           knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
           heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
-          rCtx.processReply = proccessKNNSearchReply;
+          rCtx.processReply =(void (*)(struct redisReply *, struct searchReducerCtx *, RedisModuleCtx *))proccessKNNSearchReply;
           rCtx.reduceSpecialCaseCtx = knnCtx;
           break;
         }
@@ -1191,7 +1191,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   for (int i = 0; i < count; i++) {
     MRReply *reply = (!profile) ? replies[i] : MRReply_ArrayElement(replies[i], 0);
-    rCtx.processReply(reply, &rCtx, ctx);
+    rCtx.processReply(reply, (struct searchReducerCtx *)&rCtx, ctx);
   }
   if (rCtx.cachedResult) {
     free(rCtx.cachedResult);
