@@ -21,6 +21,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 VERBOSE = 0
 NOP = False
 OPERETO3_URL = "opereto.qa.redislabs.com"
+DEFAULT_JSON_VER = '2.0.7'
 
 
 RLEC_PLATFORMS = {
@@ -33,9 +34,10 @@ RLEC_PLATFORMS = {
     'centos7': {
         'os': 'Linux-rhel7',
         'env': 'rhel7.7-x86_64-aws' },
-#    'centos8': {
-#        'os': 'Linux-rhel8',
-#        'env': 'rhel8-x86_64-aws' },
+    'centos8': {
+        'os': 'Linux-rhel8',
+        'env': 'rhel8-x86_64-aws',
+        'run': False },
     'rocky8': {
         'os': 'Linux-rhel8',
         'env': 'rhel8-x86_64-aws' }
@@ -73,7 +75,7 @@ RS_VERSIONS file includes Redis Enterprive versions for release tests.
 
 
 class Test:
-    def __init__(self, token, test_fname, modver, snapshot, rlecver, osnick, light):
+    def __init__(self, token, test_fname, modver, snapshot, jsonver, rlecver, osnick, light):
         global NOP, VERBOSE
 
         self.token = token
@@ -81,6 +83,7 @@ class Test:
         modver = re.sub(r'^v(.*)', r'\1', modver)
         self.modver = modver
         self.snapshot = snapshot
+        self.jsonver = jsonver
         self.rlecver = rlecver
         self.osnick = osnick
         self.light = light
@@ -104,7 +107,7 @@ class Test:
         ENV['RLEC_VERSION'] = rlecver
         ENV['RLEC_ARCH'] = 'x86_64'
         
-        ENV['REJSON_VERSION'] = '2.0.7'
+        ENV['REJSON_VERSION'] = self.jsonver
         ENV['REJSON_DIR'] = 'rejson'
         ENV['REJSON_FILE_PREFIX'] = 'rejson'
 
@@ -116,7 +119,11 @@ class Test:
     def run(self):
         found_osnick = False
         click.echo(f"Testing {self.module_name}/{self.modver} for RS {self.rlecver}:")
+        BB()
         for osnick in RLEC_PLATFORMS.keys():
+            if self.osnick is None:
+                if 'run' in RLEC_PLATFORMS[osnick] and RLEC_PLATFORMS[osnick]['run'] is False:
+                    continue
             if self.osnick is None or osnick == self.osnick:
                 found_osnick = True
                 rlec_os = RLEC_PLATFORMS[osnick]['os']
@@ -175,6 +182,7 @@ class Test:
 @click.option('--token', default=None, help='QA automation (Opereto) token (also: QA_AUTOMATION_TOKEN env var)')
 @click.option('--test', '-t', default='common', help='Name of .json parameters file')
 @click.option('--modver', '-m', default='master', help='Module version to test. Default: master')
+@click.option('--jsonver', default=DEFAULT_JSON_VER, help='RedisJSON version to test')
 @click.option('--snapshot', '-s', is_flag=True, default=False, help='Test a snapshoy module version')
 @click.option('--rlecver', '-r', default=None, help='Test for a RLEC version`')
 @click.option('--osnick', default=None, help='Test for OSNICK`')
@@ -183,7 +191,7 @@ class Test:
 @click.option('--nop', is_flag=True, default=False, help='Dry run')
 @click.option('--verbose', '-v', is_flag=True, default=False, help='Be verbose')
 @click.option('--verbosity', type=int, default=0, help='Verbosity level')
-def main(token, test, modver, snapshot, rlecver, osnick, light, quick, nop, verbose, verbosity, *args, **kwargs):
+def main(token, test, modver, snapshot, jsonver, rlecver, osnick, light, quick, nop, verbose, verbosity, *args, **kwargs):
     global NOP, VERBOSE
     VERBOSE = 1 if verbose else verbosity
     NOP = nop
@@ -193,17 +201,20 @@ def main(token, test, modver, snapshot, rlecver, osnick, light, quick, nop, verb
     if token is None and not nop:
         raise click.ClickException('QA automation token is missing.')
     test_fname = os.path.join(HERE, f'{test}.json')
+    BB()
     if not os.path.exists(test_fname):
         raise click.ClickException(f"Invalid test name: {test}")
 
+    if modver == 'master':
+        snapshot = True
     if rlecver is not None:
-        Test(token, test_fname, modver, snapshot, rlecver, osnick, light).run()
+        Test(token, test_fname, modver, snapshot, jsonver, rlecver, osnick, light).run()
     else:
         rs_versions = paella.flines(os.path.join(HERE, 'RS_VERSIONS'))
         if quick:
             rs_versions = [rs_versions[0]]
         for rlecver in rs_versions:
-            Test(token, test_fname, modver, snapshot, rlecver, osnick, light).run()
+            Test(token, test_fname, modver, snapshot, jsonver, rlecver, osnick, light).run()
 
 
 if __name__ == '__main__':
