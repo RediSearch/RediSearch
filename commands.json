@@ -1,9 +1,8 @@
 {
   "FT.CREATE": {
     "summary": "Creates an index with the given spec",
-    "complexity": [
-      "O(K) at creation where K is the number of fields,",
-      "O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace"],
+    "complexity": 
+      "O(K) at creation where K is the number of fields, O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace",
     "arguments": [
       {
         "name": "index",
