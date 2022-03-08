@@ -257,6 +257,15 @@ commands:
       module_path:
         type: string
         default: bin/linux-x64-release/search/redisearch.so
+      profile_env:
+        type: string
+        default: "0"
+      benchmark_glob:
+        type: string
+        default: "*.yml"
+      triggering_env:
+        type: string
+        default: "circleci"
     steps:
       - run:
           name: Prepare automation
@@ -278,7 +287,8 @@ commands:
             export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
             export AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
             export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
-
+            export PROFILE=<< parameters.profile_env >>
+            export BENCHMARK_GLOB=<< parameters.benchmark_glob >>
             redisbench-admin run-remote \
               --module_path $(cat $ROOT/bin/REJSON_PATH) \
               --required-module ReJSON \
@@ -290,7 +300,7 @@ commands:
               --github_sha $CIRCLE_SHA1 \
               --github_branch $CIRCLE_BRANCH \
               --upload_results_s3 \
-              --triggering_env circleci \
+              --triggering_env << parameters.triggering_env >> \
               --push_results_redistimeseries
 
 #----------------------------------------------------------------------------------------------------------------------------------
@@ -366,7 +376,7 @@ jobs:
             fi
       - persist-artifacts
 
-  benchmark:
+  benchmark-oss-standalone:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
@@ -374,6 +384,20 @@ jobs:
           platform: bionic
       - benchmark-automation:
           platform: bionic
+
+  benchmark-vecsim-oss-standalone-profiler:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+    steps:
+      - build-steps:
+          platform: bionic
+          build_params: PROFILE=1
+      - benchmark-automation:
+          profile_env: "1"
+          triggering_env: "circleci.profilers"
+          platform: bionic
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          benchmark_glob: "vecsim*.yml"
 
   coverage:
     docker:
@@ -573,6 +597,18 @@ on-integ-and-version-tags: &on-integ-and-version-tags
     tags:
       only: /^v[0-9].*/
 
+
+on-perf-and-version-tags: &on-perf-and-version-tags
+  filters:
+    branches:
+      only:
+        - master
+        - /^\d+\.\d+.*$/
+        - /^feature-.*$/
+        - /^perf.*$/
+    tags:
+      only: /^v[0-9].*/
+
 #----------------------------------------------------------------------------------------------------------------------------------
 
 workflows:
@@ -613,9 +649,12 @@ workflows:
           <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
-      - benchmark:
+      - benchmark-oss-standalone:
           context: common
-          <<: *on-any-branch # revert before merging
+          <<: *on-perf-and-version-tags # revert before merging
+      - benchmark-vecsim-oss-standalone-profiler:
+          context: common
+          <<: *on-perf-and-version-tags
       - upload-artifacts:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"
@@ -666,5 +705,7 @@ workflows:
                 - /^feature-.*$/
 
     jobs:
-      - benchmark:
+      - benchmark-oss-standalone:
+          context: common
+      - benchmark-vecsim-oss-standalone-profiler:
           context: common
