@@ -128,8 +128,7 @@
       {
         "name": "schema",
         "type": "pure-token",
-        "token": "SCHEMA",
-        "optional": false
+        "token": "SCHEMA"
       },
       {
         "name": "field",
@@ -256,10 +255,8 @@
       },
       {
         "name": "schema",
-        "type": "oneof",
-        "arguments": [
-          "SCHEMA"
-        ]
+        "type": "pure-token",
+        "token": "SCHEMA"
       },
       {
         "name": "add",
@@ -910,12 +907,15 @@
               {
                 "name": "tags",
                 "type": "pure-token",
-                "token": "TAGS",
-                "optional": true
+                "token": "TAGS"
               },
               {
-                "name": ["open", "close"],
-                "type": ["string", "string"]
+                "name": "open",
+                "type": "string"
+              },
+              {
+                "name": "close",
+                "type": "string"
               }
             ]
           }
@@ -1006,12 +1006,15 @@
           {
             "name": "limit",
             "type": "pure-token",
-            "token": "LIMIT",
-            "optional": true
+            "token": "LIMIT"
           },
           {
-            "name": ["offset", "num"],
-            "type": ["integer", "integer"]
+            "name": "offset",
+            "type": "integer"
+          },
+          {
+            "name": "num",
+            "type": "integer"
           }
         ]
       }
@@ -1034,11 +1037,9 @@
       },
       {
         "name": "verbatim",
-        "type": "oneof",
-        "optional": true,
-        "arguments": [
-          "VERBATIM"
-        ]
+        "type": "pure-token",
+        "token": "VERBATIM",
+        "optional": true
       },
       {
         "name": "load",
@@ -1186,14 +1187,16 @@
         "arguments": [
           {
             "name": "limit",
-            "type": "oneof",
-            "arguments": [
-              "LIMIT"
-            ]
+            "type": "pure-token",
+            "token": "LIMIT"
           },
           {
-            "name": ["offset", "num"],
-            "type": ["integer", "integer"]
+            "name": "offset",
+            "type": "integer"
+          },
+          {
+            "name": "num",
+            "type": "integer"
           }
         ]
       },
