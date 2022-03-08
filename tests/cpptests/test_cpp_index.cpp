@@ -782,11 +782,11 @@ TEST_F(IndexTest, testHybridVector) {
   ignoreNonVectorScore = false;
   r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
   ir = NewReadIterator(r);
-  vecIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir, ignoreNonVectorScore);
+  hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir, ignoreNonVectorScore);
   hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
-  // This type, result is a tree with 2 children: vector score and subtree of terms (for scoring).
+  // This time, result is a tree with 2 children: vector score and subtree of terms (for scoring).
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
