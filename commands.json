@@ -906,6 +906,12 @@
         "command":"SLOP"
       },
       {
+        "name": "timeout",
+        "type": "integer",
+        "optional": true,
+        "command":"TIMEOUT"
+      },
+      {
         "name": "tags",
         "type": "oneof",
         "optional": true,
@@ -1024,6 +1030,12 @@
             "multiple": true
           }
         ]
+      },
+      {
+        "name": "timeout",
+        "type": "integer",
+        "optional": true,
+        "command":"TIMEOUT"
       },
       {
         "name": "loadall",
