@@ -1198,6 +1198,46 @@
     "since": "1.1.0",
     "group": "search"
   },
+
+  "FT.PROFILE": {
+    "summary": "Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information",
+    "complexity": "O(N)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "querytype",
+        "type": "oneof",
+        "arguments": [
+          "SEARCH",
+          "AGGREGATE"
+        ]
+      },
+      {
+        "name": "limited",
+        "type": "oneof",
+        "arguments": [
+          "LIMITED"
+        ]
+      },
+      {
+        "name": "queryword",
+        "type": "oneof",
+        "arguments": [
+          "QUERY"
+        ]
+      },
+      {
+        "name": "query",
+        "type": "string"
+      }
+    ],
+    "since": "2.2.0",
+    "group": "search"
+  },
+
   "FT.CURSOR READ": {
     "summary": "Reads from a cursor",
     "complexity": "O(1)",
