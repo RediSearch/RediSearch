@@ -290,9 +290,6 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
 
   mrctx->numCmds = mc->numCmds;
   mrctx->cmds = calloc(mrctx->numCmds, sizeof(MRCommand));
-  for (int i = 0; i < mrctx->numCmds; ++i) {
-    mrctx->cmds[i] = mc->cmds[i];
-  }
 
   for (int i = 0; i < mc->numCmds; i++) {
 
@@ -300,6 +297,10 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
         REDIS_OK) {
       mrctx->numExpected++;
     }
+  }
+
+  for (int i = 0; i < mrctx->numCmds; ++i) {
+    mrctx->cmds[i] = mc->cmds[i];
   }
 
   if (mrctx->numExpected == 0) {
