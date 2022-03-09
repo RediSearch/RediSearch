@@ -1,3 +1,12 @@
+---
+title: "Phonetic"
+linkTitle: "Phonetic"
+type: docs
+weight: 1
+description: >
+    "Phonetic matching"
+---
+
 # Phonetic Matching
 
 Phonetic matching, a.k.a "Jon or John", allows searching for terms based on their pronunciation. This capability can be a useful tool when searching for names of people.

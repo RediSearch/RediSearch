@@ -1,3 +1,11 @@
+---
+title: "RediSearch commands"
+linkTitle: "RediSearch commands"
+type: docs
+weight: 1
+description: >
+    "Details relevant to all commands"
+---
 # RediSearch Full Command Documentation
 
 ## Create

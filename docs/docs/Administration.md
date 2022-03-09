@@ -1,3 +1,12 @@
+---
+title: "Administration guide"
+linkTitle: "Administration guide"
+type: docs
+weight: 1
+description: >
+    "Notes on administration of the module"
+---
+
 # RediSearch Administration Guide
 
 RediSearch doesn't require any configuration to work, but there are a few things worth noting when running RediSearch on top of Redis.

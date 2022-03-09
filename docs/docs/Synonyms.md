@@ -1,3 +1,12 @@
+---
+title: "Synonym"
+linkTitle: "Synonym"
+type: docs
+weight: 1
+description: >
+    "Synonym support"
+---
+
 # Synonyms Support
 
 ## Overview

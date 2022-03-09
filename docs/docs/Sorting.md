@@ -1,3 +1,12 @@
+---
+title: "Sorting"
+linkTitle: "Sorting"
+type: docs
+weight: 1
+description: >
+    "Support for sorting query results"
+---
+
 # Sorting by Indexed Fields
 
 As of RediSearch 0.15, it is possible to bypass the scoring function mechanism, and order search results by the value of different document properties (fields) directly - even if the sorting field is not used by the query. For example, you can search for first name and sort by last name.

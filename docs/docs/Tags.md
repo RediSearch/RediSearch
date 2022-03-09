@@ -1,3 +1,12 @@
+---
+title: "Tags"
+linkTitle: "Tags"
+type: docs
+weight: 1
+description: >
+    "Details about tag fields"
+---
+
 # Tag Fields
 
 Tag fields are similar to full-text fields but use simpler tokenization and encoding in the index. The values in these fields cannot be accessed by general field-less search and can be used only with a special syntax.

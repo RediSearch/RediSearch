@@ -1,3 +1,12 @@
+---
+title: "Configuration"
+linkTitle: "Configuration"
+type: docs
+weight: 1
+description: >
+    "Details about configuration options"
+---
+
 # Run-time configuration
 
 RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added.

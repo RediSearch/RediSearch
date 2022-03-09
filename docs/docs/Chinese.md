@@ -1,3 +1,12 @@
+---
+title: "Chinese"
+linkTitle: "Chinese"
+type: docs
+weight: 1
+description: >
+    "Chinese support"
+---
+
 # Chinese support in RediSearch
 
 Support for adding documents in Chinese is available starting at version 0.99.0.

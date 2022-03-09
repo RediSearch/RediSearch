@@ -1,3 +1,12 @@
+---
+title: "Stemming"
+linkTitle: "Stemming"
+type: docs
+weight: 1
+description: >
+    "Stemming support"
+---
+
 # Stemming Support
 
 RediSearch supports stemming - that is adding the base form of a word to the index. This allows the query for "going" to also return results for "go" and "gone", for example.

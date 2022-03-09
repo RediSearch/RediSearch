@@ -1,3 +1,12 @@
+---
+title: "Client libraries"
+linkTitle: "Client libraries"
+type: docs
+weight: 1
+description: >
+    "List of RediSearch client libraries"
+---
+
 # RediSearch Client Libraries
 
 RediSearch has several client libraries, written by the module authors and community members - abstracting the API in different programming languages.

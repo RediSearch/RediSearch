@@ -1,3 +1,12 @@
+---
+title: "Query syntax"
+linkTitle: "Query syntax"
+type: docs
+weight: 1
+description: >
+    "Details of the query syntax"
+---
+
 # Search Query Syntax
 
 We support a simple syntax for complex queries with the following rules:

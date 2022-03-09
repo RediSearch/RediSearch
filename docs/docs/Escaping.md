@@ -1,3 +1,12 @@
+---
+title: "Tokenization"
+linkTitle: "Tokenization"
+type: docs
+weight: 1
+description: >
+    "Controlling Text Tokenization and Escaping"
+---
+
 # Controlling Text Tokenization and Escaping
 
 At the moment, RediSearch uses a very simple tokenizer for documents and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization. 

@@ -1,3 +1,12 @@
+---
+title: "Vector similarity"
+linkTitle: "Vector similarity"
+type: docs
+weight: 1
+description: >
+    "Details about vector fields and vector similarity queries"
+---
+
 # Vector Fields
 
 Vector fields offers the ability to use vector similarity queries in the `FT.SEARCH` command.

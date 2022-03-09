@@ -1,3 +1,12 @@
+---
+title: "Spellchecking"
+linkTitle: "Spellchecking"
+type: docs
+weight: 1
+description: >
+    "Query spelling correction support"
+---
+
 # Query Spelling Correction
 
 Query spelling correction, a.k.a "did you mean", provides suggestions for misspelled search terms. For example, the term 'reids' may be a misspelled 'redis'.

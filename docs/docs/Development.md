@@ -1,3 +1,12 @@
+---
+title: "Developer notes"
+linkTitle: "Developer notes"
+type: docs
+weight: 1
+description: >
+    "Notes on debugging, testing and documentation"
+---
+
 # Developing RediSearch
 
 Developing RediSearch involves setting up the development environment (which can be either Linux-based or macOS-based), building RediSearch, running tests and benchmarks, and debugging both the RediSearch module and its tests.

@@ -1,3 +1,12 @@
+---
+title: "Highlighting"
+linkTitle: "Highlighting"
+type: docs
+weight: 1
+description: >
+    "Highlighting full-text results"
+---
+
 # Highlighting API
 
 The highlighting API allows you to have only the relevant portions of document matching a search query returned as a result. This allows users to quickly see how a document relates to their query, with the search terms highlighted, usually in bold letters.

@@ -1,3 +1,12 @@
+---
+title: "Scoring"
+linkTitle: "Scoring"
+type: docs
+weight: 1
+description: >
+    "Full-text scoring functions"
+---
+
 # Scoring in RediSearch
 
 RediSearch comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use [sortable fields](Sorting.md). Scoring functions are specified by adding the `SCORER {scorer_name}` argument to a search query.

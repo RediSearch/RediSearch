@@ -1,3 +1,12 @@
+---
+title: "Internal design"
+linkTitle: "Internal design"
+type: docs
+weight: 1
+description: >
+    "Details about design choices and implementations"
+---
+
 # RediSearch internal design
 
 RediSearch implements inverted indexes on top of Redis, but unlike previous implementations of Redis inverted indexes, it uses custom data encoding, that allows more memory and CPU efficient searches, and more advanced search features.

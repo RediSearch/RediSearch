@@ -1,3 +1,12 @@
+---
+title: "Indexing JSON documents"
+linkTitle: "Indexing JSON documents"
+type: docs
+weight: 1
+description: >
+    "Indexing and searching JSON documents"
+---
+
 # Indexing JSON documents
 
 In addition to indexing Redis hashes, RediSearch also indexes JSON. To index JSON, you must use the RedisJSON module.

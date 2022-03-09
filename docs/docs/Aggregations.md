@@ -1,3 +1,12 @@
+---
+title: "Aggregations"
+linkTitle: "Aggregations"
+type: docs
+weight: 1
+description: >
+    "Details of FT.AGGREGATE. Grouping and projections and functions"
+---
+
 # RediSearch Aggregations
 
 Aggregations are a way to process the results of a search query, group, sort and transform them - and extract analytic insights from them. Much like aggregation queries in other databases and search engines, they can be used to create analytics reports, or perform [Faceted Search](https://en.wikipedia.org/wiki/Faceted_search) style queries. 

@@ -1,3 +1,12 @@
+---
+title: "Stop-words"
+linkTitle: "Stop-words"
+type: docs
+weight: 1
+description: >
+    "Stop-words support"
+---
+
 # Stop-Words
 
 RediSearch has a pre-defined default list of [stop-words](https://en.wikipedia.org/wiki/Stop_words). These are words that are usually so common that they do not add much information to search, but take up a lot of space and CPU time in the index. 
