@@ -282,7 +282,7 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
     id_vec_list = []
     p = con.pipeline(transaction=False)
     for i in range(1, num_vectors+1):
-        vector = np.float32([i for j in range(dim)])
+        vector = np.full(dim, i, dtype='float32')
         con.execute_command('HSET', i, vector_field, vector.tobytes(), 't', 'text value')
         id_vec_list.append((i, vector))
     p.execute()
@@ -784,3 +784,42 @@ def test_wrong_vector_size(env):
     assertInfoField(env, 'idx', 'num_docs', '2')
     assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2L, '1', '4'])
+
+
+def test_hybrid_query_cosine(env):
+    conn = getConnectionByEnv(env)
+    dim = 128
+    index_size = 5000 * env.shardsCount
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 't', 'TEXT')
+
+    p = conn.pipeline(transaction=False)
+    np.random.seed(10)
+    for i in range(1, index_size+1):
+        first_coordinate = np.float32([float(i)/index_size])
+        vector = np.concatenate((first_coordinate, np.full(dim-1, 1, dtype='float32')))
+        #vector = np.float32(np.random.rand(1, dim))
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'text value')
+    p.execute()
+
+    #1 : [1/5000, 1, 1 , ...]
+    ...
+    #4999 : [4999/5000, 1 ,1 ,...]
+    #5000: [1, 1, ...]
+
+    query_data = np.full(dim, 1, dtype='float32')
+    #query_data = np.float32(np.random.rand(1, dim))
+
+    # alon: ignore the expected res, only expect to get ids in that order: 5000, 4999, ...
+    execute_hybrid_query(env, '(text value)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal([0L])
+
+    # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
+    for i in range(1, index_size/10 + 1):
+        first_coordinate = np.float32([10*i])
+        vector = np.concatenate((first_coordinate, np.full(dim-1, 1, dtype='float32')))
+        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+
+    # Expect to get only vector that passes the filter (i.e, has "other" in text field)
+    # Expect also that heuristics will choose adhoc BF over batches.
+    # expected_res = [10L, '100', ['__v_score', '0', 't', 'other'], '90', ['__v_score', '12800', 't', 'other'], '80', ['__v_score', '51200', 't', 'other'], '70', ['__v_score', '115200', 't', 'other'], '60', ['__v_score', '204800', 't', 'other'], '50', ['__v_score', '320000', 't', 'other'], '40', ['__v_score', '460800', 't', 'other'], '30', ['__v_score', '627200', 't', 'other'], '20', ['__v_score', '819200', 't', 'other'], '10', ['__v_score', '1036800', 't', 'other']]
+    # execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal(expected_res)
