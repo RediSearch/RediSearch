@@ -819,13 +819,11 @@ def test_hybrid_query_cosine(env):
     actual_res_ids = set([res[1:][2*i] for i in range(10)])
     actual_res_scores = [res[1:][2*i + 1][1] for i in range(10)]
     env.assertEqual(actual_res_ids, expected_res_ids)
-    for score in actual_res_scores:
-        env.assertTrue(0.0 <= float(score) <= 2.0)
 
     # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., index_size)
     for i in range(1, index_size/10 + 1):
         first_coordinate = np.float32([float(10*i)/index_size])
-        vector = np.concatenate((first_coordinate, np.full(dim-1, 1, dtype='float32')))
+        vector = np.concatenate((first_coordinate, np.ones(dim-1, dtype='float32')))
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
 
     # Expect to get only vector that passes the filter (i.e, has "other" in text field)
@@ -838,5 +836,3 @@ def test_hybrid_query_cosine(env):
     actual_res_ids = set([res[1:][2*i] for i in range(10)])
     actual_res_scores = [res[1:][2*i + 1][1] for i in range(10)]
     env.assertEqual(actual_res_ids, expected_res_ids)
-    for score in actual_res_scores:
-        env.assertTrue(0.0 <= float(score) <= 2.0)

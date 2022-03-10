@@ -143,9 +143,9 @@ void computeDistances(HybridIterator *hr) {
   void *qvector = hr->query.vector;
 
   if (hr->indexMetric == VecSimMetric_Cosine) {
-    qvector = rm_malloc(hr->dimention * VecSimType_sizeof(hr->vecType));
-    memcpy(qvector, hr->query.vector, hr->dimention * VecSimType_sizeof(hr->vecType));
-    VecSim_Normalize(qvector, hr->dimention, hr->vecType);
+    qvector = rm_malloc(hr->dimension * VecSimType_sizeof(hr->vecType));
+    memcpy(qvector, hr->query.vector, hr->dimension * VecSimType_sizeof(hr->vecType));
+    VecSim_Normalize(qvector, hr->dimension, hr->vecType);
   }
 
   while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
@@ -337,7 +337,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   hi->child = hParams.childIt;
   hi->resultsPrepared = false;
   hi->index = hParams.index;
-  hi->dimention = hParams.dim;
+  hi->dimension = hParams.dim;
   hi->vecType = hParams.elementType;
   hi->indexMetric = hParams.spaceMetric;
   hi->query = hParams.query;
