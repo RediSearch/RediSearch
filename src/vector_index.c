@@ -111,11 +111,11 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
         return NULL;
       }
       HybridIteratorParams hParams = {.index = vecsim,
-                                      .query = vq->knn,
-                                      .qParams = qParams,
                                       .dim = dim,
                                       .elementType = type,
                                       .spaceMetric = metric,
+                                      .query = vq->knn,
+                                      .qParams = qParams,
                                       .vectorScoreField = vq->scoreField,
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
                                       .childIt = child_it

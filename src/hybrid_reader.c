@@ -337,10 +337,10 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   hi->child = hParams.childIt;
   hi->resultsPrepared = false;
   hi->index = hParams.index;
-  hi->query = hParams.query;
   hi->dimention = hParams.dim;
   hi->vecType = hParams.elementType;
   hi->indexMetric = hParams.spaceMetric;
+  hi->query = hParams.query;
   hi->runtimeParams = hParams.qParams;
   hi->scoreField = hParams.vectorScoreField;
   hi->base.isValid = 1;
