@@ -790,3 +790,53 @@ def test_wrong_vector_size(env):
     assertInfoField(env, 'idx', 'num_docs', '2')
     assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2L, '1', '4'])
+
+def test_hybrid_query_cosine(env):
+    conn = getConnectionByEnv(env)
+    dim = 4
+    index_size = 6000 * env.shardsCount
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 't', 'TEXT')
+
+    p = conn.pipeline(transaction=False)
+    for i in range(1, index_size+1):
+        first_coordinate = np.float32([float(i)/index_size])
+        vector = np.concatenate((first_coordinate, np.ones(dim-1, dtype='float32')))
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'text value')
+    p.execute()
+
+    query_data = np.ones(dim, dtype='float32')
+
+    expected_res_ids = set([str(index_size-i) for i in range(10)])
+    res = conn.execute_command('FT.SEARCH', 'idx', '(text value)=>[KNN 10 @v $vec_param]',
+           'SORTBY', '__v_score',
+           'PARAMS', 2, 'vec_param', query_data.tobytes(),
+           'RETURN', 1, '__v_score')
+    prefix = "_" if env.isCluster() else ""
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+    # The order of ids is not accurate due to floating point numeric errors, but the top k should be
+    # the last 10 ids, and their scores should all be in the right COSINE range.
+    actual_res_ids = set([res[1:][2*i] for i in range(10)])
+    actual_res_scores = [res[1:][2*i + 1][1] for i in range(10)]
+    env.assertEqual(actual_res_ids, expected_res_ids)
+    for score in actual_res_scores:
+        env.assertTrue(0.0 <= float(score) <= 2.0)
+
+    # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., index_size)
+    for i in range(1, index_size/10 + 1):
+        first_coordinate = np.float32([float(10*i)/index_size])
+        vector = np.concatenate((first_coordinate, np.full(dim-1, 1, dtype='float32')))
+        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+
+    # Expect to get only vector that passes the filter (i.e, has "other" in text field)
+    expected_res_ids = set([str(index_size-10*i) for i in range(10)])
+    res = conn.execute_command('FT.SEARCH', 'idx', '(other)=>[KNN 10 @v $vec_param]',
+               'SORTBY', '__v_score',
+               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'RETURN', 1, '__v_score')
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+    actual_res_ids = set([res[1:][2*i] for i in range(10)])
+    actual_res_scores = [res[1:][2*i + 1][1] for i in range(10)]
+    env.assertEqual(actual_res_ids, expected_res_ids)
+    for score in actual_res_scores:
+        env.assertTrue(0.0 <= float(score) <= 2.0)
