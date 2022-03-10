@@ -4,7 +4,7 @@ This is useful if your tag indexes things like cities, categories, etc.
 
 !!! warning "Limitations"
     There is no paging or sorting, the tags are not alphabetically sorted.
-    This command only operates on [Tag fields](Tags.md).
+    This command only operates on [Tag fields](/redisearch/reference/tags).
     The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
 
 #### Parameters

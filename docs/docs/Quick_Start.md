@@ -62,7 +62,7 @@ Finally, run Redis with RediSearch:
 make run
 ```
 
-For more elaborate build instructions, see the [Development page](Development.md).
+For more elaborate build instructions, see the [Development page](/redisearch/development).
 
 ## Creating an index with fields and weights (default weight is 1.0)
 

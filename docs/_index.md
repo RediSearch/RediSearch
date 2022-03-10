@@ -13,7 +13,7 @@ RediSearch is a source available Secondary Index, Query Engine and Full-Text Sea
     * [Source Code at GitHub](https://github.com/RediSearch/RediSearch).
     * [Latest Release](https://github.com/RediSearch/RediSearch/releases)
     * [Docker Image: redislabs/redisearch](https://hub.docker.com/r/redislabs/redisearch/)
-    * [Quick Start Guide](Quick_Start.md)
+    * [Quick Start Guide](/redisearch/quick_start)
     * [Mailing list / Forum](https://forum.redis.com/c/modules/redisearch/)
 
 !!! tip "Supported Platforms"
@@ -33,7 +33,7 @@ These capabilities include exact phrase matching and numeric filtering for text 
 
 Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP.
 
-See the [Clients page](Clients.md) for the full list.
+See the [Clients page](clients) for the full list.
 
 ## Cluster Support
 
@@ -53,8 +53,8 @@ RediSearch has a distributed cluster version that scales to billions of document
 * Field weights.
 * Auto-complete suggestions (with fuzzy prefix suggestions).
 * Exact Phrase Search, Slop based search.
-* Stemming based query expansion in [many languages](Stemming.md) (using [Snowball](http://snowballstem.org/)).
-* Support for custom functions for query expansion and scoring (see [Extensions](Extensions.md)).
+* Stemming based query expansion in [many languages](/redisearch/reference/stemming) (using [Snowball](http://snowballstem.org/)).
+* Support for custom functions for query expansion and scoring (see [Extensions](/redisearch/reference/extensions)).
 * Limiting searches to specific document fields.
 * Numeric filters and ranges.
 * Geo filtering using Redis' own Geo-commands.

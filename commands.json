@@ -950,7 +950,7 @@
         "name": "timeout",
         "type": "integer",
         "optional": true,
-        "command":"TIMEOUT"
+        "token":"TIMEOUT"
       },
       {
         "name": "inorder",
@@ -1034,6 +1034,37 @@
           {
             "name": "num",
             "type": "integer"
+          }
+        ]
+      },
+      {
+        "name": "PARAMS",
+        "type": "block",
+        "optional": true,
+        "arguments": [          
+          {
+            "name": "params",
+            "type": "pure-token",
+            "token": "PARAMS"
+          },
+          {
+            "name": "NARGS",
+            "type": "integer"
+          },
+          {
+            "name": "values",
+            "type": "block",
+            "multiple": true,
+            "arguments": [
+              {
+                "name": "NAME",
+                "type": "string"
+              },
+              {
+                "name": "VALUE",
+                "type": "string"
+              }
+            ]
           }
         ]
       }

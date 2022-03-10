@@ -4,7 +4,7 @@ Non-deterministic. Depends on the query and aggregations performed, but it is us
 
 ---
 
-Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them. See [the full documentation on aggregations](Aggregations.md) for further details.
+Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them. See [the full documentation on aggregations](/redisearch/reference/aggregations) for further details.
 
 #### Parameters
 
@@ -99,7 +99,7 @@ Searching for libraries within 10 kilometers of the longitude -73.982254 and lat
 Here, we needed to use `LOAD` to pre-load the @location attribute because it is a GEO attribute.
 
 !!! tip "More examples"
-    For more details on aggreations and detailed examples of aggregation queries, see [Aggregations](Aggregations.md).
+    For more details on aggreations and detailed examples of aggregation queries, see [aggregations](/redisearch/reference/aggregations).
 
 Here we are counting GitHub events by user (actor), to produce the most active users:
 

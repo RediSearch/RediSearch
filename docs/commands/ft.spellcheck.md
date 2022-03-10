@@ -1,6 +1,6 @@
 Performs spelling correction on a query, returning suggestions for misspelled terms.
 
-See [Query Spelling Correction](Spellcheck.md) for more details.
+See [Query Spelling Correction](/redisearch/reference/spellcheck) for more details.
 
 #### Parameters
 
@@ -8,7 +8,7 @@ See [Query Spelling Correction](Spellcheck.md) for more details.
 
 * **query**: the search query.
 
-* **TERMS**: specifies an inclusion (`INCLUDE`) or exclusion (`EXCLUDE`) custom dictionary named `{dict}`. Refer to [`FT.DICTADD`](Commands.md#ftdictadd), [`FT.DICTDEL`](Commands.md#ftdictdel) and [`FT.DICTDUMP`](Commands.md#ftdictdump) for managing custom dictionaries.
+* **TERMS**: specifies an inclusion (`INCLUDE`) or exclusion (`EXCLUDE`) custom dictionary named `{dict}`. Refer to `FT.DICTADD`, `FT.DICTDEL` and `FT.DICTDUMP` for managing custom dictionaries.
 
 * **DISTANCE**: the maximal Levenshtein distance for spelling suggestions (default: 1, max: 4).
 

@@ -13,13 +13,13 @@ description: >
     For enterprise upgrade please refer to the following [link](https://docs.redislabs.com/latest/modules/redisearch/).
 
 
-v2 of RediSearch reachitects the way indices are kept in sync with the data. Instead of using `FT.ADD` command to index documents, RediSearch 2.0 follows hashes that match the index description regardless of how those were inserted or changed on Redis (`HSET`, `HINCR`, `HDEL`). The index description will filter hashes on a prefix of the key, and allows you to construct fine-grained filters with the `FILTER` option. This description can be defined during index creation ([ft.create](Commands.md#ftcreate)). 
+v2 of RediSearch reachitects the way indices are kept in sync with the data. Instead of using `FT.ADD` command to index documents, RediSearch 2.0 follows hashes that match the index description regardless of how those were inserted or changed on Redis (`HSET`, `HINCR`, `HDEL`). The index description will filter hashes on a prefix of the key, and allows you to construct fine-grained filters with the `FILTER` option. This description can be defined during index creation (`FT.CREATE`). 
 
 v1.x indices (further referred to as legacy indicegit s) don't have such index description. That is why you will need to supply their descriptions when upgrading to v2. During the upgrade to v2, you should add the descriptions via the module's configuration so RediSearch 2.0 will be able to load these legacy indexes.
 
 ## UPGRADE_INDEX configuration
 
-The upgrade index configuration allows you to specify the legacy index to upgrade. It needs to specify the index name and all the `on hash` arguments that can be defined on [ft.create](Commands.md#ftcreate) command (notice that only the index name is mandatory, the other arguments have default values which are the same as the default values on [ft.create](Commands.md#ftcreate) command). So for example, if you have a legacy index called `idx`, in order for RediSearch 2.0 to load it, the following configuration needs to be added to the server on start time:
+The upgrade index configuration allows you to specify the legacy index to upgrade. It needs to specify the index name and all the `on hash` arguments that can be defined on `FT.CREATE` command (notice that only the index name is mandatory, the other arguments have default values which are the same as the default values on `FT.CREATE` command). So for example, if you have a legacy index called `idx`, in order for RediSearch 2.0 to load it, the following configuration needs to be added to the server on start time:
 ```
 redis-server --loadmodule redisearch.so UPGRADE_INDEX idx
 ```

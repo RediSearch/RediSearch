@@ -46,7 +46,7 @@ Creates an index with the given spec.
     is used then search terms will be extracted based on punctuation characters and
     whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
     (via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
-    checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
+    checks it against a predefined dictionary. See [Stemming](/redisearch/reference/stemming) for more
     information.
 
 * **SCORE {default_score}**: If set indicates the default score for documents in the index. Default score is 1.0.
@@ -109,11 +109,11 @@ Creates an index with the given spec.
 
     * **TAG**
 
-      Allows exact-match queries, such as categories or primary keys, against the value in this attribute. For more information, see [Tag Fields](Tags.md).
+      Allows exact-match queries, such as categories or primary keys, against the value in this attribute. For more information, see [Tag Fields](/redisearch/reference/tags).
 
     * **NUMERIC**
 
-      Allows numeric range queries against the value in this attribute. See [query syntax docs](Query_Syntax.md) for details on how to use numeric ranges.
+      Allows numeric range queries against the value in this attribute. See [query syntax docs](/redisearch/reference/query_syntax) for details on how to use numeric ranges.
 
     * **GEO**
 
@@ -121,13 +121,13 @@ Creates an index with the given spec.
 
     * **VECTOR**
 
-      Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](Vectors.md).
+      Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](/redisearch/reference/vectors).
 
     #### Field Options
 
     * **SORTABLE**
 
-        Numeric, tag (not supported with JSON) or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
+        Numeric, tag (not supported with JSON) or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](/redisearch/reference/sorting) (this adds memory overhead so do not declare it on large text attributes).
 
     * **UNF**
         
@@ -152,7 +152,7 @@ Creates an index with the given spec.
         * `dm:pt` - Double Metaphone for Portuguese
         * `dm:es` - Double Metaphone for Spanish
 
-        For more details see [Phonetic Matching](Phonetic_Matching.md).
+        For more details see [Phonetic Matching](/redisearch/reference/phonetic_matching).
 
     * **WEIGHT {weight}**
 

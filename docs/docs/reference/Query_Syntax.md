@@ -102,7 +102,7 @@ Tag clauses can be combined into any sub-clause, used as negative expressions, o
 
 ## Geo filters in query
 
-As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own [`GEORADIUS`](https://redis.io/commands/georadius) command for more details as it is used internally for that).
+As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own `GEORADIUS` command for more details as it is used internally for that).
 
 Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: `chinese restaurant @location:[-122.41 37.77 5 km]`.
 
@@ -122,7 +122,7 @@ The General syntax is `{some filter query}=>[ KNN {num|$num} @vector $query_vec]
 
 * `[KNN {num|$num} @vector_field $query_vec]` - Return `num` nearest neighbors entities where `query_vec` is similar to the vector stored in `@vector_field`.
 
-As of version 2.4, we allow vector similarity to be used **once** in the query. For more information on vector smilarity syntax, see [Vector Fields](Vectors.md#querying_vector_fields), "Querying vector fields" section.
+As of version 2.4, we allow vector similarity to be used **once** in the query. For more information on vector smilarity syntax, see [Vector Fields](/redisearch/reference/vectors/#querying-vector-fields), "Querying vector fields" section.
 
 ## Prefix matching
 

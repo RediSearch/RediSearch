@@ -11,7 +11,7 @@ description: >
 
 At the moment, RediSearch uses a very simple tokenizer for documents and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization. 
 
-Note: There is a different mechanism for tokenizing text and tag fields, this document refers only to text fields. For tag fields please refer to the [Tag Fields](Tags.md) documentation. 
+Note: There is a different mechanism for tokenizing text and tag fields, this document refers only to text fields. For tag fields please refer to the [Tag Fields](/redisearch/reference/tags) documentation. 
 
 ## The rules of text field tokenization
 

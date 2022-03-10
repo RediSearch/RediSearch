@@ -35,7 +35,7 @@ $ redis-server --loadmodule ./redisearch.so OPT1 OPT2
 
 ## Setting Configuration Options At Run-Time
 
-As of v1.4.1, the [`FT.CONFIG`](/redisearch/commands#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
+As of v1.4.1, the `FT.CONFIG` allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
 
 # RediSearch configuration options
 
@@ -83,7 +83,7 @@ $ redis-server --loadmodule ./redisearch.so ON_TIMEOUT fail
 
 ## SAFEMODE
 
-!! Deprecated in v1.6.  From this version, SAFEMODE is the default.  If you still like to re-enable the concurrent mode for writes, use [CONCURRENT_WRITE_MODE](#CONCURRENT_WRITE_MODE) !!
+!! Deprecated in v1.6.  From this version, SAFEMODE is the default.  If you still like to re-enable the concurrent mode for writes, use [CONCURRENT_WRITE_MODE](#concurrent_write_mode) !!
 
 If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.
 
@@ -124,7 +124,7 @@ $ redis-server --loadmodule ./redisearch.so CONCURRENT_WRITE_MODE
 
 ## EXTLOAD {file_name}
 
-If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](Extensions.md) for details.
+If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/redisearch/reference/extensions) for details.
 
 ### Default
 
@@ -228,7 +228,7 @@ $ redis-server --loadmodule ./redisearch.so MAXAGGREGATERESULTS 3000000
 
 ## FRISOINI {file_name}
 
-If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](/redisearch/Chinese#using_custom_dictionaries) for more details.
+If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](/redisearch/chinese#using-custom-dictionaries) for more details.
 
 ### Default
 
@@ -244,7 +244,7 @@ $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 
 ## CURSOR_MAX_IDLE
 
-The maximum idle time (in ms) that can be set to the [cursor api](Aggregations.md#cursor_api).
+The maximum idle time (in ms) that can be set to the [cursor api](/redisearch/reference/aggregations#cursor_api).
 
 ### Default
 
@@ -400,11 +400,11 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 ## UPGRADE_INDEX
 
-This configuration is a special configuration introduced to upgrade indices from v1.x RediSearch versions, further referred to as 'legacy indices.' This configuration option needs to be given for each legacy index, followed by the index name and all valid option for the index description ( also referred to as the `ON` arguments for following hashes) as described on [ft.create api](/redisearch/commands#ftcreate). See [Upgrade to 2.0](/reidsearch/administration/Upgrade_to_2.0) for more information.
+This configuration is a special configuration introduced to upgrade indices from v1.x RediSearch versions, further referred to as 'legacy indices.' This configuration option needs to be given for each legacy index, followed by the index name and all valid option for the index description ( also referred to as the `ON` arguments for following hashes) as described on [ft.create api](/redisearch/commands#ftcreate). See [Upgrade to 2.0](/redisearch/administration/upgrade_to_2.0) for more information.
 
 ### Default
 
-There is no default for index name, and the other arguments have the same defaults as on [ft.create api](Commands.md#ftcreate)
+There is no default for index name, and the other arguments have the same defaults as on `FT.CREATE` api
 
 ### Example
 
