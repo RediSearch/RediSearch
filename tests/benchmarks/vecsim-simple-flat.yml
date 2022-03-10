@@ -1,6 +1,8 @@
 
 name: "vecsim_simple_FLAT"
 description: "plane FLAT"
+metadata:
+  component: "vecsim"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5d

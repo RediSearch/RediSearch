@@ -1,6 +1,8 @@
 
 name: "vecsim_hybrid_HNSW_05"
 description: "hybrid hnsw with 0.5% filtered results"
+metadata:
+  component: "vecsim"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5d

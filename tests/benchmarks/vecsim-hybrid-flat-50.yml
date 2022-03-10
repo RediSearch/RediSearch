@@ -1,6 +1,8 @@
 
 name: "vecsim_hybrid_FLAT_50"
 description: "hybrid flat with 50% filtered results"
+metadata:
+  component: "vecsim"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5d
