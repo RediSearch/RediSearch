@@ -1,10 +1,10 @@
 ---
-title: "Administration guide"
-linkTitle: "Administration guide"
+title: "General Administration"
+linkTitle: "General Administration"
 type: docs
 weight: 1
 description: >
-    Notes on administration of the module
+    General Administration of the RediSearch module
 ---
 
 # RediSearch Administration Guide

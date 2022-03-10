@@ -2,7 +2,7 @@
 title: "Chinese"
 linkTitle: "Chinese"
 type: docs
-weight: 1
+weight: 9
 description: >
     Chinese support
 ---

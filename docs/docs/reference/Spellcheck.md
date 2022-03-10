@@ -2,7 +2,7 @@
 title: "Spellchecking"
 linkTitle: "Spellchecking"
 type: docs
-weight: 1
+weight: 13
 description: >
     Query spelling correction support
 ---

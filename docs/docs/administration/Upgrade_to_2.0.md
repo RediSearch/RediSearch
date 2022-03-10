@@ -2,7 +2,7 @@
 title: "Upgrade to 2.0"
 linkTitle: "Upgrade to 2.0"
 type: docs
-weight: 1
+weight: 2
 description: >
     Details about upgrading to RediSearch 2.x from 1.x
 ---
@@ -15,7 +15,7 @@ description: >
 
 v2 of RediSearch reachitects the way indices are kept in sync with the data. Instead of using `FT.ADD` command to index documents, RediSearch 2.0 follows hashes that match the index description regardless of how those were inserted or changed on Redis (`HSET`, `HINCR`, `HDEL`). The index description will filter hashes on a prefix of the key, and allows you to construct fine-grained filters with the `FILTER` option. This description can be defined during index creation ([ft.create](Commands.md#ftcreate)). 
 
-v1.x indices (further referred to as legacy indices) don't have such index description. That is why you will need to supply their descriptions when upgrading to v2. During the upgrade to v2, you should add the descriptions via the module's configuration so RediSearch 2.0 will be able to load these legacy indexes.
+v1.x indices (further referred to as legacy indicegit s) don't have such index description. That is why you will need to supply their descriptions when upgrading to v2. During the upgrade to v2, you should add the descriptions via the module's configuration so RediSearch 2.0 will be able to load these legacy indexes.
 
 ## UPGRADE_INDEX configuration
 

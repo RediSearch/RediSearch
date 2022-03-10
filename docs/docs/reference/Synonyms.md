@@ -2,7 +2,7 @@
 title: "Synonym"
 linkTitle: "Synonym"
 type: docs
-weight: 1
+weight: 11
 description: >
     Synonym support
 ---

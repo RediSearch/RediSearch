@@ -2,7 +2,7 @@
 title: "Extensions"
 linkTitle: "Extensions"
 type: docs
-weight: 1
+weight: 9
 description: >
     Details about extensions for query expanders and scoring functions
 ---

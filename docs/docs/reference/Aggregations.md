@@ -2,7 +2,7 @@
 title: "Aggregations"
 linkTitle: "Aggregations"
 type: docs
-weight: 1
+weight: 3
 description: >
     Details of FT.AGGREGATE. Grouping and projections and functions
 ---

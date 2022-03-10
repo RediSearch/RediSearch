@@ -2,7 +2,7 @@
 title: "Configuration"
 linkTitle: "Configuration"
 type: docs
-weight: 1
+weight: 2
 description: >
     Details about configuration options
 ---
@@ -35,7 +35,7 @@ $ redis-server --loadmodule ./redisearch.so OPT1 OPT2
 
 ## Setting Configuration Options At Run-Time
 
-As of v1.4.1, the [`FT.CONFIG`](Commands.md#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
+As of v1.4.1, the [`FT.CONFIG`](/redisearch/commands#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
 
 # RediSearch configuration options
 
@@ -228,7 +228,7 @@ $ redis-server --loadmodule ./redisearch.so MAXAGGREGATERESULTS 3000000
 
 ## FRISOINI {file_name}
 
-If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](Chinese.md#using_custom_dictionaries) for more details.
+If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](/redisearch/Chinese#using_custom_dictionaries) for more details.
 
 ### Default
 
@@ -400,7 +400,7 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 ## UPGRADE_INDEX
 
-This configuration is a special configuration introduced to upgrade indices from v1.x RediSearch versions, further referred to as 'legacy indices.' This configuration option needs to be given for each legacy index, followed by the index name and all valid option for the index description ( also referred to as the `ON` arguments for following hashes) as described on [ft.create api](Commands.md#ftcreate). See [Upgrade to 2.0](Upgrade_to_2.0.md) for more information.
+This configuration is a special configuration introduced to upgrade indices from v1.x RediSearch versions, further referred to as 'legacy indices.' This configuration option needs to be given for each legacy index, followed by the index name and all valid option for the index description ( also referred to as the `ON` arguments for following hashes) as described on [ft.create api](/redisearch/commands#ftcreate). See [Upgrade to 2.0](/reidsearch/administration/Upgrade_to_2.0) for more information.
 
 ### Default
 

@@ -2,7 +2,7 @@
 title: "Developer notes"
 linkTitle: "Developer notes"
 type: docs
-weight: 1
+weight: 3
 description: >
     Notes on debugging, testing and documentation
 ---

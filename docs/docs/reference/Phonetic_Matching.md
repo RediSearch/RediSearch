@@ -2,7 +2,7 @@
 title: "Phonetic"
 linkTitle: "Phonetic"
 type: docs
-weight: 1
+weight: 14
 description: >
     Phonetic matching
 ---

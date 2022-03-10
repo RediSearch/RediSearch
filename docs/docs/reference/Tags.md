@@ -2,7 +2,7 @@
 title: "Tags"
 linkTitle: "Tags"
 type: docs
-weight: 1
+weight: 6
 description: >
     Details about tag fields
 ---

@@ -2,7 +2,7 @@
 title: "Payload"
 linkTitle: "Payload"
 type: docs
-weight: 1
+weight: 12
 description: >
     Payload support(deprecated)
 ---

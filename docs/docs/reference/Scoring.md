@@ -2,7 +2,7 @@
 title: "Scoring"
 linkTitle: "Scoring"
 type: docs
-weight: 1
+weight: 8
 description: >
     Full-text scoring functions
 ---
