@@ -30,11 +30,14 @@ typedef struct {
   IndexIterator base;
   VecSimIndex *index;
   KNNVectorQuery query;
-  VecSimQueryParams runtimeParams;   // Evaluated runtime params.
+  size_t dimention;                // index dimention
+  VecSimType vecType;              // index data type
+  VecSimMetric indexMetric;        // index distance metric
+  VecSimQueryParams runtimeParams; // Evaluated runtime params.
   IndexIterator *child;
   VecSimSearchMode searchMode;
-  bool resultsPrepared;             // Indicates if the results were already processed
-                         // (should occur in the first call to Read)
+  bool resultsPrepared;            // Indicates if the results were already processed
+                                   // (should occur in the first call to Read)
   VecSimQueryResult_List list;
   VecSimQueryResult_Iterator *iter;
   t_docId lastDocId;

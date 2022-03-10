@@ -69,23 +69,6 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   return openVectorKeysDict(ctx, keyName, 1);
 }
 
-static size_t expBlobSize(VecSimIndex *ind) {
-  VecSimIndexInfo info = VecSimIndex_Info(ind);
-  size_t dim = 0;
-  VecSimType type = (VecSimType)0;
-  switch (info.algo) {
-    case VecSimAlgo_HNSWLIB:
-      dim = info.hnswInfo.dim;
-      type = info.hnswInfo.type;
-      break;
-    case VecSimAlgo_BF:
-      dim = info.bfInfo.dim;
-      type = info.bfInfo.type;
-      break;
-  }
-  return (dim * VecSimType_sizeof(type));
-}
-
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
@@ -105,15 +88,34 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                QueryError_Strerror(err));
         return NULL;
       }
-      if (expBlobSize(vecsim) != vq->knn.vecLen) {
+      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
+      size_t dim = 0;
+      VecSimType type = (VecSimType)0;
+      VecSimMetric metric = (VecSimMetric)0;
+      switch (info.algo) {
+        case VecSimAlgo_HNSWLIB:
+          dim = info.hnswInfo.dim;
+          type = info.hnswInfo.type;
+          metric = info.hnswInfo.metric;
+          break;
+        case VecSimAlgo_BF:
+          dim = info.bfInfo.dim;
+          type = info.bfInfo.type;
+          metric = info.bfInfo.metric;
+          break;
+      }
+      if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
         QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
                                "Error parsing vector similarity query: query vector blob size (%zu) does not match index's expected size (%zu).",
-                               vq->knn.vecLen, expBlobSize(vecsim));
+                               vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
       HybridIteratorParams hParams = {.index = vecsim,
                                       .query = vq->knn,
                                       .qParams = qParams,
+                                      .dim = dim,
+                                      .elementType = type,
+                                      .spaceMetric = metric,
                                       .vectorScoreField = vq->scoreField,
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
                                       .childIt = child_it
