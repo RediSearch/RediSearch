@@ -4,7 +4,7 @@ linkTitle: "Upgrade to 2.0"
 type: docs
 weight: 1
 description: >
-    "Details about upgrading to RediSearch 2.x from 1.x"
+    Details about upgrading to RediSearch 2.x from 1.x
 ---
 
 # Upgrade to 2.0 when running in Redis OSS

@@ -4,7 +4,7 @@ linkTitle: "Stop-words"
 type: docs
 weight: 1
 description: >
-    "Stop-words support"
+    Stop-words support
 ---
 
 # Stop-Words

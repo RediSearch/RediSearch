@@ -4,7 +4,7 @@ linkTitle: "Synonym"
 type: docs
 weight: 1
 description: >
-    "Synonym support"
+    Synonym support
 ---
 
 # Synonyms Support

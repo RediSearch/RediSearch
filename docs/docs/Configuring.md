@@ -4,7 +4,7 @@ linkTitle: "Configuration"
 type: docs
 weight: 1
 description: >
-    "Details about configuration options"
+    Details about configuration options
 ---
 
 # Run-time configuration

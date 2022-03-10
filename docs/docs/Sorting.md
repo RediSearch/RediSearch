@@ -4,7 +4,7 @@ linkTitle: "Sorting"
 type: docs
 weight: 1
 description: >
-    "Support for sorting query results"
+    Support for sorting query results
 ---
 
 # Sorting by Indexed Fields

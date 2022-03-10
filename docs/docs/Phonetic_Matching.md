@@ -4,7 +4,7 @@ linkTitle: "Phonetic"
 type: docs
 weight: 1
 description: >
-    "Phonetic matching"
+    Phonetic matching
 ---
 
 # Phonetic Matching

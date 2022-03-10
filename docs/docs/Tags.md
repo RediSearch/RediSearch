@@ -4,7 +4,7 @@ linkTitle: "Tags"
 type: docs
 weight: 1
 description: >
-    "Details about tag fields"
+    Details about tag fields
 ---
 
 # Tag Fields

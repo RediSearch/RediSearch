@@ -4,7 +4,7 @@ linkTitle: "Aggregations"
 type: docs
 weight: 1
 description: >
-    "Details of FT.AGGREGATE. Grouping and projections and functions"
+    Details of FT.AGGREGATE. Grouping and projections and functions
 ---
 
 # RediSearch Aggregations

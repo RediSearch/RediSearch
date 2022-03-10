@@ -4,7 +4,7 @@ linkTitle: "Spellchecking"
 type: docs
 weight: 1
 description: >
-    "Query spelling correction support"
+    Query spelling correction support
 ---
 
 # Query Spelling Correction

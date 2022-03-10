@@ -4,7 +4,7 @@ linkTitle: "Vector similarity"
 type: docs
 weight: 1
 description: >
-    "Details about vector fields and vector similarity queries"
+    Details about vector fields and vector similarity queries
 ---
 
 # Vector Fields

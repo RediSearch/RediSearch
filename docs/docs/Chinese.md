@@ -4,7 +4,7 @@ linkTitle: "Chinese"
 type: docs
 weight: 1
 description: >
-    "Chinese support"
+    Chinese support
 ---
 
 # Chinese support in RediSearch

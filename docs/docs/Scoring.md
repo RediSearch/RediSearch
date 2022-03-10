@@ -4,7 +4,7 @@ linkTitle: "Scoring"
 type: docs
 weight: 1
 description: >
-    "Full-text scoring functions"
+    Full-text scoring functions
 ---
 
 # Scoring in RediSearch

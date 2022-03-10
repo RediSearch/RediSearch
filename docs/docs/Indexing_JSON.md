@@ -4,7 +4,7 @@ linkTitle: "Indexing JSON documents"
 type: docs
 weight: 1
 description: >
-    "Indexing and searching JSON documents"
+    Indexing and searching JSON documents
 ---
 
 # Indexing JSON documents

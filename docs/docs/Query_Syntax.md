@@ -4,7 +4,7 @@ linkTitle: "Query syntax"
 type: docs
 weight: 1
 description: >
-    "Details of the query syntax"
+    Details of the query syntax
 ---
 
 # Search Query Syntax

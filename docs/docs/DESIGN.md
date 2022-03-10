@@ -4,7 +4,7 @@ linkTitle: "Internal design"
 type: docs
 weight: 1
 description: >
-    "Details about design choices and implementations"
+    Details about design choices and implementations
 ---
 
 # RediSearch internal design

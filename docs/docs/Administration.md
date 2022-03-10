@@ -4,7 +4,7 @@ linkTitle: "Administration guide"
 type: docs
 weight: 1
 description: >
-    "Notes on administration of the module"
+    Notes on administration of the module
 ---
 
 # RediSearch Administration Guide

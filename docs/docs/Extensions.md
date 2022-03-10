@@ -4,7 +4,7 @@ linkTitle: "Extensions"
 type: docs
 weight: 1
 description: >
-    "Details about extensions for query expanders and scoring functions"
+    Details about extensions for query expanders and scoring functions
 ---
 
 # Extending RediSearch

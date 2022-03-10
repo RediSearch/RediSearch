@@ -4,7 +4,7 @@ linkTitle: "Payload"
 type: docs
 weight: 1
 description: >
-    "Payload support(deprecated)"
+    Payload support(deprecated)
 ---
 
 # Document Payloads

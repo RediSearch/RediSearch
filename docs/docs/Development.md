@@ -4,7 +4,7 @@ linkTitle: "Developer notes"
 type: docs
 weight: 1
 description: >
-    "Notes on debugging, testing and documentation"
+    Notes on debugging, testing and documentation
 ---
 
 # Developing RediSearch

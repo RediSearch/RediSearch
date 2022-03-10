@@ -4,7 +4,7 @@ linkTitle: "Stemming"
 type: docs
 weight: 1
 description: >
-    "Stemming support"
+    Stemming support
 ---
 
 # Stemming Support

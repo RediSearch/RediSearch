@@ -4,7 +4,7 @@ linkTitle: "Highlighting"
 type: docs
 weight: 1
 description: >
-    "Highlighting full-text results"
+    Highlighting full-text results
 ---
 
 # Highlighting API

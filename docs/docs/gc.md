@@ -4,7 +4,7 @@ linkTitle: "Garbage collections"
 type: docs
 weight: 1
 description: >
-    "Details about garbage collection"
+    Details about garbage collection
 ---
 
 # Garbage Collection in RediSearch
