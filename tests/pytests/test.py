@@ -541,7 +541,7 @@ def testOptional(env):
         'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
     env.assertEqual(res, expected)
     res = r.execute_command(
-        'ft.search', 'idx', '~world ~werld hello', 'withscores', 'nocontent', 'scorer', 'DISMAX')
+        'ft.search', 'idx', '~world ~(werld hello)', 'withscores', 'nocontent', 'scorer', 'DISMAX')
     env.assertEqual(res, [3L, 'doc3', '3', 'doc2', '2', 'doc1', '1'])
 
 def testExplain(env):
@@ -551,7 +551,7 @@ def testExplain(env):
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'foo', 'text', 'bar', 'numeric', 'sortable',
         'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2', 't', 'TEXT'))
-    q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
+    q = '(hello world) "what what" (hello|world) (@bar:[10 100]|@bar:[200 300])'
     res = r.execute_command('ft.explain', 'idx', q)
     # print res.replace('\n', '\\n')
     # expected = """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
@@ -567,15 +567,25 @@ def testExplain(env):
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(expected, res)
 
-    q = ['* => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
+    res = r.execute_command('ft.explain', 'idx', q)
+    expected = """UNION {\n  INTERSECT {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n    EXACT {\n      what\n      what\n    }\n    UNION {\n      hello\n      +hello(expanded)\n    }\n  }\n  INTERSECT {\n    UNION {\n      world\n      +world(expanded)\n    }\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n  }\n  NUMERIC {200.000000 <= @bar <= 300.000000}\n}\n"""
+    env.assertEqual(res, expected)
+
+    res = env.cmd('ft.explainCli', 'idx', q)
+    expected = ['UNION {', '  INTERSECT {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '    EXACT {', '      what', '      what', '    }', '    UNION {', '      hello', '      +hello(expanded)', '    }', '  }', '  INTERSECT {', '    UNION {', '      world', '      +world(expanded)', '    }', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '  }', '  NUMERIC {200.000000 <= @bar <= 300.000000}', '}', '']
+    env.assertEqual(expected, res)
+
+
+    q = ['* => [KNN $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
-    expected = """VECTOR {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
+    expected = """VECTOR {K=10 nearest vectors to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # test with hybrid query
-    q = ['(@t:hello world) => [TOP_K $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', '\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
-    expected = """VECTOR {\n  @t:INTERSECT {\n    @t:hello\n    @t:world\n  }\n} => {TOP K=10 vectors similar to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
+    expected = """VECTOR {\n  INTERSECT {\n    @t:hello\n    world\n  }\n} => {K=10 nearest vectors to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # retest when index is not empty
@@ -787,6 +797,7 @@ def testSortBy(env):
         env.assertListEqual([100L, 'doc99', '$hello099 world', 'doc98', '$hello098 world', 'doc97', '$hello097 world', 'doc96',
                               '$hello096 world', 'doc95', '$hello095 world'], res)
 
+
 def testSortByWithoutSortable(env):
     r = env
     env.assertOk(r.execute_command(
@@ -831,6 +842,19 @@ def testSortByWithoutSortable(env):
                                 'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
         env.assertListEqual(
             [100L, 'doc0', '#100', 'doc1', '#99', 'doc2', '#98', 'doc3', '#97', 'doc4', '#96'], res)
+
+
+def testSortByWithTie(env):
+    conn = getConnectionByEnv(env)
+    env.assertOk(conn.execute_command('ft.create', 'idx', 'schema', 't', 'text'))
+    for i in range(10):
+        conn.execute_command('hset', i, 't', 'hello')
+
+    # Assert that the order of results is the same in both configurations (by ascending id).
+    res1 = conn.execute_command('ft.search', 'idx', 'hello', 'nocontent')
+    res2 = conn.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 't')
+    env.assertEqual(res1, res2)
+
 
 def testNot(env):
     r = env
@@ -3542,8 +3566,8 @@ def test_free_resources_on_thread(env):
 
         conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'false')
 
-    # ensure freeing resources on a 2nd thread is more than 5 times quicker
+    # ensure freeing resources on a 2nd thread is quicker
     # than freeing it on the main thread
-    env.assertLess(results[0] * 5, results[1])
+    env.assertLess(results[0], results[1])
 
     conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')

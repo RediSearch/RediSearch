@@ -507,10 +507,14 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(vectorPreprocessor) {
-  // TODO: check input validity
   size_t len;
   fdata->vector = RedisModule_StringPtrLen(field->text, &len);
   fdata->vecLen = len;
+  if (len != fs->vectorOpts.expBlobSize) {
+    // "Could not add vector with blob size %zu (expected size %zu)", len, fs->vectorOpts.expBlobSize
+    QueryError_SetCode(status, QUERY_EBADATTR);
+    return -1;
+  }
   aCtx->fwIdx->maxFreq++;
   return 0;
 }
@@ -572,7 +576,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
-  fdata->tags = TagIndex_Preprocess(fs->tagSep, fs->tagFlags, field);
+  fdata->tags = TagIndex_Preprocess(fs->tagOpts.tagSep, fs->tagOpts.tagFlags, field);
 
   if (fdata->tags == NULL) {
     return 0;

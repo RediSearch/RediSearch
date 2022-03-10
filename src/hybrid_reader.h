@@ -7,20 +7,20 @@
 #include "util/heap.h"
 
 typedef enum {
-  STANDARD_KNN,     // Run k-nn query over the entire vector index.
-  HYBRID_ADHOC_BF,  // Measure ad-hoc the distance for every result that passes the filters,
-                    // and take the top k results.
-  HYBRID_BATCHES    // Get the top vector results in batches upon demand, and keep the results that
-                    // passes the filters until we reach k results.
-} VecSearchMode;
+  VECSIM_STANDARD_KNN,     // Run k-nn query over the entire vector index.
+  VECSIM_HYBRID_ADHOC_BF,  // Measure ad-hoc the distance for every result that passes the filters,
+                           // and take the top k results.
+  VECSIM_HYBRID_BATCHES    // Get the top vector results in batches upon demand, and keep the results that
+                           // passes the filters until we reach k results.
+} VecSimSearchMode;
 
 typedef struct {
   IndexIterator base;
   VecSimIndex *index;
-  TopKVectorQuery query;
+  KNNVectorQuery query;
   VecSimQueryParams runtimeParams;   // Evaluated runtime params.
   IndexIterator *child;
-  VecSearchMode mode;
+  VecSimSearchMode searchMode;
   bool resultsPrepared;             // Indicates if the results were already processed
                          // (should occur in the first call to Read)
   VecSimQueryResult_List list;
@@ -30,13 +30,14 @@ typedef struct {
   char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
   heap_t *topResults;              // Sorted by score (max heap).
   //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
+  size_t numIterations;
 } HybridIterator;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, TopKVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it);
+IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KNNVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it);
 
 #ifdef __cplusplus
 }

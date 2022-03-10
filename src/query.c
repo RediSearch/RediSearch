@@ -269,10 +269,10 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
   ret->vn.vq = vq;
   vq->type = type;
   switch (type) {
-    case VECSIM_QT_TOPK:
+    case VECSIM_QT_KNN:
       QueryNode_InitParams(ret, 2);
-      QueryNode_SetParam(q, &ret->params[0], &vq->topk.vector, &vq->topk.vecLen, vec);
-      QueryNode_SetParam(q, &ret->params[1], &vq->topk.k, NULL, value);
+      QueryNode_SetParam(q, &ret->params[0], &vq->knn.vector, &vq->knn.vecLen, vec);
+      QueryNode_SetParam(q, &ret->params[1], &vq->knn.k, NULL, value);
       break;
     default:
       QueryNode_Free(ret);
@@ -864,7 +864,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   // a union stage with one child is the same as the child, so we just return it
   if (QueryNode_NumChildren(qn) == 1) {
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight,
-                                  fs->tagFlags & TagField_CaseSensitive);
+                                  fs->tagOpts.tagFlags & TagField_CaseSensitive);
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
@@ -882,7 +882,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
     IndexIterator *it =
         query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight,
-                                fs->tagFlags & TagField_CaseSensitive);
+                                fs->tagOpts.tagFlags & TagField_CaseSensitive);
     if (it) {
       iters[n++] = it;
     }
@@ -946,8 +946,6 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
 
   return NULL;
 }
-
-QueryNode *RSQuery_ParseRaw(QueryParseCtx *);
 
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
                const char *q, size_t n, QueryError *status) {
@@ -1267,11 +1265,11 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
         s = sdscat(s, "} => {");
       }
       switch (qs->vn.vq->type) {
-        case VECSIM_QT_TOPK: {
-          s = sdscatprintf(s, "TOP K=%zu vectors similar to ", qs->vn.vq->topk.k);
+        case VECSIM_QT_KNN: {
+          s = sdscatprintf(s, "K=%zu nearest vectors to ", qs->vn.vq->knn.k);
           // This loop finds the vector param name.
           for (size_t i = 0; i < array_len(qs->params); i++) {
-            if (qs->params[i].type != PARAM_NONE && qs->params[i].target == &qs->vn.vq->topk.vector) {
+            if (qs->params[i].type != PARAM_NONE && qs->params[i].target == &qs->vn.vq->knn.vector) {
               s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
               break;
             }

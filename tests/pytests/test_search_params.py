@@ -86,14 +86,14 @@ def test_param_errors(env):
     env.expect('FT.SEARCH', 'idx', '@numval:[min 105]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Expecting numeric or parameter')
 
     env.expect('FT.SEARCH', 'idx', '*=>[TKOO 4 @v $B]').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K badval @v $B]').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '*=>[TOP_K $k @v $B]', 'PARAMS', '2', 'k', 'TKOO').raiseError().contains('No such parameter `B`')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN badval @v $B]').raiseError().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN $k @v $B]', 'PARAMS', '2', 'k', 'TKOO').raiseError().contains('No such parameter `B`')
 
     # Test Attribute errors
-    env.expect('FT.SEARCH', 'idx', '* => [TOP_K $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', 'zzz', 'EF', '10').raiseError().contains('Invalid numeric value')
-    env.expect('FT.SEARCH', 'idx', '* => [TOP_K $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').raiseError().contains('Invalid numeric value')
-    env.expect('FT.SEARCH', 'idx', '* => [TOP_K $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').raiseError().contains('Invalid numeric value')
-    env.expect('FT.SEARCH', 'idx', '* => [TOP_K $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', 'zzz', 'EF', '10').raiseError().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').raiseError().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').raiseError().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
     env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'ph', 'maybe').raiseError().contains('Invalid value')
 
     # # Test Attribute names must begin with alphanumeric?
@@ -321,17 +321,17 @@ def test_vector(env):
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
 
     res1 = ['a', ['__v_score', '0'], 'b', ['__v_score', '3.09485009821e+26']]
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', *args) 
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', *args) 
     env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K $k @v $vec]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'k', '2', *args) 
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $k @v $vec]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'k', '2', *args) 
     env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec AS __v_score]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'k', '2', *args) 
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec AS __v_score]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'k', '2', *args) 
     env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K 2 @v $vec AS $score]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'score', '__v_score', *args) 
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec AS $score]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'score', '__v_score', *args) 
     env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K $k @v $vec EF_RUNTIME $runtime]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args) 
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $k @v $vec EF_RUNTIME $runtime]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args) 
     env.assertEqual(res2[1:], res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[TOP_K $k @v $vec EF_RUNTIME 100]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args) 
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $k @v $vec EF_RUNTIME 100]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args) 
     env.assertEqual(res2[1:], res1)
 
 
