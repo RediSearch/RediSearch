@@ -770,11 +770,11 @@ def test_hybrid_query_adhoc_bf_mode(env):
         waitForIndex(env, 'idx')
         execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal(expected_res)
 
-    
+
 def test_wrong_vector_size(env):
     conn = getConnectionByEnv(env)
     dimension = 128
-    
+
     vector = np.random.rand(1+dimension).astype(np.float32)
     conn.execute_command('HSET', '0', 'v', vector[:dimension-1].tobytes())
     conn.execute_command('HSET', '1', 'v', vector[:dimension].tobytes())
@@ -787,7 +787,7 @@ def test_wrong_vector_size(env):
     conn.execute_command('HSET', '3', 'v', vector[:dimension-1].tobytes())
     conn.execute_command('HSET', '4', 'v', vector[:dimension].tobytes())
     conn.execute_command('HSET', '5', 'v', vector[:dimension+1].tobytes())
-    
+
     waitForIndex(env, 'idx')
     assertInfoField(env, 'idx', 'num_docs', '2')
     assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
