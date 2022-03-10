@@ -1,0 +1,24 @@
+version: 0.5
+name: "ann-benchmarks_QUERY_1c_redisearch-hnsw_mnist-784-euclidean_M-4"
+metadata:
+  component: "vecsim"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+
+setups:
+  - oss-standalone
+
+dbconfig:
+  - dataset_name: "mnist-784-euclidean"
+  - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/vecsim/hnsw__mnist-784-euclidean__M4.rdb"
+  - dataset_load_timeout_secs: 300
+  - check:
+      keyspacelen: 60000
+        
+clientconfig:
+  tool: ann-benchmarks
+  parameters:
+    build-clients: 0
+    test-clients: 1
+  arguments: ' --algorithm redisearch-hnsw --dataset mnist-784-euclidean --run-group M-4 --runs 1'
