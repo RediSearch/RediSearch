@@ -297,15 +297,17 @@ def test_with_fields(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
 
-    query_data = np.float32(np.random.random((1, dimension)))
-    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
-                    'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                    'RETURN', 2, 'score', 't')
-    res_nocontent = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
-                    'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                    'NOCONTENT')
-    env.assertEqual(res[1::2], res_nocontent[1:])
-    env.assertEqual('t', res[2][2])
+    for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
+        query_data = np.float32(np.random.random((1, dimension)))
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
+                        'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                        'RETURN', 2, 'score', 't')
+        res_nocontent = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
+                        'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                        'NOCONTENT')
+        env.assertEqual(res[1::2], res_nocontent[1:])
+        env.assertEqual('t', res[2][2])
 
 
 def get_vecsim_memory(env, index_key, field_name):
@@ -734,10 +736,13 @@ def test_single_entry(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
     vector = np.random.rand(1, dimension).astype(np.float32)
     conn.execute_command('HSET', 0, 'v', vector.tobytes())
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]',
-               'SORTBY', '__v_score',
-               'RETURN', '0',
-               'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1L, '0'])
+
+    for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]',
+                'SORTBY', '__v_score',
+                'RETURN', '0',
+                'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1L, '0'])
 
 
 def test_hybrid_query_adhoc_bf_mode(env):
@@ -758,7 +763,10 @@ def test_hybrid_query_adhoc_bf_mode(env):
     query_data = np.float32([100 for j in range(dimension)])
 
     expected_res = [10L, '100', ['__v_score', '0', 't', 'other'], '90', ['__v_score', '12800', 't', 'other'], '80', ['__v_score', '51200', 't', 'other'], '70', ['__v_score', '115200', 't', 'other'], '60', ['__v_score', '204800', 't', 'other'], '50', ['__v_score', '320000', 't', 'other'], '40', ['__v_score', '460800', 't', 'other'], '30', ['__v_score', '627200', 't', 'other'], '20', ['__v_score', '819200', 't', 'other'], '10', ['__v_score', '1036800', 't', 'other']]
-    execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal(expected_res)
+    
+    for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
+        execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal(expected_res)
 
     
 def test_wrong_vector_size(env):

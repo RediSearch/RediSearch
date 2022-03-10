@@ -1491,6 +1491,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveStringBuffer(rdb, &f->tagOpts.tagSep, 1);
   }
   if (FIELD_IS(f, INDEXFLD_T_VECTOR)) {
+    RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
   }
 }
@@ -1542,6 +1543,9 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
   // Load vector specific options
   if (encver >= INDEX_VECSIM_VERSION && FIELD_IS(f, INDEXFLD_T_VECTOR)) {
+    if (encver >= INDEX_VECSIM_2_VERSION) {
+      f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
+    }
     if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
       goto fail;
     }
