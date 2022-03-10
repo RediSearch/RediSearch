@@ -25,6 +25,7 @@ static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
 
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
+  size_t resultFactor;
   const RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
@@ -132,6 +133,11 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
+    if (dmd && dmd->flags & Document_Deleted) {
+      RedisModule_ReplyWithSimpleString(outctx, "The document has been deleted");
+      return count;
+    }
+
     const RLookup *lk = cv->lastLk;
     count++;
 
@@ -212,6 +218,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
 
   cachedVars cv = {0};
+  cv.resultFactor = 0;
   cv.lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
   cv.lastAstp = AGPLN_GetArrangeStep(&req->ap);
 
@@ -226,9 +233,9 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
-    size_t resultFactor = getResultsFactor(req);
+    cv.resultFactor = getResultsFactor(req);
     size_t reqResults = req->qiter.totalResults > reqOffset ? req->qiter.totalResults - reqOffset : 0;
-    resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
+    resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * cv.resultFactor;
   }
 
   RedisModule_ReplyWithArray(outctx, resultsLen);
