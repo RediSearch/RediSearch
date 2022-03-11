@@ -762,7 +762,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
     offsets->score = 1;
     offsets->firstField = 2;
   } else {
-    offsets->score = 0;
+    offsets->score = -1;
     offsets->step = 2;  // 1 for key, 1 for fields
     offsets->firstField = 1;
   }

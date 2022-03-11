@@ -86,7 +86,8 @@ static size_t expBlobSize(VecSimIndex *ind) {
   return (dim * VecSimType_sizeof(type));
 }
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIterator *child_it, bool ignoreScores, QueryError *status) {
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+  RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
@@ -100,17 +101,24 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIter
       if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params),
                                            &qParams)) != VecSim_OK) {
         err = VecSimResolveCode_to_QueryErrorCode(err);
-        QueryError_SetErrorFmt(status, err, "Error parsing vector similarity parameters: %s",
+        QueryError_SetErrorFmt(q->status, err, "Error parsing vector similarity parameters: %s",
                                QueryError_Strerror(err));
         return NULL;
       }
       if (expBlobSize(vecsim) != vq->knn.vecLen) {
-        QueryError_SetErrorFmt(status, QUERY_EINVAL,
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
                                "Error parsing vector similarity query: query vector blob size (%zu) does not match index's expected size (%zu).",
                                vq->knn.vecLen, expBlobSize(vecsim));
         return NULL;
       }
-      return NewHybridVectorIterator(vecsim, vq->scoreField, vq->knn, qParams, child_it, ignoreScores);
+      HybridIteratorParams hParams = {.index = vecsim,
+                                      .query = vq->knn,
+                                      .qParams = qParams,
+                                      .vectorScoreField = vq->scoreField,
+                                      .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
+                                      .childIt = child_it
+      };
+      return NewHybridVectorIterator(hParams);
     }
   }
   return NULL;

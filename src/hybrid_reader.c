@@ -321,36 +321,36 @@ void HybridIterator_Free(struct indexIterator *self) {
   rm_free(it);
 }
 
-IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KNNVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it, bool ignoreScores) {
+IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   HybridIterator *hi = rm_new(HybridIterator);
   hi->lastDocId = 0;
-  hi->child = child_it;
+  hi->child = hParams.childIt;
   hi->resultsPrepared = false;
-  hi->index = index;
-  hi->query = query;
-  hi->runtimeParams = qParams;
-  hi->scoreField = score_field;
+  hi->index = hParams.index;
+  hi->query = hParams.query;
+  hi->runtimeParams = hParams.qParams;
+  hi->scoreField = hParams.vectorScoreField;
   hi->base.isValid = 1;
   hi->list = NULL;
   hi->iter = NULL;
   hi->numIterations = 0;
-  hi->ignoreScores = ignoreScores;
+  hi->ignoreScores = hParams.ignoreDocScore;
 
-  if (child_it == NULL) {
+  if (hParams.childIt == NULL) {
     hi->searchMode = VECSIM_STANDARD_KNN;
   } else {
     // hi->searchMode is VECSIM_HYBRID_ADHOC_BF || VECSIM_HYBRID_BATCHES
-    hi->topResults = rm_malloc(heap_sizeof(query.k));
-    heap_init(hi->topResults, cmpVecSimResByScore, NULL, query.k);
-    hi->returnedResults = array_new(RSIndexResult *, query.k);
+    hi->topResults = rm_malloc(heap_sizeof(hParams.query.k));
+    heap_init(hi->topResults, cmpVecSimResByScore, NULL, hParams.query.k);
+    hi->returnedResults = array_new(RSIndexResult *, hParams.query.k);
     // Get the estimated number of results that pass the child "sub-query filter". Note that
     // this is an upper bound, and might even be larger than the total vector index size.
-    size_t subset_size = child_it->NumEstimated(child_it->ctx);
-    if (subset_size > VecSimIndex_IndexSize(index)) {
-      subset_size = VecSimIndex_IndexSize(index);
+    size_t subset_size = hParams.childIt->NumEstimated(hParams.childIt->ctx);
+    if (subset_size > VecSimIndex_IndexSize(hParams.index)) {
+      subset_size = VecSimIndex_IndexSize(hParams.index);
     }
     // Use a pre-defined heuristics that determines which approach should be faster.
-    if (VecSimIndex_PreferAdHocSearch(index, subset_size, query.k)) {
+    if (VecSimIndex_PreferAdHocSearch(hParams.index, subset_size, hParams.query.k)) {
       hi->searchMode = VECSIM_HYBRID_ADHOC_BF;
     } else {
       hi->searchMode = VECSIM_HYBRID_BATCHES;
@@ -377,7 +377,7 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KN
   } else {
     // Hybrid query - save the RSIndexResult subtree which is not the vector distance only if required.
     ri->Read = HR_ReadHybridUnsorted;
-    if (ignoreScores) {
+    if (hParams.ignoreDocScore) {
       ri->current = NewDistanceResult();
     } else {
       ri->current = NewHybridResult();

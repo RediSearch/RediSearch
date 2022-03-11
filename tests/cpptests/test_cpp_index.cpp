@@ -706,8 +706,15 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
 
   // Run simple top k query.
+  HybridIteratorParams hParams = {.index = index,
+                                  .query = top_k_query,
+                                  .qParams = queryParams,
+                                  .vectorScoreField = (char *)"__v_score",
+                                  .ignoreDocScore = true,
+                                  .childIt = NULL
+  };
   bool ignoreNonVectorScore = true;
-  IndexIterator *vecIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, NULL, ignoreNonVectorScore);
+  IndexIterator *vecIt = NewHybridVectorIterator(hParams);
   RSIndexResult *h = NULL;
   size_t count = 0;
 
@@ -731,7 +738,8 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Test in hybrid mode.
   IndexIterator *ir = NewReadIterator(r);
-  IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir, ignoreNonVectorScore);
+  hParams.childIt = ir;
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -779,10 +787,11 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Free(hybridIt);
 
   // Rerun without ignoring document scores.
-  ignoreNonVectorScore = false;
   r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
   ir = NewReadIterator(r);
-  hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir, ignoreNonVectorScore);
+  hParams.ignoreDocScore = false;
+  hParams.childIt = ir;
+  hybridIt = NewHybridVectorIterator(hParams);
   hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
