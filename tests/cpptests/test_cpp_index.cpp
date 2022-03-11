@@ -679,7 +679,6 @@ TEST_F(IndexTest, testHybridVector) {
                                   .ignoreDocScore = true,
                                   .childIt = NULL
   };
-  bool ignoreNonVectorScore = true;
   IndexIterator *vecIt = NewHybridVectorIterator(hParams);
   RSIndexResult *h = NULL;
   size_t count = 0;
