@@ -807,7 +807,7 @@ def test_hybrid_query_cosine(env):
 
     query_data = np.ones(dim, dtype='float32')
 
-    expected_res_ids = set([str(index_size-i) for i in range(10)])
+    expected_res_ids = [str(index_size-i) for i in range(15)]
     res = conn.execute_command('FT.SEARCH', 'idx', '(text value)=>[KNN 10 @v $vec_param]',
            'SORTBY', '__v_score',
            'PARAMS', 2, 'vec_param', query_data.tobytes(),
@@ -815,9 +815,10 @@ def test_hybrid_query_cosine(env):
     prefix = "_" if env.isCluster() else ""
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
     # The order of ids is not accurate due to floating point numeric errors, but the top k should be
-    # the last 10 ids, and their scores should all be in the right COSINE range.
-    actual_res_ids = set([res[1:][i] for i in range(10)])
-    env.assertEqual(actual_res_ids, expected_res_ids)
+    # in the last 15 ids.
+    actual_res_ids = [res[1:][i] for i in range(10)]
+    for res_id in actual_res_ids:
+        env.assertContains(res_id, expected_res_ids)
 
     # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., index_size)
     for i in range(1, index_size/10 + 1):
@@ -833,4 +834,5 @@ def test_hybrid_query_cosine(env):
                'RETURN', 0)
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
     actual_res_ids = [res[1:][i] for i in range(10)]
-    env.assertEqual(actual_res_ids, expected_res_ids)
+    for res_id in actual_res_ids:
+        env.assertContains(res_id, expected_res_ids)
