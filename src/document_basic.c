@@ -442,7 +442,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
       arguments[i] = RedisModule_CreateStringFromString(ctx->redisCtx, arguments[i]);
     }
   }
-  rep = RedisModule_Call(ctx->redisCtx, "HSET", "!v", arguments, array_len(arguments));
+  rep = RedisModule_Call(ctx->redisCtx, "HSET", "!v", arguments, (size_t)array_len(arguments));
   if (rep) {
     RedisModule_FreeCallReply(rep);
   }
