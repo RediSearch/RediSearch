@@ -649,8 +649,6 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       return NULL;
     }
   }
-  // Check if we can ignore the document score
-  bool ignoreScores = q->opts->flags & Search_IgnoreScores;
   IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
