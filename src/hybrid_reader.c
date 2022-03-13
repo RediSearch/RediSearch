@@ -325,16 +325,20 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KN
   if (child_it == NULL) {
     hi->searchMode = VECSIM_STANDARD_KNN;
   } else {
+    // Get the estimated number of results that pass the child "sub-query filter". Note that
+    // this is an upper bound, and might even be larger than the total vector index size.
+    size_t subset_size = child_it->NumEstimated(child_it->ctx);
+    if (child_it->NumEstimated(child_it->ctx) == UINT32_MAX) {
+      rm_free(hi);
+      return NULL;
+    }
+    if (subset_size > VecSimIndex_IndexSize(index)) {
+      subset_size = VecSimIndex_IndexSize(index);
+    }
     // hi->searchMode is VECSIM_HYBRID_ADHOC_BF || VECSIM_HYBRID_BATCHES
     hi->topResults = rm_malloc(heap_sizeof(query.k));
     heap_init(hi->topResults, cmpVecSimResByScore, NULL, query.k);
     hi->returnedResults = array_new(RSIndexResult *, query.k);
-    // Get the estimated number of results that pass the child "sub-query filter". Note that
-    // this is an upper bound, and might even be larger than the total vector index size.
-    size_t subset_size = child_it->NumEstimated(child_it->ctx);
-    if (subset_size > VecSimIndex_IndexSize(index)) {
-      subset_size = VecSimIndex_IndexSize(index);
-    }
     // Use a pre-defined heuristics that determines which approach should be faster.
     if (VecSimIndex_PreferAdHocSearch(index, subset_size, query.k)) {
       hi->searchMode = VECSIM_HYBRID_ADHOC_BF;
