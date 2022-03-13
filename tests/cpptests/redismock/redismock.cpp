@@ -824,6 +824,7 @@ static void registerApis() {
   REGISTER_API(CallReplyStringPtr);
 
   REGISTER_API(GetThreadSafeContext);
+  REGISTER_API(GetDetachedThreadSafeContext);
   REGISTER_API(FreeThreadSafeContext);
   REGISTER_API(ThreadSafeContextLock);
   REGISTER_API(ThreadSafeContextUnlock);
