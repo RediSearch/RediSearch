@@ -594,20 +594,23 @@ def testExpiredDuringSearch(env):
 
 def testExpiredDuringAggregate(env):
   N = 100
-  res = [1L, ['txt1', 'hello', 'COUNT', '2']]
+  res = [2L, ['txt1', 'hello', 'COUNT', '2'], ['txt1', None, 'COUNT', '99']]
 
   createExpire(env, N)
   _res = env.cmd('FT.AGGREGATE idx hello*')
   env.assertGreater(len(_res), 2)
 
   createExpire(env, N)
-  env.expect('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
+  _res = env.cmd('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
+  env.assertEqual(res[0], _res[0])
 
   createExpire(env, N)
-  env.expect('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
+  _res = env.cmd('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
+  env.assertEqual(res[0], _res[0])
 
   createExpire(env, N)
-  env.expect('FT.AGGREGATE idx @txt1:hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
+  _res = env.cmd('FT.AGGREGATE idx @txt1:hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
+  env.assertEqual(res[0], _res[0])
 
 def testSkipInitialScan(env):
     conn = getConnectionByEnv(env)
