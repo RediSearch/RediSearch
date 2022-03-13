@@ -803,6 +803,11 @@ def testNullValue(env):
                                                                      '$.tag', 'AS', 'tag', 'TAG',
                                                                      '$.geo', 'AS', 'geo', 'GEO')
 
+    conn.execute_command('FT.CREATE', 'idx_sortable', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC', 'SORTABLE',
+                                                                     '$.sort', 'AS', 'sort', 'NUMERIC', 'SORTABLE',
+                                                                     '$.txt', 'AS', 'txt', 'TEXT', 'SORTABLE',
+                                                                     '$.geo', 'AS', 'geo', 'GEO', 'SORTABLE')
+
     conn.execute_command('JSON.SET', 'doc1', '$', r'{"sort":1, "num":null, "txt":"hello", "tag":"world", "geo":"1.23,4.56"}')
     conn.execute_command('JSON.SET', 'doc2', '$', r'{"sort":2, "num":0.8, "txt":null, "tag":"world", "geo":"1.23,4.56"}')
     conn.execute_command('JSON.SET', 'doc3', '$', r'{"sort":3, "num":0.8, "txt":"hello", "tag":null, "geo":"1.23,4.56"}')
@@ -814,6 +819,9 @@ def testNullValue(env):
                'doc4', ['sort', '4', '$', '{"sort":4,"num":0.8,"txt":"hello","tag":"world","geo":null}']]
 
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', "sort").equal(res)
+    info_res = index_info(env, 'idx')
+    env.assertEqual(int(info_res['hash_indexing_failures']), 0)
 
-    res = index_info(env, 'idx')
-    env.assertEqual(int(res['hash_indexing_failures']), 0)
+    env.expect('FT.SEARCH', 'idx_sortable', '*', 'SORTBY', "sort").equal(res)
+    info_res = index_info(env, 'idx_sortable')
+    env.assertEqual(int(info_res['hash_indexing_failures']), 0)
