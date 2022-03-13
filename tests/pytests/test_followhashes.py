@@ -486,15 +486,20 @@ def testPartial(env):
     env.expect('FT.DEBUG docidtoid idx doc5').equal(8)
     env.expect('HINCRBYFLOAT doc5 testtest 5.5').equal('5.5')
     env.expect('FT.DEBUG docidtoid idx doc5').equal(8)
-    env.expect('HINCRBYFLOAT doc5 test 6.6').equal('12.1')
+    res = env.execute_command('HINCRBYFLOAT doc5 test 6.6')
+    env.assertEqual(float(res), 12.1)
     env.expect('FT.DEBUG docidtoid idx doc5').equal(9)
-    env.expect('HINCRBYFLOAT doc5 test 5').equal('17.1')
+    res = env.execute_command('HINCRBYFLOAT doc5 test 5')
+    env.assertEqual(float(res), 17.1)
     env.expect('FT.DEBUG docidtoid idx doc5').equal(10)
-    env.expect('FT.SEARCH idx *').equal([5L, 'doc1', ['test', 'bar', 'testtest', 'foo'],
-                                             'doc2', ['test', 'baz', 'testtest', 'foo'],
-                                             'doc3', ['test', 'foo', 'testtest', 'foo'],
-                                             'doc4', ['test', '11', 'testtest', '5'],
-                                             'doc5', ['test', '17.1', 'testtest', '5.5']])
+    res = env.execute_command('FT.SEARCH idx *')
+    res[8][1] = float(res[8][1])
+    res[10][1] = float(res[10][1])
+    env.assertEqual(res, [5L, 'doc1', ['test', 'bar', 'testtest', 'foo'],
+                              'doc2', ['test', 'baz', 'testtest', 'foo'],
+                              'doc3', ['test', 'foo', 'testtest', 'foo'],
+                              'doc4', ['test', 11, 'testtest', '5'],
+                              'doc5', ['test', 17.1, 'testtest', '5.5']])
 
 def testHDel(env):
     if env.env == 'existing-env':
