@@ -565,7 +565,7 @@ def createExpire(env, N):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
   for i in range(N):
     conn.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
-    conn.execute_command('PEXPIRE', 'doc%d' % i, '100')
+    conn.execute_command('PEXPIRE', 'doc%d' % i, '50')
   conn.execute_command('HSET', 'foo', 'txt1', 'hello', 'n', 0)
   conn.execute_command('HSET', 'bar', 'txt1', 'hello', 'n', 20)
   waitForIndex(env, 'idx')
@@ -581,6 +581,7 @@ def createExpire(env, N):
   env.assertEqual(res, {})
 
 def testExpiredDuringSearch(env):
+  env.skip()
   N = 100
   createExpire(env, N)
   res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'nocontent', 'limit', '0', '200')
@@ -593,6 +594,7 @@ def testExpiredDuringSearch(env):
                                                                'foo', ['txt1', 'hello', 'n', '0']]))
 
 def testExpiredDuringAggregate(env):
+  env.skip()
   N = 100
   res = [2L, ['txt1', 'hello', 'COUNT', '2'], ['txt1', None, 'COUNT', '99']]
 
