@@ -793,7 +793,7 @@ def testTagArrayLowerCase(env):
     env.expect('FT.SEARCH', 'idx4', '@attrs:{Vivo}', 'NOCONTENT').equal([1L, 'json1'])
     env.expect('FT.SEARCH', 'idx4', '@attrs:{vivo}', 'NOCONTENT').equal([1L, 'json2'])
 
-def test_index_with_null(env, idx):
+def check_index_with_null(env, idx):
     res = [4L, 'doc1', ['sort', '1', '$', '{"sort":1,"num":null,"txt":"hello","tag":"world","geo":"1.23,4.56"}'],
                'doc2', ['sort', '2', '$', '{"sort":2,"num":0.8,"txt":null,"tag":"world","geo":"1.23,4.56"}'],
                'doc3', ['sort', '3', '$', '{"sort":3,"num":0.8,"txt":"hello","tag":null,"geo":"1.23,4.56"}'],
@@ -830,8 +830,8 @@ def testNullValue(env):
     conn.execute_command('JSON.SET', 'doc3', '$', r'{"sort":3, "num":0.8, "txt":"hello", "tag":null, "geo":"1.23,4.56"}')
     conn.execute_command('JSON.SET', 'doc4', '$', r'{"sort":4, "num":0.8, "txt":"hello", "tag":"world", "geo":null}')
     
-    test_index_with_null(env, 'idx')
-    test_index_with_null(env, 'idx_sortable')
-    test_index_with_null(env, 'idx_separator')
-    test_index_with_null(env, 'idx_casesensitive')
+    check_index_with_null(env, 'idx')
+    check_index_with_null(env, 'idx_sortable')
+    check_index_with_null(env, 'idx_separator')
+    check_index_with_null(env, 'idx_casesensitive')
     
