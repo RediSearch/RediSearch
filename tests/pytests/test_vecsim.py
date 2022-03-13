@@ -492,6 +492,11 @@ def test_hybrid_query_batches_mode_with_text(env):
 
     execute_hybrid_query(env, '(-(@t:other))=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
+    # Test with invalid wildcard (less than 2 chars before the wildcard)
+    env.expect('FT.SEARCH', 'idx', '(t*)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0L])
+    # Intersect valid with invalid iterators in intersection (should return 0 results as well)
+    env.expect('FT.SEARCH', 'idx', '(@t:t* @t:text)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0L])
+
 
 def test_hybrid_query_batches_mode_with_tags(env):
     conn = getConnectionByEnv(env)

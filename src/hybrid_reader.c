@@ -328,6 +328,7 @@ IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KN
     // Get the estimated number of results that pass the child "sub-query filter". Note that
     // this is an upper bound, and might even be larger than the total vector index size.
     size_t subset_size = child_it->NumEstimated(child_it->ctx);
+    // UINT32_MAX is the default (invalid) value for indicating invalid intersection iterator.
     if (child_it->NumEstimated(child_it->ctx) == UINT32_MAX) {
       rm_free(hi);
       return NULL;
