@@ -355,7 +355,9 @@ void Document_Clear(Document *d) {
             rm_free(field->multiVal[i]);
           }
           rm_free(field->multiVal);
-        default:
+        case FLD_VAR_T_GEO:
+        case FLD_VAR_T_NUM:
+        case FLD_VAR_T_NULL:
           break;
       }
     }
