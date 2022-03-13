@@ -793,6 +793,17 @@ def testTagArrayLowerCase(env):
     env.expect('FT.SEARCH', 'idx4', '@attrs:{Vivo}', 'NOCONTENT').equal([1L, 'json1'])
     env.expect('FT.SEARCH', 'idx4', '@attrs:{vivo}', 'NOCONTENT').equal([1L, 'json2'])
 
+def test_index_with_null(env, idx):
+    res = [4L, 'doc1', ['sort', '1', '$', '{"sort":1,"num":null,"txt":"hello","tag":"world","geo":"1.23,4.56"}'],
+               'doc2', ['sort', '2', '$', '{"sort":2,"num":0.8,"txt":null,"tag":"world","geo":"1.23,4.56"}'],
+               'doc3', ['sort', '3', '$', '{"sort":3,"num":0.8,"txt":"hello","tag":null,"geo":"1.23,4.56"}'],
+               'doc4', ['sort', '4', '$', '{"sort":4,"num":0.8,"txt":"hello","tag":"world","geo":null}']]
+
+    env.expect('FT.SEARCH', idx, '*', 'SORTBY', "sort").equal(res)
+    env.expect('FT.SEARCH', idx, '@sort:[1 4]', 'SORTBY', "sort").equal(res)
+    info_res = index_info(env, idx)
+    env.assertEqual(int(info_res['hash_indexing_failures']), 0)
+
 @no_msan
 def testNullValue(env):
     # check JSONType_Null is ignored, not failing
@@ -808,20 +819,19 @@ def testNullValue(env):
                                                                      '$.txt', 'AS', 'txt', 'TEXT', 'SORTABLE',
                                                                      '$.geo', 'AS', 'geo', 'GEO', 'SORTABLE')
 
+    conn.execute_command('FT.CREATE', 'idx_separator', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                                               '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', '|')
+
+    conn.execute_command('FT.CREATE', 'idx_casesensitive', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                                               '$.tag', 'AS', 'tag', 'TAG', 'CASESENSITIVE')
+
     conn.execute_command('JSON.SET', 'doc1', '$', r'{"sort":1, "num":null, "txt":"hello", "tag":"world", "geo":"1.23,4.56"}')
     conn.execute_command('JSON.SET', 'doc2', '$', r'{"sort":2, "num":0.8, "txt":null, "tag":"world", "geo":"1.23,4.56"}')
     conn.execute_command('JSON.SET', 'doc3', '$', r'{"sort":3, "num":0.8, "txt":"hello", "tag":null, "geo":"1.23,4.56"}')
     conn.execute_command('JSON.SET', 'doc4', '$', r'{"sort":4, "num":0.8, "txt":"hello", "tag":"world", "geo":null}')
     
-    res = [4L, 'doc1', ['sort', '1', '$', '{"sort":1,"num":null,"txt":"hello","tag":"world","geo":"1.23,4.56"}'],
-               'doc2', ['sort', '2', '$', '{"sort":2,"num":0.8,"txt":null,"tag":"world","geo":"1.23,4.56"}'],
-               'doc3', ['sort', '3', '$', '{"sort":3,"num":0.8,"txt":"hello","tag":null,"geo":"1.23,4.56"}'],
-               'doc4', ['sort', '4', '$', '{"sort":4,"num":0.8,"txt":"hello","tag":"world","geo":null}']]
-
-    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', "sort").equal(res)
-    info_res = index_info(env, 'idx')
-    env.assertEqual(int(info_res['hash_indexing_failures']), 0)
-
-    env.expect('FT.SEARCH', 'idx_sortable', '*', 'SORTBY', "sort").equal(res)
-    info_res = index_info(env, 'idx_sortable')
-    env.assertEqual(int(info_res['hash_indexing_failures']), 0)
+    test_index_with_null(env, 'idx')
+    test_index_with_null(env, 'idx_sortable')
+    test_index_with_null(env, 'idx_separator')
+    test_index_with_null(env, 'idx_casesensitive')
+    
