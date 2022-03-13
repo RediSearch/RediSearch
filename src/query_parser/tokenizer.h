@@ -2,8 +2,9 @@
 #define __QUERY_TOKENIZER_H__
 
 #include <stdlib.h>
+#include <stdbool.h>
 #include "../tokenize.h"
-#include "vector_index.h"
+#include "VecSim/vec_sim_common.h"
 
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
 typedef struct {

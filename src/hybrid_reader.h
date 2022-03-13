@@ -15,6 +15,18 @@ typedef enum {
 } VecSimSearchMode;
 
 typedef struct {
+  VecSimIndex *index;
+  size_t dim;
+  VecSimMetric spaceMetric;
+  VecSimType elementType;
+  KNNVectorQuery query;
+  VecSimQueryParams qParams;
+  char *vectorScoreField;
+  bool ignoreDocScore;
+  IndexIterator *childIt;
+} HybridIteratorParams;
+
+typedef struct {
   IndexIterator base;
   VecSimIndex *index;
   KNNVectorQuery query;
@@ -31,13 +43,14 @@ typedef struct {
   heap_t *topResults;              // Sorted by score (max heap).
   //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
   size_t numIterations;
+  bool ignoreScores;               // Ignore the document scores, only vector score matters.
 } HybridIterator;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KNNVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it);
+IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams);
 
 #ifdef __cplusplus
 }

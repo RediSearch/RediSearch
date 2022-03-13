@@ -271,7 +271,8 @@ static int rpvecsimNext(ResultProcessor *base, SearchResult *res) {
     if (res->indexResult->type == RSResultType_HybridDistance) {
       val = RS_NumVal(res->indexResult->agg.children[0]->dist.distance);
     } else {
-      // The entire query is a TOP-K query, the distance is saved in the root of indexResult.
+      // The entire query is a TOP-K query, or this is hybrid query that doesn't use the doc score,
+      // so the distance is saved in the root of indexResult.
       val = RS_NumVal(res->indexResult->dist.distance);
     }
     RLookup_WriteOwnKey(self->keys[i], &(res->rowdata), val);
