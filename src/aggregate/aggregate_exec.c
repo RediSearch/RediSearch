@@ -133,13 +133,13 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
-    if (dmd && dmd->flags & Document_Deleted) {
-      RedisModule_ReplyWithSimpleString(outctx, "The document has been deleted");
-      return count;
-    }
-
     const RLookup *lk = cv->lastLk;
     count++;
+
+    if (dmd && dmd->flags & Document_Deleted) {
+      RedisModule_ReplyWithNull(outctx);
+      return count;
+    }
 
     // Get the number of fields in the reply. 
     // Excludes hidden fields, fields not included in RETURN and, score and language fields.
