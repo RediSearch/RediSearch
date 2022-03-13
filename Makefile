@@ -217,11 +217,7 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(OS),macos)
 STATIC_LIBSTDCXX ?= 1
-else
-STATIC_LIBSTDCXX ?= 0
-endif
 
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
