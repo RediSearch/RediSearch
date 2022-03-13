@@ -100,6 +100,7 @@ make pytest        # run python tests (tests/pytests)
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
+  BENCHMARK=1		 # run micro-benchmark
 
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
@@ -539,7 +540,9 @@ endif
 endif
 
 cpp_tests:
-ifeq ($(TEST),)
+ifeq ($(BENCHMARK), 1)
+	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
+else ifeq ($(TEST),)
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rstest
 else
 	$(SHOW)$(GDB_CMD) $(abspath $(BINROOT)/search/tests/cpptests/rstest) --gtest_filter=$(TEST)

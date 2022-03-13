@@ -511,6 +511,9 @@ jobs:
       - run:
           name: Run QA Automation (RediSearch Light)
           command: ./tests/qa/qatests -m "$CIRCLE_TAG" --light
+      - run:
+          name: Run QA Automation (RediSearch/VecSim)
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim
 
 
 #----------------------------------------------------------------------------------------------------------------------------------
