@@ -1,6 +1,5 @@
 #pragma once
 
-#include "query_param.h"
 #include "search_options.h"
 
 typedef struct QueryEvalCtx {
