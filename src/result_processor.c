@@ -420,7 +420,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 
     // If there is no sorting vector, load all required fields, else, load missing fields
     if (nLoadKeys == REDISEARCH_UNINITIALIZED) {
-      if (!h->rowdata.sv) {
+      if (!h->rowdata.sv && !h->rowdata.dyn) {
         loadKeys = self->fieldcmp.keys;
         nLoadKeys = nkeys;
       } else {
