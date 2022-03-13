@@ -154,12 +154,12 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
         vector = np.random.rand(1, vec_size).astype(np.float32)
         if i == query_vec_index:
             query_vec = vector
-        conn.execute_command('HSET', i, 'vector', vector.tobytes())
+        conn.execute_command('HSET', i, 'vector', vector.tostring())
     return query_vec
 
 def query_vector(env, idx, query_vec):
     conn = getConnectionByEnv(env)
-    return conn.execute_command('FT.SEARCH', idx, '*=>[KNN 5 @vector $v AS score]', 'PARAMS', '2', 'v', query_vec.tobytes(),
+    return conn.execute_command('FT.SEARCH', idx, '*=>[KNN 5 @vector $v AS score]', 'PARAMS', '2', 'v', query_vec.tostring(),
                                 'SORTBY', 'score', 'ASC', 'RETURN', 1, 'score', 'LIMIT', 0, 5)
 
 def testDelReuseLarge(env):
@@ -283,7 +283,7 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
     p = con.pipeline(transaction=False)
     for i in range(1, num_vectors+1):
         vector = np.float32([i for j in range(dim)])
-        con.execute_command('HSET', i, vector_field, vector.tobytes(), 't', 'text value')
+        con.execute_command('HSET', i, vector_field, vector.tostring(), 't', 'text value')
         id_vec_list.append((i, vector))
     p.execute()
     return id_vec_list
@@ -301,10 +301,10 @@ def test_with_fields(env):
         waitForIndex(env, 'idx')
         query_data = np.float32(np.random.random((1, dimension)))
         res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
-                        'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                        'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tostring(),
                         'RETURN', 2, 'score', 't')
         res_nocontent = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
-                        'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                        'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tostring(),
                         'NOCONTENT')
         env.assertEqual(res[1::2], res_nocontent[1:])
         env.assertEqual('t', res[2][2])
@@ -334,7 +334,7 @@ def test_memory_info(env):
     vector = np.float32(np.random.random((1, dimension)))
 
     # Add vector.
-    conn.execute_command('HSET', 1, vector_field, vector.tobytes())
+    conn.execute_command('HSET', 1, vector_field, vector.tostring())
     # Verify current memory readings > previous memory readings.
     cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     env.assertLessEqual(redisearch_memory, cur_redisearch_memory)
@@ -350,7 +350,7 @@ def test_memory_info(env):
         env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
     # Add vector.
-    conn.execute_command('HSET', 2, vector_field, vector.tobytes())
+    conn.execute_command('HSET', 2, vector_field, vector.tostring())
     # Verify current memory readings > previous memory readings.
     cur_redisearch_memory = get_redisearch_vector_index_memory(env, index_key=index_key)
     env.assertLessEqual(redisearch_memory, cur_redisearch_memory)
@@ -403,19 +403,19 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
     if sort_by_vector:
         ret = env.expect('FT.SEARCH', 'idx', query_string,
                    'SORTBY', '__v_score',
-                   'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                   'PARAMS', 2, 'vec_param', query_data.tostring(),
                    'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
 
     else:
         if sort_by_non_vector_field:
             ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
                 'SORTBY', non_vector_field,
-                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'PARAMS', 2, 'vec_param', query_data.tostring(),
                 'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
         else:
             ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
-                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'PARAMS', 2, 'vec_param', query_data.tostring(),
                 'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
     # in cluster mode, we send `_FT.DEBUG' to the local shard.
@@ -438,7 +438,7 @@ def test_hybrid_query_batches_mode_with_text(env):
     query_data = np.full(dim, index_size, dtype='float32')
 
     # Expect to find no result (internally, build the child iterator as empty iterator).
-    env.expect('FT.SEARCH', 'idx', '(nothing)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0L])
+    env.expect('FT.SEARCH', 'idx', '(nothing)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tostring()).equal([0L])
 
     expected_res = [10L]
     # Expect to get result in reverse order to the id, starting from the max id in the index.
@@ -452,7 +452,7 @@ def test_hybrid_query_batches_mode_with_text(env):
     # Change the text value to 'other' for 20% of the vectors (with ids 5, 10, ..., index_size)
     for i in range(1, index_size/5 + 1):
         vector = np.full(dim, 5*i, dtype='float32')
-        conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 't', 'other')
+        conn.execute_command('HSET', 5*i, 'v', vector.tostring(), 't', 'other')
 
     # Expect to get only vector that passes the filter (i.e, has "other" in t field)
     expected_res = [10L]
@@ -504,7 +504,7 @@ def test_hybrid_query_batches_mode_with_tags(env):
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
         vector = np.full(dim, i, dtype='float32')
-        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid')
+        conn.execute_command('HSET', i, 'v', vector.tostring(), 'tags', 'hybrid')
     p.execute()
 
     query_data = np.full(dim, index_size/2, dtype='float32')
@@ -522,7 +522,7 @@ def test_hybrid_query_batches_mode_with_tags(env):
     # Change the tag values to 'different, tag' for vectors with ids 5, 10, 20, ..., 6000)
     for i in range(1, index_size/5 + 1):
         vector = np.full(dim, 5*i, dtype='float32')
-        conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 'tags', 'different, tag')
+        conn.execute_command('HSET', 5*i, 'v', vector.tostring(), 'tags', 'different, tag')
 
     expected_res = [10L]
     # Expect to get result which are around index_size/2 that divide by 5, closer results
@@ -570,7 +570,7 @@ def test_hybrid_query_with_numeric_and_geo(env):
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
         vector = np.full(dim, i, dtype='float32')
-        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i)
+        conn.execute_command('HSET', i, 'v', vector.tostring(), 'num', i)
     p.execute()
 
     query_data = np.full(dim, index_size, dtype='float32')
@@ -600,7 +600,7 @@ def test_hybrid_query_with_numeric_and_geo(env):
     expected_res = [5L]
     expected_res.extend([str(50-i) for i in range(1, 6)])
     env.expect('FT.SEARCH', 'idx', '(@num:[45 (50])=>[KNN 10 @v $vec_param]',
-               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 0).equal(expected_res)
+               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tostring(), 'RETURN', 0).equal(expected_res)
     prefix = "_" if env.isCluster() else ""
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
 
@@ -613,7 +613,7 @@ def test_hybrid_query_with_numeric_and_geo(env):
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
         vector = np.full(dim, i, dtype='float32')
-        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i)+","+str(i))
+        conn.execute_command('HSET', i, 'v', vector.tostring(), 'coordinate', str(i)+","+str(i))
     p.execute()
 
     # Expect that ids 1-32 will pass the geo filter, and that the top 10 from these will return.
@@ -622,7 +622,7 @@ def test_hybrid_query_with_numeric_and_geo(env):
         expected_res.append(str(32-i))
         expected_res.append(['coordinate', str(32-i)+","+str(32-i)])
     env.expect('FT.SEARCH', 'idx', '(@coordinate:[0.0 0.0 5000 km])=>[KNN 10 @v $vec_param]',
-               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 1, 'coordinate').equal(expected_res)
+               'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tostring(), 'RETURN', 1, 'coordinate').equal(expected_res)
 
     # Expect that no results will pass the filter
     execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate', batches_mode=False).equal([0L])
@@ -639,13 +639,13 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
     p = conn.pipeline(transaction=False)
     close_vector = np.full(dimension, 1, dtype='float32')
     distant_vector = np.full(dimension, 10, dtype='float32')
-    conn.execute_command('HSET', 1, 'v', close_vector.tobytes(), 'num', 1, 't1', 'text value', 't2', 'hybrid query')
-    conn.execute_command('HSET', 2, 'v', distant_vector.tobytes(), 'num', 2, 't1', 'text value', 't2', 'hybrid query')
-    conn.execute_command('HSET', 3, 'v', distant_vector.tobytes(), 'num', 3, 't1', 'other', 't2', 'hybrid query')
-    conn.execute_command('HSET', 4, 'v', close_vector.tobytes(), 'num', 4, 't1', 'other', 't2', 'hybrid query')
+    conn.execute_command('HSET', 1, 'v', close_vector.tostring(), 'num', 1, 't1', 'text value', 't2', 'hybrid query')
+    conn.execute_command('HSET', 2, 'v', distant_vector.tostring(), 'num', 2, 't1', 'text value', 't2', 'hybrid query')
+    conn.execute_command('HSET', 3, 'v', distant_vector.tostring(), 'num', 3, 't1', 'other', 't2', 'hybrid query')
+    conn.execute_command('HSET', 4, 'v', close_vector.tostring(), 'num', 4, 't1', 'other', 't2', 'hybrid query')
     for i in range(5, index_size+1):
         further_vector = np.full(dimension, i, dtype='float32')
-        conn.execute_command('HSET', i, 'v', further_vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
+        conn.execute_command('HSET', i, 'v', further_vector.tostring(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
     p.execute()
     expected_res_1 = [2L, '1', '5']
     # Search for the "close_vector" that some the vector in the index contain. The batch of vectors should start with
@@ -656,7 +656,7 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
     # handle this situation (without going into infinite loop).
     env.expect('FT.SEARCH', 'idx', '(@t2:(hybrid query) -@t1:other)=>[KNN 2 @v $vec_param]',
                'SORTBY', '__v_score', 'LIMIT', 0, 2,
-               'PARAMS', 2, 'vec_param', close_vector.tobytes(),
+               'PARAMS', 2, 'vec_param', close_vector.tostring(),
                'RETURN', 0).equal(expected_res_1)
     prefix = "_" if env.isCluster() else ""
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
@@ -665,14 +665,14 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
     expected_res_2 = [10L, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text) @num:[10 30])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score',
-               'PARAMS', 2, 'vec_param', close_vector.tobytes(),
+               'PARAMS', 2, 'vec_param', close_vector.tostring(),
                'RETURN', 0).equal(expected_res_2)
 
     # test with query attributes
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text)=>{$inorder: true} @num:[10 30])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'WITHSCORES',
-               'PARAMS', 2, 'vec_param', close_vector.tobytes(),
+               'PARAMS', 2, 'vec_param', close_vector.tostring(),
                'RETURN', 2, 't1', 't2').equal([0L])
 
 
@@ -687,7 +687,7 @@ def test_hybrid_query_non_vector_score(env):
     # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
     for i in range(1, 11):
         vector = np.float32([10*i for j in range(dimension)])
-        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+        conn.execute_command('HSET', 10*i, 'v', vector.tostring(), 't', 'other')
 
     query_data = np.float32([qty for j in range(dimension)])
     # All documents should match, so TOP 10 takes the 10 with the largest ids. Since we sort by default score
@@ -706,7 +706,7 @@ def test_hybrid_query_non_vector_score(env):
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'], '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'], '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'], '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'], '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'], '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'], '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'], '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'], '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
     env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'PARAMS', 2, 'vec_param', query_data.tostring(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_3)
 
     # Those scorers are scoring per shard.
@@ -714,18 +714,18 @@ def test_hybrid_query_non_vector_score(env):
         # use BM25 scorer
         expected_res_4 = [10L, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
-                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'PARAMS', 2, 'vec_param', query_data.tostring(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_4)
 
         # use DISMAX scorer
         expected_res_5 = [10L, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DISMAX', 'WITHSCORES',
-                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'PARAMS', 2, 'vec_param', query_data.tostring(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_5)
 
         # use DOCSCORE scorer
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DOCSCORE', 'WITHSCORES',
-                'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                'PARAMS', 2, 'vec_param', query_data.tostring(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
 
 
@@ -737,14 +737,14 @@ def test_single_entry(env):
     dimension = 128
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
     vector = np.random.rand(1, dimension).astype(np.float32)
-    conn.execute_command('HSET', 0, 'v', vector.tobytes())
+    conn.execute_command('HSET', 0, 'v', vector.tostring())
 
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
         env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]',
                 'SORTBY', '__v_score',
                 'RETURN', '0',
-                'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1L, '0'])
+                'PARAMS', 2, 'vec_param', vector.tostring()).equal([1L, '0'])
 
 
 def test_hybrid_query_adhoc_bf_mode(env):
@@ -758,7 +758,7 @@ def test_hybrid_query_adhoc_bf_mode(env):
     # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
     for i in range(1, 11):
         vector = np.float32([10*i for j in range(dimension)])
-        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+        conn.execute_command('HSET', 10*i, 'v', vector.tostring(), 't', 'other')
 
     # Expect to get only vector that passes the filter (i.e, has "other" in text field)
     # Expect also that heuristics will choose adhoc BF over batches.
@@ -776,19 +776,19 @@ def test_wrong_vector_size(env):
     dimension = 128
 
     vector = np.random.rand(1+dimension).astype(np.float32)
-    conn.execute_command('HSET', '0', 'v', vector[:dimension-1].tobytes())
-    conn.execute_command('HSET', '1', 'v', vector[:dimension].tobytes())
-    conn.execute_command('HSET', '2', 'v', vector[:dimension+1].tobytes())
+    conn.execute_command('HSET', '0', 'v', vector[:dimension-1].tostring())
+    conn.execute_command('HSET', '1', 'v', vector[:dimension].tostring())
+    conn.execute_command('HSET', '2', 'v', vector[:dimension+1].tostring())
 
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
     waitForIndex(env, 'idx')
 
     vector = np.random.rand(1+dimension).astype(np.float32)
-    conn.execute_command('HSET', '3', 'v', vector[:dimension-1].tobytes())
-    conn.execute_command('HSET', '4', 'v', vector[:dimension].tobytes())
-    conn.execute_command('HSET', '5', 'v', vector[:dimension+1].tobytes())
+    conn.execute_command('HSET', '3', 'v', vector[:dimension-1].tostring())
+    conn.execute_command('HSET', '4', 'v', vector[:dimension].tostring())
+    conn.execute_command('HSET', '5', 'v', vector[:dimension+1].tostring())
 
     waitForIndex(env, 'idx')
     assertInfoField(env, 'idx', 'num_docs', '2')
     assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2L, '1', '4'])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tostring()).equal([2L, '1', '4'])
