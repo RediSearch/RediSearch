@@ -17,8 +17,8 @@ typedef enum {
 typedef struct {
   VecSimIndex *index;
   size_t dim;
-  VecSimMetric spaceMetric;
   VecSimType elementType;
+  VecSimMetric spaceMetric;
   KNNVectorQuery query;
   VecSimQueryParams qParams;
   char *vectorScoreField;
