@@ -532,9 +532,9 @@ def testExpire(env):
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
     conn.execute_command('HSET', 'doc1', 'test', 'foo')
     env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
-    conn.execute_command('EXPIRE', 'doc1', '1')
+    conn.execute_command('PEXPIRE', 'doc1', '1')
     env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
-    sleep(1.1)
+    sleep(0.1)
     env.expect('FT.SEARCH idx foo').equal([0L])
 
 def testEvicted(env):
@@ -558,61 +558,6 @@ def testEvicted(env):
     env.assertLess(res[0], 1000)
     env.assertGreater(res[0], 0)
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', 0)
-
-def createExpire(env, N):
-  env.flush()
-  conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
-  for i in range(N):
-    conn.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
-    conn.execute_command('PEXPIRE', 'doc%d' % i, '50')
-  conn.execute_command('HSET', 'foo', 'txt1', 'hello', 'n', 0)
-  conn.execute_command('HSET', 'bar', 'txt1', 'hello', 'n', 20)
-  waitForIndex(env, 'idx')
-  env.expect('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '0').noEqual([2L])
-  res = conn.execute_command('HGETALL', 'doc99')
-  if type(res) is list:
-    res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}
-  env.assertEqual(res, {'txt1': 'hello99', 'n': '99'})
-  sleep(0.1)
-  res = conn.execute_command('HGETALL', 'doc99')
-  if isinstance(res, list):
-    res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}
-  env.assertEqual(res, {})
-
-def testExpiredDuringSearch(env):
-  env.skip()
-  N = 100
-  createExpire(env, N)
-  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'nocontent', 'limit', '0', '200')
-  env.assertGreater(103, len(res))
-  env.assertLess(1, len(res))
-
-  createExpire(env, N)
-  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '200')
-  env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'],
-                                                               'foo', ['txt1', 'hello', 'n', '0']]))
-
-def testExpiredDuringAggregate(env):
-  env.skip()
-  N = 100
-  res = [2L, ['txt1', 'hello', 'COUNT', '2'], ['txt1', None, 'COUNT', '99']]
-
-  createExpire(env, N)
-  _res = env.cmd('FT.AGGREGATE idx hello*')
-  env.assertGreater(len(_res), 2)
-
-  createExpire(env, N)
-  _res = env.cmd('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
-  env.assertEqual(res[0], _res[0])
-
-  createExpire(env, N)
-  _res = env.cmd('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
-  env.assertEqual(res[0], _res[0])
-
-  createExpire(env, N)
-  _res = env.cmd('FT.AGGREGATE idx @txt1:hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
-  env.assertEqual(res[0], _res[0])
 
 def testSkipInitialScan(env):
     conn = getConnectionByEnv(env)
