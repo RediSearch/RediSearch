@@ -42,7 +42,8 @@ typedef enum {
   FLD_VAR_T_CSTR = 0x02,
   FLD_VAR_T_NUM = 0x04,
   FLD_VAR_T_GEO = 0x08,
-  FLD_VAR_T_ARRAY = 0x10
+  FLD_VAR_T_ARRAY = 0x10,
+  FLD_VAR_T_NULL = 0x20,
 } FieldVarType;
 
 typedef struct DocumentField{
