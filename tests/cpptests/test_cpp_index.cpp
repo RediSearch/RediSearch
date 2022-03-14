@@ -645,14 +645,16 @@ TEST_F(IndexTest, testHybridVector) {
   size_t max_id = n*step;
   size_t d = 4;
   size_t k = 10;
+  VecSimMetric met = VecSimMetric_L2;
+  VecSimType t = VecSimType_FLOAT32;
   InvertedIndex *w = createIndex(n, step);
   IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
 
   // Create vector index
   VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
-                      .hnswParams = HNSWParams{.type = VecSimType_FLOAT32,
+                      .hnswParams = HNSWParams{.type = t,
                                                .dim = d,
-                                               .metric = VecSimMetric_L2,
+                                               .metric = met,
                                                .initialCapacity = max_id,
                                                .M = 16,
                                                .efConstruction = 100}};
@@ -672,7 +674,17 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
 
   // Run simple top k query.
-  IndexIterator *vecIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, NULL);
+  HybridIteratorParams hParams = {.index = index,
+                                  .dim = d,
+                                  .elementType = t,
+                                  .spaceMetric = met,
+                                  .query = top_k_query,
+                                  .qParams = queryParams,
+                                  .vectorScoreField = (char *)"__v_score",
+                                  .ignoreDocScore = true,
+                                  .childIt = NULL
+  };
+  IndexIterator *vecIt = NewHybridVectorIterator(hParams);
   RSIndexResult *h = NULL;
   size_t count = 0;
 
@@ -696,7 +708,8 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Test in hybrid mode.
   IndexIterator *ir = NewReadIterator(r);
-  IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir);
+  hParams.childIt = ir;
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -704,10 +717,7 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
-    ASSERT_EQ(h->type, RSResultType_HybridDistance);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_EQ(h->agg.numChildren, 2);
-    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Distance);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
@@ -725,10 +735,7 @@ TEST_F(IndexTest, testHybridVector) {
   for (size_t i = 0; i < k/2; i++) {
     count++;
     ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
-    ASSERT_EQ(h->type, RSResultType_HybridDistance);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_EQ(h->agg.numChildren, 2);
-    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Distance);
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
   }
@@ -736,7 +743,44 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Abort(hybridIt->ctx);
   ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
 
-  // Rerun in AD_HOC BF MODE.
+  // Rerun in AD_HOC BF mode.
+  hybridIt->Rewind(hybridIt->ctx);
+  hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
+  count = 0;
+  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+    count++;
+    ASSERT_EQ(h->type, RSResultType_Distance);
+    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+  hybridIt->Free(hybridIt);
+
+  // Rerun without ignoring document scores.
+  r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  ir = NewReadIterator(r);
+  hParams.ignoreDocScore = false;
+  hParams.childIt = ir;
+  hybridIt = NewHybridVectorIterator(hParams);
+  hr = (HybridIterator *)hybridIt->ctx;
+  hr->searchMode = VECSIM_HYBRID_BATCHES;
+
+  // This time, result is a tree with 2 children: vector score and subtree of terms (for scoring).
+  count = 0;
+  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+    count++;
+    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+  ASSERT_EQ(count, k);
+  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+
+  // Rerun in AD_HOC BF mode.
   hybridIt->Rewind(hybridIt->ctx);
   hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
@@ -750,8 +794,8 @@ TEST_F(IndexTest, testHybridVector) {
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
   }
-
   hybridIt->Free(hybridIt);
+
   InvertedIndex_Free(w);
   VecSimIndex_Free(index);
 }
