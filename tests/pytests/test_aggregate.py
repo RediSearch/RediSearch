@@ -852,3 +852,19 @@ def testResultCounter(env):
     # no match. max docID is 4
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([4L])
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0L])
+
+def testMissingOperand(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 'n1', 'NUMERIC', 'SORTABLE', 'n2', 'NUMERIC', 'SORTABLE')
+
+    # test behavior with a missing value (doc2 misses n2)
+    conn.execute_command('hset', 'doc1', 'n1', '42', 'n2', '18')
+    conn.execute_command('hset', 'doc2', 'n1', '7')
+    conn.execute_command('hset', 'doc3', 'n1', '3.14', 'n2', '1.618')
+    res = [1L, ['n1', '42', 'n2', '18', 'ADD', '60'], ['n1', '7', 'ADD', None], ['n1', '3.14', 'n2', '1.618', 'ADD', '4.758']]
+    env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', '@n1+@n2', 'AS', 'ADD').equal(res)
+    
+    # test behavior with string instead of number ()
+    conn.execute_command('hset', 'doc4', 'n3', 'dong', 'n4', 'ding')
+    res = [1L, ['ADD', None], ['ADD', None], ['ADD', None], ['n3', 'dong', 'n4', 'ding', 'ADD', 'nan']]
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@n3', '@n4', 'APPLY', '@n3+@n4', 'AS', 'ADD').equal(res)

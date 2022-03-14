@@ -46,21 +46,22 @@ cleanup:
 
 static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
-  int rc = EXPR_EVAL_ERR;
 
   if (evalInternal(eval, op->left, &l) != EXPR_EVAL_OK) {
+    result = RS_NullVal();
     goto cleanup;
   }
   if (evalInternal(eval, op->right, &r) != EXPR_EVAL_OK) {
+    result = RS_NullVal();
     goto cleanup;
   }
 
   double n1, n2;
   if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
-
     QueryError_SetError(eval->err, QUERY_ENOTNUMERIC, NULL);
-    rc = EXPR_EVAL_ERR;
+    RSValue_SetNumber(result, NAN);
     goto cleanup;
+
   }
 
   double res;
@@ -89,12 +90,11 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
 
   result->numval = res;
   result->t = RSValue_Number;
-  rc = EXPR_EVAL_OK;
 
 cleanup:
   RSValue_Clear(&l);
   RSValue_Clear(&r);
-  return rc;
+  return EXPR_EVAL_OK;
 }
 
 static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
