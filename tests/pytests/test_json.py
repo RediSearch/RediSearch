@@ -790,8 +790,8 @@ def testTagArrayLowerCase(env):
 
     env.execute_command('FT.CREATE', 'idx4', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'SEPARATOR', ',', 'CASESENSITIVE')
     waitForIndex(env, 'idx4')
-    env.expect('FT.SEARCH', 'idx4', '@attrs:{Vivo}', 'NOCONTENT').equal([1L, 'json1'])
-    env.expect('FT.SEARCH', 'idx4', '@attrs:{vivo}', 'NOCONTENT').equal([1L, 'json2'])
+    env.expect('FT.SEARCH', 'idx4', '@attrs:{Vivo}', 'NOCONTENT').equal([1, 'json1'])
+    env.expect('FT.SEARCH', 'idx4', '@attrs:{vivo}', 'NOCONTENT').equal([1, 'json2'])
 
 def check_index_with_null(env, idx):
     res = [4L, 'doc1', ['sort', '1', '$', '{"sort":1,"num":null,"txt":"hello","tag":"world","geo":"1.23,4.56"}'],
