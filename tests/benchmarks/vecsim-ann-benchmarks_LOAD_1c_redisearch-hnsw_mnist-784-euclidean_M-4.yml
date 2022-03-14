@@ -1,9 +1,7 @@
 version: 0.5
 name: "ann-benchmarks_LOAD_1c_redisearch-hnsw_mnist-784-euclidean_M-4"
-
 metadata:
   component: "vecsim"
-
 remote:
  - type: oss-standalone
  - setup: redisearch-m5

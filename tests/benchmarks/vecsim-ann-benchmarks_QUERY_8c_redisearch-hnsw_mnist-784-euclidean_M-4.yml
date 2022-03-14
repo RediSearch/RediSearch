@@ -10,13 +10,14 @@ setups:
   - oss-standalone
 
 dbconfig:
-  - dataset_name: "mnist-784-euclidean"
+  - dataset_name: "hnsw__mnist-784-euclidean__M4"
   - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/vecsim/hnsw__mnist-784-euclidean__M4.rdb"
   - dataset_load_timeout_secs: 300
   - check:
       keyspacelen: 60000
         
 clientconfig:
+  benchmark_type: "read-only"
   tool: ann-benchmarks
   parameters:
     build-clients: 0
