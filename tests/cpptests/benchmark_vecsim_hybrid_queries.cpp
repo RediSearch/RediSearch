@@ -69,8 +69,11 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
 
       float query[NUM_ITERATIONS][d];
       KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
-      VecSimQueryParams queryParams;
+      VecSimQueryParams queryParams = {.hnswRuntimeParams = {.efRuntime = 0}};
       HybridIteratorParams hParams = {.index = index,
+                                      .dim = d,
+                                      .elementType = VecSimType_FLOAT32,
+                                      .spaceMetric = VecSimMetric_L2,
                                       .query = top_k_query,
                                       .qParams = queryParams,
                                       .vectorScoreField = (char *)"__v_score",
