@@ -775,7 +775,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *d
   ctx->weight = weight;
   ctx->docIds = rm_calloc(num, sizeof(t_docId));
   ctx->docTable = dt;
-  ctx->nexpected = UINT32_MAX;
+  ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
 
   ctx->base.isValid = 1;
   ctx->base.current = NewIntersectResult(num, weight);

@@ -344,7 +344,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
     // this is an upper bound, and might even be larger than the total vector index size.
     size_t subset_size = hParams.childIt->NumEstimated(hParams.childIt->ctx);
     // UINT32_MAX is the default (invalid) value for indicating invalid intersection iterator.
-    if (subset_size == UINT32_MAX) {
+    if (subset_size == IITER_INVALID_NUM_ESTIMATED_RESULTS) {
       rm_free(hi);
       return NULL;
     }
