@@ -834,6 +834,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
   ASSERT_FALSE(hybridIt);
 
+  ii->Free(ii);
   InvertedIndex_Free(w);
   VecSimIndex_Free(index);
 }
