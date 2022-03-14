@@ -58,7 +58,6 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
 
   double n1, n2;
   if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
-    QueryError_SetError(eval->err, QUERY_ENOTNUMERIC, NULL);
     RSValue_SetNumber(result, NAN);
     goto cleanup;
 
