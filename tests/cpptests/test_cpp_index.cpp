@@ -795,6 +795,47 @@ TEST_F(IndexTest, testHybridVector) {
   VecSimIndex_Free(index);
 }
 
+TEST_F(IndexTest, testInvalidHybridVector) {
+
+  size_t n = 1;
+  size_t d = 4;
+  InvertedIndex *w = createIndex(n, 1);
+  IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+
+  // Create vector index with a single vector.
+  VecSimParams params{
+      .algo = VecSimAlgo_HNSWLIB,
+      .hnswParams = HNSWParams{
+          .type = VecSimType_FLOAT32, .dim = d, .metric = VecSimMetric_L2, .initialCapacity = n}};
+  VecSimIndex *index = VecSimIndex_New(&params);
+
+  float vec[] = {(float)n, (float)n, (float)n, (float)n};
+  VecSimIndex_AddVector(index, (const void *)vec, n);
+  ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+  KNNVectorQuery top_k_query = {.vector = vec, .vecLen = d, .k = 10, .order = BY_SCORE};
+  VecSimQueryParams queryParams = {0};
+
+  // Create invalid intersection iterator (with a child iterator which is NULL).
+  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
+  irs[0] = NewReadIterator(r);
+  irs[1] = NULL;
+  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
+
+  // Create hybrid iterator - should return NULL.
+  HybridIteratorParams hParams = {.index = index,
+                                  .query = top_k_query,
+                                  .qParams = queryParams,
+                                  .vectorScoreField = (char *)"__v_score",
+                                  .ignoreDocScore = true,
+                                  .childIt = ii};
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
+  ASSERT_FALSE(hybridIt);
+
+  InvertedIndex_Free(w);
+  VecSimIndex_Free(index);
+}
+
 TEST_F(IndexTest, testBuffer) {
   // TEST_START();
   Buffer b = {0};

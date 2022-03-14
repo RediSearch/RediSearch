@@ -717,6 +717,7 @@ static void II_SortChildren(IntersectIterator *ctx) {
         array_free(unsortedIts);
       }
       ctx->bestIt = NULL;
+      ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
       return;
     }
 
