@@ -1045,7 +1045,7 @@
           {
             "name": "params",
             "type": "pure-token",
-            "token": "PARAMS"
+            "token": "params"
           },
           {
             "name": "NARGS",
@@ -1057,11 +1057,11 @@
             "multiple": true,
             "arguments": [
               {
-                "name": "NAME",
+                "name": "name",
                 "type": "string"
               },
               {
-                "name": "VALUE",
+                "name": "value",
                 "type": "string"
               }
             ]
@@ -1279,6 +1279,37 @@
             "type": "integer",
             "optional": true,
             "command":"MAXIDLE"
+          }
+        ]
+      },
+      {
+        "name": "PARAMS",
+        "type": "block",
+        "optional": true,
+        "arguments": [          
+          {
+            "name": "params",
+            "type": "pure-token",
+            "token": "params"
+          },
+          {
+            "name": "NARGS",
+            "type": "integer"
+          },
+          {
+            "name": "values",
+            "type": "block",
+            "multiple": true,
+            "arguments": [
+              {
+                "name": "name",
+                "type": "string"
+              },
+              {
+                "name": "value",
+                "type": "string"
+              }
+            ]
           }
         ]
       }

@@ -13,7 +13,6 @@ Searches the index with a textual query, returning either documents or just ids.
 - **index**: The index name. The index must be first created with `FT.CREATE`.
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
   Refer to [query syntax](/redisearch/reference/query_syntax) for more details.
-
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not
   the content. This is useful if RediSearch is only an index on an external document collection
 - **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms
@@ -77,7 +76,7 @@ Searches the index with a textual query, returning either documents or just ids.
 
 - **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
 
-* **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the query string by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
+* **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the **query** by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
 
 @return
 

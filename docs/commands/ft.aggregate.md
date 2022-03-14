@@ -10,7 +10,7 @@ Runs a search query on an index, and performs aggregate transformations on the r
 
 * **index_name**: The index the query is executed against.
 
-* **query_string**: The base filtering query that retrieves the documents. It follows
+* **query**: The base filtering query that retrieves the documents. It follows
   **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
 * **LOAD {nargs} {identifier} AS {property} …**: Load document attributes from the source document.
@@ -57,6 +57,8 @@ Runs a search query on an index, and performs aggregate transformations on the r
   They are is applied post-query and relate to the current state of the pipeline.
 
 * **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
+
+* **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the **query** by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
 
 @return
 
