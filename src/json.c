@@ -64,10 +64,12 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
       rv = REDISMODULE_OK;
     }
     break;
+  case JSONType_Null:
+    rv = REDISMODULE_OK;
+    break;
   // An object or null type are not supported
   case JSONType_Array:
   case JSONType_Object:
-  case JSONType_Null:
   case JSONType__EOF:
     break;
   }
@@ -108,9 +110,11 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, struct DocumentField
       }
       df->unionType = FLD_VAR_T_CSTR;
       break;
+    case JSONType_Null:
+      df->unionType = FLD_VAR_T_NULL;
+      break;
     case JSONType_Array:
     case JSONType_Object:
-    case JSONType_Null:
       rv = REDISMODULE_ERR;
       break;
     case JSONType__EOF:
