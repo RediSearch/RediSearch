@@ -2173,6 +2173,8 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
   if (type == DocumentType_None) {
+    // COPY could overwrite a hash/json with other types so we must try and remove old doc 
+    Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
     return;
   }
 
