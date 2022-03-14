@@ -115,6 +115,11 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     const RLookup *lk = cv->lastLk;
     count++;
 
+    if (dmd && dmd->flags & Document_Deleted) {
+      RedisModule_ReplyWithNull(outctx);
+      return count;
+    }
+
     // Get the number of fields in the reply. 
     // Excludes hidden fields, fields not included in RETURN and, score and language fields.
     SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
