@@ -820,7 +820,9 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r);
   irs[1] = NULL;
-  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
+  // The iterator is initialized with inOrder=true, to test the case where the null
+  // child isn't the first child (since inOrder=true will trigger sorting).
+  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 1, 1);
 
   // Create hybrid iterator - should return NULL.
   HybridIteratorParams hParams = {.index = index,
