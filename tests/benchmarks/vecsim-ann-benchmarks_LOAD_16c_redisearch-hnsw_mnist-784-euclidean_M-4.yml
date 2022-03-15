@@ -1,5 +1,5 @@
 version: 0.5
-name: "ann-benchmarks_LOAD_1c_redisearch-hnsw_mnist-784-euclidean_M-4"
+name: "ann-benchmarks_LOAD_16c_redisearch-hnsw_mnist-784-euclidean_M-4"
 metadata:
   component: "vecsim"
 remote:
@@ -15,6 +15,6 @@ setups:
 clientconfig:
   tool: ann-benchmarks
   parameters:
-    build-clients: 1
+    build-clients: 16
     test-clients: 0
   arguments: ' --algorithm redisearch-hnsw --dataset mnist-784-euclidean --run-group M-4 --runs 1'

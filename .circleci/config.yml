@@ -272,6 +272,9 @@ commands:
       triggering_env:
         type: string
         default: "circleci"
+      allowed_envs:
+        type: string
+        default: "oss-standalone"
     steps:
       - run:
           name: Prepare automation
@@ -283,7 +286,7 @@ commands:
           name: Prepare ReJSON Module
           command: MODULE_FILE=bin/REJSON_PATH ./sbin/get-redisjson
       - run:
-          name: Run CI benchmarks on aws
+          name: Run CI benchmarks on aws for envs << parameters.allowed_envs >>
           timeout: 60m
           no_output_timeout: 20m
           command: |
@@ -307,7 +310,8 @@ commands:
               --github_branch $CIRCLE_BRANCH \
               --upload_results_s3 \
               --triggering_env << parameters.triggering_env >> \
-              --push_results_redistimeseries
+              --push_results_redistimeseries \
+              --allowed-envs << parameters.allowed_envs >>
 
 #----------------------------------------------------------------------------------------------------------------------------------
 
@@ -383,7 +387,6 @@ jobs:
       - persist-artifacts
 
   benchmark-search-oss-standalone:
-    resource_class: small
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
@@ -404,6 +407,19 @@ jobs:
       - benchmark-automation:
           platform: bionic
           benchmark_glob: "vecsim-ann*.yml"
+
+  benchmark-vecsim-ann-oss-cluster:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+    steps:
+      - build-steps:
+          platform: bionic
+          run_pack: false
+      - benchmark-automation:
+          platform: bionic
+          benchmark_glob: "vecsim-ann*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
 
   benchmark-vecsim-l2-oss-standalone:
     docker:
@@ -441,6 +457,36 @@ jobs:
           platform: bionic
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "vecsim-ann*.yml"
+  
+  benchmark-vecsim-cosine-oss-standalone-profiler:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+    steps:
+      - build-steps:
+          platform: bionic
+          build_params: PROFILE=1
+          run_pack: false
+      - benchmark-automation:
+          profile_env: "1"
+          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it 
+          platform: bionic
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          benchmark_glob: "vecsim-cosine*.yml"
+  
+  benchmark-vecsim-l2-oss-standalone-profiler:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+    steps:
+      - build-steps:
+          platform: bionic
+          build_params: PROFILE=1
+          run_pack: false
+      - benchmark-automation:
+          profile_env: "1"
+          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it 
+          platform: bionic
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          benchmark_glob: "vecsim-l2*.yml"
 
   coverage:
     docker:
@@ -698,16 +744,25 @@ workflows:
       - benchmark-search-oss-standalone:
           context: common
           <<: *on-perf-and-version-tags
-      - benchmark-vecsim-ann-oss-standalone-profiler:
+      - benchmark-vecsim-ann-oss-standalone:
           context: common
           <<: *on-perf-and-version-tags
-      - benchmark-vecsim-ann-oss-standalone:
+      - benchmark-vecsim-ann-oss-cluster:
+          context: common
+          <<: *on-perf-and-version-tags
+      - benchmark-vecsim-ann-oss-standalone-profiler:
           context: common
           <<: *on-perf-and-version-tags
       - benchmark-vecsim-l2-oss-standalone:
           context: common
           <<: *on-perf-and-version-tags
+      - benchmark-vecsim-l2-oss-standalone-profiler:
+          context: common
+          <<: *on-perf-and-version-tags
       - benchmark-vecsim-cosine-oss-standalone:
+          context: common
+          <<: *on-perf-and-version-tags
+      - benchmark-vecsim-cosine-oss-standalone-profiler:
           context: common
           <<: *on-perf-and-version-tags
       - upload-artifacts:
@@ -764,7 +819,11 @@ workflows:
           context: common
       - benchmark-vecsim-l2-oss-standalone:
           context: common
+      - benchmark-vecsim-l2-oss-standalone-profiler:
+          context: common
       - benchmark-vecsim-cosine-oss-standalone:
+          context: common
+      - benchmark-vecsim-cosine-oss-standalone-profiler:
           context: common
       - benchmark-vecsim-ann-oss-standalone:
           context: common
