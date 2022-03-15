@@ -5,7 +5,8 @@
 #include <query_error.h>
 #include <query_node.h>
 #include "query_param.h"
-#include "search_options.h"
+#include "vector_index.h"
+#include "query_ctx.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,17 +38,6 @@ extern "C" {
 } QueryParseCtx;
 
 #define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
-
-typedef struct {
-  ConcurrentSearchCtx *conc;
-  RedisSearchCtx *sctx;
-  const RSSearchOptions *opts;
-  QueryError *status;
-  char ***vecScoreFieldNamesP;
-  size_t numTokens;
-  uint32_t tokenId;
-  DocTable *docTable;
-} QueryEvalCtx;
 
 struct QueryAST;
 struct NumericFilter;
