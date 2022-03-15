@@ -58,7 +58,7 @@ commands:
             git submodule update --init deps/readies
             ./deps/readies/bin/getpy2
             ./deps/readies/bin/getpy3
-            python2 -m pip install awscli
+            python2 -m pip install -q awscli
 
   install-prerequisites:
     parameters:
@@ -349,9 +349,9 @@ jobs:
       xcode: 12.4.0
     steps:
       - early-returns
-      - run:
-          name: Brew upgrade
-          command: brew upgrade
+      # - run:
+      #     name: Brew upgrade
+      #     command: brew upgrade
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
@@ -507,10 +507,13 @@ jobs:
       - setup-automation
       - run:
           name: Run QA Automation
-          command: ./tests/qa/qatests -t release -m "$CIRCLE_TAG"
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG"
       - run:
           name: Run QA Automation (RediSearch Light)
-          command: ./tests/qa/qatests -t release -m "$CIRCLE_TAG" --light
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --light
+      - run:
+          name: Run QA Automation (RediSearch/VecSim)
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim
 
 
 #----------------------------------------------------------------------------------------------------------------------------------
@@ -593,7 +596,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, ol8, bullseye]
+              platform: [focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common

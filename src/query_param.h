@@ -1,10 +1,8 @@
-
 #pragma once
 
 #include "geo_index.h"
 #include "query_parser/tokenizer.h"
 #include "param.h"
-#include "vector_index.h"
 
 struct QueryParseCtx;
 
@@ -48,3 +46,8 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status);
  */
 bool QueryParam_SetParam(struct QueryParseCtx *q, Param *target_param, void *target_value,
                          size_t *target_len, QueryToken *source);
+
+/*
+ * Parse the parameters from ac into the dest params.
+ */
+int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status);

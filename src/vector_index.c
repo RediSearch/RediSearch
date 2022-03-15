@@ -46,7 +46,7 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
 
   // create new vector data structure
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = VecSimIndex_New(&fieldSpec->vecSimParams);
+  kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
   VecSimIndexInfo indexInfo = VecSimIndex_Info(kdv->p);
   switch (indexInfo.algo)
   {
@@ -69,33 +69,8 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   return openVectorKeysDict(ctx, keyName, 1);
 }
 
-static bool isFit (VecSimIndex *ind, size_t size) {
-  VecSimIndexInfo info = VecSimIndex_Info(ind);
-  size_t dim = 0;
-  VecSimType type = 0;
-  bool res = false;
-  switch (info.algo) {
-    case VecSimAlgo_HNSWLIB:
-      dim = info.hnswInfo.dim;
-      type = info.hnswInfo.type;
-      break;
-    case VecSimAlgo_BF:
-      dim = info.bfInfo.dim;
-      type = info.bfInfo.type;
-      break;
-  }
-  switch (type) {
-    case VecSimType_FLOAT32:
-    case VecSimType_FLOAT64:
-    case VecSimType_INT32:
-    case VecSimType_INT64:
-      res = ((dim * sizeof(float)) == size);
-      break;
-  }
-  return res;
-}
-
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIterator *child_it, QueryError *status) {
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+  RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
@@ -103,22 +78,49 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIter
     return NULL;
   }
   switch (vq->type) {
-    case VECSIM_QT_TOPK: {
+    case VECSIM_QT_KNN: {
       VecSimQueryParams qParams;
       int err;
       if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params),
                                            &qParams)) != VecSim_OK) {
         err = VecSimResolveCode_to_QueryErrorCode(err);
-        QueryError_SetErrorFmt(status, err, "Error parsing vector similarity parameters: %s",
+        QueryError_SetErrorFmt(q->status, err, "Error parsing vector similarity parameters: %s",
                                QueryError_Strerror(err));
         return NULL;
       }
-      if (!isFit(vecsim, vq->topk.vecLen)) {
-        QueryError_SetError(status, QUERY_EINVAL,
-                            "Error parsing vector similarity query: query vector does not match index's type or dimension.");
+      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
+      size_t dim = 0;
+      VecSimType type = (VecSimType)0;
+      VecSimMetric metric = (VecSimMetric)0;
+      switch (info.algo) {
+        case VecSimAlgo_HNSWLIB:
+          dim = info.hnswInfo.dim;
+          type = info.hnswInfo.type;
+          metric = info.hnswInfo.metric;
+          break;
+        case VecSimAlgo_BF:
+          dim = info.bfInfo.dim;
+          type = info.bfInfo.type;
+          metric = info.bfInfo.metric;
+          break;
+      }
+      if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: query vector blob size (%zu) does not match index's expected size (%zu).",
+                               vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
-      return NewHybridVectorIterator(vecsim, vq->scoreField, vq->topk, qParams, child_it);
+      HybridIteratorParams hParams = {.index = vecsim,
+                                      .dim = dim,
+                                      .elementType = type,
+                                      .spaceMetric = metric,
+                                      .query = vq->knn,
+                                      .qParams = qParams,
+                                      .vectorScoreField = vq->scoreField,
+                                      .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
+                                      .childIt = child_it
+      };
+      return NewHybridVectorIterator(hParams);
     }
   }
   return NULL;
@@ -159,7 +161,7 @@ void VectorQuery_Free(VectorQuery *vq) {
   if (vq->property) rm_free((char *)vq->property);
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
-    case VECSIM_QT_TOPK: // no need to free the vector as we pointes to the query dictionary
+    case VECSIM_QT_KNN: // no need to free the vector as we pointes to the query dictionary
     default:
       break;
   }
@@ -180,6 +182,16 @@ const char *VecSimType_ToString(VecSimType type) {
     case VecSimType_INT64: return VECSIM_TYPE_INT64;
   }
   return NULL;
+}
+
+size_t VecSimType_sizeof(VecSimType type) {
+    switch (type) {
+        case VecSimType_FLOAT32: return sizeof(float);
+        case VecSimType_FLOAT64: return sizeof(double);
+        case VecSimType_INT32: return sizeof(int32_t);
+        case VecSimType_INT64: return sizeof(int64_t);
+    }
+    return 0;
 }
 
 const char *VecSimMetric_ToString(VecSimMetric metric) {

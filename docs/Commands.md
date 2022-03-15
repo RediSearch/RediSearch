@@ -317,6 +317,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [PAYLOAD {payload}]
   [SORTBY {attribute} [ASC|DESC]]
   [LIMIT offset num]
+  [TIMEOUT {milliseconds}]
   [PARAMS {nargs} {name} {value} ... ]
 ```
 
@@ -376,6 +377,12 @@ Searching for books with "Python" in any TEXT attribute, returning the price sto
 
 ```sql
 FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
+```
+
+Searching for books with semantically similar "title" to "Planet Earth", Return top 10 results sorted by distance.
+
+```sql
+FT.SEARCH books-idx "*=>[KNN 10 @title_embedding $query_vec AS title_score]" PARAMS 2 query_vec <"Planet Earth" embedding BLOB> SORTBY title_score
 ```
 
 !!! tip "More examples"
@@ -448,6 +455,8 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 !!! tip
     `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
 
+- **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
+
 * **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the query string by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
 
 #### Complexity
@@ -484,6 +493,7 @@ FT.AGGREGATE {index_name}
   [APPLY {expr} AS {alias}] ...
   [LIMIT {offset} {num}] ...
   [FILTER {expr}] ...
+  [TIMEOUT {milliseconds}]
 ```
 
 #### Description
@@ -577,6 +587,8 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
 
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result.
   They are is applied post-query and relate to the current state of the pipeline.
+
+* **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
 
 #### Complexity
 
@@ -778,7 +790,7 @@ Return value has an array with two elements:
     * **Pipeline creation time** - Creation time of execution plan including iterators,
   result processors and reducers creation.
     * **Iterators profile** - Index iterators information including their type, term, count and time data.
-  Inverted-index iterators have in addition the number of elements they contain.
+  Inverted-index iterators have in addition the number of elements they contain. Hybrid vector iterators returning the top results from the vector index in batches, include the number of batches.
     * **Result processors profile** - Result processors chain with type, count and time data.
 
 #### Example

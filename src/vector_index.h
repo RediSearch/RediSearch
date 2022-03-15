@@ -3,6 +3,7 @@
 #include "VecSim/vec_sim.h"
 #include "index_iterator.h"
 #include "query_node.h"
+#include "query_ctx.h"
 
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
 #define VECSIM_TYPE_FLOAT64 "FLOAT64"
@@ -29,7 +30,7 @@
   QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
 
 typedef enum {
-  VECSIM_QT_TOPK,
+  VECSIM_QT_KNN,
 } VectorQueryType;
 
 // This struct holds VecSimRawParam array and bool array.
@@ -50,13 +51,13 @@ typedef struct {
   size_t vecLen;                  // vector length
   size_t k;                       // number of vectors to return
   VecSimQueryResult_Order order;  // specify the result order.
-} TopKVectorQuery;
+} KNNVectorQuery;
 
 typedef struct VectorQuery {
   char *property;                     // name of field
   char *scoreField;                   // name of score field
   union {
-    TopKVectorQuery topk;
+    KNNVectorQuery knn;
   };
   VectorQueryType type;               // vector similarity query type
   VectorQueryParams params;           // generic query params array, for the vecsim library to check
@@ -69,13 +70,14 @@ typedef struct VectorQuery {
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIterator *child_it, QueryError *status);
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
 void VectorQuery_Free(VectorQuery *vq);
 
 int VecSimResolveCode_to_QueryErrorCode(int code);
+size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);

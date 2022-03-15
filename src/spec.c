@@ -384,40 +384,40 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &fs->vecSimParams.hnswParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(ac, &fs->vectorOpts.vecSimParams.hnswParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.dim, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.dim, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &fs->vecSimParams.hnswParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(ac, &fs->vectorOpts.vecSimParams.hnswParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index metric", rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index initial cap", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
-      if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.M, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.M, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index m", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFCONSTRUCTION)) {
-      if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.efConstruction, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.efConstruction, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efConstruction", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.efRuntime, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.efRuntime, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
         return 0;
       }
@@ -443,8 +443,8 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC);
     return 0;
   }
+  fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.hnswParams.type);
   return 1;
-  
 }
 
 static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
@@ -469,30 +469,30 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &fs->vecSimParams.bfParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(ac, &fs->vectorOpts.vecSimParams.bfParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &fs->vecSimParams.bfParams.dim, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.bfParams.dim, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &fs->vecSimParams.bfParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(ac, &fs->vectorOpts.vecSimParams.bfParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index metric", rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(ac, &fs->vecSimParams.bfParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.bfParams.initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index initial cap", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_BLOCKSIZE)) {
-      if ((rc = AC_GetSize(ac, &fs->vecSimParams.bfParams.blockSize, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.bfParams.blockSize, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index blocksize", rc);
         return 0;
       }
@@ -518,6 +518,7 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_BF, VECSIM_DISTANCE_METRIC);
     return 0;
   }
+  fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.bfParams.type);
   return 1;
 }
 
@@ -525,7 +526,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   // this is a vector field
   // init default type, size, distance metric and algorithm
 
-  bzero(&fs->vecSimParams, sizeof(VecSimParams));
+  memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams));
 
   // parse algorithm
   const char *algStr;
@@ -536,16 +537,16 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     return 0;
   }
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
-    fs->vecSimParams.algo = VecSimAlgo_BF;
-    fs->vecSimParams.bfParams.initialCapacity = 1000;
-    fs->vecSimParams.bfParams.blockSize = BF_DEFAULT_BLOCK_SIZE;
+    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
+    fs->vectorOpts.vecSimParams.bfParams.initialCapacity = 1000;
+    fs->vectorOpts.vecSimParams.bfParams.blockSize = BF_DEFAULT_BLOCK_SIZE;
     return parseVectorField_flat(fs, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
-    fs->vecSimParams.algo = VecSimAlgo_HNSWLIB;
-    fs->vecSimParams.hnswParams.initialCapacity = 1000;
-    fs->vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
-    fs->vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
-    fs->vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
+    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_HNSWLIB;
+    fs->vectorOpts.vecSimParams.hnswParams.initialCapacity = 1000;
+    fs->vectorOpts.vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
+    fs->vectorOpts.vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
+    fs->vectorOpts.vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     return parseVectorField_hnsw(fs, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
@@ -591,9 +592,9 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
                                 "Tag separator must be a single character. Got `%s`", sep);
           goto error;
         }
-        fs->tagSep = *sep;
+        fs->tagOpts.tagSep = *sep;
       } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
-        fs->tagFlags |= TagField_CaseSensitive;
+        fs->tagOpts.tagFlags |= TagField_CaseSensitive;
       } else {
         break;
       }
@@ -996,59 +997,50 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void IndexSpec_FreeInternals(IndexSpec *spec) {
-  if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
-    dictDelete(specDict_g, spec->name);
-  }
-  SchemaPrefixes_RemoveSpec(spec);
+static threadpool cleanPool = NULL;
 
-  if (spec->isTimerSet) {
-    RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
-    spec->isTimerSet = false;
+void CleanPool_ThreadPoolStart() {
+  if (!cleanPool) {
+    cleanPool = thpool_init(1);
   }
+}
 
-  if (spec->indexer) {
-    Indexer_Free(spec->indexer);
+void CleanPool_ThreadPoolDestroy() {
+  if (cleanPool) {
+    thpool_destroy(cleanPool);
+    cleanPool = NULL;
   }
-  if (spec->gc) {
-    GCContext_Stop(spec->gc);
-  }
+}
 
+/*
+ * Free resources of unlinked index spec 
+ */ 
+static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
+  // Free all documents metadata
+  DocTable_Free(&spec->docs);
+  // Free TEXT field trie and inverted indexes
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
-  DocTable_Free(&spec->docs);
-
-  if (spec->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    Cursors_PurgeWithName(&RSCursors, spec->name);
-    CursorList_RemoveSpec(&RSCursors, spec->name);
+  // Free NUMERIC, TAG and GEO fields trie and inverted indexes
+  if (spec->keysDict) {
+    dictRelease(spec->keysDict);
   }
-
+  // Free synonym data
+  if (spec->smap) {
+    SynonymMap_Free(spec->smap);
+  }
+  // Destroy spec rule
   if (spec->rule) {
     SchemaRule_Free(spec->rule);
     spec->rule = NULL;
   }
-
-  rm_free(spec->name);
-  if (spec->sortables) {
-    SortingTable_Free(spec->sortables);
-    spec->sortables = NULL;
-  }
-  if (spec->stopwords) {
-    StopWordList_Unref(spec->stopwords);
-    spec->stopwords = NULL;
-  }
-
-  if (spec->smap) {
-    SynonymMap_Free(spec->smap);
-  }
+  // Free fields cache data
   if (spec->spcache) {
     IndexSpecCache_Decref(spec->spcache);
     spec->spcache = NULL;
   }
-
+  // Free fields formatted names
   if (spec->indexStrs) {
     for (size_t ii = 0; ii < spec->numFields; ++ii) {
       IndexSpecFmtStrings *fmts = spec->indexStrs + ii;
@@ -1060,6 +1052,7 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     }
     rm_free(spec->indexStrs);
   }
+  // Free fields data
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
       if (spec->fields[i].name != spec->fields[i].path) {
@@ -1069,21 +1062,71 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
+  // Free spec name
+  rm_free(spec->name);
+  // Free sortable list
+  if (spec->sortables) {
+    SortingTable_Free(spec->sortables);
+    spec->sortables = NULL;
+  }
+  // Free spec struct
+  rm_free(spec);
+}
+
+/*
+ * This function unlinks the index spec from any global structures and frees
+ * all struct that requires acquiring the GIL.
+ * Other resources are freed using IndexSpec_FreeData.
+ */
+void IndexSpec_FreeInternals(IndexSpec *spec) {
+  // Remove spec from global index list
+  if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
+    dictDelete(specDict_g, spec->name);
+  }
+  // Stop scanner
+  if (spec->scanner) {
+    spec->scanner->cancelled = true;
+    spec->scanner->spec = NULL;
+  }
+  // Remove spec from global aliases list
   if (spec->uniqueId) {
     // If uniqueid is 0, it means the index was not initialized
     // and is being freed now during an error.
     IndexSpec_ClearAliases(spec);
   }
-
-  if (spec->keysDict) {
-    dictRelease(spec->keysDict);
+  // Remove spec prefix from global index list
+  SchemaPrefixes_RemoveSpec(spec);
+  // For temporary index
+  if (spec->isTimerSet) {
+    RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
+    spec->isTimerSet = false;
   }
-
-  if (spec->scanner) {
-    spec->scanner->cancelled = true;
-    spec->scanner->spec = NULL;
+  // Stop and destroy indexer
+  if (spec->indexer) {
+    Indexer_Free(spec->indexer);
   }
-  rm_free(spec);
+  // Stop and destroy garbage collector
+  if (spec->gc) {
+    GCContext_Stop(spec->gc);
+  }
+  // Remove existing cursors from global list
+  if (spec->uniqueId) {
+    // If uniqueid is 0, it means the index was not initialized
+    // and is being freed now during an error.
+    Cursors_PurgeWithName(&RSCursors, spec->name);
+    CursorList_RemoveSpec(&RSCursors, spec->name);
+  }
+  // Free stopwords list (might use global pointer to default list)
+  if (spec->stopwords) {
+    StopWordList_Unref(spec->stopwords);
+    spec->stopwords = NULL;
+  }
+  // Free unlinked index spec on a second thread
+  if (RSGlobalConfig.freeResourcesThread == false) {
+    IndexSpec_FreeUnlinkedData(spec);
+  } else {
+    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeUnlinkedData, spec);
+  }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1100,8 +1143,6 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 }
 
-static struct thpool_ *cleanPool = NULL;
-
 void IndexSpec_LegacyFree(void *spec) {
   // free legacy index do nothing, it will be called only
   // when the index key will be deleted and we keep the legacy
@@ -1110,9 +1151,6 @@ void IndexSpec_LegacyFree(void *spec) {
 
 void IndexSpec_Free(IndexSpec *spec) {
   if (spec->flags & Index_Temporary) {
-    if (!cleanPool) {
-      cleanPool = thpool_init(1);
-    }
     // we are taking the index to a background thread to be released.
     // before we do it we need to delete it from the index dictionary
     // to prevent it from been freed again.c
@@ -1335,14 +1373,14 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftId = (t_fieldId)-1;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
-  fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+  fs->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
   if (!(sp->flags & Index_FromLLAPI)) {
     RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
     switch (sp->rule->type) {
       case DocumentType_Hash:
-        fs->tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+        fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
       case DocumentType_Json:
-        fs->tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
+        fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
       case DocumentType_None:
         RS_LOG_ASSERT(0, "shouldn't get here");
     }
@@ -1413,8 +1451,8 @@ static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver
   }
   f->types = LoadUnsigned_IOError(rdb, goto fail);
   f->ftWeight = LoadDouble_IOError(rdb, goto fail);
-  f->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  f->tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
+  f->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+  f->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
   if (encver >= 4) {
     f->options = LoadUnsigned_IOError(rdb, goto fail);
     f->sortIdx = LoadSigned_IOError(rdb, goto fail);
@@ -1442,11 +1480,12 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveDouble(rdb, f->ftWeight);
   }
   if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
-    RedisModule_SaveUnsigned(rdb, f->tagFlags);
-    RedisModule_SaveStringBuffer(rdb, &f->tagSep, 1);
+    RedisModule_SaveUnsigned(rdb, f->tagOpts.tagFlags);
+    RedisModule_SaveStringBuffer(rdb, &f->tagOpts.tagSep, 1);
   }
   if (FIELD_IS(f, INDEXFLD_T_VECTOR)) {
-    VecSim_RdbSave(rdb, &f->vecSimParams);
+    RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
+    VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
   }
 }
 
@@ -1487,17 +1526,20 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
   // Load tag specific options
   if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
-    f->tagFlags = LoadUnsigned_IOError(rdb, goto fail);
+    f->tagOpts.tagFlags = LoadUnsigned_IOError(rdb, goto fail);
     // Load the separator
     size_t l;
     char *s = LoadStringBuffer_IOError(rdb, &l, goto fail);
     RS_LOG_ASSERT(l == 1, "buffer length should be 1");
-    f->tagSep = *s;
+    f->tagOpts.tagSep = *s;
     RedisModule_Free(s);
   }
   // Load vector specific options
   if (encver >= INDEX_VECSIM_VERSION && FIELD_IS(f, INDEXFLD_T_VECTOR)) {
-    if (VecSim_RdbLoad(rdb, &f->vecSimParams) != REDISMODULE_OK) {
+    if (encver >= INDEX_VECSIM_2_VERSION) {
+      f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
+    }
+    if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
       goto fail;
     }
   }
@@ -2367,6 +2409,8 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
   if (type == DocumentType_None) {
+    // COPY could overwrite a hash/json with other types so we must try and remove old doc 
+    Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
     return;
   }
 
