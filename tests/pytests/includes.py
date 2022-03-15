@@ -18,3 +18,5 @@ VALGRIND = os.getenv('VALGRIND', '0') == '1'
 CODE_COVERAGE = os.getenv('CODE_COVERAGE', '0') == '1'
 
 OSNICK = paella.Platform().osnick
+OS = paella.Platform().os
+ARCH = paella.Platform().arch
