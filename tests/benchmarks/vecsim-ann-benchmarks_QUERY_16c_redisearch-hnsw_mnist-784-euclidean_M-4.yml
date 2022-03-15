@@ -27,5 +27,5 @@ clientconfig:
   tool: ann-benchmarks
   parameters:
     build-clients: 0
-    test-clients: 8
+    test-clients: 16
   arguments: ' --algorithm redisearch-hnsw --dataset mnist-784-euclidean --run-group M-4 --runs 1'
