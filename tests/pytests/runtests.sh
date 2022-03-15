@@ -49,7 +49,9 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
 		GDB=1                 Enable interactive gdb debugging (in single-test mode)
 
+		LIST=1                List all tests and exit
 		VERBOSE=1             Print commands and Redis output
+		LOG=1                 Send results to log (even on single-test mode)
 		IGNERR=1              Do not abort on error
 		NOP=1                 Dry run
 		HELP=1                Show help
@@ -101,8 +103,12 @@ OP=
 RLTEST_ARGS+=" $@"
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
-	RLTEST_ARGS+=" -v -s --test $TEST"
+	[[ $LOG != 1 ]] && RLTEST_ARGS+=" -v -s"
+	RLTEST_ARGS+=" --test $TEST"
 	export RUST_BACKTRACE=1
+fi
+if [[ $LIST == 1 ]]; then
+	RLTEST_ARGS+=" --collect-only"
 fi
 
 SHARDS=${SHARDS:-3}
@@ -203,8 +209,10 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-if [[ $REDIS_VERBOSE == 1 || $VERBOSE ]]; then
-    RLTEST_ARGS+=" -s -v"
+if [[ $REDIS_VERBOSE == 1 || $VERBOSE == 1 ]]; then
+	if [[ $LOG != 1 ]]; then
+		RLTEST_ARGS+=" -s -v"
+	fi
 fi
 
 #---------------------------------------------------------------------------------------------- 
