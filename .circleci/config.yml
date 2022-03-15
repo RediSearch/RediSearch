@@ -383,6 +383,7 @@ jobs:
       - persist-artifacts
 
   benchmark-search-oss-standalone:
+    resource_class: small
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
@@ -394,6 +395,7 @@ jobs:
           benchmark_glob: "search*.yml"
 
   benchmark-vecsim-oss-standalone:
+    resource_class: small
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
@@ -405,6 +407,7 @@ jobs:
           benchmark_glob: "vecsim*.yml"
 
   benchmark-vecsim-oss-standalone-profiler:
+    resource_class: small
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
