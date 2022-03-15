@@ -1,10 +1,8 @@
-
 #pragma once
 
 #include "geo_index.h"
 #include "query_parser/tokenizer.h"
 #include "param.h"
-#include "vector_index.h"
 
 struct QueryParseCtx;
 

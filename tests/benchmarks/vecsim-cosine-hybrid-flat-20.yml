@@ -1,6 +1,6 @@
 
-name: "vecsim_hybrid_FLAT_20"
-description: "hybrid flat with 20% filtered results"
+name: "vecsim_cosine_hybrid_FLAT_20"
+description: "hybrid cosine flat with 20% filtered results"
 metadata:
   component: "vecsim"
 remote:
