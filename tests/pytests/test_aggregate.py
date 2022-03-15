@@ -5,7 +5,7 @@ import os
 from RLTest import Env
 import pprint
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import *
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -861,10 +861,12 @@ def testMissingOperand(env):
     conn.execute_command('hset', 'doc1', 'n1', '42', 'n2', '18')
     conn.execute_command('hset', 'doc2', 'n1', '7')
     conn.execute_command('hset', 'doc3', 'n1', '3.14', 'n2', '1.618')
-    res = [1L, ['n1', '42', 'n2', '18', 'ADD', '60'], ['n1', '7', 'ADD', None], ['n1', '3.14', 'n2', '1.618', 'ADD', '4.758']]
-    env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', '@n1+@n2', 'AS', 'ADD').equal(res)
-    
+    expected_result = toSortedFlatList([1L, ['n1', '42', 'n2', '18', 'ADD', '60'], ['n1', '7', 'ADD', None], ['n1', '3.14', 'n2', '1.618', 'ADD', '4.758']])
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', '@n1+@n2', 'AS', 'ADD')
+    env.assertEqual(toSortedFlatList(res), expected_result)
+
     # test behavior with string instead of number ()
     conn.execute_command('hset', 'doc4', 'n3', 'dong', 'n4', 'ding')
-    res = [1L, ['ADD', None], ['ADD', None], ['ADD', None], ['n3', 'dong', 'n4', 'ding', 'ADD', 'nan']]
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@n3', '@n4', 'APPLY', '@n3+@n4', 'AS', 'ADD').equal(res)
+    expected_result = toSortedFlatList([1L, ['ADD', None], ['ADD', None], ['ADD', None], ['n3', 'dong', 'n4', 'ding', 'ADD', 'nan']])
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@n3', '@n4', 'APPLY', '@n3+@n4', 'AS', 'ADD')
+    env.assertEqual(toSortedFlatList(res), expected_result)

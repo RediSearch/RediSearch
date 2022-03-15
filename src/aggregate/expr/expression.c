@@ -422,6 +422,9 @@ static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   if (rc != EXPR_EVAL_OK) {
     return RS_RESULT_ERROR;
   }
+  // TODO: Currently we are not able to return a result an a runtime error,
+  // therefore we need to clear the error to prevent a leak.
+  QueryError_ClearError(pc->eval.err);
   return RS_RESULT_OK;
 }
 
