@@ -47,12 +47,14 @@ cleanup:
 static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
 
-  if (evalInternal(eval, op->left, &l) != EXPR_EVAL_OK) {
-    result = RS_NullVal();
-    goto cleanup;
-  }
-  if (evalInternal(eval, op->right, &r) != EXPR_EVAL_OK) {
-    result = RS_NullVal();
+  if (evalInternal(eval, op->left, &l) != EXPR_EVAL_OK ||
+      evalInternal(eval, op->right, &r) != EXPR_EVAL_OK) {
+    // if value is missing, set as null, for other errors, set as nan
+    if (eval->err->code == QUERY_ENOPROPVAL) {
+      result = RS_NullVal();
+    } else {
+      RSValue_SetNumber(result, NAN);
+    }    
     goto cleanup;
   }
 

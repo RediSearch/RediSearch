@@ -865,8 +865,12 @@ def testMissingOperand(env):
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', '@n1+@n2', 'AS', 'ADD')
     env.assertEqual(toSortedFlatList(res), expected_result)
 
+def testWrongOperand(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 'n1', 'NUMERIC', 'SORTABLE', 'n2', 'NUMERIC', 'SORTABLE')
+
     # test behavior with string instead of number ()
-    conn.execute_command('hset', 'doc4', 'n3', 'dong', 'n4', 'ding')
-    expected_result = toSortedFlatList([1L, ['ADD', None], ['ADD', None], ['ADD', None], ['n3', 'dong', 'n4', 'ding', 'ADD', 'nan']])
+    conn.execute_command('hset', 'doc1', 'n3', 'dong', 'n4', 'ding')
+    expected_result = toSortedFlatList([1L, ['n3', 'dong', 'n4', 'ding', 'ADD', 'nan']])
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@n3', '@n4', 'APPLY', '@n3+@n4', 'AS', 'ADD')
     env.assertEqual(toSortedFlatList(res), expected_result)
