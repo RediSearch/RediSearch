@@ -694,14 +694,12 @@ def test_hybrid_query_non_vector_score(env):
     # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
     expected_res_1 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '2', ['__v_score', '10368', 't', 'text value'], '92', '2', ['__v_score', '8192', 't', 'text value'], '93', '2', ['__v_score', '6272', 't', 'text value'], '94', '2', ['__v_score', '4608', 't', 'text value'], '95', '2', ['__v_score', '3200', 't', 'text value'], '96', '2', ['__v_score', '2048', 't', 'text value'], '97', '2', ['__v_score', '1152', 't', 'text value'], '98', '2', ['__v_score', '512', 't', 'text value'], '99', '2', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, batches_mode=False).equal(expected_res_1)
-    if env.isCluster():
-        execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True, batches_mode=False).equal(expected_res_1)
+    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True, batches_mode=False).equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
     expected_res_2 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, batches_mode=False).equal(expected_res_2)
-    if env.isCluster():
-        execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True, batches_mode=False).equal(expected_res_2)
+    execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True, batches_mode=False).equal(expected_res_2)
 
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'], '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'], '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'], '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'], '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'], '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'], '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'], '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'], '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
@@ -770,11 +768,11 @@ def test_hybrid_query_adhoc_bf_mode(env):
         waitForIndex(env, 'idx')
         execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal(expected_res)
 
-    
+
 def test_wrong_vector_size(env):
     conn = getConnectionByEnv(env)
     dimension = 128
-    
+
     vector = np.random.rand(1+dimension).astype(np.float32)
     conn.execute_command('HSET', '0', 'v', vector[:dimension-1].tobytes())
     conn.execute_command('HSET', '1', 'v', vector[:dimension].tobytes())
@@ -787,8 +785,54 @@ def test_wrong_vector_size(env):
     conn.execute_command('HSET', '3', 'v', vector[:dimension-1].tobytes())
     conn.execute_command('HSET', '4', 'v', vector[:dimension].tobytes())
     conn.execute_command('HSET', '5', 'v', vector[:dimension+1].tobytes())
-    
+
     waitForIndex(env, 'idx')
     assertInfoField(env, 'idx', 'num_docs', '2')
     assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2L, '1', '4'])
+
+def test_hybrid_query_cosine(env):
+    conn = getConnectionByEnv(env)
+    dim = 4
+    index_size = 6000 * env.shardsCount
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 't', 'TEXT')
+
+    p = conn.pipeline(transaction=False)
+    for i in range(1, index_size+1):
+        first_coordinate = np.float32([float(i)/index_size])
+        vector = np.concatenate((first_coordinate, np.ones(dim-1, dtype='float32')))
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'text value')
+    p.execute()
+
+    query_data = np.ones(dim, dtype='float32')
+
+    expected_res_ids = [str(index_size-i) for i in range(15)]
+    res = conn.execute_command('FT.SEARCH', 'idx', '(text value)=>[KNN 10 @v $vec_param]',
+           'SORTBY', '__v_score',
+           'PARAMS', 2, 'vec_param', query_data.tobytes(),
+           'RETURN', 0)
+    prefix = "_" if env.isCluster() else ""
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+    # The order of ids is not accurate due to floating point numeric errors, but the top k should be
+    # in the last 15 ids.
+    actual_res_ids = [res[1:][i] for i in range(10)]
+    for res_id in actual_res_ids:
+        env.assertContains(res_id, expected_res_ids)
+
+    # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., index_size)
+    for i in range(1, index_size/10 + 1):
+        first_coordinate = np.float32([float(10*i)/index_size])
+        vector = np.concatenate((first_coordinate, np.ones(dim-1, dtype='float32')))
+        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+
+    # Expect to get only vector that passes the filter (i.e, has "other" in text field)
+    expected_res_ids = [str(index_size-10*i) for i in range(10)]
+    res = conn.execute_command('FT.SEARCH', 'idx', '(other)=>[KNN 10 @v $vec_param]',
+               'SORTBY', '__v_score',
+               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'RETURN', 0)
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+    actual_res_ids = [res[1:][i] for i in range(10)]
+    for res_id in actual_res_ids:
+        env.assertContains(res_id, expected_res_ids)

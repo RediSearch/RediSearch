@@ -72,7 +72,8 @@ typedef enum {
   Search_Verbatim = 0x02,
   Search_NoStopwrods = 0x04,
   Search_InOrder = 0x20,
-  Search_HasSlop = 0x200
+  Search_HasSlop = 0x200,
+  Search_IgnoreScores = 0x400
 } RSSearchFlags;
 
 #define RS_DEFAULT_QUERY_FLAGS 0x00
