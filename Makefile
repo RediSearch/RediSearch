@@ -217,11 +217,7 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(OS),macos)
 STATIC_LIBSTDCXX ?= 1
-else
-STATIC_LIBSTDCXX ?= 0
-endif
 
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
@@ -493,7 +489,11 @@ else
 REJSON_SO=
 endif
 
-RLTEST_PARALLEL ?= 1
+ifeq ($(SLOW),1)
+_RLTEST_PARALLEL=0
+else
+_RLTEST_PARALLEL=1
+endif
 
 test: $(REJSON_SO)
 ifneq ($(TEST),)
@@ -510,7 +510,7 @@ endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
