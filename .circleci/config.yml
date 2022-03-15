@@ -385,7 +385,7 @@ jobs:
   benchmark-search-oss-standalone:
     resource_class: small
     docker:
-      - image: redisfab/rmbuilder:6.2.6-x64-bionic
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
       - build-steps:
           platform: bionic
@@ -396,7 +396,7 @@ jobs:
 
   benchmark-vecsim-ann-oss-standalone:
     docker:
-      - image: redisfab/rmbuilder:6.2.6-x64-bionic
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
       - build-steps:
           platform: bionic
@@ -407,7 +407,7 @@ jobs:
 
   benchmark-vecsim-l2-oss-standalone:
     docker:
-      - image: redisfab/rmbuilder:6.2.6-x64-bionic
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
       - build-steps:
           platform: bionic
@@ -418,7 +418,7 @@ jobs:
 
   benchmark-vecsim-cosine-oss-standalone:
     docker:
-      - image: redisfab/rmbuilder:6.2.6-x64-bionic
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
       - build-steps:
           platform: bionic
@@ -429,7 +429,7 @@ jobs:
 
   benchmark-vecsim-ann-oss-standalone-profiler:
     docker:
-      - image: redisfab/rmbuilder:6.2.6-x64-bionic
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
       - build-steps:
           platform: bionic
