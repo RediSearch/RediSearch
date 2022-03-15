@@ -353,12 +353,14 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
     hi->searchMode = VECSIM_STANDARD_KNN;
   } else {
     // hi->searchMode is VECSIM_HYBRID_ADHOC_BF || VECSIM_HYBRID_BATCHES
-    hi->topResults = rm_malloc(heap_sizeof(hParams.query.k));
-    heap_init(hi->topResults, cmpVecSimResByScore, NULL, hParams.query.k);
-    hi->returnedResults = array_new(RSIndexResult *, hParams.query.k);
     // Get the estimated number of results that pass the child "sub-query filter". Note that
     // this is an upper bound, and might even be larger than the total vector index size.
     size_t subset_size = hParams.childIt->NumEstimated(hParams.childIt->ctx);
+    // IITER_INVALID_NUM_ESTIMATED_RESULTS is the default (invalid) value for indicating invalid intersection iterator.
+    if (subset_size == IITER_INVALID_NUM_ESTIMATED_RESULTS) {
+      rm_free(hi);
+      return NULL;
+    }
     if (subset_size > VecSimIndex_IndexSize(hParams.index)) {
       subset_size = VecSimIndex_IndexSize(hParams.index);
     }
@@ -368,6 +370,9 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
     } else {
       hi->searchMode = VECSIM_HYBRID_BATCHES;
     }
+    hi->topResults = rm_malloc(heap_sizeof(hParams.query.k));
+    heap_init(hi->topResults, cmpVecSimResByScore, NULL, hParams.query.k);
+    hi->returnedResults = array_new(RSIndexResult *, hParams.query.k);
   }
 
   IndexIterator *ri = &hi->base;
