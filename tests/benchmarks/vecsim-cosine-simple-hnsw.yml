@@ -1,5 +1,5 @@
 
-name: "vecsim_simple_HNSW"
+name: "vecsim_cosine_simple_HNSW"
 description: "plane hnsw"
 metadata:
   component: "vecsim"

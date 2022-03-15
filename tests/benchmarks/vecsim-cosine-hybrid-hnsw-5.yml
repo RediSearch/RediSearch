@@ -1,6 +1,6 @@
 
-name: "vecsim_hybrid_HNSW_5"
-description: "hybrid hnsw with 5% filtered results"
+name: "vecsim_cosine_hybrid_HNSW_5"
+description: "hybrid cosine hnsw with 5% filtered results"
 metadata:
   component: "vecsim"
 remote:

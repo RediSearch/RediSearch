@@ -1,5 +1,5 @@
 
-name: "vecsim_simple_FLAT"
+name: "vecsim_cosine_simple_FLAT"
 description: "plane FLAT"
 metadata:
   component: "vecsim"
