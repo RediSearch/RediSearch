@@ -645,14 +645,16 @@ TEST_F(IndexTest, testHybridVector) {
   size_t max_id = n*step;
   size_t d = 4;
   size_t k = 10;
+  VecSimMetric met = VecSimMetric_L2;
+  VecSimType t = VecSimType_FLOAT32;
   InvertedIndex *w = createIndex(n, step);
   IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
 
   // Create vector index
   VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
-                      .hnswParams = HNSWParams{.type = VecSimType_FLOAT32,
+                      .hnswParams = HNSWParams{.type = t,
                                                .dim = d,
-                                               .metric = VecSimMetric_L2,
+                                               .metric = met,
                                                .initialCapacity = max_id,
                                                .M = 16,
                                                .efConstruction = 100}};
@@ -673,6 +675,9 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Run simple top k query.
   HybridIteratorParams hParams = {.index = index,
+                                  .dim = d,
+                                  .elementType = t,
+                                  .spaceMetric = met,
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",

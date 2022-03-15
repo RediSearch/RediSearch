@@ -140,9 +140,16 @@ void computeDistances(HybridIterator *hr) {
   RSIndexResult *cur_res = hr->base.current;
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
   RSIndexResult *cur_vec_res = NewDistanceResult();
+  void *qvector = hr->query.vector;
+
+  if (hr->indexMetric == VecSimMetric_Cosine) {
+    qvector = rm_malloc(hr->dimension * VecSimType_sizeof(hr->vecType));
+    memcpy(qvector, hr->query.vector, hr->dimension * VecSimType_sizeof(hr->vecType));
+    VecSim_Normalize(qvector, hr->dimension, hr->vecType);
+  }
 
   while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
-    float dist = (float)VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, hr->query.vector);
+    float dist = (float)VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, qvector);
     // If this id is not in the vector index (since it was deleted), dist will return as NaN.
     if (isnanf(dist)) {
       continue;
@@ -154,6 +161,9 @@ void computeDistances(HybridIterator *hr) {
       cur_vec_res->dist.scoreField = hr->scoreField;
       insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, &upper_bound);
     }
+  }
+  if (qvector != hr->query.vector) {
+    rm_free(qvector);
   }
   IndexResult_Free(cur_vec_res);
 }
@@ -327,6 +337,9 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   hi->child = hParams.childIt;
   hi->resultsPrepared = false;
   hi->index = hParams.index;
+  hi->dimension = hParams.dim;
+  hi->vecType = hParams.elementType;
+  hi->indexMetric = hParams.spaceMetric;
   hi->query = hParams.query;
   hi->runtimeParams = hParams.qParams;
   hi->scoreField = hParams.vectorScoreField;

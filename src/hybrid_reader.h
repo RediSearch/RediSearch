@@ -17,8 +17,8 @@ typedef enum {
 typedef struct {
   VecSimIndex *index;
   size_t dim;
-  VecSimMetric spaceMetric;
   VecSimType elementType;
+  VecSimMetric spaceMetric;
   KNNVectorQuery query;
   VecSimQueryParams qParams;
   char *vectorScoreField;
@@ -29,12 +29,15 @@ typedef struct {
 typedef struct {
   IndexIterator base;
   VecSimIndex *index;
+  size_t dimension;                // index dimension
+  VecSimType vecType;              // index data type
+  VecSimMetric indexMetric;        // index distance metric
   KNNVectorQuery query;
-  VecSimQueryParams runtimeParams;   // Evaluated runtime params.
+  VecSimQueryParams runtimeParams; // Evaluated runtime params.
   IndexIterator *child;
   VecSimSearchMode searchMode;
-  bool resultsPrepared;             // Indicates if the results were already processed
-                         // (should occur in the first call to Read)
+  bool resultsPrepared;            // Indicates if the results were already processed
+                                   // (should occur in the first call to Read)
   VecSimQueryResult_List list;
   VecSimQueryResult_Iterator *iter;
   t_docId lastDocId;
