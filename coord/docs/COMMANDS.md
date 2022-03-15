@@ -228,7 +228,7 @@ Search the index with a textual query, returning either documents or just ids.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges. 
   Multiple numeric filters for different fields are supported in one query.
 - **GEOFILTER {geo_field} {lon} {lat} {raius} m|km|mi|ft**: If set, we filter the results to a given radius 
-  from lon and lat. Radius is given as a number and units. See [GEORADIUS](/commands/georadius) for more details. 
+  from lon and lat. Radius is given as a number and units. See `GEORADIUS` for more details. 
 - **NOSTOPWORDS**: If set, we do not filter stopwords from the query. 
 - **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances

@@ -31,7 +31,7 @@ Searches the index with a textual query, returning either documents or just ids.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges.
   Multiple numeric filters for different attributes are supported in one query.
 - **GEOFILTER {geo_attribute} {lon} {lat} {radius} m|km|mi|ft**: If set, we filter the results to a given radius
-  from lon and lat. Radius is given as a number and units. See [GEORADIUS](/commands/georadius)
+  from lon and lat. Radius is given as a number and units. See `GEORADIUS`
   for more details.
 - **INKEYS {num} {attribute} ...**: If set, we limit the result to a given set of keys specified in the
   list.
