@@ -4,6 +4,8 @@ linkTitle: RediSearch
 type: docs
 ---
 
+<img src="img/logo.svg" alt="logo" width="200"/>
+
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redislabs.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 
