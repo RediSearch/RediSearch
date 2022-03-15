@@ -492,6 +492,11 @@ def test_hybrid_query_batches_mode_with_text(env):
 
     execute_hybrid_query(env, '(-(@t:other))=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
+    # Test with invalid wildcard (less than 2 chars before the wildcard)
+    env.expect('FT.SEARCH', 'idx', '(t*)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0L])
+    # Intersect valid with invalid iterators in intersection (should return 0 results as well)
+    env.expect('FT.SEARCH', 'idx', '(@t:t* @t:text)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0L])
+
 
 def test_hybrid_query_batches_mode_with_tags(env):
     conn = getConnectionByEnv(env)
@@ -790,3 +795,49 @@ def test_wrong_vector_size(env):
     assertInfoField(env, 'idx', 'num_docs', '2')
     assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2L, '1', '4'])
+
+def test_hybrid_query_cosine(env):
+    conn = getConnectionByEnv(env)
+    dim = 4
+    index_size = 6000 * env.shardsCount
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 't', 'TEXT')
+
+    p = conn.pipeline(transaction=False)
+    for i in range(1, index_size+1):
+        first_coordinate = np.float32([float(i)/index_size])
+        vector = np.concatenate((first_coordinate, np.ones(dim-1, dtype='float32')))
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'text value')
+    p.execute()
+
+    query_data = np.ones(dim, dtype='float32')
+
+    expected_res_ids = [str(index_size-i) for i in range(15)]
+    res = conn.execute_command('FT.SEARCH', 'idx', '(text value)=>[KNN 10 @v $vec_param]',
+           'SORTBY', '__v_score',
+           'PARAMS', 2, 'vec_param', query_data.tobytes(),
+           'RETURN', 0)
+    prefix = "_" if env.isCluster() else ""
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+    # The order of ids is not accurate due to floating point numeric errors, but the top k should be
+    # in the last 15 ids.
+    actual_res_ids = [res[1:][i] for i in range(10)]
+    for res_id in actual_res_ids:
+        env.assertContains(res_id, expected_res_ids)
+
+    # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., index_size)
+    for i in range(1, index_size/10 + 1):
+        first_coordinate = np.float32([float(10*i)/index_size])
+        vector = np.concatenate((first_coordinate, np.ones(dim-1, dtype='float32')))
+        conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+
+    # Expect to get only vector that passes the filter (i.e, has "other" in text field)
+    expected_res_ids = [str(index_size-10*i) for i in range(10)]
+    res = conn.execute_command('FT.SEARCH', 'idx', '(other)=>[KNN 10 @v $vec_param]',
+               'SORTBY', '__v_score',
+               'PARAMS', 2, 'vec_param', query_data.tobytes(),
+               'RETURN', 0)
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+    actual_res_ids = [res[1:][i] for i in range(10)]
+    for res_id in actual_res_ids:
+        env.assertContains(res_id, expected_res_ids)
