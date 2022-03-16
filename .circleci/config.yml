@@ -298,6 +298,7 @@ commands:
             export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
             export PROFILE=<< parameters.profile_env >>
             export BENCHMARK_GLOB=<< parameters.benchmark_glob >>
+            export PERF_CALLGRAPH_MODE="dwarf"
             redisbench-admin run-remote \
               --module_path $(cat $ROOT/bin/REJSON_PATH) \
               --required-module ReJSON \
@@ -309,6 +310,7 @@ commands:
               --github_sha $CIRCLE_SHA1 \
               --github_branch $CIRCLE_BRANCH \
               --upload_results_s3 \
+              --fail_fast \
               --triggering_env << parameters.triggering_env >> \
               --push_results_redistimeseries \
               --allowed-envs << parameters.allowed_envs >>
