@@ -18,9 +18,8 @@
  *   formatting
  * @param status the error object
  */
-static void ensureSimpleMode(AREQ *areq) {
-  RS_LOG_ASSERT(!(areq->reqflags & QEXEC_F_IS_EXTENDED), "Single mod test failed");
-  areq->reqflags |= QEXEC_F_IS_SEARCH;
+static bool ensureSimpleMode(AREQ *areq) {
+  return areq->reqflags |= QEXEC_F_IS_SEARCH;
 }
 
 /**
@@ -391,16 +390,14 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
-      ensureSimpleMode(req);
-      if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
+      if (!ensureSimpleMode(req) || ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
         QERR_MKBADARGS_FMT(status, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
       }
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
-      ensureSimpleMode(req);
-      if (ParseHighlight(ac, &req->outFields) == REDISMODULE_ERR) {
+      if (!ensureSimpleMode(req) || ParseHighlight(ac, &req->outFields) == REDISMODULE_ERR) {
         QERR_MKBADARGS_FMT(status, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
       }
@@ -435,7 +432,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->language = RSLanguage_Find(languageStr, 0);
 
   if (AC_IsInitialized(&returnFields)) {
-    ensureSimpleMode(req);
+    if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "Bad argument");
+        return REDISMODULE_ERR;
+    }
 
     req->outFields.explicitReturn = 1;
     if (returnFields.argc == 0) {
