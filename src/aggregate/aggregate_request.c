@@ -845,7 +845,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), status);
+  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), req->dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
