@@ -110,6 +110,9 @@ typedef struct {
   unsigned cursorMaxIdle;
   unsigned cursorChunkSize;
 
+  /** Dialect version used on this request **/
+  unsigned int dialectVersion;
+
   /** Profile variables */
   clock_t initClock;          // Time of start. Reset for each cursor call
   clock_t totalTime;          // Total time. Used to accimulate cursors times

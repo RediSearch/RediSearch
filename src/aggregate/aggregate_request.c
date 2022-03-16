@@ -9,6 +9,9 @@
 #include "ext/default.h"
 #include "extension.h"
 #include "profile.h"
+#include "config.h"
+
+extern RSConfig RSGlobalConfig;
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
@@ -142,6 +145,22 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
   return REDISMODULE_OK;
 }
 
+static int parseDialect(AREQ *req, ArgsCursor *ac, QueryError *status) {
+  if (AC_NumRemaining(ac) < 1) {	
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for DIALECT");	
+      return REDISMODULE_ERR;	
+    }	
+    if (AC_GetUnsigned(ac, &req->dialectVersion, AC_F_GE1) != AC_OK) {	
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
+      return REDISMODULE_ERR;	
+    }
+    if(req->dialectVersion > MAX_DIALECT_VERSION) {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
+      return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
 #define ARG_HANDLED 1
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
@@ -214,6 +233,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     }
   } else if(AC_AdvanceIfMatch(ac, "_REQUIRED_FIELDS")) {
     if (parseRequiredFields(req, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+  }
+    else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
+    if (parseDialect(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
     req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
@@ -680,7 +704,9 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 }
 
 AREQ *AREQ_New(void) {
-  return rm_calloc(1, sizeof(AREQ));
+  AREQ* req = rm_calloc(1, sizeof(AREQ));
+  req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
+  return req;
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
