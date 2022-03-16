@@ -455,7 +455,7 @@ def test_hybrid_query_batches_mode_with_text(env):
     execute_hybrid_query(env, '("text value")=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
     # Change the text value to 'other' for 20% of the vectors (with ids 5, 10, ..., index_size)
-    for i in range(1, index_size/5 + 1):
+    for i in range(1, int(index_size/5) + 1):
         vector = np.full(dim, 5*i, dtype='float32')
         conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 't', 'other')
 
@@ -524,7 +524,7 @@ def test_hybrid_query_batches_mode_with_tags(env):
     expected_res.extend([str(int(index_size/2)), ['__v_score', str(0), 'tags', 'hybrid']])
     for i in range(1, 10):
         expected_res.append(str(int(index_size/2 + (-1*(i+1)/2 if i % 2 else i/2))))
-        expected_res.append(['__v_score', str(int(dim*((i+1)/2)**2)), 'tags', 'hybrid'])
+        expected_res.append(['__v_score', str((dim*(int((i+1)/2)**2))), 'tags', 'hybrid'])
     execute_hybrid_query(env, '(@tags:{hybrid})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
     execute_hybrid_query(env, '(@tags:{nothing})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal([0])
     execute_hybrid_query(env, '(@tags:{hybrid} @text:hello)=>[KNN 10 @v $vec_param]', query_data, 'tags').equal([0])
@@ -537,20 +537,20 @@ def test_hybrid_query_batches_mode_with_tags(env):
     expected_res = [10]
     # Expect to get result which are around index_size/2 that divide by 5, closer results
     # will come before (secondary sorting by id).
-    expected_res.extend([str(index_size/2), ['__v_score', str(0), 'tags', 'different, tag']])
+    expected_res.extend([str(int(index_size/2)), ['__v_score', str(0), 'tags', 'different, tag']])
     for i in range(1, 10):
-        expected_res.append(str(index_size/2 + (-1*(5*i+5)/2 if i % 2 else 5*i/2)))
-        expected_res.append(['__v_score', str(dim*(5*((i+1)/2))**2), 'tags', 'different, tag'])
+        expected_res.append(str(int(index_size/2) + (-1*int((5*i+5)/2) if i % 2 else int(5*i/2))))
+        expected_res.append(['__v_score', str(dim*(5*int((i+1)/2))**2), 'tags', 'different, tag'])
     execute_hybrid_query(env, '(@tags:{different})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
     # Expect for top 10 results from vector search that still has the original text "text value".
     expected_res = [10]
     res_count = 0
     for i in range(index_size):
         # The desired ids are the top 10 ids that do not divide by 5.
-        if (index_size/2 + (i+1)/2) % 5 == 0:
+        if (int(index_size/2) + int((i+1)/2)) % 5 == 0:
             continue
-        expected_res.append(str(index_size/2 + (-1*(i+1)/2 if i % 2 else i/2)))
-        expected_res.append(['__v_score', str(dim*((i+1)/2)**2), 'tags', 'hybrid'])
+        expected_res.append(str(int(index_size/2) + (-1*int((i+1)/2) if i % 2 else int(i/2))))
+        expected_res.append(['__v_score', str(dim*int((i+1)/2)**2), 'tags', 'hybrid'])
         res_count += 1
         if res_count == 10:
             break
@@ -559,12 +559,12 @@ def test_hybrid_query_batches_mode_with_tags(env):
 
     # Search with tag list. Expect that docs with 'hybrid' will have lower score (1 vs 2), since they are more frequent.
     expected_res = [10]
-    expected_res.extend([str(index_size/2 - 5), '2', ['__v_score', str(dim*5**2), 'tags',  'different, tag'],
-                         str(index_size/2), '2', ['__v_score', str(0), 'tags',  'different, tag']])
+    expected_res.extend([str(int(index_size/2) - 5), '2', ['__v_score', str(dim*5**2), 'tags',  'different, tag'],
+                         str(int(index_size/2)), '2', ['__v_score', str(0), 'tags',  'different, tag']])
     for i in range(1, 10):
         if i == 5:      # ids that divide by 5 were already inserted.
             continue
-        expected_res.extend([str(index_size/2 - 5 + i), '1'])
+        expected_res.extend([str(int(index_size/2) - 5 + i), '1'])
         expected_res.append(['__v_score', str(dim*abs(5-i)**2), 'tags', 'hybrid'])
     execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[KNN 10 @v $vec_param]', query_data, 'tags',
                          sort_by_vector=False).equal(expected_res)
@@ -872,7 +872,7 @@ def test_hybrid_query_cosine(env):
         env.assertContains(res_id, expected_res_ids)
 
     # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., index_size)
-    for i in range(1, index_size/10 + 1):
+    for i in range(1, int(index_size/10) + 1):
         first_coordinate = np.float32([float(10*i)/index_size])
         vector = np.concatenate((first_coordinate, np.ones(dim-1, dtype='float32')))
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
