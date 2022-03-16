@@ -1,11 +1,9 @@
 ---
 title: Document Indexing
-linkTitle: Document Indexing
+linkTitle: Indexing
+description: >
+    This document describes how documents are added to the index.
 ---
-
-# Document Indexing
-
-This document describes how documents are added to the index.
 
 ## Components
 
