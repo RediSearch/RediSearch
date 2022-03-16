@@ -631,7 +631,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if((q->reqFlags & QEXEC_F_IS_EXTENDED)) {
-    QueryError_SetErrorFmt(q->status, QUERY_EAGGPLAN, "VSS is not supported yet on FT.AGGREGATE");
+    QueryError_SetErrorFmt(q->status, QUERY_EAGGPLAN, "VSS is not yet supported on FT.AGGREGATE");
     return NULL;
   }
   if (qn->type != QN_VECTOR) {

@@ -850,5 +850,5 @@ def test_fail_ft_aggregate(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                          'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
     conn.execute_command("HSET", "i", "v", one_vector.tobytes())
-    env.expect("FT.AGGREGATE", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes()).error().contains("VSS is not supported yet on FT.AGGREGATE")
+    env.expect("FT.AGGREGATE", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes()).error().contains("VSS is not yet supported on FT.AGGREGATE")
 
