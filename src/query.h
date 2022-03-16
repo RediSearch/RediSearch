@@ -85,10 +85,12 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
  * @param sctx the search context. Note that this may be retained by the iterators
  *  for the remainder of the query.
  * @param conc Used to save state on the query
+ * @param reqflags Request (AGG/SEARCH) flags
+ * @param status error detail
  * @return an iterator.
  */
 IndexIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, ConcurrentSearchCtx *conc, QueryError *status);
+                            RedisSearchCtx *sctx, ConcurrentSearchCtx *conc, uint32_t reqflags, QueryError *status);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly
