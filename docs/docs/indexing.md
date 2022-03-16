@@ -1,3 +1,8 @@
+---
+title: Document Indexing
+linkTitle: Document Indexing
+---
+
 # Document Indexing
 
 This document describes how documents are added to the index.
