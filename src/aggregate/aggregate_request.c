@@ -19,7 +19,11 @@
  * @param status the error object
  */
 static bool ensureSimpleMode(AREQ *areq) {
-  return areq->reqflags |= QEXEC_F_IS_SEARCH;
+  if(areq->reqflags & QEXEC_F_IS_EXTENDED) {
+    return false;
+  }
+  areq->reqflags |= QEXEC_F_IS_SEARCH;
+  return true;
 }
 
 /**
@@ -390,14 +394,23 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
-      if (!ensureSimpleMode(req) || ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
+      if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "SUMMARIZE is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
+      if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
         QERR_MKBADARGS_FMT(status, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
       }
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
-      if (!ensureSimpleMode(req) || ParseHighlight(ac, &req->outFields) == REDISMODULE_ERR) {
+      if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "HIGHLIGHT is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
+
+      if (ParseHighlight(ac, &req->outFields) == REDISMODULE_ERR) {
         QERR_MKBADARGS_FMT(status, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
       }
@@ -433,7 +446,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   if (AC_IsInitialized(&returnFields)) {
     if(!ensureSimpleMode(req)) {
-        QERR_MKBADARGS_FMT(status, "Bad argument");
+        QERR_MKBADARGS_FMT(status, "RETURN is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
     }
 
