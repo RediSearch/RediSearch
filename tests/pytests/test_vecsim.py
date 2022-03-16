@@ -850,5 +850,10 @@ def test_fail_ft_aggregate(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                          'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
     conn.execute_command("HSET", "i", "v", one_vector.tobytes())
-    env.expect("FT.AGGREGATE", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes()).error().contains("VSS is not yet supported on FT.AGGREGATE")
+    res = env.expect("FT.AGGREGATE", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes())
+    if not env.isCluster():
+        res.error().contains("VSS is not yet supported on FT.AGGREGATE")
+    else:
+        # Currently we would not want to parse the filter query during FT.AGGREGATE execution on coordinator, so return empty result
+        res.equal([0L])
 
