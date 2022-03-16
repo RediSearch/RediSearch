@@ -967,7 +967,10 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .trace_log = NULL
 #endif
   };
-  dst->root = RSQuery_ParseRaw_v2(&qpCtx);
+  if (dialectVersion == 2)
+    dst->root = RSQuery_ParseRaw_v2(&qpCtx);
+  else
+    dst->root = RSQuery_ParseRaw_v1(&qpCtx);
 
 #ifdef PARSER_DEBUG
   if (qpCtx.trace_log != NULL) {
