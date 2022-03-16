@@ -102,6 +102,8 @@ typedef struct {
   int printProfileClock;
   // disable compression for inverted index DocIdsOnly
   int invertedIndexRawDocidEncoding;
+  // Default dialect level used throughout database lifetime.
+  unsigned int defaultDialectVersion;
 } RSConfig;
 
 typedef enum {
@@ -170,6 +172,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
+#define MAX_DIALECT_VERSION 2
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -186,7 +189,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
-    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true,                           \
+    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion =1, \
   }
 
 #define REDIS_ARRAY_LIMIT 7
