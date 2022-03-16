@@ -452,7 +452,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
                          .trace_log = NULL
 #endif
   };
-  QueryNode* queryNode = RSQuery_ParseRaw(&qpCtx);
+  QueryNode* queryNode = RSQuery_ParseRaw_v2(&qpCtx);
   if(status->code != 0 ) {
     //fail.
   }

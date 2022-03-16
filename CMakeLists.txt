@@ -85,7 +85,8 @@ file(GLOB RS_SRC
     "src/aggregate/reducers/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
-    "src/query_parser/*.c"
+    "src/query_parser/parser2.2/*.c"
+    "src/query_parser/parser2.4/*.c"
     "src/util/*.c"
     "src/trie/*.c"
     ${RS_DEBUG_SRC}

@@ -8,7 +8,6 @@
 #include "index.h"
 #include "query.h"
 #include "config.h"
-#include "query_parser/parser.h"
 #include "redis_index.h"
 #include "tokenize.h"
 #include "util/logging.h"
@@ -968,7 +967,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .trace_log = NULL
 #endif
   };
-  dst->root = RSQuery_ParseRaw(&qpCtx);
+  dst->root = RSQuery_ParseRaw_v2(&qpCtx);
 
 #ifdef PARSER_DEBUG
   if (qpCtx.trace_log != NULL) {
