@@ -605,7 +605,8 @@ workflows:
               platform: [bionic]
       - build-macos:
           context: common
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *on-any-branch
       - coverage:
           <<: *on-any-branch
       - sanitize:

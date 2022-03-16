@@ -539,7 +539,7 @@ def testExpire(env):
     env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
     conn.execute_command('PEXPIRE', 'doc1', '1')
     env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
-    sleep(0.1)
+    sleep(1.1)
     env.expect('FT.SEARCH idx foo').equal([0L])
 
 def testEvicted(env):
