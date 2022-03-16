@@ -145,7 +145,7 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
   return REDISMODULE_OK;
 }
 
-static int parseDialect(AREQ *req, ArgsCursor *ac, QueryError *status) {
+int parseDialect(AREQ *req, ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for DIALECT");	
       return REDISMODULE_ERR;	
@@ -235,12 +235,12 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (parseRequiredFields(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+    req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
   }
     else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
     if (parseDialect(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-    req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
   } else {
     return ARG_UNKNOWN;
   }
