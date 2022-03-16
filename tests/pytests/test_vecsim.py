@@ -854,6 +854,6 @@ def test_fail_ft_aggregate(env):
     if not env.isCluster():
         res.error().contains("VSS is not yet supported on FT.AGGREGATE")
     else:
-        # Currently we would not want to parse the filter query during FT.AGGREGATE execution on coordinator, so return empty result
+        # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
         res.equal([0L])
 
