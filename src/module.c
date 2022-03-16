@@ -354,7 +354,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
    * On replica of the destination will get the ft.create command from
    * all the src shards and not need to recreate it.
    */
-  RedisModule_Replicate(ctx, RS_CREATE_IF_NX_CMD, "v", argv + 1, argc - 1);
+  RedisModule_Replicate(ctx, RS_CREATE_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -588,7 +588,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
     int rv = AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
     if (IndexSpec_GetField(sp, fieldName, fieldNameSize)) {
-      RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, argc - 1);
+      RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
   }
@@ -597,7 +597,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   if (QueryError_HasError(&status)) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
-    RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, argc - 1);
+    RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
@@ -640,7 +640,7 @@ static int AliasAddCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, 
   if (aliasAddCommon(ctx, argv, argc, &e, ifNx) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &e);
   } else {
-    RedisModule_Replicate(ctx, RS_ALIASADD_IF_NX, "v", argv + 1, argc - 1);
+    RedisModule_Replicate(ctx, RS_ALIASADD_IF_NX, "v", argv + 1, (size_t)argc - 1);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
@@ -668,7 +668,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), sp, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
-    RedisModule_Replicate(ctx, RS_ALIASDEL_IF_EX, "v", argv + 1, argc - 1);
+    RedisModule_Replicate(ctx, RS_ALIASDEL_IF_EX, "v", argv + 1, (size_t)argc - 1);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
@@ -1072,6 +1072,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   mempool_free_global();
   ConcurrentSearch_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
+  CleanPool_ThreadPoolDestroy();
   GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();

@@ -180,7 +180,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 19
+#define INDEX_CURRENT_VERSION 20
+#define INDEX_VECSIM_2_VERSION 20
 #define INDEX_VECSIM_VERSION 19
 #define INDEX_JSON_VERSION 18
 #define INDEX_MIN_COMPAT_VERSION 17
@@ -538,6 +539,11 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            RedisModuleString **hashFields);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
+
+//---------------------------------------------------------------------------------------------
+
+void CleanPool_ThreadPoolStart();
+void CleanPool_ThreadPoolDestroy();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

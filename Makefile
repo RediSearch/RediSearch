@@ -105,6 +105,7 @@ make pytest        # run python tests (tests/pytests)
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
+  BENCHMARK=1		 # run micro-benchmark
 
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
@@ -221,11 +222,7 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(OS),macos)
 STATIC_LIBSTDCXX ?= 1
-else
-STATIC_LIBSTDCXX ?= 0
-endif
 
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
@@ -497,10 +494,10 @@ else
 REJSON_SO=
 endif
 
-ifneq ($(SLOW),1)
-RLTEST_PARALLEL ?= 1
+ifeq ($(SLOW),1)
+_RLTEST_PARALLEL=0
 else
-RLTEST_PARALLEL=0
+_RLTEST_PARALLEL=1
 endif
 
 test: $(REJSON_SO)
@@ -518,7 +515,7 @@ endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
@@ -548,7 +545,9 @@ endif
 endif
 
 cpp_tests:
-ifeq ($(TEST),)
+ifeq ($(BENCHMARK), 1)
+	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
+else ifeq ($(TEST),)
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rstest
 else
 	$(SHOW)$(GDB_CMD) $(abspath $(BINROOT)/search/tests/cpptests/rstest) --gtest_filter=$(TEST)

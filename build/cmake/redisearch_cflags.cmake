@@ -69,7 +69,11 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
-set(CMAKE_STATIC_LIBSTDCXX_FLAGS "-static-libgcc -static-libstdc++")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
+	set(CMAKE_STATIC_LIBSTDCXX_FLAGS "-static")
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+	set(CMAKE_STATIC_LIBSTDCXX_FLAGS "-static-libgcc -static-libstdc++")
+endif()
 
 #----------------------------------------------------------------------------------------------
 

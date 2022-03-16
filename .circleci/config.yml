@@ -506,10 +506,13 @@ jobs:
       - setup-automation
       - run:
           name: Run QA Automation
-          command: ./tests/qa/qatests -t release -m "$CIRCLE_TAG"
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG"
       - run:
           name: Run QA Automation (RediSearch Light)
-          command: ./tests/qa/qatests -t release -m "$CIRCLE_TAG" --light
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --light
+      - run:
+          name: Run QA Automation (RediSearch/VecSim)
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim
 
 
 #----------------------------------------------------------------------------------------------------------------------------------
@@ -592,7 +595,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, ol8, bullseye]
+              platform: [focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common

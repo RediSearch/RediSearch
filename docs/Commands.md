@@ -317,6 +317,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [PAYLOAD {payload}]
   [SORTBY {attribute} [ASC|DESC]]
   [LIMIT offset num]
+  [TIMEOUT {milliseconds}]
   [PARAMS {nargs} {name} {value} ... ]
 ```
 
@@ -376,6 +377,12 @@ Searching for books with "Python" in any TEXT attribute, returning the price sto
 
 ```sql
 FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
+```
+
+Searching for books with semantically similar "title" to "Planet Earth", Return top 10 results sorted by distance.
+
+```sql
+FT.SEARCH books-idx "*=>[KNN 10 @title_embedding $query_vec AS title_score]" PARAMS 2 query_vec <"Planet Earth" embedding BLOB> SORTBY title_score
 ```
 
 !!! tip "More examples"
@@ -448,6 +455,8 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 !!! tip
     `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
 
+- **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
+
 * **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the query string by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
 
 #### Complexity
@@ -484,6 +493,7 @@ FT.AGGREGATE {index_name}
   [APPLY {expr} AS {alias}] ...
   [LIMIT {offset} {num}] ...
   [FILTER {expr}] ...
+  [TIMEOUT {milliseconds}]
 ```
 
 #### Description
@@ -577,6 +587,8 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
 
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result.
   They are is applied post-query and relate to the current state of the pipeline.
+
+* **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
 
 #### Complexity
 
@@ -778,7 +790,7 @@ Return value has an array with two elements:
     * **Pipeline creation time** - Creation time of execution plan including iterators,
   result processors and reducers creation.
     * **Iterators profile** - Index iterators information including their type, term, count and time data.
-  Inverted-index iterators have in addition the number of elements they contain.
+  Inverted-index iterators have in addition the number of elements they contain. Hybrid vector iterators returning the top results from the vector index in batches, include the number of batches.
     * **Result processors profile** - Result processors chain with type, count and time data.
 
 #### Example
@@ -1407,32 +1419,34 @@ Optional
 16) "0"
 17) inverted_sz_mb
 18) "0"
-19) total_inverted_index_blocks
-20) "933290"
-21) offset_vectors_sz_mb
-22) "0.65932846069335938"
-23) doc_table_size_mb
-24) "29.893482208251953"
-25) sortable_values_size_mb
-26) "11.432285308837891"
-27) key_table_size_mb
-28) "1.239776611328125e-05"
-29) records_per_doc_avg
-30) "-nan"
-31) bytes_per_record_avg
+19) vector_index_sz_mb
+20) "0"
+21) total_inverted_index_blocks
+22) "933290"
+23) offset_vectors_sz_mb
+24) "0.65932846069335938"
+25) doc_table_size_mb
+26) "29.893482208251953"
+27) sortable_values_size_mb
+28) "11.432285308837891"
+29) key_table_size_mb
+30) "1.239776611328125e-05"
+31) records_per_doc_avg
 32) "-nan"
-33) offsets_per_term_avg
-34) "inf"
-35) offset_bits_per_record_avg
-36) "8"
-37) hash_indexing_failures
-38) "0"
-39) indexing
+33) bytes_per_record_avg
+34) "-nan"
+35) offsets_per_term_avg
+36) "inf"
+37) offset_bits_per_record_avg
+38) "8"
+39) hash_indexing_failures
 40) "0"
-41) percent_indexed
-42) "1"
-43) gc_stats
-44)  1) bytes_collected
+41) indexing
+42) "0"
+43) percent_indexed
+44) "1"
+45) gc_stats
+46)  1) bytes_collected
      2) "4148136"
      3) total_ms_run
      4) "14796"
@@ -1446,8 +1460,8 @@ Optional
     12) "0"
     13) gc_blocks_denied
     14) "0"
-45) cursor_stats
-46) 1) global_idle
+47) cursor_stats
+48) 1) global_idle
     2) (integer) 0
     3) global_total
     4) (integer) 0
@@ -1455,8 +1469,8 @@ Optional
     6) (integer) 128
     7) index_total
     8) (integer) 0
-47) stopwords_list
-48) 1) "tlv"
+49) stopwords_list
+50) 1) "tlv"
     2) "summer"
     3) "2020"
 ```
