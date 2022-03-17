@@ -1,9 +1,11 @@
 # coding=utf-8
 from includes import *
 from common import *
+from RLTest import Env
 
 
 def test_geo(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO', 'SORTABLE').ok()
@@ -45,6 +47,7 @@ def test_geo(env):
 
 
 def test_param_errors(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TAG', 'g', 'GEO', 'num', 'NUMERIC',
@@ -106,6 +109,7 @@ def test_param_errors(env):
 
 
 def test_attr(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name_ph', 'TEXT', 'PHONETIC', 'dm:en', 'name', 'TEXT').ok()
@@ -133,6 +137,7 @@ def test_attr(env):
 
 
 def test_binary_data(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'bin', 'TEXT').ok()
@@ -172,6 +177,7 @@ def test_binary_data(env):
 
 
 def test_expression(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'id', 'NUMERIC').ok()
@@ -227,6 +233,7 @@ def test_expression(env):
 
 
 def test_tags(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tags', 'TAG').ok()
@@ -272,6 +279,7 @@ def test_tags(env):
 
 
 def test_numeric_range(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'numval', 'NUMERIC').ok()
@@ -315,6 +323,7 @@ def test_numeric_range(env):
 
 
 def test_vector(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     args = ['SORTBY', '__v_score', 'ASC', 'RETURN', 1, '__v_score', 'LIMIT', 0, 2]
@@ -343,6 +352,7 @@ def test_vector(env):
 
 
 def test_fuzzy(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'prop', 'TEXT').ok()
     waitForIndex(env, 'idx')

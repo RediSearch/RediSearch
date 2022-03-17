@@ -81,7 +81,51 @@ bool isValidQuery(const char *qt, int ver, RedisSearchCtx &ctx) {
 #define assertValidQuery(qt, ctx) ASSERT_TRUE(isValidQuery(qt, version, ctx))
 #define assertInvalidQuery(qt, ctx) ASSERT_FALSE(isValidQuery(qt, version, ctx))
 
+#define assertValidQuery_v(v, qt) ASSERT_TRUE(isValidQuery(qt, v, ctx))
+#define assertInvalidQuery_v(v, qt) ASSERT_FALSE(isValidQuery(qt, v, ctx))
+
 class QueryTest : public ::testing::Test {};
+
+TEST_F(QueryTest, testParser_delta) {
+  RedisSearchCtx ctx;
+  static const char *args[] = {"SCHEMA",  "title", "text",   "weight", "0.1",
+                               "body",    "text",  "weight", "2.0",    "bar",
+                               "numeric", "loc",   "geo",    "tags",   "tag"};
+  QueryError err = {QueryErrorCode(0)};
+  ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+
+  // wildcard with parentheses are avalible from version 2
+  assertInvalidQuery_v(1, "(*)");
+  assertValidQuery_v(2, "(*)");
+
+  // params are avalible from version 2.
+  assertInvalidQuery_v(1, "$hello");
+  assertValidQuery_v(2, "$hello");
+  assertInvalidQuery_v(1, "\"$hello\"");
+  assertValidQuery_v(2, "\"$hello\"");
+
+  // difference between `expr` and `text_expr` were introduced in version 2
+  assertValidQuery_v(1, "@title:@num:[0 10]");
+  assertValidQuery_v(1, "@title:(@num:[0 10])");
+  assertValidQuery_v(1, "@t1:@t2:@t3:hello");
+  assertInvalidQuery_v(2, "@title:@num:[0 10]");
+  assertInvalidQuery_v(2, "@title:(@num:[0 10])");
+  assertInvalidQuery_v(2, "@t1:@t2:@t3:hello");
+
+  // minor bug in v1
+  assertValidQuery_v(1, "@title:{foo}}}}}");
+  assertInvalidQuery_v(2, "@title:{foo}}}}}");
+
+  // Test basic vector similarity query - invalid in version 1
+  assertInvalidQuery_v(1, "*=>[KNN 10 @vec_field $BLOB]");
+  assertInvalidQuery_v(1, "*=>[knn $K @vec_field $BLOB as as]");
+  assertInvalidQuery_v(1, "*=>[KNN $KNN @KNN $KNN KNN $KNN AS $AS]");
+  assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB]");
+  assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB AS score]");
+  assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB EF $ef foo bar x 5 AS score]");
+  assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB foo bar x 5]");
+}
 
 TEST_F(QueryTest, testParser_v1) {
   RedisSearchCtx ctx;
@@ -97,10 +141,6 @@ TEST_F(QueryTest, testParser_v1) {
   assertValidQuery("hello", ctx);
 
   assertValidQuery("*", ctx);
-
-  assertInvalidQuery("(*)", ctx);
-  assertInvalidQuery("((((((*))))))", ctx);
-  assertInvalidQuery("((((*))))))", ctx);
 
   assertValidQuery("hello wor*", ctx);
   assertValidQuery("hello world", ctx);
@@ -189,7 +229,6 @@ TEST_F(QueryTest, testParser_v1) {
   assertValidQuery("@tags:{bar* | foo}", ctx);
   assertValidQuery("@tags:{bar* | foo*}", ctx);
 
-  assertValidQuery("@title:{foo}}}}}", ctx);
   assertInvalidQuery("@title:{{{{{foo}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|", ctx);
@@ -230,15 +269,6 @@ TEST_F(QueryTest, testParser_v1) {
   assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
-
-  // Test basic vector similarity query - invalid in version 1
-  assertInvalidQuery("*=>[KNN 10 @vec_field $BLOB]", ctx);
-  assertInvalidQuery("*=>[knn $K @vec_field $BLOB as as]", ctx); // wrong command name lowercase
-  assertInvalidQuery("*=>[KNN $KNN @KNN $KNN KNN $KNN AS $AS]", ctx); // using reserved word as an attribute or field
-  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB]", ctx);
-  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB AS score]", ctx);
-  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF $ef foo bar x 5 AS score]", ctx);
-  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB foo bar x 5]", ctx);
 
   assertValidQuery("@title:((hello world)|((hello world)|(hallo world|werld) | hello world werld))", ctx);
   assertValidQuery("(hello world)|((hello world)|(hallo world|werld) | hello world werld)", ctx);
@@ -437,7 +467,7 @@ TEST_F(QueryTest, testParser_v2) {
 
   // Test basic vector similarity query
   assertValidQuery("*=>[KNN 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("*=>[knn $K @vec_field $BLOB as as]", ctx); // wrong command name lowercase
+  assertValidQuery("*=>[knn $K @vec_field $BLOB as as]", ctx); // using command name lowercase
   assertValidQuery("*=>[KNN $KNN @KNN $KNN KNN $KNN AS $AS]", ctx); // using reserved word as an attribute or field
   assertValidQuery("*=>[KNN $K @vec_field $BLOB]", ctx);
   assertValidQuery("*=>[KNN $K @vec_field $BLOB AS score]", ctx);

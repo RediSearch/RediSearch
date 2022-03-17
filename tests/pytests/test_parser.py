@@ -1,7 +1,9 @@
 from includes import *
 from common import *
+from RLTest import Env
 
 def test_and_or(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
 
@@ -127,6 +129,7 @@ UNION {
     env.assertEqual(exp_res, res)
 
 def test_modifier(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'NOSTEM', 't2', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
@@ -192,6 +195,7 @@ VECTOR {
     env.assertEqual(exp_res, res)
 
 def test_filters(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
@@ -234,6 +238,7 @@ UNION {
     env.assertEqual(exp_res, res)
 
 def test_combinations(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
@@ -300,6 +305,7 @@ def nest_exp(modifier, term, is_and, i):
     return '(' + term + str(i) + (' ' if is_and else '|') + nest_exp(modifier, term, is_and, i - 1) + ')'
 
 def testUnsupportedNesting(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     nest_level = 200
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
 
@@ -311,6 +317,7 @@ def testUnsupportedNesting(env):
     env.expect('ft.search', 'idx', or_exp).error().contains('Parser stack overflow.')
 
 def testSupportedNesting(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     nest_level = 84
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
 
