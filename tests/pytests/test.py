@@ -845,24 +845,22 @@ def testSortByWithoutSortable(env):
 
 def testSortByWithTie(env):
     conn = getConnectionByEnv(env)
-    env.assertOk(conn.execute_command('ft.create', 'idx', 'schema', 't', 'text'))
+    env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
     for i in range(10):
         conn.execute_command('hset', i, 't', 'hello')
 
     # Assert that the order of results is the same in both configurations (by ascending id).
-    res1 = conn.execute_command('ft.search', 'idx', 'hello', 'nocontent')
-    res2 = conn.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 't')
+    res1 = env.execute_command('ft.search', 'idx', 'hello', 'nocontent')
+    res2 = env.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 't')
     env.assertEqual(res1, res2)
 
 
 def testNot(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text'))
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
     N = 10
     for i in range(N):
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'foo', 'constant term%d' % (random.randrange(0, 5))))
+        env.expect('hset', 'doc%d' % i, 'foo', 'constant term%d' % (random.randrange(0, 5))).equal(1)
 
     for i in range(5):
         inclusive = r.execute_command(
@@ -895,11 +893,9 @@ def testNot(env):
     env.assertEqual(r.execute_command(
         'ft.search', 'idx', 'constant -dasdfasdf', 'nocontent')[0], N)
     # not on env term
-    env.assertEqual(r.execute_command(
-        'ft.search', 'idx', 'constant -constant', 'nocontent'), [0])
+    env.expect('ft.search', 'idx', 'constant -constant', 'nocontent').equal([0])
 
-    env.assertEqual(r.execute_command(
-        'ft.search', 'idx', 'constant -(term0|term1|term2|term3|term4|nothing)', 'nocontent'), [0])
+    env.expect('ft.search', 'idx', 'constant -(term0|term1|term2|term3|term4|nothing)', 'nocontent').equal([0])
     # env.assertEqual(r.execute_command('ft.search', 'idx', 'constant -(term1 term2)', 'nocontent')[0], N)
 
 def testNestedIntersection(env):

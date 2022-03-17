@@ -644,7 +644,7 @@ def test_WrongJsonType(env):
     # test all possible errors in processing a field
     # we test that all documents failed to index
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
         '$.object1', 'TEXT',
         '$.object2', 'TAG',
         '$.object3', 'NUMERIC',
@@ -665,29 +665,29 @@ def test_WrongJsonType(env):
         '$.geo1', 'NUMERIC',
 
         '$.text1', 'NUMERIC',
-        '$.text2', 'GEO')
+        '$.text2', 'GEO').ok()
 
-    env.expect('JSON.SET', 'doc', '$', '{"object1":{"1":"foo", "2":"bar"}}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"object2":{"1":"foo", "2":"bar"}}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"object3":{"1":"foo", "2":"bar"}}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"object4":{"1":"foo", "2":"bar"}}').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"object1":{"1":"foo", "2":"bar"}}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"object2":{"1":"foo", "2":"bar"}}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"object3":{"1":"foo", "2":"bar"}}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"object4":{"1":"foo", "2":"bar"}}'))
 
-    env.expect('JSON.SET', 'doc', '$', '{"array1":["foo", "bar"]}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"array2":["foo", "bar"]}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"array3":["foo", "bar"]}').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array1":["foo", "bar"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array2":["foo", "bar"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array3":["foo", "bar"]}'))
 
-    env.expect('JSON.SET', 'doc', '$', '{"numeric1":3.141}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"numeric2":3.141}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"numeric3":3.141}').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric1":3.141}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric2":3.141}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric3":3.141}'))
 
-    env.expect('JSON.SET', 'doc', '$', '{"bool1":true}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"bool2":true}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"bool3":true}').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"bool1":true}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"bool2":true}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"bool3":true}'))
 
-    env.expect('JSON.SET', 'doc', '$', '{"geo1":"1.23,2.34"}').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"geo1":"1.23,2.34"}'))
 
-    env.expect('JSON.SET', 'doc', '$', '{"text1":"foo"}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"text2":"foo"}').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"text1":"foo"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"text2":"foo"}'))
 
     # no field was indexed
     env.expect('FT.SEARCH', 'idx', '*').equal([0])
@@ -808,22 +808,22 @@ def check_index_with_null(env, idx):
 def testNullValue(env):
     # check JSONType_Null is ignored, not failing
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC',
-                                                                     '$.sort', 'AS', 'sort', 'NUMERIC',
-                                                                     '$.txt', 'AS', 'txt', 'TEXT',
-                                                                     '$.tag', 'AS', 'tag', 'TAG',
-                                                                     '$.geo', 'AS', 'geo', 'GEO')
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC',
+                                                           '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                           '$.txt', 'AS', 'txt', 'TEXT',
+                                                           '$.tag', 'AS', 'tag', 'TAG',
+                                                           '$.geo', 'AS', 'geo', 'GEO').ok()
 
-    conn.execute_command('FT.CREATE', 'idx_sortable', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC', 'SORTABLE',
-                                                                     '$.sort', 'AS', 'sort', 'NUMERIC', 'SORTABLE',
-                                                                     '$.txt', 'AS', 'txt', 'TEXT', 'SORTABLE',
-                                                                     '$.geo', 'AS', 'geo', 'GEO', 'SORTABLE')
+    env.expect('FT.CREATE', 'idx_sortable', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC', 'SORTABLE',
+                                                                    '$.sort', 'AS', 'sort', 'NUMERIC', 'SORTABLE',
+                                                                    '$.txt', 'AS', 'txt', 'TEXT', 'SORTABLE',
+                                                                    '$.geo', 'AS', 'geo', 'GEO', 'SORTABLE').ok()
 
-    conn.execute_command('FT.CREATE', 'idx_separator', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
-                                                                               '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', '|')
+    env.expect('FT.CREATE', 'idx_separator', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                                     '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', '|').ok()
 
-    conn.execute_command('FT.CREATE', 'idx_casesensitive', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
-                                                                               '$.tag', 'AS', 'tag', 'TAG', 'CASESENSITIVE')
+    env.expect('FT.CREATE', 'idx_casesensitive', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                                         '$.tag', 'AS', 'tag', 'TAG', 'CASESENSITIVE').ok()
 
     conn.execute_command('JSON.SET', 'doc1', '$', r'{"sort":1, "num":null, "txt":"hello", "tag":"world", "geo":"1.23,4.56"}')
     conn.execute_command('JSON.SET', 'doc2', '$', r'{"sort":2, "num":0.8, "txt":null, "tag":"world", "geo":"1.23,4.56"}')

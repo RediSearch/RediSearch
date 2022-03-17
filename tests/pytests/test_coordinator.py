@@ -3,7 +3,7 @@ from common import *
 def testInfo(env):
     SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     for i in range (100):
         conn.execute_command('HSET', i, 't', 'Hello world!', 'v', 'abcdefgh')
 
@@ -24,7 +24,7 @@ def testInfo(env):
 def test_required_fields(env):
     # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol
     env.skipOnCluster()
-    env.assertOk(env.execute_command('ft.create', 'idx', 'schema', 't', 'text'))
+    env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
     env.execute_command('HSET', '0', 't', 'hello')
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS').error()
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '2', 't').error()
