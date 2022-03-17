@@ -296,6 +296,16 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   }
 }
 
+
+void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  if (eid.id != REDISMODULE_EVENT_SHUTDOWN) {
+    RedisModule_Log(RSDummyContext, "warning", "Bad event given, ignored.");
+    return;
+  }
+  RedisModule_Log(ctx, "notice", "%s", "Clearing resources on shutdown");
+  RediSearch_CleanupModule();
+}
+
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToKeyspaceEvents(ctx,
     REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
@@ -312,6 +322,12 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
       RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
       RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
     }
+  }
+
+  if (getenv("RS_GLOBAL_DTORS")) {
+    // clear resources when the server exits
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
   }
 }
 
