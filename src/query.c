@@ -948,7 +948,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
 }
 
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
-               const char *q, size_t n, QueryError *status) {
+               const char *q, size_t n, unsigned int dialectVersion, QueryError *status) {
   if (!dst->query) {
     dst->query = rm_strndup(q, n);
     dst->nquery = n;
