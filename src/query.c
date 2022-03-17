@@ -25,6 +25,7 @@
 #include "rmutil/rm_assert.h"
 #include "module.h"
 #include "query_internal.h"
+#include "aggregate/aggregate.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -629,6 +630,10 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
 }
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
+  if((q->reqFlags & QEXEC_F_IS_EXTENDED)) {
+    QueryError_SetErrorFmt(q->status, QUERY_EAGGPLAN, "VSS is not yet supported on FT.AGGREGATE");
+    return NULL;
+  }
   if (qn->type != QN_VECTOR) {
     return NULL;
   }
@@ -992,7 +997,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            ConcurrentSearchCtx *conc, QueryError *status) {
+                            ConcurrentSearchCtx *conc, uint32_t reqflags, QueryError *status) {
   QueryEvalCtx qectx = {
       .conc = conc,
       .opts = opts,
@@ -1001,6 +1006,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .sctx = sctx,
       .status = status,
       .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
+      .reqFlags = reqflags
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
