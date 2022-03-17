@@ -324,7 +324,7 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
     }
   }
 
-  if (getenv("RS_GLOBAL_DTORS")) {
+  if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {
     // clear resources when the server exits
     RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
