@@ -125,6 +125,8 @@ TEST_F(QueryTest, testParser_delta) {
   assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB AS score]");
   assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB EF $ef foo bar x 5 AS score]");
   assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB foo bar x 5]");
+
+  IndexSpec_Free(ctx.spec);
 }
 
 TEST_F(QueryTest, testParser_v1) {
