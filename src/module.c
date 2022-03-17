@@ -126,7 +126,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char **includeDict = NULL, **excludeDict = NULL;
   RSSearchOptions opts = {0};
   QueryAST qast = {0};
-  int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, &status);
+  int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, RSGlobalConfig.defaultDialectVersion, &status);
 
   if (rc != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));

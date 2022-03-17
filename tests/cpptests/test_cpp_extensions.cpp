@@ -130,7 +130,7 @@ TEST_F(ExtTest, testQueryExpander) {
   QueryAST qast = {0};
 
   QueryError err = {QUERY_OK};
-  int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), &err);
+  int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), 1, &err);
   ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
 
   ASSERT_EQ(qast.numTokens, 2);
