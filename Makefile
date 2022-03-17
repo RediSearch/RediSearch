@@ -385,14 +385,14 @@ parsers:
 ifeq ($(FORCE),1)
 	$(SHOW)cd src/aggregate/expr ;\
 	rm -f lexer.c parser-toplevel.c parser.c.inc
-	$(SHOW)cd src/query_parser/parser2.2 ;\
+	$(SHOW)cd src/query_parser/v1 ;\
 	rm -f lexer.c parser-toplevel.c parser.c.inc
-	$(SHOW)cd src/query_parser/parser2.4 ;\
+	$(SHOW)cd src/query_parser/v2 ;\
 	rm -f lexer.c parser-toplevel.c parser.c.inc
 endif
 	$(SHOW)$(MAKE) -C src/aggregate/expr
-	$(SHOW)$(MAKE) -C src/query_parser/parser2.2
-	$(SHOW)$(MAKE) -C src/query_parser/parser2.4
+	$(SHOW)$(MAKE) -C src/query_parser/v1
+	$(SHOW)$(MAKE) -C src/query_parser/v2
 
 .PHONY: parsers
 
