@@ -64,34 +64,6 @@
 #include <assert.h>
 
 #include "../parse.h"
-#include "util/arr.h"
-#include "rmutil/vector.h"
-#include "query_node.h"
-#include "vector_index.h"
-#include "query_param.h"
-#include "query_internal.h"
-#include "util/strconv.h"
-
-// strndup + lowercase in one pass!
-static char *strdupcase(const char *s, size_t len) {
-  char *ret = rm_strndup(s, len);
-  char *dst = ret;
-  char *src = dst;
-  while (*src) {
-      // unescape
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst = tolower(*src);
-      ++dst;
-      ++src;
-
-  }
-  *dst = '\0';
-
-  return ret;
-}
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
