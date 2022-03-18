@@ -1,6 +1,8 @@
 version: 0.2
 name: "ycsb-commerce-hashes-run-20"
 description: "YCSB Commerce workload (RUN step) using RediSearch v2 doing 20% updates"
+metadata:
+  component: "search"
 dbconfig:
   - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/ycsb/ycsb-redisearch-binding/datasets/recordcount-100000.rdb"
 remote:

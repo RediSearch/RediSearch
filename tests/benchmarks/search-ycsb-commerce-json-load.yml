@@ -1,6 +1,8 @@
 version: 0.2
 name: "ycsb-commerce-json-load"
 description: "YCSB Commerce workload (LOAD step) using RediSearch v2 + RedisJSON v2"
+metadata:
+  component: "search"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5

@@ -8,6 +8,8 @@ description: "
                 - Query type: 2 Word Intersection Query
                 - Query sample: Abraham|Lincoln
              "
+metadata:
+  component: "search"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5
