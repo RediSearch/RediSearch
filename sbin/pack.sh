@@ -60,10 +60,11 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == trusty ]] && OSNICK=ubuntu14.04
 [[ $OSNICK == xenial ]] && OSNICK=ubuntu16.04
 [[ $OSNICK == bionic ]] && OSNICK=ubuntu18.04
-[[ $OSNICK == focal ]] && OSNICK=ubuntu20.04
+[[ $OSNICK == focal ]]   && OSNICK=ubuntu20.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
-[[ $OSNICK == ol8 ]] && OSNICK=rhel8
+[[ $OSNICK == ol8 ]]     && OSNICK=rhel8
+[[ $OSNICK == rocky8 ]] && OSNICK=rhel8
 
 PLATFORM="$OS-$OSNICK-$ARCH"
 
@@ -126,12 +127,12 @@ pack_ramp() {
 		RAMP_YAML=$ROOT/ramp.yml
 	fi
 	
-	python2 $READIES/bin/xtx \
+	python3 $READIES/bin/xtx \
 		$xtx_vars \
 		-e NUMVER -e SEMVER \
 		$RAMP_YAML > /tmp/ramp.yml
 
-	local ramp="$(command -v python2) -m RAMP.ramp"
+	local ramp="$(command -v python3) -m RAMP.ramp"
 	rm -f /tmp/ramp.fname
 	
 	# ROOT is required so ramp will detect the right git commit

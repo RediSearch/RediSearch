@@ -18,9 +18,12 @@
  *   formatting
  * @param status the error object
  */
-static void ensureSimpleMode(AREQ *areq) {
-  RS_LOG_ASSERT(!(areq->reqflags & QEXEC_F_IS_EXTENDED), "Single mod test failed");
+static bool ensureSimpleMode(AREQ *areq) {
+  if(areq->reqflags & QEXEC_F_IS_EXTENDED) {
+    return false;
+  }
   areq->reqflags |= QEXEC_F_IS_SEARCH;
+  return true;
 }
 
 /**
@@ -187,6 +190,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+    // If we have sort by clause and don't need to return scores, we can avoid computing them.
+    if (req->reqflags & QEXEC_F_IS_SEARCH && !(QEXEC_F_SEND_SCORES & req->reqflags)) {
+      req->searchopts.flags |= Search_IgnoreScores;
+    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
@@ -223,7 +230,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int isLegacy) {
   // Prevent multiple SORTBY steps
   if (arng->sortKeys != NULL) {
-    QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    if (isLegacy) {
+      QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed");
+    } else {
+      QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    }
     return REDISMODULE_ERR;
   }
 
@@ -383,7 +394,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
-      ensureSimpleMode(req);
+      if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "SUMMARIZE is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
       if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
         QERR_MKBADARGS_FMT(status, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
@@ -391,7 +405,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
-      ensureSimpleMode(req);
+      if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "HIGHLIGHT is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
+
       if (ParseHighlight(ac, &req->outFields) == REDISMODULE_ERR) {
         QERR_MKBADARGS_FMT(status, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
@@ -427,7 +445,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->language = RSLanguage_Find(languageStr, 0);
 
   if (AC_IsInitialized(&returnFields)) {
-    ensureSimpleMode(req);
+    if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "RETURN is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+    }
 
     req->outFields.explicitReturn = 1;
     if (returnFields.argc == 0) {
@@ -826,7 +847,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, status);
+  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
   if (QueryError_HasError(status))
     return REDISMODULE_ERR;
   if (IsProfile(req)) {

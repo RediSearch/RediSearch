@@ -11,13 +11,21 @@ if (NOT RS_TEST_MODULE)
 endif()
 
 file(GLOB TEST_SOURCES "test_cpp_*.cpp")
+file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
+
 
 # add_definitions(-DEXT_TEST_PATH="\\"${binroot}/search/tests/cpptests/example_extension/libexample_extension.so\\"")
 
-add_executable(rstest ${TEST_SOURCES} common.cpp)
+add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp)
+add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)
 target_link_libraries(rstest gtest ${RS_TEST_MODULE} redismock ${RS_LINK_LIBS})
+target_link_libraries(rsbench ${RS_TEST_MODULE} redismock ${RS_LINK_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
+
 set_property(TARGET rstest PROPERTY CXX_STANDARD 11)
+set_property(TARGET rsbench PROPERTY CXX_STANDARD 11)
+
 add_dependencies(rstest example_extension)
 
 add_test(NAME rstest COMMAND rstest)

@@ -5,6 +5,10 @@ else
 DRY_RUN:=
 endif
 
+ifneq ($(BB),)
+SLOW:=1
+endif
+
 ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
 COV=1
 endif
@@ -51,6 +55,7 @@ ifeq ($(wildcard $(ROOT)/deps/readies/*),)
 ___:=$(shell git submodule update --init --recursive &> /dev/null)
 endif
 
+MK.pyver:=3
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -84,7 +89,7 @@ make test          # run all tests (via ctest)
   TEST=regex         # run tests that match regex
   TESTDEBUG=1        # be very verbose (CTest-related)
   CTEST_ARG=...      # pass args to CTest
-  CTEST_PARALLEL=n   # run tests in give parallelism
+  CTEST_PARALLEL=n   # run ctests in n parallel jobs
 make pytest        # run python tests (tests/pytests)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
@@ -100,6 +105,7 @@ make pytest        # run python tests (tests/pytests)
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
+  BENCHMARK=1		 # run micro-benchmark
 
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
@@ -216,11 +222,7 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(OS),macos)
 STATIC_LIBSTDCXX ?= 1
-else
-STATIC_LIBSTDCXX ?= 0
-endif
 
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
@@ -421,7 +423,7 @@ endif # DEPS
 
 setup:
 	@echo Setting up system...
-	$(SHOW)./deps/readies/bin/getpy2
+	$(SHOW)./deps/readies/bin/getpy3
 	$(SHOW)./sbin/system-setup.py 
 
 #----------------------------------------------------------------------------------------------
@@ -492,7 +494,11 @@ else
 REJSON_SO=
 endif
 
-RLTEST_PARALLEL ?= 1
+ifeq ($(SLOW),1)
+_RLTEST_PARALLEL=0
+else
+_RLTEST_PARALLEL=1
+endif
 
 test: $(REJSON_SO)
 ifneq ($(TEST),)
@@ -509,7 +515,7 @@ endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
@@ -539,7 +545,9 @@ endif
 endif
 
 cpp_tests:
-ifeq ($(TEST),)
+ifeq ($(BENCHMARK), 1)
+	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
+else ifeq ($(TEST),)
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rstest
 else
 	$(SHOW)$(GDB_CMD) $(abspath $(BINROOT)/search/tests/cpptests/rstest) --gtest_filter=$(TEST)

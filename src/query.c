@@ -25,6 +25,7 @@
 #include "rmutil/rm_assert.h"
 #include "module.h"
 #include "query_internal.h"
+#include "aggregate/aggregate.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -629,6 +630,10 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
 }
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
+  if((q->reqFlags & QEXEC_F_IS_EXTENDED)) {
+    QueryError_SetErrorFmt(q->status, QUERY_EAGGPLAN, "VSS is not yet supported on FT.AGGREGATE");
+    return NULL;
+  }
   if (qn->type != QN_VECTOR) {
     return NULL;
   }
@@ -649,7 +654,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       return NULL;
     }
   }
-  IndexIterator *it = NewVectorIterator(q->sctx, qn->vn.vq, child_it, q->status);
+  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
   }
@@ -864,7 +869,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   // a union stage with one child is the same as the child, so we just return it
   if (QueryNode_NumChildren(qn) == 1) {
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight,
-                                  fs->tagFlags & TagField_CaseSensitive);
+                                  fs->tagOpts.tagFlags & TagField_CaseSensitive);
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
@@ -882,7 +887,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
     IndexIterator *it =
         query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight,
-                                fs->tagFlags & TagField_CaseSensitive);
+                                fs->tagOpts.tagFlags & TagField_CaseSensitive);
     if (it) {
       iters[n++] = it;
     }
@@ -992,7 +997,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            ConcurrentSearchCtx *conc, QueryError *status) {
+                            ConcurrentSearchCtx *conc, uint32_t reqflags, QueryError *status) {
   QueryEvalCtx qectx = {
       .conc = conc,
       .opts = opts,
@@ -1001,6 +1006,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .sctx = sctx,
       .status = status,
       .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
+      .reqFlags = reqflags
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {

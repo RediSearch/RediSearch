@@ -400,8 +400,18 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 #define FIELD_PREPROCESSOR FIELD_HANDLER
 
 FIELD_PREPROCESSOR(fulltextPreprocessor) {
-  if (field->unionType != FLD_VAR_T_CSTR && field->unionType != FLD_VAR_T_RMS) {
-    return -1;
+  switch (field->unionType) {
+    // JSON NULL value is ignored
+    case FLD_VAR_T_NULL:
+      return 0;
+    // Unsupported type retrun an error
+    case FLD_VAR_T_NUM:
+    case FLD_VAR_T_GEO:
+    case FLD_VAR_T_ARRAY:
+      return -1;
+    case FLD_VAR_T_CSTR:
+    case FLD_VAR_T_RMS:
+      /*continue*/;
   }
 
   size_t fl;
@@ -466,6 +476,8 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
     case FLD_VAR_T_NUM:
       fdata->numeric = field->numval;
       break;
+    case FLD_VAR_T_NULL:
+      return 0;
     default:
       return -1;
   }
@@ -495,10 +507,14 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(vectorPreprocessor) {
-  // TODO: check input validity
   size_t len;
   fdata->vector = RedisModule_StringPtrLen(field->text, &len);
   fdata->vecLen = len;
+  if (len != fs->vectorOpts.expBlobSize) {
+    // "Could not add vector with blob size %zu (expected size %zu)", len, fs->vectorOpts.expBlobSize
+    QueryError_SetCode(status, QUERY_EBADATTR);
+    return -1;
+  }
   aCtx->fwIdx->maxFreq++;
   return 0;
 }
@@ -536,6 +552,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
         return REDISMODULE_ERR;
       }
       break;
+    case FLD_VAR_T_NULL:
+      return 0;
     case FLD_VAR_T_ARRAY:
     case FLD_VAR_T_NUM:
       RS_LOG_ASSERT(0, "Oops");
@@ -558,7 +576,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
-  fdata->tags = TagIndex_Preprocess(fs->tagSep, fs->tagFlags, field);
+  fdata->tags = TagIndex_Preprocess(fs->tagOpts.tagSep, fs->tagOpts.tagFlags, field);
 
   if (fdata->tags == NULL) {
     return 0;
@@ -846,6 +864,8 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_CSTR:
       *len = df->strlen;
       return df->strval;
+    case FLD_VAR_T_NULL:
+      break;
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_ARRAY:

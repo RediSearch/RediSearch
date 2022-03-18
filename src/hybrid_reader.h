@@ -7,22 +7,37 @@
 #include "util/heap.h"
 
 typedef enum {
-  STANDARD_KNN,     // Run k-nn query over the entire vector index.
-  HYBRID_ADHOC_BF,  // Measure ad-hoc the distance for every result that passes the filters,
-                    // and take the top k results.
-  HYBRID_BATCHES    // Get the top vector results in batches upon demand, and keep the results that
-                    // passes the filters until we reach k results.
-} VecSearchMode;
+  VECSIM_STANDARD_KNN,     // Run k-nn query over the entire vector index.
+  VECSIM_HYBRID_ADHOC_BF,  // Measure ad-hoc the distance for every result that passes the filters,
+                           // and take the top k results.
+  VECSIM_HYBRID_BATCHES    // Get the top vector results in batches upon demand, and keep the results that
+                           // passes the filters until we reach k results.
+} VecSimSearchMode;
+
+typedef struct {
+  VecSimIndex *index;
+  size_t dim;
+  VecSimType elementType;
+  VecSimMetric spaceMetric;
+  KNNVectorQuery query;
+  VecSimQueryParams qParams;
+  char *vectorScoreField;
+  bool ignoreDocScore;
+  IndexIterator *childIt;
+} HybridIteratorParams;
 
 typedef struct {
   IndexIterator base;
   VecSimIndex *index;
+  size_t dimension;                // index dimension
+  VecSimType vecType;              // index data type
+  VecSimMetric indexMetric;        // index distance metric
   KNNVectorQuery query;
-  VecSimQueryParams runtimeParams;   // Evaluated runtime params.
+  VecSimQueryParams runtimeParams; // Evaluated runtime params.
   IndexIterator *child;
-  VecSearchMode mode;
-  bool resultsPrepared;             // Indicates if the results were already processed
-                         // (should occur in the first call to Read)
+  VecSimSearchMode searchMode;
+  bool resultsPrepared;            // Indicates if the results were already processed
+                                   // (should occur in the first call to Read)
   VecSimQueryResult_List list;
   VecSimQueryResult_Iterator *iter;
   t_docId lastDocId;
@@ -30,13 +45,15 @@ typedef struct {
   char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
   heap_t *topResults;              // Sorted by score (max heap).
   //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
+  size_t numIterations;
+  bool ignoreScores;               // Ignore the document scores, only vector score matters.
 } HybridIterator;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-IndexIterator *NewHybridVectorIterator(VecSimIndex *index, char *score_field, KNNVectorQuery query, VecSimQueryParams qParams, IndexIterator *child_it);
+IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams);
 
 #ifdef __cplusplus
 }

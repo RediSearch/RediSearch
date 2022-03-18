@@ -29,8 +29,7 @@ def testExt(env):
     env = Env(moduleArgs='EXTLOAD %s' % ext_path)
 
     N = 100
-    env.assertOk(env.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text'))
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
     for i in range(N):
         env.assertOk(env.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                          'f', 'hello world'))
