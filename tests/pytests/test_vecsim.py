@@ -10,52 +10,51 @@ from RLTest import Env
 
 from common import *
 from includes import *
+from redis.client import NEVER_DECODE
 
 
 def test_sanity(env):
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
     for vs_type in vecsim_type:
-        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
         conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
         conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
         conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
         conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
 
-        res = [4L, 'a', ['score', '0', 'v', 'aaaaaaaa'],
-                   'b', ['score', '3.09485009821e+26', 'v', 'aaaabaaa'],
-                   'c', ['score', '2.02824096037e+31', 'v', 'aaaaabaa'],
-                   'd', ['score', '1.32922799578e+36', 'v', 'aaaaaaba']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'score', 'ASC')
-        env.assertEqual(res, res1)
+        res = [4, 'a', ['score', '0', 'v', 'aaaaaaaa'],
+                  'b', ['score', '3.09485009821e+26', 'v', 'aaaabaaa'],
+                  'c', ['score', '2.02824096037e+31', 'v', 'aaaaabaa'],
+                  'd', ['score', '1.32922799578e+36', 'v', 'aaaaaaba']]
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'score', 'ASC').equal(res)
 
         # todo: make test work on coordinator
-        res = [4L, 'c', ['score', '0', 'v', 'aaaaabaa'],
-                   'b', ['score', '2.01242627636e+31', 'v', 'aaaabaaa'],
-                   'a', ['score', '2.02824096037e+31', 'v', 'aaaaaaaa'],
-                   'd', ['score', '1.31886368448e+36', 'v', 'aaaaaaba']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'score', 'ASC')
-        env.assertEqual(res, res1)
+        res = [4, 'c', ['score', '0', 'v', 'aaaaabaa'],
+                  'b', ['score', '2.01242627636e+31', 'v', 'aaaabaaa'],
+                  'a', ['score', '2.02824096037e+31', 'v', 'aaaaaaaa'],
+                  'd', ['score', '1.31886368448e+36', 'v', 'aaaaaaba']]
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'score', 'ASC').equal(res)
 
         expected_res = ['__v_score', '0', 'v', 'aaaaaaaa']
-        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 1 @v $blob]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
+        res = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 1 @v $blob]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[2], expected_res)
 
         #####################
         ## another example ##
         #####################
         message = 'aaaaabaa'
-        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b]', 'PARAMS', '2', 'b', message, 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
+        res = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b]', 'PARAMS', '2', 'b', message, 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[2], ['__v_score', '0', 'v', 'aaaaabaa'])
 
-        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+        env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 def testDel(env):
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
     for vs_type in vecsim_type:
-        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+        env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
 
         conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
         conn.execute_command('HSET', 'b', 'v', 'aaaaaaba')
@@ -67,18 +66,18 @@ def testDel(env):
 
         res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[1:3], expected_res[0:2])
-        
+
         res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'score', 'ASC', 'LIMIT', 0, 2)
         env.assertEqual(res[1:5], expected_res[0:4])
-        
+
         res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 3 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'score', 'ASC', 'LIMIT', 0, 3)
         env.assertEqual(res[1:7], expected_res[0:6])
-        
+
         res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b AS score]', 'PARAMS', '2', 'b', 'aaaaaaaa', 'SORTBY', 'score', 'ASC', 'LIMIT', 0, 4)
         env.assertEqual(res[1:9], expected_res[0:8])
-        
+
         conn.execute_command('DEL', 'a')
-        
+
         expected_res = ['c', ['__v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
                         'd', ['__v_score', '2.02824096037e+31', 'v', 'aaaaabaa'],
                         'b', ['__v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
@@ -91,10 +90,11 @@ def testDel(env):
 
         # '''
         # This test returns 4 results instead of the expected 3. The HNSW library return the additional results.
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').equal([3L, 'b', ['v', 'aaaaaaba'], 'c', ['v', 'aaaabaaa'], 'd', ['v', 'aaaaabaa']])
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').\
+            equal([3, 'b', ['v', 'aaaaaaba'], 'c', ['v', 'aaaabaaa'], 'd', ['v', 'aaaaabaa']])
         # '''
 
-        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+        env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 def testDelReuse(env):
@@ -103,13 +103,13 @@ def testDelReuse(env):
         conn = getConnectionByEnv(env)
         vecsim_type = ['FLAT', 'HNSW']
         for vs_type in vecsim_type:
-            conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
-            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L])
+            env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0])
             conn.execute_command('HSET', 'a', 'v', 'redislab')
-            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([1L, 'a', ['v', 'redislab']])
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([1, 'a', ['v', 'redislab']])
             conn.execute_command('DEL', 'a')
-            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L])
-            conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0])
+            env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
     def del_insert(env):
         conn = getConnectionByEnv(env)
@@ -119,12 +119,12 @@ def testDelReuse(env):
         conn.execute_command('DEL', 'c')
         conn.execute_command('DEL', 'd')
 
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0L])
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0])
 
-        res = [''.join(random.choice(string.lowercase) for x in range(8)),
-            ''.join(random.choice(string.lowercase) for x in range(8)),
-            ''.join(random.choice(string.lowercase) for x in range(8)),
-            ''.join(random.choice(string.lowercase) for x in range(8))]
+        res = [''.join(random.choice(str(x).lower()) for x in range(8)),
+               ''.join(random.choice(str(x).lower()) for x in range(8)),
+               ''.join(random.choice(str(x).lower()) for x in range(8)),
+               ''.join(random.choice(str(x).lower()) for x in range(8))]
 
         conn.execute_command('HSET', 'a', 'v', res[0])
         conn.execute_command('HSET', 'b', 'v', res[1])
@@ -134,18 +134,18 @@ def testDelReuse(env):
 
     # test start
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
 
     vecs = del_insert(env)
-    res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
+    res = [4, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').equal(res)
 
     vecs = del_insert(env)
-    res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
+    res = [4, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').equal(res)
 
     vecs = del_insert(env)
-    res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
+    res = [4, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').equal(res)
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
@@ -159,8 +159,8 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
 
 def query_vector(env, idx, query_vec):
     conn = getConnectionByEnv(env)
-    return conn.execute_command('FT.SEARCH', idx, '*=>[KNN 5 @vector $v AS score]', 'PARAMS', '2', 'v', query_vec.tobytes(),
-                                'SORTBY', 'score', 'ASC', 'RETURN', 1, 'score', 'LIMIT', 0, 5)
+    return env.execute_command('FT.SEARCH', idx, '*=>[KNN 5 @vector $v AS score]', 'PARAMS', '2', 'v', query_vec.tobytes(),
+                               'SORTBY', 'score', 'ASC', 'RETURN', 1, 'score', 'LIMIT', 0, 5, **{NEVER_DECODE: []})
 
 def testDelReuseLarge(env):
     conn = getConnectionByEnv(env)
@@ -170,8 +170,9 @@ def testDelReuseLarge(env):
     query_vec_index = 3
     vec_size = 1280
 
-    conn.execute_command('FT.CREATE', INDEX_NAME, 'ON', 'HASH',
-                         'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1280', 'DISTANCE_METRIC', 'L2')
+    env.execute_command('FT.CREATE', INDEX_NAME, 'ON', 'HASH',
+                        'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1280',
+                        'DISTANCE_METRIC', 'L2')
     for _ in range(3):
         query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
         res = query_vector(env, INDEX_NAME, query_vec)
@@ -181,31 +182,33 @@ def testDelReuseLarge(env):
 def testCreate(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10')
+    env.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32',
+                        'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16',
+                        'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10')
     for _ in env.retry_with_rdb_reload():
         info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR']]
         assertInfoField(env, 'idx1', 'attributes', info)
         info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx1", "v")
-        env.assertEqual(info_data[:-3], ['ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIMENSION', 1024L, 'METRIC', 'IP', 'INDEX_SIZE', 0L, 'M', 16L, 'EF_CONSTRUCTION', 200L, 'EF_RUNTIME', 10L, 'MAX_LEVEL', -1L, 'ENTRYPOINT', -1L, 'MEMORY'])
+        env.assertEqual(info_data[:-3], ['ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIMENSION', 1024, 'METRIC', 'IP', 'INDEX_SIZE', 0, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'MEMORY'])
         # skip the memory value
         env.assertEqual(info_data[-2:], ['LAST_SEARCH_MODE', 'EMPTY_MODE'])
 
     # Uncomment these tests when support for FLOAT64, INT32, INT64, is added.
     # Trying to run these tests right now will cause 'Bad arguments for vector similarity HNSW index type' error
 
-    # conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT64', 'DIM', '4096', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10', 'M', '32', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '20')
+    # env.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT64', 'DIM', '4096', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10', 'M', '32', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '20')
     # info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'HNSW', 'TYPE', 'FLOAT64', 'DIM', '4096', 'DISTANCE_METRIC', 'L2', 'M', '32', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '20']]
     # assertInfoField(env, 'idx2', 'attributes', info)
 
-    # conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'INITIAL_CAP', '10', 'M', '64', 'EF_CONSTRUCTION', '400', 'EF_RUNTIME', '50')
+    # env.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'INITIAL_CAP', '10', 'M', '64', 'EF_CONSTRUCTION', '400', 'EF_RUNTIME', '50')
     # info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'HNSW', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'M', '64', 'EF_CONSTRUCTION', '400', 'EF_RUNTIME', '50']]
     # assertInfoField(env, 'idx3', 'attributes', info)
 
-    # conn.execute_command('FT.CREATE', 'idx4', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'INT64', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE')
+    # env.execute_command('FT.CREATE', 'idx4', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'INT64', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE')
     # info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'HNSW', 'TYPE', 'INT64', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10']]
     # assertInfoField(env, 'idx4', 'attributes', info)
 
-    # conn.execute_command('FT.CREATE', 'idx5', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE')
+    # env.execute_command('FT.CREATE', 'idx5', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE')
     # info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'FLAT', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'BLOCK_SIZE', str(1024 * 1024)]]
     # assertInfoField(env, 'idx5', 'attributes', info)
 
@@ -255,7 +258,7 @@ def testCreateErrors(env):
 
 def testSearchErrors(env):
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
     conn.execute_command('HSET', 'b', 'v', 'bbbbbbbb')
     conn.execute_command('HSET', 'c', 'v', 'cccccccc')
@@ -294,7 +297,7 @@ def test_with_fields(env):
     dimension = 128
     qty = 100
 
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
 
     for _ in env.retry_with_rdb_reload():
@@ -322,7 +325,7 @@ def test_memory_info(env):
     vector_field = 'v'
 
     # Create index. Flat index implementation will free memory when deleting vectors, so it is a good candidate for this test with respect to memory consumption.
-    conn.execute_command('FT.CREATE', index_key, 'SCHEMA', vector_field, 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'BLOCK_SiZE', '1')
+    env.execute_command('FT.CREATE', index_key, 'SCHEMA', vector_field, 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'BLOCK_SiZE', '1')
     # Verify redis memory >= redisearch index memory
     if not env.isCluster():
         vecsim_memory = get_vecsim_memory(env, index_key=index_key, field_name=vector_field)
@@ -432,15 +435,15 @@ def test_hybrid_query_batches_mode_with_text(env):
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
     index_size = 6000 * env.shardsCount
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
-                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
     load_vectors_with_texts_into_redis(conn, 'v', dim, index_size)
     query_data = np.full(dim, index_size, dtype='float32')
 
     # Expect to find no result (internally, build the child iterator as empty iterator).
-    env.expect('FT.SEARCH', 'idx', '(nothing)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0L])
+    env.expect('FT.SEARCH', 'idx', '(nothing)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
 
-    expected_res = [10L]
+    expected_res = [10]
     # Expect to get result in reverse order to the id, starting from the max id in the index.
     for i in range(10):
         expected_res.append(str(index_size-i))
@@ -450,32 +453,32 @@ def test_hybrid_query_batches_mode_with_text(env):
     execute_hybrid_query(env, '("text value")=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
     # Change the text value to 'other' for 20% of the vectors (with ids 5, 10, ..., index_size)
-    for i in range(1, index_size/5 + 1):
+    for i in range(1, int(index_size/5) + 1):
         vector = np.full(dim, 5*i, dtype='float32')
         conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 't', 'other')
 
     # Expect to get only vector that passes the filter (i.e, has "other" in t field)
-    expected_res = [10L]
+    expected_res = [10]
     for i in range(10):
         expected_res.append(str(index_size-5*i))
         expected_res.append(['__v_score', str(dim*(5*i)**2), 't', 'other'])
     execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
     # Expect empty score for the intersection (disjoint sets of results)
-    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't').equal([0L])
+    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't').equal([0])
 
     # Expect the same results as in above ('other AND NOT text')
     execute_hybrid_query(env, '(@t:other -text)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
     # Test with union - expect that all docs will pass the filter.
-    expected_res = [10L]
+    expected_res = [10]
     for i in range(10):
         expected_res.append(str(index_size-i))
         expected_res.append(['__v_score', str(dim*i**2), 't', 'other' if i % 5 == 0 else 'text value'])
     execute_hybrid_query(env, '(@t:other|text)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
     # Expect for top 10 results from vector search that still has the original text "text value".
-    expected_res = [10L]
+    expected_res = [10]
     res_count = 0
     for i in range(13):
         # The desired ids are the top 10 ids that do not divide by 5.
@@ -493,9 +496,9 @@ def test_hybrid_query_batches_mode_with_text(env):
     execute_hybrid_query(env, '(-(@t:other))=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
     # Test with invalid wildcard (less than 2 chars before the wildcard)
-    env.expect('FT.SEARCH', 'idx', '(t*)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0L])
+    env.expect('FT.SEARCH', 'idx', '(t*)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
     # Intersect valid with invalid iterators in intersection (should return 0 results as well)
-    env.expect('FT.SEARCH', 'idx', '(@t:t* @t:text)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0L])
+    env.expect('FT.SEARCH', 'idx', '(@t:t* @t:text)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
 
 
 def test_hybrid_query_batches_mode_with_tags(env):
@@ -503,8 +506,8 @@ def test_hybrid_query_batches_mode_with_tags(env):
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
     index_size = 6000 * env.shardsCount
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                        'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
@@ -514,38 +517,38 @@ def test_hybrid_query_batches_mode_with_tags(env):
 
     query_data = np.full(dim, index_size/2, dtype='float32')
 
-    expected_res = [10L]
+    expected_res = [10]
     # Expect to get result which are around index_size/2, closer results will come before (secondary sorting by id).
-    expected_res.extend([str(index_size/2), ['__v_score', str(0), 'tags', 'hybrid']])
+    expected_res.extend([str(int(index_size/2)), ['__v_score', str(0), 'tags', 'hybrid']])
     for i in range(1, 10):
-        expected_res.append(str(index_size/2 + (-1*(i+1)/2 if i % 2 else i/2)))
-        expected_res.append(['__v_score', str(dim*((i+1)/2)**2), 'tags', 'hybrid'])
+        expected_res.append(str(int(index_size/2 + (-1*(i+1)/2 if i % 2 else i/2))))
+        expected_res.append(['__v_score', str((dim*(int((i+1)/2)**2))), 'tags', 'hybrid'])
     execute_hybrid_query(env, '(@tags:{hybrid})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
-    execute_hybrid_query(env, '(@tags:{nothing})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal([0L])
-    execute_hybrid_query(env, '(@tags:{hybrid} @text:hello)=>[KNN 10 @v $vec_param]', query_data, 'tags').equal([0L])
+    execute_hybrid_query(env, '(@tags:{nothing})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal([0])
+    execute_hybrid_query(env, '(@tags:{hybrid} @text:hello)=>[KNN 10 @v $vec_param]', query_data, 'tags').equal([0])
 
     # Change the tag values to 'different, tag' for vectors with ids 5, 10, 20, ..., 6000)
-    for i in range(1, index_size/5 + 1):
+    for i in range(1, int(index_size/5) + 1):
         vector = np.full(dim, 5*i, dtype='float32')
         conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 'tags', 'different, tag')
 
-    expected_res = [10L]
+    expected_res = [10]
     # Expect to get result which are around index_size/2 that divide by 5, closer results
     # will come before (secondary sorting by id).
-    expected_res.extend([str(index_size/2), ['__v_score', str(0), 'tags', 'different, tag']])
+    expected_res.extend([str(int(index_size/2)), ['__v_score', str(0), 'tags', 'different, tag']])
     for i in range(1, 10):
-        expected_res.append(str(index_size/2 + (-1*(5*i+5)/2 if i % 2 else 5*i/2)))
-        expected_res.append(['__v_score', str(dim*(5*((i+1)/2))**2), 'tags', 'different, tag'])
+        expected_res.append(str(int(index_size/2) + (-1*int((5*i+5)/2) if i % 2 else int(5*i/2))))
+        expected_res.append(['__v_score', str(dim*(5*int((i+1)/2))**2), 'tags', 'different, tag'])
     execute_hybrid_query(env, '(@tags:{different})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
     # Expect for top 10 results from vector search that still has the original text "text value".
-    expected_res = [10L]
+    expected_res = [10]
     res_count = 0
     for i in range(index_size):
         # The desired ids are the top 10 ids that do not divide by 5.
-        if (index_size/2 + (i+1)/2) % 5 == 0:
+        if (int(index_size/2) + int((i+1)/2)) % 5 == 0:
             continue
-        expected_res.append(str(index_size/2 + (-1*(i+1)/2 if i % 2 else i/2)))
-        expected_res.append(['__v_score', str(dim*((i+1)/2)**2), 'tags', 'hybrid'])
+        expected_res.append(str(int(index_size/2) + (-1*int((i+1)/2) if i % 2 else int(i/2))))
+        expected_res.append(['__v_score', str(dim*int((i+1)/2)**2), 'tags', 'hybrid'])
         res_count += 1
         if res_count == 10:
             break
@@ -553,13 +556,13 @@ def test_hybrid_query_batches_mode_with_tags(env):
     execute_hybrid_query(env, '(@tags:{hy*})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
 
     # Search with tag list. Expect that docs with 'hybrid' will have lower score (1 vs 2), since they are more frequent.
-    expected_res = [10L]
-    expected_res.extend([str(index_size/2 - 5), '2', ['__v_score', str(dim*5**2), 'tags',  'different, tag'],
-                         str(index_size/2), '2', ['__v_score', str(0), 'tags',  'different, tag']])
+    expected_res = [10]
+    expected_res.extend([str(int(index_size/2) - 5), '2', ['__v_score', str(dim*5**2), 'tags',  'different, tag'],
+                         str(int(index_size/2)), '2', ['__v_score', str(0), 'tags',  'different, tag']])
     for i in range(1, 10):
         if i == 5:      # ids that divide by 5 were already inserted.
             continue
-        expected_res.extend([str(index_size/2 - 5 + i), '1'])
+        expected_res.extend([str(int(index_size/2) - 5 + i), '1'])
         expected_res.append(['__v_score', str(dim*abs(5-i)**2), 'tags', 'hybrid'])
     execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[KNN 10 @v $vec_param]', query_data, 'tags',
                          sort_by_vector=False).equal(expected_res)
@@ -569,8 +572,8 @@ def test_hybrid_query_with_numeric_and_geo(env):
     conn = getConnectionByEnv(env)
     dim = 2
     index_size = 6000 * env.shardsCount
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 1000, 'num', 'NUMERIC')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 1000, 'num', 'NUMERIC').ok()
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
@@ -579,7 +582,7 @@ def test_hybrid_query_with_numeric_and_geo(env):
     p.execute()
 
     query_data = np.full(dim, index_size, dtype='float32')
-    expected_res = [10L]
+    expected_res = [10]
     # Expect to get result in reverse order to the id, starting from the max id in the index.
     for i in range(10):
         expected_res.append(str(index_size-i))
@@ -589,10 +592,10 @@ def test_hybrid_query_with_numeric_and_geo(env):
     execute_hybrid_query(env, '(@num:[0 inf])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res)
 
     # Expect that no result will pass the filter.
-    execute_hybrid_query(env, '(@num:[0 0.5])=>[KNN 10 @v $vec_param]', query_data, 'num').equal([0L])
+    execute_hybrid_query(env, '(@num:[0 0.5])=>[KNN 10 @v $vec_param]', query_data, 'num').equal([0])
 
     # Expect to get results with maximum numeric value of index_size-100
-    expected_res = [10L]
+    expected_res = [10]
     for i in range(10):
         expected_res.append(str(index_size-100-i))
         expected_res.append(['__v_score', str(dim*(100+i)**2), 'num', str(index_size-100-i)])
@@ -602,7 +605,7 @@ def test_hybrid_query_with_numeric_and_geo(env):
 
     # Expect for 5 results only (45-49), this will use ad-hoc BF since ratio between docs that pass the filter to
     # index size is low.
-    expected_res = [5L]
+    expected_res = [5]
     expected_res.extend([str(50-i) for i in range(1, 6)])
     env.expect('FT.SEARCH', 'idx', '(@num:[45 (50])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 0).equal(expected_res)
@@ -610,9 +613,9 @@ def test_hybrid_query_with_numeric_and_geo(env):
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
 
     # Testing with geo-filters
-    conn.execute_command('FT.DROPINDEX', 'idx')
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO')
+    env.execute_command('FT.DROPINDEX', 'idx')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO').ok()
 
     index_size = 1000   # for this index size, ADHOC BF mode will always be selected by the heuristics.
     p = conn.pipeline(transaction=False)
@@ -622,7 +625,7 @@ def test_hybrid_query_with_numeric_and_geo(env):
     p.execute()
 
     # Expect that ids 1-32 will pass the geo filter, and that the top 10 from these will return.
-    expected_res = [10L]
+    expected_res = [10]
     for i in range(10):
         expected_res.append(str(32-i))
         expected_res.append(['coordinate', str(32-i)+","+str(32-i)])
@@ -630,16 +633,16 @@ def test_hybrid_query_with_numeric_and_geo(env):
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 1, 'coordinate').equal(expected_res)
 
     # Expect that no results will pass the filter
-    execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate', batches_mode=False).equal([0L])
+    execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate', batches_mode=False).equal([0])
 
 
 def test_hybrid_query_batches_mode_with_complex_queries(env):
     conn = getConnectionByEnv(env)
     dimension = 4
     index_size = 6000 * env.shardsCount
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'num', 'NUMERIC',
-                         't1', 'TEXT', 't2', 'TEXT')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                        'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'num', 'NUMERIC',
+                        't1', 'TEXT', 't2', 'TEXT')
 
     p = conn.pipeline(transaction=False)
     close_vector = np.full(dimension, 1, dtype='float32')
@@ -652,7 +655,7 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
         further_vector = np.full(dimension, i, dtype='float32')
         conn.execute_command('HSET', i, 'v', further_vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
     p.execute()
-    expected_res_1 = [2L, '1', '5']
+    expected_res_1 = [2, '1', '5']
     # Search for the "close_vector" that some the vector in the index contain. The batch of vectors should start with
     # ids 1, 4. The intersection "child iterator" has two children - intersection iterator (@t2:(hybrid query))
     # and not iterator (-@t1:other). When the hybrid iterator will perform "skipTo(4)" for the child iterator,
@@ -667,7 +670,7 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
 
     # test modifier list
-    expected_res_2 = [10L, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
+    expected_res_2 = [10, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
     env.expect('FT.SEARCH', 'idx', '(@t1|t2:(value text) @num:[10 30])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score',
                'PARAMS', 2, 'vec_param', close_vector.tobytes(),
@@ -678,15 +681,15 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
                'SORTBY', '__v_score',
                'WITHSCORES',
                'PARAMS', 2, 'vec_param', close_vector.tobytes(),
-               'RETURN', 2, 't1', 't2').equal([0L])
+               'RETURN', 2, 't1', 't2').equal([0])
 
 
 def test_hybrid_query_non_vector_score(env):
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+                        'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
 
     # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
@@ -695,19 +698,50 @@ def test_hybrid_query_non_vector_score(env):
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
 
     query_data = np.float32([qty for j in range(dimension)])
+
     # All documents should match, so TOP 10 takes the 10 with the largest ids. Since we sort by default score
     # and "value" is optional, expect that 100 will come first, and the rest will be sorted by id in ascending order.
-    expected_res_1 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '2', ['__v_score', '10368', 't', 'text value'], '92', '2', ['__v_score', '8192', 't', 'text value'], '93', '2', ['__v_score', '6272', 't', 'text value'], '94', '2', ['__v_score', '4608', 't', 'text value'], '95', '2', ['__v_score', '3200', 't', 'text value'], '96', '2', ['__v_score', '2048', 't', 'text value'], '97', '2', ['__v_score', '1152', 't', 'text value'], '98', '2', ['__v_score', '512', 't', 'text value'], '99', '2', ['__v_score', '128', 't', 'text value']]
+    expected_res_1 = [10,
+                      '100', '3', ['__v_score', '0', 't', 'other'],
+                      '91', '2', ['__v_score', '10368', 't', 'text value'],
+                      '92', '2', ['__v_score', '8192', 't', 'text value'],
+                      '93', '2', ['__v_score', '6272', 't', 'text value'],
+                      '94', '2', ['__v_score', '4608', 't', 'text value'],
+                      '95', '2', ['__v_score', '3200', 't', 'text value'],
+                      '96', '2', ['__v_score', '2048', 't', 'text value'],
+                      '97', '2', ['__v_score', '1152', 't', 'text value'],
+                      '98', '2', ['__v_score', '512', 't', 'text value'],
+                      '99', '2', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, batches_mode=False).equal(expected_res_1)
     execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True, batches_mode=False).equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
-    expected_res_2 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value']]
+    expected_res_2 = [10,
+                      '100', '3', ['__v_score', '0', 't', 'other'],
+                      '91', '1', ['__v_score', '10368', 't', 'text value'],
+                      '92', '1', ['__v_score', '8192', 't', 'text value'],
+                      '93', '1', ['__v_score', '6272', 't', 'text value'],
+                      '94', '1', ['__v_score', '4608', 't', 'text value'],
+                      '95', '1', ['__v_score', '3200', 't', 'text value'],
+                      '96', '1', ['__v_score', '2048', 't', 'text value'],
+                      '97', '1', ['__v_score', '1152', 't', 'text value'],
+                      '98', '1', ['__v_score', '512', 't', 'text value'],
+                      '99', '1', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, batches_mode=False).equal(expected_res_2)
     execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True, batches_mode=False).equal(expected_res_2)
 
     # use TFIDF.DOCNORM scorer
-    expected_res_3 = [10L, '100', '3', ['__v_score', '0', 't', 'other'], '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'], '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'], '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'], '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'], '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'], '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'], '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'], '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'], '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
+    expected_res_3 = [10,
+                      '100', '3', ['__v_score', '0', 't', 'other'],
+                      '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'],
+                      '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'],
+                      '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'],
+                      '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'],
+                      '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'],
+                      '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'],
+                      '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'],
+                      '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'],
+                      '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
     env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_3)
@@ -715,13 +749,13 @@ def test_hybrid_query_non_vector_score(env):
     # Those scorers are scoring per shard.
     if not env.isCluster():
         # use BM25 scorer
-        expected_res_4 = [10L, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
+        expected_res_4 = [10, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_4)
 
         # use DISMAX scorer
-        expected_res_5 = [10L, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
+        expected_res_5 = [10, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DISMAX', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_5)
@@ -738,7 +772,7 @@ def test_single_entry(env):
     # Execution should finish without failure.
     conn = getConnectionByEnv(env)
     dimension = 128
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2').ok()
     vector = np.random.rand(1, dimension).astype(np.float32)
     conn.execute_command('HSET', 0, 'v', vector.tobytes())
 
@@ -747,15 +781,15 @@ def test_single_entry(env):
         env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]',
                 'SORTBY', '__v_score',
                 'RETURN', '0',
-                'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1L, '0'])
+                'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1, '0'])
 
 
 def test_hybrid_query_adhoc_bf_mode(env):
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                         'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 't', 'TEXT')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+               'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 't', 'TEXT').ok()
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
 
     # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., 100)
@@ -767,8 +801,18 @@ def test_hybrid_query_adhoc_bf_mode(env):
     # Expect also that heuristics will choose adhoc BF over batches.
     query_data = np.float32([100 for j in range(dimension)])
 
-    expected_res = [10L, '100', ['__v_score', '0', 't', 'other'], '90', ['__v_score', '12800', 't', 'other'], '80', ['__v_score', '51200', 't', 'other'], '70', ['__v_score', '115200', 't', 'other'], '60', ['__v_score', '204800', 't', 'other'], '50', ['__v_score', '320000', 't', 'other'], '40', ['__v_score', '460800', 't', 'other'], '30', ['__v_score', '627200', 't', 'other'], '20', ['__v_score', '819200', 't', 'other'], '10', ['__v_score', '1036800', 't', 'other']]
-    
+    expected_res = [10,
+                    '100', ['__v_score', '0', 't', 'other'],
+                    '90', ['__v_score', '12800', 't', 'other'],
+                    '80', ['__v_score', '51200', 't', 'other'],
+                    '70', ['__v_score', '115200', 't', 'other'],
+                    '60', ['__v_score', '204800', 't', 'other'],
+                    '50', ['__v_score', '320000', 't', 'other'],
+                    '40', ['__v_score', '460800', 't', 'other'],
+                    '30', ['__v_score', '627200', 't', 'other'],
+                    '20', ['__v_score', '819200', 't', 'other'],
+                    '10', ['__v_score', '1036800', 't', 'other']]
+
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
         execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal(expected_res)
@@ -783,7 +827,7 @@ def test_wrong_vector_size(env):
     conn.execute_command('HSET', '1', 'v', vector[:dimension].tobytes())
     conn.execute_command('HSET', '2', 'v', vector[:dimension+1].tobytes())
 
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2').ok()
     waitForIndex(env, 'idx')
 
     vector = np.random.rand(1+dimension).astype(np.float32)
@@ -794,14 +838,14 @@ def test_wrong_vector_size(env):
     waitForIndex(env, 'idx')
     assertInfoField(env, 'idx', 'num_docs', '2')
     assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2L, '1', '4'])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2, '1', '4'])
 
 def test_hybrid_query_cosine(env):
     conn = getConnectionByEnv(env)
     dim = 4
     index_size = 6000 * env.shardsCount
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
-                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 't', 'TEXT')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 't', 'TEXT').ok()
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
@@ -813,12 +857,12 @@ def test_hybrid_query_cosine(env):
     query_data = np.ones(dim, dtype='float32')
 
     expected_res_ids = [str(index_size-i) for i in range(15)]
-    res = conn.execute_command('FT.SEARCH', 'idx', '(text value)=>[KNN 10 @v $vec_param]',
-           'SORTBY', '__v_score',
-           'PARAMS', 2, 'vec_param', query_data.tobytes(),
-           'RETURN', 0)
+    res = env.execute_command('FT.SEARCH', 'idx', '(text value)=>[KNN 10 @v $vec_param]',
+                              'SORTBY', '__v_score',
+                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                              'RETURN', 0)
     prefix = "_" if env.isCluster() else ""
-    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+    env.assertEqual(env.cmd(prefix + "FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
     # The order of ids is not accurate due to floating point numeric errors, but the top k should be
     # in the last 15 ids.
     actual_res_ids = [res[1:][i] for i in range(10)]
@@ -826,17 +870,17 @@ def test_hybrid_query_cosine(env):
         env.assertContains(res_id, expected_res_ids)
 
     # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., index_size)
-    for i in range(1, index_size/10 + 1):
+    for i in range(1, int(index_size/10) + 1):
         first_coordinate = np.float32([float(10*i)/index_size])
         vector = np.concatenate((first_coordinate, np.ones(dim-1, dtype='float32')))
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
 
     # Expect to get only vector that passes the filter (i.e, has "other" in text field)
     expected_res_ids = [str(index_size-10*i) for i in range(10)]
-    res = conn.execute_command('FT.SEARCH', 'idx', '(other)=>[KNN 10 @v $vec_param]',
-               'SORTBY', '__v_score',
-               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 0)
+    res = env.execute_command('FT.SEARCH', 'idx', '(other)=>[KNN 10 @v $vec_param]',
+                              'SORTBY', '__v_score',
+                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                              'RETURN', 0)
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
     actual_res_ids = [res[1:][i] for i in range(10)]
     for res_id in actual_res_ids:
@@ -847,13 +891,12 @@ def test_fail_ft_aggregate(env):
     conn = getConnectionByEnv(env)
     index_size = 6000 * env.shardsCount
     one_vector = np.full((1, 1), 1, dtype = np.float32)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
-                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+                        'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
     conn.execute_command("HSET", "i", "v", one_vector.tobytes())
     res = env.expect("FT.AGGREGATE", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes())
     if not env.isCluster():
         res.error().contains("VSS is not yet supported on FT.AGGREGATE")
     else:
         # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
-        res.equal([0L])
-
+        res.equal([0])
