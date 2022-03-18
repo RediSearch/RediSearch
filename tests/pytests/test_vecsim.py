@@ -907,6 +907,7 @@ def test_hybrid_query_cosine(env):
         env.assertContains(res_id, expected_res_ids)
 
 def test_fail_ft_aggregate(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     dim = 1
     conn = getConnectionByEnv(env)
     index_size = 6000 * env.shardsCount
