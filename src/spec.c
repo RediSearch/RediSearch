@@ -1007,6 +1007,9 @@ void CleanPool_ThreadPoolStart() {
 
 void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
+    if (RSGlobalConfig.freeResourcesThread) {
+      thpool_wait(cleanPool);
+    }
     thpool_destroy(cleanPool);
     cleanPool = NULL;
   }
