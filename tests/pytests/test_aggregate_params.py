@@ -54,15 +54,14 @@ class TestAggregateParams:
 
         res = self.env.cmd(*cmd)
         self.env.assertIsNotNone(res)
-        self.env.assertEqual([292L, ['brand', '', 'count', '1518'], ['brand', 'mad catz', 'count', '43'],
+        self.env.assertEqual([292, ['brand', '', 'count', '1518'], ['brand', 'mad catz', 'count', '43'],
                                     ['brand', 'generic', 'count', '40'], ['brand', 'steelseries', 'count', '37'],
                                     ['brand', 'logitech', 'count', '35']], res)
 
 def test_apply(env):
-        
         conn = getConnectionByEnv(env)
         env.flush()
-        env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'PREFIX', 1, 'dkey', 'SCHEMA', 'name', 'TEXT', 'breed', 'TEXT', 'loc', 'GEO'))
+        env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'dkey', 'SCHEMA', 'name', 'TEXT', 'breed', 'TEXT', 'loc', 'GEO').ok()
         waitForIndex(env, 'idx')
         conn.execute_command('HSET', 'dkey:1', 'name', 'Lassie', 'breed', 'Rough Collie')
         conn.execute_command('HSET', 'dkey:2', 'name', 'lessly', 'breed', 'Poodle')
@@ -75,11 +74,11 @@ def test_apply(env):
         conn.execute_command('HSET', 'dkey:9', 'name', 'Tuk', 'breed', 'Husky')
         conn.execute_command('HSET', 'dkey:10', 'name', 'Jul', 'breed', 'St. Bernard')
 
-        res1 = conn.execute_command('ft.aggregate', 'idx', '@breed:(Dal*|Poo*|Ru*|Mo*)', 'LOAD', '2', '@name', '@breed', 'FILTER', 'exists(@breed)', 'APPLY', 'upper(@name)', 'AS', 'n', 'APPLY', 'upper(@breed)', 'AS', 'b', 'SORTBY', '4', '@b', 'ASC', '@n', 'ASC')
-        res2 = conn.execute_command('ft.aggregate', 'idx', '@breed:($p1*|$p2*|$p3*|$p4*)', 'LOAD', '2', '@name', '@breed', 'FILTER', 'exists(@breed)', 'APPLY', 'upper(@name)', 'AS', 'n', 'APPLY', 'upper(@breed)', 'AS', 'b', 'SORTBY', '4', '@b', 'ASC', '@n', 'ASC', 'PARAMS', '8', 'p1', 'Dal', 'p2', 'Poo', 'p3', 'Ru', 'p4', 'Mo')
+        res1 = env.execute_command('ft.aggregate', 'idx', '@breed:(Dal*|Poo*|Ru*|Mo*)', 'LOAD', '2', '@name', '@breed', 'FILTER', 'exists(@breed)', 'APPLY', 'upper(@name)', 'AS', 'n', 'APPLY', 'upper(@breed)', 'AS', 'b', 'SORTBY', '4', '@b', 'ASC', '@n', 'ASC')
+        res2 = env.execute_command('ft.aggregate', 'idx', '@breed:($p1*|$p2*|$p3*|$p4*)', 'LOAD', '2', '@name', '@breed', 'FILTER', 'exists(@breed)', 'APPLY', 'upper(@name)', 'AS', 'n', 'APPLY', 'upper(@breed)', 'AS', 'b', 'SORTBY', '4', '@b', 'ASC', '@n', 'ASC', 'PARAMS', '8', 'p1', 'Dal', 'p2', 'Poo', 'p3', 'Ru', 'p4', 'Mo')
 
-        res1 = conn.execute_command('ft.aggregate', 'idx', '@breed:(Dal*|Poo*|Ru*|Mo*)', 'SORTBY', '1', '@name')
-        res2 = conn.execute_command('ft.aggregate', 'idx', '@breed:($p1*|$p2*|$p3*|$p4*)', 'PARAMS', '8', 'p1', 'Dal', 'p2', 'Poo', 'p3', 'Ru', 'p4', 'Mo', 'SORTBY', '1', '@name')
+        res1 = env.execute_command('ft.aggregate', 'idx', '@breed:(Dal*|Poo*|Ru*|Mo*)', 'SORTBY', '1', '@name')
+        res2 = env.execute_command('ft.aggregate', 'idx', '@breed:($p1*|$p2*|$p3*|$p4*)', 'PARAMS', '8', 'p1', 'Dal', 'p2', 'Poo', 'p3', 'Ru', 'p4', 'Mo', 'SORTBY', '1', '@name')
         env.assertEqual(res2, res1)
 
 

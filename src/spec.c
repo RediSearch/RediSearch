@@ -1542,6 +1542,20 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
       goto fail;
     }
+    // Calculate blob size limitation on lower encvers.
+    if(encver < INDEX_VECSIM_2_VERSION) {
+      switch (f->vectorOpts.vecSimParams.algo) 
+      {
+      case VecSimAlgo_HNSWLIB:
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.hnswParams.type);
+        break;
+      case VecSimAlgo_BF:
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.bfParams.type);
+        break; 
+      default:
+        break;
+      }
+    }
   }
   return REDISMODULE_OK;
 

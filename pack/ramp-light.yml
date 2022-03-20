@@ -6,7 +6,7 @@ homepage: http://redisearch.io
 license:  Redis Source Available License Agreement
 command_line_args: ""
 min_redis_version: "6.0"
-min_redis_pack_version: "6.0"
+min_redis_pack_version: "6.0.8"
 config_command: "FT.CONFIG SET"
 capabilities:
     - types
@@ -22,6 +22,7 @@ capabilities:
     - eviction_expiry
     - hash_policy
     - intershard_tls
+    - intershard_tls_pass
 exclude_commands:
     - FT.CONFIG
     - FT.DEBUG
