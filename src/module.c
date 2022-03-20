@@ -1061,15 +1061,18 @@ void RediSearch_CleanupModule(void) {
   }
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
+  // free thread pools
+  // currently, CleanPool should be destroyed first as it waits for tasks to finish
+  CleanPool_ThreadPoolDestroy();
+  ReindexPool_ThreadPoolDestroy();
+  ConcurrentSearch_ThreadPoolDestroy();
+  GC_ThreadPoolDestroy();
+
   // free global structures
   Extensions_Free();
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();
   mempool_free_global();
-  ConcurrentSearch_ThreadPoolDestroy();
-  ReindexPool_ThreadPoolDestroy();
-  CleanPool_ThreadPoolDestroy();
-  GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(ScemaPrefixes_g);
