@@ -748,6 +748,7 @@ static void yy_destructor(
 }
       break;
     case 35: /* geo_filter */
+    case 38: /* numeric_range */
 {
  QueryParam_Free((yypminor->yy50)); 
 }
@@ -761,13 +762,6 @@ static void yy_destructor(
         rm_free(s);
     }
     Vector_Free((yypminor->yy78)); 
-
-}
-      break;
-    case 38: /* numeric_range */
-{
-
-    QueryParam_Free((yypminor->yy50));
 
 }
       break;
@@ -1578,17 +1572,8 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 50: /* geo_filter ::= LSQB num num num TERM RSQB */
 {
-    char buf[16] = {0};
-    size_t len = 0;
-    if (yymsp[-1].minor.yy0.len < 16) {
-        memcpy(buf, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-        len = yymsp[-1].minor.yy0.len;
-    } else {
-        strcpy(buf, "INVALID");
-        len = strlen(buf);
-    }
     yymsp[-5].minor.yy50 = NewQueryParam(QP_GEO_FILTER);
-    yymsp[-5].minor.yy50->gf = NewGeoFilter(yymsp[-4].minor.yy83.num, yymsp[-3].minor.yy83.num, yymsp[-2].minor.yy83.num, buf, len);
+    yymsp[-5].minor.yy50->gf = NewGeoFilter(yymsp[-4].minor.yy83.num, yymsp[-3].minor.yy83.num, yymsp[-2].minor.yy83.num, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
     GeoFilter_Validate(yymsp[-5].minor.yy50->gf, ctx->status);
 }
         break;

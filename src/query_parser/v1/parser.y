@@ -134,7 +134,7 @@ static int one_not_null(void *a, void *b, void *out) {
 %type tag_list { QueryNode *}
 %destructor tag_list { QueryNode_Free($$); }
 
-//%type 
+// v2.2.9 diff - geo_filter type changed to match current functions usage
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
 
@@ -150,10 +150,9 @@ static int one_not_null(void *a, void *b, void *out) {
 
 %type num { RangeNumber }
 
+// v2.2.9 diff - numeric_range type changed to match current functions usage
 %type numeric_range { QueryParam * }
-%destructor numeric_range {
-    QueryParam_Free($$);
-}
+%destructor numeric_range { QueryParam_Free($$); }
 
 query ::= expr(A) . { 
  /* If the root is a negative node, we intersect it with a wildcard node */
@@ -384,6 +383,7 @@ expr(A) ::= TILDE expr(B) . {
 // Prefix experessions
 /////////////////////////////////////////////////////////////////
 
+// v2.2.9 diff - string duplication are happening in NewPrefixNode_WithParams now.
 prefix(A) ::= PREFIX(B) . [PREFIX] {
     A = NewPrefixNode_WithParams(ctx, &B);
 }
@@ -392,26 +392,32 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 // Fuzzy terms
 /////////////////////////////////////////////////////////////////
 
+// v2.2.9 diff - string duplication are happening in NewPrefixNode_WithParams now.
 expr(A) ::=  PERCENT term(B) PERCENT. [PREFIX] {
     A = NewFuzzyNode_WithParams(ctx, &B, 1);
 }
 
+// v2.2.9 diff - string duplication are happening in NewPrefixNode_WithParams now.
 expr(A) ::= PERCENT PERCENT term(B) PERCENT PERCENT. [PREFIX] {
     A = NewFuzzyNode_WithParams(ctx, &B, 2);
 }
 
+// v2.2.9 diff - string duplication are happening in NewPrefixNode_WithParams now.
 expr(A) ::= PERCENT PERCENT PERCENT term(B) PERCENT PERCENT PERCENT. [PREFIX] {
     A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
 
+// v2.2.9 diff - string duplication are happening in NewPrefixNode_WithParams now.
 expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
     A = NewFuzzyNode_WithParams(ctx, &B, 1);
 }
 
+// v2.2.9 diff - string duplication are happening in NewPrefixNode_WithParams now.
 expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
     A = NewFuzzyNode_WithParams(ctx, &B, 2);
 }
 
+// v2.2.9 diff - string duplication are happening in NewPrefixNode_WithParams now.
 expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
     A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
@@ -510,12 +516,14 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 /////////////////////////////////////////////////////////////////
 // Numeric Ranges
 /////////////////////////////////////////////////////////////////
+// v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
     C->nf->fieldName = rm_strndup(B.s, B.len);
     A = NewNumericNode(C);
 }
 
+// v2.2.9 diff - geo_filter type changed to match current functions usage
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
   A = NewQueryParam(QP_NUMERIC_FILTER);
   A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
@@ -525,24 +533,17 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
 // Geo Filters
 /////////////////////////////////////////////////////////////////
 
+// v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
     C->gf->property = rm_strndup(B.s, B.len);
     A = NewGeofilterNode(C);
 }
 
+// v2.2.9 diff - geo_filter type changed to match current functions usage
 geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
-    char buf[16] = {0};
-    size_t len = 0;
-    if (E.len < 16) {
-        memcpy(buf, E.s, E.len);
-        len = E.len;
-    } else {
-        strcpy(buf, "INVALID");
-        len = strlen(buf);
-    }
     A = NewQueryParam(QP_GEO_FILTER);
-    A->gf = NewGeoFilter(B.num, C.num, D.num, buf, len);
+    A->gf = NewGeoFilter(B.num, C.num, D.num, E.s, E.len);
     GeoFilter_Validate(A->gf, ctx->status);
 }
 
