@@ -15,8 +15,7 @@ def testWideSchema(env):
         fields = []
         for i in range(FIELDS):
             fields.extend(('field_%d' % i, 'hello token_%d' % i))
-        env.assertOk(r.execute_command('ft.add', 'idx',
-                                       'doc%d' % n, 1.0, 'fields', *fields))
+        env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields', *fields).ok()
     for _ in env.reloading_iterator():
         waitForIndex(r, 'idx')
         for i in range(FIELDS):
