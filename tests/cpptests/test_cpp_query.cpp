@@ -38,10 +38,13 @@ class QASTCXX : public QueryAST {
   }
 
   bool parse(const char *s) {
+    return parse(s, 1);
+  }
+  bool parse(const char *s, int ver) {
     QueryError_ClearError(&m_status);
     QAST_Destroy(this);
 
-    int rc = QAST_Parse(this, sctx, &m_opts, s, strlen(s), 1, &m_status);
+    int rc = QAST_Parse(this, sctx, &m_opts, s, strlen(s), ver, &m_status);
     return rc == REDISMODULE_OK && !QueryError_HasError(&m_status) && root != NULL;
   }
 
@@ -59,10 +62,10 @@ class QASTCXX : public QueryAST {
   }
 };
 
-bool isValidQuery(const char *qt, RedisSearchCtx &ctx) {
+bool isValidQuery(const char *qt, int ver, RedisSearchCtx &ctx) {
   QASTCXX ast;
   ast.setContext(&ctx);
-  return ast.parse(qt);
+  return ast.parse(qt, ver);
 
   // if (err) {
   //   Query_Free(q);
@@ -75,12 +78,15 @@ bool isValidQuery(const char *qt, RedisSearchCtx &ctx) {
   // return 0;
 }
 
-#define assertValidQuery(qt, ctx) ASSERT_TRUE(isValidQuery(qt, ctx))
-#define assertInvalidQuery(qt, ctx) ASSERT_FALSE(isValidQuery(qt, ctx))
+#define assertValidQuery(qt, ctx) ASSERT_TRUE(isValidQuery(qt, version, ctx))
+#define assertInvalidQuery(qt, ctx) ASSERT_FALSE(isValidQuery(qt, version, ctx))
+
+#define assertValidQuery_v(v, qt) ASSERT_TRUE(isValidQuery(qt, v, ctx))
+#define assertInvalidQuery_v(v, qt) ASSERT_FALSE(isValidQuery(qt, v, ctx))
 
 class QueryTest : public ::testing::Test {};
 
-TEST_F(QueryTest, testParser) {
+TEST_F(QueryTest, testParser_delta) {
   RedisSearchCtx ctx;
   static const char *args[] = {"SCHEMA",  "title", "text",   "weight", "0.1",
                                "body",    "text",  "weight", "2.0",    "bar",
@@ -88,6 +94,241 @@ TEST_F(QueryTest, testParser) {
   QueryError err = {QueryErrorCode(0)};
   ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+
+  // wildcard with parentheses are avalible from version 2
+  assertInvalidQuery_v(1, "(*)");
+  assertValidQuery_v(2, "(*)");
+
+  // params are avalible from version 2.
+  assertInvalidQuery_v(1, "$hello");
+  assertValidQuery_v(2, "$hello");
+  assertInvalidQuery_v(1, "\"$hello\"");
+  assertValidQuery_v(2, "\"$hello\"");
+
+  // difference between `expr` and `text_expr` were introduced in version 2
+  assertValidQuery_v(1, "@title:@num:[0 10]");
+  assertValidQuery_v(1, "@title:(@num:[0 10])");
+  assertValidQuery_v(1, "@t1:@t2:@t3:hello");
+  assertInvalidQuery_v(2, "@title:@num:[0 10]");
+  assertInvalidQuery_v(2, "@title:(@num:[0 10])");
+  assertInvalidQuery_v(2, "@t1:@t2:@t3:hello");
+
+  // minor bug in v1
+  assertValidQuery_v(1, "@title:{foo}}}}}");
+  assertInvalidQuery_v(2, "@title:{foo}}}}}");
+
+  // Test basic vector similarity query - invalid in version 1
+  assertInvalidQuery_v(1, "*=>[KNN 10 @vec_field $BLOB]");
+  assertInvalidQuery_v(1, "*=>[knn $K @vec_field $BLOB as as]");
+  assertInvalidQuery_v(1, "*=>[KNN $KNN @KNN $KNN KNN $KNN AS $AS]");
+  assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB]");
+  assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB AS score]");
+  assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB EF $ef foo bar x 5 AS score]");
+  assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB foo bar x 5]");
+
+  IndexSpec_Free(ctx.spec);
+}
+
+TEST_F(QueryTest, testParser_v1) {
+  RedisSearchCtx ctx;
+  static const char *args[] = {"SCHEMA",  "title", "text",   "weight", "0.1",
+                               "body",    "text",  "weight", "2.0",    "bar",
+                               "numeric", "loc",   "geo",    "tags",   "tag"};
+  QueryError err = {QueryErrorCode(0)};
+  ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  int version = 1;
+
+  // test some valid queries
+  assertValidQuery("hello", ctx);
+
+  assertValidQuery("*", ctx);
+
+  assertValidQuery("hello wor*", ctx);
+  assertValidQuery("hello world", ctx);
+  assertValidQuery("hello (world)", ctx);
+
+  assertValidQuery("\"hello world\"", ctx);
+  assertValidQuery("\"hello\"", ctx);
+  assertInvalidQuery("\"$hello\"", ctx);
+  assertValidQuery("\"\\$hello\"", ctx);
+  assertValidQuery("\"\\@hello\"", ctx);
+
+  assertValidQuery("\"hello world\" \"foo bar\"", ctx);
+  assertValidQuery("\"hello world\"|\"foo bar\"", ctx);
+  assertValidQuery("\"hello world\" (\"foo bar\")", ctx);
+  assertValidQuery("hello \"foo bar\" world", ctx);
+  assertValidQuery("hello|hallo|yellow world", ctx);
+  assertValidQuery("(hello|world|foo) bar baz 123", ctx);
+  assertValidQuery("(hello|world|foo) (bar baz)", ctx);
+  assertValidQuery("@a:foo (@b:bar (@c:baz @d:gaz))", ctx);
+  assertValidQuery("(hello world|foo \"bar baz\") \"bar baz\" bbbb", ctx);
+  assertValidQuery("@title:(barack obama)  @body:us|president", ctx);
+  assertValidQuery("@ti_tle:barack obama  @body:us", ctx);
+  assertValidQuery("@title:barack @body:obama", ctx);
+  assertValidQuery("@tit_le|bo_dy:barack @body|title|url|something_else:obama", ctx);
+  assertValidQuery("hello world&good+bye foo.bar", ctx);
+  assertValidQuery("@BusinessName:\"Wells Fargo Bank, National Association\"", ctx);
+
+  // escaping and unicode in field names
+  assertValidQuery("@Business\\:\\-\\ Name:Wells Fargo", ctx);
+  assertValidQuery("@שלום:Wells Fargo", ctx);
+
+  assertValidQuery("foo -bar -(bar baz)", ctx);
+  assertValidQuery("(hello world)|(goodbye moon)", ctx);
+  assertInvalidQuery("@title:", ctx);
+  assertInvalidQuery("@body:@title:", ctx);
+  assertInvalidQuery("@body|title:@title:", ctx);
+  assertInvalidQuery("@body|title", ctx);
+  assertValidQuery("@title:@num:[0 10]", ctx);
+  assertValidQuery("@title:(@num:[0 10])", ctx);
+  assertValidQuery("@t1:@t2:@t3:hello", ctx);
+  assertValidQuery("@t1|t2|t3:hello", ctx);
+  assertValidQuery("@title:(hello=>{$phonetic: true} world)", ctx);
+  assertValidQuery("hello ~world ~war", ctx);
+  assertValidQuery("hello ~(world war)", ctx);
+  assertValidQuery("-foo", ctx);
+  assertValidQuery("@title:-foo", ctx);
+  assertValidQuery("-@title:foo", ctx);
+
+  // some geo queries
+  assertValidQuery("@loc:[15.1 -15 30 km]", ctx);
+  assertValidQuery("@loc:[15 -15.1 30 m]", ctx);
+  assertValidQuery("@loc:[15.03 -15.45 30 mi]", ctx);
+  assertValidQuery("@loc:[15.65 -15.65 30 ft]", ctx);
+  assertValidQuery("hello world @loc:[15.65 -15.65 30 ft]", ctx);
+  assertValidQuery("hello world -@loc:[15.65 -15.65 30 ft]", ctx);
+  assertValidQuery("hello world ~@loc:[15.65 -15.65 30 ft]", ctx);
+  assertValidQuery("@title:hello world ~@loc:[15.65 -15.65 30 ft]", ctx);
+  assertValidQuery("@loc:[15.65 -15.65 30 ft] @loc:[15.65 -15.65 30 ft]", ctx);
+  assertValidQuery("@loc:[15.65 -15.65 30 ft]|@loc:[15.65 -15.65 30 ft]", ctx);
+  assertValidQuery("hello (world @loc:[15.65 -15.65 30 ft])", ctx);
+
+  assertInvalidQuery("@loc:[190.65 -100.65 30 ft])", ctx);
+  assertInvalidQuery("@loc:[50 50 -1 ft])", ctx);
+  assertInvalidQuery("@loc:[50 50 1 quoops])", ctx);
+  assertInvalidQuery("@loc:[50 50 1 ftps])", ctx);
+  assertInvalidQuery("@loc:[50 50 1 1])", ctx);
+  assertInvalidQuery("@loc:[50 50 1])", ctx);
+  // numeric
+  assertValidQuery("@number:[100 200]", ctx);
+  assertValidQuery("@number:[100 -200]", ctx);
+  assertValidQuery("@number:[(100 (200]", ctx);
+  assertValidQuery("@number:[100 inf]", ctx);
+  assertValidQuery("@number:[100 -inf]", ctx);
+  assertValidQuery("@number:[-inf +inf]", ctx);
+  assertValidQuery("@number:[-inf +inf]|@number:[100 200]", ctx);
+
+  assertInvalidQuery("@number:[100 foo]", ctx);
+
+  // Tag queries
+  assertValidQuery("@tags:{foo}", ctx);
+  assertValidQuery("@tags:{foo|bar baz|boo}", ctx);
+  assertValidQuery("@tags:{foo|bar\\ baz|boo}", ctx);
+  assertValidQuery("@tags:{foo*}", ctx);
+  assertValidQuery("@tags:{foo\\-*}", ctx);
+  assertValidQuery("@tags:{bar | foo*}", ctx);
+  assertValidQuery("@tags:{bar* | foo}", ctx);
+  assertValidQuery("@tags:{bar* | foo*}", ctx);
+
+  assertInvalidQuery("@title:{{{{{foo}", ctx);
+  assertInvalidQuery("@tags:{foo|bar\\ baz|}", ctx);
+  assertInvalidQuery("@tags:{foo|bar\\ baz|", ctx);
+  assertInvalidQuery("{foo|bar\\ baz}", ctx);
+
+  assertInvalidQuery("(foo", ctx);
+  assertInvalidQuery("\"foo", ctx);
+  assertValidQuery("", ctx);
+  assertInvalidQuery("()", ctx);
+
+  // test stopwords
+  assertValidQuery("a for is", ctx);
+  assertValidQuery("a|for|is", ctx);
+  assertValidQuery("a little bit of party", ctx);
+  assertValidQuery("no-as", ctx);
+  assertValidQuery("~no~as", ctx);
+  assertValidQuery("(no -as) =>{$weight: 0.5}", ctx);
+  assertValidQuery("@foo:-as", ctx);
+
+  // test utf-8 query
+  assertValidQuery("שלום עולם", ctx);
+
+  // Test attribute
+  assertValidQuery("(foo bar) => {$weight: 0.5; $slop: 2}", ctx);
+  assertValidQuery("foo => {$weight: 0.5} bar => {$weight: 0.1}", ctx);
+
+  assertValidQuery("@title:(foo bar) => {$weight: 0.5; $slop: 2}", ctx);
+  assertValidQuery(
+      "@title:(foo bar) => {$weight: 0.5; $slop: 2} @body:(foo bar) => {$weight: 0.5; $slop: 2}",
+      ctx);
+  assertValidQuery("@title:(conversation) (@title:(conversation the conversation))=>{$inorder: true;$slop: 0}", ctx);
+  assertValidQuery("(foo => {$weight: 0.5;}) | ((bar) => {$weight: 0.5})", ctx);
+  assertValidQuery("(foo => {$weight: 0.5;})  ((bar) => {}) => {}", ctx);
+  assertValidQuery("@tag:{foo | bar} => {$weight: 0.5;} ", ctx);
+  assertValidQuery("@num:[0 100] => {$weight: 0.5;} ", ctx);
+  assertInvalidQuery("@tag:{foo | bar} => {$weight: -0.5;} ", ctx);
+  assertInvalidQuery("@tag:{foo | bar} => {$great: 0.5;} ", ctx);
+  assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
+  assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
+  assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
+
+  assertValidQuery("@title:((hello world)|((hello world)|(hallo world|werld) | hello world werld))", ctx);
+  assertValidQuery("(hello world)|((hello world)|(hallo world|werld) | hello world werld)", ctx);
+
+  const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
+  QASTCXX ast;
+  ast.setContext(&ctx);
+  ASSERT_TRUE(ast.parse(qt));
+  QueryNode *n = ast.root;
+  //QAST_Print(&ast, ctx.spec);
+  ASSERT_TRUE(n != NULL);
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(n->pn.exact, 0);
+  ASSERT_EQ(QueryNode_NumChildren(n), 4);
+  ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
+
+  ASSERT_TRUE(n->children[0]->type == QN_UNION);
+  ASSERT_STREQ("hello", n->children[0]->children[0]->tn.str);
+  ASSERT_STREQ("world", n->children[0]->children[1]->tn.str);
+
+  QueryNode *_n = n->children[1];
+
+  ASSERT_TRUE(_n->type == QN_PHRASE);
+  ASSERT_TRUE(_n->pn.exact == 1);
+  ASSERT_EQ(QueryNode_NumChildren(_n), 2);
+  ASSERT_STREQ("another", _n->children[0]->tn.str);
+  ASSERT_STREQ("world", _n->children[1]->tn.str);
+
+  _n = n->children[2];
+  ASSERT_TRUE(_n->type == QN_PHRASE);
+
+  ASSERT_TRUE(_n->pn.exact == 0);
+  ASSERT_EQ(QueryNode_NumChildren(_n), 2);
+  ASSERT_STREQ("foo", _n->children[0]->tn.str);
+  ASSERT_STREQ("bar", _n->children[1]->tn.str);
+
+  _n = n->children[3];
+  ASSERT_TRUE(_n->type == QN_NOT);
+  _n = QueryNode_GetChild(_n, 0);
+  ASSERT_TRUE(_n->pn.exact == 0);
+  ASSERT_EQ(2, QueryNode_NumChildren(_n));
+  ASSERT_STREQ("baz", _n->children[0]->tn.str);
+
+  ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
+  ASSERT_STREQ("boo", _n->children[1]->pfx.str);
+  QAST_Destroy(&ast);
+  IndexSpec_Free(ctx.spec);
+}
+
+TEST_F(QueryTest, testParser_v2) {
+  RedisSearchCtx ctx;
+  static const char *args[] = {"SCHEMA",  "title", "text",   "weight", "0.1",
+                               "body",    "text",  "weight", "2.0",    "bar",
+                               "numeric", "loc",   "geo",    "tags",   "tag"};
+  QueryError err = {QueryErrorCode(0)};
+  ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  int version = 2;
 
   // test some valid queries
   assertValidQuery("hello", ctx);
@@ -228,7 +469,7 @@ TEST_F(QueryTest, testParser) {
 
   // Test basic vector similarity query
   assertValidQuery("*=>[KNN 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("*=>[knn $K @vec_field $BLOB as as]", ctx); // wrong command name lowercase
+  assertValidQuery("*=>[knn $K @vec_field $BLOB as as]", ctx); // using command name lowercase
   assertValidQuery("*=>[KNN $KNN @KNN $KNN KNN $KNN AS $AS]", ctx); // using reserved word as an attribute or field
   assertValidQuery("*=>[KNN $K @vec_field $BLOB]", ctx);
   assertValidQuery("*=>[KNN $K @vec_field $BLOB AS score]", ctx);
@@ -329,6 +570,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
   QASTCXX ast;
   ast.setContext(&ctx);
+  int ver = 2;
   
   const char *vqt[] = {
     "(hello world)=>[KNN 10 @vec $BLOB]",
@@ -337,7 +579,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
     NULL};
 
   for (size_t i = 0; vqt[i] != NULL; i++) {
-    ASSERT_TRUE(ast.parse(vqt[i]));
+    ASSERT_TRUE(ast.parse(vqt[i], ver));
     QueryNode *vn = ast.root;
     // ast.print();
     ASSERT_TRUE(vn != NULL);
@@ -345,13 +587,13 @@ TEST_F(QueryTest, testVectorHybridQuery) {
     ASSERT_EQ(QueryNode_NumChildren(vn), 1);
   }
 
-  ast.parse(vqt[0]);
+  ast.parse(vqt[0], ver);
   ASSERT_EQ(ast.root->children[0]->type, QN_PHRASE);
   ASSERT_EQ(ast.root->children[0]->opts.fieldMask, -1);
-  ast.parse(vqt[1]);
+  ast.parse(vqt[1], ver);
   ASSERT_EQ(ast.root->children[0]->type, QN_UNION);
   ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
-  ast.parse(vqt[2]);
+  ast.parse(vqt[2], ver);
   ASSERT_EQ(ast.root->children[0]->type, QN_TOKEN);
   ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
 
@@ -377,7 +619,7 @@ TEST_F(QueryTest, testPureNegative) {
   IndexSpec_Free(ctx.spec);
 }
 
-TEST_F(QueryTest, testGeoQuery) {
+TEST_F(QueryTest, testGeoQuery_v1) {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   QueryError err = {QueryErrorCode(0)};
   IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
@@ -386,6 +628,32 @@ TEST_F(QueryTest, testGeoQuery) {
   QASTCXX ast;
   ast.setContext(&ctx);
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
+  QueryNode *n = ast.root;
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_TRUE((n->opts.fieldMask == RS_FIELDMASK_ALL));
+  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+
+  QueryNode *gn = n->children[1];
+  ASSERT_EQ(gn->type, QN_GEO);
+  ASSERT_STREQ(gn->gn.gf->property, "loc");
+  ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
+  ASSERT_EQ(gn->gn.gf->lon, 31.52);
+  ASSERT_EQ(gn->gn.gf->lat, 32.1342);
+  ASSERT_EQ(gn->gn.gf->radius, 10.01);
+  IndexSpec_Free(ctx.spec);
+}
+
+TEST_F(QueryTest, testGeoQuery_v2) {
+  static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
+  QueryError err = {QueryErrorCode(0)};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  const char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
+  QASTCXX ast;
+  ast.setContext(&ctx);
+  int ver = 2;
+
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_TRUE((n->opts.fieldMask == RS_FIELDMASK_ALL));
@@ -401,7 +669,7 @@ TEST_F(QueryTest, testGeoQuery) {
   IndexSpec_Free(ctx.spec);
 }
 
-TEST_F(QueryTest, testFieldSpec) {
+TEST_F(QueryTest, testFieldSpec_v1) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QUERY_OK};
@@ -413,8 +681,10 @@ TEST_F(QueryTest, testFieldSpec) {
   //ast.print();
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
-  ASSERT_EQ(n->opts.fieldMask, -1);
+  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+  ASSERT_EQ(n->opts.fieldMask, 0x01);
   ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
+  ASSERT_EQ(n->children[1]->opts.fieldMask, 0x01);
 
   qt = "(@title:hello) (@body:world)";
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
@@ -445,6 +715,63 @@ TEST_F(QueryTest, testFieldSpec) {
   // test numeric ranges
   qt = "@num:[0.4 (500]";
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
+  n = ast.root;
+  ASSERT_EQ(n->type, QN_NUMERIC);
+  ASSERT_EQ(n->nn.nf->min, 0.4);
+  ASSERT_EQ(n->nn.nf->max, 500.0);
+  ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
+  ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
+  IndexSpec_Free(ctx.spec);
+}
+
+TEST_F(QueryTest, testFieldSpec_v2) {
+  static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
+                               "text",   "weight", "2.0",  "bar",    "numeric"};
+  QueryError err = {QUERY_OK};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  const char *qt = "@title:hello world";
+  QASTCXX ast(ctx);
+  int ver = 2;
+
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
+  //ast.print();
+  QueryNode *n = ast.root;
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+  ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
+  ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
+  ASSERT_EQ(n->children[1]->opts.fieldMask, RS_FIELDMASK_ALL);
+
+  qt = "(@title:hello) (@body:world)";
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
+  n = ast.root;
+
+  ASSERT_TRUE(n != NULL);
+  //printf("%s ====> ", qt);
+  //ast.print();
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
+  ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
+  ASSERT_EQ(n->children[1]->opts.fieldMask, 0x02);
+
+  // test field modifiers
+  qt = "@title:(hello world) @body:(world apart) @adas_dfsd:fofofof";
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
+  n = ast.root;
+  //printf("%s ====> ", qt);
+  //ast.print();
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
+  ASSERT_EQ(QueryNode_NumChildren(n), 3);
+  ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
+  ASSERT_EQ(n->children[1]->opts.fieldMask, 0x02);
+  ASSERT_EQ(n->children[2]->opts.fieldMask, 0x00);
+  // ASSERT_EQ(n->children[2]->fieldMask, 0x00)
+
+  // test numeric ranges
+  qt = "@num:[0.4 (500]";
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
   n = ast.root;
   ASSERT_EQ(n->type, QN_NUMERIC);
   ASSERT_EQ(n->nn.nf->min, 0.4);

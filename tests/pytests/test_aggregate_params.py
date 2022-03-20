@@ -59,6 +59,8 @@ class TestAggregateParams:
                                     ['brand', 'logitech', 'count', '35']], res)
 
 def test_apply(env):
+        
+        env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
         conn = getConnectionByEnv(env)
         env.flush()
         env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'dkey', 'SCHEMA', 'name', 'TEXT', 'breed', 'TEXT', 'loc', 'GEO').ok()

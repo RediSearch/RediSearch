@@ -14,6 +14,7 @@ from redis.client import NEVER_DECODE
 
 
 def test_sanity(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
     for vs_type in vecsim_type:
@@ -51,6 +52,7 @@ def test_sanity(env):
 
 
 def testDel(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
     for vs_type in vecsim_type:
@@ -98,6 +100,7 @@ def testDel(env):
 
 
 def testDelReuse(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
 
     def test_query_empty(env):
         conn = getConnectionByEnv(env)
@@ -149,6 +152,7 @@ def testDelReuse(env):
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').equal(res)
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     for i in range(n_vec):
         vector = np.random.rand(1, vec_size).astype(np.float32)
@@ -163,6 +167,7 @@ def query_vector(env, idx, query_vec):
                                'SORTBY', 'score', 'ASC', 'RETURN', 1, 'score', 'LIMIT', 0, 5, **{NEVER_DECODE: []})
 
 def testDelReuseLarge(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     INDEX_NAME = 'items'
     prefix = 'item'
@@ -180,6 +185,7 @@ def testDelReuseLarge(env):
             env.assertLessEqual(float(res[2 + i * 2][1]), float(res[2 + (i + 1) * 2][1]))
 
 def testCreate(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32',
@@ -213,6 +219,7 @@ def testCreate(env):
     # assertInfoField(env, 'idx5', 'attributes', info)
 
 def testCreateErrors(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # missing init args
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR').error().contains('Bad arguments for vector similarity algorithm')
@@ -257,6 +264,7 @@ def testCreateErrors(env):
 
 
 def testSearchErrors(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
@@ -282,6 +290,7 @@ def testSearchErrors(env):
 
 
 def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     id_vec_list = []
     p = con.pipeline(transaction=False)
     for i in range(1, num_vectors+1):
@@ -293,6 +302,7 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
 
 
 def test_with_fields(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -318,6 +328,7 @@ def get_vecsim_memory(env, index_key, field_name):
 
 
 def test_memory_info(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     # This test flow adds two vectors and deletes them. The test checks for memory increase in Redis and RediSearch upon insertion and decrease upon delete.
     conn = getConnectionByEnv(env)
     dimension = 128
@@ -431,6 +442,7 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
 
 
 def test_hybrid_query_batches_mode_with_text(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -502,6 +514,7 @@ def test_hybrid_query_batches_mode_with_text(env):
 
 
 def test_hybrid_query_batches_mode_with_tags(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -569,6 +582,7 @@ def test_hybrid_query_batches_mode_with_tags(env):
 
 
 def test_hybrid_query_with_numeric_and_geo(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
     index_size = 6000 * env.shardsCount
@@ -637,6 +651,7 @@ def test_hybrid_query_with_numeric_and_geo(env):
 
 
 def test_hybrid_query_batches_mode_with_complex_queries(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 4
     index_size = 6000 * env.shardsCount
@@ -685,6 +700,7 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
 
 
 def test_hybrid_query_non_vector_score(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -768,6 +784,7 @@ def test_hybrid_query_non_vector_score(env):
 
 def test_single_entry(env):
     SkipOnNonCluster(env)
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator.
     # Execution should finish without failure.
     conn = getConnectionByEnv(env)
@@ -785,6 +802,7 @@ def test_single_entry(env):
 
 
 def test_hybrid_query_adhoc_bf_mode(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -819,6 +837,7 @@ def test_hybrid_query_adhoc_bf_mode(env):
 
 
 def test_wrong_vector_size(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
 
@@ -841,6 +860,7 @@ def test_wrong_vector_size(env):
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2, '1', '4'])
 
 def test_hybrid_query_cosine(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 4
     index_size = 6000 * env.shardsCount
@@ -887,6 +907,7 @@ def test_hybrid_query_cosine(env):
         env.assertContains(res_id, expected_res_ids)
 
 def test_fail_ft_aggregate(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     dim = 1
     conn = getConnectionByEnv(env)
     index_size = 6000 * env.shardsCount

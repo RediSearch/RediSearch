@@ -452,7 +452,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
                          .trace_log = NULL
 #endif
   };
-  QueryNode* queryNode = RSQuery_ParseRaw(&qpCtx);
+  QueryNode* queryNode = RSQuery_ParseRaw_v2(&qpCtx);
   if(status->code != 0 ) {
     //fail.
   }
@@ -617,24 +617,14 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
         free(req);
         return NULL;
     }
-
-    if(dialect >= 2) {
-        // Note: currently there is only one single case. For extending those cases we should use a trie here.
-        if(strcasestr(req->queryString, "KNN")) {
-          prepareOptionalTopKCase(req, argv, argc, status);
-        }
-    }
-    else {
-      // TODO: remove this, this is only for tests to pass
-        if(strcasestr(req->queryString, "KNN")) {
-          prepareOptionalTopKCase(req, argv, argc, status);
-        }
-    }
   }
-   // TODO: remove this, this is only for tests to pass
+
+  if(dialect >= 2) {
+    // Note: currently there is only one single case. For extending those cases we should use a trie here.
     if(strcasestr(req->queryString, "KNN")) {
       prepareOptionalTopKCase(req, argv, argc, status);
     }
+  }
 
   return req;
 }
