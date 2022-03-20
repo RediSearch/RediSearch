@@ -22,6 +22,7 @@ capabilities:
     - eviction_expiry
     - hash_policy
     - intershard_tls
+    - intershard_tls_pass
 exclude_commands:
     - FT.CREATE
     - FT.DROP
