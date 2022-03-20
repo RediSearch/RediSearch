@@ -739,9 +739,9 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_EQ(QueryNode_NumChildren(n), 2);
-  ASSERT_EQ(n->opts.fieldMask, -1);
+  ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
   ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
-  ASSERT_EQ(n->children[1]->opts.fieldMask, -1);
+  ASSERT_EQ(n->children[1]->opts.fieldMask, RS_FIELDMASK_ALL);
 
   qt = "(@title:hello) (@body:world)";
   ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
