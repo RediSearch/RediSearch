@@ -1,0 +1,22 @@
+version: 0.5
+name: "ann-benchmarks_LOAD_1c_redisearch-hnsw_glove-200-angular_M-4"
+timeout_seconds: 172800
+requires_implicit_call: true
+metadata:
+  component: "vecsim"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+
+setups:
+  - oss-standalone
+  - oss-cluster-03-primaries
+  - oss-cluster-05-primaries
+  - oss-cluster-09-primaries
+
+clientconfig:
+  tool: ann-benchmarks
+  parameters:
+    build-clients: 1
+    test-clients: 1
+  arguments: ' --algorithm redisearch-hnsw --dataset glove-200-angular --runs 1'
