@@ -545,7 +545,8 @@
         "name": "dialect",
         "type": "integer",
         "optional": true,
-        "command":"DIALECT"
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.4.0",
@@ -993,7 +994,8 @@
         "name": "dialect",
         "type": "integer",
         "optional": true,
-        "command":"DIALECT"
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -1198,7 +1200,8 @@
         "name": "dialect",
         "type": "integer",
         "optional": true,
-        "command":"DIALECT"
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.1.0",
