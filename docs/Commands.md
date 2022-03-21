@@ -319,7 +319,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [LIMIT offset num]
   [TIMEOUT {milliseconds}]
   [PARAMS {nargs} {name} {value} ... ]
-  [DIALECT {dialect version}]
+  [DIALECT {dialect_version}]
 ```
 
 #### Description
@@ -459,7 +459,7 @@ FT.SEARCH books-idx "*=>[KNN 10 @title_embedding $query_vec AS title_score]" PAR
 - **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
 
 * **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the query string by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
-* **DIALECT {dialect version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
+* **DIALECT {dialect_version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
 
 #### Complexity
 
@@ -496,7 +496,7 @@ FT.AGGREGATE {index_name}
   [LIMIT {offset} {num}] ...
   [FILTER {expr}] ...
   [TIMEOUT {milliseconds}]
-  [DIALECT {dialect version]
+  [DIALECT {dialect_version]
 ```
 
 #### Description
@@ -593,7 +593,7 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
 
 * **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
 
-* **DIALECT {dialect version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
+* **DIALECT {dialect_version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
 
 #### Complexity
 
@@ -1218,7 +1218,7 @@ The command is used to dump the synonyms data structure. Returns a list of synon
   FT.SPELLCHECK {index} {query}
     [DISTANCE dist]
     [TERMS {INCLUDE | EXCLUDE} {dict} [TERMS ...]]
-    [DIALECT {dialect version]
+    [DIALECT {dialect_version}]
 ```
 
 #### Description
@@ -1237,7 +1237,7 @@ See [Query Spelling Correction](Spellcheck.md) for more details.
 
 * **DISTANCE**: the maximal Levenshtein distance for spelling suggestions (default: 1, max: 4).
 
-* **DIALECT {dialect version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
+* **DIALECT {dialect_version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
 
 #### Returns
 

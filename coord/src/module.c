@@ -603,7 +603,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       ArgsCursor ac;
       ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
       if (AC_NumRemaining(&ac) < 1) {	
-        QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for DIALECT");	
+        QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");	
         free(req);
         return NULL;
       }	
