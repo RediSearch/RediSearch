@@ -97,3 +97,16 @@ MRWorkQueue *RQ_New(size_t cap, int maxPending) {
   q->async.data = q;
   return q;
 }
+
+void RQ_Free(MRWorkQueue *q) {
+  struct queueItem *req = NULL;
+  while (NULL != (req = rqPop(q))) {
+    // req->cb(req->privdata);
+    free(req);
+  }
+
+  uv__async_stop(&q->async);
+  uv_mutex_destroy(&q->lock);
+
+  free(q);
+}

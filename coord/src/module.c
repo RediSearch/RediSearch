@@ -24,6 +24,7 @@
 #include "value.h"
 #include "cluster_spell_check.h"
 #include "profile.h"
+#include "notifications.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -1984,6 +1985,24 @@ void setHiredisAllocators(){
   hiredisSetAllocators(&ha);
 }
 
+void RediSearchCoordinator_CleanupModule();
+void COORDShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  RedisModule_Log(ctx, "notice", "%s", "Clearing coordinator resources on shutdown");
+  RediSearch_CleanupModule();
+  RediSearchCoordinator_CleanupModule();
+}
+
+void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
+  // This function should be called after `Initialize_KeyspaceNotifications` in order
+  // to override the previous callback
+  if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {
+    // clear resources when the server exits
+    // used only with sanitizer or valgrind
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, COORDShutdownEvent);
+  }
+}
+
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   IndexSpec_OnCreate = addIndexCursor;
@@ -2015,6 +2034,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Log(ctx, "warning", "Could not init search library...");
     return REDISMODULE_ERR;
   }
+
+  Initialize_CoordKeyspaceNotifications(ctx);
 
   // Init the configuration and global cluster structs
   if (initSearchCluster(ctx, argv, argc) == REDISMODULE_ERR) {
@@ -2096,4 +2117,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RedisModule_CreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading",0, 0, -1));
 
   return REDISMODULE_OK;
+}
+
+void RediSearchCoordinator_CleanupModule(void) {
+  MR_Destroy();
+  DestroyRedisTopologyUpdater();
 }

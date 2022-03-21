@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
+extern RedisModuleCtx *RSDummyContext;
+
 SearchCluster NewSearchCluster(size_t size, const char **table, size_t tableSize) {
   SearchCluster ret = (SearchCluster){.size = size, .shardsStartSlots=NULL,};
   PartitionCtx_Init(&ret.part, size, table, tableSize);
@@ -56,7 +58,7 @@ char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
 
 int checkTLS(char** client_key, char** client_cert, char** ca_cert){
   int ret = 1;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_ThreadSafeContextLock(ctx);
   char* clusterTls = NULL;
   char* tlsPort = NULL;

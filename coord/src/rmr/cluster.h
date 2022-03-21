@@ -126,6 +126,9 @@ int MRCluster_ConnectAll(MRCluster *cl);
 MRCluster *MR_NewCluster(MRClusterTopology *topology, ShardFunc sharder,
                          long long minTopologyUpdateInterval);
 
+/* Free a cluster */
+void MR_FreeCluster(MRCluster *cl);
+
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
  * provider's current context is used. Otherwise, we call its function with the given context */
 int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopology);

@@ -78,6 +78,20 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopolgy, ShardFunc sf,
   return cl;
 }
 
+void MR_FreeCluster(MRCluster *cl) {
+  if (cl->topo) {
+    MRClusterTopology_Free(cl->topo);
+  }
+  if (cl->mgr.map) {
+    MRConnManager_Free(&cl->mgr);
+  }
+  if (cl->nodeMap) {
+    MRNodeMap_Free(cl->nodeMap);
+  }
+
+  free(cl);
+}
+
 /* Find the shard responsible for a given slot */
 MRClusterShard *_MRCluster_FindShard(MRCluster *cl, uint slot) {
   // TODO: Switch to binary search
