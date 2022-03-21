@@ -540,6 +540,12 @@
             "optional": true
           }
         ]
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "command":"DIALECT"
       }
     ],
     "since": "1.4.0",
@@ -982,6 +988,12 @@
             "type": ["integer", "integer"]
           }
         ]
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "command":"DIALECT"
       }
     ],
     "since": "1.0.0",
@@ -1181,6 +1193,12 @@
             "command":"MAXIDLE"
           }
         ]
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "command":"DIALECT"
       }
     ],
     "since": "1.1.0",
