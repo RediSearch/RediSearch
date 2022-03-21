@@ -482,6 +482,7 @@ typedef struct {
     struct {
       const char* qs;
       size_t n;
+      unsigned int dialect;
     } s;
     QueryNode* qn;
   } u;
@@ -498,7 +499,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
 
   if (input->qtype == QUERY_INPUT_STRING) {
-    if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, RSGlobalConfig.defaultDialectVersion, &status) !=
+    if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, input->u.s.dialect, &status) !=
         REDISMODULE_OK) {
       goto end;
     }
@@ -544,7 +545,12 @@ int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
 }
 
 RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
-  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n}}};
+  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n, .dialect = 1}}};
+  return handleIterCommon(sp, &input, error);
+}
+
+RS_ApiIter* RediSearch_IterateQueryWithDialect(IndexSpec* sp, const char* s, size_t n, unsigned int dialect, char** error) {
+  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n, .dialect = dialect}}};
   return handleIterCommon(sp, &input, error);
 }
 
