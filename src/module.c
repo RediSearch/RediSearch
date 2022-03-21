@@ -1060,11 +1060,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 void ReindexPool_ThreadPoolDestroy();
 extern dict *legacySpecDict, *legacySpecRules;
 
-void __attribute__((destructor)) RediSearch_CleanupModule(void) {
-  if (!getenv("RS_GLOBAL_DTORS")) {  // used only with sanitizer or valgrind
-    return; 
-  }
-  
+void RediSearch_CleanupModule(void) {
   static int invoked = 0;
   if (invoked || !RS_Initialized) {
     return;
@@ -1084,15 +1080,17 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   }
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
+  // free thread pools
+  GC_ThreadPoolDestroy();
+  CleanPool_ThreadPoolDestroy();
+  ReindexPool_ThreadPoolDestroy();
+  ConcurrentSearch_ThreadPoolDestroy();
+
   // free global structures
   Extensions_Free();
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();
   mempool_free_global();
-  ConcurrentSearch_ThreadPoolDestroy();
-  ReindexPool_ThreadPoolDestroy();
-  CleanPool_ThreadPoolDestroy();
-  GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(ScemaPrefixes_g);
