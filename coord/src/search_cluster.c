@@ -262,7 +262,7 @@ int SpellCheckMuxIterator_Next(void *ctx, MRCommand *cmd) {
 
   cmd->targetSlot = GetSlotByPartition(&it->cluster->part, it->offset++);
 
-  MRCommand_AppendArgs(cmd, 1, "FULLSCOREINFO");
+  MRCommand_AppendArgsAtPos(cmd, 3, 1, "FULLSCOREINFO");
 
   return 1;
 }
