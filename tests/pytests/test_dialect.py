@@ -26,6 +26,6 @@ def test_dialect_query_errors(env):
     conn = getConnectionByEnv(env)
     env.expect("FT.CREATE idx SCHEMA t TEXT").ok()
     conn.execute_command("HSET", "h", "t", "hello")
-    env.expect("FT.SEARCH idx 'hello' DIALECT").error().contains("Need argument for DIALECT")
+    env.expect("FT.SEARCH idx 'hello' DIALECT").error().contains("Need an argument for DIALECT")
     env.expect("FT.SEARCH idx 'hello' DIALECT 0").error().contains("DIALECT requires a non negative integer >=1 and <= 2")
     env.expect("FT.SEARCH idx 'hello' DIALECT 3").error().contains("DIALECT requires a non negative integer >=1 and <= 2")

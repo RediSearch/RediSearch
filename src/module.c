@@ -123,7 +123,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
     if (AC_NumRemaining(&ac) < 1) {	
-      return RedisModule_ReplyWithError(ctx, "Need argument for DIALECT");
+      return RedisModule_ReplyWithError(ctx, "Need an argument for DIALECT");
     }	
     if ((AC_GetUnsigned(&ac, &dialect, AC_F_GE1) != AC_OK) || dialect > MAX_DIALECT_VERSION) {
       char* error;

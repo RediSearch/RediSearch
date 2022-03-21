@@ -150,7 +150,7 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
 
 int parseDialect(AREQ *req, ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 1) {	
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for DIALECT");	
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");	
       return REDISMODULE_ERR;	
     }	
     if (AC_GetUnsigned(ac, &req->dialectVersion, AC_F_GE1) != AC_OK) {	
