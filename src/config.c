@@ -716,7 +716,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setNumericTreeMaxDepthRange,
          .getValue = getNumericTreeMaxDepthRange},
         {.name = "DEFAULT_DIALECT",
-         .helpText = "Set RediSearch default dialect version throught the lifetime of the database.",
+         .helpText = "Set RediSearch default dialect version throught the lifetime of the server.",
          .setValue = setDefaultDialectVersion,
          .getValue = getDefaultDialectVersion
 
