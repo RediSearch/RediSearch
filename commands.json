@@ -198,8 +198,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.INFO": {
     "summary": "Returns information and statistics on the index",
@@ -211,8 +210,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.EXPLAIN": {
     "summary": "Returns the execution plan for a complex query",
@@ -228,8 +226,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.EXPLAINCLI": {
     "summary": "Returns the execution plan for a complex query",
@@ -245,8 +242,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.ALTER": {
     "summary": "Adds a new field to the index",
@@ -276,8 +272,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.DROPINDEX": {
     "summary": "Deletes the index",
@@ -301,8 +296,7 @@
       }
     ],
     "since": "2.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.ALIASADD": {
     "summary": "Adds an alias to the index",
@@ -318,8 +312,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.ALIASUPDATE": {
     "summary": "Adds or updates an alias to the index",
@@ -335,8 +328,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.ALIASDEL": {
     "summary": "Deletes an alias from the index",
@@ -348,8 +340,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.TAGVALS": {
     "summary": "Returns the distinct tags indexed in a Tag field",
@@ -365,8 +356,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.SUGADD": {
     "summary": "Adds a suggestion string to an auto-complete suggestion dictionary",
@@ -499,8 +489,7 @@
       }
     ],
     "since": "1.2.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.SYNDUMP": {
     "summary": "Dumps the contents of a synonym group",
@@ -512,8 +501,7 @@
       }
     ],
     "since": "1.2.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.SPELLCHECK": {
     "summary": "Performs spelling correction on a query, returning suggestions for misspelled terms",
@@ -569,8 +557,7 @@
       }
     ],
     "since": "1.4.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.DICTADD": {
     "summary": "Adds terms to a dictionary",
@@ -587,8 +574,7 @@
       }
     ],
     "since": "1.4.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.DICTDEL": {
     "summary": "Deletes terms from a dictionary",
@@ -605,8 +591,7 @@
       }
     ],
     "since": "1.4.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.DICTDUMP": {
     "summary": "Dumps all terms in the given dictionary",
@@ -618,15 +603,13 @@
       }
     ],
     "since": "1.4.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT._LIST": {
     "summary": "Returns a list of all existing indexes",
     "complexity": "O(1)",
     "since": "2.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.CONFIG SET": {
     "summary": "Sets runtime configuration options",
@@ -638,8 +621,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.CONFIG GET": {
     "summary": "Retrieves runtime configuration options",
@@ -655,8 +637,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.CONFIG HELP": {
     "summary": "Help description of runtime configuration options",
@@ -668,8 +649,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.SEARCH": {
     "summary": "Searches the index with a textual query, returning either documents or just ids",
@@ -1070,8 +1050,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
 
   "FT.AGGREGATE": {
@@ -1315,8 +1294,7 @@
       }
     ],
     "since": "1.1.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
 
   "FT.PROFILE": {
@@ -1360,8 +1338,7 @@
       }
     ],
     "since": "2.2.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
 
   "FT.CURSOR READ": {
@@ -1384,8 +1361,7 @@
       }
     ],
     "since": "1.1.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   },
   "FT.CURSOR DEL": {
     "summary": "Deletes a cursor",
@@ -1401,7 +1377,6 @@
       }
     ],
     "since": "1.1.0",
-    "group": "module",
-    "module": "search"
+    "group": "search"
   }
 }
