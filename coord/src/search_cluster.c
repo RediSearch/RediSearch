@@ -54,7 +54,7 @@ char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
   return res;
 }
 
-int checkTLS(char** client_key, char** client_cert, char** ca_cert){
+int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass){
   int ret = 1;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_ThreadSafeContextLock(ctx);
@@ -73,6 +73,7 @@ int checkTLS(char** client_key, char** client_cert, char** ca_cert){
   *client_key = getConfigValue(ctx, "tls-key-file");
   *client_cert = getConfigValue(ctx, "tls-cert-file");
   *ca_cert = getConfigValue(ctx, "tls-ca-cert-file");
+  *key_pass = getConfigValue(ctx, "tls-key-file-pass");
 
   if (!*client_key || !*client_cert || !*ca_cert){
     ret = 0;
