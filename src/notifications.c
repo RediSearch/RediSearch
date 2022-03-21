@@ -296,7 +296,6 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   }
 }
 
-
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Clearing resources on shutdown");
   RediSearch_CleanupModule();

@@ -1062,11 +1062,10 @@ void RediSearch_CleanupModule(void) {
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
   // free thread pools
-  // currently, CleanPool should be destroyed first as it waits for tasks to finish
+  GC_ThreadPoolDestroy();
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
-  GC_ThreadPoolDestroy();
 
   // free global structures
   Extensions_Free();
