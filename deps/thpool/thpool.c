@@ -76,7 +76,7 @@ typedef struct thpool_ {
   thread** threads;                 /* pointer to threads        */
   volatile int num_threads_alive;   /* threads currently alive   */
   volatile int num_threads_working; /* threads currently working */
-	volatile int keepalive;           /* keep pool alive           */
+  volatile int keepalive;           /* keep pool alive           */
   pthread_mutex_t thcount_lock;     /* used for thread count etc */
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
   jobqueue jobqueue;                /* job queue                 */
