@@ -122,15 +122,11 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     dialectArgIndex++;
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
-    if (AC_NumRemaining(&ac) < 1) {	
-      return RedisModule_ReplyWithError(ctx, "Need an argument for DIALECT");
-    }	
-    if ((AC_GetUnsigned(&ac, &dialect, AC_F_GE1) != AC_OK) || dialect > MAX_DIALECT_VERSION) {
-      char* error;
-      asprintf(&error, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);
-      int ret = RedisModule_ReplyWithError(ctx, error);   	
-      free(error);
-      return REDISMODULE_OK;	
+    QueryError status = {0};
+    if(parseDialect(&dialect, &ac, &status) != REDISMODULE_OK) {
+      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      QueryError_ClearError(&status);
+      return REDISMODULE_OK;
     }
   }
 

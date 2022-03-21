@@ -148,18 +148,14 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
   return REDISMODULE_OK;
 }
 
-int parseDialect(AREQ *req, ArgsCursor *ac, QueryError *status) {
+int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");	
       return REDISMODULE_ERR;	
     }	
-    if (AC_GetUnsigned(ac, &req->dialectVersion, AC_F_GE1) != AC_OK) {	
+    if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {	
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
       return REDISMODULE_ERR;	
-    }
-    if(req->dialectVersion > MAX_DIALECT_VERSION) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
-      return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
 }
@@ -241,7 +237,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
   }
     else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
-    if (parseDialect(req, ac, status) != REDISMODULE_OK) {
+    if (parseDialect(&req->dialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {

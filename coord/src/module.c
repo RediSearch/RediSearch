@@ -603,21 +603,10 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       dialectArgIndex++;
       ArgsCursor ac;
       ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
-      if (AC_NumRemaining(&ac) < 1) {	
-        QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");	
+      if (parseDialect(&dialect, &ac, status) != REDISMODULE_OK) {
         free(req);
         return NULL;
-      }	
-      if (AC_GetUnsigned(&ac, &dialect, AC_F_GE1) != AC_OK) {	
-        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
-        free(req);
-        return NULL;	
       }
-      if(dialect > MAX_DIALECT_VERSION) {
-        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
-        free(req);
-        return NULL;
-    }
   }
 
   if(dialect >= 2) {
@@ -1561,7 +1550,9 @@ int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   QueryError status = {0};
   searchRequestCtx *req = rscParseRequest(argv, argc, &status);
   if (!req) {
-    return RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
+    return REDISMODULE_OK;
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);

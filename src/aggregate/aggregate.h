@@ -256,6 +256,16 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+/**
+ * @brief Parse a dialect version from var args
+ * 
+ * @param dialect pointer to unsigned int to store the parsed value
+ * @param ac ArgsCruser set to point on the dialect version position in the var args list
+ * @param status QueryError struct to contain error messages
+ * @return int REDISMODULE_OK in case of successful parsing, REDISMODULE_ERR otherwise
+ */
+int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status);
+
 #define AREQ_RP(req) (req)->qiter.endProc
 
 #ifdef __cplusplus
