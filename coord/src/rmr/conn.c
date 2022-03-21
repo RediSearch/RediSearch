@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <assert.h>
 
+redisSSLContext *ssl_context = NULL;
+
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
 static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
 static int MRConn_Connect(MRConn *conn);
@@ -381,7 +383,10 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   char* ca_cert = NULL;
   if(checkTLS(&client_key, &client_cert, &ca_cert)){
     redisSSLContextError ssl_error = 0;
-    redisSSLContext *ssl_context = redisCreateSSLContext(ca_cert, NULL, client_cert, client_key, NULL, &ssl_error);
+    if (ssl_context) {
+      redisFreeSSLContext(ssl_context);
+    }
+    ssl_context = redisCreateSSLContext(ca_cert, NULL, client_cert, client_key, NULL, &ssl_error);
     if(ssl_context == NULL || ssl_error != 0) {
       CONN_LOG(conn, "Error on ssl contex creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
@@ -396,6 +401,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     }
     rm_free(client_key);
     rm_free(client_cert);
+    rm_free(ca_cert);
   }
 
 

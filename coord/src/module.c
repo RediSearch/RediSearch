@@ -2119,7 +2119,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+extern redisSSLContext *ssl_context;
+
 void RediSearchCoordinator_CleanupModule(void) {
   MR_Destroy();
-  DestroyRedisTopologyUpdater();
+  //DestroyRedisTopologyUpdater();
+  //redisFreeSSLContext(ssl_context);
 }
