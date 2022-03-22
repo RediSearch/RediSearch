@@ -175,7 +175,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define RS_DEFAULT_CONFIG                                                                         \
   {                                                                                               \
     .concurrentMode = 0, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 1,                      \
-    .maxPrefixExpansions = 20000000, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,     \
+    .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,     \
     .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,   \
     .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                        \
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                     \

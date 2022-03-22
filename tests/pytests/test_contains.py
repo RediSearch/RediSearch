@@ -29,7 +29,7 @@ def testBasicContains(env):
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
 
 def testSanity(env):
-    item_qty = 1000000
+    item_qty = 1000
     query_qty = 1
 
     conn = getConnectionByEnv(env)
@@ -43,49 +43,16 @@ def testSanity(env):
         pl.execute_command('HSET', 'doc%d' % (i + item_qty * 2), 't', 'foooo%d' % i)
         pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
         pl.execute()
-    print (time.time() - start)
-    #raw_input('stop')
-    #env.expect('ft.search', 'idx', '*').equal(item_qty)
 
-    for _ in range(1):
-        start = time.time()
-        for i in range(query_qty):
-            # res = env.execute_command('ft.search', 'idx', '555*', 'LIMIT', 0 , 1000)
-            # env.assertEqual(res, 1000)
-
-            #res = env.execute_command('ft.profile', 'idx', 'search', 'limited', 'query', '555*', 'LIMIT', 0 , 0)
-            #res = env.execute_command('ft.profile', 'idx', 'search', 'limited', 'query', '23*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, 1000)
-            #res = env.execute_command('ft.profile', 'idx', 'search', 'limited', 'query', 'foo55*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, 1000)
-            #res = env.execute_command('ft.profile', 'idx', 'search', 'limited', 'query', 'foo555*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, 1000)
-            #res = env.execute_command('ft.profile', 'idx', 'search', 'limited', 'query', 'oo555*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, 1000)
-            #res = env.execute_command('ft.profile', 'idx', 'search', 'limited', 'query', 'o555*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, 1000)
-
-            #res = env.execute_command('ft.search', 'idx', '*555*', 'LIMIT', 0 , 100, 'NOCONTENT')
-            #env.assertEqual(res, 1000)
-            #res = env.execute_command('ft.search', 'idx', 'foo55*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, [111L])
-            #res = env.execute_command('ft.search', 'idx', 'foo555*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, [11L])
-            #res = env.execute_command('ft.search', 'idx', '*oooo555*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, [11L])
-            #res = env.execute_command('ft.search', 'idx', '*ooo555*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, [22L])
-            #res = env.execute_command('ft.search', 'idx', '*oo555*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, [44L])
-            #res = env.execute_command('ft.search', 'idx', '*o555*', 'LIMIT', 0 , 0)
-            #env.assertEqual(res, [44L])
-            res = env.execute_command('ft.search', 'idx', '*23*', 'LIMIT', 0 , 0)
-            res = env.execute_command('ft.search', 'idx', '*23*', 'LIMIT', 0 , 0, 'timeout', 10000)
-            res = env.execute_command('ft.profile', 'idx', 'SEARCH', 'LIMITED', 'QUERY', '*23*', 'LIMIT', 0 , 0, 'timeout', 10000)
-            env.assertEqual(res, [1196L])
-#
-        print (time.time() - start)
-        raw_input('pause')
+    env.expect('ft.search', 'idx', '*555*', 'LIMIT', 0 , 0).equal([4L])
+    env.expect('ft.search', 'idx', '*55*', 'LIMIT', 0 , 0).equal([76L])
+    env.expect('ft.search', 'idx', '*23*', 'LIMIT', 0 , 0).equal([80])
+    env.expect('ft.search', 'idx', '*oo55*', 'LIMIT', 0 , 0).equal([33L])
+    env.expect('ft.search', 'idx', '*oo555*', 'LIMIT', 0 , 0).equal([3L])
+            
+    env.expect('ft.search', 'idx', '555*', 'LIMIT', 0 , 0).equal([0L])
+    env.expect('ft.search', 'idx', 'foo55*', 'LIMIT', 0 , 0).equal([11])
+    env.expect('ft.search', 'idx', 'foo23*', 'LIMIT', 0 , 0).equal([11])
 
 def testBible(env):
     env.skip()
