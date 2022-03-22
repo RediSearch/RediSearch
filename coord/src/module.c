@@ -2001,7 +2001,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_GetDetachedThreadSafeContext) {
       RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
     } else {
-      RSDummyContext = RedisModule_GetThreadSafeContext(ctx);
+      RSDummyContext = RedisModule_GetThreadSafeContext(NULL);
     }
   }
 
