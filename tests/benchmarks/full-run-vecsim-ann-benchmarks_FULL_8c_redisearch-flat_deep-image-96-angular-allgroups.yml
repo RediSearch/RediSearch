@@ -1,6 +1,6 @@
 
 version: 0.5
-name: "full-run-vecsim-ann-benchmarks_FULL_1c_redisearch-hnsw_glove-200-angular-allgroups"
+name: "full-run-vecsim-ann-benchmarks_FULL_8c_redisearch-flat_deep-image-96-angular-allgroups"
 timeout_seconds: 172800
 requires_implicit_call: true
 metadata:
@@ -18,6 +18,6 @@ setups:
 clientconfig:
   tool: ann-benchmarks
   parameters:
-    build-clients: 1
-    test-clients: 1
-  arguments: ' --algorithm redisearch-hnsw --dataset glove-200-angular --runs 1'
+    build-clients: 8
+    test-clients: 8
+  arguments: ' --algorithm redisearch-flat --dataset deep-image-96-angular --runs 1'
