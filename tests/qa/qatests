@@ -32,10 +32,11 @@ RLEC_PLATFORMS = {
         'env': 'bionic-amd64-aws' },
     'centos7': {
         'os': 'Linux-rhel7',
-        'env': 'rhel7.7-x86_64-aws' },
-#    'centos8': {
-#        'os': 'Linux-rhel8',
-#        'env': 'rhel8-x86_64-aws' },
+        'env': 'rhel7.9-x86_64-aws' },
+    'centos8': {
+        'os': 'Linux-rhel8',
+        'env': 'rhel8-x86_64-aws',
+        'run': False },
     'rocky8': {
         'os': 'Linux-rhel8',
         'env': 'rhel8-x86_64-aws' }

@@ -17,7 +17,7 @@ def testCompression(env):
 	for i in range(repeat):
 		value = accuracy * i
 		pl.execute_command('hset', i, 'n', str(value))
-		if (i % 999) is 0:
+		if (i % 999) == 0:
 			pl.execute()
 	pl.execute()
 
