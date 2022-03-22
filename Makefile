@@ -476,10 +476,10 @@ else
 REJSON_SO=
 endif
 
-ifneq ($(SLOW),1)
-RLTEST_PARALLEL ?= 1
+ifeq ($(SLOW),1)
+_RLTEST_PARALLEL=0
 else
-RLTEST_PARALLEL=0
+_RLTEST_PARALLEL=1
 endif
 
 test: $(REJSON_SO)
@@ -497,7 +497,7 @@ endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
