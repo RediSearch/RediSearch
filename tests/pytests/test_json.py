@@ -643,8 +643,7 @@ def testDifferentType(env):
 def test_WrongJsonType(env):
     # test all possible errors in processing a field
     # we test that all documents failed to index
-    conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
         '$.object1', 'TEXT',
         '$.object2', 'TAG',
         '$.object3', 'NUMERIC',
@@ -808,22 +807,22 @@ def check_index_with_null(env, idx):
 def testNullValue(env):
     # check JSONType_Null is ignored, not failing
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC',
-                                                                     '$.sort', 'AS', 'sort', 'NUMERIC',
-                                                                     '$.txt', 'AS', 'txt', 'TEXT',
-                                                                     '$.tag', 'AS', 'tag', 'TAG',
-                                                                     '$.geo', 'AS', 'geo', 'GEO')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC',
+                                                        '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                        '$.txt', 'AS', 'txt', 'TEXT',
+                                                        '$.tag', 'AS', 'tag', 'TAG',
+                                                        '$.geo', 'AS', 'geo', 'GEO')
 
-    conn.execute_command('FT.CREATE', 'idx_sortable', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC', 'SORTABLE',
-                                                                     '$.sort', 'AS', 'sort', 'NUMERIC', 'SORTABLE',
-                                                                     '$.txt', 'AS', 'txt', 'TEXT', 'SORTABLE',
-                                                                     '$.geo', 'AS', 'geo', 'GEO', 'SORTABLE')
+    env.cmd('FT.CREATE', 'idx_sortable', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC', 'SORTABLE',
+                                                                 '$.sort', 'AS', 'sort', 'NUMERIC', 'SORTABLE',
+                                                                 '$.txt', 'AS', 'txt', 'TEXT', 'SORTABLE',
+                                                                 '$.geo', 'AS', 'geo', 'GEO', 'SORTABLE')
 
-    conn.execute_command('FT.CREATE', 'idx_separator', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
-                                                                               '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', '|')
+    env.cmd('FT.CREATE', 'idx_separator', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                                  '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', '|')
 
-    conn.execute_command('FT.CREATE', 'idx_casesensitive', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
-                                                                               '$.tag', 'AS', 'tag', 'TAG', 'CASESENSITIVE')
+    env.cmd('FT.CREATE', 'idx_casesensitive', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                                      '$.tag', 'AS', 'tag', 'TAG', 'CASESENSITIVE')
 
     conn.execute_command('JSON.SET', 'doc1', '$', r'{"sort":1, "num":null, "txt":"hello", "tag":"world", "geo":"1.23,4.56"}')
     conn.execute_command('JSON.SET', 'doc2', '$', r'{"sort":2, "num":0.8, "txt":null, "tag":"world", "geo":"1.23,4.56"}')
