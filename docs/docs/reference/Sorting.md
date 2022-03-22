@@ -1,7 +1,6 @@
 ---
 title: "Sorting"
 linkTitle: "Sorting"
-type: docs
 weight: 5
 description: >
     Support for sorting query results

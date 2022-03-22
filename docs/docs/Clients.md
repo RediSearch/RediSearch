@@ -1,7 +1,6 @@
 ---
 title: "Client Libraries"
 linkTitle: "Clients"
-type: docs
 weight: 4
 description: >
     List of RediSearch client libraries

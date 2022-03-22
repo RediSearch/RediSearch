@@ -1,7 +1,6 @@
 ---
 title: "Configuration"
 linkTitle: "Configuration"
-type: docs
 weight: 2
 description: >
     Details about configuration options

@@ -1,7 +1,6 @@
 ---
 title: "Upgrade to 2.0"
 linkTitle: "Upgrade to 2.0"
-type: docs
 weight: 2
 description: >
     Details about upgrading to RediSearch 2.x from 1.x

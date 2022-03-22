@@ -1,7 +1,6 @@
 ---
 title: "Garbage collection"
 linkTitle: "Garbage collections"
-type: docs
 weight: 2
 description: >
     Details about garbage collection

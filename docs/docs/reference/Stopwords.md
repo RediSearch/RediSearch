@@ -1,7 +1,6 @@
 ---
 title: "Stop-words"
 linkTitle: "Stop-words"
-type: docs
 weight: 1
 description: >
     Stop-words support

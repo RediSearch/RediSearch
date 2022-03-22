@@ -1,7 +1,6 @@
 ---
 title: RediSearch - Redis Secondary Index & Query Engine
 linkTitle: RediSearch
-type: docs
 ---
 
 <img src="img/logo.svg" alt="logo" width="200"/>
