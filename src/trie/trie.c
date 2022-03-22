@@ -968,17 +968,10 @@ static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, Ran
     TrieNode **children = __trieNode_children(n);
     for (t_len i = 0; i < n->numChildren; ++i) {
       containsIterate(children[i], 0, globalOffset, r);
-      if (children[i]->str[0] == r->leadingChar) {
-        containsIterate(children[i], 0, 0, r);
-      }
     }
   } else {
     containsIterate(n, localOffset + 1, globalOffset, r);
-    if (n->str[localOffset + 1] == r->leadingChar) {
-      containsIterate(n, localOffset + 1, 0, r);
-    }
   }
-  trimOne(n, r);
 }
 
 /**
@@ -1021,20 +1014,18 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
         }
         // check if there are more suffixes downstream
         containsNext(n, localOffset, 0, r);
+        trimOne(n, r);
         return;
       }
     }
-
     /* partial match found */
-    // if node string is exhausted, check children
     containsNext(n, localOffset, globalOffset + 1, r);
-  // no fit
-  // try from the string begining
-  } else if (globalOffset != 0 && n->str[localOffset] == r->origStr[0]) {
-    containsNext(n, localOffset, 1, r);
-  } else { //try on next character
+  } 
+  //try on next character
+  if (!globalOffset) {
     containsNext(n, localOffset, 0, r);
   }
   printStats("return");
+  trimOne(n, r);
   return;
 }
