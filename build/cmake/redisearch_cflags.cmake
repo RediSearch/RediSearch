@@ -69,14 +69,6 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
-	set(CMAKE_STATIC_LIBSTDCXX_FLAGS "-static")
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-	set(CMAKE_STATIC_LIBSTDCXX_FLAGS "-static-libgcc -static-libstdc++")
-endif()
-
-#----------------------------------------------------------------------------------------------
-
 set(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
 set(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
 
@@ -88,6 +80,16 @@ elseif (${OS} STREQUAL "macos")
 	set(RS_LINK_LIBS m dl)
 endif()
 
+message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
+
+if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_C_COMPILER_ID STREQUAL "Intel")
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static")
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static")
+endif()
+
 if (NOT APPLE)
-    set(RS_SO_FLAGS "-Wl,-Bsymbolic,-Bsymbolic-functions")
+    set(RS_SO_FLAGS "${RS_SO_FLAGS} -Wl,-Bsymbolic,-Bsymbolic-functions")
 endif()
