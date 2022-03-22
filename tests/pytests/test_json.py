@@ -643,8 +643,6 @@ def testDifferentType(env):
 def test_WrongJsonType(env):
     # test all possible errors in processing a field
     # we test that all documents failed to index
-    conn = getConnectionByEnv(env)
-    wrong_types = ['object', 'array', 'null']
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
         '$.object1', 'TEXT',
         '$.object2', 'TAG',
@@ -666,12 +664,7 @@ def test_WrongJsonType(env):
         '$.geo1', 'NUMERIC',
 
         '$.text1', 'NUMERIC',
-        '$.text2', 'GEO',
-
-        '$.null1', 'TEXT',
-        '$.null2', 'TAG',
-        '$.null3', 'NUMERIC',
-        '$.null4', 'GEO')
+        '$.text2', 'GEO')
 
     env.expect('JSON.SET', 'doc', '$', '{"object1":{"1":"foo", "2":"bar"}}').ok()
     env.expect('JSON.SET', 'doc', '$', '{"object2":{"1":"foo", "2":"bar"}}').ok()
@@ -694,11 +687,6 @@ def test_WrongJsonType(env):
 
     env.expect('JSON.SET', 'doc', '$', '{"text1":"foo"}').ok()
     env.expect('JSON.SET', 'doc', '$', '{"text2":"foo"}').ok()
-
-    env.expect('JSON.SET', 'doc', '$', '{"null1":null}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"null2":null}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"null3":null}').ok()
-    env.expect('JSON.SET', 'doc', '$', '{"null4":null}').ok()
 
     # no field was indexed
     env.expect('FT.SEARCH', 'idx', '*').equal([0])
@@ -804,3 +792,45 @@ def testTagArrayLowerCase(env):
     env.expect('FT.SEARCH', 'idx4', '@attrs:{Vivo}', 'NOCONTENT').equal([1, 'json1'])
     env.expect('FT.SEARCH', 'idx4', '@attrs:{vivo}', 'NOCONTENT').equal([1, 'json2'])
 
+def check_index_with_null(env, idx):
+    res = [4, 'doc1', ['sort', '1', '$', '{"sort":1,"num":null,"txt":"hello","tag":"world","geo":"1.23,4.56"}'],
+              'doc2', ['sort', '2', '$', '{"sort":2,"num":0.8,"txt":null,"tag":"world","geo":"1.23,4.56"}'],
+              'doc3', ['sort', '3', '$', '{"sort":3,"num":0.8,"txt":"hello","tag":null,"geo":"1.23,4.56"}'],
+              'doc4', ['sort', '4', '$', '{"sort":4,"num":0.8,"txt":"hello","tag":"world","geo":null}']]
+
+    env.expect('FT.SEARCH', idx, '*', 'SORTBY', "sort").equal(res)
+    env.expect('FT.SEARCH', idx, '@sort:[1 4]', 'SORTBY', "sort").equal(res)
+    info_res = index_info(env, idx)
+    env.assertEqual(int(info_res['hash_indexing_failures']), 0)
+
+@no_msan
+def testNullValue(env):
+    # check JSONType_Null is ignored, not failing
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC',
+                                                        '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                        '$.txt', 'AS', 'txt', 'TEXT',
+                                                        '$.tag', 'AS', 'tag', 'TAG',
+                                                        '$.geo', 'AS', 'geo', 'GEO')
+
+    env.cmd('FT.CREATE', 'idx_sortable', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC', 'SORTABLE',
+                                                                 '$.sort', 'AS', 'sort', 'NUMERIC', 'SORTABLE',
+                                                                 '$.txt', 'AS', 'txt', 'TEXT', 'SORTABLE',
+                                                                 '$.geo', 'AS', 'geo', 'GEO', 'SORTABLE')
+
+    env.cmd('FT.CREATE', 'idx_separator', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                                  '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', '|')
+
+    env.cmd('FT.CREATE', 'idx_casesensitive', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
+                                                                      '$.tag', 'AS', 'tag', 'TAG', 'CASESENSITIVE')
+
+    conn.execute_command('JSON.SET', 'doc1', '$', r'{"sort":1, "num":null, "txt":"hello", "tag":"world", "geo":"1.23,4.56"}')
+    conn.execute_command('JSON.SET', 'doc2', '$', r'{"sort":2, "num":0.8, "txt":null, "tag":"world", "geo":"1.23,4.56"}')
+    conn.execute_command('JSON.SET', 'doc3', '$', r'{"sort":3, "num":0.8, "txt":"hello", "tag":null, "geo":"1.23,4.56"}')
+    conn.execute_command('JSON.SET', 'doc4', '$', r'{"sort":4, "num":0.8, "txt":"hello", "tag":"world", "geo":null}')
+    
+    check_index_with_null(env, 'idx')
+    check_index_with_null(env, 'idx_sortable')
+    check_index_with_null(env, 'idx_separator')
+    check_index_with_null(env, 'idx_casesensitive')
+    
