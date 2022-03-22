@@ -49,7 +49,9 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
 		GDB=1                 Enable interactive gdb debugging (in single-test mode)
 
+		LIST=1                List all tests and exit
 		VERBOSE=1             Print commands and Redis output
+		LOG=1                 Send results to log (even on single-test mode)
 		IGNERR=1              Do not abort on error
 		NOP=1                 Dry run
 		HELP=1                Show help
@@ -101,8 +103,12 @@ OP=
 RLTEST_ARGS+=" $@"
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
-	RLTEST_ARGS+=" -v -s --test $TEST"
+	[[ $LOG != 1 ]] && RLTEST_ARGS+=" -v -s"
+	RLTEST_ARGS+=" --test $TEST"
 	export RUST_BACKTRACE=1
+fi
+if [[ $LIST == 1 ]]; then
+	RLTEST_ARGS+=" --collect-only"
 fi
 
 SHARDS=${SHARDS:-3}
@@ -203,8 +209,10 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-if [[ $REDIS_VERBOSE == 1 || $VERBOSE ]]; then
-    RLTEST_ARGS+=" -s -v"
+if [[ $REDIS_VERBOSE == 1 || $VERBOSE == 1 ]]; then
+	if [[ $LOG != 1 ]]; then
+		RLTEST_ARGS+=" -s -v"
+	fi
 fi
 
 #---------------------------------------------------------------------------------------------- 
@@ -318,14 +326,14 @@ if [[ -z $COORD ]]; then
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --env-reuse --clear-logs --shards-count $SHARDS"
 
-	{ (MODARGS+=" PARTITIONS AUTO" RLTEST_ARGS+=" ${oss_cluster_args}" \
+	{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 
 	if [[ $QUICK != 1 ]]; then
-		{ (MODARGS+=" PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
-		   RLTEST_ARGS+=" ${oss_cluster_args} --oss_password password" \
+		{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
+		   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
 		   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
-		{ (MODARGS+=" PARTITIONS AUTO SAFEMODE" RLTEST_ARGS+=" ${oss_cluster_args}" \
+		{ (MODARGS="${MODARGS} PARTITIONS AUTO SAFEMODE" RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args}" \
 		   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
 
 		tls_args="--tls \
@@ -344,13 +352,14 @@ elif [[ $COORD == oss ]]; then
 		fi
 
 		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs.sh
-		{ (RLTEST_ARGS+=" ${oss_cluster_args} ${tls_args}" \
+		{ (RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} ${tls_args}" \
 		   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
 	fi # QUICK
 
 elif [[ $COORD == rlec ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
-	{ (RLTEST_ARGS+=" --env existing-env --existing-env-addr $dhost:$RLEC_PORT" run_tests "tests on RLEC"); (( E |= $? )); } || true
+	{ (RLTEST_ARGS+="${RLTEST_ARGS} --env existing-env --existing-env-addr $dhost:$RLEC_PORT" \
+	   run_tests "tests on RLEC"); (( E |= $? )); } || true
 fi
 
 exit $E
