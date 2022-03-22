@@ -351,7 +351,7 @@ elif [[ $COORD == oss ]]; then
 			PASSPHRASE=0
 		fi
 
-		$ROOT/sbin/gen-test-certs.sh
+		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs.sh
 		{ (RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} ${tls_args}" \
 		   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
 	fi # QUICK
