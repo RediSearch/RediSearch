@@ -136,7 +136,11 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   RS_Initialized = 1;
 
   if (!RSDummyContext) {
-    RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
+    if (RedisModule_GetDetachedThreadSafeContext) {
+      RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
+    } else {
+      RSDummyContext = RedisModule_GetThreadSafeContext(ctx);
+    }
   }
 
   if (mode == REDISEARCH_INIT_MODULE && initAsModule(ctx) != REDISMODULE_OK) {

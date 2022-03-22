@@ -1998,7 +1998,11 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   setHiredisAllocators();
 
   if (!RSDummyContext) {
-    RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
+    if (RedisModule_GetDetachedThreadSafeContext) {
+      RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
+    } else {
+      RSDummyContext = RedisModule_GetThreadSafeContext(ctx);
+    }
   }
 
   getRedisVersion();
