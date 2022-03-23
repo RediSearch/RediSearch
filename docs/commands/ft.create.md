@@ -127,7 +127,7 @@ Creates an index with the given spec.
 
     * **SORTABLE**
 
-        Numeric, tag (not supported with JSON) or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](/redisearch/reference/sorting) (this adds memory overhead so do not declare it on large text attributes).
+        Numeric, tag (not supported with JSON) or text attributes can have the optional SORTABLE argument. As the user [sort the results by the value of this attribute](/redisearch/reference/sorting), they will be available with very low latency. (this adds memory overhead so do not declare it on large text attributes).
 
     * **UNF**
         

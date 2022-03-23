@@ -24,7 +24,7 @@ Searches the index with a textual query, returning either documents or just ids.
   the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
   right after the id and score and /or payload if requested. This is usually not needed by users, and
-  exists for distributed search coordination purposes.
+  exists for distributed search coordination purposes. 
 
 - **FILTER numeric_attribute min max**: If set, and numeric_attribute is defined as a numeric attribute in
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
@@ -66,8 +66,8 @@ Searches the index with a textual query, returning either documents or just ids.
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring
   functions. [See Extensions](/redisearch/reference/extensions).
 
-- **SORTBY {attribute} [ASC|DESC]**: If specified, the results
-  are ordered by the value of this attribute. This applies to both text and numeric attributes.
+- **SORTBY {attribute} [ASC|DESC]**: If specified, the results are ordered by the value of this attribute. This applies to both text and numeric attributes. Attributes needed for sortby should be stored as **SORTABLE**, where they are available with very low latency.
+
 - **LIMIT first num**: Limit the results to
   the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
 
