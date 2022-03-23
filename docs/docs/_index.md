@@ -1,68 +1,68 @@
 ---
-title: RediSearch - Redis Secondary Index & Query Engine
-linkTitle: RediSearch
+title: RediSearch
+description: Queries, secondary indexing, and full-text search for Redis
+linkTitle: Search
+type: docs
 ---
 
-<img src="img/logo.svg" alt="logo" width="200"/>
-
-[![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redislabs.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 
-RediSearch is a source available Secondary Index, Query Engine and Full-Text Search over Redis, developed by [Redis](http://redis.com).
+RediSearch is a [source available](https://github.com/RediSearch/RediSearch/blob/master/LICENSE) Redis module that provides queryability, secondary indexing, and full-text search for Redis.
 
 ## Quick Links
-  - [Source Code at GitHub](https://github.com/RediSearch/RediSearch)
-  - [Latest Release](https://github.com/RediSearch/RediSearch/releases)
-  - [Docker Image: redislabs/redisearch](https://hub.docker.com/r/redislabs/redisearch/)
-  - [Quick Start Guide](/redisearch/quick_start)
-  - [Mailing list / Forum](https://forum.redis.com/c/modules/redisearch/)
-
-## Supported Platforms
-RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.
-
-i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently.
+  - [Quick start guide](/redisearch/quick_start)
+  - [Source code](https://github.com/RediSearch/RediSearch)
+  - [Latest release](https://github.com/RediSearch/RediSearch/releases)
+  - [Docker image](https://hub.docker.com/r/redislabs/redisearch/)
 
 ## Overview
 
-Redisearch implements a secondary index on top of Redis, but unlike other Redis
-indexing libraries, it does not use internal data structures such as sorted sets.
+RediSearch provides secondary indexing, full-text search, and a query language for Redis. These feature enable multi-field queries, aggregation,
+exact phrase matching, and numeric filtering for text queries.
 
-This also enables more advanced features, such as multi-field queries, aggregation, and full text search capabilites.
-These capabilities include exact phrase matching and numeric filtering for text queries, something that is neither possible or efficient with traditional Redis indexing approaches.
+## Client libraries
 
-## Client Libraries
+Official and community client libraries are available for Python, Java, JavaScript, Ruby, Go, C#, and PHP.
 
-Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP.
+See the [clients page](clients) for the full list.
 
-See the [Clients page](clients) for the full list.
+## Cluster support
 
-## Cluster Support
+RediSearch provides a distributed cluster version that scales to billions of documents and hundreds of servers.
 
-RediSearch has a distributed cluster version that scales to billions of documents, and hundreds of servers. We also offer official commercial support for RediSearch. See the [Redis Website](https://redis.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information.
+## Commercial support
 
-## Primary Features
+Commercial support for RediSearch is provided by Redis Ltd. See the [Redis Ltd. website](https://redis.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information.
 
-* Secondary Index.
-* Multi field queries.
-* Aggregation.
-* Full-Text indexing of multiple fields in documents.
-* Incremental indexing without performance loss.
-* Document ranking (provided manually by the user at index time).
-* Complex boolean queries with AND, OR, NOT operators between sub-queries.
-* Optional query clauses.
-* Prefix based searches.
-* Field weights.
-* Auto-complete suggestions (with fuzzy prefix suggestions).
-* Exact Phrase Search, Slop based search.
-* Stemming based query expansion in [many languages](/redisearch/reference/stemming) (using [Snowball](http://snowballstem.org/)).
-* Support for custom functions for query expansion and scoring (see [Extensions](/redisearch/reference/extensions)).
-* Limiting searches to specific document fields.
-* Numeric filters and ranges.
-* Geo filtering using Redis' own Geo-commands.
-* Unicode support (UTF-8 input required).
-* Retrieve full document content or just ids.
-* Document deletion and updating with index garbage collection.
-* Partial and conditional document updates.
+## Primary features
+
+RediSearch supports the following features:
+
+* Secondary indexing
+* Multi-field queries
+* Aggregation
+* Full-text indexing of multiple fields in a documents
+* Incremental indexing without performance loss
+* Document ranking (provided manually by the user at index time)
+* Boolean queries with AND, OR, NOT operators between sub-queries
+* Optional query clauses
+* Prefix-based searches
+* Field weights
+* Auto-complete suggestions (with fuzzy prefix suggestions)
+* Exact-phrase search and slop-based search
+* Stemming-based query expansion for [many languages](/redisearch/reference/stemming) (using [Snowball](http://snowballstem.org/))
+* Support for custom functions for query expansion and scoring (see [Extensions](/redisearch/reference/extensions))
+* Numeric filters and ranges
+* Geo-filtering using the Redis own geo commands
+* Unicode support (UTF-8 input required)
+* Retrieval of full document contents or only their ids
+* Document deletion and updating with index garbage collection
+* Partial and conditional document updates
+
+## Supported Platforms
+RediSearch is developed and tested on Linux and macOS on x86_64 CPUs.
+
+Atom CPUs are not supported.
 
 ## References
 ### Videos
