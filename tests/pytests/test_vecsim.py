@@ -13,7 +13,7 @@ from includes import *
 from redis.client import NEVER_DECODE
 
 
-def test_sanity(env):
+def test_sanity():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
@@ -51,7 +51,7 @@ def test_sanity(env):
         env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
-def testDel(env):
+def testDel():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
@@ -99,7 +99,7 @@ def testDel(env):
         env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
-def testDelReuse(env):
+def testDelReuse():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
 
     def test_query_empty(env):
@@ -166,7 +166,7 @@ def query_vector(env, idx, query_vec):
     return env.execute_command('FT.SEARCH', idx, '*=>[KNN 5 @vector $v AS score]', 'PARAMS', '2', 'v', query_vec.tobytes(),
                                'SORTBY', 'score', 'ASC', 'RETURN', 1, 'score', 'LIMIT', 0, 5, **{NEVER_DECODE: []})
 
-def testDelReuseLarge(env):
+def testDelReuseLarge():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     INDEX_NAME = 'items'
@@ -184,7 +184,7 @@ def testDelReuseLarge(env):
         for i in range(4):
             env.assertLessEqual(float(res[2 + i * 2][1]), float(res[2 + (i + 1) * 2][1]))
 
-def testCreate(env):
+def testCreate():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
@@ -218,7 +218,7 @@ def testCreate(env):
     # info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'FLAT', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'BLOCK_SIZE', str(1024 * 1024)]]
     # assertInfoField(env, 'idx5', 'attributes', info)
 
-def testCreateErrors(env):
+def testCreateErrors():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # missing init args
@@ -263,7 +263,7 @@ def testCreateErrors(env):
         .error().contains('Bad arguments for vector similarity HNSW index efRuntime')
 
 
-def testSearchErrors(env):
+def testSearchErrors():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
@@ -301,7 +301,7 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
     return id_vec_list
 
 
-def test_with_fields(env):
+def test_with_fields():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
@@ -327,7 +327,7 @@ def get_vecsim_memory(env, index_key, field_name):
     return float(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
 
 
-def test_memory_info(env):
+def test_memory_info():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     # This test flow adds two vectors and deletes them. The test checks for memory increase in Redis and RediSearch upon insertion and decrease upon delete.
     conn = getConnectionByEnv(env)
@@ -441,7 +441,7 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
     return ret
 
 
-def test_hybrid_query_batches_mode_with_text(env):
+def test_hybrid_query_batches_mode_with_text():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
@@ -513,7 +513,7 @@ def test_hybrid_query_batches_mode_with_text(env):
     env.expect('FT.SEARCH', 'idx', '(@t:t* @t:text)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
 
 
-def test_hybrid_query_batches_mode_with_tags(env):
+def test_hybrid_query_batches_mode_with_tags():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
@@ -581,7 +581,7 @@ def test_hybrid_query_batches_mode_with_tags(env):
                          sort_by_vector=False).equal(expected_res)
 
 
-def test_hybrid_query_with_numeric_and_geo(env):
+def test_hybrid_query_with_numeric_and_geo():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
@@ -650,7 +650,7 @@ def test_hybrid_query_with_numeric_and_geo(env):
     execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate', batches_mode=False).equal([0])
 
 
-def test_hybrid_query_batches_mode_with_complex_queries(env):
+def test_hybrid_query_batches_mode_with_complex_queries():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 4
@@ -699,7 +699,7 @@ def test_hybrid_query_batches_mode_with_complex_queries(env):
                'RETURN', 2, 't1', 't2').equal([0])
 
 
-def test_hybrid_query_non_vector_score(env):
+def test_hybrid_query_non_vector_score():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
@@ -782,9 +782,9 @@ def test_hybrid_query_non_vector_score(env):
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
 
 
-def test_single_entry(env):
-    SkipOnNonCluster(env)
+def test_single_entry():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    SkipOnNonCluster(env)
     # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator.
     # Execution should finish without failure.
     conn = getConnectionByEnv(env)
@@ -801,7 +801,7 @@ def test_single_entry(env):
                 'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1, '0'])
 
 
-def test_hybrid_query_adhoc_bf_mode(env):
+def test_hybrid_query_adhoc_bf_mode():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
@@ -836,7 +836,7 @@ def test_hybrid_query_adhoc_bf_mode(env):
         execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal(expected_res)
 
 
-def test_wrong_vector_size(env):
+def test_wrong_vector_size():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
@@ -859,7 +859,7 @@ def test_wrong_vector_size(env):
     assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2, '1', '4'])
 
-def test_hybrid_query_cosine(env):
+def test_hybrid_query_cosine():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 4
@@ -906,7 +906,7 @@ def test_hybrid_query_cosine(env):
     for res_id in actual_res_ids:
         env.assertContains(res_id, expected_res_ids)
 
-def test_fail_ft_aggregate(env):
+def test_fail_ft_aggregate():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     dim = 1
     conn = getConnectionByEnv(env)
@@ -921,8 +921,8 @@ def test_fail_ft_aggregate(env):
         # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
         res.equal([0])
 
-def test_fail_on_v1_dialect(env):
-    skipOnDialect(env, 2)
+def test_fail_on_v1_dialect():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     dim = 1
     conn = getConnectionByEnv(env)
     one_vector = np.full((1, 1), 1, dtype = np.float32)
@@ -930,8 +930,4 @@ def test_fail_on_v1_dialect(env):
                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
     conn.execute_command("HSET", "i", "v", one_vector.tobytes())
     res = env.expect("FT.SEARCH", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes())
-    if not env.isCluster():
-        res.error().contains("Syntax error")
-    else:
-        # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
-        res.equal([0])
+    res.error().contains("Syntax error")

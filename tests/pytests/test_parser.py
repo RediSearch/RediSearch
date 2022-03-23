@@ -2,7 +2,7 @@ from includes import *
 from common import *
 from RLTest import Env
 
-def test_and_or_v1(env):
+def test_and_or_v1():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
@@ -116,7 +116,7 @@ UNION {
 }
 '''[1:])
 
-def test_and_or_v2(env):
+def test_and_or_v2():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
@@ -232,7 +232,7 @@ UNION {
 }
 '''[1:])
 
-def test_modifier_v1(env):
+def test_modifier_v1():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'NOSTEM', 't2', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
@@ -336,7 +336,7 @@ VECTOR {
 } => {K=10 nearest vectors to `$B` in @v, AS `__v_score`}
 '''[1:])
 
-def test_filters_v1(env):
+def test_filters_v1():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
@@ -377,7 +377,7 @@ INTERSECT {
 }
 '''[1:])
 
-def test_filters_v2(env):
+def test_filters_v2():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
@@ -418,7 +418,7 @@ UNION {
 }
 '''[1:])
 
-def test_combinations_v1(env):
+def test_combinations_v1():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
@@ -471,7 +471,7 @@ INTERSECT {
 }
 '''[1:])
 
-def test_combinations_v2(env):
+def test_combinations_v2():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
@@ -545,7 +545,8 @@ def testUnsupportedNesting(env):
     env.expect('ft.search', 'idx', or_exp, 'DIALECT', 1).error().contains('Syntax error at offset')
     env.expect('ft.search', 'idx', or_exp, 'DIALECT', 2).error().contains('Parser stack overflow.')
 
-def testSupportedNesting_v1(env):
+def testSupportedNesting_v1():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     nest_level = 30
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
 
@@ -556,7 +557,7 @@ def testSupportedNesting_v1(env):
     env.expect('ft.search', 'idx', and_exp).equal([0])
     env.expect('ft.search', 'idx', or_exp).equal([0])
 
-def testSupportedNesting_v2(env):
+def testSupportedNesting_v2():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     nest_level = 84
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
