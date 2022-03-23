@@ -1,7 +1,6 @@
 ---
 title: "Query syntax"
 linkTitle: "Query syntax"
-type: docs
 weight: 1
 description: >
     Details of the query syntax

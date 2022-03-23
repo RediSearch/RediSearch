@@ -1,7 +1,6 @@
 ---
 title: "Stemming"
 linkTitle: "Stemming"
-type: docs
 weight: 10
 description: >
     Stemming support

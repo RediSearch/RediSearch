@@ -1,7 +1,6 @@
 ---
 title: "General Administration"
 linkTitle: "General Administration"
-type: docs
 weight: 1
 description: >
     General Administration of the RediSearch module

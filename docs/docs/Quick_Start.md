@@ -1,7 +1,6 @@
 ---
 title: "Quick start"
 linkTitle: "Quick start"
-type: docs
 weight: 1
 description: >
     Quick start guide

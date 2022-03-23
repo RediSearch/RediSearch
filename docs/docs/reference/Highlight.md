@@ -1,7 +1,6 @@
 ---
 title: "Highlighting"
 linkTitle: "Highlighting"
-type: docs
 weight: 7
 description: >
     Highlighting full-text results

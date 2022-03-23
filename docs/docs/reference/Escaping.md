@@ -1,7 +1,6 @@
 ---
 title: "Tokenization"
 linkTitle: "Tokenization"
-type: docs
 weight: 4
 description: >
     Controlling Text Tokenization and Escaping

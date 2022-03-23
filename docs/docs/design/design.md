@@ -1,7 +1,6 @@
 ---
 title: "Internal design"
 linkTitle: "Internal design"
-type: docs
 weight: 1
 description: >
     Details about design choices and implementations

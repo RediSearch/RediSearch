@@ -1,7 +1,6 @@
 ---
 title: "Synonym"
 linkTitle: "Synonym"
-type: docs
 weight: 11
 description: >
     Synonym support

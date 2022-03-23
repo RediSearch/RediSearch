@@ -1,7 +1,6 @@
 ---
 title: "Technical overview"
 linkTitle: "Technical overview"
-type: docs
 weight: 1
 description: >
     Technical details of the internal design of indexing and querying with RediSearch
