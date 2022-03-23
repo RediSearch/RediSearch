@@ -163,7 +163,7 @@ def skipOnCrdtEnv(env):
         env.skip()
 
 def skipOnDialect(env, dialect):
-    server_dialect = int(env.expect('FT.CONFIG', 'GET', 'DEFAULT_DIALECT').res)
+    server_dialect = int(env.expect('FT.CONFIG', 'GET', 'DEFAULT_DIALECT').res[0][1])
     if dialect == server_dialect:
         env.skip()
 
