@@ -24,7 +24,7 @@ Searches the index with a textual query, returning either documents or just ids.
   the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
   right after the id and score and /or payload if requested. This is usually not needed by users, and
-  exists for distributed search coordination purposes. 
+  exists for distributed search coordination purposes.
 
 - **FILTER numeric_attribute min max**: If set, and numeric_attribute is defined as a numeric attribute in
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
