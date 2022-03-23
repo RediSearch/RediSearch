@@ -66,7 +66,7 @@ Searches the index with a textual query, returning either documents or just ids.
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring
   functions. [See Extensions](/redisearch/reference/extensions).
 
-- **SORTBY {attribute} [ASC|DESC]**: If specified, the results are ordered by the value of this attribute. This applies to both text and numeric attributes. Attributes needed for sortby should be stored as **SORTABLE**, where they are available with very low latency.
+- **SORTBY {attribute} [ASC|DESC]**: If specified, the results are ordered by the value of this attribute. This applies to both text and numeric attributes. Attributes needed for **SORTBY** should be declared as **SORTABLE** in the index, in order to be available with very low latency (notice this adds memory overhead)
 
 - **LIMIT first num**: Limit the results to
   the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.

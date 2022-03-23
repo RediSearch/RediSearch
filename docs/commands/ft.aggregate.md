@@ -36,7 +36,7 @@ Runs a search query on an index, and performs aggregate transformations on the r
   each property. `nargs` is the number of sorting parameters, including ASC and DESC. for example:
   `SORTBY 4 @foo ASC @bar DESC`.
 
-  Attributes needed for sortby should be stored as **SORTABLE**, where they are available with very low latency.
+  Attributes needed for **SORTBY** should be stored as **SORTABLE** in order to be available with very low latency.
 
     `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries.
 
