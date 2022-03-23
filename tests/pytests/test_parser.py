@@ -3,9 +3,9 @@ from common import *
 from RLTest import Env
 
 def test_and_or_v1(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
-    conn.execute_command('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '1')
 
     res = env.execute_command('FT.EXPLAIN', 'idx', 'hello world | goodbye moon')
     exp_res = r'''
@@ -127,9 +127,9 @@ UNION {
     env.assertEqual(exp_res, res)
 
 def test_and_or_v2(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
-    conn.execute_command('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2')
 
     res = env.execute_command('FT.EXPLAIN', 'idx', 'hello world | goodbye moon')
     exp_res = r'''
