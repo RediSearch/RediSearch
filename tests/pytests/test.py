@@ -210,9 +210,7 @@ def testSearch(env):
 
 def testGet(env):
     r = env
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'foo', 'text', 'bar', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text', 'bar', 'text').ok()
 
     env.expect('ft.get').error().contains("wrong number of arguments")
     env.expect('ft.get', 'idx').error().contains("wrong number of arguments")
@@ -226,7 +224,7 @@ def testGet(env):
 
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'foo', 'hello world', 'bar', 'wat wat').ok()
+                   'foo', 'hello world', 'bar', 'wat wat').ok()
 
     for i in range(100):
         res = r.execute_command('ft.get', 'idx', 'doc%d' % i)
@@ -321,10 +319,8 @@ def testReplace(env):
 
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
 
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                    'f', 'hello world').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
-                                    'f', 'hello world').ok()
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields', 'f', 'hello world').ok()
+    env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields', 'f', 'hello world').ok()
     res = r.execute_command(
         'ft.search', 'idx', 'hello world')
     env.assertEqual(2, res[0])
@@ -335,8 +331,7 @@ def testReplace(env):
                                 'f', 'hello world')
 
     # now replace doc1 with a different content
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'replace', 'fields',
-                                    'f', 'goodbye universe').ok()
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'replace', 'fields', 'f', 'goodbye universe').ok()
 
     for _ in r.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
@@ -359,8 +354,7 @@ def testDrop(env):
 
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'f', 'hello world', 'n', 666, 't', 'foo bar',
-                                        'g', '19.04,47.497').ok()
+                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497').ok()
     env.assertGreaterEqual(countKeys(env), 100)
 
     env.expect('ft.drop', 'idx').ok()
@@ -369,14 +363,12 @@ def testDrop(env):
     env.flush()
 
     # Now do the same with KEEPDOCS
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH',
+               'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
 
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'f', 'hello world', 'n', 666, 't', 'foo bar',
-                                        'g', '19.04,47.497').ok()
+                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497').ok()
     env.assertGreaterEqual(countKeys(env), 100)
 
     if not env.is_cluster():
@@ -555,7 +547,36 @@ def testExplain(env):
 
     q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
     res = r.execute_command('ft.explain', 'idx', q)
-    expected = """UNION {\n  INTERSECT {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n    EXACT {\n      what\n      what\n    }\n    UNION {\n      hello\n      +hello(expanded)\n    }\n  }\n  INTERSECT {\n    UNION {\n      world\n      +world(expanded)\n    }\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n  }\n  NUMERIC {200.000000 <= @bar <= 300.000000}\n}\n"""
+    expected = r'''
+UNION {
+  INTERSECT {
+    UNION {
+      hello
+      +hello(expanded)
+    }
+    UNION {
+      world
+      +world(expanded)
+    }
+    EXACT {
+      what
+      what
+    }
+    UNION {
+      hello
+      +hello(expanded)
+    }
+  }
+  INTERSECT {
+    UNION {
+      world
+      +world(expanded)
+    }
+    NUMERIC {10.000000 <= @bar <= 100.000000}
+  }
+  NUMERIC {200.000000 <= @bar <= 300.000000}
+}
+'''[1:]
     env.assertEqual(res, expected)
 
     res = env.cmd('ft.explainCli', 'idx', q)
@@ -620,9 +641,9 @@ def testPartial(env):
     # print r.execute_command('ft.info', 'idx')
 
     env.expect('ft.add', 'idx', 'doc1', '0.1', 'fields',
-                                    'foo', 'hello world', 'num', 1, 'extra', 'lorem ipsum').ok()
+               'foo', 'hello world', 'num', 1, 'extra', 'lorem ipsum').ok()
     env.expect('ft.add', 'idx', 'doc2', '0.1', 'fields',
-                                    'foo', 'hello world', 'num', 2, 'extra', 'abba').ok()
+               'foo', 'hello world', 'num', 2, 'extra', 'abba').ok()
     res = r.execute_command('ft.search', 'idx', 'hello world',
                             'sortby', 'num', 'asc', 'nocontent', 'withsortkeys')
     env.assertListEqual([2, 'doc1', '#1', 'doc2', '#2'], res)
@@ -631,8 +652,7 @@ def testPartial(env):
     env.assertListEqual([2, 'doc2', '#2', 'doc1', '#1'], res)
 
     # Updating non indexed fields doesn't affect search results
-    env.expect('ft.add', 'idx', 'doc1', '0.1', 'replace', 'partial',
-                                    'fields', 'num', 3, 'extra', 'jorem gipsum').ok()
+    env.expect('ft.add', 'idx', 'doc1', '0.1', 'replace', 'partial', 'fields', 'num', 3, 'extra', 'jorem gipsum').ok()
     env.expect('ft.add', 'idx', 'doc12', '0.1', 'replace', 'partial',
                                     'fields', 'num1', 'redis').equal('OK')
 
@@ -643,8 +663,7 @@ def testPartial(env):
     res = r.execute_command(
         'ft.search', 'idx', 'hello', 'nocontent', 'withscores')
     # Updating only indexed field affects search results
-    env.expect('ft.add', 'idx', 'doc1', '0.1', 'replace', 'partial',
-                                    'fields', 'foo', 'wat wet').ok()
+    env.expect('ft.add', 'idx', 'doc1', '0.1', 'replace', 'partial', 'fields', 'foo', 'wat wet').ok()
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'nocontent')
     env.assertListEqual([1, 'doc2'], res)
@@ -656,8 +675,7 @@ def testPartial(env):
         'ft.search', 'idx', 'wat', 'nocontent', 'withscores')
     env.assertLess(float(res[2]), 1)
     # env.assertListEqual([1, 'doc1'], res)
-    env.expect('ft.add', 'idx',
-                                    'doc1', '1.0', 'replace', 'partial', 'fields').ok()
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'replace', 'partial', 'fields').ok()
     res = r.execute_command(
         'ft.search', 'idx', 'wat', 'nocontent', 'withscores')
     # We reindex though no new fields, just score is updated. this effects score
@@ -769,7 +787,6 @@ def testSortBy(env):
                                 'sortby', 'foo', 'desc', 'withsortkeys', 'limit', 0, 5)
         env.assertListEqual([100, 'doc99', '$hello099 world', 'doc98', '$hello098 world', 'doc97', '$hello097 world', 'doc96',
                               '$hello096 world', 'doc95', '$hello095 world'], res)
-
 
 def testSortByWithoutSortable(env):
     r = env
@@ -944,14 +961,10 @@ def testInKeys(env):
 def testSlopInOrder(env):
     r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text').ok()
-    env.expect('ft.add', 'idx', 'doc1', 1, 'fields',
-                                    'title', 't1 t2').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1, 'fields',
-                                    'title', 't1 t3 t2').ok()
-    env.expect('ft.add', 'idx', 'doc3', 1, 'fields',
-                                    'title', 't1 t3 t4 t2').ok()
-    env.expect('ft.add', 'idx', 'doc4', 1, 'fields',
-                                    'title', 't1 t3 t4 t5 t2').ok()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'fields', 'title', 't1 t2').ok()
+    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 't1 t3 t2').ok()
+    env.expect('ft.add', 'idx', 'doc3', 1, 'fields', 'title', 't1 t3 t4 t2').ok()
+    env.expect('ft.add', 'idx', 'doc4', 1, 'fields', 'title', 't1 t3 t4 t5 t2').ok()
 
     res = r.execute_command(
         'ft.search', 'idx', 't1|t4 t3|t2', 'slop', '0', 'inorder', 'nocontent')
@@ -1046,8 +1059,7 @@ def testGeo(env):
     gsearch_inline = lambda query, lon, lat, dist, unit='km': r.execute_command(
         'ft.search', 'idx', '{} @location:[{} {} {} {}]'.format(query,  lon, lat, dist, unit), 'LIMIT', 0, 20)
 
-    env.expect('ft.create', 'idx', 'ON', 'HASH',
-                                    'schema', 'name', 'text', 'location', 'geo').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'name', 'text', 'location', 'geo').ok()
 
     for i, hotel in enumerate(hotels):
         env.assertOk(r.execute_command('ft.add', 'idx', 'hotel{}'.format(i), 1.0, 'fields', 'name',
@@ -1144,16 +1156,13 @@ def testGeoDeletion(env):
 
 def testInfields(env):
     r = env
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'weight', 10.0, 'body', 'text', 'weight', 1.0).ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH',
+               'schema', 'title', 'text', 'weight', 10.0, 'body', 'text', 'weight', 1.0).ok()
     env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields',
-                                    'title', 'hello world',
-                                    'body', 'lorem ipsum').ok()
+               'title', 'hello world', 'body', 'lorem ipsum').ok()
 
     env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
-                                    'title', 'hello world lorem ipsum',
-                                    'body', 'hello world').ok()
+               'title', 'hello world lorem ipsum', 'body', 'hello world').ok()
 
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'verbatim', "infields", 1, "title", "nocontent")
@@ -1213,9 +1222,9 @@ def testFieldSelectors(env):
         'schema', 'TiTle', 'text', 'BoDy', 'text', "יוניקוד", 'text', 'field.with,punct', 'text').ok()
     #todo: document as breaking change, ft.add fields name are not case insentive
     env.expect('ft.add', 'idx', 'doc1', 1, 'fields',
-                                    'TiTle', 'hello world', 'BoDy', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt').ok()
+               'TiTle', 'hello world', 'BoDy', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt').ok()
     env.expect('ft.add', 'idx', 'doc2', 0.5, 'fields',
-                                    'BoDy', 'hello world', 'TiTle', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt').ok()
+               'BoDy', 'hello world', 'TiTle', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt').ok()
 
     res = r.execute_command(
         'ft.search', 'idx', '@TiTle:hello world', 'nocontent')
@@ -1319,7 +1328,7 @@ def testNumericRange(env):
 
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
-                                        'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i).ok()
+                   'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i).ok()
 
     for _ in r.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
@@ -1626,7 +1635,7 @@ def testInfoCommand(env):
     N = 50
     for i in range(N):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1, 'replace', 'fields',
-                                        'title', 'hello term%d' % i).ok()
+                   'title', 'hello term%d' % i).ok()
     for _ in r.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
 

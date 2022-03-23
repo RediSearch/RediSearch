@@ -26,8 +26,7 @@ def testTermOnTwoSynonymsGroup(env):
     env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id2', 'boy', 'offspring'), 'OK')
 
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                    'title', 'he is a boy',
-                                    'body', 'this is a test').ok()
+               'title', 'he is a boy', 'body', 'this is a test').ok()
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
 
@@ -40,14 +39,11 @@ def testTermOnTwoSynonymsGroup(env):
 
 def testSynonymGroupWithThreeSynonyms(env):
     r = env
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring'), 'OK')
 
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                    'title', 'he is a boy',
-                                    'body', 'this is a test').ok()
+               'title', 'he is a boy', 'body', 'this is a test').ok()
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
     env.assertEqual(res[0:2], [1, 'doc1',])
@@ -64,12 +60,10 @@ def testSynonymWithMultipleDocs(env):
     env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring'), 'OK')
 
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                    'title', 'he is a boy',
-                                    'body', 'this is a test').ok()
+               'title', 'he is a boy', 'body', 'this is a test').ok()
 
     env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
-                                    'title', 'she is a girl',
-                                    'body', 'the child sister').ok()
+               'title', 'she is a girl', 'body', 'the child sister').ok()
 
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
     env.assertEqual(res[0], 2)
@@ -81,19 +75,15 @@ def testSynonymWithMultipleDocs(env):
 
 def testSynonymUpdate(env):
     r = env
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id1', 'SKIPINITIALSCAN', 'boy', 'child', 'offspring'), 'OK')
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                    'title', 'he is a baby',
-                                    'body', 'this is a test').ok()
+               'title', 'he is a baby', 'body', 'this is a test').ok()
 
     env.expect('ft.synupdate', 'idx', 'id1', 'SKIPINITIALSCAN', 'baby').ok()
 
     env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
-                                    'title', 'he is another baby',
-                                    'body', 'another test').ok()
+               'title', 'he is another baby', 'body', 'another test').ok()
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
     # synonyms are applied from the moment they were added, previuse docs are not reindexed
@@ -102,9 +92,7 @@ def testSynonymUpdate(env):
 
 def testSynonymDump(env):
     r = env
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring'), 'OK')
     env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id2', 'baby', 'child'), 'OK')
     env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id3', 'tree', 'wood'), 'OK')
@@ -114,9 +102,7 @@ def testSynonymDump(env):
 
 def testSynonymUpdateWorngArity(env):
     r = env
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     r.execute_command('ft.synupdate', 'idx', 'id1', 'boy', 'child')
     with env.assertResponseError(contained='wrong number of arguments'):
         r.execute_command('ft.synupdate', 'idx', 'id1')
@@ -126,9 +112,7 @@ def testSynonymUpdateUnknownIndex(env):
 
 def testSynonymDumpWorngArity(env):
     r = env
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     r.execute_command('ft.synupdate', 'idx', 'id1', 'boy', 'child')
 
     env.expect('ft.syndump').error().contains('wrong number of arguments')
@@ -145,9 +129,7 @@ def testSynonymUnknownIndex(env):
 
 def testSynonymsRdb(env):
     r = env
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring'), 'OK')
     for _ in env.reloading_iterator():
         waitForIndex(env, 'idx')
@@ -157,9 +139,7 @@ def testSynonymsRdb(env):
 
 def testTwoSynonymsSearch(env):
     r = env
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring'), 'OK')
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'he is a boy child boy',
@@ -173,15 +153,12 @@ def testTwoSynonymsSearch(env):
 def testSynonymsIntensiveLoad(env):
     iterations = 1000
     r = env
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     for i in range(iterations):
         env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id%d' % i, 'boy%d' % i, 'child%d' % i, 'offspring%d' % i), 'OK')
     for i in range(iterations):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'title', 'he is a boy%d' % i,
-                                        'body', 'this is a test').ok()
+                   'title', 'he is a boy%d' % i, 'body', 'this is a test').ok()
     for _ in env.reloading_iterator():
         waitForIndex(r, 'idx')
         for i in range(iterations):

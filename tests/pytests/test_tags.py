@@ -72,9 +72,8 @@ def testTagPrefix(env):
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'tags', 'tag', 'separator', ',').ok()
 
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                   'title', 'hello world',
-                                   'tags', 'hello world,hello-world,hell,jell').ok()
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world',
+               'tags', 'hello world,hello-world,hell,jell').ok()
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tags')    \
         .equal([['hell', [1]], ['hello world', [1]], ['hello-world', [1]], ['jell', [1]]])
 

@@ -73,8 +73,7 @@ def testFuzzySyntaxError(env):
     unallowChars = ('*', '$', '~', '&', '@', '!')
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                    'title', 'hello world',
-                                    'body', 'this is a test').ok()
+               'title', 'hello world', 'body', 'this is a test').ok()
     for ch in unallowChars:
         error = None
         try:
