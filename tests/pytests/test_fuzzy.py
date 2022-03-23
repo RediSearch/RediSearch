@@ -5,11 +5,10 @@ import os
 
 def testBasicFuzzy(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
-                                    'body', 'this is a test'))
+                                    'body', 'this is a test').ok()
 
     res = r.execute_command('ft.search', 'idx', '%word%')
     env.assertEqual(res[0:2], [1, 'doc1'])
@@ -50,20 +49,19 @@ def testStopwords(env):
 
 def testFuzzyMultipleResults(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
-                                    'body', 'this is a test'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
+                                    'body', 'this is a test').ok()
+    env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
                                     'title', 'hello word',
-                                    'body', 'this is a test'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc3', 1.0, 'fields',
+                                    'body', 'this is a test').ok()
+    env.expect('ft.add', 'idx', 'doc3', 1.0, 'fields',
                                     'title', 'hello ward',
-                                    'body', 'this is a test'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc4', 1.0, 'fields',
+                                    'body', 'this is a test').ok()
+    env.expect('ft.add', 'idx', 'doc4', 1.0, 'fields',
                                     'title', 'hello wakld',
-                                    'body', 'this is a test'))
+                                    'body', 'this is a test').ok()
 
     res = r.execute_command('ft.search', 'idx', '%word%')
     env.assertEqual(res[0], 3)
@@ -73,11 +71,9 @@ def testFuzzyMultipleResults(env):
 def testFuzzySyntaxError(env):
     r = env
     unallowChars = ('*', '$', '~', '&', '@', '!')
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                    'title', 'hello world',
-                                    'body', 'this is a test'))
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
+               'title', 'hello world', 'body', 'this is a test').ok()
     for ch in unallowChars:
         error = None
         try:

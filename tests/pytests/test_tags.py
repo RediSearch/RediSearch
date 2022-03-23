@@ -8,13 +8,12 @@ def search(env, r, *args):
 
 def testTagIndex(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag'))
+    env.expect('ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag').ok()
     N = 10
     for n in range(N):
 
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
-                                       'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n))
+        env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
+                                       'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n).ok()
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
         res = env.cmd('ft.search', 'idx', 'hello world')
@@ -54,12 +53,12 @@ def testTagIndex(env):
 
 def testSeparator(env):
     r = env
-    env.assertOk(r.execute_command(
+    env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'tags', 'tag', 'separator', ':'))
+        'schema', 'title', 'text', 'tags', 'tag', 'separator', ':').ok()
 
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                   'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR'))
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                   'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR').ok()
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
         for q in ('@tags:{hello world}', '@tags:{fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}', '@tags:{x}'):
@@ -69,13 +68,12 @@ def testSeparator(env):
 def testTagPrefix(env):
     env.skipOnCluster()
     r = env
-    env.assertOk(r.execute_command(
+    env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'tags', 'tag', 'separator', ','))
+        'schema', 'title', 'text', 'tags', 'tag', 'separator', ',').ok()
 
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                   'title', 'hello world',
-                                   'tags', 'hello world,hello-world,hell,jell'))
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world',
+               'tags', 'hello world,hello-world,hell,jell').ok()
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tags')    \
         .equal([['hell', [1]], ['hello world', [1]], ['hello-world', [1]], ['jell', [1]]])
 
@@ -87,12 +85,12 @@ def testTagPrefix(env):
 
 def testTagFieldCase(env):
     r = env
-    env.assertOk(r.execute_command(
+    env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'TAgs', 'tag'))
+        'schema', 'title', 'text', 'TAgs', 'tag').ok()
 
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                   'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR'))
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                   'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR').ok()
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
         env.assertListEqual([0], r.execute_command(

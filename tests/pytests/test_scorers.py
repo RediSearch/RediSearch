@@ -4,13 +4,14 @@ from common import getConnectionByEnv, waitForIndex, server_version_at_least
 
 
 def testHammingScorer(env):
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score', 'schema', 'title', 'text').ok()
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'PAYLOAD_FIELD', 'PAYLOAD', 'SCORE_FIELD', '__score', 'schema', 'title', 'text').ok()
     waitForIndex(env, 'idx')
 
     for i in range(16):
-        env.expect('ft.add', 'idx', 'doc%d' % i, 1,
-                   'payload', ('%x' % i) * 8,
-                   'fields', 'title', 'hello world').ok()
+        res = conn.execute_command('hset', 'doc%d' % i, 'PAYLOAD', ('%x' % i) * 8, 'title', 'hello world')
+        env.assertEqual(res, 2)
+
     for i in range(16):
         res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 8,
                       'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
@@ -29,47 +30,37 @@ def testScoreTagIndex(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
+
     N = 25
     for n in range(N):
-
         sc = math.sqrt(float(N - n + 10) / float(N + 10))
         # print n, sc
 
         env.expect('ft.add', 'idx', 'doc%d' % n, sc, 'fields',
                    'title', 'hello world ' * n, 'body', 'lorem ipsum ' * n).ok()
     results_single = [
-        [24, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
-            1.91, 'doc4', 1.88, 'doc5', 1.85],
-        [24, 'doc1', 0.9, 'doc2', 0.59, 'doc3',
-            0.43, 'doc4', 0.34, 'doc5', 0.28],
-        [24, 'doc4', 1.75, 'doc5', 1.75, 'doc3',
-            1.74, 'doc6', 1.74, 'doc7', 1.72],
-        [24, 'doc24', 480.0, 'doc23', 460.0, 'doc22',
-            440.0, 'doc21', 420.0, 'doc20', 400.0],
-        [24, 'doc1', 0.99, 'doc2', 0.97, 'doc3',
-            0.96, 'doc4', 0.94, 'doc5', 0.93]
+        [24, 'doc1', 1.97, 'doc2', 1.94, 'doc3', 1.91, 'doc4', 1.88, 'doc5', 1.85],
+        [24, 'doc1', 0.9, 'doc2', 0.59, 'doc3',  0.43, 'doc4', 0.34, 'doc5', 0.28],
+        [24, 'doc4', 1.75, 'doc5', 1.75, 'doc3', 1.74, 'doc6', 1.74, 'doc7', 1.72],
+        [24, 'doc24', 480.0, 'doc23', 460.0, 'doc22', 440.0, 'doc21', 420.0, 'doc20', 400.0],
+        [24, 'doc1', 0.99, 'doc2', 0.97, 'doc3', 0.96, 'doc4', 0.94, 'doc5', 0.93]
     ]
     results_cluster = [
-        [24, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
-            1.91, 'doc4', 1.88, 'doc5', 1.85],
-        [24, 'doc1', 0.9, 'doc2', 0.59, 'doc3',
-            0.43, 'doc4', 0.34, 'doc5', 0.28],
-        [24, 'doc4', 1.76, 'doc5', 1.75, 'doc3',
-            1.74, 'doc6', 1.73, 'doc7', 1.72],
-        [24, 'doc24', 480.0, 'doc23', 460.0, 'doc22',
-            440.0, 'doc21', 420.0, 'doc20', 400.0],
-        [24, 'doc1', 0.99, 'doc2', 0.97, 'doc3',
-            0.96, 'doc4', 0.94, 'doc5', 0.93],
+        [24, 'doc1', 1.97, 'doc2', 1.94, 'doc3', 1.91, 'doc4', 1.88, 'doc5', 1.85],
+        [24, 'doc1', 0.9, 'doc2', 0.59, 'doc3', 0.43, 'doc4', 0.34, 'doc5', 0.28],
+        [24, 'doc4', 1.76, 'doc5', 1.75, 'doc3', 1.74, 'doc6', 1.73, 'doc7', 1.72],
+        [24, 'doc24', 480.0, 'doc23', 460.0, 'doc22', 440.0, 'doc21', 420.0, 'doc20', 400.0],
+        [24, 'doc1', 0.99, 'doc2', 0.97, 'doc3', 0.96, 'doc4', 0.94, 'doc5', 0.93],
     ]
 
     scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'DISMAX', 'DOCSCORE']
-    expected_results = results_cluster if env.is_cluster() else results_single
+    expected_results = results_cluster if env.shardsCount > 1 else results_single
 
     for _ in env.reloading_iterator():
         waitForIndex(env, 'idx')
         for i, scorer in enumerate(scorers):
             res = env.cmd('ft.search', 'idx', 'hello world', 'scorer',
-                              scorer, 'nocontent', 'withscores', 'limit', 0, 5)
+                          scorer, 'nocontent', 'withscores', 'limit', 0, 5)
             res = [round(float(x), 2) if j > 0 and (j - 1) %
                    2 == 1 else x for j, x in enumerate(res)]
             #print res
