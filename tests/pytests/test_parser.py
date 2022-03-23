@@ -7,8 +7,7 @@ def test_and_or_v1(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', 'hello world | goodbye moon')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello world | goodbye moon').equal(r'''
 UNION {
   INTERSECT {
     UNION {
@@ -32,11 +31,9 @@ UNION {
     }
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', 'hello world | "goodbye" moon')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello world | "goodbye" moon').equal(r'''
 INTERSECT {
   UNION {
     INTERSECT {
@@ -56,11 +53,9 @@ INTERSECT {
     +moon(expanded)
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', 'hello world | goodbye "moon"')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello world | goodbye "moon"').equal(r'''
 INTERSECT {
   UNION {
     INTERSECT {
@@ -81,11 +76,9 @@ INTERSECT {
   }
   moon
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', '"hello" "world" | "goodbye" "moon"')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', '"hello" "world" | "goodbye" "moon"').equal(r'''
 INTERSECT {
   hello
   UNION {
@@ -94,11 +87,9 @@ INTERSECT {
   }
   moon
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")').equal(r'''
 UNION {
   INTERSECT {
     hello
@@ -123,16 +114,14 @@ UNION {
     werld
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
 def test_and_or_v2(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', 'hello world | goodbye moon')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello world | goodbye moon').equal(r'''
 UNION {
   INTERSECT {
     UNION {
@@ -156,11 +145,9 @@ UNION {
     }
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', 'hello world | "goodbye" moon')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello world | "goodbye" moon').equal(r'''
 UNION {
   INTERSECT {
     UNION {
@@ -180,11 +167,9 @@ UNION {
     }
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', 'hello world | goodbye "moon"')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello world | goodbye "moon"').equal(r'''
 UNION {
   INTERSECT {
     UNION {
@@ -205,11 +190,9 @@ UNION {
     moon
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', '"hello" "world" | "goodbye" "moon"')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', '"hello" "world" | "goodbye" "moon"').equal(r'''
 UNION {
   INTERSECT {
     hello
@@ -220,11 +203,9 @@ UNION {
     moon
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")').equal(r'''
 UNION {
   INTERSECT {
     hello
@@ -249,16 +230,14 @@ UNION {
     }
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
 def test_modifier_v1(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'NOSTEM', 't2', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
-    res = env.execute_command('FT.EXPLAIN', 'idx', '@t1:hello world @t2:howdy')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', '@t1:hello world @t2:howdy').equal(r'''
 INTERSECT {
   @t1:INTERSECT {
     @t1:UNION {
@@ -276,11 +255,9 @@ INTERSECT {
     @t2:howdi(expanded)
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:(hello|world|mars)')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(hello|world|mars)').equal(r'''
 @t1:UNION {
   @t1:UNION {
     @t1:hello
@@ -296,16 +273,11 @@ INTERSECT {
     @t1:mar(expanded)
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res1 = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:hello world')
-    res2 = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:(hello world)')
-    env.assertEqual(res1, res2)
+    env.expect('FT.EXPLAIN', 'idx', '@t1:hello world').equal(env.expect('FT.EXPLAIN', 'idx', '@t1:(hello world)').res)
 
-    res1 = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:hello=>{$weight:5} world')
-    res2 = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:(hello=>{$weight:5}) world')
-    env.assertEqual(res1, res2)
+    env.expect('FT.EXPLAIN', 'idx', '@t1:hello=>{$weight:5} world').equal(env.expect('FT.EXPLAIN', 'idx', '@t1:(hello=>{$weight:5}) world').res)
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:hello world=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@t1:(hello world)=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').error().contains('Syntax error')
@@ -315,8 +287,7 @@ def test_modifier_v2(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'NOSTEM', 't2', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:hello world @t2:howdy')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', '@t1:hello world @t2:howdy').equal(r'''
 INTERSECT {
   @t1:UNION {
     @t1:hello
@@ -332,11 +303,9 @@ INTERSECT {
     @t2:howdi(expanded)
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:(hello|world|mars)')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(hello|world|mars)').equal('''
 @t1:UNION {
   @t1:UNION {
     @t1:hello
@@ -352,37 +321,27 @@ INTERSECT {
     @t1:mar(expanded)
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res1 = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:hello world')
-    res2 = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:(hello) world')
-    env.assertEqual(res1, res2)
-
-    res1 = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:hello=>{$weight:5} world')
-    res2 = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:(hello=>{$weight:5}) world')
-    env.assertEqual(res1, res2)
-
+    env.expect('FT.EXPLAIN', 'idx', '@t1:hello world').equal(env.expect('FT.EXPLAIN', 'idx', '@t1:(hello) world').res)
+    env.expect('FT.EXPLAIN', 'idx', '@t1:hello=>{$weight:5} world').equal(env.expect('FT.EXPLAIN', 'idx', '@t1:(hello=>{$weight:5}) world').res)
     env.expect('FT.EXPLAIN', 'idx', '@t1:hello world=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').error().contains('Syntax error')
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', '@t1:(hello world)=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(hello world)=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').equal(r'''
 VECTOR {
   @t1:INTERSECT {
     @t1:hello
     @t1:world
   }
 } => {K=10 nearest vectors to `$B` in @v, AS `__v_score`}
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
 def test_filters_v1(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', 'very simple | @t:hello @t2:{ free\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'very simple | @t:hello @t2:{ free\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])').equal(r'''
 INTERSECT {
   UNION {
     INTERSECT {
@@ -416,16 +375,14 @@ INTERSECT {
     }
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
 def test_filters_v2(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', 'very simple | @t:hello @t2:{ free\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'very simple | @t:hello @t2:{ free\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])').equal(r'''
 UNION {
   INTERSECT {
     UNION {
@@ -459,16 +416,14 @@ UNION {
     }
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
 def test_combinations_v1(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', 'hello | "world" again', 'PARAMS', 2, 'B', '#blob#')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello | "world" again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
 INTERSECT {
   UNION {
     UNION {
@@ -482,11 +437,9 @@ INTERSECT {
     +again(expanded)
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', 'hello | -"world" again', 'PARAMS', 2, 'B', '#blob#')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello | -"world" again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
 UNION {
   UNION {
     hello
@@ -499,11 +452,9 @@ UNION {
     }
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', 'hello ~-"world" ~again', 'PARAMS', 2, 'B', '#blob#')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello ~-"world" ~again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
 INTERSECT {
   UNION {
     hello
@@ -518,16 +469,14 @@ INTERSECT {
     again
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
 def test_combinations_v2(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', 'hello | "world" again', 'PARAMS', 2, 'B', '#blob#')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello | "world" again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
 UNION {
   UNION {
     hello
@@ -541,11 +490,9 @@ UNION {
     }
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', 'hello | -"world" again', 'PARAMS', 2, 'B', '#blob#')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello | -"world" again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
 UNION {
   UNION {
     hello
@@ -561,11 +508,9 @@ UNION {
     }
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
-    res = conn.execute_command('FT.EXPLAIN', 'idx', 'hello ~-"world" ~again', 'PARAMS', 2, 'B', '#blob#')
-    exp_res = r'''
+    env.expect('FT.EXPLAIN', 'idx', 'hello ~-"world" ~again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
 INTERSECT {
   UNION {
     hello
@@ -580,8 +525,7 @@ INTERSECT {
     again
   }
 }
-'''[1:]
-    env.assertEqual(exp_res, res)
+'''[1:])
 
 def nest_exp(modifier, term, is_and, i):
     if i == 1:
