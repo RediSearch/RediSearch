@@ -106,6 +106,17 @@ spec:
         cpus: "15"
         memory: "150g"
 
+  - name: oss-cluster-21-primaries
+    type: oss-cluster
+    redis_topology:
+      primaries: 21
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "21"
+        memory: "210g"
+
   - name: oss-cluster-30-primaries
     type: oss-cluster
     redis_topology:

@@ -1,0 +1,25 @@
+
+version: 0.5
+name: "full-run-vecsim-bigann-benchmarks_FULL_1c_redisearch-flat_Text-to-Image-40M-allgroups"
+timeout_seconds: 172800
+requires_implicit_call: true
+metadata:
+  component: "vecsim"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+
+setups:
+  - oss-standalone
+  - oss-cluster-03-primaries
+  - oss-cluster-09-primaries
+  - oss-cluster-15-primaries
+  - oss-cluster-21-primaries
+  - oss-cluster-30-primaries
+
+clientconfig:
+  tool: ann-benchmarks
+  parameters:
+    build-clients: 1
+    test-clients: 1
+  arguments: ' --algorithm redisearch-flat --dataset Text-to-Image-40M --runs 1'
