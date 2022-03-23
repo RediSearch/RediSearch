@@ -910,7 +910,6 @@ def test_fail_ft_aggregate(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     dim = 1
     conn = getConnectionByEnv(env)
-    index_size = 6000 * env.shardsCount
     one_vector = np.full((1, 1), 1, dtype = np.float32)
     env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
@@ -918,6 +917,21 @@ def test_fail_ft_aggregate(env):
     res = env.expect("FT.AGGREGATE", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes())
     if not env.isCluster():
         res.error().contains("VSS is not yet supported on FT.AGGREGATE")
+    else:
+        # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
+        res.equal([0])
+
+def test_fail_on_v1_dialect(env):
+    skipOnDialect(env, 2)
+    dim = 1
+    conn = getConnectionByEnv(env)
+    one_vector = np.full((1, 1), 1, dtype = np.float32)
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+                        'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
+    conn.execute_command("HSET", "i", "v", one_vector.tobytes())
+    res = env.expect("FT.SEARCH", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes())
+    if not env.isCluster():
+        res.error().contains("Syntax error")
     else:
         # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
         res.equal([0])
