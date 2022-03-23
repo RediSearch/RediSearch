@@ -13,7 +13,7 @@ import gevent.queue
 import gevent.server
 import gevent.socket
 import time
-from RLTest import Defaults
+
 from enum import Enum, auto
 from common import *
 from includes import *
