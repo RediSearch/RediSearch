@@ -326,15 +326,15 @@ if [[ -z $COORD ]]; then
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --env-reuse --clear-logs --shards-count $SHARDS"
 
-#	{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
-#	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
+	{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
+	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 
 	if [[ $QUICK != 1 ]]; then
-#		{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
-#		   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
-#		   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
-#		{ (MODARGS="${MODARGS} PARTITIONS AUTO SAFEMODE" RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args}" \
-#		   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
+		{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
+		   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
+		   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
+		{ (MODARGS="${MODARGS} PARTITIONS AUTO SAFEMODE" RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args}" \
+		   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
 
 		tls_args="--tls \
 			--tls-cert-file $ROOT/bin/tls/redis.crt \
