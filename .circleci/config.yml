@@ -586,8 +586,7 @@ workflows:
           <<: *not-on-integ-branch
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           matrix:
             parameters:
               redis_version: ["6.0", "6.2", "7", "unstable"]
