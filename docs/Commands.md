@@ -661,6 +661,7 @@ Here we are counting GitHub events by user (actor), to produce the most active u
 
 ```
 FT.EXPLAIN {index} {query}
+  [DIALECT {dialect_version}]
 ```
 
 #### Description
@@ -696,6 +697,7 @@ INTERSECT {
 
 - **index**: The index name. The index must be first created with FT.CREATE
 - **query**: The query string, as if sent to FT.SEARCH
+- **DIALECT {dialect_version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
 
 #### Complexity
 
@@ -716,6 +718,7 @@ String Response. A string representing the execution plan (see above example).
 
 ```
 FT.EXPLAINCLI {index} {query}
+  [DIALECT {dialect_version}]
 ```
 
 #### Description
@@ -764,6 +767,7 @@ $ redis-cli
 
 - **index**: The index name. The index must be first created with FT.CREATE
 - **query**: The query string, as if sent to FT.SEARCH
+- **DIALECT {dialect_version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
 
 #### Complexity
 

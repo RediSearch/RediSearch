@@ -214,6 +214,13 @@
       {
         "name": "query",
         "type": "string"
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -230,6 +237,13 @@
       {
         "name": "query",
         "type": "string"
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
