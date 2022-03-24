@@ -8,7 +8,6 @@
 #include "index.h"
 #include "query.h"
 #include "config.h"
-#include "query_parser/parser.h"
 #include "redis_index.h"
 #include "tokenize.h"
 #include "util/logging.h"
@@ -953,7 +952,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
 }
 
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
-               const char *q, size_t n, QueryError *status) {
+               const char *q, size_t n, unsigned int dialectVersion, QueryError *status) {
   if (!dst->query) {
     dst->query = rm_strndup(q, n);
     dst->nquery = n;
@@ -968,7 +967,10 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .trace_log = NULL
 #endif
   };
-  dst->root = RSQuery_ParseRaw(&qpCtx);
+  if (dialectVersion == 2)
+    dst->root = RSQuery_ParseRaw_v2(&qpCtx);
+  else
+    dst->root = RSQuery_ParseRaw_v1(&qpCtx);
 
 #ifdef PARSER_DEBUG
   if (qpCtx.trace_log != NULL) {

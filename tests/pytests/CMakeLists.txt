@@ -40,5 +40,14 @@ foreach(n ${PY_TEST_FILES})
     add_test(NAME "PY_${test_name}_RAW_DOCID_ENCODING"
 		COMMAND bash -c "MODARGS='RAW_DOCID_ENCODING true;' ${baseCommand} -t ${n}"
 		WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+    
+    add_test(NAME "PY_${test_name}_DIALECT_v1"
+		COMMAND bash -c "MODARGS='DEFAULT_DIALECT 1;' ${baseCommand} -t ${n}"
+		WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+
+    add_test(NAME "PY_${test_name}_DIALECT_v2"
+		COMMAND bash -c "MODARGS='DEFAULT_DIALECT 2;' ${baseCommand} -t ${n}"
+		WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+
 
 endforeach()
