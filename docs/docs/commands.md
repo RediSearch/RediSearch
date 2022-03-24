@@ -8,7 +8,7 @@ description: >
 
 ### RediSearch API
 
-Details on module's [commands](/commands/?group=redisearch) can be filtered for a specific module or command, e.g., [`FT`](/commands/?name=ft.).
+Details on module's [commands](/commands/?group=search) can be filtered for a specific module or command, e.g., [`FT`](/commands/?name=ft.).
 The details also include the syntax for the commands, where:
 
 *   Command and subcommand names are in uppercase, for example `FT.CREATE`
