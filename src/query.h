@@ -52,10 +52,11 @@ typedef struct QueryAST {
  * @param sopts options modifying parsing behavior
  * @param qstr the query string
  * @param len the length of the query string
+ * @param dialectVersion parse the query according to the given dialect version
  * @param status error details set here.
  */
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
-               const char *qstr, size_t len, QueryError *status);
+               const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status);
 
 IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
 
@@ -117,7 +118,8 @@ void QAST_Print(const QueryAST *ast, const IndexSpec *spec);
 /* Cleanup a query AST */
 void QAST_Destroy(QueryAST *q);
 
-QueryNode *RSQuery_ParseRaw(QueryParseCtx *);
+QueryNode *RSQuery_ParseRaw_v1(QueryParseCtx *);
+QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *);
 
 #ifdef __cplusplus
 }
