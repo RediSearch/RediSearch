@@ -9,11 +9,11 @@
 #include "src/hybrid_reader.h"
 
 #include "rmutil/alloc.h"
-#include "rmutil/alloc.h"
 
 #include "gtest/gtest.h"
 
 #include "common.h"
+#include "index_utils.h"
 
 #include <assert.h>
 #include <math.h>
@@ -222,40 +222,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
 }
 
 INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
-
-InvertedIndex *createIndex(int size, int idStep, int start_with=0) {
-  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1);
-
-  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
-  t_docId id = start_with > 0 ? start_with : idStep;
-  for (int i = 0; i < size; i++) {
-    // if (i % 10000 == 1) {
-    //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
-    //     w->ndocs);
-    // }
-    ForwardIndexEntry h;
-    h.docId = id;
-    h.fieldMask = 1;
-    h.freq = 1;
-    h.term = "hello";
-    h.len = 5;
-
-    h.vw = NewVarintVectorWriter(8);
-    for (int n = idStep; n < idStep + i % 4; n++) {
-      VVW_Write(h.vw, n);
-    }
-
-    InvertedIndex_WriteForwardIndexEntry(idx, enc, &h);
-    VVW_Free(h.vw);
-
-    id += idStep;
-  }
-
-  // printf("BEFORE: iw cap: %ld, iw size: %zd, numdocs: %d\n", w->bw.buf->cap,
-  //        IW_Len(w), w->ndocs);
-
-  return idx;
-}
 
 int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
   printf("intersect: %llu\n", (unsigned long long)hits[0].docId);
@@ -679,14 +645,16 @@ TEST_F(IndexTest, testHybridVector) {
   size_t max_id = n*step;
   size_t d = 4;
   size_t k = 10;
+  VecSimMetric met = VecSimMetric_L2;
+  VecSimType t = VecSimType_FLOAT32;
   InvertedIndex *w = createIndex(n, step);
   IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
 
   // Create vector index
   VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
-                      .hnswParams = HNSWParams{.type = VecSimType_FLOAT32,
+                      .hnswParams = HNSWParams{.type = t,
                                                .dim = d,
-                                               .metric = VecSimMetric_L2,
+                                               .metric = met,
                                                .initialCapacity = max_id,
                                                .M = 16,
                                                .efConstruction = 100}};
@@ -706,7 +674,17 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
 
   // Run simple top k query.
-  IndexIterator *vecIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, NULL);
+  HybridIteratorParams hParams = {.index = index,
+                                  .dim = d,
+                                  .elementType = t,
+                                  .spaceMetric = met,
+                                  .query = top_k_query,
+                                  .qParams = queryParams,
+                                  .vectorScoreField = (char *)"__v_score",
+                                  .ignoreDocScore = true,
+                                  .childIt = NULL
+  };
+  IndexIterator *vecIt = NewHybridVectorIterator(hParams);
   RSIndexResult *h = NULL;
   size_t count = 0;
 
@@ -730,7 +708,8 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Test in hybrid mode.
   IndexIterator *ir = NewReadIterator(r);
-  IndexIterator *hybridIt = NewHybridVectorIterator(index, (char *)"__v_score", top_k_query, queryParams, ir);
+  hParams.childIt = ir;
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -738,10 +717,7 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
-    ASSERT_EQ(h->type, RSResultType_HybridDistance);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_EQ(h->agg.numChildren, 2);
-    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Distance);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
@@ -759,10 +735,7 @@ TEST_F(IndexTest, testHybridVector) {
   for (size_t i = 0; i < k/2; i++) {
     count++;
     ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
-    ASSERT_EQ(h->type, RSResultType_HybridDistance);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_EQ(h->agg.numChildren, 2);
-    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Distance);
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
   }
@@ -770,7 +743,44 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Abort(hybridIt->ctx);
   ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
 
-  // Rerun in AD_HOC BF MODE.
+  // Rerun in AD_HOC BF mode.
+  hybridIt->Rewind(hybridIt->ctx);
+  hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
+  count = 0;
+  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+    count++;
+    ASSERT_EQ(h->type, RSResultType_Distance);
+    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+  hybridIt->Free(hybridIt);
+
+  // Rerun without ignoring document scores.
+  r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  ir = NewReadIterator(r);
+  hParams.ignoreDocScore = false;
+  hParams.childIt = ir;
+  hybridIt = NewHybridVectorIterator(hParams);
+  hr = (HybridIterator *)hybridIt->ctx;
+  hr->searchMode = VECSIM_HYBRID_BATCHES;
+
+  // This time, result is a tree with 2 children: vector score and subtree of terms (for scoring).
+  count = 0;
+  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+    count++;
+    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
+    size_t expected_id = max_id - step*(k - count);
+    ASSERT_EQ(h->docId, expected_id);
+  }
+  ASSERT_EQ(count, k);
+  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+
+  // Rerun in AD_HOC BF mode.
   hybridIt->Rewind(hybridIt->ctx);
   hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
@@ -784,8 +794,52 @@ TEST_F(IndexTest, testHybridVector) {
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
   }
-
   hybridIt->Free(hybridIt);
+
+  InvertedIndex_Free(w);
+  VecSimIndex_Free(index);
+}
+
+TEST_F(IndexTest, testInvalidHybridVector) {
+
+  size_t n = 1;
+  size_t d = 4;
+  InvertedIndex *w = createIndex(n, 1);
+  IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+
+  // Create vector index with a single vector.
+  VecSimParams params{
+      .algo = VecSimAlgo_HNSWLIB,
+      .hnswParams = HNSWParams{
+          .type = VecSimType_FLOAT32, .dim = d, .metric = VecSimMetric_L2, .initialCapacity = n}};
+  VecSimIndex *index = VecSimIndex_New(&params);
+
+  float vec[] = {(float)n, (float)n, (float)n, (float)n};
+  VecSimIndex_AddVector(index, (const void *)vec, n);
+  ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+  KNNVectorQuery top_k_query = {.vector = vec, .vecLen = d, .k = 10, .order = BY_SCORE};
+  VecSimQueryParams queryParams = {0};
+
+  // Create invalid intersection iterator (with a child iterator which is NULL).
+  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
+  irs[0] = NewReadIterator(r);
+  irs[1] = NULL;
+  // The iterator is initialized with inOrder=true, to test the case where the null
+  // child isn't the first child (since inOrder=true will trigger sorting).
+  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 1, 1);
+
+  // Create hybrid iterator - should return NULL.
+  HybridIteratorParams hParams = {.index = index,
+                                  .query = top_k_query,
+                                  .qParams = queryParams,
+                                  .vectorScoreField = (char *)"__v_score",
+                                  .ignoreDocScore = true,
+                                  .childIt = ii};
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
+  ASSERT_FALSE(hybridIt);
+
+  ii->Free(ii);
   InvertedIndex_Free(w);
   VecSimIndex_Free(index);
 }

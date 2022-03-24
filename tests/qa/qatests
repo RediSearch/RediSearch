@@ -33,7 +33,7 @@ RLEC_PLATFORMS = {
         'env': 'bionic-amd64-aws' },
     'centos7': {
         'os': 'Linux-rhel7',
-        'env': 'rhel7.7-x86_64-aws' },
+        'env': 'rhel7.9-x86_64-aws' },
     'centos8': {
         'os': 'Linux-rhel8',
         'env': 'rhel8-x86_64-aws',
@@ -75,7 +75,7 @@ RS_VERSIONS file includes Redis Enterprive versions for release tests.
 
 
 class Test:
-    def __init__(self, token, test_fname, modver, snapshot, jsonver, rlecver, osnick, light):
+    def __init__(self, token, test_fname, modver, snapshot, jsonver, rlecver, osnick, light, vecsim):
         global NOP, VERBOSE
 
         self.token = token
@@ -87,6 +87,7 @@ class Test:
         self.rlecver = rlecver
         self.osnick = osnick
         self.light = light
+        self.vecsim = vecsim
         self.module_name = "RediSearchLight" if self.light else "RediSearch"
 
         ENV['SEARCH_VERSION'] = modver
@@ -95,7 +96,10 @@ class Test:
         if not light:
             ENV['SEARCH_FILE_PREFIX'] = 'redisearch'
             ENV['SEARCH_DOWNLOAD_NAME'] = 'search'
-            ENV['SEARCH_TEST_NAME'] = 'RediSearchEnterprise'
+            if not vecsim:
+                ENV['SEARCH_TEST_NAME'] = 'RediSearchEnterprise'
+            else:
+                ENV['SEARCH_TEST_NAME'] = 'RediSearchVecsim'
         else:
             ENV['SEARCH_FILE_PREFIX'] = 'redisearch-light'
             ENV['SEARCH_DOWNLOAD_NAME'] = 'searchlight'
@@ -186,11 +190,12 @@ class Test:
 @click.option('--rlecver', '-r', default=None, help='Test for a RLEC version`')
 @click.option('--osnick', default=None, help='Test for OSNICK`')
 @click.option('--light', is_flag=True, default=False, help='Test RediSearch Light')
-@click.option('--quick', is_flag=True, default=False, help='Only test one RS version')
+@click.option('--vecsim', is_flag=True, default=False, help='Test RediSearch w/VecSim')
+@click.option('-q' ,'--quick', is_flag=True, default=False, help='Only test one RS version')
 @click.option('--nop', is_flag=True, default=False, help='Dry run')
 @click.option('--verbose', '-v', is_flag=True, default=False, help='Be verbose')
 @click.option('--verbosity', type=int, default=0, help='Verbosity level')
-def main(token, test, modver, snapshot, jsonver, rlecver, osnick, light, quick, nop, verbose, verbosity, *args, **kwargs):
+def main(token, test, modver, snapshot, jsonver, rlecver, osnick, light, vecsim, quick, nop, verbose, verbosity, *args, **kwargs):
     global NOP, VERBOSE
     VERBOSE = 1 if verbose else verbosity
     NOP = nop
@@ -202,17 +207,25 @@ def main(token, test, modver, snapshot, jsonver, rlecver, osnick, light, quick, 
     test_fname = os.path.join(HERE, f'{test}.json')
     if not os.path.exists(test_fname):
         raise click.ClickException(f"Invalid test name: {test}")
+    if light and vecsim:
+        raise click.ClickException("Invalid combination: light and vecsim")
 
     if modver == 'master':
         snapshot = True
     if rlecver is not None:
-        Test(token, test_fname, modver, snapshot, jsonver, rlecver, osnick, light).run()
+        if rlecver == 'master':
+            rs_versions = paella.flines(os.path.join(HERE, 'RS_VERSIONS'))
+            try:
+                rlecver = list(filter(lambda v: '100.0.0' in v, rs_versions))[0]
+            except:
+                raise click.ClickException("Cannot find master version (100.0.0) in RS_VERSIONS")
+        Test(token, test_fname, modver, snapshot, jsonver, rlecver, osnick, light, vecsim).run()
     else:
         rs_versions = paella.flines(os.path.join(HERE, 'RS_VERSIONS'))
         if quick:
             rs_versions = [rs_versions[0]]
         for rlecver in rs_versions:
-            Test(token, test_fname, modver, snapshot, jsonver, rlecver, osnick, light).run()
+            Test(token, test_fname, modver, snapshot, jsonver, rlecver, osnick, light, vecsim).run()
 
 
 if __name__ == '__main__':

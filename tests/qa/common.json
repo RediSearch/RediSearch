@@ -14,7 +14,7 @@
     "module_download_url": true,
     "module_download_urls": {
       "{{SEARCH_DOWNLOAD_NAME}}": "http://redismodules.s3.amazonaws.com/{{SEARCH_DIR}}/{{SEARCH_FILE_PREFIX}}.{{RLEC_OS}}-{{RLEC_ARCH}}.{{SEARCH_VERSION}}.zip",
-      "ReJSON": "http://redismodules.s3.amazonaws.com/{{REJSON_DIR}}/{{REJSON_FILE_PREFIX}}.{{RLEC_OS}}-{{RLEC_ARCH}}.{{REJSON_VERSION}}.zip']"
+      "ReJSON": "http://redismodules.s3.amazonaws.com/{{REJSON_DIR}}/{{REJSON_FILE_PREFIX}}.{{RLEC_OS}}-{{RLEC_ARCH}}.{{REJSON_VERSION}}.zip"
     },
     "cycle_environments_setup": [
       {

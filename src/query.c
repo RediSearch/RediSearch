@@ -8,7 +8,6 @@
 #include "index.h"
 #include "query.h"
 #include "config.h"
-#include "query_parser/parser.h"
 #include "redis_index.h"
 #include "tokenize.h"
 #include "util/logging.h"
@@ -25,6 +24,7 @@
 #include "rmutil/rm_assert.h"
 #include "module.h"
 #include "query_internal.h"
+#include "aggregate/aggregate.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -629,6 +629,10 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
 }
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
+  if((q->reqFlags & QEXEC_F_IS_EXTENDED)) {
+    QueryError_SetErrorFmt(q->status, QUERY_EAGGPLAN, "VSS is not yet supported on FT.AGGREGATE");
+    return NULL;
+  }
   if (qn->type != QN_VECTOR) {
     return NULL;
   }
@@ -649,7 +653,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       return NULL;
     }
   }
-  IndexIterator *it = NewVectorIterator(q->sctx, qn->vn.vq, child_it, q->status);
+  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
   }
@@ -948,7 +952,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
 }
 
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
-               const char *q, size_t n, QueryError *status) {
+               const char *q, size_t n, unsigned int dialectVersion, QueryError *status) {
   if (!dst->query) {
     dst->query = rm_strndup(q, n);
     dst->nquery = n;
@@ -963,7 +967,10 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .trace_log = NULL
 #endif
   };
-  dst->root = RSQuery_ParseRaw(&qpCtx);
+  if (dialectVersion == 2)
+    dst->root = RSQuery_ParseRaw_v2(&qpCtx);
+  else
+    dst->root = RSQuery_ParseRaw_v1(&qpCtx);
 
 #ifdef PARSER_DEBUG
   if (qpCtx.trace_log != NULL) {
@@ -992,7 +999,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            ConcurrentSearchCtx *conc, QueryError *status) {
+                            ConcurrentSearchCtx *conc, uint32_t reqflags, QueryError *status) {
   QueryEvalCtx qectx = {
       .conc = conc,
       .opts = opts,
@@ -1001,6 +1008,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .sctx = sctx,
       .status = status,
       .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
+      .reqFlags = reqflags
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
