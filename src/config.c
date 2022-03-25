@@ -381,6 +381,22 @@ CONFIG_GETTER(getNumericTreeMaxDepthRange) {
   return sdscatprintf(ss, "%ld", config->numericTreeMaxDepthRange);
 }
 
+CONFIG_SETTER(setDefaultDialectVersion) {
+  unsigned int defaultDialectVersion;
+  int acrc = AC_GetUnsigned(ac, &defaultDialectVersion, AC_F_GE1);
+  if (defaultDialectVersion > MAX_DIALECT_VERSION) {
+    QueryError_SetErrorFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
+    return REDISMODULE_ERR;   
+  }
+  config->defaultDialectVersion = defaultDialectVersion;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getDefaultDialectVersion) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->defaultDialectVersion);
+}
+
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
@@ -699,6 +715,12 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "for `x` generations.",
          .setValue = setNumericTreeMaxDepthRange,
          .getValue = getNumericTreeMaxDepthRange},
+        {.name = "DEFAULT_DIALECT",
+         .helpText = "Set RediSearch default dialect version throught the lifetime of the server.",
+         .setValue = setDefaultDialectVersion,
+         .getValue = getDefaultDialectVersion
+
+        },
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

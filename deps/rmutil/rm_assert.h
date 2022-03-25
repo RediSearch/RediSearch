@@ -1,7 +1,9 @@
 #ifndef __REDISEARCH_ASSERT__
 #define __REDISEARCH_ASSERT__
 
-#include <redismodule.h>
+#include "redismodule.h"
+#include "module.h"
+
 #ifdef NDEBUG
 
 #define RS_LOG_ASSERT(ctx, condition, fmt, ...)    (__ASSERT_VOID_CAST (0))
@@ -11,8 +13,7 @@
 
 #define RS_LOG_ASSERT_FMT(condition, fmt, ...)                                          \
     if (__builtin_expect(!(condition), 0)) {                                            \
-        RedisModuleCtx* assertCtx = RedisModule_GetThreadSafeContext(NULL);             \
-        RedisModule_Log(assertCtx, "warning", (fmt), __VA_ARGS__);                      \
+        RedisModule_Log(RSDummyContext, "warning", (fmt), __VA_ARGS__);                 \
         RedisModule_Assert(condition); /* Crashes server and create a crash report*/    \
     } 
 

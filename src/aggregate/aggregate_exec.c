@@ -305,6 +305,9 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (type == COMMAND_SEARCH) {
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
   }
+  else if (type == COMMAND_AGGREGATE) {
+    (*r)->reqflags |= QEXEC_F_IS_EXTENDED;
+  }
 
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
@@ -469,7 +472,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (strcasecmp(cmd, "QUERY") != 0) {
-    RedisModule_ReplyWithError(ctx, "The QUERY keyward is expected");
+    RedisModule_ReplyWithError(ctx, "The QUERY keyword is expected");
     return REDISMODULE_OK;
   }
 

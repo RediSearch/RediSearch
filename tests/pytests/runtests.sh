@@ -118,7 +118,7 @@ SHARDS=${SHARDS:-3}
 
 RLEC_PORT=${RLEC_PORT:-12000}
 
-[[ $PARALLEL == 1 ]] && RLTEST_PARALLEL="--parallelism $($READIES/bin/nproc)"
+[[ $PARALLEL == 1 ]] && RLTEST_PARALLEL_ARG="--parallelism $($READIES/bin/nproc)"
 
 #---------------------------------------------------------------------------------------------- 
 
@@ -252,7 +252,7 @@ run_tests() {
 			--module $MODULE
 			--module-args '$MODARGS'
 			$RLTEST_ARGS
-			$RLTEST_PARALLEL
+			$RLTEST_PARALLEL_ARG
 			$REJSON_ARGS
 			$VALGRIND_ARGS
 			$SAN_ARGS
@@ -302,9 +302,9 @@ run_tests() {
 
 	local E=0
 	if [[ $NOP != 1 ]]; then
-		{ $OP python2 -m RLTest @$rltest_config; (( E |= $? )); } || true
+		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
 	else
-		$OP python2 -m RLTest @$rltest_config
+		$OP python3 -m RLTest @$rltest_config
 	fi
 	rm -f $rltest_config
 
@@ -326,29 +326,40 @@ if [[ -z $COORD ]]; then
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --env-reuse --clear-logs --shards-count $SHARDS"
 
-	{ (MODARGS+=" PARTITIONS AUTO" RLTEST_ARGS+=" ${oss_cluster_args}" \
+	{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 
 	if [[ $QUICK != 1 ]]; then
-		{ (MODARGS+=" PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
-		   RLTEST_ARGS+=" ${oss_cluster_args} --oss_password password" \
+		{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
+		   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
 		   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
-		{ (MODARGS+=" PARTITIONS AUTO SAFEMODE" RLTEST_ARGS+=" ${oss_cluster_args}" \
+		{ (MODARGS="${MODARGS} PARTITIONS AUTO SAFEMODE" RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args}" \
 		   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
 
 		tls_args="--tls \
 			--tls-cert-file $ROOT/bin/tls/redis.crt \
 			--tls-key-file $ROOT/bin/tls/redis.key \
 			--tls-ca-cert-file $ROOT/bin/tls/ca.crt"
+			
+		redis_ver=$($REDIS_SERVER --version | cut -d= -f2 | cut -d" " -f1)
+		redis_major=$(echo "$redis_ver" | cut -d. -f1)
+		redis_minor=$(echo "$redis_ver" | cut -d. -f2)
+		if [[ $redis_major == 7 || $redis_major == 6 && $redis_minor == 2 ]]; then
+			PASSPHRASE=1
+			tls_args+=" --tls-passphrase foobar"
+		else
+			PASSPHRASE=0
+		fi
 
-		$ROOT/sbin/gen-test-certs.sh
-		{ (RLTEST_ARGS+=" ${oss_cluster_args} ${tls_args}" \
+		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs.sh
+		{ (RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} ${tls_args}" \
 		   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
 	fi # QUICK
 
 elif [[ $COORD == rlec ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
-	{ (RLTEST_ARGS+=" --env existing-env --existing-env-addr $dhost:$RLEC_PORT" run_tests "tests on RLEC"); (( E |= $? )); } || true
+	{ (RLTEST_ARGS+="${RLTEST_ARGS} --env existing-env --existing-env-addr $dhost:$RLEC_PORT" \
+	   run_tests "tests on RLEC"); (( E |= $? )); } || true
 fi
 
 exit $E
