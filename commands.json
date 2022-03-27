@@ -214,6 +214,13 @@
       {
         "name": "query",
         "type": "string"
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -230,6 +237,13 @@
       {
         "name": "query",
         "type": "string"
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -540,6 +554,13 @@
             "optional": true
           }
         ]
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.4.0",
@@ -982,6 +1003,13 @@
             "type": ["integer", "integer"]
           }
         ]
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -1181,6 +1209,13 @@
             "command":"MAXIDLE"
           }
         ]
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.1.0",

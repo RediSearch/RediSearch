@@ -166,7 +166,7 @@ def testProfileErrors(env):
   env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH` or `AGGREGATE` provided')
   # miss `QUERY` keyword
   if not env.isCluster():
-    env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyward is expected')
+    env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
 
 def testProfileNumeric(env):
   env.skipOnCluster()
@@ -204,6 +204,7 @@ def testProfileVector(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2')
 
   env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT').ok()
   conn.execute_command('hset', '1', 'v', 'bababaca', 't', "hello")
