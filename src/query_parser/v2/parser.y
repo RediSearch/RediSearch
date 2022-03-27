@@ -41,7 +41,7 @@
 
 %token_type {QueryToken}
 
-%name RSQueryParser_
+%name RSQueryParser_v2_
 
 %stack_size 256
 
@@ -63,38 +63,10 @@
 #include <strings.h>
 #include <assert.h>
 
-#include "parse.h"
-#include "util/arr.h"
-#include "rmutil/vector.h"
-#include "query_node.h"
-#include "vector_index.h"
-#include "query_param.h"
-#include "query_internal.h"
-#include "util/strconv.h"
-
-// strndup + lowercase in one pass!
-char *strdupcase(const char *s, size_t len) {
-  char *ret = rm_strndup(s, len);
-  char *dst = ret;
-  char *src = dst;
-  while (*src) {
-      // unescape
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst = tolower(*src);
-      ++dst;
-      ++src;
-
-  }
-  *dst = '\0';
-
-  return ret;
-}
+#include "../parse.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
-size_t unescapen(char *s, size_t sz) {
+static size_t unescapen(char *s, size_t sz) {
 
   char *dst = s;
   char *src = dst;
@@ -133,7 +105,7 @@ static int one_not_null(void *a, void *b, void *out) {
     }
 }
 
-void setup_trace(QueryParseCtx *ctx) {
+static void setup_trace(QueryParseCtx *ctx) {
 #ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
   ctx->trace_log = fopen("/tmp/lemon_query.log", "w");
@@ -141,7 +113,7 @@ void setup_trace(QueryParseCtx *ctx) {
 #endif
 }
 
-void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
+static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
     QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
       "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
