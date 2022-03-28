@@ -150,6 +150,10 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
   // RSAddDocumentCtx each time.
   uint32_t docIdMap[MAX_BULK_DOCS] = {0};
 
+  // create fieldmask of suffix
+  arrayof(int) suffixArray = NULL; 
+  t_fieldMask suffixMask = IndexSpec_GetSuffixMask(ctx->spec, suffixArray);
+
   // Iterate over all the entries
   for (uint32_t curBucketIdx = 0; curBucketIdx < ht->numBuckets; curBucketIdx++) {
     for (KHTableEntry *entp = ht->buckets[curBucketIdx]; entp; entp = entp->next) {
@@ -189,6 +193,16 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
         // Finally assign the document ID to the entry
         fwent->docId = docId;
         writeIndexEntry(ctx->spec, invidx, encoder, fwent);
+
+        // add to suffix trie
+        if (suffixMask & fwent->fieldMask) {
+          for (int i = 0; i < array_len(suffixArray); ++i) {
+            FieldSpec *field = ctx->spec->fields + suffixArray[i];
+            if (FIELD_BIT(field) & suffixMask) {
+              writeSuffixTrie(field->suffixTrie, fwent->term, fwent->len);
+            }
+          }
+        }
       }
 
       if (idxKey) {
@@ -237,10 +251,13 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
       RedisModule_CloseKey(idxKey);
     }
     
+    // if the entry appears in a suffix field, write it.
     if (suffixMask & entry->fieldMask) {
       for (int i = 0; i < array_len(suffixArray); ++i) {
         FieldSpec *field = spec->fields + suffixArray[i];
-        writeSuffixTrie(field->suffixTrie, entry->term, entry->len);
+        if (FIELD_BIT(field) & suffixMask) {
+          writeSuffixTrie(field->suffixTrie, entry->term, entry->len);
+        }
       }
     }
 

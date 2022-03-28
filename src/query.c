@@ -436,6 +436,9 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
+
+  // check if the field has suffix trie 
+  // qn->opts.fieldMask
   Trie *terms = q->sctx->spec->terms;
 
   if (!terms) return NULL;
