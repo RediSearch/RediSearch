@@ -422,6 +422,22 @@ jobs:
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
 
+  benchmark-vecsim-ann-oss-cluster-profiler:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+    steps:
+      - build-steps:
+          platform: bionic
+          build_params: PROFILE=1
+          run_pack: false
+      - benchmark-automation:
+          profile_env: "1"
+          platform: bionic
+          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          allowed_envs: oss-cluster
+          benchmark_glob: "vecsim-ann*.yml"
+
   benchmark-vecsim-l2-oss-standalone:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bionic
@@ -749,6 +765,9 @@ workflows:
           context: common
           <<: *on-perf-and-version-tags
       - benchmark-vecsim-ann-oss-cluster:
+          context: common
+          <<: *on-perf-and-version-tags
+      - benchmark-vecsim-ann-oss-cluster-profiler:
           context: common
           <<: *on-perf-and-version-tags
       - benchmark-vecsim-ann-oss-standalone-profiler:
