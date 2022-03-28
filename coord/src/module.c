@@ -35,6 +35,8 @@
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 
+extern RSConfig RSGlobalConfig;
+
 int redisMajorVesion = 0;
 int redisMinorVesion = 0;
 int redisPatchVesion = 0;
@@ -439,8 +441,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
 }
 
 // Prepare a TOPK special case.
-void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, int argc) {
-  QueryError status = {0};
+void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, int argc, QueryError *status) {
   RedisSearchCtx sctx = {0};
   RSSearchOptions opts = {0};
   QueryParseCtx qpCtx = {
@@ -448,13 +449,14 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
                          .len = strlen(req->queryString),
                          .sctx = &sctx,
                          .opts = &opts,
-                         .status = &status,
+                         .status = status,
 #ifdef PARSER_DEBUG
                          .trace_log = NULL
 #endif
   };
-  QueryNode* queryNode = RSQuery_ParseRaw(&qpCtx);
-  if(status.code != 0 ) {
+  // KNN queries are parsed only on dialect versions >=2
+  QueryNode* queryNode = RSQuery_ParseRaw_v2(&qpCtx);
+  if(status->code != 0 ) {
     //fail.
   }
   if(queryNode!= NULL && queryNode->type == QN_VECTOR) {
@@ -466,12 +468,12 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
       if(paramsOffset!=0) {
         ArgsCursor ac;
         ArgsCursor_InitRString(&ac, argv+paramsOffset, argc-paramsOffset);
-          parseParams(&params, &ac, &status);
+          parseParams(&params, &ac, status);
       }
       else {
         //fail
       }
-      QueryNode_EvalParamsCommon(params, queryNode, &status);
+      QueryNode_EvalParamsCommon(params, queryNode, status);
       Param_DictFree(params);
     }
     QueryVectorNode queryVectorNode = queryNode->vn;
@@ -528,7 +530,7 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
   req->specialCases = array_append(req->specialCases, ctx);
 }
 
-searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
+searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError* status) {
   /* A search request must have at least 3 args */
   if (argc < 3) {
     return NULL;
@@ -597,9 +599,23 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
     req->withSortby = false;
   }
 
-  // Note: currently there is only one single case. For extending those cases we should use a trie here.
-  if(strcasestr(req->queryString, "KNN")) {
-    prepareOptionalTopKCase(req, argv, argc);
+  unsigned int dialect = RSGlobalConfig.defaultDialectVersion;
+  int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
+  if(dialectArgIndex > 0) {
+      dialectArgIndex++;
+      ArgsCursor ac;
+      ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
+      if (parseDialect(&dialect, &ac, status) != REDISMODULE_OK) {
+        free(req);
+        return NULL;
+      }
+  }
+
+  if(dialect >= 2) {
+    // Note: currently there is only one single case. For extending those cases we should use a trie here.
+    if(strcasestr(req->queryString, "KNN")) {
+      prepareOptionalTopKCase(req, argv, argc, status);
+    }
   }
 
   return req;
@@ -1533,9 +1549,12 @@ int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   RedisModule_AutoMemory(ctx);
 
-  searchRequestCtx *req = rscParseRequest(argv, argc);
+  QueryError status = {0};
+  searchRequestCtx *req = rscParseRequest(argv, argc, &status);
   if (!req) {
-    return RedisModule_ReplyWithError(ctx, "Invalid search request");
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
+    return REDISMODULE_OK;
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -1622,10 +1641,15 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 }
 
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **argv, int argc) {
-  searchRequestCtx *req = rscParseRequest(argv, argc);
+  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModule_AutoMemory(ctx);
+  QueryError status = {0};
+  searchRequestCtx *req = rscParseRequest(argv, argc, &status);
+
   if (!req) {
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-    RedisModule_ReplyWithError(clientCtx, "Invalid search request");
+    RedisModule_ReplyWithError(clientCtx, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
     RedisModule_UnblockClient(bc, NULL);
     RedisModule_FreeThreadSafeContext(clientCtx);
     return REDISMODULE_OK;

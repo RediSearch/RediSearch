@@ -298,14 +298,28 @@ MODULE_API_FUNC(void, RediSearch_SetCriteriaTesterThreshold)(size_t num);
  * Return an iterator over the results of the specified query string
  * @param sp the index
  * @param s the query string
- * @param n the length of the steing
- * @param[out] if not-NULL, will be set to the error message, if there is a
+ * @param n the length of the string
+ * @param[out] error if not-NULL, will be set to the error message, if there is a
  *  problem parsing the query
  * @return an iterator over the results, or NULL if no iterator can be had
  *  (see err, or no results).
  */
 MODULE_API_FUNC(RSResultsIterator*, RediSearch_IterateQuery)
 (RSIndex* sp, const char* s, size_t n, char** err);
+
+/**
+ * Return an iterator over the results of the specified query string
+ * @param sp the index
+ * @param s the query string
+ * @param n the length of the string
+ * @param dialect dialect version to be used for parsing the query
+ * @param[out] error if not-NULL, will be set to the error message, if there is a
+ *  problem parsing the query
+ * @return an iterator over the results, or NULL if no iterator can be had
+ *  (see err, or no results).
+ */
+MODULE_API_FUNC(RSResultsIterator*, RediSearch_IterateQueryWithDialect)
+(RSIndex* sp, const char* s, size_t n, unsigned int dialect, char** err);
 
 MODULE_API_FUNC(int, RediSearch_DocumentExists)
 (RSIndex* sp, const void* docKey, size_t len);
@@ -378,6 +392,7 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
   X(ResultsIteratorFree)             \
   X(ResultsIteratorReset)            \
   X(IterateQuery)                    \
+  X(IterateQueryWithDialect)         \
   X(ResultsIteratorGetScore)         \
   X(IndexOptionsSetGCPolicy)         \
   X(IndexInfo)                       \

@@ -30,38 +30,10 @@
 #include <strings.h>
 #include <assert.h>
 
-#include "parse.h"
-#include "util/arr.h"
-#include "rmutil/vector.h"
-#include "query_node.h"
-#include "vector_index.h"
-#include "query_param.h"
-#include "query_internal.h"
-#include "util/strconv.h"
-
-// strndup + lowercase in one pass!
-char *strdupcase(const char *s, size_t len) {
-  char *ret = rm_strndup(s, len);
-  char *dst = ret;
-  char *src = dst;
-  while (*src) {
-      // unescape
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst = tolower(*src);
-      ++dst;
-      ++src;
-
-  }
-  *dst = '\0';
-
-  return ret;
-}
+#include "../parse.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
-size_t unescapen(char *s, size_t sz) {
+static size_t unescapen(char *s, size_t sz) {
 
   char *dst = s;
   char *src = dst;
@@ -100,7 +72,7 @@ static int one_not_null(void *a, void *b, void *out) {
     }
 }
 
-void setup_trace(QueryParseCtx *ctx) {
+static void setup_trace(QueryParseCtx *ctx) {
 #ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
   ctx->trace_log = fopen("/tmp/lemon_query.log", "w");
@@ -108,7 +80,7 @@ void setup_trace(QueryParseCtx *ctx) {
 #endif
 }
 
-void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
+static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
     QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
       "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
@@ -173,7 +145,7 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 **    YYACTIONTYPE       is the data type used for "action codes" - numbers
 **                       that indicate what to do in response to the next
 **                       token.
-**    RSQueryParser_TOKENTYPE     is the data type used for minor type for terminal
+**    RSQueryParser_v2_TOKENTYPE     is the data type used for minor type for terminal
 **                       symbols.  Background: A "minor type" is a semantic
 **                       value associated with a terminal or non-terminal
 **                       symbols.  For example, for an "ID" terminal symbol,
@@ -184,16 +156,16 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 **                       symbols.
 **    YYMINORTYPE        is the data type used for all minor types.
 **                       This is typically a union of many types, one of
-**                       which is RSQueryParser_TOKENTYPE.  The entry in the union
+**                       which is RSQueryParser_v2_TOKENTYPE.  The entry in the union
 **                       for terminal symbols is called "yy0".
 **    YYSTACKDEPTH       is the maximum depth of the parser's stack.  If
 **                       zero the stack is dynamically sized using realloc()
-**    RSQueryParser_ARG_SDECL     A static variable declaration for the %extra_argument
-**    RSQueryParser_ARG_PDECL     A parameter declaration for the %extra_argument
-**    RSQueryParser_ARG_PARAM     Code to pass %extra_argument as a subroutine parameter
-**    RSQueryParser_ARG_STORE     Code to store %extra_argument into yypParser
-**    RSQueryParser_ARG_FETCH     Code to extract %extra_argument from yypParser
-**    RSQueryParser_CTX_*         As RSQueryParser_ARG_ except for %extra_context
+**    RSQueryParser_v2_ARG_SDECL     A static variable declaration for the %extra_argument
+**    RSQueryParser_v2_ARG_PDECL     A parameter declaration for the %extra_argument
+**    RSQueryParser_v2_ARG_PARAM     Code to pass %extra_argument as a subroutine parameter
+**    RSQueryParser_v2_ARG_STORE     Code to store %extra_argument into yypParser
+**    RSQueryParser_v2_ARG_FETCH     Code to extract %extra_argument from yypParser
+**    RSQueryParser_v2_CTX_*         As RSQueryParser_v2_ARG_ except for %extra_context
 **    YYERRORSYMBOL      is the code number of the error symbol.  If not
 **                       defined, then do no error processing.
 **    YYNSTATE           the combined number of states.
@@ -215,10 +187,10 @@ void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
 #define YYCODETYPE unsigned char
 #define YYNOCODE 58
 #define YYACTIONTYPE unsigned short int
-#define RSQueryParser_TOKENTYPE QueryToken
+#define RSQueryParser_v2_TOKENTYPE QueryToken
 typedef union {
   int yyinit;
-  RSQueryParser_TOKENTYPE yy0;
+  RSQueryParser_v2_TOKENTYPE yy0;
   SingleVectorQueryParam yy9;
   QueryAttribute * yy17;
   QueryParam * yy22;
@@ -231,16 +203,16 @@ typedef union {
 #ifndef YYSTACKDEPTH
 #define YYSTACKDEPTH 256
 #endif
-#define RSQueryParser_ARG_SDECL  QueryParseCtx *ctx ;
-#define RSQueryParser_ARG_PDECL , QueryParseCtx *ctx 
-#define RSQueryParser_ARG_PARAM ,ctx 
-#define RSQueryParser_ARG_FETCH  QueryParseCtx *ctx =yypParser->ctx ;
-#define RSQueryParser_ARG_STORE yypParser->ctx =ctx ;
-#define RSQueryParser_CTX_SDECL
-#define RSQueryParser_CTX_PDECL
-#define RSQueryParser_CTX_PARAM
-#define RSQueryParser_CTX_FETCH
-#define RSQueryParser_CTX_STORE
+#define RSQueryParser_v2_ARG_SDECL  QueryParseCtx *ctx ;
+#define RSQueryParser_v2_ARG_PDECL , QueryParseCtx *ctx 
+#define RSQueryParser_v2_ARG_PARAM ,ctx 
+#define RSQueryParser_v2_ARG_FETCH  QueryParseCtx *ctx =yypParser->ctx ;
+#define RSQueryParser_v2_ARG_STORE yypParser->ctx =ctx ;
+#define RSQueryParser_v2_CTX_SDECL
+#define RSQueryParser_v2_CTX_PDECL
+#define RSQueryParser_v2_CTX_PARAM
+#define RSQueryParser_v2_CTX_FETCH
+#define RSQueryParser_v2_CTX_STORE
 #define YYFALLBACK 1
 #define YYNSTATE             115
 #define YYNRULE              97
@@ -599,8 +571,8 @@ struct yyParser {
 #ifndef YYNOERRORRECOVERY
   int yyerrcnt;                 /* Shifts left before out of the error */
 #endif
-  RSQueryParser_ARG_SDECL                /* A place to hold %extra_argument */
-  RSQueryParser_CTX_SDECL                /* A place to hold %extra_context */
+  RSQueryParser_v2_ARG_SDECL                /* A place to hold %extra_argument */
+  RSQueryParser_v2_CTX_SDECL                /* A place to hold %extra_context */
 #if YYSTACKDEPTH<=0
   int yystksz;                  /* Current side of the stack */
   yyStackEntry *yystack;        /* The parser's stack */
@@ -637,7 +609,7 @@ static char *yyTracePrompt = 0;
 ** Outputs:
 ** None.
 */
-void RSQueryParser_Trace(FILE *TraceFILE, char *zTracePrompt){
+void RSQueryParser_v2_Trace(FILE *TraceFILE, char *zTracePrompt){
   yyTraceFILE = TraceFILE;
   yyTracePrompt = zTracePrompt;
   if( yyTraceFILE==0 ) yyTracePrompt = 0;
@@ -849,7 +821,7 @@ static int yyGrowStack(yyParser *p){
 #endif
 
 /* Datatype of the argument to the memory allocated passed as the
-** second argument to RSQueryParser_Alloc() below.  This can be changed by
+** second argument to RSQueryParser_v2_Alloc() below.  This can be changed by
 ** putting an appropriate #define in the %include section of the input
 ** grammar.
 */
@@ -859,9 +831,9 @@ static int yyGrowStack(yyParser *p){
 
 /* Initialize a new parser that has already been allocated.
 */
-void RSQueryParser_Init(void *yypRawParser RSQueryParser_CTX_PDECL){
+void RSQueryParser_v2_Init(void *yypRawParser RSQueryParser_v2_CTX_PDECL){
   yyParser *yypParser = (yyParser*)yypRawParser;
-  RSQueryParser_CTX_STORE
+  RSQueryParser_v2_CTX_STORE
 #ifdef YYTRACKMAXSTACKDEPTH
   yypParser->yyhwm = 0;
 #endif
@@ -885,7 +857,7 @@ void RSQueryParser_Init(void *yypRawParser RSQueryParser_CTX_PDECL){
 #endif
 }
 
-#ifndef RSQueryParser__ENGINEALWAYSONSTACK
+#ifndef RSQueryParser_v2__ENGINEALWAYSONSTACK
 /* 
 ** This function allocates a new parser.
 ** The only argument is a pointer to a function which works like
@@ -896,18 +868,18 @@ void RSQueryParser_Init(void *yypRawParser RSQueryParser_CTX_PDECL){
 **
 ** Outputs:
 ** A pointer to a parser.  This pointer is used in subsequent calls
-** to RSQueryParser_ and RSQueryParser_Free.
+** to RSQueryParser_v2_ and RSQueryParser_v2_Free.
 */
-void *RSQueryParser_Alloc(void *(*mallocProc)(YYMALLOCARGTYPE) RSQueryParser_CTX_PDECL){
+void *RSQueryParser_v2_Alloc(void *(*mallocProc)(YYMALLOCARGTYPE) RSQueryParser_v2_CTX_PDECL){
   yyParser *yypParser;
   yypParser = (yyParser*)(*mallocProc)( (YYMALLOCARGTYPE)sizeof(yyParser) );
   if( yypParser ){
-    RSQueryParser_CTX_STORE
-    RSQueryParser_Init(yypParser RSQueryParser_CTX_PARAM);
+    RSQueryParser_v2_CTX_STORE
+    RSQueryParser_v2_Init(yypParser RSQueryParser_v2_CTX_PARAM);
   }
   return (void*)yypParser;
 }
-#endif /* RSQueryParser__ENGINEALWAYSONSTACK */
+#endif /* RSQueryParser_v2__ENGINEALWAYSONSTACK */
 
 
 /* The following function deletes the "minor type" or semantic value
@@ -922,8 +894,8 @@ static void yy_destructor(
   YYCODETYPE yymajor,     /* Type code for object to destroy */
   YYMINORTYPE *yypminor   /* The object to be destroyed */
 ){
-  RSQueryParser_ARG_FETCH
-  RSQueryParser_CTX_FETCH
+  RSQueryParser_v2_ARG_FETCH
+  RSQueryParser_v2_CTX_FETCH
   switch( yymajor ){
     /* Here is inserted the actions which take place when a
     ** terminal or non-terminal is destroyed.  This can happen
@@ -1040,7 +1012,7 @@ static void yy_pop_parser_stack(yyParser *pParser){
 /*
 ** Clear all secondary memory allocations from the parser
 */
-void RSQueryParser_Finalize(void *p){
+void RSQueryParser_v2_Finalize(void *p){
   yyParser *pParser = (yyParser*)p;
   while( pParser->yytos>pParser->yystack ) yy_pop_parser_stack(pParser);
 #if YYSTACKDEPTH<=0
@@ -1048,7 +1020,7 @@ void RSQueryParser_Finalize(void *p){
 #endif
 }
 
-#ifndef RSQueryParser__ENGINEALWAYSONSTACK
+#ifndef RSQueryParser_v2__ENGINEALWAYSONSTACK
 /* 
 ** Deallocate and destroy a parser.  Destructors are called for
 ** all stack elements before shutting the parser down.
@@ -1057,23 +1029,23 @@ void RSQueryParser_Finalize(void *p){
 ** is defined in a %include section of the input grammar) then it is
 ** assumed that the input pointer is never NULL.
 */
-void RSQueryParser_Free(
+void RSQueryParser_v2_Free(
   void *p,                    /* The parser to be deleted */
   void (*freeProc)(void*)     /* Function used to reclaim memory */
 ){
 #ifndef YYPARSEFREENEVERNULL
   if( p==0 ) return;
 #endif
-  RSQueryParser_Finalize(p);
+  RSQueryParser_v2_Finalize(p);
   (*freeProc)(p);
 }
-#endif /* RSQueryParser__ENGINEALWAYSONSTACK */
+#endif /* RSQueryParser_v2__ENGINEALWAYSONSTACK */
 
 /*
 ** Return the peak depth of the stack for a parser.
 */
 #ifdef YYTRACKMAXSTACKDEPTH
-int RSQueryParser_StackPeak(void *p){
+int RSQueryParser_v2_StackPeak(void *p){
   yyParser *pParser = (yyParser*)p;
   return pParser->yyhwm;
 }
@@ -1097,7 +1069,7 @@ static unsigned char yycoverage[YYNSTATE][YYNTOKEN];
 ** Return the number of missed state/lookahead combinations.
 */
 #if defined(YYCOVERAGE)
-int RSQueryParser_Coverage(FILE *out){
+int RSQueryParser_v2_Coverage(FILE *out){
   int stateno, iLookAhead, i;
   int nMissed = 0;
   for(stateno=0; stateno<YYNSTATE; stateno++){
@@ -1215,8 +1187,8 @@ static YYACTIONTYPE yy_find_reduce_action(
 ** The following routine is called if the stack overflows.
 */
 static void yyStackOverflow(yyParser *yypParser){
-   RSQueryParser_ARG_FETCH
-   RSQueryParser_CTX_FETCH
+   RSQueryParser_v2_ARG_FETCH
+   RSQueryParser_v2_CTX_FETCH
 #ifndef NDEBUG
    if( yyTraceFILE ){
      fprintf(yyTraceFILE,"%sStack Overflow!\n",yyTracePrompt);
@@ -1230,8 +1202,8 @@ static void yyStackOverflow(yyParser *yypParser){
   QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
     "Parser stack overflow. Try moving nested parentheses more to the left");
 /******** End %stack_overflow code ********************************************/
-   RSQueryParser_ARG_STORE /* Suppress warning about unused %extra_argument var */
-   RSQueryParser_CTX_STORE
+   RSQueryParser_v2_ARG_STORE /* Suppress warning about unused %extra_argument var */
+   RSQueryParser_v2_CTX_STORE
 }
 
 /*
@@ -1262,7 +1234,7 @@ static void yy_shift(
   yyParser *yypParser,          /* The parser to be shifted */
   YYACTIONTYPE yyNewState,      /* The new state to shift in */
   YYCODETYPE yyMajor,           /* The major token to shift in */
-  RSQueryParser_TOKENTYPE yyMinor        /* The minor token to shift in */
+  RSQueryParser_v2_TOKENTYPE yyMinor        /* The minor token to shift in */
 ){
   yyStackEntry *yytos;
   yypParser->yytos++;
@@ -1517,14 +1489,14 @@ static YYACTIONTYPE yy_reduce(
   yyParser *yypParser,         /* The parser */
   unsigned int yyruleno,       /* Number of the rule by which to reduce */
   int yyLookahead,             /* Lookahead token, or YYNOCODE if none */
-  RSQueryParser_TOKENTYPE yyLookaheadToken  /* Value of the lookahead token */
-  RSQueryParser_CTX_PDECL                   /* %extra_context */
+  RSQueryParser_v2_TOKENTYPE yyLookaheadToken  /* Value of the lookahead token */
+  RSQueryParser_v2_CTX_PDECL                   /* %extra_context */
 ){
   int yygoto;                     /* The next state */
   YYACTIONTYPE yyact;             /* The next action */
   yyStackEntry *yymsp;            /* The top of the parser's stack */
   int yysize;                     /* Amount to pop the stack */
-  RSQueryParser_ARG_FETCH
+  RSQueryParser_v2_ARG_FETCH
   (void)yyLookahead;
   (void)yyLookaheadToken;
   yymsp = yypParser->yytos;
@@ -2249,8 +2221,8 @@ yylhsminor.yy111 = yymsp[0].minor.yy111;
 static void yy_parse_failed(
   yyParser *yypParser           /* The parser */
 ){
-  RSQueryParser_ARG_FETCH
-  RSQueryParser_CTX_FETCH
+  RSQueryParser_v2_ARG_FETCH
+  RSQueryParser_v2_CTX_FETCH
 #ifndef NDEBUG
   if( yyTraceFILE ){
     fprintf(yyTraceFILE,"%sFail!\n",yyTracePrompt);
@@ -2261,8 +2233,8 @@ static void yy_parse_failed(
   ** parser fails */
 /************ Begin %parse_failure code ***************************************/
 /************ End %parse_failure code *****************************************/
-  RSQueryParser_ARG_STORE /* Suppress warning about unused %extra_argument variable */
-  RSQueryParser_CTX_STORE
+  RSQueryParser_v2_ARG_STORE /* Suppress warning about unused %extra_argument variable */
+  RSQueryParser_v2_CTX_STORE
 }
 #endif /* YYNOERRORRECOVERY */
 
@@ -2272,10 +2244,10 @@ static void yy_parse_failed(
 static void yy_syntax_error(
   yyParser *yypParser,           /* The parser */
   int yymajor,                   /* The major type of the error token */
-  RSQueryParser_TOKENTYPE yyminor         /* The minor type of the error token */
+  RSQueryParser_v2_TOKENTYPE yyminor         /* The minor type of the error token */
 ){
-  RSQueryParser_ARG_FETCH
-  RSQueryParser_CTX_FETCH
+  RSQueryParser_v2_ARG_FETCH
+  RSQueryParser_v2_CTX_FETCH
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
@@ -2283,8 +2255,8 @@ static void yy_syntax_error(
     "Syntax error at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/
-  RSQueryParser_ARG_STORE /* Suppress warning about unused %extra_argument variable */
-  RSQueryParser_CTX_STORE
+  RSQueryParser_v2_ARG_STORE /* Suppress warning about unused %extra_argument variable */
+  RSQueryParser_v2_CTX_STORE
 }
 
 /*
@@ -2293,8 +2265,8 @@ static void yy_syntax_error(
 static void yy_accept(
   yyParser *yypParser           /* The parser */
 ){
-  RSQueryParser_ARG_FETCH
-  RSQueryParser_CTX_FETCH
+  RSQueryParser_v2_ARG_FETCH
+  RSQueryParser_v2_CTX_FETCH
 #ifndef NDEBUG
   if( yyTraceFILE ){
     fprintf(yyTraceFILE,"%sAccept!\n",yyTracePrompt);
@@ -2308,13 +2280,13 @@ static void yy_accept(
   ** parser accepts */
 /*********** Begin %parse_accept code *****************************************/
 /*********** End %parse_accept code *******************************************/
-  RSQueryParser_ARG_STORE /* Suppress warning about unused %extra_argument variable */
-  RSQueryParser_CTX_STORE
+  RSQueryParser_v2_ARG_STORE /* Suppress warning about unused %extra_argument variable */
+  RSQueryParser_v2_CTX_STORE
 }
 
 /* The main parser program.
 ** The first argument is a pointer to a structure obtained from
-** "RSQueryParser_Alloc" which describes the current state of the parser.
+** "RSQueryParser_v2_Alloc" which describes the current state of the parser.
 ** The second argument is the major token number.  The third is
 ** the minor token.  The fourth optional argument is whatever the
 ** user wants (and specified in the grammar) and is available for
@@ -2331,11 +2303,11 @@ static void yy_accept(
 ** Outputs:
 ** None.
 */
-void RSQueryParser_(
+void RSQueryParser_v2_(
   void *yyp,                   /* The parser */
   int yymajor,                 /* The major token code number */
-  RSQueryParser_TOKENTYPE yyminor       /* The value for the token */
-  RSQueryParser_ARG_PDECL               /* Optional %extra_argument parameter */
+  RSQueryParser_v2_TOKENTYPE yyminor       /* The value for the token */
+  RSQueryParser_v2_ARG_PDECL               /* Optional %extra_argument parameter */
 ){
   YYMINORTYPE yyminorunion;
   YYACTIONTYPE yyact;   /* The parser action. */
@@ -2346,8 +2318,8 @@ void RSQueryParser_(
   int yyerrorhit = 0;   /* True if yymajor has invoked an error */
 #endif
   yyParser *yypParser = (yyParser*)yyp;  /* The parser */
-  RSQueryParser_CTX_FETCH
-  RSQueryParser_ARG_STORE
+  RSQueryParser_v2_CTX_FETCH
+  RSQueryParser_v2_ARG_STORE
 
   assert( yypParser->yytos!=0 );
 #if !defined(YYERRORSYMBOL) && !defined(YYNOERRORRECOVERY)
@@ -2416,7 +2388,7 @@ void RSQueryParser_(
         }
 #endif
       }
-      yyact = yy_reduce(yypParser,yyruleno,yymajor,yyminor RSQueryParser_CTX_PARAM);
+      yyact = yy_reduce(yypParser,yyruleno,yymajor,yyminor RSQueryParser_v2_CTX_PARAM);
     }else if( yyact <= YY_MAX_SHIFTREDUCE ){
       yy_shift(yypParser,yyact,(YYCODETYPE)yymajor,yyminor);
 #ifndef YYNOERRORRECOVERY
@@ -2548,7 +2520,7 @@ void RSQueryParser_(
 ** Return the fallback token corresponding to canonical token iToken, or
 ** 0 if iToken has no fallback.
 */
-int RSQueryParser_Fallback(int iToken){
+int RSQueryParser_v2_Fallback(int iToken){
 #ifdef YYFALLBACK
   assert( iToken<(int)(sizeof(yyFallback)/sizeof(yyFallback[0])) );
   return yyFallback[iToken];

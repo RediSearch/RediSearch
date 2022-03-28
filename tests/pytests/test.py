@@ -546,51 +546,28 @@ def testExplain(env):
     env.assertEqual(expected, res)
 
     q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
-    res = r.execute_command('ft.explain', 'idx', q)
-    expected = r'''
-UNION {
-  INTERSECT {
-    UNION {
-      hello
-      +hello(expanded)
-    }
-    UNION {
-      world
-      +world(expanded)
-    }
-    EXACT {
-      what
-      what
-    }
-    UNION {
-      hello
-      +hello(expanded)
-    }
-  }
-  INTERSECT {
-    UNION {
-      world
-      +world(expanded)
-    }
-    NUMERIC {10.000000 <= @bar <= 100.000000}
-  }
-  NUMERIC {200.000000 <= @bar <= 300.000000}
-}
-'''[1:]
+    res = r.execute_command('ft.explain', 'idx', q, 'DIALECT', 1)
+    expected = """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
+    env.assertEqual(res, expected)
+    res = r.execute_command('ft.explain', 'idx', q, 'DIALECT', 2)
+    expected = """UNION {\n  INTERSECT {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n    EXACT {\n      what\n      what\n    }\n    UNION {\n      hello\n      +hello(expanded)\n    }\n  }\n  INTERSECT {\n    UNION {\n      world\n      +world(expanded)\n    }\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n  }\n  NUMERIC {200.000000 <= @bar <= 300.000000}\n}\n"""
     env.assertEqual(res, expected)
 
-    res = env.cmd('ft.explainCli', 'idx', q)
+    res = env.cmd('ft.explaincli', 'idx', q, 'DIALECT', 1)
+    expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
+    env.assertEqual(res, expected)
+    res = env.cmd('ft.explainCli', 'idx', q, 'DIALECT', 2)
     expected = ['UNION {', '  INTERSECT {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '    EXACT {', '      what', '      what', '    }', '    UNION {', '      hello', '      +hello(expanded)', '    }', '  }', '  INTERSECT {', '    UNION {', '      world', '      +world(expanded)', '    }', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '  }', '  NUMERIC {200.000000 <= @bar <= 300.000000}', '}', '']
     env.assertEqual(expected, res)
 
 
-    q = ['* => [KNN $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    q = ['* => [KNN $k @v $B EF_RUNTIME 100]', 'DIALECT', 2, 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
     expected = """VECTOR {K=10 nearest vectors to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # test with hybrid query
-    q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+    q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'DIALECT', 2, 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
     expected = """VECTOR {\n  INTERSECT {\n    @t:hello\n    world\n  }\n} => {K=10 nearest vectors to `$B` in @v, EF_RUNTIME = 100, AS `__v_score`}\n"""
     env.assertEqual(expected, res)

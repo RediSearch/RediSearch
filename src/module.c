@@ -114,19 +114,34 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
+  
+  int argvOffset = 3;
+  unsigned int dialect = RSGlobalConfig.defaultDialectVersion;
+  int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
+  if(dialectArgIndex > 0) {
+    dialectArgIndex++;
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
+    QueryError status = {0};
+    if(parseDialect(&dialect, &ac, &status) != REDISMODULE_OK) {
+      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      QueryError_ClearError(&status);
+      return REDISMODULE_OK;
+    }
+  }
+
   RedisModule_AutoMemory(ctx);
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
-
   QueryError status = {0};
   size_t len;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   const char **includeDict = NULL, **excludeDict = NULL;
   RSSearchOptions opts = {0};
   QueryAST qast = {0};
-  int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, &status);
+  int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 
   if (rc != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));

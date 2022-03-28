@@ -162,6 +162,11 @@ def skipOnCrdtEnv(env):
     if len([a for a in env.cmd('module', 'list') if a[1] == 'crdt']) > 0:
         env.skip()
 
+def skipOnDialect(env, dialect):
+    server_dialect = int(env.expect('FT.CONFIG', 'GET', 'DEFAULT_DIALECT').res[0][1])
+    if dialect == server_dialect:
+        env.skip()
+
 def waitForRdbSaveToFinish(env):
     # info command does not take a key therefore a cluster env is no good here
     if env is RLTest.Env or env is RLTest.StandardEnv:

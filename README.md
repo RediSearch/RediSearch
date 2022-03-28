@@ -139,7 +139,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [NRediSearch-stars]: https://img.shields.io/github/stars/StackExchange/NRediSearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redis-om-dotnet-url]: https://github.com/redis/redis-om-dotnet
-[redis-om-dotnet-author]: htts://redis.com
+[redis-om-dotnet-author]: https://redis.com
 [redis-om-dotnet-stars]: https://img.shields.io/github/stars/redis/redis-om-dotnet.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redisearch-php-url]: https://github.com/ethanhann/redisearch-php
