@@ -81,7 +81,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 | C# | [Redis.OM][redis-om-dotnet-url] | [Redis][redis-om-dotnet-author] | BSD-3-Clause | [![redis-om-dotnet-stars]][redis-om-dotnet-url] |
 | PHP | [redisearch-php][redisearch-php-url] | [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
 | PHP | [php-redisearch][php-redisearch-url] | [MacFJA][php-redisearch-author] | MIT | [![php-redisearch-stars]][php-redisearch-url] |
-| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
+| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] |
 | Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
@@ -165,17 +165,6 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
 [redisearch-api-rs-author]: https://redis.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-## Other available Libraries
-
-| Language | Library | Author | License | Stars | Comments |
-|----------|---------|--------|---------|-------|----------|
-| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
-
-[redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
-[redisearch-api-rs-author]: https://redis.com
-[redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
 
 ## RediSearch features
 
