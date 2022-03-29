@@ -63,13 +63,14 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 
 You can use any standard Redis client library to run RediSearch commands, but it's easiest to use a library that wraps the RediSearch API.
 
-| Language | Library | Author | License | Stars |
-|----------|---------|--------|---------|-------|
-|Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
+| Language | Library | Author | License | Stars | Comment |
+|----------|---------|--------|---------|-------|---------|
+| Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
 | Python | [redis-om][redis-om-python-url] | [Redis][redis-om-python-author] | BSD-3-Clause | [![redis-om-python-stars]][redis-om-python-url] |
-| Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
-| Java (Lettuce client library) | [lettusearch][lettusearch-url] | [Redis][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url]|
-| Java | [spring-redisearch][spring-redisearch-url] | [Redis][spring-redisearch-author] | Apache-2.0 | [![spring-redisearch-stars]][spring-redisearch-url]|
+| Java | [Jedis][Jedis-url] | [Redis][Jedis-author] | MIT | [![Jedis-stars]][Jedis-url] |
+| Java | [JRediSearch][JRediSearch-url] | [Redis][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url] | Deprecated |
+| Java | [lettusearch][lettusearch-url] | [Redis][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url] |
+| Java | [spring-redisearch][spring-redisearch-url] | [Redis][spring-redisearch-author] | Apache-2.0 | [![spring-redisearch-stars]][spring-redisearch-url] |
 | Java | [redis-om-spring][redis-om-spring-url] | [Redis][redis-om-spring-author] | BSD-3-Clause | [![redis-om-spring-stars]][redis-om-spring-url] |
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
 | Go | [redisearch-go][redisearch-go-url] | [Redis][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
@@ -92,6 +93,10 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redis-om-python-url]: https://github.com/redis/redis-om-python
 [redis-om-python-author]: https://redis.com
 [redis-om-python-stars]: https://img.shields.io/github/stars/redis/redis-om-python.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[Jedis-url]: https://github.com/redis/jedis
+[Jedis-author]: https://redis.com
+[Jedis-stars]: https://img.shields.io/github/stars/redis/jedis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [JRediSearch-url]: https://github.com/RediSearch/JRediSearch
 [JRediSearch-author]: https://redis.com
@@ -134,7 +139,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [NRediSearch-stars]: https://img.shields.io/github/stars/StackExchange/NRediSearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redis-om-dotnet-url]: https://github.com/redis/redis-om-dotnet
-[redis-om-dotnet-author]: htts://redis.com
+[redis-om-dotnet-author]: https://redis.com
 [redis-om-dotnet-stars]: https://img.shields.io/github/stars/redis/redis-om-dotnet.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redisearch-php-url]: https://github.com/ethanhann/redisearch-php
