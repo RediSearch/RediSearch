@@ -474,15 +474,9 @@ RLTEST_PARALLEL ?= 1
 
 test: $(REJSON_SO)
 ifneq ($(TEST),)
-#	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) RLTEST_ARGS+="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 	$(SHOW) $(CTEST_DEFS) TEST=$(TEST) $(ROOT)/sbin/ctest
 else
-#ifeq ($(ARCH),arm64v8)
-#	$(SHOW)$(FLOW_TESTS_DEFS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
-#else
-#	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) ctest $(CTEST_ARGS)
 	$(SHOW)$(CTEST_DEFS) $(ROOT)/sbin/ctest
-#endif
 ifeq ($(COORD),oss)
 	$(SHOW)$(FLOW_TESTS_DEFS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 endif

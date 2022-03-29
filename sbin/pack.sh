@@ -144,10 +144,8 @@ pack_ramp() {
 		eprint "Error generating RAMP file:"
 		>&2 cat /tmp/ramp.err
 		exit 1
-	else
-		local packname=`cat /tmp/ramp.fname`
 	fi
-
+	local packname=`cat /tmp/ramp.fname`
 	echo "Created $packname"
 	cd $ROOT
 }
@@ -170,7 +168,8 @@ pack_deps() {
 	rm -f $tar_path
 	{ cd $depdir ;\
 	  cat $ARTDIR/$dep.files | \
-	  xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' --transform "s,^,$dep_prefix_dir," 2>> /tmp/pack.err | \
+	  xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' \
+	  	--transform "s,^,$dep_prefix_dir," 2>> /tmp/pack.err | \
 	  gzip -n - > $tar_path ; E=$?; } || true
 	if [[ ! -e $tar_path || -z $(tar tzf $tar_path) ]]; then
 		eprint "Count not create $tar_path. Aborting."
@@ -278,3 +277,10 @@ if [[ $RAMP == 1 ]]; then
 	
 	echo "Done."
 fi
+
+if [[ $VERBOSE == 1 ]]; then
+	echo "Artifacts:"
+	du -ah --apparent-size $ARTDIR
+fi
+
+exit 0
