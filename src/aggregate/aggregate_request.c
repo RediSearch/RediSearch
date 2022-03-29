@@ -9,6 +9,9 @@
 #include "ext/default.h"
 #include "extension.h"
 #include "profile.h"
+#include "config.h"
+
+extern RSConfig RSGlobalConfig;
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
@@ -18,9 +21,12 @@
  *   formatting
  * @param status the error object
  */
-static void ensureSimpleMode(AREQ *areq) {
-  RS_LOG_ASSERT(!(areq->reqflags & QEXEC_F_IS_EXTENDED), "Single mod test failed");
+static bool ensureSimpleMode(AREQ *areq) {
+  if(areq->reqflags & QEXEC_F_IS_EXTENDED) {
+    return false;
+  }
   areq->reqflags |= QEXEC_F_IS_SEARCH;
+  return true;
 }
 
 /**
@@ -114,41 +120,49 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-#define ARG_HANDLED 1
-#define ARG_ERROR -1
-#define ARG_UNKNOWN 0
+static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
 
-static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
-  ArgsCursor paramsArgs = {0};
-  int rv = AC_GetVarArgs(ac, &paramsArgs);
+  ArgsCursor args = {0};
+  int rv = AC_GetVarArgs(ac, &args);
   if (rv != AC_OK) {
-    QERR_MKBADARGS_AC(status, "PARAMS", rv);
-    return REDISMODULE_ERR;
-  }
-  if (req->searchopts.params) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Multiple PARAMS are not allowed. Parameters can be defined only once");
-    return REDISMODULE_ERR;
-  }
-  if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
+    QERR_MKBADARGS_AC(status, "_REQUIRED_FIELDS", rv);
     return REDISMODULE_ERR;
   }
 
-  dict *params = Param_DictCreate();
-  size_t value_len;
-  while (!AC_IsAtEnd(&paramsArgs)) {
-    const char *param = AC_GetStringNC(&paramsArgs, NULL);
-    const char *value = AC_GetStringNC(&paramsArgs, &value_len);
-    // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
-    if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
-      Param_DictFree(params);
-      return REDISMODULE_ERR;
+  int requiredFieldNum = AC_NumArgs(&args);
+  // This array contains shallow copy of the required fields names. Those copies are to use only for lookup.
+  // If we need to use them in reply we should make a copy of those strings.
+  const char** requiredFields = array_new(const char*, requiredFieldNum);
+  for(size_t i=0; i < requiredFieldNum; i++) {
+    const char *s = AC_GetStringNC(&args, NULL); {
+      if(!s) {
+        array_free(requiredFields);
+        return REDISMODULE_ERR;
+      }
     }
+    requiredFields = array_append(requiredFields, s);
   }
-  req->searchopts.params = params;
+
+  req->requiredFields = requiredFields;
 
   return REDISMODULE_OK;
 }
+
+int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
+  if (AC_NumRemaining(ac) < 1) {	
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");	
+      return REDISMODULE_ERR;	
+    }	
+    if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {	
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
+      return REDISMODULE_ERR;	
+    }
+    return REDISMODULE_OK;
+}
+
+#define ARG_HANDLED 1
+#define ARG_ERROR -1
+#define ARG_UNKNOWN 0
 
 static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
@@ -191,6 +205,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+    // If we have sort by clause and don't need to return scores, we can avoid computing them.
+    if (req->reqflags & QEXEC_F_IS_SEARCH && !(QEXEC_F_SEND_SCORES & req->reqflags)) {
+      req->searchopts.flags |= Search_IgnoreScores;
+    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
@@ -209,7 +227,17 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     req->reqflags |= QEXEC_F_SENDRAWIDS;
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
-    if (parseParams(req, ac, status) != REDISMODULE_OK) {
+    if (parseParams(&(req->searchopts.params), ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+  } else if(AC_AdvanceIfMatch(ac, "_REQUIRED_FIELDS")) {
+    if (parseRequiredFields(req, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+    req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
+  }
+    else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
+    if (parseDialect(&req->dialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {
@@ -222,7 +250,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int isLegacy) {
   // Prevent multiple SORTBY steps
   if (arng->sortKeys != NULL) {
-    QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    if (isLegacy) {
+      QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed");
+    } else {
+      QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    }
     return REDISMODULE_ERR;
   }
 
@@ -382,7 +414,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
-      ensureSimpleMode(req);
+      if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "SUMMARIZE is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
       if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
         QERR_MKBADARGS_FMT(status, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
@@ -390,7 +425,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
-      ensureSimpleMode(req);
+      if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "HIGHLIGHT is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
+
       if (ParseHighlight(ac, &req->outFields) == REDISMODULE_ERR) {
         QERR_MKBADARGS_FMT(status, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
@@ -426,7 +465,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->language = RSLanguage_Find(languageStr, 0);
 
   if (AC_IsInitialized(&returnFields)) {
-    ensureSimpleMode(req);
+    if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "RETURN is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+    }
 
     req->outFields.explicitReturn = 1;
     if (returnFields.argc == 0) {
@@ -671,7 +713,9 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 }
 
 AREQ *AREQ_New(void) {
-  return rm_calloc(1, sizeof(AREQ));
+  AREQ* req = rm_calloc(1, sizeof(AREQ));
+  req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
+  return req;
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
@@ -810,7 +854,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), status);
+  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), req->dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -825,7 +869,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, status);
+  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
   if (QueryError_HasError(status))
     return REDISMODULE_ERR;
   if (IsProfile(req)) {
@@ -931,10 +975,9 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 static ResultProcessor *getVecSimRP(AREQ *req, AGGPlan *pln, ResultProcessor *up, QueryError *status) {
   RLookup *lk = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
   char **scoreFields = req->ast.vecScoreFieldNames;
-  size_t len = array_len(scoreFields);
-  RLookupKey **keys = rm_calloc(len, sizeof(*keys));
-
-  for (size_t i = 0; i < len; i++) {
+  size_t nScoreFields = array_len(scoreFields);
+  RLookupKey **keys = rm_calloc(nScoreFields, sizeof(*keys));
+  for (size_t i = 0; i < nScoreFields; i++) {
     if (IndexSpec_GetField(req->sctx->spec, scoreFields[i], strlen(scoreFields[i]))) {
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", scoreFields[i]);
       rm_free(keys);
@@ -1341,6 +1384,9 @@ void AREQ_Free(AREQ *req) {
   FieldList_Free(&req->outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);
+  }
+  if(req->requiredFields) {
+    array_free(req->requiredFields);
   }
   rm_free(req->args);
   rm_free(req);

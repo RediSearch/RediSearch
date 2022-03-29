@@ -162,16 +162,16 @@ void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
 void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
   FieldSpec* fs = sp->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
-  fs->tagSep = sep;
+  fs->tagOpts.tagSep = sep;
 }
 
 void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable) {
   FieldSpec* fs = sp->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   if (enable) {
-    fs->tagFlags |= TagField_CaseSensitive;
+    fs->tagOpts.tagFlags |= TagField_CaseSensitive;
   } else {
-    fs->tagFlags &= ~TagField_CaseSensitive;
+    fs->tagOpts.tagFlags &= ~TagField_CaseSensitive;
   }
 }
 
@@ -482,6 +482,7 @@ typedef struct {
     struct {
       const char* qs;
       size_t n;
+      unsigned int dialect;
     } s;
     QueryNode* qn;
   } u;
@@ -498,7 +499,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
 
   if (input->qtype == QUERY_INPUT_STRING) {
-    if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, &status) !=
+    if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, input->u.s.dialect, &status) !=
         REDISMODULE_OK) {
       goto end;
     }
@@ -510,7 +511,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, &status);
+  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, 0, &status);
   if (!it->internal) {
     goto end;
   }
@@ -544,7 +545,12 @@ int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
 }
 
 RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
-  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n}}};
+  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n, .dialect = 1}}};
+  return handleIterCommon(sp, &input, error);
+}
+
+RS_ApiIter* RediSearch_IterateQueryWithDialect(IndexSpec* sp, const char* s, size_t n, unsigned int dialect, char** error) {
+  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n, .dialect = dialect}}};
   return handleIterCommon(sp, &input, error);
 }
 
@@ -706,8 +712,8 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
   }
   if (specField->types & INDEXFLD_T_TAG) {
     infoField->types |= RSFLDTYPE_TAG;
-    infoField->tagSeperator = specField->tagSep;
-    infoField->tagCaseSensitive = specField->tagFlags & TagField_CaseSensitive ? 1 : 0;
+    infoField->tagSeperator = specField->tagOpts.tagSep;
+    infoField->tagCaseSensitive = specField->tagOpts.tagFlags & TagField_CaseSensitive ? 1 : 0;
   }
   if (specField->types & INDEXFLD_T_GEO) {
     infoField->types |= RSFLDTYPE_GEO;

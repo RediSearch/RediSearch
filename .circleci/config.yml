@@ -56,9 +56,8 @@ commands:
           name: Setup automation
           command: |
             git submodule update --init deps/readies
-            ./deps/readies/bin/getpy2
             ./deps/readies/bin/getpy3
-            python2 -m pip install awscli
+            python3 -m pip install -q awscli
 
   install-prerequisites:
     parameters:
@@ -75,12 +74,12 @@ commands:
           shell: /bin/bash -l -eo pipefail
           command: |
             ./sbin/system-setup.py
-            python2 -m pip list
+            python3 -m pip list
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
           command: |
-            python2 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
+            python3 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
             redis-server --version
 
   save-tests-logs:
@@ -344,9 +343,9 @@ jobs:
         default: "yes"
     steps:
       - early-returns
-      - run:
-          name: Brew upgrade
-          command: brew upgrade
+      # - run:
+      #     name: Brew upgrade
+      #     command: brew upgrade
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
@@ -458,7 +457,7 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
-            python2 -m pip list
+            python3 -m pip list
             mkdir -p ~/workspace/tests
             make test COORD=1 SHOW=1
       - save-tests-logs
@@ -498,10 +497,13 @@ jobs:
       - setup-automation
       - run:
           name: Run QA Automation
-          command: ./tests/qa/qatests -t release -m "$CIRCLE_TAG"
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG"
       - run:
-          name: Run QA Tests (RediSearch Light)
-          command: ./tests/qa/qatests -t release -m "$CIRCLE_TAG" --light
+          name: Run QA Automation (RediSearch Light)
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --light
+      - run:
+          name: Run QA Automation (RediSearch/VecSim)
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim
 
   benchmarks:
     docker:
@@ -588,7 +590,7 @@ workflows:
           <<: *on-any-branch
           matrix:
             parameters:
-              #@@redis_version: ["6.0", "6.2", "7"]
+              #@@redis_version: ["6.0", "6.2", "7", "unstable"]
               redis_version: ["7"]
       - build-platforms:
           #@@<<: *on-integ-and-version-tags
@@ -596,7 +598,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              #@@ platform: [focal, bionic, xenial, ol8, centos7, bullseye]
+              #@@ platform: [focal, bionic, xenial, centos7, rocky8, bullseye]
               platform: [bionic, centos7]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags

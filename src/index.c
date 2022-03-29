@@ -717,6 +717,7 @@ static void II_SortChildren(IntersectIterator *ctx) {
         array_free(unsortedIts);
       }
       ctx->bestIt = NULL;
+      ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
       return;
     }
 
@@ -775,7 +776,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *d
   ctx->weight = weight;
   ctx->docIds = rm_calloc(num, sizeof(t_docId));
   ctx->docTable = dt;
-  ctx->nexpected = UINT32_MAX;
+  ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
 
   ctx->base.isValid = 1;
   ctx->base.current = NewIntersectResult(num, weight);
@@ -1883,6 +1884,13 @@ PRINT_PROFILE_FUNC(name) {                                                      
   }                                                                                 \
   printProfileCounter(counter);                                                     \
   nlen += 2;                                                                        \
+  if (root->type == HYBRID_ITERATOR) {                                              \
+    HybridIterator *hi = root->ctx;                                                 \
+    if (hi->searchMode == VECSIM_HYBRID_BATCHES) {                                  \
+        printProfileNumBatches(hi);                                                 \
+        nlen += 2;                                                                  \
+    }                                                                               \
+  }                                                                                 \
                                                                                     \
   if (addChild) {                                                                   \
     RedisModule_ReplyWithSimpleString(ctx, "Child iterator");                       \

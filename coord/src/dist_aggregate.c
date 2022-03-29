@@ -392,6 +392,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
   QueryError status = {0};
   r->qiter.err = &status;
+  r->reqflags |= QEXEC_F_IS_EXTENDED;
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;

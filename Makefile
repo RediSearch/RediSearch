@@ -5,6 +5,10 @@ else
 DRY_RUN:=
 endif
 
+ifneq ($(BB),)
+SLOW:=1
+endif
+
 ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
 COV=1
 endif
@@ -51,6 +55,7 @@ ifeq ($(wildcard $(ROOT)/deps/readies/*),)
 ___:=$(shell git submodule update --init --recursive &> /dev/null)
 endif
 
+MK.pyver:=3
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -99,6 +104,7 @@ make pytest        # run python tests (tests/pytests)
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
+  BENCHMARK=1		 # run micro-benchmark
 
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
@@ -215,11 +221,7 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(OS),macos)
 STATIC_LIBSTDCXX ?= 1
-else
-STATIC_LIBSTDCXX ?= 0
-endif
 
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
@@ -382,11 +384,14 @@ parsers:
 ifeq ($(FORCE),1)
 	$(SHOW)cd src/aggregate/expr ;\
 	rm -f lexer.c parser-toplevel.c parser.c.inc
-	$(SHOW)cd src/query_parser ;\
+	$(SHOW)cd src/query_parser/v1 ;\
+	rm -f lexer.c parser-toplevel.c parser.c.inc
+	$(SHOW)cd src/query_parser/v2 ;\
 	rm -f lexer.c parser-toplevel.c parser.c.inc
 endif
 	$(SHOW)$(MAKE) -C src/aggregate/expr
-	$(SHOW)$(MAKE) -C src/query_parser
+	$(SHOW)$(MAKE) -C src/query_parser/v1
+	$(SHOW)$(MAKE) -C src/query_parser/v2
 
 .PHONY: parsers
 
@@ -420,7 +425,7 @@ endif # DEPS
 
 setup:
 	@echo Setting up system...
-	$(SHOW)./deps/readies/bin/getpy2
+	$(SHOW)./deps/readies/bin/getpy3
 	$(SHOW)./sbin/system-setup.py 
 
 #----------------------------------------------------------------------------------------------
@@ -470,7 +475,20 @@ endif
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
-RLTEST_PARALLEL ?= 1
+ifneq ($(SAN),)
+REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+
+$(REJSON_SO):
+	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
+else
+REJSON_SO=
+endif
+
+ifeq ($(SLOW),1)
+_RLTEST_PARALLEL=0
+else
+_RLTEST_PARALLEL=1
+endif
 
 test: $(REJSON_SO)
 ifneq ($(TEST),)
@@ -483,7 +501,7 @@ endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
@@ -513,7 +531,9 @@ endif
 endif
 
 cpp_tests:
-ifeq ($(TEST),)
+ifeq ($(BENCHMARK), 1)
+	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
+else ifeq ($(TEST),)
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rstest
 else
 	$(SHOW)$(GDB_CMD) $(abspath $(BINROOT)/search/tests/cpptests/rstest) --gtest_filter=$(TEST)

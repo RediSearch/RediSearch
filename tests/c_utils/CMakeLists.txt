@@ -1,4 +1,4 @@
-add_library(apistubs SHARED api_stubs.c)
+add_library(apistubs STATIC api_stubs.c)
 
 if (NOT RS_TEST_MODULE)
     set(RS_TEST_MODULE redisearch)
