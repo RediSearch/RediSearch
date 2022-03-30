@@ -17,6 +17,6 @@ The details also include the syntax for the commands, where:
 
 The query commands, i.e. `FT.SEARCH` and `FT.AGGREGATE`, require an index name as their first argument, then a query, i.e. `hello|world`, and finally additional parameters or attributes.
 
-See the [quick start page](#/redisearch/Quick_Start) on creating and indexing and start searching.
+See the [quick start page](/redisearch/quick_start) on creating and indexing and start searching.
 
-See the [reference page](#/redisearch/reference) for more details on the various parameters.
+See the [reference page](/redisearch/reference) for more details on the various parameters.
