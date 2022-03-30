@@ -6,7 +6,7 @@ typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 typedef struct suffixNode {
   //int wordExists; // exact match to string exists already
   char *term;             // string is used in the array of all suffix tokens
-  arrayof(char *)array;   // list of words containing the string
+  arrayof(char *)array;   // list of words containing the string. weak pointers
 } suffixNode;
 
 //TODO: remove if not used
@@ -39,9 +39,8 @@ static suffixNode *createSuffixNode(char *str, int term) {
   node->array = array_new(char *, 1);
   if (term) {
     node->term = str;
-  } else {
-    array_append(node->array, str);
   }
+  array_append(node->array, str);
   return node;
 }
 
@@ -59,7 +58,9 @@ void writeSuffixTrie(TrieMap *trie, const char *str, uint32_t len) {
     TrieMap_Add(trie, str, len, node, NULL);
   } else {
     //node->wordExists = 1;
+    RS_LOG_ASSERT(!node->term, "can't reach here");
     node->term = strCopy;
+    node->array = array_ensure_append_1(node->array, strCopy);
     //TrieMap_Add(trie, str, len, strCopy, addTermCb);
   }
 

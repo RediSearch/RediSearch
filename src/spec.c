@@ -100,19 +100,20 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
   return 0;
 }
 
-t_fieldMask IndexSpec_GetSuffixMask(const IndexSpec *sp, int *array) {
+t_fieldMask IndexSpec_GetSuffixMask(const IndexSpec *sp, int **array) {
   t_fieldMask fm = (t_fieldMask)0;
 
   if (!(sp->flags & Index_HasSuffix)) {
     return fm;
   }
 
-  array = array_new(int, sp->numFields);
+  *array = array_new(int, sp->numFields);
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     FieldSpec *field = sp->fields + ii;
     if (field->options & FieldSpec_Suffix) {
+      //if (!array) array_new(size_t, sp->numFields);
       fm |= FIELD_BIT(field);
-      array = array_append(array, ii);
+      *array = array_append(*array, ii);
     }
   }
   return fm;

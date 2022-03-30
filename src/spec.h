@@ -367,7 +367,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
 /**
  * Get fieldmask of all fields which contain suffix Trie.
  */
-t_fieldMask IndexSpec_GetSuffixMask(const IndexSpec *sp, int *array);
+t_fieldMask IndexSpec_GetSuffixMask(const IndexSpec *sp, int **array);
 
 /* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
  * not sortable */

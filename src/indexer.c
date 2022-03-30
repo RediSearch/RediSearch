@@ -235,7 +235,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 
   // create fieldmask of suffix
   arrayof(int) suffixArray = NULL; 
-  t_fieldMask suffixMask = IndexSpec_GetSuffixMask(spec, suffixArray);
+  t_fieldMask suffixMask = IndexSpec_GetSuffixMask(spec, &suffixArray);
 
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;

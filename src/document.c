@@ -320,7 +320,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
     aCtx->client.sctx = sctx;
   }
 
-  RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
+  // RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
     const DocumentField *ff = aCtx->doc->fields + ii;
