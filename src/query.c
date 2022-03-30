@@ -25,6 +25,7 @@
 #include "rmutil/rm_assert.h"
 #include "module.h"
 #include "query_internal.h"
+#include "suffix.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -436,7 +437,27 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
+/*
+  TrieMap *trie = NULL;
+  arrayof(char **) array = findSuffixContains(trie, qn->pfx.str, qn->pfx.len);
+  if (!array) {
+    return NULL;
+  }
 
+  Trie *terms = q->sctx->spec->terms;
+  arrayof(IndexIterator *) its = array_new(IndexIterator *, array_len(array[0]));
+
+  for (int i = 0; i < array_len(array); ++i) {
+    arrayof(char *) subarray = array[i];
+    for (int j = 0; j < array_len(subarray); ++j) {
+
+      NewTermIndexReader()
+    }
+  }
+
+
+
+*/
   // check if the field has suffix trie 
   // qn->opts.fieldMask
   Trie *terms = q->sctx->spec->terms;

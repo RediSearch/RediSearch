@@ -152,7 +152,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
 
   // create fieldmask of suffix
   arrayof(int) suffixArray = NULL; 
-  t_fieldMask suffixMask = IndexSpec_GetSuffixMask(ctx->spec, suffixArray);
+  t_fieldMask suffixMask = IndexSpec_GetSuffixMask(ctx->spec, &suffixArray);
 
   // Iterate over all the entries
   for (uint32_t curBucketIdx = 0; curBucketIdx < ht->numBuckets; curBucketIdx++) {
@@ -199,7 +199,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
           for (int i = 0; i < array_len(suffixArray); ++i) {
             FieldSpec *field = ctx->spec->fields + suffixArray[i];
             if (FIELD_BIT(field) & suffixMask) {
-              writeSuffixTrie(field->suffixTrie, fwent->term, fwent->len);
+              //writeSuffixTrie(field->suffixTrie, fwent->term, fwent->len);
             }
           }
         }
@@ -256,7 +256,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
       for (int i = 0; i < array_len(suffixArray); ++i) {
         FieldSpec *field = spec->fields + suffixArray[i];
         if (FIELD_BIT(field) & suffixMask) {
-          writeSuffixTrie(field->suffixTrie, entry->term, entry->len);
+          // writeSuffixTrie(field->suffixTrie, entry->term, entry->len);
         }
       }
     }

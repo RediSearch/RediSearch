@@ -96,3 +96,7 @@ size_t strToRunesN(const char *src, size_t slen, rune *out) {
   }
   return nout;
 }
+
+int runesncmp(rune *rune1, rune *rune2, size_t len) {
+  return memcmp(rune1, rune2, len * sizeof(rune *));
+}

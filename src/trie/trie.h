@@ -99,6 +99,7 @@ TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPay
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
 
 typedef enum {
+  ADD_IGNORE,
   ADD_REPLACE,
   ADD_INCR,
 } TrieAddOp;
@@ -109,10 +110,11 @@ typedef enum {
 int TrieNode_Add(TrieNode **n, rune *str, t_len len, RSPayload *payload, float score, TrieAddOp op);
 
 /* Find the entry with a given string and length, and return its score. Returns
- * 0 if the entry was
- * not found.
+ * 0 if the entry was not found.
  * Note that you cannot put entries with zero score */
 float TrieNode_Find(TrieNode *n, rune *str, t_len len);
+
+void *TrieNode_GetPayload(TrieNode *n, rune *str, t_len len);
 
 /* Mark a node as deleted. For simplicity for now we don't actually delete
  * anything,

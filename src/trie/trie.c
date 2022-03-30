@@ -179,14 +179,14 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
     int term = __trieNode_isTerminal(n);
     int deleted = __trieNode_isDeleted(n);
     switch (op) {
+      case ADD_IGNORE:
+        break;
       // in increment mode, just add the score to the node's score
       case ADD_INCR:
         n->score += score;
         break;
-
       // by default we just replace the score
       case ADD_REPLACE:
-      default:
         n->score = score;
     }
     if (payload != NULL && payload->data != NULL && payload->len > 0) {
@@ -256,6 +256,47 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
   }
 
   return 0;
+}
+
+void *TrieNode_GetPayload(TrieNode *n, rune *str, t_len len) {
+  t_len offset = 0;
+  while (n && offset < len) {
+    // printf("n %.*s offset %d, len %d\n", n->len, n->str, offset,
+    // len);
+    t_len localOffset = 0;
+    for (; offset < len && localOffset < n->len; offset++, localOffset++) {
+      if (str[offset] != n->str[localOffset]) {
+        break;
+      }
+    }
+
+    if (offset == len) {
+      // we're at the end of both strings!
+      if (localOffset == n->len) return __trieNode_isDeleted(n) ? 0 : n->payload;
+
+    } else if (localOffset == n->len) {
+      // we've reached the end of the node's string but not the search string
+      // let's find a child to continue to
+      t_len i = 0;
+      TrieNode *nextChild = NULL;
+      for (; i < n->numChildren; i++) {
+        TrieNode *child = __trieNode_children(n)[i];
+
+        if (str[offset] == child->str[0]) {
+          nextChild = child;
+          break;
+        }
+      }
+
+      // we couldn't find a matching child
+      n = nextChild;
+
+    } else {
+      return NULL;
+    }
+  }
+
+  return NULL;
 }
 
 void __trieNode_sortChildren(TrieNode *n);

@@ -28,6 +28,9 @@ rune *strToRunes(const char *str, size_t *len);
 /* Decode a string to a rune in-place */
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
 
+/* similar to memcmp for rune */
+int runesncmp(rune *rune1, rune *rune2, size_t len);
+
 #ifdef __cplusplus
 }
 #endif
