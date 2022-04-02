@@ -91,59 +91,59 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 
 Searching for the term "wizard" in every TEXT attribute of an index containing book data:
 
-```sql
+```
 FT.SEARCH books-idx "wizard"
 ```
 Searching for the term "dogs" in only the "title" attribute:
 
-```sql
+```
 FT.SEARCH books-idx "@title:dogs"
 ```
 
 Searching for books published in 2020 or 2021:
 
-```sql
+```
 FT.SEARCH books-idx "@published_at:[2020 2021]"
 ```
 
 Searching for Chinese restaurants within 5 kilometers of longitude -122.41, latitude 37.77 (San Francisco):
 
-```sql
+```
 FT.SEARCH restaurants-idx "chinese @location:[-122.41 37.77 5 km]"
 ```
 
 Searching for the term "dogs" or "cats" in the "title" attribute, but giving matches of "dogs" a higher relevance score (also known as *boosting*):
 
-```sql
+```
 FT.SEARCH books-idx "(@title:dogs | @title:cats) | (@title:dogs) => { $weight: 5.0; }"
 ```
 Searching for books with "dogs" in any TEXT attribute in the index and requesting an explanation of scoring for each result:
 
-```sql
+```
 FT.SEARCH books-idx "dogs" WITHSCORES EXPLAINSCORE
 ```
 
 Searching for books with "space" in the title that have "science" in the TAG attribute "categories":
 
-```sql
+```
 FT.SEARCH books-idx "@title:space @categories:{science}"
 ```
 
 Searching for books with "Python" in any TEXT attribute, returning ten results starting with the eleventh result in the entire result set (the offset parameter is zero-based), and returning only the "title" attribute for each result:
 
-```sql
+```
 FT.SEARCH books-idx "python" LIMIT 10 10 RETURN 1 title
 ```
 
 Searching for books with "Python" in any TEXT attribute, returning the price stored in the original JSON document.
 
-```sql
+```
 FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 ```
 
 Searching for books with semantically similar "title" to "Planet Earth", Return top 10 results sorted by distance.
 
-```sql
+```
 FT.SEARCH books-idx "*=>[KNN 10 @title_embedding $query_vec AS title_score]" PARAMS 2 query_vec <"Planet Earth" embedding BLOB> SORTBY title_score
 ```
 

@@ -9,7 +9,7 @@ Creates an index with the given spec.
 !!! info "Note on running in clustered databases"
     When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
 
-    ```sql
+    ```
     HSET doc:1{idx} ...
     FT.CREATE idx ... PREFIX 1 doc: ...
     ```
@@ -179,19 +179,19 @@ Creates an index with the given spec.
 
 Creating an index that stores the title, publication date, and categories of blog post hashes whose keys start with `blog:post:` (e.g., `blog:post:1`):
 
-```sql
+```
 FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA title TEXT SORTABLE published_at NUMERIC SORTABLE category TAG SORTABLE
 ```
 
 Indexing the "sku" attribute from a hash as both a TAG and as TEXT:
 
-```sql
+```
 FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA sku AS sku_text TEXT sku AS sku_tag TAG SORTABLE
 ```
 
 Indexing two different hashes -- one containing author data and one containing books -- in the same index:
 
-```sql
+```
 FT.CREATE author-books-idx ON HASH PREFIX 2 author:details: book:details: SCHEMA
 author_id TAG SORTABLE author_ids TAG title TEXT name TEXT
 ```
@@ -201,24 +201,24 @@ author_id TAG SORTABLE author_ids TAG title TEXT name TEXT
 
 Indexing only authors whose names start with "G":
 
-```sql
+```
 FT.CREATE g-authors-idx ON HASH PREFIX 1 author:details FILTER 'startswith(@name, "G")' SCHEMA name TEXT
 ```
 
 Indexing only books that have a subtitle:
 
-```sql
+```
 FT.CREATE subtitled-books-idx ON HASH PREFIX 1 book:details FILTER '@subtitle != ""' SCHEMA title TEXT
 ```
 
 Indexing books that have a "categories" attribute where each category is separated by a `;` character:
 
-```sql
+```
 FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categories TAG SEPARATOR ";"
 ```
 
 Indexing a JSON document using a JSON Path expression:
 
-```sql
+```
 FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG
 ```
