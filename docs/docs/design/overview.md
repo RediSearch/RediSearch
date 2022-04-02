@@ -4,6 +4,8 @@ linkTitle: "Technical overview"
 weight: 1
 description: >
     Technical details of the internal design of indexing and querying with RediSearch
+aliases:
+  - /docs/stack/search/overview
 ---
 
 # RediSearch Technical Overview 
