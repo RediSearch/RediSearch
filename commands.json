@@ -10,7 +10,7 @@
       },
       {
         "name": "data_type",
-        "command": "ON",
+        "token": "ON",
         "type": "oneof",
         "arguments": [
           {
@@ -141,7 +141,7 @@
           {
             "name": "alias",
             "type": "string",
-            "command": "AS",
+            "token": "AS",
             "optional": true
           },
           {
