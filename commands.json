@@ -27,6 +27,7 @@
         "optional": true
       },
       {
+        "name": "prefix",
         "type": "block",
         "optional": true,
         "arguments": [
@@ -109,6 +110,7 @@
         "optional": true
       },
       {
+        "name": "stopwords",
         "type": "block",
         "optional": true,
         "command":"STOPWORDS",
