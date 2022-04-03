@@ -103,7 +103,7 @@ Searching for libraries within 10 kilometers of the longitude -73.982254 and lat
 Here, we needed to use `LOAD` to pre-load the @location attribute because it is a GEO attribute.
 
 !!! tip "More examples"
-    For more details on aggreations and detailed examples of aggregation queries, see [aggregations](/redisearch/reference/aggregations).
+    For more details on aggregations and detailed examples of aggregation queries, see [aggregations](/redisearch/reference/aggregations).
 
 Here we are counting GitHub events by user (actor), to produce the most active users:
 
