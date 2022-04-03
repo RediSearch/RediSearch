@@ -390,7 +390,7 @@
       },
       {
           "name": "payload",
-          "command": "PAYLOAD",
+          "token": "PAYLOAD",
           "type": "string",
           "optional": true
       }
@@ -430,7 +430,7 @@
       },
       {
           "name": "max",
-          "command": "MAX",
+          "token": "MAX",
           "type": "integer",
           "optional": true
       }
@@ -519,13 +519,13 @@
       },
       {
           "name": "distance",
-          "command": "DISTANCE",
+          "token": "DISTANCE",
           "type": "integer",
           "optional": true
       },
       {
         "name": "terms",
-        "command": "TERMS",
+        "token": "TERMS",
         "type": "block",
         "optional": true,
         "arguments": [
