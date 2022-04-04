@@ -365,3 +365,22 @@ def test_MOD1907(env):
   # Test FT.CREATE w/o fields parameters
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Fields arguments are missing')
   env.expect('FT.CREATE', 'idx', 'STOPWORDS', 0, 'SCHEMA').error().contains('Fields arguments are missing')
+
+def test_SkipFieldWithNoMatch(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
+
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]
+
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
+  env.assertEqual(res[1][3][1], ['Type', 'EMPTY', 'Counter', 0])

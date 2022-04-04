@@ -33,6 +33,7 @@ typedef struct InvertedIndex {
   t_docId lastId;
   uint32_t numDocs;
   uint32_t gcMarker;
+  t_fieldMask fieldMask;
 } InvertedIndex;
 
 struct indexReadCtx;

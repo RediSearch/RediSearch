@@ -357,7 +357,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
     }
   }
 
-  if (!idx->numDocs) {
+  if (!idx->numDocs || !(idx->fieldMask & fieldMask)) {
     // empty index! pass
     goto err;
   }
