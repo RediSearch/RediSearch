@@ -381,6 +381,24 @@ def test_SkipFieldWithNoMatch(env):
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
   env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
-
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  # bar exists in `t2` only
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
   env.assertEqual(res[1][3][1], ['Type', 'EMPTY', 'Counter', 0])
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'bar')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
+
+  # Check with NOFIELDS flag
+  env.execute_command('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+  waitForIndex(env, 'idx_nomask')
+
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:bar')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
