@@ -34,7 +34,7 @@
           {
             "name": "count",
             "type": "integer",
-            "command":"PREFIX"
+            "token":"PREFIX"
           },
           {
             "name": "prefix",
@@ -46,31 +46,31 @@
       {
         "name": "default_lang",
         "type": "string",
-        "command":"LANGUAGE",
+        "token":"LANGUAGE",
         "optional": true
       },
       {
         "name": "lang_attribute",
         "type": "string",
-        "command":"LANGUAGE_FIELD",
+        "token":"LANGUAGE_FIELD",
         "optional": true
       },
       {
         "name": "default_score",
         "type": "double",
-        "command":"SCORE",
+        "token":"SCORE",
         "optional": true
       },
       {
         "name": "score_attribute",
         "type": "string",
-        "command":"SCORE_FIELD",
+        "token":"SCORE_FIELD",
         "optional": true
       },
       {
         "name": "payload_attribute",
         "type": "string",
-        "command":"PAYLOAD_FIELD",
+        "token":"PAYLOAD_FIELD",
         "optional": true
       },
       {
@@ -82,7 +82,7 @@
       {
         "name": "seconds",
         "type": "double",
-        "command":"TEMPORARY",
+        "token":"TEMPORARY",
         "optional": true
       },
       {
@@ -113,7 +113,7 @@
         "name": "stopwords",
         "type": "block",
         "optional": true,
-        "command":"STOPWORDS",
+        "token":"STOPWORDS",
         "arguments": [
           {
             "name": "count",
@@ -710,7 +710,7 @@
           {
             "name": "numeric_field",
             "type": "string",
-            "command":"FILTER"
+            "token":"FILTER"
           },
           {
             "name": "min",
@@ -731,7 +731,7 @@
           {
             "name": "geo_field",
             "type": "string",
-            "command":"GEOFILTER"
+            "token":"GEOFILTER"
           },
           {
             "name": "lon",
@@ -781,7 +781,7 @@
           {
             "name": "count",
             "type": "string",
-            "command":"INKEYS"
+            "token":"INKEYS"
           },
           {
             "name": "key",
@@ -798,7 +798,7 @@
           {
             "name": "count",
             "type": "string",
-            "command":"INFIELDS"
+            "token":"INFIELDS"
           },
           {
             "name": "field",
@@ -815,7 +815,7 @@
           {
             "name": "count",
             "type": "string",
-            "command":"RETURN"
+            "token":"RETURN"
           },
           {
             "name": "field",
@@ -843,7 +843,7 @@
               {
                 "name": "count",
                 "type": "string",
-                "command":"FIELDS"
+                "token":"FIELDS"
               },
               {
                 "name": "field",
@@ -855,19 +855,19 @@
           {
             "name": "num",
             "type": "integer",
-            "command":"FRAGS",
+            "token":"FRAGS",
             "optional": true
           },
           {
             "name": "fragsize",
             "type": "integer",
-            "command":"LEN",
+            "token":"LEN",
             "optional": true
           },
           {
             "name": "separator",
             "type": "string",
-            "command":"SEPARATOR",
+            "token":"SEPARATOR",
             "optional": true
           }
         ]
@@ -891,7 +891,7 @@
               {
                 "name": "count",
                 "type": "string",
-                "command":"FIELDS"
+                "token":"FIELDS"
               },
               {
                 "name": "field",
@@ -926,7 +926,7 @@
         "name": "slop",
         "type": "integer",
         "optional": true,
-        "command":"SLOP"
+        "token":"SLOP"
       },
       {
         "name": "timeout",
@@ -944,19 +944,19 @@
         "name": "language",
         "type": "string",
         "optional": true,
-        "command":"LANGUAGE"
+        "token":"LANGUAGE"
       },
       {
         "name": "expander",
         "type": "string",
         "optional": true,
-        "command":"EXPANDER"
+        "token":"EXPANDER"
       },
       {
         "name": "scorer",
         "type": "string",
         "optional": true,
-        "command":"SCORER"
+        "token":"SCORER"
       },
       {
         "name": "explainscore",
@@ -968,7 +968,7 @@
         "name": "payload",
         "type": "string",
         "optional": true,
-        "command":"PAYLOAD"
+        "token":"PAYLOAD"
       },
       {
         "name": "sortby",
@@ -978,7 +978,7 @@
           {
             "name": "sortby",
             "type": "string",
-            "command":"SORTBY"
+            "token":"SORTBY"
           },
           {
             "name": "order",
@@ -1081,7 +1081,7 @@
           {
             "name": "count",
             "type": "string",
-            "command":"LOAD"
+            "token":"LOAD"
           },
           {
             "name": "field",
@@ -1094,7 +1094,7 @@
         "name": "timeout",
         "type": "integer",
         "optional": true,
-        "command":"TIMEOUT"
+        "token":"TIMEOUT"
       },
       {
         "name": "loadall",
@@ -1111,7 +1111,7 @@
           {
             "name": "nargs",
             "type": "integer",
-            "command":"GROUPBY"
+            "token":"GROUPBY"
           },
           {
             "name": "property",
@@ -1127,7 +1127,7 @@
               {
                 "name": "function",
                 "type": "string",
-                "command":"REDUCE"
+                "token":"REDUCE"
               },
               {
                 "name": "nargs",
@@ -1141,7 +1141,7 @@
               {
                 "name": "name",
                 "type": "string",
-                "command":"AS",
+                "token":"AS",
                 "optional": true
               }
             ]
@@ -1156,7 +1156,7 @@
           {
             "name": "nargs",
             "type": "integer",
-            "command":"SORTBY"
+            "token":"SORTBY"
           },
           {
             "name": "fields",
@@ -1189,7 +1189,7 @@
           {
             "name": "num",
             "type": "integer",
-            "command":"MAX",
+            "token":"MAX",
             "optional": true
           }
         ]
@@ -1203,12 +1203,12 @@
           {
             "name": "expression",
             "type": "string",
-            "command":"APPLY"
+            "token":"APPLY"
           },
           {
             "name": "name",
             "type": "string",
-            "command":"AS"
+            "token":"AS"
           }
         ]
       },
@@ -1236,7 +1236,7 @@
         "name": "filter",
         "type": "string",
         "optional": true,
-        "command":"FILTER"
+        "token":"FILTER"
       },
       {
         "name": "cursor",
@@ -1253,13 +1253,13 @@
             "name": "read_size",
             "type": "integer",
             "optional": true,
-            "command":"COUNT"
+            "token":"COUNT"
           },
           {
             "name": "idle_time",
             "type": "integer",
             "optional": true,
-            "command":"MAXIDLE"
+            "token":"MAXIDLE"
           }
         ]
       },
@@ -1359,7 +1359,7 @@
         "name": "read size",
         "type": "integer",
         "optional": true,
-        "command":"COUNT"
+        "token":"COUNT"
       }
     ],
     "since": "1.1.0",
