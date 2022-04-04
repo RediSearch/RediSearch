@@ -46,7 +46,9 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 }
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
-  InvertedIndex *idx = rm_malloc(sizeof(InvertedIndex));
+  size_t size = flags & Index_StoreFieldFlags ? sizeof(InvertedIndex) :
+                                                sizeof(InvertedIndex) - sizeof(t_fieldMask);
+  InvertedIndex *idx = rm_malloc(size);
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
