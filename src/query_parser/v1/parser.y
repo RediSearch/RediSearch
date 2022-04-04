@@ -380,12 +380,20 @@ expr(A) ::= TILDE expr(B) . {
 }
 
 /////////////////////////////////////////////////////////////////
-// Prefix experessions
+// Prefix expressions
 /////////////////////////////////////////////////////////////////
 
 // v2.2.9 diff - string duplication are happening in NewPrefixNode_WithParams now.
 prefix(A) ::= PREFIX(B) . [PREFIX] {
-    A = NewPrefixNode_WithParams(ctx, &B);
+    A = NewPrefixNode_WithParams(ctx, &B, true, false);
+}
+
+prefix(A) ::= SUFFIX(B) . [PREFIX] {
+    A = NewPrefixNode_WithParams(ctx, &B, false, true);
+}
+
+prefix(A) ::= CONTAINS(B) . [PREFIX] {
+    A = NewPrefixNode_WithParams(ctx, &B, true, true);
 }
 
 /////////////////////////////////////////////////////////////////

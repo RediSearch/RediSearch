@@ -370,8 +370,11 @@ QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lat
 
 QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
-  ret->pfx =
-      (QueryPrefixNode){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
+  ret->pfx = (QueryPrefixNode){
+    .tok = (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0},
+    .prefix = true,
+    .suffix = false
+  };
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
   }
@@ -380,8 +383,11 @@ QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, con
 
 QueryNode* RediSearch_CreateTagPrefixNode(IndexSpec* sp, const char* s) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
-  ret->pfx =
-      (QueryPrefixNode){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
+  ret->pfx = (QueryPrefixNode){
+    .tok = (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0},
+    .prefix = true,
+    .suffix = false
+  };
   return ret;
 }
 

@@ -22,5 +22,7 @@
 #define SEMICOLON                       22
 #define LB                              23
 #define RB                              24
-#define LSQB                            25
-#define RSQB                            26
+#define SUFFIX                          25
+#define CONTAINS                        26
+#define LSQB                            27
+#define RSQB                            28

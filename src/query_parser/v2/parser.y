@@ -29,7 +29,7 @@
 
 %left TAGLIST.
 %left TERMLIST.
-%left PREFIX.
+%left PREFIX SUFFIX CONTAINS.
 %left PERCENT.
 %left ATTRIBUTE.
 
@@ -148,6 +148,12 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type prefix { QueryNode * }
 %destructor prefix { QueryNode_Free($$); }
+
+%type suffix { QueryNode * } 
+%destructor suffix { QueryNode_Free($$); }
+
+%type contains { QueryNode * } 
+%destructor contains { QueryNode_Free($$); }
 
 %type termlist { QueryNode * }
 %destructor termlist { QueryNode_Free($$); }
@@ -626,8 +632,16 @@ text_expr(A) ::= TILDE text_expr(B) . {
 // Prefix experessions
 /////////////////////////////////////////////////////////////////
 
-prefix(A) ::= PREFIX(B) . [PREFIX] {
-    A = NewPrefixNode_WithParams(ctx, &B);
+prefix(A) ::= PREFIX(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, true, false);
+}
+
+prefix(A) ::= SUFFIX(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, false, true);
+}
+
+prefix(A) ::= CONTAINS(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, true, true);
 }
 
 /////////////////////////////////////////////////////////////////

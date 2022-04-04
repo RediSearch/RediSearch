@@ -114,6 +114,9 @@ int TrieNode_Add(TrieNode **n, rune *str, t_len len, RSPayload *payload, float s
  * Note that you cannot put entries with zero score */
 float TrieNode_Find(TrieNode *n, rune *str, t_len len);
 
+/* Find the entry with a given string and length, and return it. */
+TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len, bool exact, int *offsetOut);
+
 /* Mark a node as deleted. For simplicity for now we don't actually delete
  * anything,
  * but the node will not be persisted to disk, thus deleted after reload.
@@ -202,15 +205,17 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
 
 TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
 
-typedef void(TrieRangeCallback)(const rune *, size_t, void *);
+typedef int(TrieRangeCallback)(const rune *, size_t, void *);
 
 /**
  * Iterate all nodes within range.
  * @param n the node to iterateo
  * @param min the minimum lexical string to check from
  * @param minlen the length of min
+ * @param includeMin is min included
  * @param max the maximum lexical string to check until
  * @param maxlen the maximum length of the max
+ * @param includeMax is max included
  * @param callback the callback to invoke
  * @param ctx data to be passed to the callback
  */
@@ -218,6 +223,19 @@ typedef void(TrieRangeCallback)(const rune *, size_t, void *);
 void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includeMin,
                            const rune *max, int maxlen, bool includeMax, TrieRangeCallback callback,
                            void *ctx);
+
+/**
+ * Iterate all nodes within range.
+ * @param n the node to iterateo
+ * @param str the string to check
+ * @param nstr the length of str
+ * @param prefix is the string prefix
+ * @param suffix is the string suffix
+ * @param callback the callback to invoke
+ * @param ctx data to be passed to the callback
+ */
+void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
+                              TrieRangeCallback callback, void *ctx);
 
 #ifdef __cplusplus
 }
