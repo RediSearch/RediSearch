@@ -46,13 +46,17 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 }
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
-  InvertedIndex *idx = rm_malloc(sizeof(InvertedIndex));
+  int useFieldMask = flags & Index_StoreFieldFlags;
+  size_t size = useFieldMask ? sizeof(InvertedIndex) :
+                               sizeof(InvertedIndex) - sizeof(t_fieldMask);
+  InvertedIndex *idx = rm_malloc(size);
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
   idx->gcMarker = 0;
   idx->flags = flags;
   idx->numDocs = 0;
+  if (useFieldMask) idx->fieldMask = (t_fieldMask)0;
   if (initBlock) {
     InvertedIndex_AddBlock(idx, 0);
   }

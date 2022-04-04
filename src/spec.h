@@ -227,6 +227,9 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
 
+#define Index_StoreFieldMask(spec) \
+  ((spec)->flags & Index_StoreFieldFlags)
+
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
 typedef struct {
