@@ -148,4 +148,4 @@ FT.SEARCH books-idx "*=>[KNN 10 @title_embedding $query_vec AS title_score]" PAR
 ```
 
 !!! tip "More examples"
-    For more details and query examples, see [query syntax](/redisearch/reference/query_syntax).
+    For more details and query examples, see [query syntax](/docs/stack/search/reference/query_syntax).
