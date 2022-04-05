@@ -346,6 +346,11 @@ jobs:
   build-macos:
     macos:
       xcode: 12.4.0
+    resource_class: macos.x86.medium.gen2
+    parameters:
+      upload:
+        type: string
+        default: "yes"
     steps:
       - early-returns
       # - run:
@@ -360,7 +365,7 @@ jobs:
       - run:
           name: Upload artifacts to S3
           command: |
-            if [[ -n $CIRCLE_BRANCH ]]; then
+            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
                 make upload-artifacts SHOW=1
             fi
       - persist-artifacts
@@ -584,12 +589,6 @@ workflows:
       - build-linux-debian:
           name: build
           <<: *not-on-integ-branch
-      - build-linux-debian:
-          name: build-with-redis-<<matrix.redis_version>>
-          <<: *on-integ-and-version-tags
-          matrix:
-            parameters:
-              redis_version: ["6.0", "6.2", "7", "unstable"]
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -649,12 +648,13 @@ workflows:
             branches:
               only: master
     jobs:
-      - build-macos
+      - build-macos:
+          upload: "no"
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2"]
+              redis_version: ["6.0", "7", "unstable"]
 
   nightly-performance:
     triggers:
