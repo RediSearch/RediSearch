@@ -150,3 +150,24 @@ def testBible(env):
     #env.expect('ft.info', 'idx').equal('OK')
     print (time.time() - start)
     input('stop')
+
+def testEscape(env):
+  # this test check that `\*` is escaped correctly on contains queries
+  conn = getConnectionByEnv(env)
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')    
+  conn.execute_command('HSET', 'doc1', 't', '1foo1')
+  conn.execute_command('HSET', 'doc2', 't', '\*foo2')
+  conn.execute_command('HSET', 'doc3', 't', '3\*foo3')
+  conn.execute_command('HSET', 'doc4', 't', '4foo\*')
+  conn.execute_command('HSET', 'doc5', 't', '5foo\*5')
+  all_docs = [5, 'doc1', ['t', '1foo1'], 'doc2', ['t', '\\*foo2'], 'doc3', ['t', '3\\*foo3'],
+                 'doc4', ['t', '4foo\\*'], 'doc5', ['t', '5foo\\*5']]
+  # contains
+  env.expect('ft.search', 'idx', '*foo*').equal(all_docs)
+  # prefix only
+  env.expect('ft.search', 'idx', '\*foo*').equal([1, 'doc2', ['t', '\\*foo2']])
+  # suffix only
+  env.expect('ft.search', 'idx', '*foo\*').equal([1, 'doc4', ['t', '4foo\\*']])
+  # none
+  env.expect('ft.search', 'idx', '\*foo\*').equal([0])
+
