@@ -12,7 +12,7 @@ Searches the index with a textual query, returning either documents or just ids.
 
 - **index**: The index name. The index must be first created with `FT.CREATE`.
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
-  Refer to [query syntax](/redisearch/reference/query_syntax) for more details.
+  Refer to [query syntax](https://redis.io/docs/stack/search/reference/query_syntax/) for more details.
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not
   the content. This is useful if RediSearch is only an index on an external document collection
 - **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms
@@ -46,8 +46,8 @@ Searches the index with a textual query, returning either documents or just ids.
   `property` is an optional name used in the result. If not provided, the `identifier` is used in the result.
 - **SUMMARIZE ...**: Use this option to return only the sections of the attribute which contain the
   matched text.
-  See [Highlighting](/redisearch/reference/highlight) for more details
-- **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highlighting](/redisearch/reference/highlight) for more
+  See [Highlighting](https://redis.io/docs/stack/search/reference/highlight/) for more details
+- **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highlighting](https://redis.io/docs/stack/search/reference/highlight/) for more
   details
 - **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between
   phrase terms. (i.e the slop for exact phrases is 0)
@@ -60,11 +60,11 @@ Searches the index with a textual query, returning either documents or just ids.
   Defaults to English. If an unsupported language is sent, the command returns an error.
   See FT.ADD for the list of languages.
 
-- **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](/redisearch/reference/extensions).
-- **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](/redisearch/reference/extensions).
+- **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](https://redis.io/docs/stack/search/reference/extensions/).
+- **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](https://redis.io/docs/stack/search/reference/extensions/).
 - **EXPLAINSCORE**: If set, will return a textual description of how the scores were calculated. Using this options requires the WITHSCORES option.
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring
-  functions. [See Extensions](/redisearch/reference/extensions).
+  functions. [See Extensions](https://redis.io/docs/stack/search/reference/extensions/).
 
 - **SORTBY {attribute} [ASC|DESC]**: If specified, the results are ordered by the value of this attribute. This applies to both text and numeric attributes. Attributes needed for **SORTBY** should be declared as **SORTABLE** in the index, in order to be available with very low latency (notice this adds memory overhead)
 
@@ -148,4 +148,4 @@ FT.SEARCH books-idx "*=>[KNN 10 @title_embedding $query_vec AS title_score]" PAR
 ```
 
 !!! tip "More examples"
-    For more details and query examples, see [query syntax](/redisearch/reference/query_syntax).
+    For more details and query examples, see [query syntax](https://redis.io/docs/stack/search/reference/query_syntax/).
