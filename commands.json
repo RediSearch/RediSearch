@@ -3,6 +3,16 @@
     "summary": "Creates an index with the given spec",
     "complexity": 
       "O(K) at creation where K is the number of fields, O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace",
+      "history": [        
+        [
+          "2.0.0",
+          "Added `PAYLOAD_FIELD` argument for backward support of `FT.SEARCH` deprecated `WITHPAYLOADS` argument"
+        ],
+        [
+          "2.0.0",
+          "Deprecated `PAYLOAD_FIELD` argument"
+        ]
+      ],
     "arguments": [
       {
         "name": "index",
@@ -656,6 +666,12 @@
   "FT.SEARCH": {
     "summary": "Searches the index with a textual query, returning either documents or just ids",
     "complexity": "O(N)",
+    "history": [
+      [
+          "2.0.0",
+          "Deprecated `WITHPAYLOADS` argument"
+      ]
+    ],
     "arguments": [
       {
         "name": "index",
