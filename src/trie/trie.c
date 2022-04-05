@@ -5,21 +5,33 @@
 #include "redisearch.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr.h"
+#include "util/timeout.h"
+#include "config.h"
 
 typedef struct {
   rune *buf;
   TrieRangeCallback *callback;
   void *cbctx;
-  // for lexrange
-  bool includeMin;
-  bool includeMax;
-  // for prefix, suffix, contains
-  bool prefix;
-  bool suffix;
+  union {
+    struct {
+      // for lexrange
+      bool includeMin;
+      bool includeMax;
+    };
+    struct {
+      // for prefix, suffix, contains
+      const rune *origStr;
+      int nOrigStr;
+      bool prefix;
+      bool suffix;
+    };
+  };
   // stop if reach limit
   bool stop;
-  const rune *origStr;
-  int nOrigStr;
+
+  // timeout
+  struct timespec timeout;  // milliseconds until timeout
+  size_t timeoutCounter;    // counter to limit number of calls to TimedOut()  
 } RangeCtx;
 
 /*
@@ -733,6 +745,13 @@ static int rsbComparePrefix(const void *h, const void *e) {
 }
 
 static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
+  if (r->stop) return REDISEARCH_ERR;
+
+  if (TimedOut(r->timeout, &r->timeoutCounter)) {
+    r->stop = 1;
+    return REDISEARCH_ERR;
+  }
+
   // Push string to stack
   size_t len;
   char *before_str = runesToStr(r->buf, array_len(r->buf), &len);
@@ -945,13 +964,9 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
-
-      .origStr = str,
-      .nOrigStr = nstr,
-      .prefix = prefix,
-      .suffix = suffix,
+      .timeoutCounter = 0,
   };
-  
+  updateTimeout(&r.timeout, 100000); // TODO: for timeout tests
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
 
   // prefix mode
@@ -965,6 +980,8 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
     }
     goto done;
   }
+
+  updateTimeout(&r.timeout, RSGlobalConfig.queryTimeoutMS); // TODO: nit using RSGlobalConfig.queryTimeoutMS for timeout tests
 
   // contains and suffix mode
   r.origStr = str;
@@ -989,7 +1006,7 @@ if (n->len) array_trimm_len(r->buf, array_len(r->buf) - 1)
 static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
   if (n->len == localOffset || n->len == 0 ) {
     TrieNode **children = __trieNode_children(n);
-    for (t_len i = 0; i < n->numChildren; ++i) {
+    for (t_len i = 0; i < n->numChildren && r->stop == 0; ++i) {
       containsIterate(children[i], 0, globalOffset, r);
     }
   } else {
@@ -1008,6 +1025,11 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
 
   // No match
   if ((n->numChildren == 0 && r->nOrigStr - globalOffset > n->len) || r->stop) {
+    return;
+  }
+
+  if (TimedOut(r->timeout, &r->timeoutCounter)) {
+    r->stop = 1;
     return;
   }
 

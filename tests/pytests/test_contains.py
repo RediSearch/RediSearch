@@ -31,12 +31,14 @@ def testBasicContains(env):
 def testSanity(env):
     env.skipOnCluster()
     env.expect('ft.config', 'set', 'MINPREFIX', 1).ok()
-    item_qty = 1000
+    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
+    item_qty = 100000
     query_qty = 1
 
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
     pl = conn.pipeline()
+    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
 
     start = time.time()
     for i in range(item_qty):
@@ -45,24 +47,54 @@ def testSanity(env):
         pl.execute_command('HSET', 'doc%d' % (i + item_qty * 2), 't', 'foooo%d' % i)
         pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
         pl.execute()
-
+    start_time = time.time()
+    env.expect('ft.search', 'idx', 'f*', 'LIMIT', 0 , 0).equal([4])
+    print (time.time() - start_time)
+    start_time = time.time()
+    env.expect('ft.profile', 'idx', 'search', 'limited', 'query', 'f*', 'LIMIT', 0 , 0, 'TIMEOUT', 1).equal([4])
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', '*555*', 'LIMIT', 0 , 0).equal([4])
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', '*55*', 'LIMIT', 0 , 0).equal([76])
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', '*23*', 'LIMIT', 0 , 0).equal([80])
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', '*oo55*', 'LIMIT', 0 , 0).equal([33])
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', '*oo555*', 'LIMIT', 0 , 0).equal([3])
     
     # we get up to 200 results since MAXEXPANSIONS is set to 200
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', '*oo*', 'LIMIT', 0 , 0).equal([200])
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', '*o*', 'LIMIT', 0 , 0).equal([200])
-    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000).equal('OK')
+    #env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000).equal('OK')
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', '*oo*', 'LIMIT', 0 , 0).equal([4000])
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', '*o*', 'LIMIT', 0 , 0).equal([4000])
-    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 200).equal('OK')
+    #env.expect('ft.config', 'set', 'MAXEXPANSIONS', 200).equal('OK')
+    print (time.time() - start_time)
+    start_time = time.time()
             
     env.expect('ft.search', 'idx', '555*', 'LIMIT', 0 , 0).equal([0])
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', 'foo55*', 'LIMIT', 0 , 0).equal([11])
+    print (time.time() - start_time)
+    start_time = time.time()
     env.expect('ft.search', 'idx', 'foo23*', 'LIMIT', 0 , 0).equal([11])
+    print (time.time() - start_time)
+    start_time = time.time()
 
 def testBible(env):
     env.skip()
