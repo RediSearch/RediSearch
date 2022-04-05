@@ -201,6 +201,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
+    req->reqflags |= QEXEC_F_SORTBY;
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
@@ -368,6 +369,21 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
   return ARG_HANDLED;
 }
 
+/**
+ * Use quickExit if detailed results are not required
+ */
+static void parseQuickExit(AREQ *req) {
+  // Return number of results only
+  if ((req->reqflags & QEXEC_F_NOROWS) ||
+      // These search options use children results of iterators 
+      (!((req->reqflags & QEXEC_F_SEND_HIGHLIGHT) || 
+         (req->reqflags & QEXEC_F_SEND_SCORES) ||
+         (req->reqflags & QEXEC_F_SORTBY)))
+      ) {
+    req->searchopts.quickExit |= 1;
+  }
+}
+
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
                           AggregatePlan *plan, QueryError *status) {
   // Parse query-specific arguments..
@@ -452,6 +468,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     }
   }
+
+  parseQuickExit(req);
 
   if ((req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
     QERR_MKBADARGS_FMT(status, "EXPLAINSCORE must be accompanied with WITHSCORES");

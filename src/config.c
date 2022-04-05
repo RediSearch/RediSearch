@@ -46,9 +46,9 @@
     const char *tf;                                             \
     int acrc = AC_GetString(ac, &tf, NULL, 0);                  \
     CHECK_RETURN_PARSE_ERROR(acrc);                             \
-    if (!strcmp(tf, "true") || !strcmp(tf, "TRUE")) {           \
+    if (!strcasecmp(tf, "true")) {                              \
       config->var = 1;                                          \
-    } else if (!strcmp(tf, "false") || !strcmp(tf, "FALSE")) {  \
+    } else if (!strcasecmp(tf, "false")) {                      \
       config->var = 0;                                          \
     } else {                                                    \
       acrc = AC_ERR_PARSE;                                      \

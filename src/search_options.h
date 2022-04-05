@@ -98,6 +98,9 @@ typedef struct {
   const StopWordList *stopwords;
   dict *params;
 
+  // Quick exit for union iterators
+  int quickExit;
+
   /** Legacy options */
   struct {
     NumericFilter **filters;
