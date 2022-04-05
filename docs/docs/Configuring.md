@@ -123,7 +123,7 @@ $ redis-server --loadmodule ./redisearch.so CONCURRENT_WRITE_MODE
 
 ## EXTLOAD {file_name}
 
-If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/redisearch/reference/extensions) for details.
+If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/docs/stack/search/reference/extensions) for details.
 
 ### Default
 
@@ -243,7 +243,7 @@ $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 
 ## CURSOR_MAX_IDLE
 
-The maximum idle time (in ms) that can be set to the [cursor api](/redisearch/reference/aggregations#cursor_api).
+The maximum idle time (in ms) that can be set to the [cursor api](/docs/stack/search/reference/aggregations#cursor_api).
 
 ### Default
 

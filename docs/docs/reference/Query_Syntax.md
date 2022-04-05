@@ -121,7 +121,7 @@ The General syntax is `{some filter query}=>[ KNN {num|$num} @vector $query_vec]
 
 * `[KNN {num|$num} @vector_field $query_vec]` - Return `num` nearest neighbors entities where `query_vec` is similar to the vector stored in `@vector_field`.
 
-As of version 2.4, we allow vector similarity to be used **once** in the query. For more information on vector smilarity syntax, see [Vector Fields](/redisearch/reference/vectors/#querying-vector-fields), "Querying vector fields" section.
+As of version 2.4, we allow vector similarity to be used **once** in the query. For more information on vector smilarity syntax, see [Vector Fields](/docs/stack/search/reference/vectors/#querying-vector-fields), "Querying vector fields" section.
 
 ## Prefix matching
 

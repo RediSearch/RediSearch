@@ -1,6 +1,6 @@
 Performs spelling correction on a query, returning suggestions for misspelled terms.
 
-See [Query Spelling Correction](/redisearch/reference/spellcheck) for more details.
+See [Query Spelling Correction](/docs/stack/search/reference/spellcheck) for more details.
 
 #### Parameters
 

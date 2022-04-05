@@ -131,7 +131,7 @@ FT.SEARCH userIdx '@name:(John)' RETURN 1 name HIGHLIGHT FIELDS 1 name TAGS '<b>
 
 ## Aggregation with JSON Path expression
 
-[Aggregation](/redisearch/reference/aggregations) is a powerful feature. You can use it to generate statistics or build facet queries.
+[Aggregation](/docs/stack/search/reference/aggregations) is a powerful feature. You can use it to generate statistics or build facet queries.
 The LOAD parameter accepts JSON Path expressions. Any value (even not indexed) can be used in the pipeline.
 
 This example loads two numeric values from the JSON document applying a simple operation.

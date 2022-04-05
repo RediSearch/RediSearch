@@ -169,7 +169,7 @@ Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](/
 
 *   `$blob_attribute` - An attribute that holds the query vector as blob. must be passed through the `PARAMS` section.
 
-*   `[{vector query param name} {value|$value_attribute} [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. see what [runtime parameters](/redisearch/reference/vectors#specific-runtime-attributes-per-algorithm) are valid for each algorithm.
+*   `[{vector query param name} {value|$value_attribute} [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. see what [runtime parameters](/docs/stack/search/reference/vectors#specific-runtime-attributes-per-algorithm) are valid for each algorithm.
 
 *   `[ AS {score field name | $score_field_name_attribute}]` - An optional part for specifing a score field name, for later sorting by the similarity score. By default the score field name is "`__{vector field}_score`" and it can be used for sorting without using `AS {score field name}` in the query.
 

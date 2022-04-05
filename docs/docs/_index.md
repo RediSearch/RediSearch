@@ -50,8 +50,8 @@ RediSearch supports the following features:
 * Field weights
 * Auto-complete suggestions (with fuzzy prefix suggestions)
 * Exact-phrase search and slop-based search
-* Stemming-based query expansion for [many languages](/redisearch/reference/stemming) (using [Snowball](http://snowballstem.org/))
-* Support for custom functions for query expansion and scoring (see [Extensions](/redisearch/reference/extensions))
+* Stemming-based query expansion for [many languages](/docs/stack/search/reference/stemming) (using [Snowball](http://snowballstem.org/))
+* Support for custom functions for query expansion and scoring (see [Extensions](/docs/stack/search/reference/extensions))
 * Numeric filters and ranges
 * Geo-filtering using the Redis own geo commands
 * Unicode support (UTF-8 input required)
