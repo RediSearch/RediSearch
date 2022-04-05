@@ -179,6 +179,11 @@
                 "name": "geo",
                 "type": "pure-token",
                 "token": "GEO"
+              },
+              {
+                "name": "vector",
+                "type": "pure-token",
+                "token": "VECTOR"
               }
             ]
           },
