@@ -115,7 +115,7 @@ typedef struct FieldSpec {
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
 #define FieldSpec_IsPhonetics(fs) ((fs)->options & FieldSpec_Phonetics)
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
-#define FieldSpec_HasContains(fs) (0 == ((fs)->options & FieldSpec_Contains))
+#define FieldSpec_HasContains(fs) ((fs)->options & FieldSpec_Contains)
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);

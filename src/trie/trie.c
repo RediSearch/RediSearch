@@ -271,7 +271,7 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
   return 1;
 }
 
-TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len, bool exact, int *offsetOut) {
+TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut) {
   t_len offset = 0;
   while (n && offset < len) {
     // printf("n %.*s offset %d, len %d\n", n->len, n->str, offset,
@@ -323,6 +323,13 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
   TrieNode *res = TrieNode_Get(n, str, len, true, NULL);
   return res ? res->score : 0;
 }
+
+//TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len);
+void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact) {
+  TrieNode *res = TrieNode_Get(n, str, len, exact, NULL);
+  return res ? res->value : NULL;
+}
+
 /*
 static TrieNode *TrieNode_Contain(TrieNode *n, rune *str, t_len len, t_len offset, RangeCtx *r) {
   if (n->len != 1) RS_LOG_ASSERT(0, "todo");

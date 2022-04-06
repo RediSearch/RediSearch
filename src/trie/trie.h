@@ -56,8 +56,12 @@ typedef struct {
   // traversal
   float maxChildScore;
 
-  // the payload of terminal node. could be NULL if it's not terminal
-  TriePayload *payload;
+  union {
+    // the payload of terminal node. could be NULL if it's not terminal
+    TriePayload *payload;
+    // generic
+    void *value;
+  };
 
   // the string of the current node
   rune str[];
@@ -99,6 +103,7 @@ TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPay
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
 
 typedef enum {
+  ADD_IGNORE,
   ADD_REPLACE,
   ADD_INCR,
 } TrieAddOp;
@@ -115,7 +120,8 @@ int TrieNode_Add(TrieNode **n, rune *str, t_len len, RSPayload *payload, float s
 float TrieNode_Find(TrieNode *n, rune *str, t_len len);
 
 /* Find the entry with a given string and length, and return it. */
-TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len, bool exact, int *offsetOut);
+TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut);
+void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact);
 
 /* Mark a node as deleted. For simplicity for now we don't actually delete
  * anything,
@@ -206,6 +212,7 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
 TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
 
 typedef int(TrieRangeCallback)(const rune *, size_t, void *);
+typedef int(TrieSuffixCallback)(const char *, size_t, void *);
 
 /**
  * Iterate all nodes within range.

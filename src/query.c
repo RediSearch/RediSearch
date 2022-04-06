@@ -25,6 +25,7 @@
 #include "module.h"
 #include "query_internal.h"
 #include "aggregate/aggregate.h"
+#include "suffix.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -456,6 +457,7 @@ typedef struct {
 } ContainsCtx;
 
 static int rangeIterCb(const rune *r, size_t n, void *p);
+static int suffixIterCb(const char *s, size_t n, void *p);
 
 static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
@@ -465,7 +467,8 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   
-  Trie *t = q->sctx->spec->terms;
+  IndexSpec *spec = q->sctx->spec;
+  Trie *t = spec->terms;
   ContainsCtx ctx = {.q = q, .opts = &qn->opts};
 
   if (!t) {
@@ -485,9 +488,19 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  // TODO: this uses prefix syntax until parser is changed
-  TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
+  // spec support contains queries and this is not prefix query
+  if (qn->pfx.suffix && spec->suffix) {
+    // all modifier fields are supported
+    if ((spec->suffixMask & q->opts->fieldmask) == q->opts->fieldmask) {
+    Suffix_IterateContains(spec->suffix->root, str, nstr, qn->pfx.prefix,
+                           suffixIterCb, &ctx);
+    } else {
+      QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHCONTAINS support");
+    }
+  } else {
+    TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
                            rangeIterCb, &ctx);
+  }
 
   rm_free(str);
   if (!ctx.its || ctx.nits == 0) {
@@ -541,6 +554,26 @@ static int rangeIterCb(const rune *r, size_t n, void *p) {
   RSToken tok = {0};
   tok.str = runesToStr(r, n, &tok.len);
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
+  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
+                                     q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+  rm_free(tok.str);
+  if (!ir) {
+    Term_Free(term);
+    return REDISEARCH_OK;
+  }
+
+  rangeItersAddIterator(ctx, ir);
+  return REDISEARCH_OK;
+}
+
+static int suffixIterCb(const char *s, size_t n, void *p) {
+  LexRangeCtx *ctx = p;
+  if (ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
+    return REDISEARCH_ERR;
+  }
+  QueryEvalCtx *q = ctx->q;
+  RSToken tok = {.str = (char *)s, .len = n};
+  RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
   rm_free(tok.str);
