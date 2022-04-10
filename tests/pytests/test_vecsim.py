@@ -931,3 +931,32 @@ def test_fail_on_v1_dialect():
     conn.execute_command("HSET", "i", "v", one_vector.tobytes())
     res = env.expect("FT.SEARCH", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes())
     res.error().contains("Syntax error")
+
+
+def test_hybrid_query_with_inkeys():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    index_size = 6000 * env.shardsCount
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+    load_vectors_with_texts_into_redis(conn, 'v', dim, index_size)
+    query_data = np.full(dim, index_size, dtype='float32')
+
+    #  and expect to find only one result (with key=index_size-2).
+    inkeys = [index_size-2]
+    expected_res = [1, str(index_size-2), ['__v_score', str(dim*2**2)]]
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
+               'RETURN', 1, '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+    # Change the text value to 'other' for 20% of the vectors (with ids 5, 10, ..., index_size)
+    for i in range(1, int(index_size/5) + 1):
+        vector = np.full(dim, 5*i, dtype='float32')
+        conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 't', 'other')
+
+    # Run VecSim query in hybrid mode, expect to get only the vectors that passes the filters
+    # (index_size-10 and index_size-100, since they has "other" in its 't' field and its id is in inkeys list).
+    inkeys = [index_size-2, index_size-10, index_size-100]
+    expected_res = [2, str(index_size-100), ['__v_score', str(dim*100**2)], str(index_size-10), ['__v_score', str(dim*10**2)]]
+    env.expect('FT.SEARCH', 'idx', '(other)=>[KNN 10 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
+               'RETURN', 1, '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
