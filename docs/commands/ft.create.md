@@ -9,21 +9,21 @@ Creates an index with the given spec.
 !!! info "Note on running in clustered databases"
     When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
 
-    ```
-    HSET doc:1{idx} ...
-    FT.CREATE idx ... PREFIX 1 doc: ...
-    ```
+```
+HSET doc:1{idx} ...
+FT.CREATE idx ... PREFIX 1 doc: ...
+```
 
-    When Running RediSearch in a clustered database, there is the ability to span the index across shards with [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
+   When Running RediSearch in a clustered database, there is the ability to span the index across shards with [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
 
 #### Parameters
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
 * **ON {data_type}** currently supports HASH (default) and JSON.
-
+  
 !!! info "ON JSON"
-    To index JSON, you must have the [RedisJSON](https://redisjson.io) module installed.
+  To index JSON, you must have the [RedisJSON](https://redisjson.io) module installed.
 
 * **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
 
@@ -31,17 +31,17 @@ Creates an index with the given spec.
 
 * **LANGUAGE {default_lang}**: If set indicates the default language for documents in the index. Default to English.
 * **LANGUAGE_FIELD {lang_attribute}**: If set indicates the document attribute that should be used as the document language.
-
+  
 !!! info "Supported languages"
-    A stemmer is used for the supplied language during indexing.
-    If an unsupported language is sent, the command returns an error.
-    The supported languages are:
+  A stemmer is used for the supplied language during indexing.
+  If an unsupported language is sent, the command returns an error.
+  The supported languages are:
 
-    Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
-    Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian,
-    Spanish, Swedish, Tamil, Turkish, Chinese
+  Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
+  Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian,
+  Spanish, Swedish, Tamil, Turkish, Chinese
 
-    When adding Chinese-language documents, `LANGUAGE chinese` should be set in
+  When adding Chinese-language documents, `LANGUAGE chinese` should be set in
     order for the indexer to properly tokenize the terms. If the default language
     is used then search terms will be extracted based on punctuation characters and
     whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
@@ -67,7 +67,7 @@ Creates an index with the given spec.
 * **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
 
 !!! warning "Note about deleting a temporary index"
-    When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
+  When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
 
 * **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
