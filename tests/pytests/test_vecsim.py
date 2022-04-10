@@ -943,7 +943,7 @@ def test_hybrid_query_with_inkeys():
     load_vectors_with_texts_into_redis(conn, 'v', dim, index_size)
     query_data = np.full(dim, index_size, dtype='float32')
 
-    #  and expect to find only one result (with key=index_size-2).
+    # Run VecSim query in KNN mode (non-hybrid), and expect to find only one result (with key=index_size-2).
     inkeys = [index_size-2]
     expected_res = [1, str(index_size-2), ['__v_score', str(dim*2**2)]]
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
