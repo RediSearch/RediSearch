@@ -297,7 +297,7 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
     // otherwise, add a new phrase node as the parent of the current child of the hybrid vector node,
     // and set its children to be the previous child and the new filter node.
     } else {
-      RedisModule_Assert(QueryNode_NumChildren(q->root) == 1);
+      RS_LOG_ASSERT(QueryNode_NumChildren(q->root) == 1, "Vector query node can have at most one child");
       QueryNode *nr = NewPhraseNode(0);
       QueryNode_AddChild(nr, n);
       QueryNode_AddChild(nr, q->root->children[0]);

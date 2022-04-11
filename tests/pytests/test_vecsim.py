@@ -290,7 +290,6 @@ def testSearchErrors():
 
 
 def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     id_vec_list = []
     p = con.pipeline(transaction=False)
     for i in range(1, num_vectors+1):
@@ -627,7 +626,7 @@ def test_hybrid_query_with_numeric_and_geo():
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
 
     # Testing with geo-filters
-    env.execute_command('FT.DROPINDEX', 'idx')
+    env.execute_command('flushall')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO').ok()
 
@@ -635,15 +634,16 @@ def test_hybrid_query_with_numeric_and_geo():
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
         vector = np.full(dim, i, dtype='float32')
-        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i)+","+str(i))
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i/100)+","+str(i/100))
     p.execute()
+    env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", 'idx', 'v'))["INDEX_SIZE"], index_size)
 
-    # Expect that ids 1-32 will pass the geo filter, and that the top 10 from these will return.
+    # Expect that ids 1-31 will pass the geo filter, and that the top 10 from these will return.
     expected_res = [10]
     for i in range(10):
-        expected_res.append(str(32-i))
-        expected_res.append(['coordinate', str(32-i)+","+str(32-i)])
-    env.expect('FT.SEARCH', 'idx', '(@coordinate:[0.0 0.0 5000 km])=>[KNN 10 @v $vec_param]',
+        expected_res.append(str(31-i))
+        expected_res.append(['coordinate', str((31-i)/100)+","+str((31-i)/100)])
+    env.expect('FT.SEARCH', 'idx', '(@coordinate:[0.0 0.0 50 km])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 1, 'coordinate').equal(expected_res)
 
     # Expect that no results will pass the filter
@@ -933,14 +933,21 @@ def test_fail_on_v1_dialect():
     res.error().contains("Syntax error")
 
 
-def test_hybrid_query_with_inkeys():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+def test_hybrid_query_with_global_filters():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
-    index_size = 6000 * env.shardsCount
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
-               'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
-    load_vectors_with_texts_into_redis(conn, 'v', dim, index_size)
+    index_size = 1000 * env.shardsCount
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT', 'num', 'NUMERIC', 'coordinate', 'GEO').ok()
+
+    p = conn.pipeline(transaction=False)
+    for i in range(1, index_size+1):
+        vector = np.full(dim, i, dtype='float32')
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'hybrid', 'num', i/100, 'coordinate',
+                             str(i/100)+","+str(i/100))
+    p.execute()
+    env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", 'idx', 'v'))["INDEX_SIZE"], index_size)
     query_data = np.full(dim, index_size, dtype='float32')
 
     # Run VecSim query in KNN mode (non-hybrid), and expect to find only one result (with key=index_size-2).
@@ -960,3 +967,40 @@ def test_hybrid_query_with_inkeys():
     expected_res = [2, str(index_size-100), ['__v_score', str(dim*100**2)], str(index_size-10), ['__v_score', str(dim*10**2)]]
     env.expect('FT.SEARCH', 'idx', '(other)=>[KNN 10 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
                'RETURN', 1, '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+    # Test legacy numeric and geo global filters
+    expected_res = [10]
+    # Expect to get top 10 ids where maximum is index_size/2 in the index (due to the numeric filter).
+    for i in range(10):
+        expected_res.append(str(int(index_size/2-i)))
+        expected_res.append(['__v_score', str(int(dim*(index_size/2+i)**2))])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'filter', 'num', 0, index_size/200, 'SORTBY', '__v_score',
+               'RETURN', 1, '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+    # Expect to get top 10 ids where maximum is 31 in the index (due to the geo filter).
+    expected_res = [10]
+    for i in range(10):
+        expected_res.append(str(31-i))
+        expected_res.append(['coordinate', str((31-i)/100)+","+str((31-i)/100)])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'geofilter', 'coordinate', 0.0, 0.0, 50, 'km',
+               'SORTBY', '__v_score', 'RETURN', 1, 'coordinate',
+               'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+    # Test complex query with multiple global filters - this query applies 4 global filters:
+    # 2 numeric filters - the second filter is a subset of the first one - enforces that the result ids
+    # will be between index_size/3 to index_size/2.
+    # geo filter - get all ids whose coordinates are in 50 km radius from (5.0, 5.0) - will enforce that the result ids
+    # are in the range of (index_size/2 - 31, index_size/2 + 31), according to the previous query and the fact that the
+    # coordinates of index_size/2 are (5.0, 5.0).
+    # Finally, inkeys filter enforces that only ids that multiply by 7 are valid.
+    # On top of all that, we have the hybrid query that filters out ids that multiply by 5
+    # (i.e., their text field is not 'hybrid') - and this is the reason for the expected ids
+    expected_res = ([str(i) for i in range(int(index_size/2), int(index_size/2) - 32, -1)
+                    if i % 5 != 0 and i % 7 == 0])
+    expected_res.insert(0, len(expected_res))
+
+    inkeys = [i for i in range(index_size) if i % 7 == 0]
+    env.expect('FT.SEARCH', 'idx', '(hybrid)=>[KNN 5 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
+               'filter', 'num', 0, index_size/200, 'filter', 'num', index_size/300, index_size/200,
+               'geofilter', 'coordinate', 5.0, 5.0, 50, 'km', 'SORTBY', '__v_score',
+               'NOCONTENT', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
