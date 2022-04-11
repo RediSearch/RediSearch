@@ -326,6 +326,10 @@ def get_vecsim_memory(env, index_key, field_name):
     return float(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
 
 
+def get_vecsim_index_size(env, index_key, field_name):
+    return int(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", index_key, field_name))["INDEX_SIZE"])
+
+
 def test_memory_info():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     # This test flow adds two vectors and deletes them. The test checks for memory increase in Redis and RediSearch upon insertion and decrease upon delete.
@@ -580,7 +584,7 @@ def test_hybrid_query_batches_mode_with_tags():
                          sort_by_vector=False).equal(expected_res)
 
 
-def test_hybrid_query_with_numeric_and_geo():
+def test_hybrid_query_with_numeric():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
@@ -625,8 +629,12 @@ def test_hybrid_query_with_numeric_and_geo():
     prefix = "_" if env.isCluster() else ""
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
 
-    # Testing with geo-filters
-    env.execute_command('flushall')
+
+def test_hybrid_query_with_geo():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO').ok()
 
@@ -636,10 +644,10 @@ def test_hybrid_query_with_numeric_and_geo():
         vector = np.full(dim, i, dtype='float32')
         conn.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i/100)+","+str(i/100))
     p.execute()
-    # in cluster mode, we send `_FT.DEBUG' to the local shard.
-    prefix = '_' if env.isCluster() else ''
-    env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", 'idx', 'v'))["INDEX_SIZE"], index_size)
+    if not env.isCluster():
+        env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
 
+    query_data = np.full(dim, index_size, dtype='float32')
     # Expect that ids 1-31 will pass the geo filter, and that the top 10 from these will return.
     expected_res = [10]
     for i in range(10):
@@ -649,7 +657,8 @@ def test_hybrid_query_with_numeric_and_geo():
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 1, 'coordinate').equal(expected_res)
 
     # Expect that no results will pass the filter
-    execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate', batches_mode=False).equal([0])
+    execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate',
+                         batches_mode=False).equal([0])
 
 
 def test_hybrid_query_batches_mode_with_complex_queries():
@@ -939,19 +948,18 @@ def test_hybrid_query_with_global_filters():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
-    index_size = 1000 * env.shardsCount
+    index_size = 1000
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT', 'num', 'NUMERIC', 'coordinate', 'GEO').ok()
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
         vector = np.full(dim, i, dtype='float32')
-        conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'hybrid', 'num', i/100, 'coordinate',
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'hybrid', 'num', i, 'coordinate',
                              str(i/100)+","+str(i/100))
     p.execute()
-    # in cluster mode, we send `_FT.DEBUG' to the local shard.
-    prefix = '_' if env.isCluster() else ''
-    env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", 'idx', 'v'))["INDEX_SIZE"], index_size)
+    if not env.isCluster():
+        env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
     query_data = np.full(dim, index_size, dtype='float32')
 
     # Run VecSim query in KNN mode (non-hybrid), and expect to find only one result (with key=index_size-2).
@@ -978,7 +986,7 @@ def test_hybrid_query_with_global_filters():
     for i in range(10):
         expected_res.append(str(int(index_size/2-i)))
         expected_res.append(['__v_score', str(int(dim*(index_size/2+i)**2))])
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'filter', 'num', 0, index_size/200, 'SORTBY', '__v_score',
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'filter', 'num', 0, index_size/2, 'SORTBY', '__v_score',
                'RETURN', 1, '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
 
     # Expect to get top 10 ids where maximum is 31 in the index (due to the geo filter).
@@ -1005,6 +1013,6 @@ def test_hybrid_query_with_global_filters():
 
     inkeys = [i for i in range(index_size) if i % 7 == 0]
     env.expect('FT.SEARCH', 'idx', '(hybrid)=>[KNN 5 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
-               'filter', 'num', 0, index_size/200, 'filter', 'num', index_size/300, index_size/200,
+               'filter', 'num', 0, index_size/2, 'filter', 'num', index_size/3, index_size/2,
                'geofilter', 'coordinate', 5.0, 5.0, 50, 'km', 'SORTBY', '__v_score',
                'NOCONTENT', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
