@@ -636,7 +636,9 @@ def test_hybrid_query_with_numeric_and_geo():
         vector = np.full(dim, i, dtype='float32')
         conn.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i/100)+","+str(i/100))
     p.execute()
-    env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", 'idx', 'v'))["INDEX_SIZE"], index_size)
+    # in cluster mode, we send `_FT.DEBUG' to the local shard.
+    prefix = '_' if env.isCluster() else ''
+    env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", 'idx', 'v'))["INDEX_SIZE"], index_size)
 
     # Expect that ids 1-31 will pass the geo filter, and that the top 10 from these will return.
     expected_res = [10]
@@ -947,7 +949,9 @@ def test_hybrid_query_with_global_filters():
         conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'hybrid', 'num', i/100, 'coordinate',
                              str(i/100)+","+str(i/100))
     p.execute()
-    env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", 'idx', 'v'))["INDEX_SIZE"], index_size)
+    # in cluster mode, we send `_FT.DEBUG' to the local shard.
+    prefix = '_' if env.isCluster() else ''
+    env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", 'idx', 'v'))["INDEX_SIZE"], index_size)
     query_data = np.full(dim, index_size, dtype='float32')
 
     # Run VecSim query in KNN mode (non-hybrid), and expect to find only one result (with key=index_size-2).
