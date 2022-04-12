@@ -116,22 +116,22 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
     return REDISMODULE_ERR;
   }
 
-  size_t alllowedTypes = 0;
+  size_t allowedTypes = 0;
   switch (type) {
     case VecSimType_FLOAT32:
-      alllowedTypes = JSONType_Double | JSONType_Int;
+      allowedTypes = JSONType_Double | JSONType_Int;
       getFunc = (int (*)(RedisJSON, void *))JSON_getFloat32;
       break;
     case VecSimType_FLOAT64:
-      alllowedTypes = JSONType_Double | JSONType_Int;
+      allowedTypes = JSONType_Double | JSONType_Int;
       getFunc = (int (*)(RedisJSON, void *))japi->getDouble;
       break;
     case VecSimType_INT32:
-      alllowedTypes = JSONType_Int;
+      allowedTypes = JSONType_Int;
       getFunc = (int (*)(RedisJSON, void *))JSON_getInt32;
       break;
     case VecSimType_INT64:
-      alllowedTypes = JSONType_Int;
+      allowedTypes = JSONType_Int;
       getFunc = (int (*)(RedisJSON, void *))japi->getInt;
       break;
   }
@@ -144,7 +144,7 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
   RedisJSON json;
   size_t offset = 0;
   while ((json = japi->next(arrIter))) {
-    if (!(japi->getType(json) & alllowedTypes)) {
+    if (!(japi->getType(json) & allowedTypes)) {
       rm_free(df->strval);
       return REDISMODULE_ERR;
     }

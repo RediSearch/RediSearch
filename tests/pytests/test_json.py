@@ -5,6 +5,7 @@ import bz2
 
 from common import *
 from includes import *
+from RLTest import Env
 
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
@@ -19,7 +20,8 @@ doc1_content = r'''{"string": "gotcha1",
                 "obj": {"int": 1, "string": "gotcha6","c": null},
                 "complex_arr": [42, null, -1.2, false, {"nested_array":["sub", "array", "gotcha2"]}, {"nested_obj": "gotcha3"}, "gotcha4"],
                 "scalar_arr": [42, null, -1.2, false, "gotcha5"],
-                "string_arr": ["a", "b", "c", "d", "e", "f", "gotcha6"]
+                "string_arr": ["a", "b", "c", "d", "e", "f", "gotcha6"],
+                "vector": [1, 2, 3, 0.1, 0.2, 0.3]
             }'''
 
 
@@ -144,6 +146,7 @@ def testHandleUnindexedTypes(env):
                         '$.complex_arr', 'AS', 'complex_arr', 'TEXT',
                         '$.scalar_arr', 'AS', 'scalar_arr', 'TAG',
                         '$.int_arr', 'AS', 'int_arr', 'TAG',
+                        '$.vector', 'AS', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2'
                         ).ok()
     waitForIndex(env, 'idx')
     # FIXME: Why does the following search return zero results?
@@ -319,6 +322,56 @@ def testArrayCommands(env):
     env.expect('FT.SEARCH', 'idx', '@tag:{1}').equal([0])
     env.expect('FT.SEARCH', 'idx', '@tag:{foo}').equal(res)
     env.expect('FT.SEARCH', 'idx', '@tag:{baz}').equal(res)
+
+@no_msan
+def testArrayCommands_withVector(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                        'SCHEMA', '$.v', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"v":[1]}'))
+    env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.v', '2'), [2])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v'), '[[1,2]]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,2]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
+    res = [1, 'doc:1', ['$', '{"v":[1,2]}']]
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '*').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal(res)
+
+    # use JSON.ARRINSERT
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '2', '3'), [3])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,2,3]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [3])
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '*').equal([0])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal([0])
+
+    # use JSON.ARRPOP
+    env.assertEqual(conn.execute_command('JSON.ARRPOP', 'doc:1', '$.v', '1'), ['2'])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,3]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
+    res = [1, 'doc:1', ['$', '{"v":[1,3]}']]
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '*').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal(res)
+
+    # use JSON.ARRTRIM
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '0', '"a"'), [3])
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '0', '"b"'), [4])
+    env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.v', '"c"', '"d"'), [6])
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [6])
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '*').equal([0])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal([0])
+
+    env.assertEqual(conn.execute_command('JSON.ARRTRIM', 'doc:1', '$.v', '2', '3'), [2])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,3]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '*').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal(res)
 
 @no_msan
 def testRootValues(env):
