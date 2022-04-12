@@ -507,10 +507,14 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(vectorPreprocessor) {
-  size_t len;
-  fdata->vector = RedisModule_StringPtrLen(field->text, &len);
-  fdata->vecLen = len;
-  if (len != fs->vectorOpts.expBlobSize) {
+  fdata->vecLen = 0;
+  if (field->unionType == FLD_VAR_T_RMS) {
+    fdata->vector = RedisModule_StringPtrLen(field->text, &fdata->vecLen);
+  } else if (field->unionType == FLD_VAR_T_CSTR) {
+    fdata->vector = field->strval;
+    fdata->vecLen = field->strlen;
+  }
+  if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
     // "Could not add vector with blob size %zu (expected size %zu)", len, fs->vectorOpts.expBlobSize
     QueryError_SetCode(status, QUERY_EBADATTR);
     return -1;

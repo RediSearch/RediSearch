@@ -7,14 +7,14 @@ extern "C" {
 #endif
 
 typedef enum JSONType {
-    JSONType_String = 0,
-    JSONType_Int = 1,
-    JSONType_Double = 2,
-    JSONType_Bool = 3,
-    JSONType_Object = 4,
-    JSONType_Array = 5,
-    JSONType_Null = 6,
-    JSONType__EOF
+    JSONType_String = 0x01,
+    JSONType_Int = 0x02,
+    JSONType_Double = 0x04,
+    JSONType_Bool = 0x08,
+    JSONType_Object = 0x10,
+    JSONType_Array = 0x20,
+    JSONType_Null = 0x40,
+    JSONType__EOF = 0x80
 } JSONType;
 
 typedef const void* RedisJSON;

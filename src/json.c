@@ -2,6 +2,7 @@
 #include "json.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
+#include "vector_index.h"
 
 #include <string.h>
 
@@ -67,8 +68,13 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   case JSONType_Null:
     rv = REDISMODULE_OK;
     break;
-  // An object or null type are not supported
+  // VECTOR field is represented as array
   case JSONType_Array:
+    if (fieldType == INDEXFLD_T_VECTOR) {
+      rv = REDISMODULE_OK;
+    }
+    break;
+  // An object or null type are not supported
   case JSONType_Object:
   case JSONType__EOF:
     break;
@@ -77,7 +83,79 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   return rv;
 }
 
-int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, struct DocumentField *df) {
+static int JSON_getInt32(RedisJSON json, int32_t *val) {
+  long long temp;
+  int ret = japi->getInt(json, &temp);
+  *val = (int32_t)temp;
+  return ret;
+}
+
+static int JSON_getFloat32(RedisJSON json, float *val) {
+  double temp;
+  int ret = japi->getDouble(json, &temp);
+  *val = (float)temp;
+  return ret;
+}
+
+int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struct DocumentField *df) {
+  VecSimType type = (VecSimType)0;
+  size_t dim = 0;
+  int (*getFunc)(RedisJSON, void *) = (int (*)(RedisJSON, void *))JSON_getFloat32;
+
+  switch (fs->vectorOpts.vecSimParams.algo) {
+    case VecSimAlgo_HNSWLIB:
+      type = fs->vectorOpts.vecSimParams.hnswParams.type;
+      dim = fs->vectorOpts.vecSimParams.hnswParams.dim;
+      break;
+    case VecSimAlgo_BF:
+      type = fs->vectorOpts.vecSimParams.bfParams.type;
+      dim = fs->vectorOpts.vecSimParams.bfParams.dim;
+      break;
+  }
+  if (japi->len(arrIter) != dim) {
+    return REDISMODULE_ERR;
+  }
+
+  size_t alllowedTypes = 0;
+  switch (type) {
+    case VecSimType_FLOAT32:
+      alllowedTypes = JSONType_Double | JSONType_Int;
+      getFunc = (int (*)(RedisJSON, void *))JSON_getFloat32;
+      break;
+    case VecSimType_FLOAT64:
+      alllowedTypes = JSONType_Double | JSONType_Int;
+      getFunc = (int (*)(RedisJSON, void *))japi->getDouble;
+      break;
+    case VecSimType_INT32:
+      alllowedTypes = JSONType_Int;
+      getFunc = (int (*)(RedisJSON, void *))JSON_getInt32;
+      break;
+    case VecSimType_INT64:
+      alllowedTypes = JSONType_Int;
+      getFunc = (int (*)(RedisJSON, void *))japi->getInt;
+      break;
+  }
+
+  if (!(df->strval = rm_calloc(dim, VecSimType_sizeof(type)))) {
+    return REDISMODULE_ERR;
+  }
+  df->strlen = fs->vectorOpts.expBlobSize;
+
+  RedisJSON json;
+  size_t offset = 0;
+  while ((json = japi->next(arrIter))) {
+    if (!(japi->getType(json) & alllowedTypes)) {
+      rm_free(df->strval);
+      return REDISMODULE_ERR;
+    }
+    getFunc(json, df->strval + offset);
+    offset += VecSimType_sizeof(type);
+  }
+  df->unionType = FLD_VAR_T_CSTR;
+  return REDISMODULE_OK;
+}
+
+int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df) {
   int rv = REDISMODULE_OK;
 
   int boolval;
@@ -113,7 +191,12 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, struct DocumentField
     case JSONType_Null:
       df->unionType = FLD_VAR_T_NULL;
       break;
-    case JSONType_Array:
+    case JSONType_Array:;
+      // Flattening the array to go over it with iterator api
+      JSONResultsIterator arrIter = japi->get(json, "$.[*]");
+      rv = JSON_StoreVectorInDocField(fs, arrIter, df);
+      japi->freeIter(arrIter);
+      break;
     case JSONType_Object:
       rv = REDISMODULE_ERR;
       break;
@@ -125,25 +208,21 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, struct DocumentField
 }
 
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
-                              FieldType ftype, struct DocumentField *df) {
+                              FieldSpec *fs, struct DocumentField *df) {
   int rv = REDISMODULE_OK;
 
   if (len == 1) {
     RedisJSON json = japi->next(jsonIter);
 
     JSONType jsonType = japi->getType(json);
-    if (FieldSpec_CheckJsonType(ftype, jsonType) != REDISMODULE_OK) {
+    if (FieldSpec_CheckJsonType(fs->types, jsonType) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
     
-    if (JSON_StoreInDocField(json, jsonType, df) != REDISMODULE_OK) {
+    if (JSON_StoreInDocField(json, jsonType, fs, df) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-  } else {
-    // len > 1. it must be a TAG field
-    if (ftype != INDEXFLD_T_TAG) {      
-      return REDISMODULE_ERR;
-    }
+  } else if (fs->types == INDEXFLD_T_TAG) {
 
     df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
     df->arrayLen = len;
@@ -166,6 +245,10 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     }
     RS_LOG_ASSERT (i == len, "Iterator count and len must be equal");
     df->unionType = FLD_VAR_T_ARRAY;
+  } else if (fs->types == INDEXFLD_T_VECTOR) {
+    rv = JSON_StoreVectorInDocField(fs, jsonIter, df);
+  } else {
+    rv = REDISMODULE_ERR;
   }
 
   return rv;
