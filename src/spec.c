@@ -2239,8 +2239,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
-    DocTable_DeleteR(&spec->docs, key);
-
     IndexSpec_DeleteDoc(spec, ctx, key);
     Document_Free(&doc);
     return REDISMODULE_ERR;
@@ -2256,7 +2254,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   // Get the doc ID
   t_docId id = DocTable_GetIdR(&spec->docs, key);
