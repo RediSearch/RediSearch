@@ -513,6 +513,8 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   } else if (field->unionType == FLD_VAR_T_CSTR) {
     fdata->vector = field->strval;
     fdata->vecLen = field->strlen;
+  } else if (field->unionType == FLD_VAR_T_NULL) {
+    return 0; // Skipping indexing missing vector
   }
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
     // "Could not add vector with blob size %zu (expected size %zu)", len, fs->vectorOpts.expBlobSize
@@ -534,8 +536,10 @@ FIELD_BULK_INDEXER(vectorIndexer) {
       return -1;
     }
   }
-  ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);;
-  ctx->spec->stats.numRecords++;
+  if (fdata->vecLen) {
+    ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);;
+    ctx->spec->stats.numRecords++;
+  }
   return 0;
 }
 
