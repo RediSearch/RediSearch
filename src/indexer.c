@@ -229,7 +229,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     RS_LOG_ASSERT(entry->docId, "docId should not be 0");
     writeIndexEntry(spec, invidx, encoder, entry);
  
-    if (spec->suffixMask & entry->fieldMask) {
+    if (spec->suffixMask & entry->fieldMask && entry->term[0] != '+') {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
 

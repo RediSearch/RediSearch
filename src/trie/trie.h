@@ -60,7 +60,7 @@ typedef struct {
     // the payload of terminal node. could be NULL if it's not terminal
     TriePayload *payload;
     // generic
-    void *value;
+    //void *value;
   };
 
   // the string of the current node
