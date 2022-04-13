@@ -5,6 +5,10 @@ else
 DRY_RUN:=
 endif
 
+ifneq ($(BB),)
+SLOW:=1
+endif
+
 ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
 COV=1
 endif
@@ -51,6 +55,7 @@ ifeq ($(wildcard $(ROOT)/deps/readies/*),)
 ___:=$(shell git submodule update --init --recursive &> /dev/null)
 endif
 
+MK.pyver:=3
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -83,7 +88,7 @@ make test          # run all tests (via ctest)
   TEST=regex         # run tests that match regex
   TESTDEBUG=1        # be very verbose (CTest-related)
   CTEST_ARG=...      # pass args to CTest
-  CTEST_PARALLEL=n   # run tests in give parallelism
+  CTEST_PARALLEL=n   # run ctests in n parallel jobs
 make pytest        # run python tests (tests/pytests)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
@@ -462,7 +467,11 @@ endif
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
-RLTEST_PARALLEL ?= 1
+ifeq ($(SLOW),1)
+_RLTEST_PARALLEL=0
+else
+_RLTEST_PARALLEL=1
+endif
 
 test:
 ifneq ($(TEST),)
@@ -479,7 +488,7 @@ endif
 endif
 
 pytest:
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
