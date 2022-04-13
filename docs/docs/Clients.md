@@ -22,9 +22,8 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | Java | [Spring LettuceMod][lettucemod-url] | [Redis Labs][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
 | Go | [redisearch-go][redisearch-go-url] | [Redis Inc][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
-| JavaScript | [RedRediSearch][RedRediSearch-url] | [Kyle J. Davis][RedRediSearch-author] | MIT |[![RedRediSearch-stars]][RedRediSearch-url]|
-| JavaScript | [redis-redisearch][redis-redisearch-url] | [Kyle J. Davis][redis-redisearch-author] | MIT | [![redis-redisearch-stars]][redis-redisearch-url]|
 | JavaScript | [Redis-om][redis-om-node-url] | [Redis][redis-om-node-author] | BSD-3-Clause | [![redis-om-node-stars]][redis-om-node-url] |
+| TypeScript | [Node-Redis][node-redis-url] | [Redis][node-redis-author] | MIT | [![node-redis-stars]][node-redis-url]|
 | TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
 | C# | [NRediSearch][NRediSearch-url] | [Marc Gravell][NRediSearch-author] | MIT | [![NRediSearch-stars]][NRediSearch-url] |
 | C# | [RediSearchClient][RediSearchClient-url] | [Tom Hanks][RediSearchClient-author] | MIT | [![RediSearchClient-stars]][RediSearchClient-url] |
@@ -60,13 +59,9 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redisearch-go-author]: https://redis.com
 [redisearch-go-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-go.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
-[RedRediSearch-url]: https://github.com/stockholmux/redredisearch
-[RedRediSearch-author]: https://github.com/stockholmux
-[RedRediSearch-stars]: https://img.shields.io/github/stars/stockholmux/redredisearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-[redis-redisearch-url]: https://github.com/stockholmux/node_redis-redisearch
-[redis-redisearch-author]: https://github.com/stockholmux
-[redis-redisearch-stars]: https://img.shields.io/github/stars/stockholmux/node_redis-redisearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[node-redis-url]: https://github.com/redis/node-redis
+[node-redis-author]: https://github.com/redis
+[node-redis-stars]: https://img.shields.io/github/stars/redis/node-redis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redis-modules-sdk-url]: https://github.com/danitseitlin/redis-modules-sdk
 [redis-modules-sdk-author]: https://github.com/danitseitlin
