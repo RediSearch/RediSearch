@@ -50,7 +50,7 @@ make setup
 Alternatively, invoke the following (with `sudo` for Linux):
 
 ```
-./deps/readies/bin/getpy2
+./deps/readies/bin/getpy3
 ./system-setup.py
 ```
 Note that ```system-setup.py``` **will install various packages on your system** using the native package manager and pip.
@@ -59,7 +59,7 @@ If you prefer to avoid that, you can:
 
 * Review `system-setup.py` and install packages manually,
 * Use an isolated environment like explained above,
-* Use a Python virtual environment, as Python installations are known to be sensitive when not used in isolation: `python2 -m virtualenv venv; . ./venv/bin/activate`
+* Use a Python virtual environment, as Python installations are known to be sensitive when not used in isolation: `python3 -m virtualenv venv; . ./venv/bin/activate`
 
 ## Installing Redis
 As a rule of thumb, you're better off running the latest Redis version.

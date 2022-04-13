@@ -6,13 +6,12 @@ def search(env, r, *args):
 
 def testTagIndex(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag'))
+    env.expect('ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag').ok()
     N = 10
     for n in range(N):
 
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
-                                       'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n))
+        env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
+                                       'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n).ok()
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
         res = env.cmd('ft.search', 'idx', 'hello world')
@@ -41,7 +40,7 @@ def testTagIndex(env):
             res = env.cmd(
                 'ft.search', 'idx', 'hello world @tags:{tag\\ %d|tag %d}' % (n, n + 1), 'nocontent')
             env.assertEqual(2, res[0])
-            res = sorted(res[1:])
+            res = py2sorted(res[1:])
             env.assertEqual('doc%d' % n, res[0])
             env.assertEqual('doc%d' % (n + 1), res[1])
 
@@ -52,12 +51,12 @@ def testTagIndex(env):
 
 def testSeparator(env):
     r = env
-    env.assertOk(r.execute_command(
+    env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'tags', 'tag', 'separator', ':'))
+        'schema', 'title', 'text', 'tags', 'tag', 'separator', ':').ok()
 
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                   'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR'))
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                   'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR').ok()
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
         for q in ('@tags:{hello world}', '@tags:{fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}', '@tags:{x}'):
@@ -67,15 +66,14 @@ def testSeparator(env):
 def testTagPrefix(env):
     env.skipOnCluster()
     r = env
-    env.assertOk(r.execute_command(
+    env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'tags', 'tag', 'separator', ','))
+        'schema', 'title', 'text', 'tags', 'tag', 'separator', ',').ok()
 
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                   'title', 'hello world',
-                                   'tags', 'hello world,hello-world,hell,jell'))
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world',
+               'tags', 'hello world,hello-world,hell,jell').ok()
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tags')    \
-        .equal([['hell', [1L]], ['hello world', [1L]], ['hello-world', [1L]], ['jell', [1L]]])
+        .equal([['hell', [1]], ['hello world', [1]], ['hello-world', [1]], ['jell', [1]]])
 
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
@@ -85,12 +83,12 @@ def testTagPrefix(env):
 
 def testTagFieldCase(env):
     r = env
-    env.assertOk(r.execute_command(
+    env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'TAgs', 'tag'))
+        'schema', 'title', 'text', 'TAgs', 'tag').ok()
 
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                   'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR'))
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                                   'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR').ok()
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
         env.assertListEqual([0], r.execute_command(
@@ -179,20 +177,20 @@ def testTagCaseSensitive(env):
     conn.execute_command('HSET', 'doc2', 't', 'FOO')
     conn.execute_command('HSET', 'doc3', 't', 'foo')
 
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['foo', [1L, 2L, 3L]]])
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['foo', [1L, 3L]], ['FOO', [1L, 2L]]])
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['foo', [2L, 3L]], ['foo,foo', [1L]]])
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['foo', [1, 2, 3]]])
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['foo', [1, 3]], ['FOO', [1, 2]]])
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['foo', [2, 3]], ['foo,foo', [1]]])
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['foo', [3]], ['foo,FOO', [1]], ['FOO', [2]]])
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['foo', [3]], ['foo,FOO', [1]], ['FOO', [2]]])
 
     env.expect('FT.SEARCH', 'idx1', '@t:{FOO}', 'SORTBY', 't')         \
-        .equal([3L, 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']])
+        .equal([3, 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']])
     env.expect('FT.SEARCH', 'idx1', '@t:{foo}', 'SORTBY', 't')         \
-        .equal([3L, 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']])
+        .equal([3, 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']])
     env.expect('FT.SEARCH', 'idx2', '@t:{FOO}', 'SORTBY', 't')         \
-        .equal([2L, 'doc2', ['t', 'FOO'], 'doc1', ['t', 'foo,FOO']])
+        .equal([2, 'doc2', ['t', 'FOO'], 'doc1', ['t', 'foo,FOO']])
     env.expect('FT.SEARCH', 'idx2', '@t:{foo}', 'SORTBY', 't')         \
-        .equal([2L, 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']])
+        .equal([2, 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']])
 
 def testTagGCClearEmpty(env):
     env.skipOnCluster()
@@ -203,15 +201,15 @@ def testTagGCClearEmpty(env):
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'bar')
     conn.execute_command('HSET', 'doc3', 't', 'baz')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1L]], ['bar', [2L]], ['baz', [3L]]])
-    env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([1L, 'doc1', ['t', 'foo']])
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1]], ['bar', [2]], ['baz', [3]]])
+    env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([1, 'doc1', ['t', 'foo']])
 
     # delete two tags
     conn.execute_command('DEL', 'doc1')
     conn.execute_command('DEL', 'doc2')
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['baz', [3L]]])
-    env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([0L])
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['baz', [3]]])
+    env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([0])
 
     # delete last tag
     conn.execute_command('DEL', 'doc3')
@@ -221,8 +219,8 @@ def testTagGCClearEmpty(env):
     # check term can be used after being empty
     conn.execute_command('HSET', 'doc4', 't', 'foo')
     conn.execute_command('HSET', 'doc5', 't', 'foo')
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:{foo}')
-    env.assertEqual(sorted(res), sorted([2L, 'doc4', ['t', 'foo'], 'doc5', ['t', 'foo']]))
+    env.expect('FT.SEARCH', 'idx', '@t:{foo}')  \
+        .equal([2, 'doc5', ['t', 'foo'], 'doc4', ['t', 'foo']])
 
 def testTagGCClearEmptyWithCursor(env):
     env.skipOnCluster()
@@ -232,10 +230,10 @@ def testTagGCClearEmptyWithCursor(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1L, 2L]]])
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
 
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
-    env.assertEqual(res, [1L, []])
+    env.assertEqual(res, [1, []])
 
     # delete both documents and run the GC to clean 'foo' inverted index
     env.expect('DEL', 'doc1').equal(1)
@@ -248,7 +246,7 @@ def testTagGCClearEmptyWithCursor(env):
 
     # read from the cursor
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-    env.assertEqual(res, [0L])
+    env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
 def testTagGCClearEmptyWithCursorAndMoreData(env):
@@ -259,10 +257,10 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1L, 2L]]])
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
 
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
-    env.assertEqual(res, [1L, []])
+    env.assertEqual(res, [1, []])
 
     # delete both documents and run the GC to clean 'foo' inverted index
     env.expect('DEL', 'doc1').equal(1)
@@ -276,16 +274,16 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     # add data
     conn.execute_command('HSET', 'doc3', 't', 'foo')
     conn.execute_command('HSET', 'doc4', 't', 'foo')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [3L, 4L]]])
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [3, 4]]])
 
     # read from the cursor
     res, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor)
-    env.assertEqual(res, [0L])
+    env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
     # ensure later documents with same tag are read
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t:{foo}')
-    env.assertEqual(res, [1L, [], []])
+    env.assertEqual(res, [1, [], []])
 
 @unstable
 def testEmptyTagLeak(env):

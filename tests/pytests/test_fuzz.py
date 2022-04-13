@@ -2,6 +2,7 @@ import random
 import time
 from includes import *
 from common import waitForIndex
+from functools import reduce
 
 
 _tokens = {}
@@ -35,7 +36,7 @@ def createIndex(env, r):
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text').ok()
     waitForIndex(r, 'idx')
 
-    for i in xrange(1000):
+    for i in range(1000):
         did, tokens = generate_random_doc(env)
 
         r.execute_command('ft.add', 'idx', did,
@@ -64,7 +65,7 @@ def compareResults(env, r, num_unions=2, toks_per_union=7):
     qr = set((int(x) for x in r.execute_command('ft.search', 'idx',
                                                 q, 'nocontent', 'limit', 0, 100)[1:]))
 
-    # print sorted(result), '<=>', sorted(qr)
+    # print py2sorted(result), '<=>', py2sorted(qr)
     return result.difference(qr)
 
 def testFuzzy(env):
