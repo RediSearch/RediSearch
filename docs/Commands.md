@@ -7,7 +7,7 @@
 #### Format
 ```
   FT.CREATE {index}
-    [ON {data_type}]
+    [ON {key_type}]
        [PREFIX {count} {prefix} [{prefix} ...]
        [FILTER {filter}]
        [LANGUAGE {default_lang}]
@@ -93,7 +93,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **ON {data_type}** currently supports HASH (default) and JSON.
+* **ON {key_type}** currently supports HASH (default) and JSON.
 
 !!! info "ON JSON"
     To index JSON, you must have the [RedisJSON](https://redisjson.io) module installed.
