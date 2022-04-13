@@ -442,6 +442,31 @@ def testMultiValueTag_Recursive_Decent(env):
     env.expect('FT.SEARCH', 'idx', '@name:{bar}').equal(res)
 
 @no_msan
+def testMultiValueVector(env):
+    conn = getConnectionByEnv(env)
+    env.assertOk(conn.execute_command('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2'))
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                        'SCHEMA', '$..num', 'AS', 'vec1', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2',
+                                  '$.vec2', 'AS', 'vec2', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
+                               '$.*.vec3[*]', 'AS', 'vec3', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '4','DISTANCE_METRIC', 'L2')
+    conn.execute_command('JSON.SET', 'doc:1', '$', '{"vec2":[42,46], \
+                                                     "first" : {"num":3.14}, "second" : {"deeper" : {"num":0.42}}, "num" : 2.71, \
+                                                     "x" : {"vec3" : [1]}, "y" : {"vec3" : [2,3,4]}, "z" : {"vec3" : []}}')
+
+    # fails... find the bug!
+    # res = [1, 'doc:1', ['vec1', '[2.71,3.14,0.42]', 'vec2', '[42,46]', 'vec3', '[1,2,3,4]']]
+    # env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '2', 'vec1', 'vec2').equal(res)
+    # env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec1 $b AS first_score]', 'PARAMS', '2', 'b', '<<<<????>>>>', 'RETURN', '2', 'vec1', 'vec2').equal(res)
+    # env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec2 $b EF_RUNTIME 5 AS second_score]', 'PARAMS', '2', 'b', '<<<<>>>>', 'RETURN', '2', 'vec1', 'vec2').equal(res)
+    # env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec3 $b AS third_score]', 'PARAMS', '2', 'b', '<<<<????????>>>>', 'RETURN', '2', 'vec1', 'vec2').equal(res)
+
+    res = [1, 'doc:1']
+    env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '0').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec1 $b AS first_score]', 'PARAMS', '2', 'b', '<<<<????>>>>', 'RETURN', '0').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec2 $b EF_RUNTIME 5 AS second_score]', 'PARAMS', '2', 'b', '<<<<>>>>', 'RETURN', '0').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec3 $b AS third_score]', 'PARAMS', '2', 'b', '<<<<????????>>>>', 'RETURN', '0').equal(res)
+
+@no_msan
 def testMultiValueErrors(env):
     # Index with Tag for array with multi-values
     env.execute_command('FT.CREATE', 'idxtext', 'ON', 'JSON',
@@ -450,13 +475,16 @@ def testMultiValueErrors(env):
                         'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC')
     env.execute_command('FT.CREATE', 'idxgeo', 'ON', 'JSON',
                         'SCHEMA', '$.geo', 'AS', 'geo', 'GEO')
+    env.execute_command('FT.CREATE', 'idxvector', 'ON', 'JSON',
+                        'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2')
 
     env.expect('JSON.SET', 'doc:1', '$', '{"text":["foo, bar","baz"],                       \
                                            "num":[1,2,3,3.14],                              \
+                                           "vec":[[1],[2,3],[3.14]],                              \
                                            "geo":["1.234, 4.321", "0.123, 3.210"]}').ok()
 
     # test non-tag indexes fail to index multivalue
-    indexes = ['idxtext', 'idxnum', 'idxgeo']
+    indexes = ['idxtext', 'idxnum', 'idxgeo', 'idxvector']
     for index in indexes:
         res_actual = env.cmd('FT.INFO', index)
         res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
@@ -702,45 +730,57 @@ def test_WrongJsonType(env):
         '$.object2', 'TAG',
         '$.object3', 'NUMERIC',
         '$.object4', 'GEO',
+        '$.object5', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
 
         '$.array1', 'TEXT',
         '$.array2', 'NUMERIC',
         '$.array3', 'GEO',
+        '$.array4', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2', # wrong sub-types
 
         '$.numeric1', 'TEXT',
         '$.numeric2', 'TAG',
         '$.numeric3', 'GEO',
+        '$.numeric4', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
 
         '$.bool1', 'TEXT',
         '$.bool2', 'NUMERIC',
         '$.bool3', 'GEO',
+        '$.bool4', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
 
         '$.geo1', 'NUMERIC',
+        '$.geo2', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
 
         '$.text1', 'NUMERIC',
-        '$.text2', 'GEO').ok()
+        '$.text2', 'GEO',
+        '$.text3', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"object1":{"1":"foo", "2":"bar"}}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"object2":{"1":"foo", "2":"bar"}}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"object3":{"1":"foo", "2":"bar"}}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"object4":{"1":"foo", "2":"bar"}}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"object5":{"1":"foo", "2":"bar"}}'))
 
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array1":["foo", "bar"]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array2":["foo", "bar"]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array3":["foo", "bar"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array4":["foo", "bar"]}'))
 
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric1":3.141}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric2":3.141}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric3":3.141}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric4":3.141}'))
 
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"bool1":true}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"bool2":true}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"bool3":true}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"bool4":true}'))
 
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"geo1":"1.23,2.34"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"geo2":"1.23,2.34"}'))
 
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"text1":"foo"}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"text2":"foo"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"text3":"foo"}'))
 
     # no field was indexed
     env.expect('FT.SEARCH', 'idx', '*').equal([0])
@@ -847,13 +887,14 @@ def testTagArrayLowerCase(env):
     env.expect('FT.SEARCH', 'idx4', '@attrs:{vivo}', 'NOCONTENT').equal([1, 'json2'])
 
 def check_index_with_null(env, idx):
-    res = [4, 'doc1', ['sort', '1', '$', '{"sort":1,"num":null,"txt":"hello","tag":"world","geo":"1.23,4.56"}'],
-              'doc2', ['sort', '2', '$', '{"sort":2,"num":0.8,"txt":null,"tag":"world","geo":"1.23,4.56"}'],
-              'doc3', ['sort', '3', '$', '{"sort":3,"num":0.8,"txt":"hello","tag":null,"geo":"1.23,4.56"}'],
-              'doc4', ['sort', '4', '$', '{"sort":4,"num":0.8,"txt":"hello","tag":"world","geo":null}']]
+    res = [5, 'doc1', ['sort', '1', '$', '{"sort":1,"num":null,"txt":"hello","tag":"world","geo":"1.23,4.56","vec":[0,1]}'],
+              'doc2', ['sort', '2', '$', '{"sort":2,"num":0.8,"txt":null,"tag":"world","geo":"1.23,4.56","vec":[0,1]}'],
+              'doc3', ['sort', '3', '$', '{"sort":3,"num":0.8,"txt":"hello","tag":null,"geo":"1.23,4.56","vec":[0,1]}'],
+              'doc4', ['sort', '4', '$', '{"sort":4,"num":0.8,"txt":"hello","tag":"world","geo":null,"vec":[0,1]}'],
+              'doc5', ['sort', '5', '$', '{"sort":5,"num":0.8,"txt":"hello","tag":"world","geo":"1.23,4.56","vec":null}']]
 
     env.expect('FT.SEARCH', idx, '*', 'SORTBY', "sort").equal(res)
-    env.expect('FT.SEARCH', idx, '@sort:[1 4]', 'SORTBY', "sort").equal(res)
+    env.expect('FT.SEARCH', idx, '@sort:[1 5]', 'SORTBY', "sort").equal(res)
     info_res = index_info(env, idx)
     env.assertEqual(int(info_res['hash_indexing_failures']), 0)
 
@@ -865,6 +906,7 @@ def testNullValue(env):
                                                            '$.sort', 'AS', 'sort', 'NUMERIC',
                                                            '$.txt', 'AS', 'txt', 'TEXT',
                                                            '$.tag', 'AS', 'tag', 'TAG',
+                                                           '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
                                                            '$.geo', 'AS', 'geo', 'GEO').ok()
 
     env.expect('FT.CREATE', 'idx_sortable', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC', 'SORTABLE',
@@ -878,13 +920,22 @@ def testNullValue(env):
     env.expect('FT.CREATE', 'idx_casesensitive', 'ON', 'JSON', 'SCHEMA', '$.sort', 'AS', 'sort', 'NUMERIC',
                                                                          '$.tag', 'AS', 'tag', 'TAG', 'CASESENSITIVE').ok()
 
-    conn.execute_command('JSON.SET', 'doc1', '$', r'{"sort":1, "num":null, "txt":"hello", "tag":"world", "geo":"1.23,4.56"}')
-    conn.execute_command('JSON.SET', 'doc2', '$', r'{"sort":2, "num":0.8, "txt":null, "tag":"world", "geo":"1.23,4.56"}')
-    conn.execute_command('JSON.SET', 'doc3', '$', r'{"sort":3, "num":0.8, "txt":"hello", "tag":null, "geo":"1.23,4.56"}')
-    conn.execute_command('JSON.SET', 'doc4', '$', r'{"sort":4, "num":0.8, "txt":"hello", "tag":"world", "geo":null}')
+    conn.execute_command('JSON.SET', 'doc1', '$', r'{"sort":1, "num":null, "txt":"hello", "tag":"world", "geo":"1.23,4.56", "vec":[0,1]}')
+    conn.execute_command('JSON.SET', 'doc2', '$', r'{"sort":2, "num":0.8, "txt":null, "tag":"world", "geo":"1.23,4.56", "vec":[0,1]}')
+    conn.execute_command('JSON.SET', 'doc3', '$', r'{"sort":3, "num":0.8, "txt":"hello", "tag":null, "geo":"1.23,4.56", "vec":[0,1]}')
+    conn.execute_command('JSON.SET', 'doc4', '$', r'{"sort":4, "num":0.8, "txt":"hello", "tag":"world", "geo":null, "vec":[0,1]}')
+    conn.execute_command('JSON.SET', 'doc5', '$', r'{"sort":5, "num":0.8, "txt":"hello", "tag":"world", "geo":"1.23,4.56", "vec":null}')
 
     check_index_with_null(env, 'idx')
     check_index_with_null(env, 'idx_sortable')
     check_index_with_null(env, 'idx_separator')
     check_index_with_null(env, 'idx_casesensitive')
 
+@no_msan
+def testVector_empty_array(env):
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2').ok()
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+    env.expect('JSON.SET', 'json1', '$', r'{"vec":[]}').ok()
+    assertInfoField(env, 'idx', 'hash_indexing_failures', '1')
