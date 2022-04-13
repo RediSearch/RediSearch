@@ -26,7 +26,7 @@ static suffixData *createSuffixNode(char *term, int keepPtr) {
   if (keepPtr) {
     node->term = term;
   }
-  array_ensure_append_1(node->array, term);
+  node->array = array_ensure_append_1(node->array, term);
   return node;
 }
 
@@ -50,7 +50,8 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   char *copyStr = rm_strndup(str, len);
   if (!node) {
     node = createSuffixNode(copyStr, 1);
-    TrieNode_Add(&trie->root, runes, rlen, (RSPayload*)node, 0, ADD_IGNORE);
+    RSPayload payload = { .data = node, .len = sizeof(*node) };
+    TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_IGNORE);
   } else {
     RS_LOG_ASSERT(!node->rune, "can't reach here");
     node->rune = runes;
@@ -63,7 +64,8 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     node = TrieNode_GetValue(trie->root, runes + j, rlen - j, 1);
     if (!node) {
       node = createSuffixNode(copyStr, 0);
-      TrieNode_Add(&trie->root, runes, rlen, (RSPayload*)node, 0, ADD_IGNORE);
+      RSPayload payload = { .data = node, .len = sizeof(*node) };
+      TrieNode_Add(&trie->root, runes + j, rlen - j, &payload, 1, ADD_IGNORE);
     } else {
       node->array = array_ensure_append_1(node->array, copyStr);
     }
@@ -108,6 +110,9 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 }
 
 static int processSuffixData(suffixData *data, TrieSuffixCallback callback, void *ctx) {
+  if (!data) {
+    return REDISMODULE_OK;
+  }
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
     if (callback(array[i], strlen(array[i]), ctx) != REDISMODULE_OK) {
@@ -118,7 +123,7 @@ static int processSuffixData(suffixData *data, TrieSuffixCallback callback, void
 }
 
 static int recursiveAdd(TrieNode *node, TrieSuffixCallback callback, void *ctx) {
-  suffixData *data = node->value;
+  suffixData *data = node->payload->data;
   processSuffixData(data, callback, ctx);
   if (node->numChildren) {
     TrieNode **children = __trieNode_children(node);

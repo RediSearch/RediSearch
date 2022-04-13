@@ -327,7 +327,7 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
 //TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len);
 void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact) {
   TrieNode *res = TrieNode_Get(n, str, len, exact, NULL);
-  return res ? res->value : NULL;
+  return res ? res->payload->data : NULL;
 }
 
 /*

@@ -4,7 +4,6 @@ import os
 import csv
 
 
-
 def testBasicContains(env):
     r = env
     env.assertOk(r.execute_command(
@@ -171,3 +170,31 @@ def testEscape(env):
   # none
   env.expect('ft.search', 'idx', '\*foo\*').equal([0])
 
+def testWithContains(env):
+  # this test check that `\*` is escaped correctly on contains queries
+  conn = getConnectionByEnv(env)
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHCONTAINS', 'SORTABLE')
+
+
+  env.expect('HSET', 'doc1', 't', 'world').equal(1)
+
+  # prefix
+  # res = env.execute_command('ft.search', 'idx', 'worl*')
+  # env.assertEqual(res[0:2], [1, 'doc1'])
+  # env.assertEqual(set(res[2]), set(['hello world', 't']))
+
+  # contains
+  res = env.execute_command('ft.search', 'idx', '*orld*')
+  env.assertEqual(res[0:2], [1, 'doc1'])
+  #env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
+  
+
+  # suffix
+  res = env.execute_command('ft.search', 'idx', '*orld')
+  env.assertEqual(res[0:2], [1, 'doc1'])
+  res = env.execute_command('ft.search', 'idx', '*orld')
+  env.assertEqual(res[0:2], [1, 'doc1'])
+  res = env.execute_command('ft.search', 'idx', '*orld')
+  env.assertEqual(res[0:2], [1, 'doc1'])
+  #env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
+  #env.expect('ft.search', 'idx', '*orl').equal([0])
