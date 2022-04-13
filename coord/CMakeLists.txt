@@ -122,8 +122,7 @@ macro(MODULE_TARGET TYPE)
     if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG AND NOT APPLE)
         add_custom_command(TARGET ${_moduleName} POST_BUILD
             COMMAND objcopy --only-keep-debug $<TARGET_FILE:${_moduleName}> $<TARGET_FILE:${_moduleName}>.debug
-            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:${_moduleName}>.debug $<TARGET_FILE:${_moduleName}>
-            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:${_moduleName}>)
+            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:${_moduleName}>.debug $<TARGET_FILE:${_moduleName}>)
     endif()
 endmacro()
 
