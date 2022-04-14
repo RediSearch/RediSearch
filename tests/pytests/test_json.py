@@ -2,6 +2,7 @@
 
 import json
 import bz2
+import numpy as np
 
 from common import *
 from includes import *
@@ -939,3 +940,35 @@ def testVector_empty_array(env):
                'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     env.expect('JSON.SET', 'json1', '$', r'{"vec":[]}').ok()
     assertInfoField(env, 'idx', 'hash_indexing_failures', '1')
+
+@no_msan
+def testVector_correct_eval(env):
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+    
+    env.expect('JSON.SET', 'j1', '$', r'{"vec":[1,1]}').ok()
+    env.expect('JSON.SET', 'j2', '$', r'{"vec":[1,-0.189207144]}').ok()
+    env.expect('JSON.SET', 'j3', '$', r'{"vec":[2.2533141,-0.2533141]}').ok()
+    env.expect('JSON.SET', 'j4', '$', r'{"vec":[-1,1]}').ok()
+    blob = np.ones(2, 'float32').tobytes()
+
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @vec $b AS scores]', 'PARAMS', '2', 'b', blob, 'RETURN', '1', 'scores').equal(
+        [4, 'j1', ['scores', '0'], 'j2', ['scores', '1.41421341896'], 'j3', ['scores', '3.14159250259'], 'j4', ['scores', '4']]
+    )
+
+@no_msan
+def testVector_bad_valuse(env):
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '5','DISTANCE_METRIC', 'L2').ok()
+    
+    env.expect('JSON.SET', 'j1', '$', r'{"vec":[1,2,3,4,"ab"]}').ok()
+    env.expect('JSON.SET', 'j2', '$', r'{"vec":[1,2,3,true,5]}').ok()
+    env.expect('JSON.SET', 'j2', '$', r'{"vec":[1,2,null,4,5]}').ok()
+    env.expect('JSON.SET', 'j3', '$', r'{"vec":[1,2,3,4]}').ok()
+    env.expect('JSON.SET', 'j3', '$', r'{"vec":[1,2,3,4,5,6]}').ok()
+    blob = np.ones(2, 'float32').tobytes()
+
+    assertInfoField(env, 'idx', 'hash_indexing_failures', '5')
+    assertInfoField(env, 'idx', 'num_docs', '0')

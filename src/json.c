@@ -150,7 +150,7 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
       break;
   }
 
-  size_t step = VecSimType_sizeof(type);
+  unsigned char step = VecSimType_sizeof(type);
   if (!(df->strval = rm_malloc(dim * step))) {
     return REDISMODULE_ERR;
   }
