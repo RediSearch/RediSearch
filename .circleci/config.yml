@@ -56,9 +56,8 @@ commands:
           name: Setup automation
           command: |
             git submodule update --init deps/readies
-            ./deps/readies/bin/getpy2
             ./deps/readies/bin/getpy3
-            python2 -m pip install awscli
+            python3 -m pip install -q awscli
 
   install-prerequisites:
     parameters:
@@ -75,12 +74,12 @@ commands:
           shell: /bin/bash -l -eo pipefail
           command: |
             ./sbin/system-setup.py
-            python2 -m pip list
+            python3 -m pip list
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
           command: |
-            python2 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
+            python3 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
             redis-server --version
 
   save-tests-logs:
@@ -323,29 +322,33 @@ jobs:
       xcode: 12.4.0
     resource_class: macos.x86.medium.gen2
     parameters:
-      persist:
+      upload:
         type: string
         default: "yes"
     steps:
       - early-returns
-#      - run:
-#          name: Brew upgrade
-#          command: brew upgrade
+      # - run:
+      #     name: Brew upgrade
+      #     command: brew upgrade
+      - run:
+          name: Set up workspace
+          command: mkdir -p ~/workspace
       - build-steps
       - test-steps
       - run:
-          name: Persist artifacts?
-          command: |
-            if [[ "<<parameters.persist>>" != "yes" ]]; then
-              circleci step halt
-            fi
-      - run:
           name: Upload artifacts to S3
           command: |
-            if [[ -n $CIRCLE_BRANCH ]]; then
+            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
                 make upload-artifacts SHOW=1
             fi
       - persist-artifacts
+
+  benchmarks:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+    steps:
+      - build-steps
+      - benchmark-steps
 
   coverage:
     docker:
@@ -438,13 +441,6 @@ jobs:
           name: Run QA Tests (RediSearch Light)
           command: MODULE_VERSION=$CIRCLE_TAG VERBOSE=1 TEST=release LIGHT=1 ./tests/qa/run
 
-  benchmarks:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
-    steps:
-      - build-steps
-      - benchmark-steps
-
 #----------------------------------------------------------------------------------------------------------------------------------
 
 on-any-branch: &on-any-branch
@@ -517,21 +513,15 @@ workflows:
       - build-linux-debian:
           name: build
           <<: *not-on-integ-branch
-      - build-linux-debian:
-          name: build-with-redis-<<matrix.redis_version>>
-          <<: *on-integ-and-version-tags
-          matrix:
-            parameters:
-              redis_version: ["6.0", "6.2", "7"]
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, ol8, centos7, bullseye]
+              platform: [focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-macos:
-          <<: *on-integ-and-version-tags
           context: common
+          <<: *on-integ-and-version-tags
       - coverage:
           <<: *on-any-branch
       - sanitize:
@@ -579,12 +569,12 @@ workflows:
     jobs:
       - build-macos:
           name: nightly-macos
-          persist: "no"
+          upload: "no"
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2", "7"]
+              redis_version: ["6.0", "7", "unstable"]
 
   nightly-benchmarks:
     triggers:

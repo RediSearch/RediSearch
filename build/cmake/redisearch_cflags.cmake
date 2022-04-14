@@ -81,5 +81,5 @@ elseif (${OS} STREQUAL "macos")
 endif()
 
 if (NOT APPLE)
-    set(RS_SO_FLAGS "-Wl,-Bsymbolic,-Bsymbolic-functions")
+    set(RS_SO_FLAGS "${RS_SO_FLAGS} -Wl,-Bsymbolic,-Bsymbolic-functions")
 endif()

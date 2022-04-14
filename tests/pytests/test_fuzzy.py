@@ -5,31 +5,30 @@ import os
 
 def testBasicFuzzy(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
-                                    'body', 'this is a test'))
+                                    'body', 'this is a test').ok()
 
     res = r.execute_command('ft.search', 'idx', '%word%')
-    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
 
 def testThreeFuzzy(env):
     env.cmd('FT.CREATE', 'idx', 'schema', 't', 'text')
     env.cmd('HSET', 'doc', 't', 'hello world')
-    env.expect('FT.SEARCH', 'idx', '%%%wo%%%').equal([1L, 'doc', ['t', 'hello world']])
-    env.expect('FT.SEARCH', 'idx', '%%%wi%%%').equal([0L])
+    env.expect('FT.SEARCH', 'idx', '%%%wo%%%').equal([1, 'doc', ['t', 'hello world']])
+    env.expect('FT.SEARCH', 'idx', '%%%wi%%%').equal([0])
 
     # check for upper case to lower case
-    env.expect('FT.SEARCH', 'idx', '%%%WO%%%').equal([1L, 'doc', ['t', 'hello world']])
+    env.expect('FT.SEARCH', 'idx', '%%%WO%%%').equal([1, 'doc', ['t', 'hello world']])
 
 def testLdLimit(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world')
-    env.assertEqual([1L, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', '%word%'))  # should be ok
-    env.assertEqual([0L], env.cmd('ft.search', 'idx', r'%sword%'))  # should return nothing
-    env.assertEqual([1L, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', r'%%sword%%'))
+    env.assertEqual([1, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', '%word%'))  # should be ok
+    env.assertEqual([0], env.cmd('ft.search', 'idx', r'%sword%'))  # should return nothing
+    env.assertEqual([1, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', r'%%sword%%'))
 
 def testStopwords(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
@@ -50,34 +49,31 @@ def testStopwords(env):
 
 def testFuzzyMultipleResults(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
-                                    'body', 'this is a test'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
+                                    'body', 'this is a test').ok()
+    env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
                                     'title', 'hello word',
-                                    'body', 'this is a test'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc3', 1.0, 'fields',
+                                    'body', 'this is a test').ok()
+    env.expect('ft.add', 'idx', 'doc3', 1.0, 'fields',
                                     'title', 'hello ward',
-                                    'body', 'this is a test'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc4', 1.0, 'fields',
+                                    'body', 'this is a test').ok()
+    env.expect('ft.add', 'idx', 'doc4', 1.0, 'fields',
                                     'title', 'hello wakld',
-                                    'body', 'this is a test'))
+                                    'body', 'this is a test').ok()
 
     res = r.execute_command('ft.search', 'idx', '%word%')
-    env.assertEqual(res[0], 3L)
+    env.assertEqual(res[0], 3)
     for i in range(1,6,2):
         env.assertIn(res[i], ['doc1', 'doc2', 'doc3'])
 
 def testFuzzySyntaxError(env):
     r = env
     unallowChars = ('*', '$', '~', '&', '@', '!')
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                    'title', 'hello world',
-                                    'body', 'this is a test'))
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
+               'title', 'hello world', 'body', 'this is a test').ok()
     for ch in unallowChars:
         error = None
         try:
@@ -98,7 +94,7 @@ def testTagFuzzy(env):
     env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TAG')
     env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG', 'CASESENSITIVE')
     env.cmd('HSET', 'doc', 't', 'hello world')
-    env.expect('FT.SEARCH', 'idx1', '@t:{(%worl%)}').equal([1L, 'doc', ['t', 'hello world']])
-    env.expect('FT.SEARCH', 'idx1', '@t:{(%wor%)}').equal([0L])
-    env.expect('FT.SEARCH', 'idx2', '@t:{(%worl%)}').equal([0L])
-    env.expect('FT.SEARCH', 'idx2', '@t:{(%wir%)}').equal([0L])
+    env.expect('FT.SEARCH', 'idx1', '@t:{(%worl%)}').equal([1, 'doc', ['t', 'hello world']])
+    env.expect('FT.SEARCH', 'idx1', '@t:{(%wor%)}').equal([0])
+    env.expect('FT.SEARCH', 'idx2', '@t:{(%worl%)}').equal([0])
+    env.expect('FT.SEARCH', 'idx2', '@t:{(%wir%)}').equal([0])
