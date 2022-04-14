@@ -327,23 +327,8 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
 //TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len);
 void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact) {
   TrieNode *res = TrieNode_Get(n, str, len, exact, NULL);
-  return res ? res->payload->data : NULL;
+  return (res && res->payload) ? res->payload->data : NULL;
 }
-
-/*
-static TrieNode *TrieNode_Contain(TrieNode *n, rune *str, t_len len, t_len offset, RangeCtx *r) {
-  if (n->len != 1) RS_LOG_ASSERT(0, "todo");
-  if (offset == 0) {
-    r->callback(r->buf, array_len(r->buf), r->cbctx);
-  }
-
-  for (t_len i = 0; i < n->numChildren; i++) {
-    if (str[offset] == n->str[0]) {
-
-    }
-  }
-  
-}*/
 
 void __trieNode_sortChildren(TrieNode *n);
 

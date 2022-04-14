@@ -109,7 +109,7 @@ def testBible(env):
 
     reader = csv.reader(open('/home/ariel/redis/RediSearch/bible.txt','r'))
     conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'withcontains')
+    env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
 
     i = 0
     start = time.time()    

@@ -56,12 +56,8 @@ typedef struct {
   // traversal
   float maxChildScore;
 
-  union {
-    // the payload of terminal node. could be NULL if it's not terminal
-    TriePayload *payload;
-    // generic
-    //void *value;
-  };
+  // the payload of terminal node. could be NULL if it's not terminal
+  TriePayload *payload;
 
   // the string of the current node
   rune str[];

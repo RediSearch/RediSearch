@@ -39,8 +39,14 @@ static void freeSuffixNode(suffixData *node) {
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   // size_t rlen = 0;
   // rune *runes = strToRunesN(str, len, &rlen);
-  rune runes[len];
-  size_t rlen = strToRunesN(str, len, runes);
+  //rune runes[len];
+  //size_t rlen = strToRunesN(str, len, runes);
+  //rune *runes = strToRunesN(str, len, &rlen);
+
+  size_t rlen = 0;
+  runeBuf buf;
+  rune *runes = runeBufFill(str, len, &buf, &rlen);
+
   TrieNode *trienode = TrieNode_Get(trie->root, runes, rlen, 1, NULL);
   suffixData *node = NULL;
   if (trienode && trienode->payload) {
@@ -49,6 +55,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     // if string was added in the past, skip
     if (node && node->term) {
       //rm_free(runes);
+      runeBufFree(&buf);
       return;
     }
   }
@@ -82,6 +89,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
       node->array = array_ensure_append_1(node->array, copyStr);
     }
   }
+  runeBufFree(&buf);
   //rm_free(runes);
 }
 
@@ -95,11 +103,15 @@ static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
 }
 
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
-  //size_t rlen = 0;
+  size_t rlen = 0;
   //rune *runes = strToRunesN(str, len, &rlen);
-  rune runes[len];
-  size_t rlen = strToRunesN(str, len, &runes);
-  rune *oldRune = NULL;
+
+  runeBuf buf;
+  rune *runes = runeBufFill(str, len, &buf, &rlen);
+
+  //rune runes[len];
+  //size_t rlen = strToRunesN(str, len, &runes);
+  rune *oldTerm = NULL;
 
   // iterate all matching terms and remove word
   for (int j = 0; j < len; ++j) {
@@ -107,7 +119,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     // suffixData *node = TrieMap_Find(trie, str + j, len - j);
     if (j == 0) {
       // keep pointer to word string to free after it was found in al sub tokens.
-      oldRune = node->term;
+      oldTerm = node->term;
       node->term = NULL;
     }
     // remove from array
@@ -119,8 +131,9 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
       freeSuffixNode(node);
     }
   }
-  rm_free(oldRune);
-  rm_free(runes);
+  rm_free(oldTerm);
+  runeBufFree(&buf);
+  //rm_free(runes);
 }
 
 static int processSuffixData(suffixData *data, TrieSuffixCallback callback, void *ctx) {
