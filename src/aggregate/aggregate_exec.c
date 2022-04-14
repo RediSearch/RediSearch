@@ -135,6 +135,11 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     const RLookup *lk = cv->lastLk;
     count++;
 
+    if (dmd && dmd->flags & Document_Deleted) {
+      RedisModule_ReplyWithNull(outctx);
+      return count;
+    }
+
     // Get the number of fields in the reply. 
     // Excludes hidden fields, fields not included in RETURN and, score and language fields.
     SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
@@ -300,6 +305,9 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (type == COMMAND_SEARCH) {
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
   }
+  else if (type == COMMAND_AGGREGATE) {
+    (*r)->reqflags |= QEXEC_F_IS_EXTENDED;
+  }
 
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
@@ -464,7 +472,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (strcasecmp(cmd, "QUERY") != 0) {
-    RedisModule_ReplyWithError(ctx, "The QUERY keyward is expected");
+    RedisModule_ReplyWithError(ctx, "The QUERY keyword is expected");
     return REDISMODULE_OK;
   }
 

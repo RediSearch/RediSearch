@@ -69,24 +69,8 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   return openVectorKeysDict(ctx, keyName, 1);
 }
 
-static size_t expBlobSize(VecSimIndex *ind) {
-  VecSimIndexInfo info = VecSimIndex_Info(ind);
-  size_t dim = 0;
-  VecSimType type = (VecSimType)0;
-  switch (info.algo) {
-    case VecSimAlgo_HNSWLIB:
-      dim = info.hnswInfo.dim;
-      type = info.hnswInfo.type;
-      break;
-    case VecSimAlgo_BF:
-      dim = info.bfInfo.dim;
-      type = info.bfInfo.type;
-      break;
-  }
-  return (dim * VecSimType_sizeof(type));
-}
-
-IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIterator *child_it, QueryError *status) {
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+  RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
@@ -100,17 +84,43 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorQuery *vq, IndexIter
       if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params),
                                            &qParams)) != VecSim_OK) {
         err = VecSimResolveCode_to_QueryErrorCode(err);
-        QueryError_SetErrorFmt(status, err, "Error parsing vector similarity parameters: %s",
+        QueryError_SetErrorFmt(q->status, err, "Error parsing vector similarity parameters: %s",
                                QueryError_Strerror(err));
         return NULL;
       }
-      if (expBlobSize(vecsim) != vq->knn.vecLen) {
-        QueryError_SetErrorFmt(status, QUERY_EINVAL,
+      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
+      size_t dim = 0;
+      VecSimType type = (VecSimType)0;
+      VecSimMetric metric = (VecSimMetric)0;
+      switch (info.algo) {
+        case VecSimAlgo_HNSWLIB:
+          dim = info.hnswInfo.dim;
+          type = info.hnswInfo.type;
+          metric = info.hnswInfo.metric;
+          break;
+        case VecSimAlgo_BF:
+          dim = info.bfInfo.dim;
+          type = info.bfInfo.type;
+          metric = info.bfInfo.metric;
+          break;
+      }
+      if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
                                "Error parsing vector similarity query: query vector blob size (%zu) does not match index's expected size (%zu).",
-                               vq->knn.vecLen, expBlobSize(vecsim));
+                               vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
-      return NewHybridVectorIterator(vecsim, vq->scoreField, vq->knn, qParams, child_it);
+      HybridIteratorParams hParams = {.index = vecsim,
+                                      .dim = dim,
+                                      .elementType = type,
+                                      .spaceMetric = metric,
+                                      .query = vq->knn,
+                                      .qParams = qParams,
+                                      .vectorScoreField = vq->scoreField,
+                                      .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
+                                      .childIt = child_it
+      };
+      return NewHybridVectorIterator(hParams);
     }
   }
   return NULL;

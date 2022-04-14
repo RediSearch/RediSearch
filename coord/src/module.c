@@ -35,10 +35,14 @@
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 
+extern RSConfig RSGlobalConfig;
+
 int redisMajorVesion = 0;
 int redisMinorVesion = 0;
 int redisPatchVesion = 0;
 //REDISMODULE_INIT_SYMBOLS();
+
+extern RedisModuleCtx *RSDummyContext;
 
 // forward declaration
 int allOKReducer(struct MRCtx *mc, int count, MRReply **replies);
@@ -437,8 +441,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
 }
 
 // Prepare a TOPK special case.
-void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, int argc) {
-  QueryError status = {0};
+void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, int argc, QueryError *status) {
   RedisSearchCtx sctx = {0};
   RSSearchOptions opts = {0};
   QueryParseCtx qpCtx = {
@@ -446,13 +449,14 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
                          .len = strlen(req->queryString),
                          .sctx = &sctx,
                          .opts = &opts,
-                         .status = &status,
+                         .status = status,
 #ifdef PARSER_DEBUG
                          .trace_log = NULL
 #endif
   };
-  QueryNode* queryNode = RSQuery_ParseRaw(&qpCtx);
-  if(status.code != 0 ) {
+  // KNN queries are parsed only on dialect versions >=2
+  QueryNode* queryNode = RSQuery_ParseRaw_v2(&qpCtx);
+  if(status->code != 0 ) {
     //fail.
   }
   if(queryNode!= NULL && queryNode->type == QN_VECTOR) {
@@ -464,12 +468,12 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
       if(paramsOffset!=0) {
         ArgsCursor ac;
         ArgsCursor_InitRString(&ac, argv+paramsOffset, argc-paramsOffset);
-          parseParams(&params, &ac, &status);
+          parseParams(&params, &ac, status);
       }
       else {
         //fail
       }
-      QueryNode_EvalParamsCommon(params, queryNode, &status);
+      QueryNode_EvalParamsCommon(params, queryNode, status);
       Param_DictFree(params);
     }
     QueryVectorNode queryVectorNode = queryNode->vn;
@@ -526,7 +530,7 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
   req->specialCases = array_append(req->specialCases, ctx);
 }
 
-searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
+searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError* status) {
   /* A search request must have at least 3 args */
   if (argc < 3) {
     return NULL;
@@ -595,9 +599,23 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
     req->withSortby = false;
   }
 
-  // Note: currently there is only one single case. For extending those cases we should use a trie here.
-  if(strcasestr(req->queryString, "KNN")) {
-    prepareOptionalTopKCase(req, argv, argc);
+  unsigned int dialect = RSGlobalConfig.defaultDialectVersion;
+  int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
+  if(dialectArgIndex > 0) {
+      dialectArgIndex++;
+      ArgsCursor ac;
+      ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
+      if (parseDialect(&dialect, &ac, status) != REDISMODULE_OK) {
+        free(req);
+        return NULL;
+      }
+  }
+
+  if(dialect >= 2) {
+    // Note: currently there is only one single case. For extending those cases we should use a trie here.
+    if(strcasestr(req->queryString, "KNN")) {
+      prepareOptionalTopKCase(req, argv, argc, status);
+    }
   }
 
   return req;
@@ -713,11 +731,11 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
       return res;
     }
     res->explainScores = MRReply_ArrayElement(scoreReply, 1);
-  } else {
-    if (!MRReply_ToDouble(MRReply_ArrayElement(arr, j + scoreOffset), &res->score)) {
+    // Parse scores only if they were are part of the shard's response.
+  } else if (scoreOffset > 0 &&
+             !MRReply_ToDouble(MRReply_ArrayElement(arr, j + scoreOffset), &res->score)) {
       res->id = NULL;
       return res;
-    }
   }
   // get fields
   res->fields = fieldsOffset > 0 ? MRReply_ArrayElement(arr, j + fieldsOffset) : NULL;
@@ -747,7 +765,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
    * Reply format
    * 
    * ID
-   * SCORE
+   * SCORE         ---| optional - only if WITHSCORES was given, or SORTBY section was not given.
    * Payload
    * Sort field    ---|
    * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwords comptability.
@@ -757,17 +775,22 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
    * 
    */
 
-  offsets->step = 3;  // 1 for key, 1 for score, 1 for fields
-  offsets->score = 1;
-
-  offsets->firstField = 2;
+  if (ctx->withScores || !ctx->withSortby) {
+    offsets->step = 3;  // 1 for key, 1 for score, 1 for fields
+    offsets->score = 1;
+    offsets->firstField = 2;
+  } else {
+    offsets->score = -1;
+    offsets->step = 2;  // 1 for key, 1 for fields
+    offsets->firstField = 1;
+  }
   offsets->payload = -1;
   offsets->sortKey = -1;
 
   if (ctx->withPayload) {  // save an extra step for payloads
     offsets->step++;
-    offsets->payload = 2;
-    offsets->firstField = 3;
+    offsets->payload = offsets->firstField;
+    offsets->firstField++;
   }
 
   // Update the offsets for the special case after determining score, payload, field.
@@ -1012,7 +1035,7 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
 static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
   // Reverse the top N results
 
-  rCtx->postProcess(rCtx);
+  rCtx->postProcess((struct searchReducerCtx *)rCtx);
 
   searchRequestCtx *req = rCtx->searchCtx;
 
@@ -1167,8 +1190,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   heap_init(rCtx.pq, cmp_results, req, num);
 
   // Default result process and post process operations
-  rCtx.processReply = processSearchReply;
-  rCtx.postProcess = noOpPostProcess;
+  rCtx.processReply = (void (*)(struct redisReply *, struct searchReducerCtx *, RedisModuleCtx *))processSearchReply;
+  rCtx.postProcess = (void (*)(struct searchReducerCtx *))noOpPostProcess;
 
 
   if(req->specialCases) {
@@ -1176,12 +1199,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     for(size_t i =0; i < nSpecialCases; i++) {
       if(req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
         specialCaseCtx* knnCtx = req->specialCases[i];
-        rCtx.postProcess = knnPostProcess;
+        rCtx.postProcess = (void (*)(struct searchReducerCtx *))knnPostProcess;
         rCtx.reduceSpecialCaseCtx = knnCtx;
         if(knnCtx->knn.shouldSort) {
           knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
           heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
-          rCtx.processReply = proccessKNNSearchReply;
+          rCtx.processReply =(void (*)(struct redisReply *, struct searchReducerCtx *, RedisModuleCtx *))proccessKNNSearchReply;
           rCtx.reduceSpecialCaseCtx = knnCtx;
           break;
         }
@@ -1191,7 +1214,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   for (int i = 0; i < count; i++) {
     MRReply *reply = (!profile) ? replies[i] : MRReply_ArrayElement(replies[i], 0);
-    rCtx.processReply(reply, &rCtx, ctx);
+    rCtx.processReply(reply, (struct searchReducerCtx *)&rCtx, ctx);
   }
   if (rCtx.cachedResult) {
     free(rCtx.cachedResult);
@@ -1526,9 +1549,12 @@ int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   RedisModule_AutoMemory(ctx);
 
-  searchRequestCtx *req = rscParseRequest(argv, argc);
+  QueryError status = {0};
+  searchRequestCtx *req = rscParseRequest(argv, argc, &status);
   if (!req) {
-    return RedisModule_ReplyWithError(ctx, "Invalid search request");
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
+    return REDISMODULE_OK;
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -1542,13 +1568,14 @@ int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   /* Replace our own DFT command with FT. command */
   MRCommand_ReplaceArg(&cmd, 0, "_FT.SEARCH", sizeof("_FT.SEARCH") - 1);
 
-  // adding the WITHSCORES option anyway immediately after the query.
-  // Worst case it will appears twice.
-  MRCommand_AppendArgsAtPos(&cmd, 3, 1, "WITHSCORES");
   if (req->withSortby) {
     // if sort by requested we adding the WITHSORTKEYS option anyway immediately after the query.
     // Worst case it will appears twice.
     MRCommand_AppendArgsAtPos(&cmd, 3, 1, "WITHSORTKEYS");
+  } else {
+    // adding the WITHSCORES option anyway immediately after the query if there is no SORTBY.
+    // If user added `WITHSCORES`, it will appear twice.
+    MRCommand_AppendArgsAtPos(&cmd, 3, 1, "WITHSCORES");
   }
 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
@@ -1616,14 +1643,15 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **argv, int argc) {
   RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_AutoMemory(ctx);
+  QueryError status = {0};
+  searchRequestCtx *req = rscParseRequest(argv, argc, &status);
 
-  searchRequestCtx *req = rscParseRequest(argv, argc);
   if (!req) {
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-    RedisModule_ReplyWithError(clientCtx, "Invalid search request");
+    RedisModule_ReplyWithError(clientCtx, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
     RedisModule_UnblockClient(bc, NULL);
     RedisModule_FreeThreadSafeContext(clientCtx);
-    RedisModule_FreeThreadSafeContext(ctx);
     return REDISMODULE_OK;
   }
 
@@ -1646,16 +1674,16 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
     MRCommand_ReplaceArg(&cmd, 0, "_FT.PROFILE", sizeof("_FT.PROFILE") - 1);
   }
 
-  // adding the WITHSCORES option anyway immediately after the query.
-  // Worst case it will appears twice.
-  MRCommand_AppendArgsAtPos(&cmd, 3 + req->profileArgs, 1, "WITHSCORES");
+  // adding the WITHSCORES option only if there is no SORTBY (hence the score is the default sort key)
+  if (!req->withSortby) {
+    MRCommand_AppendArgsAtPos(&cmd, 3 + req->profileArgs, 1, "WITHSCORES");
+  }
 
   if(req->specialCases) {
     sendRequiredFields(req, &cmd);
   }
 
-
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, req);
+  struct MRCtx *mrctx = MR_CreateCtx(NULL, req);
   // we prefer the next level to be local - we will only approach nodes on our own shard
   // we also ask only masters to serve the request, to avoid duplications by random
   MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination | MRCluster_MastersOnly);
@@ -1663,7 +1691,6 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
   MRCtx_SetReduceFunction(mrctx, searchResultReducer);
   MRCtx_SetRedisCtx(mrctx, bc);
   MR_Fanout(mrctx, NULL, cmd, false);
-  RedisModule_FreeThreadSafeContext(ctx);
   return REDISMODULE_OK;
 }
 
@@ -1946,8 +1973,7 @@ static void addIndexCursor(const IndexSpec *sp) {
   }
 
 static void getRedisVersion() {
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModuleCallReply *reply = RedisModule_Call(ctx, "info", "c", "server");
+  RedisModuleCallReply *reply = RedisModule_Call(RSDummyContext, "info", "c", "server");
   assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
   size_t len;
   const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
@@ -1958,7 +1984,6 @@ static void getRedisVersion() {
   assert(n == 3);
 
   RedisModule_FreeCallReply(reply);
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 /**
@@ -1995,6 +2020,14 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   setHiredisAllocators();
+
+  if (!RSDummyContext) {
+    if (RedisModule_GetDetachedThreadSafeContext) {
+      RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
+    } else {
+      RSDummyContext = RedisModule_GetThreadSafeContext(NULL);
+    }
+  }
 
   getRedisVersion();
   RedisModule_Log(ctx, "notice", "redis version observed by redisearch : %d.%d.%d",

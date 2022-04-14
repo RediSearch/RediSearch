@@ -9,6 +9,9 @@
 #include "ext/default.h"
 #include "extension.h"
 #include "profile.h"
+#include "config.h"
+
+extern RSConfig RSGlobalConfig;
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
@@ -18,9 +21,12 @@
  *   formatting
  * @param status the error object
  */
-static void ensureSimpleMode(AREQ *areq) {
-  RS_LOG_ASSERT(!(areq->reqflags & QEXEC_F_IS_EXTENDED), "Single mod test failed");
+static bool ensureSimpleMode(AREQ *areq) {
+  if(areq->reqflags & QEXEC_F_IS_EXTENDED) {
+    return false;
+  }
   areq->reqflags |= QEXEC_F_IS_SEARCH;
+  return true;
 }
 
 /**
@@ -142,6 +148,18 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
   return REDISMODULE_OK;
 }
 
+int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
+  if (AC_NumRemaining(ac) < 1) {	
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");	
+      return REDISMODULE_ERR;	
+    }	
+    if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {	
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
+      return REDISMODULE_ERR;	
+    }
+    return REDISMODULE_OK;
+}
+
 #define ARG_HANDLED 1
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
@@ -187,6 +205,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+    // If we have sort by clause and don't need to return scores, we can avoid computing them.
+    if (req->reqflags & QEXEC_F_IS_SEARCH && !(QEXEC_F_SEND_SCORES & req->reqflags)) {
+      req->searchopts.flags |= Search_IgnoreScores;
+    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
@@ -213,6 +235,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
     req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
+  }
+    else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
+    if (parseDialect(&req->dialectVersion, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
   } else {
     return ARG_UNKNOWN;
   }
@@ -387,7 +414,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
-      ensureSimpleMode(req);
+      if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "SUMMARIZE is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
       if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
         QERR_MKBADARGS_FMT(status, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
@@ -395,7 +425,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
-      ensureSimpleMode(req);
+      if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "HIGHLIGHT is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
+
       if (ParseHighlight(ac, &req->outFields) == REDISMODULE_ERR) {
         QERR_MKBADARGS_FMT(status, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
@@ -431,7 +465,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->language = RSLanguage_Find(languageStr, 0);
 
   if (AC_IsInitialized(&returnFields)) {
-    ensureSimpleMode(req);
+    if(!ensureSimpleMode(req)) {
+        QERR_MKBADARGS_FMT(status, "RETURN is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+    }
 
     req->outFields.explicitReturn = 1;
     if (returnFields.argc == 0) {
@@ -676,7 +713,9 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 }
 
 AREQ *AREQ_New(void) {
-  return rm_calloc(1, sizeof(AREQ));
+  AREQ* req = rm_calloc(1, sizeof(AREQ));
+  req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
+  return req;
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
@@ -815,7 +854,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), status);
+  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), req->dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -830,7 +869,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, status);
+  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
   if (QueryError_HasError(status))
     return REDISMODULE_ERR;
   if (IsProfile(req)) {

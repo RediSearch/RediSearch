@@ -1007,8 +1007,13 @@ void CleanPool_ThreadPoolStart() {
 
 void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    if (RSGlobalConfig.freeResourcesThread) {
+      thpool_wait(cleanPool);
+    }
     thpool_destroy(cleanPool);
     cleanPool = NULL;
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
 
@@ -1135,16 +1140,12 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Freeing index %s in background", spec->name);
 #endif
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
 
-  RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_AutoMemory(threadCtx);
-  RedisModule_ThreadSafeContextLock(threadCtx);
-
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
   Redis_DropIndex(&sctx, spec->cascadeDelete);
 
-  RedisModule_ThreadSafeContextUnlock(threadCtx);
-  RedisModule_FreeThreadSafeContext(threadCtx);
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 }
 
 void IndexSpec_LegacyFree(void *spec) {
@@ -1179,13 +1180,10 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
   //  Let me know what you think
 
   //   Need a context for this:
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-  RedisModule_AutoMemory(ctx);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
 
   //@@ TODO: this is called by llapi, provide an explicit argument for cascasedelete
   Redis_DropIndex(&sctx, false);
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1491,6 +1489,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveStringBuffer(rdb, &f->tagOpts.tagSep, 1);
   }
   if (FIELD_IS(f, INDEXFLD_T_VECTOR)) {
+    RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
   }
 }
@@ -1542,8 +1541,25 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
   // Load vector specific options
   if (encver >= INDEX_VECSIM_VERSION && FIELD_IS(f, INDEXFLD_T_VECTOR)) {
+    if (encver >= INDEX_VECSIM_2_VERSION) {
+      f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
+    }
     if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
       goto fail;
+    }
+    // Calculate blob size limitation on lower encvers.
+    if(encver < INDEX_VECSIM_2_VERSION) {
+      switch (f->vectorOpts.vecSimParams.algo) 
+      {
+      case VecSimAlgo_HNSWLIB:
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.hnswParams.type);
+        break;
+      case VecSimAlgo_BF:
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.bfParams.type);
+        break; 
+      default:
+        break;
+      }
     }
   }
   return REDISMODULE_OK;
@@ -1591,9 +1607,7 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
   scanner->spec = spec;
   scanner->scannedKeys = 0;
   scanner->cancelled = false;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  scanner->totalKeys = RedisModule_DbSize(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
+  scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
   if (spec) {
     // scan already in progress?
@@ -1674,7 +1688,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx *ctx = RSDummyContext;
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
 
@@ -1709,8 +1723,6 @@ end:
 
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_ScanCursorDestroy(cursor);
-
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1734,38 +1746,6 @@ void ReindexPool_ThreadPoolDestroy() {
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
-
-//---------------------------------------------------------------------------------------------
-
-#if 0
-
-// todo: remove if not used
-
-static void IndexSpec_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname,
-                                   RedisModuleKey *key, IndexSpec *sp) {
-  // TODO: pass key (if not null) to avoid lookup
-  IndexSpec_UpdateMatchingWithSchemaRules(sp, ctx, keyname);
-}
-
-static void IndexSpec_ScanAndReindexSync(IndexSpec *sp) {
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-
-  __sync_fetch_and_add(&sp->pending_indexing_ops, 1);
-  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
-  while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB) IndexSpec_ScanProc, sp)) {
-  }
-  if (!sp) {
-    Indexes_SetTempSpecsTimers();
-  }
-
-  RedisModule_ScanCursorDestroy(cursor);
-  sp->keysTotal = sp->keysIndexed = RedisModule_DbSize(ctx);;
-  __sync_fetch_and_sub(&sp->pending_indexing_ops, 1);
-
-  RedisModule_FreeThreadSafeContext(ctx);
-}
-
-#endif  // 0
 
 //---------------------------------------------------------------------------------------------
 
@@ -2259,8 +2239,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
-    DocTable_DeleteR(&spec->docs, key);
-
     IndexSpec_DeleteDoc(spec, ctx, key);
     Document_Free(&doc);
     return REDISMODULE_ERR;
@@ -2276,7 +2254,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   // Get the doc ID
   t_docId id = DocTable_GetIdR(&spec->docs, key);
@@ -2448,6 +2425,8 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
   if (type == DocumentType_None) {
+    // COPY could overwrite a hash/json with other types so we must try and remove old doc 
+    Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
     return;
   }
 

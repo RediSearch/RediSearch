@@ -180,7 +180,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 19
+#define INDEX_CURRENT_VERSION 20
+#define INDEX_VECSIM_2_VERSION 20
 #define INDEX_VECSIM_VERSION 19
 #define INDEX_JSON_VERSION 18
 #define INDEX_MIN_COMPAT_VERSION 17
@@ -225,6 +226,9 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
+
+#define Index_StoreFieldMask(spec) \
+  ((spec)->flags & Index_StoreFieldFlags)
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
@@ -400,6 +404,8 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
+
+int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
 /**
  * Indicate that the index spec should use an internal dictionary,rather than

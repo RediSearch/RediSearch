@@ -114,19 +114,34 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
+  
+  int argvOffset = 3;
+  unsigned int dialect = RSGlobalConfig.defaultDialectVersion;
+  int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
+  if(dialectArgIndex > 0) {
+    dialectArgIndex++;
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
+    QueryError status = {0};
+    if(parseDialect(&dialect, &ac, &status) != REDISMODULE_OK) {
+      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      QueryError_ClearError(&status);
+      return REDISMODULE_OK;
+    }
+  }
+
   RedisModule_AutoMemory(ctx);
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
-
   QueryError status = {0};
   size_t len;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   const char **includeDict = NULL, **excludeDict = NULL;
   RSSearchOptions opts = {0};
   QueryAST qast = {0};
-  int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, &status);
+  int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 
   if (rc != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
@@ -354,7 +369,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
    * On replica of the destination will get the ft.create command from
    * all the src shards and not need to recreate it.
    */
-  RedisModule_Replicate(ctx, RS_CREATE_IF_NX_CMD, "v", argv + 1, argc - 1);
+  RedisModule_Replicate(ctx, RS_CREATE_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -588,7 +603,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
     int rv = AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
     if (IndexSpec_GetField(sp, fieldName, fieldNameSize)) {
-      RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, argc - 1);
+      RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
   }
@@ -597,7 +612,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   if (QueryError_HasError(&status)) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
-    RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, argc - 1);
+    RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
@@ -640,7 +655,7 @@ static int AliasAddCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, 
   if (aliasAddCommon(ctx, argv, argc, &e, ifNx) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &e);
   } else {
-    RedisModule_Replicate(ctx, RS_ALIASADD_IF_NX, "v", argv + 1, argc - 1);
+    RedisModule_Replicate(ctx, RS_ALIASADD_IF_NX, "v", argv + 1, (size_t)argc - 1);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
@@ -668,7 +683,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), sp, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
-    RedisModule_Replicate(ctx, RS_ALIASDEL_IF_EX, "v", argv + 1, argc - 1);
+    RedisModule_Replicate(ctx, RS_ALIASDEL_IF_EX, "v", argv + 1, (size_t)argc - 1);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
@@ -1041,11 +1056,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 void ReindexPool_ThreadPoolDestroy();
 extern dict *legacySpecDict, *legacySpecRules;
 
-void __attribute__((destructor)) RediSearch_CleanupModule(void) {
-  if (!getenv("RS_GLOBAL_DTORS")) {  // used only with sanitizer or valgrind
-    return; 
-  }
-  
+void RediSearch_CleanupModule(void) {
   static int invoked = 0;
   if (invoked || !RS_Initialized) {
     return;
@@ -1065,15 +1076,17 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   }
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
+  // free thread pools
+  GC_ThreadPoolDestroy();
+  CleanPool_ThreadPoolDestroy();
+  ReindexPool_ThreadPoolDestroy();
+  ConcurrentSearch_ThreadPoolDestroy();
+
   // free global structures
   Extensions_Free();
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();
   mempool_free_global();
-  ConcurrentSearch_ThreadPoolDestroy();
-  ReindexPool_ThreadPoolDestroy();
-  CleanPool_ThreadPoolDestroy();
-  GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(ScemaPrefixes_g);
