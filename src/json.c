@@ -116,7 +116,7 @@ static int JSON_getFloat64(RedisJSON json, double *val) {
 int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struct DocumentField *df) {
   VecSimType type;
   size_t dim;
-  int (*getFunc)(RedisJSON, void *);
+  int (*getElement)(RedisJSON, void *);
 
   switch (fs->vectorOpts.vecSimParams.algo) {
     case VecSimAlgo_HNSWLIB:
@@ -134,36 +134,36 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
     return REDISMODULE_ERR;
   }
 
+  // The right function will put a value from the right type in the address given, or return REDISMODULE_ERR
   switch (type) {
     default:
     case VecSimType_FLOAT32:
-      getFunc = (int (*)(RedisJSON, void *))JSON_getFloat32;
+      getElement = (int (*)(RedisJSON, void *))JSON_getFloat32;
       break;
     case VecSimType_FLOAT64:
-      getFunc = (int (*)(RedisJSON, void *))JSON_getFloat64;
+      getElement = (int (*)(RedisJSON, void *))JSON_getFloat64;
       break;
     case VecSimType_INT32:
-      getFunc = (int (*)(RedisJSON, void *))JSON_getInt32;
+      getElement = (int (*)(RedisJSON, void *))JSON_getInt32;
       break;
     case VecSimType_INT64:
-      getFunc = (int (*)(RedisJSON, void *))japi->getInt;
+      getElement = (int (*)(RedisJSON, void *))japi->getInt;
       break;
   }
 
-  unsigned char step = VecSimType_sizeof(type);
-  if (!(df->strval = rm_malloc(dim * step))) {
+  if (!(df->strval = rm_malloc(fs->vectorOpts.expBlobSize))) {
     return REDISMODULE_ERR;
   }
   df->strlen = fs->vectorOpts.expBlobSize;
 
   RedisJSON json;
-  size_t offset = 0;
-  while ((json = japi->next(arrIter))) {
-    if (getFunc(json, df->strval + offset) != REDISMODULE_OK) {
+  unsigned char step = VecSimType_sizeof(type);
+  // At this point iterator length matches blob length
+  for (size_t offset = 0; (json = japi->next(arrIter)); offset += step) {
+    if (getElement(json, df->strval + offset) != REDISMODULE_OK) {
       rm_free(df->strval);
       return REDISMODULE_ERR;
     }
-    offset += step;
   }
   df->unionType = FLD_VAR_T_CSTR;
   return REDISMODULE_OK;

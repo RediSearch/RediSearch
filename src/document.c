@@ -536,7 +536,7 @@ FIELD_BULK_INDEXER(vectorIndexer) {
       return -1;
     }
   }
-  if (fdata->vecLen) {
+  if (fdata->vecLen) { // If document is loaded with null vector (on JSON), skip.
     ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);;
     ctx->spec->stats.numRecords++;
   }
