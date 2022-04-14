@@ -155,13 +155,14 @@ else() # OSS RediSearch
         set_target_properties(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
     endif()
 
-	if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG AND NOT APPLE)
-        add_custom_command(TARGET redisearch POST_BUILD
-            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
-            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>)
-    endif()
+    # if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG AND NOT APPLE)
+    #     add_custom_command(TARGET redisearch POST_BUILD
+    #         COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+    #         COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
+    #         COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
+    # endif()
 	
-	add_dependencies(redisearch VectorSimilarity)
+    add_dependencies(redisearch VectorSimilarity)
 endif()
 
 #----------------------------------------------------------------------------------------------
