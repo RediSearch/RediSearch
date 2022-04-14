@@ -134,23 +134,20 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLk;
     count++;
+
+    // Get the number of fields in the reply. 
+    // Excludes hidden fields, fields not included in RETURN and, score and language fields.
+    SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
+    int excludeFlags = RLOOKUP_F_HIDDEN;
+    int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
     int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
-    size_t nfields = lk->rowlen;
-    
-    if (req->outFields.explicitReturn) {
-      // Get the number of fields in the reply. 
-      // Excludes hidden fields, fields not included in RETURN and, score and language fields.
-      SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
-      int excludeFlags = RLOOKUP_F_HIDDEN;
-      int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-      memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
-    }
+    memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
+    size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
 
     RedisModule_ReplyWithArray(outctx, nfields * 2);
     int i = 0;
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-      if (req->outFields.explicitReturn && !skipFieldIndex[i++]) {
+      if (!skipFieldIndex[i++]) {
         continue;
       }
       const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
