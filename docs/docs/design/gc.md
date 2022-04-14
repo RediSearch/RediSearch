@@ -1,6 +1,6 @@
 ---
 title: "Garbage collection"
-linkTitle: "Garbage collections"
+linkTitle: "Garbage collection"
 weight: 2
 description: >
     Details about garbage collection
