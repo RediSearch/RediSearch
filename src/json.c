@@ -134,7 +134,7 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
     return REDISMODULE_ERR;
   }
 
-  // The right function will put a value from the right type in the address given, or return REDISMODULE_ERR
+  // The right function will put a value of the right type in the address given, or return REDISMODULE_ERR
   switch (type) {
     default:
     case VecSimType_FLOAT32:
