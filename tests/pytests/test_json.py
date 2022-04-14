@@ -971,7 +971,36 @@ def testVector_bad_values(env):
     env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[1,2,null,4,5]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[1,2,3,4]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[1,2,3,4,5,6]}'))
-    blob = np.ones(2, 'float32').tobytes()
 
     assertInfoField(env, 'idx', 'hash_indexing_failures', '5')
     assertInfoField(env, 'idx', 'num_docs', '0')
+
+@no_msan
+def testVector_delete(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+    
+    env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[0.1,0.1]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[0.2,0.3]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[0.3,0.3]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j4', '$', r'{"vec":[0.4,0.4]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j5', '$', r'{"vec":[0.5,0.5]}'))
+
+    env.assertOk(conn.execute_command('JSON.SET', 'j6', '$', r'{"vec":[1,1]}'))
+    blob = np.zeros(2, 'float32').tobytes()
+
+    q = ['FT.SEARCH', 'idx', '*=>[KNN 6 @vec $b]', 'PARAMS', '2', 'b', blob, 'RETURN', '0', 'SORTBY', '__vec_score']
+    env.expect(*q).equal([6, 'j1', 'j2', 'j3', 'j4', 'j5', 'j6'])
+
+    q = ['FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b]', 'PARAMS', '2', 'b', blob, 'RETURN', '0', 'SORTBY', '__vec_score']
+    env.expect(*q).equal([1, 'j1'])
+
+    env.assertEqual(conn.execute_command('JSON.DEL', 'j1'), 1)
+    env.assertEqual(conn.execute_command('JSON.DEL', 'j2'), 1)
+    env.assertEqual(conn.execute_command('JSON.DEL', 'j3'), 1)
+    env.assertEqual(conn.execute_command('JSON.DEL', 'j4'), 1)
+    env.assertEqual(conn.execute_command('JSON.DEL', 'j5'), 1)
+    
+    env.expect(*q).equal([1, 'j6'])
