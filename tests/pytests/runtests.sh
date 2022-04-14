@@ -212,7 +212,7 @@ run_tests() {
 			--module $MODULE
 			--module-args '$MODARGS'
 			$RLTEST_ARGS
-			$RLTEST_PARALLEL
+			$RLTEST_PARALLEL_ARG
 			$VALGRIND_ARGS
 			$SAN_ARGS
 			$COV_ARGS
