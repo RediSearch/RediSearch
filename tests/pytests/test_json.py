@@ -444,8 +444,8 @@ def testMultiValueTag_Recursive_Decent(env):
 
 @no_msan
 def testMultiValueVector(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
-    env.assertOk(conn.execute_command('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2'))
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
                         'SCHEMA', '$..num', 'AS', 'vec1', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2',
                                   '$.vec2', 'AS', 'vec2', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
@@ -934,7 +934,7 @@ def testNullValue(env):
 
 @no_msan
 def testVector_empty_array(env):
-    env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2').ok()
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
@@ -943,7 +943,7 @@ def testVector_empty_array(env):
 
 @no_msan
 def testVector_correct_eval(env):
-    env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2').ok()
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     
@@ -959,7 +959,7 @@ def testVector_correct_eval(env):
 
 @no_msan
 def testVector_bad_valuse(env):
-    env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2').ok()
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '5','DISTANCE_METRIC', 'L2').ok()
     
