@@ -350,7 +350,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
     Vector_Push(tokVec, s);
   }
 
-  ctx->ExpandTokenWithPhrase(ctx, (const char **)tokVec->data, tokVec->top, token->flags, 1, 0);
+  ctx->ExpandTokenWithPhrase(ctx, (const char **)tokVec->data, tokVec->top, token->flags, 0, 0);
 }
 
 /******************************************************************************************
