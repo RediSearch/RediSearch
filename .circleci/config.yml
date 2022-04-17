@@ -638,7 +638,8 @@ workflows:
           context: common
           requires:
             - upload-release-artifacts
-          <<: *on-version-tags
+          # <<: *on-version-tags
+          <<: *never
 
   nightly:
     triggers:
