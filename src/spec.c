@@ -15,6 +15,7 @@
 #include "tag_index.h"
 #include "redis_index.h"
 #include "indexer.h"
+#include "suffix.h"
 #include "alias.h"
 #include "module.h"
 #include "aggregate/expr/expression.h"
@@ -755,7 +756,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       sp->flags |= Index_HasContains;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->suffix = NewTrie();
+        sp->suffix = NewTrie(suffixData_freeCallback);
       }
     }
     fs = NULL;
@@ -1082,6 +1083,10 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     SortingTable_Free(spec->sortables);
     spec->sortables = NULL;
   }
+  // Free suffix trie
+  if (spec->suffix) {
+    TrieType_Free(spec->suffix);
+  }
   // Free spec struct
   rm_free(spec);
 }
@@ -1358,7 +1363,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->name = rm_strdup(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
-  sp->terms = NewTrie();
+  sp->terms = NewTrie(NULL);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
   sp->keysDict = NULL;
@@ -1874,7 +1879,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
       sp->flags |= Index_HasContains;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->suffix = NewTrie();
+        sp->suffix = NewTrie(suffixData_freeCallback);
       }
     }
 
@@ -1889,12 +1894,12 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   
 
   //    DocTable_RdbLoad(&sp->docs, rdb, encver);
-  sp->terms = NewTrie();
+  sp->terms = NewTrie(NULL);
   /* For version 3 or up - load the generic trie */
   //  if (encver >= 3) {
   //    sp->terms = TrieType_GenericLoad(rdb, 0);
   //  } else {
-  //    sp->terms = NewTrie();
+  //    sp->terms = NewTrie(NULL);
   //  }
 
   if (sp->flags & Index_HasCustomStopwords) {
@@ -2000,7 +2005,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver >= 3) {
     sp->terms = TrieType_GenericLoad(rdb, 0);
   } else {
-    sp->terms = NewTrie();
+    sp->terms = NewTrie(NULL);
   }
 
   if (sp->flags & Index_HasCustomStopwords) {

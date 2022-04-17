@@ -11,7 +11,8 @@ extern "C" {
 
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
-void SuffixTrieFree(Trie *suffix);
+
+void suffixData_freeCallback(void *data);
 
 void Suffix_IterateContains(TrieNode *n, const rune *str, size_t nstr, bool prefix,
                               TrieSuffixCallback callback, void *ctx);

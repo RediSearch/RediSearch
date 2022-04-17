@@ -22,6 +22,8 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED_SCORE 1
 #define TRIENODE_SORTED_LEX 2
 
+typedef void (*TrieFreeCallback)(void *node);
+
 #pragma pack(1)
 typedef struct {
   uint32_t len;  // 4G payload is more than enough!!!!
@@ -74,7 +76,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 /* Create a new trie node. str is a string to be copied into the node, starting
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
-TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen,
+TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
                         t_len numChildren, float score, int terminal);
 
 /* Get a pointer to the children array of a node. This is not an actual member
@@ -90,13 +92,13 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload,
 /* Add a child node to the parent node n, with a string str starting at offset
 up until len, and a
 given score */
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload,
+TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
                           float score);
 
 /* Split node n at string offset n. This returns a new node which has a string
  * up until offset, and
  * a single child holding The old score of n, and its score */
-TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
+TrieNode *__trie_SplitNode(TrieNode *n, t_len offset, TrieFreeCallback freecb);
 
 typedef enum {
   ADD_IGNORE,
@@ -107,7 +109,8 @@ typedef enum {
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
-int TrieNode_Add(TrieNode **n, rune *str, t_len len, RSPayload *payload, float score, TrieAddOp op);
+int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload, float score,
+                 TrieAddOp op, TrieFreeCallback freecb);
 
 /* Find the entry with a given string and length, and return its score. Returns
  * 0 if the entry was
@@ -123,10 +126,10 @@ void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact);
  * anything,
  * but the node will not be persisted to disk, thus deleted after reload.
  * Returns 1 if the node was indeed deleted, 0 otherwise */
-int TrieNode_Delete(TrieNode *n, rune *str, t_len len);
+int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb);
 
 /* Free the trie's root and all its children recursively */
-void TrieNode_Free(TrieNode *n);
+void TrieNode_Free(TrieNode *n, TrieFreeCallback freecb);
 
 /* trie iterator stack node. for internal use only */
 typedef struct {

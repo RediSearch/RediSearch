@@ -68,7 +68,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   if (!data) {
     data = createSuffixNode(copyStr, 1);
     RSPayload payload = { .data = (char*)data, .len = sizeof(*data) };
-    TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_IGNORE);
+    TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_IGNORE, (TrieFreeCallback) suffixData_freeCallback);
   } else {
     RS_LOG_ASSERT(!data->term, "can't reach here");
     data->term = copyStr;
@@ -87,7 +87,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     if (!trienode || !trienode->payload) {
       data = createSuffixNode(copyStr, 0);
       RSPayload payload = { .data = (char*)data, .len = sizeof(*data) };
-      TrieNode_Add(&trie->root, runes + j, rlen - j, &payload, 1, ADD_IGNORE);
+      Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_IGNORE, &payload);
     } else {
       data->array = array_ensure_append_1(data->array, copyStr);
     }
@@ -129,8 +129,8 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     // if array is empty, remove the node
     if (array_len(node->array) == 0) {
       RS_LOG_ASSERT(!node->term, "array should contain a pointer to the string");
-      TrieNode_Delete(trie->root, runes + j, rlen - j);
-      freeSuffixNode(node);
+      Trie_DeleteRunes(trie, runes + j, rlen - j);
+      suffixData_freeCallback(node);
     }
   }
   rm_free(oldTerm);
@@ -185,4 +185,15 @@ void Suffix_IterateContains(TrieNode *n, const rune *str, size_t nstr, bool pref
       processSuffixData(data, callback, ctx);
     }
   }                              
+}
+
+void suffixData_freeCallback(void *payload) {
+  suffixData *suffixData =  ((TriePayload *)payload)->data;
+  if (suffixData) {
+    array_free(suffixData->array);
+    suffixData->array = NULL;
+    rm_free(suffixData->term);
+    suffixData->term = NULL;
+  }
+  rm_free(payload);
 }
