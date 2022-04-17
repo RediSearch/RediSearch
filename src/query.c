@@ -430,23 +430,6 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight, type, str);
 }
 
-/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
- * of them */
-/*
-static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
-
-  // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (qn->pfx.tok.len < RSGlobalConfig.minTermPrefix) {
-    return NULL;
-  }
-  Trie *terms = q->sctx->spec->terms;
-
-  if (!terms) return NULL;
-
-  return iterateExpandedTerms(q, terms, qn->pfx.str, qn->pfx.len, 0, 1, &qn->opts);
-}*/
-
 typedef struct {
   IndexIterator **its;
   size_t nits;
@@ -459,11 +442,15 @@ typedef struct {
 static int rangeIterCb(const rune *r, size_t n, void *p);
 static int suffixIterCb(const char *s, size_t n, void *p);
 
+/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+ * of them.
+ * Used for Prefix, Contains and suffix nodes.
+*/
 static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
 
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (strlen(qn->con.str) < RSGlobalConfig.minTermPrefix) {
+  if (qn->pfx.tok.len < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
   
@@ -477,9 +464,6 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
 
   rune *str = NULL;
   size_t nstr;
-  // if (qn->con.str) {
-  //   str = strToFoldedRunes(qn->con.str, &nstr);
-  // }
   if (qn->pfx.tok.str) {
     str = strToFoldedRunes(qn->pfx.tok.str, &nstr);
   }
@@ -619,7 +603,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight, QN_LEXRANGE, NULL);
   }
 }
-
+/*
 static IndexIterator *Query_EvalContainsNode(QueryEvalCtx *q, QueryNode *cn) {
   Trie *t = q->sctx->spec->terms;
   ContainsCtx ctx = {.q = q, .opts = &cn->opts};
@@ -648,7 +632,7 @@ static IndexIterator *Query_EvalContainsNode(QueryEvalCtx *q, QueryNode *cn) {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, cn->opts.weight, QN_PREFIX, NULL);
   }
 }
-
+*/
 static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_FUZZY, "query node type should be fuzzy");
 

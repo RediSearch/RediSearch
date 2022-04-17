@@ -21,7 +21,7 @@ typedef struct {
     struct {
       // for prefix, suffix, contains
       const rune *origStr;
-      int nOrigStr;
+      int lenOrigStr;
       bool prefix;
       bool suffix;
     };
@@ -34,31 +34,6 @@ typedef struct {
   size_t timeoutCounter;    // counter to limit number of calls to TimedOut()  
 } RangeCtx;
 
-/*
-
-typedef struct {
-  rune *buf;
-  TrieRangeCallback *callback;
-  void *cbctx;
-  union {
-    struct {
-      // for lexrange
-      bool includeMin;
-      bool includeMax;
-    };
-    struct {
-      // for prefix, suffix, contains
-      bool prefix;
-      bool suffix;
-    };
-  };
-  
-  // stop if reach limit
-  bool stop;
-  const rune *origStr;
-  int nOrigStr;
-} RangeCtx;
-*/
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);
 }
@@ -977,7 +952,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
 
   // contains and suffix mode
   r.origStr = str;
-  r.nOrigStr = nstr;
+  r.lenOrigStr = nstr;
   r.prefix = prefix;
   r.suffix = suffix;
   containsIterate(n, 0, 0, &r);
@@ -1016,7 +991,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
   printStats("start");
 
   // No match
-  if ((n->numChildren == 0 && r->nOrigStr - globalOffset > n->len) || r->stop) {
+  if ((n->numChildren == 0 && r->lenOrigStr - globalOffset > n->len) || r->stop) {
     return;
   }
 
@@ -1034,7 +1009,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
   // next char matches
   if (n->str[localOffset] == r->origStr[globalOffset]) {
     /* full match found */
-    if (globalOffset + 1 == r->nOrigStr) {
+    if (globalOffset + 1 == r->lenOrigStr) {
       if (r->prefix) { // contains mode
         array_trimm_len(r->buf, array_len(r->buf) - (localOffset + 1));
         //char *str = runesToStr(r->buf, array_len(r->buf), &len);

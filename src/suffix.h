@@ -18,10 +18,6 @@ void SuffixTrieFree(Trie *suffix);
 
 void Suffix_IterateContains(TrieNode *n, const rune *str, size_t nstr, bool prefix,
                               TrieSuffixCallback callback, void *ctx);
-                              
-// void addSuffixTrieMap(TrieMap *suffix, const char *str, uint32_t len);
-// void deleteSuffixTrieMap(TrieMap *suffix, const char *str, uint32_t len);
-// void SuffixTrieFree(TrieMap *suffix);
 
 #ifdef __cplusplus
 }

@@ -12,6 +12,9 @@ typedef struct suffixData {
   arrayof(char *) array;   // list of words containing the string. weak pointers
 } suffixData;
 
+#define Suffix_GetData(node) node ? node->payload ? \
+                             (suffixData *)node->payload->data : NULL : NULL
+
 void delCb(void *val) {
   suffixData *node = val;
   array_free(node->array);
@@ -48,12 +51,12 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   rune *runes = runeBufFill(str, len, &buf, &rlen);
 
   TrieNode *trienode = TrieNode_Get(trie->root, runes, rlen, 1, NULL);
-  suffixData *node = NULL;
+  suffixData *data = NULL;
   if (trienode && trienode->payload) {
     // suffixData *node = TrieNode_GetValue(trie->root, runes, rlen, 1);
-    node = trienode->payload->data;
+    data = Suffix_GetData(trienode);
     // if string was added in the past, skip
-    if (node && node->term) {
+    if (data && data->term) {
       //rm_free(runes);
       runeBufFree(&buf);
       return;
@@ -62,14 +65,14 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   char *copyStr = rm_strndup(str, len);
   // printf("string %s len %ld rlen %ld\n", str, len, rlen);
-  if (!node) {
-    node = createSuffixNode(copyStr, 1);
-    RSPayload payload = { .data = (char*)node, .len = sizeof(*node) };
+  if (!data) {
+    data = createSuffixNode(copyStr, 1);
+    RSPayload payload = { .data = (char*)data, .len = sizeof(*data) };
     TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_IGNORE);
   } else {
-    RS_LOG_ASSERT(!node->term, "can't reach here");
-    node->term = copyStr;
-    node->array = array_ensure_append_1(node->array, copyStr);
+    RS_LOG_ASSERT(!data->term, "can't reach here");
+    data->term = copyStr;
+    data->array = array_ensure_append_1(data->array, copyStr);
   }
 
   // Save string copy to all suffixes of it
@@ -77,20 +80,19 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
     TrieNode *trienode = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
     
-    node = trienode ? trienode->payload->data : NULL;
-    void *payload = trienode ? trienode->payload : NULL;
+    data = Suffix_GetData(trienode);
+    //void *payload = trienode ? trienode->payload : NULL;
     size_t len;
     // printf("%s %p %p %p\n", runesToStr(runes + j, rlen - j, &len), trienode, payload, node);
     if (!trienode || !trienode->payload) {
-      node = createSuffixNode(copyStr, 0);
-      RSPayload payload = { .data = (char*)node, .len = sizeof(*node) };
+      data = createSuffixNode(copyStr, 0);
+      RSPayload payload = { .data = (char*)data, .len = sizeof(*data) };
       TrieNode_Add(&trie->root, runes + j, rlen - j, &payload, 1, ADD_IGNORE);
     } else {
-      node->array = array_ensure_append_1(node->array, copyStr);
+      data->array = array_ensure_append_1(data->array, copyStr);
     }
   }
   runeBufFree(&buf);
-  //rm_free(runes);
 }
 
 static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
@@ -111,7 +113,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   //rune runes[len];
   //size_t rlen = strToRunesN(str, len, &runes);
-  rune *oldTerm = NULL;
+  char *oldTerm = NULL;
 
   // iterate all matching terms and remove word
   for (int j = 0; j < len; ++j) {
@@ -133,37 +135,36 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   }
   rm_free(oldTerm);
   runeBufFree(&buf);
-  //rm_free(runes);
 }
 
 static int processSuffixData(suffixData *data, TrieSuffixCallback callback, void *ctx) {
   if (!data) {
     return REDISMODULE_OK;
   }
-  printf("term: %s ", data->term);
+  //("term: %s ", data->term);
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
-    printf("%d %s ",i, array[i]);
+    //printf("%d %s ",i, array[i]);
     if (callback(array[i], strlen(array[i]), ctx) != REDISMODULE_OK) {
-      printf("\n");
+      //printf("\n");
       return REDISEARCH_ERR;
     }
   }
-  printf("\n");
+  //printf("\n");
   return REDISMODULE_OK;
 }
 
 static int recursiveAdd(TrieNode *node, TrieSuffixCallback callback, void *ctx) {
   if (node->payload) {
     size_t rlen;
-    printf("nodestr %s len %ld rlen %ld", runesToStr(node->str, node->len, &rlen), node->len, rlen);
-    suffixData *data = node->payload->data;
+    // printf("nodestr %s len %d rlen %ld", runesToStr(node->str, node->len, &rlen), node->len, rlen);
+    suffixData *data = Suffix_GetData(node);
     processSuffixData(data, callback, ctx);
   }
   if (node->numChildren) {
     TrieNode **children = __trieNode_children(node);
     for (int i = 0; i < node->numChildren; ++i) {
-      printf("child %d ", i);
+      // printf("child %d ", i);
       if (recursiveAdd(children[i], callback, ctx) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
