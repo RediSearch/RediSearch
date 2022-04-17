@@ -83,12 +83,13 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   return rv;
 }
 
-static int JSON_getInt32(RedisJSON json, int32_t *val) {
-  long long temp;
-  int ret = japi->getInt(json, &temp);
-  *val = (int32_t)temp;
-  return ret;
-}
+// Uncomment when support for more types is added
+// static int JSON_getInt32(RedisJSON json, int32_t *val) {
+//   long long temp;
+//   int ret = japi->getInt(json, &temp);
+//   *val = (int32_t)temp;
+//   return ret;
+// }
 
 static int JSON_getFloat32(RedisJSON json, float *val) {
   double temp;
@@ -103,15 +104,16 @@ static int JSON_getFloat32(RedisJSON json, float *val) {
   return ret;
 }
 
-static int JSON_getFloat64(RedisJSON json, double *val) {
-  int ret = japi->getDouble(json, val);
-  if (REDISMODULE_OK != ret) {
-    long long temp;
-    ret = japi->getInt(json, &temp);
-    *val = (double)temp;
-  }
-  return ret;
-}
+// Uncomment when support for more types is added
+// static int JSON_getFloat64(RedisJSON json, double *val) {
+//   int ret = japi->getDouble(json, val);
+//   if (REDISMODULE_OK != ret) {
+//     long long temp;
+//     ret = japi->getInt(json, &temp);
+//     *val = (double)temp;
+//   }
+//   return ret;
+// }
 
 int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struct DocumentField *df) {
   VecSimType type;
@@ -127,8 +129,7 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
       type = fs->vectorOpts.vecSimParams.bfParams.type;
       dim = fs->vectorOpts.vecSimParams.bfParams.dim;
       break;
-    default:
-      return REDISMODULE_ERR;
+    default: return REDISMODULE_ERR;
   }
   if (japi->len(arrIter) != dim) {
     return REDISMODULE_ERR;
@@ -140,15 +141,16 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
     case VecSimType_FLOAT32:
       getElement = (int (*)(RedisJSON, void *))JSON_getFloat32;
       break;
-    case VecSimType_FLOAT64:
-      getElement = (int (*)(RedisJSON, void *))JSON_getFloat64;
-      break;
-    case VecSimType_INT32:
-      getElement = (int (*)(RedisJSON, void *))JSON_getInt32;
-      break;
-    case VecSimType_INT64:
-      getElement = (int (*)(RedisJSON, void *))japi->getInt;
-      break;
+    // Uncomment when support for more types is added
+    // case VecSimType_FLOAT64:
+    //   getElement = (int (*)(RedisJSON, void *))JSON_getFloat64;
+    //   break;
+    // case VecSimType_INT32:
+    //   getElement = (int (*)(RedisJSON, void *))JSON_getInt32;
+    //   break;
+    // case VecSimType_INT64:
+    //   getElement = (int (*)(RedisJSON, void *))japi->getInt;
+    //   break;
   }
 
   if (!(df->strval = rm_malloc(fs->vectorOpts.expBlobSize))) {

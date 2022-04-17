@@ -151,7 +151,8 @@ def testDelReuse():
     res = [4, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').equal(res)
 
-def testReuse(env):
+# test for issue https://github.com/RediSearch/RediSearch/pull/2705
+def testUpdateWithBadValue(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',

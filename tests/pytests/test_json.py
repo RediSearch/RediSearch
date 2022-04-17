@@ -346,6 +346,7 @@ def testArrayCommands_withVector(env):
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,2,3]')
     env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [3])
     waitForIndex(env, 'idx')
+    # Index should be empty as the vector length doesn't match the dimension of the field.
     env.expect('FT.SEARCH', 'idx', '*').equal([0])
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal([0])
 
@@ -355,6 +356,7 @@ def testArrayCommands_withVector(env):
     env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
     res = [1, 'doc:1', ['$', '{"v":[1,3]}']]
     waitForIndex(env, 'idx')
+    # Index should have one doc as the vector length now matches the dimension of the field.
     env.expect('FT.SEARCH', 'idx', '*').equal(res)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal(res)
 
@@ -364,6 +366,7 @@ def testArrayCommands_withVector(env):
     env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.v', '"c"', '"d"'), [6])
     env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [6])
     waitForIndex(env, 'idx')
+    # Index should be empty again as the vector length doesn't match the dimension of the field.
     env.expect('FT.SEARCH', 'idx', '*').equal([0])
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal([0])
 
@@ -371,8 +374,25 @@ def testArrayCommands_withVector(env):
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,3]')
     env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
     waitForIndex(env, 'idx')
+    # Index should have one doc again as the vector length now matches the dimension of the field.
     env.expect('FT.SEARCH', 'idx', '*').equal(res)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal(res)
+
+    env.assertEqual(conn.execute_command('JSON.NUMINCRBY', 'doc:1', '$.v[0]', '1'), '[2]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[2,3]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
+    res = [1, 'doc:1', ['$', '{"v":[2,3]}']]
+    waitForIndex(env, 'idx')
+    # Index should have one doc, and its vector should be updated.
+    env.expect('FT.SEARCH', 'idx', '*').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal(res)
+
+    env.assertEqual(conn.execute_command('JSON.SET', 'doc:1', '$.v[1]', 'true'), 'OK')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[2,true]')
+    waitForIndex(env, 'idx')
+    # Index should be empty as some of the vector elements is not numeric.
+    env.expect('FT.SEARCH', 'idx', '*').equal([0])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal([0])
 
 @no_msan
 def testRootValues(env):
@@ -453,13 +473,6 @@ def testMultiValueVector(env):
     conn.execute_command('JSON.SET', 'doc:1', '$', '{"vec2":[42,46], \
                                                      "first" : {"num":3.14}, "second" : {"deeper" : {"num":0.42}}, "num" : 2.71, \
                                                      "x" : {"vec3" : [1]}, "y" : {"vec3" : [2,3,4]}, "z" : {"vec3" : []}}')
-
-    # fails... find the bug!
-    # res = [1, 'doc:1', ['vec1', '[2.71,3.14,0.42]', 'vec2', '[42,46]', 'vec3', '[1,2,3,4]']]
-    # env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '2', 'vec1', 'vec2').equal(res)
-    # env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec1 $b AS first_score]', 'PARAMS', '2', 'b', '<<<<????>>>>', 'RETURN', '2', 'vec1', 'vec2').equal(res)
-    # env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec2 $b EF_RUNTIME 5 AS second_score]', 'PARAMS', '2', 'b', '<<<<>>>>', 'RETURN', '2', 'vec1', 'vec2').equal(res)
-    # env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec3 $b AS third_score]', 'PARAMS', '2', 'b', '<<<<????????>>>>', 'RETURN', '2', 'vec1', 'vec2').equal(res)
 
     res = [1, 'doc:1']
     env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '0').equal(res)
