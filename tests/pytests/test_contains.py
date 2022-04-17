@@ -3,27 +3,49 @@ from common import *
 import os
 import csv
 
+def testWithcontainsParam(env):
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create', 'idx', 'schema', 't', 'text', 'SORTABLE', 'WITHCONTAINS').error()
+    env.expect('ft.create', 'idx', 'schema', 't', 'text', 'SORTABLE', 'NOSTEM').error() # sortable must be last
+
+    # without sortable
+    env.expect('ft.create', 'idx', 'schema', 't', 'text', 'WITHCONTAINS').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'WITHCONTAINS']]
+    assertInfoField(env, 'idx', 'attributes', res_info)
+
+    # with sortable
+    env.expect('ft.create', 'idx_sortable', 'schema', 't', 'text', 'WITHCONTAINS', 'SORTABLE').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'SORTABLE', 'WITHCONTAINS']]
+    assertInfoField(env, 'idx_sortable', 'attributes', res_info)
+
+    # nostem 1st
+    env.expect('ft.create', 'idx_nostem1', 'schema', 't', 'text', 'WITHCONTAINS', 'NOSTEM').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM', 'WITHCONTAINS']]
+    assertInfoField(env, 'idx_nostem1', 'attributes', res_info)
+
+    # nostem 2nd
+    env.expect('ft.create', 'idx_nostem2', 'schema', 't', 'text', 'NOSTEM', 'WITHCONTAINS').ok()
+    assertInfoField(env, 'idx_nostem2', 'attributes', res_info)
 
 def testBasicContains(env):
-    r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
-    env.expect('HSET', 'doc1', 'title', 'hello world', 'body', 'this is a test') \
-                .equal(2)
+    conn = getConnectionByEnv(env)
+
+    env.expect('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text').ok()
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world', 'body', 'this is a test')
 
     # prefix
-    res = r.execute_command('ft.search', 'idx', 'worl*')
+    res = env.execute_command('ft.search', 'idx', 'worl*')
     env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
 
     # suffix
-    res = r.execute_command('ft.search', 'idx', '*orld')
+    res = env.execute_command('ft.search', 'idx', '*orld')
     env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
-    r.expect('ft.search', 'idx', '*orl').equal([0])
+    env.expect('ft.search', 'idx', '*orl').equal([0])
 
     # contains
-    res = r.execute_command('ft.search', 'idx', '*orl*')
+    res = env.execute_command('ft.search', 'idx', '*orl*')
     env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
 
@@ -171,40 +193,45 @@ def testEscape(env):
   # none
   env.expect('ft.search', 'idx', '\*foo\*').equal([0])
 
-def testWithContains(env):
+def test_orl(env):
   # this test check that `\*` is escaped correctly on contains queries
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHCONTAINS', 'SORTABLE')
 
-
-  env.expect('HSET', 'doc1', 't', 'world').equal(1)
-  env.expect('HSET', 'doc2', 't', 'keyword').equal(1)
-  env.expect('HSET', 'doc3', 't', 'doctorless').equal(1)
-  env.expect('HSET', 'doc4', 't', 'anteriorly').equal(1)
-  env.expect('HSET', 'doc5', 't', 'colorlessness').equal(1)
-  env.expect('HSET', 'doc6', 't', 'floorless').equal(1)
+  conn.execute_command('HSET', 'doc1', 't', 'world')
+  conn.execute_command('HSET', 'doc2', 't', 'keyword')
+  conn.execute_command('HSET', 'doc3', 't', 'doctorless')
+  conn.execute_command('HSET', 'doc4', 't', 'anteriorly')
+  conn.execute_command('HSET', 'doc5', 't', 'colorlessness')
+  conn.execute_command('HSET', 'doc6', 't', 'floorless')
 
   # prefix
-  # res = env.execute_command('ft.search', 'idx', 'worl*')
-  # env.assertEqual(res[0:2], [1, 'doc1'])
-  # env.assertEqual(set(res[2]), set(['hello world', 't']))
+  res = env.execute_command('ft.search', 'idx', 'worl*')
+  env.assertEqual(res[0:2], [1, 'doc1'])
+  env.assertEqual(set(res[2]), set(['world', 't']))
 
   # contains
   res = env.execute_command('ft.search', 'idx', '*orld*')
-  env.assertEqual(res, [1, 'doc1'])
-  res = env.execute_command('ft.search', 'idx', '*orl*')
-  env.assertEqual(res, [1, 'doc1'])
-  res = env.execute_command('ft.search', 'idx', '*or*')
-  env.assertEqual(res, [1, 'doc1'])
-  #env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
-  
+  env.assertEqual(res, [1, 'doc1', ['t', 'world']])
 
+  res = env.execute_command('ft.search', 'idx', '*orl*')
+  actual_res = [5, 'doc1', ['t', 'world'], 'doc3', ['t', 'doctorless'],
+                'doc4', ['t', 'anteriorly'], 'doc5', ['t', 'colorlessness'], 'doc6', ['t', 'floorless']]
+  env.assertEqual(res, actual_res)
+
+  res = env.execute_command('ft.search', 'idx', '*or*')
+  actual_res = [6, 'doc1', ['t', 'world'], 'doc2', ['t', 'keyword'], 'doc3', ['t', 'doctorless'],
+                'doc4', ['t', 'anteriorly'], 'doc5', ['t', 'colorlessness'], 'doc6', ['t', 'floorless']]
+  env.assertEqual(res, actual_res)
+  
   # suffix
   res = env.execute_command('ft.search', 'idx', '*orld')
-  env.assertEqual(res[0:2], [1, 'doc1'])
-  res = env.execute_command('ft.search', 'idx', '*orld')
-  env.assertEqual(res[0:2], [1, 'doc1'])
-  res = env.execute_command('ft.search', 'idx', '*orld')
-  env.assertEqual(res[0:2], [1, 'doc1'])
-  #env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
-  #env.expect('ft.search', 'idx', '*orl').equal([0])
+  env.assertEqual(res, [1, 'doc1', ['t', 'world']])
+
+  res = env.execute_command('ft.search', 'idx', '*ess')
+  actual_res = [3, 'doc3', ['t', 'doctorless'], 'doc5', ['t', 'colorlessness'], 'doc6', ['t', 'floorless']]
+  env.assertEqual(res, actual_res)
+
+  res = env.execute_command('ft.search', 'idx', '*less')
+  actual_res = [2, 'doc3', ['t', 'doctorless'], 'doc6', ['t', 'floorless']]
+  env.assertEqual(res, actual_res)

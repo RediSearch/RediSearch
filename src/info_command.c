@@ -181,6 +181,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOINDEX_STR);
       ++nn;
     }
+    if (FieldSpec_HasContains(fs)) {
+      RedisModule_ReplyWithSimpleString(ctx, SPEC_WITHCONTAINS_STR);
+      ++nn;
+    }
     RedisModule_ReplySetArrayLength(ctx, nn);
   }
   n += 2;

@@ -9,7 +9,7 @@
 #include "config.h"
 
 typedef struct {
-  rune *buf;
+  rune * buf;
   TrieRangeCallback *callback;
   void *cbctx;
   union {
@@ -721,9 +721,9 @@ static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
 
   // Push string to stack
   size_t len;
-  char *before_str = runesToStr(r->buf, array_len(r->buf), &len);
+  // char *before_str = runesToStr(r->buf, array_len(r->buf), &len);
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
-  char *after_str = runesToStr(r->buf, array_len(r->buf), &len);
+  // char *after_str = runesToStr(r->buf, array_len(r->buf), &len);
   if (__trieNode_isTerminal(n)) {
     if (r->callback(r->buf, array_len(r->buf), r->cbctx) != REDISEARCH_OK) {
       r->stop = 1;
@@ -961,11 +961,11 @@ done:
   array_free(r.buf);
 }
 
-
+/*
 #define printStats(stage)                               \
-// str = runesToStr(r->buf, array_len(r->buf), &len);   \
-// printf("%s:%s %ld\n", stage, str, len);
-
+str = runesToStr(r->buf, array_len(r->buf), &len);   \
+printf("%s:%s %ld\n", stage, str, len);
+*/
 #define trimOne(n, r)                                   \
 if (n->len) array_trimm_len(r->buf, array_len(r->buf) - 1)
 
@@ -988,7 +988,7 @@ static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, Ran
 static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
   size_t len;
   char *str;
-  printStats("start");
+  // printStats("start");
 
   // No match
   if ((n->numChildren == 0 && r->lenOrigStr - globalOffset > n->len) || r->stop) {
@@ -1003,7 +1003,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
   if (n->len != 0) { // not root
     r->buf = array_ensure_append(r->buf, &n->str[localOffset], 1, rune);
   }
-  printStats("append");
+  // printStats("append");
   TrieNode **children = __trieNode_children(n);
 
   // next char matches
@@ -1037,7 +1037,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
   if (!globalOffset) {
     containsNext(n, localOffset + 1, 0, r);
   }
-  printStats("return");
+  // printStats("return");
   trimOne(n, r);
   return;
 }

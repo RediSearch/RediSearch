@@ -472,8 +472,8 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  // spec support contains queries and this is not prefix query
-  if (qn->pfx.suffix && spec->suffix) {
+  // spec support contains queries
+  if (spec->suffix) {
     // all modifier fields are supported
     if (q->opts->fieldmask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & q->opts->fieldmask) == q->opts->fieldmask) {
