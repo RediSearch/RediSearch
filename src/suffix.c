@@ -3,11 +3,9 @@
 #include "config.h"
 #include <string.h>
 
-typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
-
 typedef struct suffixData {
-  //int wordExists; // exact match to string exists already
-  rune *rune;
+  // int wordExists; // exact match to string exists already
+  // rune *rune;
   char *term;             // string is used in the array of all suffix tokens
   arrayof(char *) array;   // list of words containing the string. weak pointers
 } suffixData;
@@ -188,12 +186,10 @@ void Suffix_IterateContains(TrieNode *n, const rune *str, size_t nstr, bool pref
 }
 
 void suffixData_freeCallback(void *payload) {
-  suffixData *suffixData =  ((TriePayload *)payload)->data;
-  if (suffixData) {
-    array_free(suffixData->array);
-    suffixData->array = NULL;
-    rm_free(suffixData->term);
-    suffixData->term = NULL;
-  }
+  suffixData *data =  (suffixData *)((TriePayload *)payload)->data;
+  array_free(data->array);
+  data->array = NULL;
+  rm_free(data->term);
+  data->term = NULL;
   rm_free(payload);
 }

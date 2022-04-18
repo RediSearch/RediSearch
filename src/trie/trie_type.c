@@ -362,7 +362,6 @@ void TrieType_Digest(RedisModuleDigest *digest, void *value) {
 void TrieType_Free(void *value) {
   Trie *tree = value;
   if (tree->root) {
-
     TrieNode_Free(tree->root, tree->freecb);
   }
 

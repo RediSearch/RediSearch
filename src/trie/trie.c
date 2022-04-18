@@ -105,7 +105,8 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset, TrieFreeCallback freecb) {
 
   n->maxChildScore = MAX(n->maxChildScore, newChild->score);
   if (n->payload != NULL) {
-    //triePayload_Free(n->payload, freecb);
+    // here we just need to free the payload struct, not the internals
+    rm_free(n->payload);
     n->payload = NULL;
   }
   n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
