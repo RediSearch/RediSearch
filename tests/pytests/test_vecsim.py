@@ -11,6 +11,13 @@ from RLTest import Env
 from common import *
 from includes import *
 from redis.client import NEVER_DECODE
+import redis
+import numpy as np
+import math
+from random import randrange
+
+from redis.commands.search.field import VectorField, TagField, TextField
+from redis.commands.search.query import Query
 
 
 def test_sanity():
@@ -1016,3 +1023,37 @@ def test_hybrid_query_with_global_filters():
                'filter', 'num', 0, index_size/2, 'filter', 'num', index_size/3, index_size/2,
                'geofilter', 'coordinate', 5.0, 5.0, 50, 'km', 'SORTBY', '__v_score',
                'NOCONTENT', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+
+def test_pmo():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    # Index size is chosen so that batches mode will be selected by the heuristics.
+    dim = 128
+    n = 100
+    vectors = np.random.rand(n, dim).astype(np.float32)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
+
+    file = 1
+    tags = range(10)
+    subset_size = math.floor(n/3)
+    with conn.pipeline(transaction = False) as p:
+        for i, v in enumerate(vectors[:(subset_size*2)]):
+            conn.execute_command('HSET', i, 'vector', v.tobytes(),
+                                 'tag1', str(tags[randrange(10)]), 'tag2', 'word'+str(file))
+        p.execute()
+
+    file = 2
+    with conn.pipeline(transaction = False) as p:
+        for i, v in enumerate(vectors[(subset_size*2):]):
+            conn.execute_command('HSET', i + (subset_size*2), 'vector', v.tobytes(),
+                                 'tag1', str(10 + tags[randrange(10)]), 'tag2', 'word'+str(file))
+        p.execute()
+
+    #x=input("now")
+    res = conn.execute_command('FT.SEARCH', 'idx',
+                         '(@tag1:{1 | 3 | 7} @tag2:{word1 | word2})=>[KNN 10 @vector $vec_param AS vector_score]',
+                         'SORTBY', 'vector_score', 'PARAMS', 2, 'vec_param', vectors[0].tobytes(),
+                         'RETURN', 2, 'tag1', 'tag2')
+    print(res)
