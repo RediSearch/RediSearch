@@ -701,9 +701,8 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   } else {
     loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
   }
-  if (RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts) != REDISMODULE_OK) {
-    RS_LOG_ASSERT(r->dmd->flags & Document_Deleted, "Where is the doc?");
-  }
+  // if loadinging the document has failed, we return an empty array
+  RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts);
   return RS_RESULT_OK;
 }
 
