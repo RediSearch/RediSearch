@@ -2007,7 +2007,9 @@ void RediSearchCoordinator_CleanupModule();
 void COORDShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Clearing coordinator resources on shutdown");
   RediSearch_CleanupModule();
+  RedisModule_Log(ctx, "notice", "%s", "Finished clearing of RediSearch resources on shutdown");
   RediSearchCoordinator_CleanupModule();
+  RedisModule_Log(ctx, "notice", "%s", "Finished clearing of Coordinator resources on shutdown");
 }
 
 void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {

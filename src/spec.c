@@ -1007,6 +1007,7 @@ void CleanPool_ThreadPoolStart() {
 
 void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     if (RSGlobalConfig.freeResourcesThread) {
       thpool_wait(cleanPool);
     }
