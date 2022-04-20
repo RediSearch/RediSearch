@@ -117,7 +117,7 @@ TEST_F(ExtTest, testDynamicLoading) {
   ASSERT_TRUE(qx != NULL);
 }
 
-TEST_F(ExtTest, testQueryExpander) {
+TEST_F(ExtTest, testQueryExpander_v1) {
   numFreed = 0;
 
   const char *qt = "hello world";
@@ -130,7 +130,49 @@ TEST_F(ExtTest, testQueryExpander) {
   QueryAST qast = {0};
 
   QueryError err = {QUERY_OK};
-  int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), &err);
+  int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), 1, &err);
+  ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
+
+  ASSERT_EQ(qast.numTokens, 2);
+  ASSERT_EQ(REDISMODULE_OK, QAST_Expand(&qast, opts.expanderName, &opts, NULL, &err));
+  ASSERT_EQ(qast.numTokens, 4);
+
+  QueryNode *n = qast.root;
+  ASSERT_EQ(QN_UNION, n->children[0]->type);
+  ASSERT_STREQ("hello", n->children[0]->children[0]->tn.str);
+  ASSERT_EQ(0, n->children[0]->children[0]->tn.expanded);
+  ASSERT_STREQ("foo", n->children[0]->children[1]->tn.str);
+  ASSERT_EQ(0x00FF, n->children[0]->children[1]->tn.flags);
+
+  ASSERT_NE(0, n->children[0]->children[1]->tn.expanded);
+
+  ASSERT_EQ(QN_UNION, n->children[1]->type);
+  ASSERT_STREQ("world", n->children[1]->children[0]->tn.str);
+  ASSERT_STREQ("foo", n->children[1]->children[1]->tn.str);
+
+  RSQueryTerm *qtr = NewQueryTerm(&n->children[1]->children[1]->tn, 1);
+  ASSERT_STREQ(qtr->str, n->children[1]->children[1]->tn.str);
+  ASSERT_EQ(0x00FF, qtr->flags);
+
+  Term_Free(qtr);
+  QAST_Destroy(&qast);
+  ASSERT_EQ(1, numFreed);
+}
+
+TEST_F(ExtTest, testQueryExpander_v2) {
+  numFreed = 0;
+
+  const char *qt = "hello world";
+  RSSearchOptions opts = {0};
+  opts.fieldmask = RS_FIELDMASK_ALL;
+  opts.flags = RS_DEFAULT_QUERY_FLAGS;
+  opts.language = DEFAULT_LANGUAGE;
+  opts.expanderName = EXPANDER_NAME;
+  opts.scorerName = SCORER_NAME;
+  QueryAST qast = {0};
+
+  QueryError err = {QUERY_OK};
+  int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), 2, &err);
   ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
 
   ASSERT_EQ(qast.numTokens, 2);

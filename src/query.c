@@ -8,7 +8,6 @@
 #include "index.h"
 #include "query.h"
 #include "config.h"
-#include "query_parser/parser.h"
 #include "redis_index.h"
 #include "tokenize.h"
 #include "util/logging.h"
@@ -290,6 +289,20 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
     // we usually want the numeric range as the "leader" iterator.
     q->root->children = array_ensure_prepend(q->root->children, &n, 1, QueryNode *);
     q->numTokens++;
+  // vector node should always be in the root, so we have a special case here.
+  } else if (q->root->type == QN_VECTOR) {
+    // for non-hybrid - add the filter node as the child of the vector node.
+    if (QueryNode_NumChildren(q->root) == 0) {
+      QueryNode_AddChild(q->root, n);
+    // otherwise, add a new phrase node as the parent of the current child of the hybrid vector node,
+    // and set its children to be the previous child and the new filter node.
+    } else {
+      RS_LOG_ASSERT(QueryNode_NumChildren(q->root) == 1, "Vector query node can have at most one child");
+      QueryNode *nr = NewPhraseNode(0);
+      QueryNode_AddChild(nr, n);
+      QueryNode_AddChild(nr, q->root->children[0]);
+      q->root->children[0] = nr;
+    }
   } else {  // for other types, we need to create a new phrase node
     QueryNode *nr = NewPhraseNode(0);
     QueryNode_AddChild(nr, n);
@@ -953,7 +966,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
 }
 
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
-               const char *q, size_t n, QueryError *status) {
+               const char *q, size_t n, unsigned int dialectVersion, QueryError *status) {
   if (!dst->query) {
     dst->query = rm_strndup(q, n);
     dst->nquery = n;
@@ -968,7 +981,10 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .trace_log = NULL
 #endif
   };
-  dst->root = RSQuery_ParseRaw(&qpCtx);
+  if (dialectVersion == 2)
+    dst->root = RSQuery_ParseRaw_v2(&qpCtx);
+  else
+    dst->root = RSQuery_ParseRaw_v1(&qpCtx);
 
 #ifdef PARSER_DEBUG
   if (qpCtx.trace_log != NULL) {

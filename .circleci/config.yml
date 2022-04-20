@@ -56,9 +56,8 @@ commands:
           name: Setup automation
           command: |
             git submodule update --init deps/readies
-            ./deps/readies/bin/getpy2
             ./deps/readies/bin/getpy3
-            python2 -m pip install -q awscli
+            python3 -m pip install -q awscli
 
   install-prerequisites:
     parameters:
@@ -75,12 +74,12 @@ commands:
           shell: /bin/bash -l -eo pipefail
           command: |
             ./sbin/system-setup.py
-            python2 -m pip list
+            python3 -m pip list
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
           command: |
-            python2 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
+            python3 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
             redis-server --version
 
   save-tests-logs:
@@ -347,6 +346,11 @@ jobs:
   build-macos:
     macos:
       xcode: 12.4.0
+    resource_class: macos.x86.medium.gen2
+    parameters:
+      upload:
+        type: string
+        default: "yes"
     steps:
       - early-returns
       # - run:
@@ -361,7 +365,7 @@ jobs:
       - run:
           name: Upload artifacts to S3
           command: |
-            if [[ -n $CIRCLE_BRANCH ]]; then
+            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
                 make upload-artifacts SHOW=1
             fi
       - persist-artifacts
@@ -467,7 +471,7 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
-            python2 -m pip list
+            python3 -m pip list
             mkdir -p ~/workspace/tests
             make test COORD=1 SHOW=1
       - save-tests-logs
@@ -585,12 +589,6 @@ workflows:
       - build-linux-debian:
           name: build
           <<: *not-on-integ-branch
-      - build-linux-debian:
-          name: build-with-redis-<<matrix.redis_version>>
-          <<: *on-integ-and-version-tags
-          matrix:
-            parameters:
-              redis_version: ["6.0", "6.2"]
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -650,12 +648,13 @@ workflows:
             branches:
               only: master
     jobs:
-      - build-macos
+      - build-macos:
+          upload: "no"
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2"]
+              redis_version: ["6.0", "7", "unstable"]
 
   nightly-performance:
     triggers:

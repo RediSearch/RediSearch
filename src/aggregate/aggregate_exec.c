@@ -472,7 +472,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (strcasecmp(cmd, "QUERY") != 0) {
-    RedisModule_ReplyWithError(ctx, "The QUERY keyward is expected");
+    RedisModule_ReplyWithError(ctx, "The QUERY keyword is expected");
     return REDISMODULE_OK;
   }
 
