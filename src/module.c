@@ -1041,7 +1041,17 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 void ReindexPool_ThreadPoolDestroy();
 extern dict *legacySpecDict, *legacySpecRules;
 
-void RediSearch_CleanupModule(void) {
+#ifdef RS_STATIC
+#define RS_DTOR_ATTR __attribute__((destructor))
+#else
+#define RS_DTOR_ATTR
+#endif
+
+void RS_DTOR_ATTR RediSearch_CleanupModule(void) {
+  if (!getenv("RS_GLOBAL_DTORS")) {  // used only with sanitizer or valgrind
+    return; 
+  }
+  
   static int invoked = 0;
   if (invoked || !RS_Initialized) {
     return;
