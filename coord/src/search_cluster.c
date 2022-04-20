@@ -38,6 +38,7 @@ char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
   if (RedisModule_CallReplyLength(rep) == 0){
+    RedisModule_FreeCallReply(rep);
     return NULL;
   }
   RedisModule_Assert(RedisModule_CallReplyLength(rep) == 2);
