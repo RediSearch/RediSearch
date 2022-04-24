@@ -90,7 +90,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
   for (int i = 0; i < array_len(array); ++i) {
     if (!strncmp(array[i], str, rlen)) {
-      array_del_fast(array, i);
+      array = array_del_fast(array, i);
       return;
     }
   }
@@ -108,21 +108,21 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   char *oldTerm = NULL;
 
   // iterate all matching terms and remove word
-  for (int j = 0; j < len; ++j) {
-    suffixData *node = TrieNode_GetValue(trie->root, runes + j, rlen - j, 1);
-    // suffixData *node = TrieMap_Find(trie, str + j, len - j);
+  for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
+    suffixData *data = TrieNode_GetValue(trie->root, runes + j, rlen - j, 1);
+    RS_LOG_ASSERT(data, "all suffixes must exist");
+    // suffixData *data = TrieMap_Find(trie, str + j, len - j);
     if (j == 0) {
       // keep pointer to word string to free after it was found in al sub tokens.
-      oldTerm = node->term;
-      node->term = NULL;
+      oldTerm = data->term;
+      data->term = NULL;
     }
     // remove from array
-    removeSuffix(str, len, node->array);
+    removeSuffix(str, len, data->array);
     // if array is empty, remove the node
-    if (array_len(node->array) == 0) {
-      RS_LOG_ASSERT(!node->term, "array should contain a pointer to the string");
+    if (array_len(data->array) == 0) {
+      RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
       Trie_DeleteRunes(trie, runes + j, rlen - j);
-      suffixData_freeCallback(node);
     }
   }
   rm_free(oldTerm);

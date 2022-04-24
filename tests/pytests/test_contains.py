@@ -185,7 +185,9 @@ def testEscape(env):
   all_docs = [5, 'doc1', ['t', '1foo1'], 'doc2', ['t', '\\*foo2'], 'doc3', ['t', '3\\*foo3'],
                  'doc4', ['t', '4foo\\*'], 'doc5', ['t', '5foo\\*5']]
   # contains
-  env.expect('ft.search', 'idx', '*foo*').equal(all_docs)
+  res = env.expect('ft.search', 'idx', '*foo*')
+  env.assertEqual(toSortedFlatList(res), toSortedFlatList(all_docs))
+
   # prefix only
   env.expect('ft.search', 'idx', '\*foo*').equal([1, 'doc2', ['t', '\\*foo2']])
   # suffix only
@@ -217,12 +219,12 @@ def test_orl(env):
   res = env.execute_command('ft.search', 'idx', '*orl*')
   actual_res = [5, 'doc1', ['t', 'world'], 'doc3', ['t', 'doctorless'],
                 'doc4', ['t', 'anteriorly'], 'doc5', ['t', 'colorlessness'], 'doc6', ['t', 'floorless']]
-  env.assertEqual(res, actual_res)
+  env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
 
   res = env.execute_command('ft.search', 'idx', '*or*')
   actual_res = [6, 'doc1', ['t', 'world'], 'doc2', ['t', 'keyword'], 'doc3', ['t', 'doctorless'],
                 'doc4', ['t', 'anteriorly'], 'doc5', ['t', 'colorlessness'], 'doc6', ['t', 'floorless']]
-  env.assertEqual(res, actual_res)
+  env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
   
   # suffix
   res = env.execute_command('ft.search', 'idx', '*orld')
@@ -230,8 +232,41 @@ def test_orl(env):
 
   res = env.execute_command('ft.search', 'idx', '*ess')
   actual_res = [3, 'doc3', ['t', 'doctorless'], 'doc5', ['t', 'colorlessness'], 'doc6', ['t', 'floorless']]
-  env.assertEqual(res, actual_res)
+  env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
 
   res = env.execute_command('ft.search', 'idx', '*less')
   actual_res = [2, 'doc3', ['t', 'doctorless'], 'doc6', ['t', 'floorless']]
-  env.assertEqual(res, actual_res)
+  env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
+
+def testContainsGC(env):
+  env.skipOnCluster()
+  env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
+
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHCONTAINS', 'SORTABLE')
+  
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['hello', 'ello', 'llo', 'lo'])
+  conn.execute_command('HSET', 'doc1', 't', 'world')
+  
+  forceInvokeGC(env, 'idx')
+
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'world', 'orld', 'rld'])
+
+  conn.execute_command('HSET', 'doc2', 't', 'bold')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'world', 'orld', 'old', 'rld', 'bold'])
+  conn.execute_command('DEL', 'doc2')
+
+  forceInvokeGC(env, 'idx')
+
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['orld', 'ld', 'world', 'rld'])
+
+def testContainsDebugCommand(env):
+  env.skipOnCluster()
+
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHCONTAINS')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'field').error().contains('wrong number of arguments')
+
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx_no').error().contains('Index does not have suffix trie')

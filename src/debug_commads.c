@@ -266,6 +266,42 @@ end:
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(DumpSuffix) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0]);
+  Trie *suffix = sctx->spec->suffix; 
+  if (!suffix) {
+    RedisModule_ReplyWithError(ctx, "Index does not have suffix trie");
+    goto end;
+  }
+
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  long resultSize = 0;
+
+  // iterate trie and reply with terms
+  TrieIterator *it = TrieNode_Iterate(suffix->root, NULL, NULL, NULL);
+  rune *rstr;
+  t_len len;
+  float score;
+
+  while (TrieIterator_Next(it, &rstr, &len, NULL, &score, NULL)) {
+    size_t slen = 0;
+    char *s = runesToStr(rstr, len, &slen);
+    RedisModule_ReplyWithSimpleString(ctx, s);
+    rm_free(s);
+    ++resultSize;
+  }
+
+  TrieIterator_Free(it);
+
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+end:
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 DEBUG_COMMAND(IdToDocId) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
@@ -702,6 +738,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"DOCIDTOID", DocIdToId},
                                {"DOCINFO", DocInfo},
                                {"DUMP_PHONETIC_HASH", DumpPhoneticHash},
+                               {"DUMP_SUFFIX_TRIE", DumpSuffix},
                                {"DUMP_TERMS", DumpTerms},
                                {"INVIDX_SUMMARY", InvertedIndexSummary},
                                {"NUMIDX_SUMMARY", NumericIndexSummary},

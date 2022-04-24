@@ -17,6 +17,7 @@
 #include <float.h>
 #include "module.h"
 #include "rmutil/rm_assert.h"
+#include "suffix.h"
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -778,6 +779,9 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
     }
     Trie_Delete(sctx->spec->terms, term, len);
     RedisModule_FreeString(sctx->redisCtx, termKey);
+    if (sctx->spec->suffix) {
+      deleteSuffixTrie(sctx->spec->suffix, term, len);
+    }
   }
 
 cleanup:
