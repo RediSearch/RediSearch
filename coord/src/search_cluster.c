@@ -14,12 +14,16 @@ SearchCluster NewSearchCluster(size_t size, const char **table, size_t tableSize
   PartitionCtx_Init(&ret.part, size, table, tableSize);
   if(size){
     // assume slots are equaly distributed
-    ret.shardsStartSlots = malloc(sizeof(int) * size);
+    ret.shardsStartSlots = malloc(sizeof(size_t) * size);
     for(size_t j = 0, i = 0 ; i < tableSize ; j++, i+=(tableSize/size)){
       ret.shardsStartSlots[j] = i;
     }
   }
   return ret;
+}
+
+void FreeSearchClusterInternals(SearchCluster *sc) {
+  rm_free(sc->shardsStartSlots);
 }
 
 SearchCluster __searchCluster;
@@ -30,6 +34,10 @@ SearchCluster *GetSearchCluster() {
 
 void InitGlobalSearchCluster(size_t size, const char **table, size_t tableSize) {
   __searchCluster = NewSearchCluster(size, table, tableSize);
+}
+
+void FreeGlobalSearchCluster() {
+  FreeSearchClusterInternals(&__searchCluster);
 }
 
 inline int SearchCluster_Ready(SearchCluster *sc) {

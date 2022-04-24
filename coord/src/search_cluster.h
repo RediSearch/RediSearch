@@ -23,6 +23,8 @@ SearchCluster *GetSearchCluster();
  * consolidating the two  */
 SearchCluster NewSearchCluster(size_t size, const char **table, size_t tableSize);
 void InitGlobalSearchCluster(size_t size, const char **table, size_t tableSize);
+void FreeSearchClusterInternals(SearchCluster *sc);
+void FreeGlobalSearchCluster();
 /* A command generator that multiplexes a command across multiple partitions by tagging it */
 typedef struct {
   MRCommand *cmd;

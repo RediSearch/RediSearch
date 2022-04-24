@@ -2151,6 +2151,7 @@ extern redisSSLContext *ssl_context;
 
 void RediSearchCoordinator_CleanupModule(void) {
   MR_Destroy();
+  FreeGlobalSearchCluster();
   //DestroyRedisTopologyUpdater();
   //redisFreeSSLContext(ssl_context);
 }
