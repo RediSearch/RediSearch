@@ -32,7 +32,7 @@ static inline void rs_timersub(struct timespec *a, struct timespec *b, struct ti
 }
 
 static inline int TimedOut(struct timespec timeout, size_t *counter) {
-  if (++(*counter) == 100) {
+  if (!isMockRedis && ++(*counter) == 100) {
     *counter = 0;
     static struct timespec now;
     clock_gettime(CLOCK_MONOTONIC_RAW, &now);

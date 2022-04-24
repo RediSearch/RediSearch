@@ -6,6 +6,7 @@
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
 #include "profile.h"
+#include "util/timeout.h"
 #include <err.h>
 
 /* Get cursor command using a cursor id and an existing aggregate command */
