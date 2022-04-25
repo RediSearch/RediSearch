@@ -897,6 +897,7 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
       .cbctx = ctx,
       .includeMin = includeMin,
       .includeMax = includeMax,
+      .stop = 0,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
   rangeIterate(n, min, nmin, max, nmax, &r);
