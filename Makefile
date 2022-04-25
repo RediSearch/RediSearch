@@ -520,7 +520,7 @@ endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) VERBOSE=1 $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
