@@ -94,13 +94,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
 static int JSON_getFloat32(RedisJSON json, float *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
-  if (REDISMODULE_OK != ret) {
-    long long temp2;
-    ret = japi->getInt(json, &temp2);
-    *val = (float)temp2;
-  } else {
-    *val = (float)temp;
-  }
+  *val = (float)temp;
   return ret;
 }
 
