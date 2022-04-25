@@ -69,7 +69,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
 
-  if (TimedOut(self->timeout, &self->timeoutLimiter) == RS_RESULT_TIMEDOUT) {
+  if (TimedOut(self->timeout, &self->timeoutLimiter)) {
     return RS_RESULT_TIMEDOUT;
   }
 
