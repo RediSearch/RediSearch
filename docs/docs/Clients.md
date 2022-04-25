@@ -34,6 +34,7 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
+| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] |
 
 [redis-py-url]: https://github.com/redis/redis-py
 [redis-py-author]: https://redis.com
@@ -114,12 +115,6 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redis-om-dotnet-url]: https://github.com/redis/redis-om-dotnet
 [redis-om-dotnet-author]: htts://redis.com
 [redis-om-dotnet-stars]: https://img.shields.io/github/stars/redis/redis-om-dotnet.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-## Other available Libraries
-
-| Language | Library | Author | License | Stars | Comments |
-|----------|---------|--------|---------|-------|----------|
-| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis Inc][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
 
 [redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
 [redisearch-api-rs-author]: https://redis.com
