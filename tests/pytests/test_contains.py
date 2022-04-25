@@ -185,7 +185,7 @@ def testEscape(env):
   all_docs = [5, 'doc1', ['t', '1foo1'], 'doc2', ['t', '\\*foo2'], 'doc3', ['t', '3\\*foo3'],
                  'doc4', ['t', '4foo\\*'], 'doc5', ['t', '5foo\\*5']]
   # contains
-  res = env.expect('ft.search', 'idx', '*foo*')
+  res = env.execute_command('ft.search', 'idx', '*foo*')
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(all_docs))
 
   # prefix only

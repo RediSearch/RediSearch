@@ -60,7 +60,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   if (!data) {
     suffixData newdata = createSuffixNode(copyStr, 1);
     RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-    TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_IGNORE, (TrieFreeCallback) suffixData_freeCallback);
+    TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_IGNORE, trie->freecb);
   } else {
     RS_LOG_ASSERT(!data->term, "can't reach here");
     data->term = copyStr;

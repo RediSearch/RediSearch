@@ -138,7 +138,7 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   TrieNode **newChildren = __trieNode_children(merged);
   memcpy(newChildren, children, sizeof(TrieNode *) * merged->numChildren);
   if (ch->payload) {
-    triePayload_Free(ch->payload, freecb);
+    rm_free(ch->payload);
     ch->payload = NULL;
   }
   if (n->payload != NULL) {
