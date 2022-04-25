@@ -16,10 +16,9 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 |----------|---------|--------|---------|-------|
 | Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
 | Python | [redis-om][redis-om-python-url] | [Redis][redis-om-python-author] | BSD-3-Clause | [![redis-om-python-stars]][redis-om-python-url] |
-| Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis Inc][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
+| Java (Jedis based) | [JRediSearch][JRediSearch-url] | [Redis Inc][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
 | Java | [redis-om-spring][redis-om-spring-url] | [Redis][redis-om-spring-author] | BSD-3-Clause | [![redis-om-spring-stars]][redis-om-spring-url] |
-| Java (Lettuce client library) | [LettuceMod][lettucemod-url] | [Redis Inc][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
-| Java | [Spring LettuceMod][lettucemod-url] | [Redis Labs][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
+| Java (Lettuce based) | [LettuceMod][lettucemod-url] | [Redis][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
 | Go | [redisearch-go][redisearch-go-url] | [Redis Inc][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
 | JavaScript | [Redis-om][redis-om-node-url] | [Redis][redis-om-node-author] | BSD-3-Clause | [![redis-om-node-stars]][redis-om-node-url] |
@@ -46,10 +45,6 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [lettucemod-url]: https://github.com/redis-developer/lettucemod
 [lettucemod-author]: https://redis.com
 [lettucemod-stars]: https://img.shields.io/github/stars/redis-developer/lettucemod.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-[spring-redisearch-url]: https://github.com/RediSearch/spring-redisearch
-[spring-redisearch-author]: https://redis.com
-[spring-redisearch-stars]: https://img.shields.io/github/stars/RediSearch/spring-redisearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redis-modules-java-url]: https://github.com/dengliming/redis-modules-java
 [redis-modules-java-author]: https://github.com/dengliming
