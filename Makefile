@@ -488,6 +488,7 @@ endif
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
+ifneq ($(REJSON),0)
 ifneq ($(SAN),)
 REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
 
@@ -495,6 +496,7 @@ $(REJSON_SO):
 	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
 else
 REJSON_SO=
+endif
 endif
 
 ifeq ($(SLOW),1)

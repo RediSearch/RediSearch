@@ -87,8 +87,7 @@ ARTDIR=$(cd $ARTDIR && pwd)
 MODULE_NAME=${MODULE_NAME:-redisearch}
 PACKAGE_NAME=${PACKAGE_NAME:-redisearch-oss}
 
-# DEP_NAMES="debug"
-DEP_NAMES=""
+DEP_NAMES="debug"
 
 #----------------------------------------------------------------------------------------------
 
