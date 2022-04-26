@@ -371,8 +371,6 @@ class Connection(object):
 
 
 class ShardMock:
-    server_port = 0
-
     def __init__(self, env):
         self.env = env
         self.new_conns = gevent.queue.Queue()
@@ -382,8 +380,15 @@ class ShardMock:
         self.new_conns.put(conn)
 
     def __enter__(self):
-        if not self.StartListening(port=ShardMock.server_port, attempts=10) and not self.StartListening(port=random.randint(55000, 57000)):
-            raise Exception("%s StartListening failed" % self.__class__.__name__)
+        self.server_port = None
+        try:
+            self.StartListening(port=0, attempts=10)
+        except Exception as e1:
+            try:
+                self.StartListening(port=random.randint(55000, 57000))
+            except Exception as e2:
+                # If both failed - raise both exceptions
+                raise Exception([e1,e2])
         return self
 
     def __exit__(self, type, value, traceback):
@@ -398,22 +403,25 @@ class ShardMock:
 
     def StopListening(self):
         self.stream_server.stop()
+        self.server_port = None
 
     def StartListening(self, port, attempts=1):
+        error_msgs = []
         for i in range(1, attempts + 1):
             self.stream_server = gevent.server.StreamServer(('127.0.0.1', port), self._handle_conn)
             try:
                 self.stream_server.start()
             except Exception as e:
-                self.env.assertEqual(ShardMock.server_port, None, message='%s: StartListening(%d/%d) %d -> %s' % (
-                    self.__class__.__name__, i, attempts, port, e.strerror))
+                msg = '(%d/%d) %d -> %s' % (i, attempts, port, e.strerror)
+                error_msgs.append(msg)
+                self.env.assertEqual(self.server_port, None, message=msg)
                 continue
-            ShardMock.server_port = self.stream_server.address[1]
-            self.env.assertNotEqual(ShardMock.server_port, None, message='%s: StartListening(%d/%d) %d -> %d' % (
-                self.__class__.__name__, i, attempts, port, ShardMock.server_port))
-            return True
+            self.server_port = self.stream_server.address[1]
+            self.env.assertNotEqual(self.server_port, None, message='%s: StartListening(%d/%d) %d -> %d' % (
+                self.__class__.__name__, i, attempts, port, self.server_port))
+            break
         else:
-            return False
+            raise Exception("%s StartListening failed: %s" % (self.__class__.__name__, '\n'.join(error_msgs)))
 
 
 class Debug:
