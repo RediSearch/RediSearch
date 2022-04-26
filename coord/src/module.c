@@ -1641,8 +1641,6 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 }
 
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **argv, int argc) {
-  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_AutoMemory(ctx);
   QueryError status = {0};
   searchRequestCtx *req = rscParseRequest(argv, argc, &status);
 
