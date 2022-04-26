@@ -97,6 +97,7 @@ done:
     rm_free(tlsPort);
   }
   RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
   return ret;
 }
 
