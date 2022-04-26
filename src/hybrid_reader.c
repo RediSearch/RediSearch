@@ -95,10 +95,12 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
   AggregateResult_Reset(res);
 }
 
-static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *vecsim_iter, float *upper_bound) {
+static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *vecsim_iter,
+                               float *upper_bound, size_t *child_res_num_lower_bound) {
   RSIndexResult *cur_vec_res = NewDistanceResult();
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
   RSIndexResult *cur_res = hr->base.current;
+  size_t child_res_num_viewed = 0;
 
   hr->child->Read(hr->child->ctx, &cur_child_res);
   HR_ReadInBatch(hr, &cur_vec_res);
@@ -110,12 +112,14 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
         // and insert result to the heap.
         insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, upper_bound);
       }
+      child_res_num_viewed++;
       int ret_child = hr->child->Read(hr->child->ctx, &cur_child_res);
       int ret_vec = HR_ReadInBatch(hr, &cur_vec_res);
       if (ret_child != INDEXREAD_OK || ret_vec != INDEXREAD_OK) break;
     }
     // Otherwise, advance the iterator pointing to the lower id.
     else if (cur_vec_res->docId > cur_child_res->docId && IITER_HAS_NEXT(hr->child)) {
+      child_res_num_viewed++;
       int rc = hr->child->SkipTo(hr->child->ctx, cur_vec_res->docId, &cur_child_res);
       if (rc == INDEXREAD_EOF) break; // no more results left.
       // It may be the case where we skipped to an invalid result (in NOT iterator for example),
@@ -131,6 +135,9 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
     } else {
       break; // both iterators are depleted.
     }
+  }
+  if (child_res_num_viewed > *child_res_num_lower_bound) {
+    *child_res_num_lower_bound = child_res_num_viewed;
   }
   IndexResult_Free(cur_vec_res);
 }
@@ -187,13 +194,33 @@ static void prepareResults(HybridIterator *hr) {
   }
   VecSimBatchIterator *batch_it = VecSimBatchIterator_New(hr->index, hr->query.vector);
   float upper_bound = INFINITY;
+  size_t child_res_num_lower_bound = 0;
+  size_t child_res_num_upper_bound = hr->child->NumEstimated(hr->child->ctx);
+  if (child_res_num_upper_bound > VecSimIndex_IndexSize(hr->index)) {
+    child_res_num_upper_bound = VecSimIndex_IndexSize(hr->index);
+  }
   while (VecSimBatchIterator_HasNext(batch_it)) {
     hr->numIterations++;
     size_t vec_index_size = VecSimIndex_IndexSize(hr->index);
     size_t n_res_left = hr->query.k - heap_count(hr->topResults);
     // Since NumEstimated(child) is an upper bound, it can be higher than index size, then we increase
     // batch and make sure that it is at least one.
-    size_t batch_size = n_res_left * ((float)vec_index_size / hr->child->NumEstimated(hr->child->ctx)) + 1;
+    size_t child_num_estimated = child_res_num_upper_bound;
+    if (hr->numIterations > 1) {
+      child_num_estimated = (child_res_num_upper_bound + child_res_num_lower_bound) / 2;
+      if (VecSimIndex_PreferAdHocSearch(hr->index, child_num_estimated, hr->query.k)) {
+        // change policy
+        VecSimBatchIterator_Free(batch_it);
+        hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
+        // Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
+        while (heap_count(hr->topResults) > 0) {
+          IndexResult_Free(heap_poll(hr->topResults));
+        }
+        computeDistances(hr);
+        return;
+      }
+    }
+    size_t batch_size = n_res_left * ((float)vec_index_size / child_num_estimated) + 1;
     if (hr->list) {
       VecSimQueryResult_Free(hr->list);
     }
@@ -206,7 +233,7 @@ static void prepareResults(HybridIterator *hr) {
     hr->child->Rewind(hr->child->ctx);
 
     // Go over both iterators and save mutual results in the heap.
-    alternatingIterate(hr, hr->iter, &upper_bound);
+    alternatingIterate(hr, hr->iter, &upper_bound, &child_res_num_lower_bound);
     if (heap_count(hr->topResults) == hr->query.k) {
       break;
     }

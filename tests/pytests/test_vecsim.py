@@ -11,6 +11,7 @@ from RLTest import Env
 from common import *
 from includes import *
 from redis.client import NEVER_DECODE
+from random import randrange
 
 
 def test_sanity():
@@ -438,6 +439,7 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
     # in cluster mode, we send `_FT.DEBUG' to the local shard.
     prefix = '_' if env.isCluster() else ''
     if batches_mode:
+        print(f'{sys._getframe(1).f_code.co_filename.split("/")[-1]}:{sys._getframe(1).f_lineno}')
         env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
     else:
         env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
@@ -480,7 +482,8 @@ def test_hybrid_query_batches_mode_with_text():
     execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
     # Expect empty score for the intersection (disjoint sets of results)
-    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't').equal([0])
+    # The hybrid policy changes to ad hoc after the first batch
+    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal([0])
 
     # Expect the same results as in above ('other AND NOT text')
     execute_hybrid_query(env, '(@t:other -text)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
@@ -1016,3 +1019,38 @@ def test_hybrid_query_with_global_filters():
                'filter', 'num', 0, index_size/2, 'filter', 'num', index_size/3, index_size/2,
                'geofilter', 'coordinate', 5.0, 5.0, 50, 'km', 'SORTBY', '__v_score',
                'NOCONTENT', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+
+def test_hybrid_query_change_policy():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    n = 6000 * env.shardsCount
+    vectors = np.random.rand(n, dim).astype(np.float32)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
+
+    file = 1
+    tags = range(10)
+    subset_size = int(n/2)
+    with conn.pipeline(transaction = False) as p:
+        for i, v in enumerate(vectors[:(subset_size*2)]):
+            conn.execute_command('HSET', i, 'vector', v.tobytes(),
+                                 'tag1', str(tags[randrange(10)]), 'tag2', 'word'+str(file))
+        p.execute()
+
+    file = 2
+    with conn.pipeline(transaction = False) as p:
+        for i, v in enumerate(vectors[(subset_size*2):]):
+            conn.execute_command('HSET', i + (subset_size*2), 'vector', v.tobytes(),
+                                 'tag1', str(10 + tags[randrange(10)]), 'tag2', 'word'+str(file))
+        p.execute()
+
+    x=input("now")
+    res = conn.execute_command('FT.SEARCH', 'idx',
+                         '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @vector $vec_param AS vector_score]',
+                         'SORTBY', 'vector_score', 'PARAMS', 2, 'vec_param', vectors[0].tobytes(),
+                         'RETURN', 2, 'tag1', 'tag2')
+    prefix = '_' if env.isCluster() else ''
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+    print(res)

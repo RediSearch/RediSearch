@@ -238,15 +238,15 @@ def testProfileVector(env):
 
   for i in range(6, 10001):
     conn.execute_command('hset', str(i), 'v', 'bababada', 't', "hello world")
-
   # Expect batched search to take place - going over child iterator exactly once (reading 2 results)
   # Expect in the first batch to get 1, 2, 4, 6 and then ask for one more batch - and get 7 in the next results.
+  # In the second batch - batch size is determined to be 3
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]', 'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   env.assertEqual(actual_res[0], [3, '4', '6', '7'])
   expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 3, 'Batches number', 2, 'Child iterator',
-                                                 ['Type', 'INTERSECT', 'Counter', 8, 'Child iterators',
-                                                 ['Type', 'TEXT', 'Term', 'world', 'Counter', 8, 'Size', 9997],
-                                                 ['Type', 'TEXT', 'Term', 'hello', 'Counter', 8, 'Size', 10000]]]]
+                                                 ['Type', 'INTERSECT', 'Counter', 9, 'Child iterators',
+                                                 ['Type', 'TEXT', 'Term', 'world', 'Counter', 9, 'Size', 9997],
+                                                 ['Type', 'TEXT', 'Term', 'hello', 'Counter', 9, 'Size', 10000]]]]
   expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 3]
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
