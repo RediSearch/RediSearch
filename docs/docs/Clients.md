@@ -16,6 +16,7 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 |----------|---------|--------|---------|-------|
 | Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
 | Python | [redis-om][redis-om-python-url] | [Redis][redis-om-python-author] | BSD-3-Clause | [![redis-om-python-stars]][redis-om-python-url] |
+| Java | [Jedis][Jedis-url] | [Redis][Jedis-author] | MIT | [![Jedis-stars]][Jedis-url] |
 | Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis Inc][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
 | Java | [redis-om-spring][redis-om-spring-url] | [Redis][redis-om-spring-author] | BSD-3-Clause | [![redis-om-spring-stars]][redis-om-spring-url] |
 | Java (Lettuce client library) | [LettuceMod][lettucemod-url] | [Redis Inc][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
@@ -38,6 +39,10 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redis-py-url]: https://github.com/redis/redis-py
 [redis-py-author]: https://redis.com
 [redis-py-stars]: https://img.shields.io/github/stars/redis/redis-py.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[Jedis-url]: https://github.com/redis/jedis
+[Jedis-author]: https://redis.com
+[Jedis-stars]: https://img.shields.io/github/stars/redis/jedis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [JRediSearch-url]: https://github.com/RediSearch/JRediSearch
 [JRediSearch-author]: https://redis.com
