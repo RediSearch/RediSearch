@@ -49,7 +49,17 @@ Version rlecVersion;
 bool isCrdt;
 bool isTrimming = false;
 
+size_t maxmemory = 0;
+size_t used_memory = 0;
+
 //---------------------------------------------------------------------------------------------
+
+static void setMemoryInfo(RedisModuleCtx *ctx) {
+  RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+  maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
+  RedisModule_FreeServerInfo(ctx, info);
+}
 
 static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len) {
   for (size_t i = 0; i < spec->numFields; i++) {
@@ -214,6 +224,7 @@ static void Indexes_SetTempSpecsTimers() {
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
   const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
+  setMemoryInfo(ctx);
   if (dictFetchValue(specDict_g, specName)) {
     QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     return NULL;
@@ -539,19 +550,34 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.bfParams.initialCapacity = 1000;
-    fs->vectorOpts.vecSimParams.bfParams.blockSize = BF_DEFAULT_BLOCK_SIZE;
-    return parseVectorField_flat(fs, ac, status);
+    fs->vectorOpts.vecSimParams.bfParams.blockSize = maxmemory && maxmemory / 100 < BF_DEFAULT_BLOCK_SIZE ? maxmemory / 100 : BF_DEFAULT_BLOCK_SIZE;
+    if (parseVectorField_flat(fs, ac, status)) {
+      if (maxmemory && VecSimIndex_EstimateSize(&fs->vectorOpts.vecSimParams) > maxmemory - used_memory) {
+        QueryError_SetError(status, QUERY_ELIMIT, "Vector index size exceeded server limit");
+        return 0;
+      } else if (maxmemory && fs->vectorOpts.vecSimParams.bfParams.blockSize > maxmemory / 100) {
+        QueryError_SetError(status, QUERY_ELIMIT, "Vector index block size exceeded server limit");
+        return 0;
+      }
+      return 1;
+    }
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_HNSWLIB;
     fs->vectorOpts.vecSimParams.hnswParams.initialCapacity = 1000;
     fs->vectorOpts.vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
     fs->vectorOpts.vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     fs->vectorOpts.vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
-    return parseVectorField_hnsw(fs, ac, status);
+    if (parseVectorField_hnsw(fs, ac, status)) {
+      if (maxmemory && VecSimIndex_EstimateSize(&fs->vectorOpts.vecSimParams) > maxmemory - used_memory) {
+        QueryError_SetError(status, QUERY_ELIMIT, "Vector index size exceeded server limit");
+        return 0;
+      }
+      return 1;
+    }
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
-    return 0;
   }
+  return 0;
 }
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
@@ -774,6 +800,7 @@ reset:
 
 int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status) {
+  setMemoryInfo(ctx);
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
   if (rc && initialScan) {
     IndexSpec_ScanAndReindex(ctx, sp);
