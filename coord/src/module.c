@@ -418,6 +418,9 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
     }
     array_free(r->specialCases);
   }
+  if(r->requiredFields) {
+    array_free(r->requiredFields);
+  }
   free(r);
 }
 
