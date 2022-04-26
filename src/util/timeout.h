@@ -1,6 +1,7 @@
 #pragma once
 
 #include <time.h>
+#include "version.h"
 
 /*****************************************
  *            Timeout API
@@ -44,6 +45,8 @@ static inline int TimedOut(struct timespec timeout, size_t *counter) {
 }
 
 static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
+  if (RS_IsMock) return;
+
   // 0 disables the timeout
   if (durationNS == 0) {
     durationNS = INT32_MAX;
