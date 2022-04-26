@@ -483,6 +483,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     ctx->knn.k = k;
     ctx->knn.fieldName = scoreField;
     ctx->knn.pq = NULL;
+    ctx->knn.queryNode = queryNode;
     ctx->specialCaseType = SPECIAL_CASE_KNN;
     if(!req->specialCases) {
       req->specialCases = array_new(specialCaseCtx*, 1);
