@@ -490,7 +490,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   rangeItersAddIterator(ctx, ir);
 }
 
-static void rangeIterCb(const rune *r, size_t n, void *p) {
+static int rangeIterCb(const rune *r, size_t n, void *p) {
   LexRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   RSToken tok = {0};
@@ -498,13 +498,15 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+  printf("%s ", term->str);
   rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
-    return;
+    return 0;
   }
 
   rangeItersAddIterator(ctx, ir);
+  return 0;
 }
 
 static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
