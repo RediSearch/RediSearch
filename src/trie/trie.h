@@ -74,7 +74,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 /* Create a new trie node. str is a string to be copied into the node, starting
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
-TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen,
+TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
                         t_len numChildren, float score, int terminal);
 
 /* Get a pointer to the children array of a node. This is not an actual member
@@ -90,7 +90,7 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload,
 /* Add a child node to the parent node n, with a string str starting at offset
 up until len, and a
 given score */
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload,
+TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
                           float score);
 
 /* Split node n at string offset n. This returns a new node which has a string
@@ -106,7 +106,8 @@ typedef enum {
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
-int TrieNode_Add(TrieNode **n, rune *str, t_len len, RSPayload *payload, float score, TrieAddOp op);
+int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
+                 float score, TrieAddOp op);
 
 /* Find the entry with a given string and length, and return its score. Returns
  * 0 if the entry was
@@ -118,7 +119,7 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len);
  * anything,
  * but the node will not be persisted to disk, thus deleted after reload.
  * Returns 1 if the node was indeed deleted, 0 otherwise */
-int TrieNode_Delete(TrieNode *n, rune *str, t_len len);
+int TrieNode_Delete(TrieNode *n, const rune *str, t_len len);
 
 /* Free the trie's root and all its children recursively */
 void TrieNode_Free(TrieNode *n);
@@ -209,8 +210,10 @@ typedef void(TrieRangeCallback)(const rune *, size_t, void *);
  * @param n the node to iterateo
  * @param min the minimum lexical string to check from
  * @param minlen the length of min
+ * @param includeMin is min included
  * @param max the maximum lexical string to check until
  * @param maxlen the maximum length of the max
+ * @param includeMax is max included
  * @param callback the callback to invoke
  * @param ctx data to be passed to the callback
  */
