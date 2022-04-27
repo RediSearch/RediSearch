@@ -313,7 +313,7 @@ void __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
 
       // this node is ok!
       // if needed - merge this node with it its single child
-      if (nodes[i] && nodes[i]->numChildren == 1) {
+      if (nodes[i]->numChildren == 1) {
         nodes[i] = __trieNode_MergeWithSingleChild(nodes[i], freecb);
       }
       n->maxChildScore = MAX(n->maxChildScore, nodes[i]->maxChildScore);
@@ -696,10 +696,6 @@ typedef struct {
 
   // stop if reach limit
   bool stop;
-
-  // timeout
-  struct timespec timeout;  // milliseconds until timeout
-  size_t timeoutCounter;    // counter to limit number of calls to TimedOut()  
 } RangeCtx;
 
 static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {

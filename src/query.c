@@ -501,11 +501,11 @@ static int rangeIterCb(const rune *r, size_t n, void *p) {
   rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
-    return 0;
+    return REDISMODULE_OK;
   }
 
   rangeItersAddIterator(ctx, ir);
-  return 0;
+  return REDISMODULE_OK;
 }
 
 static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {

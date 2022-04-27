@@ -101,7 +101,6 @@ TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len,
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
 
 typedef enum {
-  ADD_IGNORE,
   ADD_REPLACE,
   ADD_INCR,
 } TrieAddOp;
