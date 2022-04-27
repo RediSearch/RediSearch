@@ -1886,7 +1886,8 @@ PRINT_PROFILE_FUNC(name) {                                                      
   nlen += 2;                                                                        \
   if (root->type == HYBRID_ITERATOR) {                                              \
     HybridIterator *hi = root->ctx;                                                 \
-    if (hi->searchMode == VECSIM_HYBRID_BATCHES) {                                  \
+    if (hi->searchMode == VECSIM_HYBRID_BATCHES ||                                  \
+          hi->searchMode == VECSIM_HYBRID_ADHOC_BF) {                               \
         printProfileNumBatches(hi);                                                 \
         nlen += 2;                                                                  \
     }                                                                               \

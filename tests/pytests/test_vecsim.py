@@ -619,9 +619,11 @@ def test_hybrid_query_with_numeric():
     for i in range(10):
         expected_res.append(str(index_size-100-i))
         expected_res.append(['__v_score', str(dim*(100+i)**2), 'num', str(index_size-100-i)])
-    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-100), query_data, 'num').equal(expected_res)
+    # We switch from batches to ad-hoc BF mode during the run.
+    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-100), query_data, 'num',
+                         batches_mode=False).equal(expected_res)
     execute_hybrid_query(env, '(@num:[-inf {}] | @num:[100 {}])=>[KNN 10 @v $vec_param]'
-                         .format(index_size-200, index_size-100), query_data, 'num').equal(expected_res)
+                         .format(index_size-200, index_size-100), query_data, 'num', batches_mode=False).equal(expected_res)
 
     # Expect for 5 results only (45-49), this will use ad-hoc BF since ratio between docs that pass the filter to
     # index size is low.
@@ -1027,30 +1029,40 @@ def test_hybrid_query_change_policy():
     dim = 2
     n = 6000 * env.shardsCount
     vectors = np.random.rand(n, dim).astype(np.float32)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
 
     file = 1
     tags = range(10)
     subset_size = int(n/2)
     with conn.pipeline(transaction = False) as p:
-        for i, v in enumerate(vectors[:(subset_size*2)]):
-            conn.execute_command('HSET', i, 'vector', v.tobytes(),
+        for i, v in enumerate(vectors[:subset_size]):
+            conn.execute_command('HSET', i, 'v', v.tobytes(),
                                  'tag1', str(tags[randrange(10)]), 'tag2', 'word'+str(file))
         p.execute()
 
     file = 2
     with conn.pipeline(transaction = False) as p:
-        for i, v in enumerate(vectors[(subset_size*2):]):
-            conn.execute_command('HSET', i + (subset_size*2), 'vector', v.tobytes(),
+        for i, v in enumerate(vectors[subset_size:]):
+            conn.execute_command('HSET', i + subset_size, 'v', v.tobytes(),
                                  'tag1', str(10 + tags[randrange(10)]), 'tag2', 'word'+str(file))
         p.execute()
 
-    x=input("now")
-    res = conn.execute_command('FT.SEARCH', 'idx',
-                         '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @vector $vec_param AS vector_score]',
-                         'SORTBY', 'vector_score', 'PARAMS', 2, 'vec_param', vectors[0].tobytes(),
-                         'RETURN', 2, 'tag1', 'tag2')
-    prefix = '_' if env.isCluster() else ''
-    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
-    print(res)
+    # This should return 10 results and run in HYBRID_BATCHES mode
+    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param]'
+    res = execute_hybrid_query(env, query_string, vectors[0], 'tag2').res
+    env.assertEqual(res[0], 10)
+
+    # This query has 0 results, since none of the tags in @tag1 go along with 'word2' in @tag2.
+    # However, the estimated number of the "child" results should be index_size/2.
+    # While running the batches, the policy should change dynamically to AD-HOC BF.
+    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param]'
+    execute_hybrid_query(env, query_string, vectors[0], 'tag2', batches_mode=False).equal([0])
+
+    # Add one valid document and re-run the query (still expect to change to AD-HOC BF)
+    # This doc should return in the first batch, and then it is removed and reinserted to the results heap
+    # after the policy is changed to ad-hoc.
+    conn.execute_command('HSET', n, 'v', vectors[0].tobytes(),
+                         'tag1', str(1), 'tag2', 'word'+str(file))
+    res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', batches_mode=False).res
+    env.assertEqual(res[:2], [1, str(n)])
