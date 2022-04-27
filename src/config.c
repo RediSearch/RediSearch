@@ -397,6 +397,18 @@ CONFIG_GETTER(getDefaultDialectVersion) {
   return sdscatprintf(ss, "%u", config->defaultDialectVersion);
 }
 
+CONFIG_SETTER(setMaxResizeMB) {
+  size_t resize;
+  int acrc = AC_GetSize(ac, &resize, AC_F_GE0);
+  config->maxResizeMB = resize;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getMaxResizeMB) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->maxResizeMB);
+}
+
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
@@ -718,9 +730,11 @@ RSConfigOptions RSGlobalConfigOptions = {
         {.name = "DEFAULT_DIALECT",
          .helpText = "Set RediSearch default dialect version throught the lifetime of the server.",
          .setValue = setDefaultDialectVersion,
-         .getValue = getDefaultDialectVersion
-
-        },
+         .getValue = getDefaultDialectVersion},
+        {.name = "MAX_RESIZE_MB",
+         .helpText = "Set RediSearch indexes max resize (in MB).",
+         .setValue = setMaxResizeMB,
+         .getValue = getMaxResizeMB},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
