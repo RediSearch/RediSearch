@@ -192,6 +192,7 @@ static void prepareResults(HybridIterator *hr) {
   if (child_num_estimated > VecSimIndex_IndexSize(hr->index)) {
     child_num_estimated = VecSimIndex_IndexSize(hr->index);
   }
+  size_t child_upper_bound = child_num_estimated;
   while (VecSimBatchIterator_HasNext(batch_it)) {
     hr->numIterations++;
     size_t vec_index_size = VecSimIndex_IndexSize(hr->index);
@@ -199,6 +200,7 @@ static void prepareResults(HybridIterator *hr) {
     // Since NumEstimated(child) is an upper bound, it can be higher than index size, then we increase
     // batch and make sure that it is at least one.
     size_t batch_size = n_res_left * ((float)vec_index_size / child_num_estimated) + 1;
+    RedisModule_Log(NULL, "warning", "Batch size is: %zu", batch_size);
     if (hr->list) {
       VecSimQueryResult_Free(hr->list);
     }
@@ -212,11 +214,13 @@ static void prepareResults(HybridIterator *hr) {
 
     // Go over both iterators and save mutual results in the heap.
     alternatingIterate(hr, hr->iter, &upper_bound);
+    size_t new_results_cur_batch = heap_count(hr->topResults) - (hr->query.k - n_res_left);
+    RedisModule_Log(NULL, "warning", "Found %zu results in iteration number %zu", new_results_cur_batch, hr->numIterations);
     if (heap_count(hr->topResults) == hr->query.k) {
       break;
     }
     // Re-evaluate the child num estimated results and the hybrid policy based on the current batch.
-    size_t new_results_cur_batch = heap_count(hr->topResults) - (hr->query.k - n_res_left);
+    // size_t new_results_cur_batch = heap_count(hr->topResults) - (hr->query.k - n_res_left);
     // This is the ratio between index_size to child results size as reflected by this batch.
     float cur_ratio = (float)new_results_cur_batch / n_res_left;
     // Child estimated number of results as reflected by this batch.
@@ -224,8 +228,13 @@ static void prepareResults(HybridIterator *hr) {
     // Conclude the new estimation of the child res num as the average between the old
     // and new estimation (get the accumulated estimation).
     child_num_estimated = (child_num_estimated + cur_child_num_estimated) / 2;
+    if (child_num_estimated > child_upper_bound) {
+      child_num_estimated = child_upper_bound;
+    }
+    RedisModule_Log(NULL, "warning", "Expected number of results that pass the filters: %zu", child_num_estimated);
     if (VecSimIndex_PreferAdHocSearch(hr->index, child_num_estimated, hr->query.k)) {
       // Change policy.
+      RedisModule_Log(NULL, "warning", "Switched to ad-hoc BF");
       VecSimBatchIterator_Free(batch_it);
       hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
       // Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
@@ -390,11 +399,14 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
     if (subset_size > VecSimIndex_IndexSize(hParams.index)) {
       subset_size = VecSimIndex_IndexSize(hParams.index);
     }
+    RedisModule_Log(NULL, "warning", "Expected number of results that pass the filters: %zu", subset_size);
     // Use a pre-defined heuristics that determines which approach should be faster.
     if (VecSimIndex_PreferAdHocSearch(hParams.index, subset_size, hParams.query.k)) {
       hi->searchMode = VECSIM_HYBRID_ADHOC_BF;
+      RedisModule_Log(NULL, "warning", "Selected ad-hoc BF policy");
     } else {
       hi->searchMode = VECSIM_HYBRID_BATCHES;
+      RedisModule_Log(NULL, "warning", "Selected batches policy");
     }
     hi->topResults = rm_malloc(heap_sizeof(hParams.query.k));
     heap_init(hi->topResults, cmpVecSimResByScore, NULL, hParams.query.k);

@@ -439,7 +439,6 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
     # in cluster mode, we send `_FT.DEBUG' to the local shard.
     prefix = '_' if env.isCluster() else ''
     if batches_mode:
-        print(f'{sys._getframe(1).f_code.co_filename.split("/")[-1]}:{sys._getframe(1).f_lineno}')
         env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
     else:
         env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
@@ -1027,7 +1026,7 @@ def test_hybrid_query_change_policy():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
-    n = 6000 * env.shardsCount
+    n = 1000000 * env.shardsCount
     vectors = np.random.rand(n, dim).astype(np.float32)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
@@ -1048,21 +1047,23 @@ def test_hybrid_query_change_policy():
                                  'tag1', str(10 + tags[randrange(10)]), 'tag2', 'word'+str(file))
         p.execute()
 
+    x=input("\nIndex built\n")
     # This should return 10 results and run in HYBRID_BATCHES mode
-    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param]'
-    res = execute_hybrid_query(env, query_string, vectors[0], 'tag2').res
-    env.assertEqual(res[0], 10)
-
-    # This query has 0 results, since none of the tags in @tag1 go along with 'word2' in @tag2.
-    # However, the estimated number of the "child" results should be index_size/2.
-    # While running the batches, the policy should change dynamically to AD-HOC BF.
-    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param]'
-    execute_hybrid_query(env, query_string, vectors[0], 'tag2', batches_mode=False).equal([0])
-
-    # Add one valid document and re-run the query (still expect to change to AD-HOC BF)
-    # This doc should return in the first batch, and then it is removed and reinserted to the results heap
-    # after the policy is changed to ad-hoc.
-    conn.execute_command('HSET', n, 'v', vectors[0].tobytes(),
-                         'tag1', str(1), 'tag2', 'word'+str(file))
-    res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', batches_mode=False).res
-    env.assertEqual(res[:2], [1, str(n)])
+    # query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param]'
+    # res = execute_hybrid_query(env, query_string, vectors[0], 'tag2').res
+    # env.assertEqual(res[0], 10)
+    #
+    # # This query has 0 results, since none of the tags in @tag1 go along with 'word2' in @tag2.
+    # # However, the estimated number of the "child" results should be index_size/2.
+    # # While running the batches, the policy should change dynamically to AD-HOC BF.
+    # x=input("insert second query\n")
+    # query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param]'
+    # execute_hybrid_query(env, query_string, vectors[0], 'tag2', batches_mode=False).equal([0])
+    #
+    # # Add one valid document and re-run the query (still expect to change to AD-HOC BF)
+    # # This doc should return in the first batch, and then it is removed and reinserted to the results heap
+    # # after the policy is changed to ad-hoc.
+    # conn.execute_command('HSET', n, 'v', vectors[0].tobytes(),
+    #                      'tag1', str(1), 'tag2', 'word'+str(file))
+    # res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', batches_mode=False).res
+    # env.assertEqual(res[:2], [1, str(n)])

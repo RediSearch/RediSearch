@@ -206,7 +206,7 @@ def testProfileVector(env):
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   env.cmd('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2')
 
-  env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT t2 TEXT').ok()
+  env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT').ok()
   conn.execute_command('hset', '1', 'v', 'bababaca', 't', "hello")
   conn.execute_command('hset', '2', 'v', 'babababa', 't', "hello")
   conn.execute_command('hset', '3', 'v', 'aabbaabb', 't', "hello")
