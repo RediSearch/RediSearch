@@ -1029,7 +1029,7 @@ def test_hybrid_query_change_policy():
     n = 1000000 * env.shardsCount
     vectors = np.random.rand(n, dim).astype(np.float32)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
-               'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
+               'DIM', dim, 'DISTANCE_METRIC', 'L2', 'tag1', 'TAG', 'tag2', 'TAG').ok()
 
     file = 1
     tags = range(10)
@@ -1048,6 +1048,8 @@ def test_hybrid_query_change_policy():
         p.execute()
 
     x=input("\nIndex built\n")
+    for i in range(100):
+        x=input('\nInsert next query\n')
     # This should return 10 results and run in HYBRID_BATCHES mode
     # query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param]'
     # res = execute_hybrid_query(env, query_string, vectors[0], 'tag2').res
