@@ -568,3 +568,21 @@ def testSupportedNesting_v2():
     # env.debugPrint(or_exp, force=True)
     env.expect('ft.search', 'idx', and_exp).equal([0])
     env.expect('ft.search', 'idx', or_exp).equal([0])
+
+
+def testModifierList(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
+    env.expect('FT.EXPLAIN', 'idx', '@t1|t2:(text value)').equal(r'''
+@t1|t2:INTERSECT {
+  @t1|t2:UNION {
+    @t1|t2:text
+    @t1|t2:+text(expanded)
+  }
+  @t1|t2:UNION {
+    @t1|t2:value
+    @t1|t2:+valu(expanded)
+    @t1|t2:valu(expanded)
+  }
+}
+'''[1:])
+
