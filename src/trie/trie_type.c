@@ -31,40 +31,6 @@ int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload
   return ret;
 }
 
-#define RUNE_STATIC_ALLOC_SIZE 127
-typedef struct {
-  int isDynamic;
-  union {
-    rune s[RUNE_STATIC_ALLOC_SIZE + 1];
-    rune *p;
-  } u;
-} runeBuf;
-
-static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
-  /**
-   * Assumption: the number of bytes in a utf8 string is always greater than the
-   * number of codepoints it can produce.
-   */
-  *len = n;
-  rune *target;
-  if (*len > RUNE_STATIC_ALLOC_SIZE) {
-    buf->isDynamic = 1;
-    target = buf->u.p = rm_malloc(((*len) + 1) * sizeof(rune));
-  } else {
-    buf->isDynamic = 0;
-    target = buf->u.s;
-  }
-  *len = strToRunesN(s, n, target);
-  target[*len] = 0;
-  return target;
-}
-
-static inline void runeBufFree(runeBuf *buf) {
-  if (buf->isDynamic) {
-    rm_free(buf->u.p);
-  }
-}
-
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
                             RSPayload *payload) {
   if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
