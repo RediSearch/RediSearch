@@ -109,7 +109,8 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
-    suffixData *data = TrieNode_GetValue(trie->root, runes + j, rlen - j, 1);
+    TrieNode *node = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
+    suffixData *data = Suffix_GetData(node);
     RS_LOG_ASSERT(data, "all suffixes must exist");
     // suffixData *data = TrieMap_Find(trie, str + j, len - j);
     if (j == 0) {
@@ -172,7 +173,8 @@ void Suffix_IterateContains(TrieNode *n, const rune *str, size_t nstr, bool pref
     recursiveAdd(node, callback, ctx);
   } else {
     // exact match. Get strings from a single node
-    suffixData *data = TrieNode_GetValue(n, str, nstr, 1);
+    TrieNode *node = TrieNode_Get(n, str, nstr, 1, NULL);
+    suffixData *data = Suffix_GetData(node);
     if (data) {
       processSuffixData(data, callback, ctx);
     }

@@ -306,12 +306,6 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
   return res ? res->score : 0;
 }
 
-//TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len);
-void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact) {
-  TrieNode *res = TrieNode_Get(n, str, len, exact, NULL);
-  return (res && res->payload) ? res->payload->data : NULL;
-}
-
 void __trieNode_sortChildren(TrieNode *n);
 
 /* Optimize the node and its children:
