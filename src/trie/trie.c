@@ -57,13 +57,14 @@ TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len,
   return n;
 }
 
-TrieNode *__trie_SplitNode(TrieNode *n, t_len offset, TrieFreeCallback freecb) {
+TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
-  TrieNode *newChild = __newTrieNode(n->str, offset, n->len, n->payload ? n->payload->data : NULL,
-                                     n->payload ? n->payload->len : 0, n->numChildren, n->score,
+  TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
                                      __trieNode_isTerminal(n));
   newChild->maxChildScore = n->maxChildScore;
   newChild->flags = n->flags;
+  newChild->payload = n->payload;
+  n->payload = NULL;
   TrieNode **children = __trieNode_children(n);
   TrieNode **newChildren = __trieNode_children(newChild);
   memcpy(newChildren, children, sizeof(TrieNode *) * n->numChildren);
@@ -77,11 +78,6 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset, TrieFreeCallback freecb) {
   n->sortmode = TRIENODE_SORTED_NONE;
 
   n->maxChildScore = MAX(n->maxChildScore, newChild->score);
-  if (n->payload != NULL) {
-    // here we just need to free the payload struct, not the internals
-    rm_free(n->payload);
-    n->payload = NULL;
-  }
   n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
   __trieNode_children(n)[0] = newChild;
 
@@ -102,19 +98,16 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   memcpy(nstr, n->str, sizeof(rune) * n->len);
   memcpy(&nstr[n->len], ch->str, sizeof(rune) * ch->len);
   TrieNode *merged = __newTrieNode(
-      nstr, 0, n->len + ch->len, ch->payload ? ch->payload->data : NULL,
-      ch->payload ? ch->payload->len : 0, ch->numChildren, ch->score, __trieNode_isTerminal(ch));
+      nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren, 
+      ch->score, __trieNode_isTerminal(ch));
   merged->maxChildScore = ch->maxChildScore;
   merged->numChildren = ch->numChildren;
+  merged->payload = ch->payload;
+  ch->payload = NULL;
   merged->flags = ch->flags;
   TrieNode **children = __trieNode_children(ch);
   TrieNode **newChildren = __trieNode_children(merged);
   memcpy(newChildren, children, sizeof(TrieNode *) * merged->numChildren);
-  if (ch->payload) {
-    // child payload content should not be freed
-    rm_free(ch->payload);
-    ch->payload = NULL;
-  }
   if (n->payload != NULL) {
     triePayload_Free(n->payload, freecb);
     n->payload = NULL;
@@ -155,7 +148,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     // 1. a child representing the new string from the diverted offset onwards
     // 2. a child representing the old node's suffix from the diverted offset
     // and the old children
-    n = __trie_SplitNode(n, offset, freecb);
+    n = __trie_SplitNode(n, offset);
     // the new string matches the split node exactly!
     // we simply turn the split node, which is now non terminal, into a terminal
     // node
