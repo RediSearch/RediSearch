@@ -49,15 +49,20 @@ Version rlecVersion;
 bool isCrdt;
 bool isTrimming = false;
 
-size_t maxmemory = 0;
+size_t memoryLimit = 0;
 size_t used_memory = 0;
 
 //---------------------------------------------------------------------------------------------
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
   RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
-  maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+
+  size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
+  memoryLimit = (maxmemory && maxmemory < total_system_memory) ? maxmemory : total_system_memory;
+
   used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
+
   RedisModule_FreeServerInfo(ctx, info);
 }
 
@@ -547,36 +552,54 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", rc);
     return 0;
   }
+  size_t blockMemoryLimit = (RSGlobalConfig.maxResizeMB) ? RSGlobalConfig.maxResizeMB * 0x100000 : memoryLimit;
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.bfParams.initialCapacity = 1000;
-    fs->vectorOpts.vecSimParams.bfParams.blockSize = BF_DEFAULT_BLOCK_SIZE;
+    fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
     if (parseVectorField_flat(fs, ac, status)) {
-      if (maxmemory) {
-        if (fs->vectorOpts.vecSimParams.bfParams.blockSize == BF_DEFAULT_BLOCK_SIZE) {
-          if (maxmemory / 100 < BF_DEFAULT_BLOCK_SIZE * fs->vectorOpts.expBlobSize) {
-            fs->vectorOpts.vecSimParams.bfParams.blockSize = maxmemory / 100;
-          }
+      size_t elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
+      size_t maxBlockSize = blockMemoryLimit / elementSize;
+      if (fs->vectorOpts.vecSimParams.bfParams.blockSize == 0) {
+        if (maxBlockSize < DEFAULT_BLOCK_SIZE ) {
+          fs->vectorOpts.vecSimParams.bfParams.blockSize = maxBlockSize;
+        } else {
+          fs->vectorOpts.vecSimParams.bfParams.blockSize = DEFAULT_BLOCK_SIZE;
         }
-        if (VecSimIndex_EstimateSize(&fs->vectorOpts.vecSimParams) > maxmemory - used_memory) {
-          QueryError_SetError(status, QUERY_ELIMIT, "Vector index size exceeded server limit");
-          return 0;
-        } else if (fs->vectorOpts.vecSimParams.bfParams.blockSize * fs->vectorOpts.expBlobSize > maxmemory / 100) {
-          QueryError_SetError(status, QUERY_ELIMIT, "Vector index block size exceeded server limit");
-          return 0;
-        }
+      }
+      size_t index_estimation = VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams);
+      index_estimation += elementSize * fs->vectorOpts.vecSimParams.bfParams.blockSize;
+      if (index_estimation > memoryLimit - used_memory) {
+        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zu Bytes)", memoryLimit);
+        return 0;
+      } else if (fs->vectorOpts.vecSimParams.bfParams.blockSize  > maxBlockSize) {
+        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size exceeded server limit (%zu)", maxBlockSize);
+        return 0;
       }
       return 1;
     }
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_HNSWLIB;
     fs->vectorOpts.vecSimParams.hnswParams.initialCapacity = 1000;
+    fs->vectorOpts.vecSimParams.hnswParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
     fs->vectorOpts.vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     fs->vectorOpts.vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     if (parseVectorField_hnsw(fs, ac, status)) {
-      if (maxmemory && VecSimIndex_EstimateSize(&fs->vectorOpts.vecSimParams) > maxmemory - used_memory) {
-        QueryError_SetError(status, QUERY_ELIMIT, "Vector index size exceeded server limit");
+      size_t elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
+      size_t maxBlockSize = blockMemoryLimit / elementSize;
+      if (fs->vectorOpts.vecSimParams.hnswParams.blockSize == 0) {
+        if (maxBlockSize < DEFAULT_BLOCK_SIZE ) {
+          fs->vectorOpts.vecSimParams.hnswParams.blockSize = maxBlockSize;
+        } else {
+          fs->vectorOpts.vecSimParams.hnswParams.blockSize = DEFAULT_BLOCK_SIZE;
+        }
+      }
+      if (VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams) > memoryLimit - used_memory) {
+        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zu Bytes)", memoryLimit);
+        return 0;
+      } else if (fs->vectorOpts.vecSimParams.hnswParams.blockSize  > maxBlockSize) {
+        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size exceeded server limit (%zu)", maxBlockSize);
         return 0;
       }
       return 1;
