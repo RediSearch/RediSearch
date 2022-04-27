@@ -498,7 +498,6 @@ static int rangeIterCb(const rune *r, size_t n, void *p) {
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
-  printf("%s ", term->str);
   rm_free(tok.str);
   if (!ir) {
     Term_Free(term);

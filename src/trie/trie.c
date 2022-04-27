@@ -111,7 +111,8 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   TrieNode **newChildren = __trieNode_children(merged);
   memcpy(newChildren, children, sizeof(TrieNode *) * merged->numChildren);
   if (ch->payload) {
-    rm_free(ch->payload, freecb);
+    // child payload content should not be freed
+    rm_free(ch->payload);
     ch->payload = NULL;
   }
   if (n->payload != NULL) {
@@ -240,7 +241,8 @@ TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int 
     }
 
     if (offset == len) {
-      // we're at the end of both strings!
+      // we're at the end of both strings or we are in prefix mode and do not
+      // require an exact match
       if (localOffset == n->len || !exact) {
         if (offsetOut) {
           *offsetOut = offset - localOffset;
