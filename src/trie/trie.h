@@ -109,8 +109,8 @@ typedef enum {
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
-int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload, float score,
-                 TrieAddOp op, TrieFreeCallback freecb);
+int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
+                 float score, TrieAddOp op, TrieFreeCallback freecb);
 
 /* Find the entry with a given string and length, and return its score. Returns
  * 0 if the entry was
