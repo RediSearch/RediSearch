@@ -123,3 +123,59 @@ TEST_F(TrieTest, testDeepEntry) {
   ASSERT_EQ(maxbuf, ret.size());
   TrieType_Free(t);
 }
+
+/**
+ * This test ensures payload isn't corrupted when the trie changes.
+ */
+TEST_F(TrieTest, testPayload) {
+  char buf1[] = "world";
+  
+  Trie *t = NewTrie(NULL);
+
+  RSPayload payload = { .data = buf1, .len = 2 };
+  Trie_InsertStringBuffer(t, buf1, 2, 1, 1, &payload);
+  payload.len = 4;
+  Trie_InsertStringBuffer(t, buf1, 4, 1, 1, &payload);
+  payload.len = 5;
+  Trie_InsertStringBuffer(t, buf1, 5, 1, 1, &payload);
+  payload.len = 3;
+  Trie_InsertStringBuffer(t, buf1, 3, 1, 1, &payload);
+  
+  char buf2[] = "work";
+  payload = { .data = buf2, .len = 4 };
+  Trie_InsertStringBuffer(t, buf2, 4, 1, 1, &payload);
+
+  
+  // check for prefix of existing term
+  // with exact returns null, w/o return load of next term
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 1, 0), "wo");
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 1, 1), NULL);
+
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo");
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), "wor");
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl");
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world");
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work");
+  
+  ASSERT_EQ(Trie_Delete(t, buf1, 3), 1);
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo");
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), NULL);
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl");
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world");
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work");
+
+  ASSERT_EQ(Trie_Delete(t, buf1, 4), 1);
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo");
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), NULL);
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), NULL);
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world");
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work");
+
+  // testing with exact = 0
+  // "wor" exists w/o payload.
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 3, 0), NULL); 
+  // "worl" does not exist but is partial offset of `world`
+  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 4, 0), "world");
+
+  TrieType_Free(t);
+}

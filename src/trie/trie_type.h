@@ -37,6 +37,12 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
                             RSPayload *payload);
 int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
                             RSPayload *payload);
+
+/* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len 
+   Use for debug only! */
+void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact);
+void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact);
+
 /* Delete the string from the trie. Return 1 if the node was found and deleted, 0 otherwise */
 int Trie_Delete(Trie *t, const char *s, size_t len);
 int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len);
