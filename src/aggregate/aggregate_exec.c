@@ -4,6 +4,7 @@
 #include "aggregate.h"
 #include "cursor.h"
 #include "rmutil/util.h"
+#include "util/timeout.h"
 #include "score_explain.h"
 #include "commands.h"
 #include "profile.h"
