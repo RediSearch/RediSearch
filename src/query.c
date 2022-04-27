@@ -546,7 +546,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
 
 static int rangeIterCb(const rune *r, size_t n, void *p) {
   LexRangeCtx *ctx = p;
-  if (!isMockRedis && ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
+  if (!RS_IsMock && ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
     return REDISEARCH_ERR;
   }
   QueryEvalCtx *q = ctx->q;

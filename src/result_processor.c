@@ -401,7 +401,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   int rc = rp->upstream->Next(rp->upstream, h);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_EOF) {
+  if (rc == RS_RESULT_EOF || (rc == RS_RESULT_TIMEDOUT && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return)) {
     // Transition state:
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
@@ -699,9 +699,8 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   } else {
     loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
   }
-  if (RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts) != REDISMODULE_OK) {
-    RS_LOG_ASSERT(r->dmd->flags & Document_Deleted, "Where is the doc?");
-  }
+  // if loadinging the document has failed, we return an empty array
+  RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts);
   return RS_RESULT_OK;
 }
 

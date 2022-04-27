@@ -224,13 +224,13 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     IndexSpec_AddTerm(spec, entry->term, entry->len);
 
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
-    // RS_LOG_ASSERT(invidx, "OpenInvertedIndex in write mode");
-    entry->docId = aCtx->doc->docId;
-    RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-    writeIndexEntry(spec, invidx, encoder, entry);
- 
-    if (Index_StoreFieldMask(ctx->spec)) {
-      invidx->fieldMask |= entry->fieldMask;
+    if (invidx) {
+      entry->docId = aCtx->doc->docId;
+      RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+      writeIndexEntry(spec, invidx, encoder, entry);
+      if (Index_StoreFieldMask(spec)) {
+        invidx->fieldMask |= entry->fieldMask;
+      }
     }
     
     if (spec->suffixMask & entry->fieldMask && entry->term[0] != '+') {

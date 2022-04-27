@@ -240,6 +240,7 @@ typedef struct {
 
 //---------------------------------------------------------------------------------------------
 
+
 typedef struct IndexSpec {
   char *name;                     // Index name
   uint64_t uniqueId;              // Id of index
@@ -263,7 +264,7 @@ typedef struct IndexSpec {
   GCContext *gc;                  // Garbage collection
 
   SynonymMap *smap;               // List of synonym
-  char **aliases;  // Aliases to self-remove when the index is deleted
+  char **aliases;                 // Aliases to self-remove when the index is deleted
 
   struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
   struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
@@ -277,8 +278,7 @@ typedef struct IndexSpec {
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
-
-  // For index expiretion
+  // For index expiration
   long long timeout;
   RedisModuleTimerID timerId;
   bool isTimerSet;
