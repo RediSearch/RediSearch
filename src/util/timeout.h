@@ -33,7 +33,9 @@ static inline void rs_timersub(struct timespec *a, struct timespec *b, struct ti
 }
 
 static inline int TimedOut(struct timespec timeout, size_t *counter) {
-  if (!RS_IsMock && ++(*counter) == 100) {
+  if (RS_IsMock) return 0;
+
+  if (++(*counter) == 100) {
     *counter = 0;
     static struct timespec now;
     clock_gettime(CLOCK_MONOTONIC_RAW, &now);
