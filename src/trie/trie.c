@@ -15,6 +15,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
 static inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
 
   TriePayload *p = rm_malloc(sizeof(TriePayload) + sizeof(char) * (plen + 1));
+  p->data[plen] = '\0';
   p->len = plen;
   memcpy(p->data, payload, sizeof(char) * plen);
   return p;

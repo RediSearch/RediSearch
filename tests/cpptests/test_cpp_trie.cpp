@@ -172,9 +172,10 @@ TEST_F(TrieTest, testPayload) {
   ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work");
 
   // testing with exact = 0
-  // "wor" exists w/o payload.
+  // "wor" node exists with NULL payload.
   ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 3, 0), NULL); 
-  // "worl" does not exist but is partial offset of `world`
+  // "worl" does not exist but is partial offset of =>`wor`+`ld`.
+  // payload of `ld` is returned.
   ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 4, 0), "world");
 
   TrieType_Free(t);
