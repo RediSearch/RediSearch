@@ -159,9 +159,9 @@ def testProfileErrors(env):
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   # missing args
-  env.expect('ft.profile', 'idx').error().contains("wrong number of arguments for 'ft.profile'")
-  env.expect('ft.profile', 'idx', 'SEARCH').error().contains("wrong number of arguments for 'ft.profile'")
-  env.expect('ft.profile', 'idx', 'SEARCH', 'QUERY').error().contains("wrong number of arguments for 'ft.profile'")
+  env.expect('FT.PROFILE', 'idx').error().contains("wrong number of arguments for 'FT.PROFILE'")
+  env.expect('FT.PROFILE', 'idx', 'SEARCH').error().contains("wrong number of arguments for 'FT.PROFILE'")
+  env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY').error().contains("wrong number of arguments for 'FT.PROFILE'")
   # wrong `query` type
   env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH` or `AGGREGATE` provided')
   # miss `QUERY` keyword
