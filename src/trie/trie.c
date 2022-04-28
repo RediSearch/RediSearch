@@ -20,7 +20,7 @@ inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
   return p;
 }
 
-TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen,
+TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
                         t_len numChildren, float score, int terminal) {
   TrieNode *n = rm_calloc(1, __trieNode_Sizeof(numChildren, len - offset));
   n->len = len - offset;
@@ -36,7 +36,7 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload,
   return n;
 }
 
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload,
+TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
                           float score) {
   n->numChildren++;
   n = rm_realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
@@ -125,7 +125,7 @@ void TrieNode_Print(TrieNode *n, int idx, int depth) {
   }
 }
 
-int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float score,
+int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
                  TrieAddOp op) {
   if (score == 0 || len == 0) {
     return 0;
@@ -301,7 +301,7 @@ void __trieNode_optimizeChildren(TrieNode *n) {
   __trieNode_sortChildren(n);
 }
 
-int TrieNode_Delete(TrieNode *n, rune *str, t_len len) {
+int TrieNode_Delete(TrieNode *n, const rune *str, t_len len) {
   t_len offset = 0;
   static TrieNode *stack[TRIE_INITIAL_STRING_LEN];
   int stackPos = 0;
