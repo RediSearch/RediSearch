@@ -379,6 +379,9 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   return AC_OK;
 }
 
+// memoryLimit / 10 - default is 10% of global memory limit
+#define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vectorMaxResizeMB) ? RSGlobalConfig.vectorMaxResizeMB * 0x100000 : memoryLimit / 10)
+
 static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
 
@@ -461,9 +464,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     return 0;
   }
   fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.hnswParams.type);
-  size_t blockMemoryLimit = (RSGlobalConfig.maxResizeMB) ? RSGlobalConfig.maxResizeMB * 0x100000 : memoryLimit / 100;
-  size_t elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
-  size_t maxBlockSize = blockMemoryLimit / elementSize;
+  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
   if (fs->vectorOpts.vecSimParams.hnswParams.blockSize == 0) {
     if (maxBlockSize < DEFAULT_BLOCK_SIZE ) {
       fs->vectorOpts.vecSimParams.hnswParams.blockSize = maxBlockSize;
@@ -553,9 +554,8 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     return 0;
   }
   fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.bfParams.type);
-  size_t blockMemoryLimit = (RSGlobalConfig.maxResizeMB) ? RSGlobalConfig.maxResizeMB * 0x100000 : memoryLimit / 100;
   size_t elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
-  size_t maxBlockSize = blockMemoryLimit / elementSize;
+  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
   if (fs->vectorOpts.vecSimParams.bfParams.blockSize == 0) {
     if (maxBlockSize < DEFAULT_BLOCK_SIZE ) {
       fs->vectorOpts.vecSimParams.bfParams.blockSize = maxBlockSize;
@@ -566,7 +566,7 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   size_t index_estimation = VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams);
   index_estimation += elementSize * fs->vectorOpts.vecSimParams.bfParams.blockSize;
   if (index_estimation > memoryLimit - used_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zu Bytes)", memoryLimit);
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB)", memoryLimit);
     return 0;
   } else if (fs->vectorOpts.vecSimParams.bfParams.blockSize  > maxBlockSize) {
     QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size exceeded server limit (%zu)", maxBlockSize);
