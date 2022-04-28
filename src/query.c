@@ -494,7 +494,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     Suffix_IterateContains(spec->suffix->root, str, nstr, qn->pfx.prefix,
                            suffixIterCb, &ctx);
     } else {
-      QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHCONTAINS support");
+      QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
     TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,

@@ -312,7 +312,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       }
       fs->options |= FieldSpec_Phonetics;
       continue;
-    } else if(AC_AdvanceIfMatch(ac, SPEC_WITHCONTAINS_STR)) {
+    } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
       fs->options |= FieldSpec_Contains;
     } else {
       break;

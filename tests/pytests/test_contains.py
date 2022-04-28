@@ -3,28 +3,28 @@ from common import *
 import os
 import csv
 
-def testWithcontainsParam(env):
+def testWITHSUFFIXTRIEParam(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 'schema', 't', 'text', 'SORTABLE', 'WITHCONTAINS').error()
+    env.expect('ft.create', 'idx', 'schema', 't', 'text', 'SORTABLE', 'WITHSUFFIXTRIE').error()
     env.expect('ft.create', 'idx', 'schema', 't', 'text', 'SORTABLE', 'NOSTEM').error() # sortable must be last
 
     # without sortable
-    env.expect('ft.create', 'idx', 'schema', 't', 'text', 'WITHCONTAINS').ok()
-    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'WITHCONTAINS']]
+    env.expect('ft.create', 'idx', 'schema', 't', 'text', 'WITHSUFFIXTRIE').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'WITHSUFFIXTRIE']]
     assertInfoField(env, 'idx', 'attributes', res_info)
 
     # with sortable
-    env.expect('ft.create', 'idx_sortable', 'schema', 't', 'text', 'WITHCONTAINS', 'SORTABLE').ok()
-    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'SORTABLE', 'WITHCONTAINS']]
+    env.expect('ft.create', 'idx_sortable', 'schema', 't', 'text', 'WITHSUFFIXTRIE', 'SORTABLE').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'SORTABLE', 'WITHSUFFIXTRIE']]
     assertInfoField(env, 'idx_sortable', 'attributes', res_info)
 
     # nostem 1st
-    env.expect('ft.create', 'idx_nostem1', 'schema', 't', 'text', 'WITHCONTAINS', 'NOSTEM').ok()
-    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM', 'WITHCONTAINS']]
+    env.expect('ft.create', 'idx_nostem1', 'schema', 't', 'text', 'WITHSUFFIXTRIE', 'NOSTEM').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM', 'WITHSUFFIXTRIE']]
     assertInfoField(env, 'idx_nostem1', 'attributes', res_info)
 
     # nostem 2nd
-    env.expect('ft.create', 'idx_nostem2', 'schema', 't', 'text', 'NOSTEM', 'WITHCONTAINS').ok()
+    env.expect('ft.create', 'idx_nostem2', 'schema', 't', 'text', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
     assertInfoField(env, 'idx_nostem2', 'attributes', res_info)
 
 def testBasicContains(env):
@@ -58,7 +58,7 @@ def testSanity(env):
 
     index_list = ['idx_bf', 'idx_suffix']
     env.cmd('ft.create', 'idx_bf', 'SCHEMA', 't', 'TEXT')
-    env.cmd('ft.create', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHCONTAINS')
+    env.cmd('ft.create', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
 
     conn = getConnectionByEnv(env)
 
@@ -198,7 +198,7 @@ def testEscape(env):
 def test_orl(env):
   # this test check that `\*` is escaped correctly on contains queries
   conn = getConnectionByEnv(env)
-  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHCONTAINS', 'SORTABLE')
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE')
 
   conn.execute_command('HSET', 'doc1', 't', 'world')
   conn.execute_command('HSET', 'doc2', 't', 'keyword')
@@ -243,7 +243,7 @@ def testContainsGC(env):
   env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
 
   conn = getConnectionByEnv(env)
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHCONTAINS', 'SORTABLE')
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE')
   
   conn.execute_command('HSET', 'doc1', 't', 'hello')
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['hello', 'ello', 'llo', 'lo'])
@@ -265,7 +265,7 @@ def testContainsDebugCommand(env):
   env.skipOnCluster()
 
   conn = getConnectionByEnv(env)
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHCONTAINS')
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'field').error().contains('wrong number of arguments')
 
   conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
