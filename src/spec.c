@@ -49,7 +49,8 @@ Version rlecVersion;
 bool isCrdt;
 bool isTrimming = false;
 
-size_t memoryLimit = 0;
+// Default values make no limits.
+size_t memoryLimit = -1;
 size_t used_memory = 0;
 
 //---------------------------------------------------------------------------------------------
