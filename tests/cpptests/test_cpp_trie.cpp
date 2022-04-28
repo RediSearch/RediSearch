@@ -180,3 +180,23 @@ TEST_F(TrieTest, testPayload) {
 
   TrieType_Free(t);
 }
+
+/**
+ * This test check free callback.
+ */
+void trieFreeCb(void *val) {
+  char **str = (char **)val;
+  rm_free(*str);
+}
+
+TEST_F(TrieTest, testFreeCallback) {
+  Trie *t = NewTrie(trieFreeCb);
+
+  char buf[] = "world";
+  char *str = rm_strdup("hello");
+
+  RSPayload payload = { .data = (char *)&str, .len = sizeof(str) };
+  Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload);
+  
+  TrieType_Free(t);
+}

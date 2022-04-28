@@ -23,10 +23,9 @@ static inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
 
 static void triePayload_Free(TriePayload *payload, TrieFreeCallback freecb) {
   if (freecb) {
-    freecb(payload);
-  } else {
-    rm_free(payload);
+    freecb(payload->data);
   }
+  rm_free(payload);
 }
 
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
@@ -721,8 +720,6 @@ static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
   }
 
   array_trimm_len(r->buf, array_len(r->buf) - n->len);
-  // char *final_str = runesToStr(r->buf, array_len(r->buf), &len);
-  // printf("%s %s %s\n", before_str, after_str, final_str);
   return REDISEARCH_OK;
 }
 
