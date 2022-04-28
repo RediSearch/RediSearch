@@ -1049,7 +1049,7 @@ def test_hybrid_query_change_policy():
 
     x=input("\nIndex built\n")
     for i in range(100):
-        x=input('\nInsert next query\n')
+        x=input('Insert next query:\n')
     # This should return 10 results and run in HYBRID_BATCHES mode
     # query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param]'
     # res = execute_hybrid_query(env, query_string, vectors[0], 'tag2').res
