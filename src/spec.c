@@ -407,7 +407,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.dim, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index dim", rc);
         return 0;
       }
@@ -424,17 +424,17 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.M, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index m", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFCONSTRUCTION)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.efConstruction, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efConstruction", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.efRuntime, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
         return 0;
       }
@@ -461,6 +461,23 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     return 0;
   }
   fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.hnswParams.type);
+  size_t blockMemoryLimit = (RSGlobalConfig.maxResizeMB) ? RSGlobalConfig.maxResizeMB * 0x100000 : memoryLimit / 100;
+  size_t elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
+  size_t maxBlockSize = blockMemoryLimit / elementSize;
+  if (fs->vectorOpts.vecSimParams.hnswParams.blockSize == 0) {
+    if (maxBlockSize < DEFAULT_BLOCK_SIZE ) {
+      fs->vectorOpts.vecSimParams.hnswParams.blockSize = maxBlockSize;
+    } else {
+      fs->vectorOpts.vecSimParams.hnswParams.blockSize = DEFAULT_BLOCK_SIZE;
+    }
+  }
+  if (VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams) > memoryLimit - used_memory) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zu Bytes)", memoryLimit);
+    return 0;
+  } else if (fs->vectorOpts.vecSimParams.hnswParams.blockSize  > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size exceeded server limit (%zu)", maxBlockSize);
+    return 0;
+  }
   return 1;
 }
 
@@ -492,7 +509,7 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.bfParams.dim, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.bfParams.dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index dim", rc);
         return 0;
       }
@@ -509,7 +526,7 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_BLOCKSIZE)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.bfParams.blockSize, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.bfParams.blockSize, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index blocksize", rc);
         return 0;
       }
@@ -536,6 +553,25 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     return 0;
   }
   fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.bfParams.type);
+  size_t blockMemoryLimit = (RSGlobalConfig.maxResizeMB) ? RSGlobalConfig.maxResizeMB * 0x100000 : memoryLimit / 100;
+  size_t elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
+  size_t maxBlockSize = blockMemoryLimit / elementSize;
+  if (fs->vectorOpts.vecSimParams.bfParams.blockSize == 0) {
+    if (maxBlockSize < DEFAULT_BLOCK_SIZE ) {
+      fs->vectorOpts.vecSimParams.bfParams.blockSize = maxBlockSize;
+    } else {
+      fs->vectorOpts.vecSimParams.bfParams.blockSize = DEFAULT_BLOCK_SIZE;
+    }
+  }
+  size_t index_estimation = VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams);
+  index_estimation += elementSize * fs->vectorOpts.vecSimParams.bfParams.blockSize;
+  if (index_estimation > memoryLimit - used_memory) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zu Bytes)", memoryLimit);
+    return 0;
+  } else if (fs->vectorOpts.vecSimParams.bfParams.blockSize  > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size exceeded server limit (%zu)", maxBlockSize);
+    return 0;
+  }
   return 1;
 }
 
@@ -553,32 +589,11 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", rc);
     return 0;
   }
-  size_t blockMemoryLimit = (RSGlobalConfig.maxResizeMB) ? RSGlobalConfig.maxResizeMB * 0x100000 : memoryLimit;
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.bfParams.initialCapacity = 1000;
     fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
-    if (parseVectorField_flat(fs, ac, status)) {
-      size_t elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
-      size_t maxBlockSize = blockMemoryLimit / elementSize;
-      if (fs->vectorOpts.vecSimParams.bfParams.blockSize == 0) {
-        if (maxBlockSize < DEFAULT_BLOCK_SIZE ) {
-          fs->vectorOpts.vecSimParams.bfParams.blockSize = maxBlockSize;
-        } else {
-          fs->vectorOpts.vecSimParams.bfParams.blockSize = DEFAULT_BLOCK_SIZE;
-        }
-      }
-      size_t index_estimation = VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams);
-      index_estimation += elementSize * fs->vectorOpts.vecSimParams.bfParams.blockSize;
-      if (index_estimation > memoryLimit - used_memory) {
-        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zu Bytes)", memoryLimit);
-        return 0;
-      } else if (fs->vectorOpts.vecSimParams.bfParams.blockSize  > maxBlockSize) {
-        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size exceeded server limit (%zu)", maxBlockSize);
-        return 0;
-      }
-      return 1;
-    }
+    return parseVectorField_flat(fs, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_HNSWLIB;
     fs->vectorOpts.vecSimParams.hnswParams.initialCapacity = 1000;
@@ -586,29 +601,11 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     fs->vectorOpts.vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
     fs->vectorOpts.vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     fs->vectorOpts.vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
-    if (parseVectorField_hnsw(fs, ac, status)) {
-      size_t elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
-      size_t maxBlockSize = blockMemoryLimit / elementSize;
-      if (fs->vectorOpts.vecSimParams.hnswParams.blockSize == 0) {
-        if (maxBlockSize < DEFAULT_BLOCK_SIZE ) {
-          fs->vectorOpts.vecSimParams.hnswParams.blockSize = maxBlockSize;
-        } else {
-          fs->vectorOpts.vecSimParams.hnswParams.blockSize = DEFAULT_BLOCK_SIZE;
-        }
-      }
-      if (VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams) > memoryLimit - used_memory) {
-        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zu Bytes)", memoryLimit);
-        return 0;
-      } else if (fs->vectorOpts.vecSimParams.hnswParams.blockSize  > maxBlockSize) {
-        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size exceeded server limit (%zu)", maxBlockSize);
-        return 0;
-      }
-      return 1;
-    }
+    return parseVectorField_hnsw(fs, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
+    return 0;
   }
-  return 0;
 }
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
