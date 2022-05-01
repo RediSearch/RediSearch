@@ -438,7 +438,9 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
 
     # in cluster mode, we send `_FT.DEBUG' to the local shard.
     prefix = '_' if env.isCluster() else ''
-    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], hybrid_mode)
+    # returns the test name and line number from called this helper function.
+    caller_pos = f'{sys._getframe(1).f_code.co_filename.split("/")[-1]}:{sys._getframe(1).f_lineno}'
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], hybrid_mode, message=caller_pos)
     return ret
 
 
@@ -611,16 +613,17 @@ def test_hybrid_query_with_numeric():
     # Expect that no result will pass the filter.
     execute_hybrid_query(env, '(@num:[0 0.5])=>[KNN 10 @v $vec_param]', query_data, 'num').equal([0])
 
-    # Expect to get results with maximum numeric value of index_size-100
+    # Expect to get results with maximum numeric value of the top 100 id in the shard.
+    lower_bound_num = 100 * env.shardsCount
     expected_res = [10]
     for i in range(10):
-        expected_res.append(str(index_size-100-i))
-        expected_res.append(['__v_score', str(dim*(100+i)**2), 'num', str(index_size-100-i)])
+        expected_res.append(str(index_size-lower_bound_num-i))
+        expected_res.append(['__v_score', str(dim*(lower_bound_num+i)**2), 'num', str(index_size-lower_bound_num-i)])
     # We switch from batches to ad-hoc BF mode during the run.
-    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-100), query_data, 'num',
+    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-lower_bound_num), query_data, 'num',
                          hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal(expected_res)
-    execute_hybrid_query(env, '(@num:[-inf {}] | @num:[100 {}])=>[KNN 10 @v $vec_param]'
-                         .format(index_size-200, index_size-100), query_data, 'num',
+    execute_hybrid_query(env, '(@num:[-inf {}] | @num:[{} {}])=>[KNN 10 @v $vec_param]'
+                         .format(lower_bound_num, index_size-2*lower_bound_num, index_size-lower_bound_num), query_data, 'num',
                          hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal(expected_res)
 
     # Expect for 5 results only (45-49), this will use ad-hoc BF since ratio between docs that pass the filter to

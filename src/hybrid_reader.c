@@ -341,7 +341,8 @@ void HybridIterator_Free(struct indexIterator *self) {
   if (it == NULL) {
     return;
   }
-  if (it->searchMode == VECSIM_HYBRID_ADHOC_BF || it->searchMode == VECSIM_HYBRID_BATCHES) {
+  if (it->searchMode == VECSIM_HYBRID_ADHOC_BF || it->searchMode == VECSIM_HYBRID_BATCHES ||
+      it->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
     while (heap_count(it->topResults) > 0) {
       IndexResult_Free(heap_poll(it->topResults));
     }
