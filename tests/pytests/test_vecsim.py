@@ -161,20 +161,30 @@ def testUpdateWithBadValue(env):
                         'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
 
     res = [1, 'doc:1', ['$', '{"v":[1,3]}']]
+    # Add doc contains a vector to the index
     env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"v":[1,2]}'))
+    # Override with bad vector value (wrong blob size)
     env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '2', '3'), [3])
+    # Override again with legal vector value
     env.assertEqual(conn.execute_command('JSON.ARRPOP', 'doc:1', '$.v', '1'), ['2'])
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,3]')
     env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
     waitForIndex(env, 'idx')
+    # before the issue fix, the second query will result in empty result, as the first vector value was not deleted when
+    # its value was override with a bad value
     env.expect('FT.SEARCH', 'idx', '*').equal(res)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal(res)
 
     res = [1, 'h1', ['vec', '????>>>>']]
+    # Add doc contains a vector to the index
     env.assertEqual(conn.execute_command('HSET', 'h1', 'vec', '????????'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'h1', 'vec', '??????????'), 0)
+    # Override with bad vector value (wrong blob size)
+    env.assertEqual(conn.execute_command('HSET', 'h1', 'vec', 'bad-val'), 0)
+    # Override again with legal vector value
     env.assertEqual(conn.execute_command('HSET', 'h1', 'vec', '????>>>>'), 0)
     waitForIndex(env, 'idx2')
+    # before the issue fix, the second query will result in empty result, as the first vector value was not deleted when
+    # its value was override with a bad value
     env.expect('FT.SEARCH', 'idx2', '*').equal(res)
     env.expect('FT.SEARCH', 'idx2', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', 'vec').equal(res)
 
