@@ -12,6 +12,8 @@ See [Query Spelling Correction](/redisearch/reference/spellcheck) for more detai
 
 * **DISTANCE**: the maximal Levenshtein distance for spelling suggestions (default: 1, max: 4).
 
+* **DIALECT {dialect_version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
+
 @return
 
 @array-reply, in which each element represents a misspelled term from the query. The misspelled terms are ordered by their order of appearance in the query.
