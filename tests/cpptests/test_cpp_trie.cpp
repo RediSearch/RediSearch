@@ -148,35 +148,35 @@ TEST_F(TrieTest, testPayload) {
   
   // check for prefix of existing term
   // with exact returns null, w/o return load of next term
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 1, 0), "wo");
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 1, 1), NULL);
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 1, 0), "wo"), 0);
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 1, 1) == NULL);
 
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo");
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), "wor");
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl");
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world");
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work");
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo"), 0);
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), "wor"), 0);
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl"), 0);
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world"), 0);
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work"), 0);
   
   ASSERT_EQ(Trie_Delete(t, buf1, 3), 1);
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo");
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), NULL);
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl");
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world");
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work");
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo"), 0);
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl"), 0);
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world"), 0);
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work"), 0);
 
   ASSERT_EQ(Trie_Delete(t, buf1, 4), 1);
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo");
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), NULL);
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), NULL);
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world");
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work");
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo"), 0);
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1) == NULL);
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world"), 0);
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work"), 0);
 
   // testing with exact = 0
   // "wor" node exists with NULL payload.
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 3, 0), NULL); 
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 0) == NULL); 
   // "worl" does not exist but is partial offset of =>`wor`+`ld`.
   // payload of `ld` is returned.
-  ASSERT_STREQ((char*)Trie_GetValueStringBuffer(t, buf1, 4, 0), "world");
+  ASSERT_EQ(strcmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 0), "world"), 0);
 
   TrieType_Free(t);
 }
