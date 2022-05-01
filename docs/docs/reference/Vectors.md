@@ -149,7 +149,7 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
 
 ## Querying vector fields
 
-We allow using vector similarity queries in the `FT.SEARCH` "query" parameter. The syntax for vector similarity queries is `*=>[{vector similarity query}]` for running the query on an entire vector field, or `{primary filter query}=>[{vector similarity query}]` for running similarity query on the result of the primary filter query. To use a vector similarity query, you must set the `DIALECT` option to 2.
+We allow using vector similarity queries in the `FT.SEARCH` "query" parameter. The syntax for vector similarity queries is `*=>[{vector similarity query}]` for running the query on an entire vector field, or `{primary filter query}=>[{vector similarity query}]` for running similarity query on the result of the primary filter query. To use a vector similarity query, you must specify the option `DIALECT 2` in the command itself, or by setting the `DEFAULT_DIALECT` option to `2`, either with the command`FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`.
 
 As of version 2.4, we allow vector similarity to be used **once** in the query, and over the entire query filter.
 
