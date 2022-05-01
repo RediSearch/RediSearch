@@ -434,3 +434,22 @@ $ redis-server --loadmodule ./redisearch.so OSS_GLOBAL_PASSWORD password
 
 * only relevant when Coordinator is used
 * added in v2.0.3
+
+## DEFAULT_DIALECT
+
+The default DIALECT to be used by `FT.CREATE`, `FT.AGGREGATE`, `FT.EXPLAIN`, `FT.EXPLAINCLI`, and `FT.SPECLCHECK`.
+
+### Default
+
+"1"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so DEFAULT_DIALECT 2
+```
+
+### Notes
+
+* `DIALECT 2` is required for Vector Similarity Search
+* added in v2.4.3
