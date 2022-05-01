@@ -226,7 +226,7 @@ def testProfileVector(env):
   # Expect ad-hoc BF to take place - going over child iterator exactly once (reading 2 results)
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]',
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
-  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 2, 'Batches number', 0, 'Child iterator',
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 2, 'Child iterator',
                                                  ['Type', 'INTERSECT', 'Counter', 2, 'Child iterators',
                                                  ['Type', 'TEXT', 'Term', 'world', 'Counter', 2, 'Size', 2],
                                                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 2, 'Size', 5]]]]
@@ -266,6 +266,7 @@ def testProfileVector(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 3 @v $vec]',
                                       'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
   env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 
 def testResultProcessorCounter(env):

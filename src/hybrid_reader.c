@@ -227,10 +227,10 @@ static void prepareResults(HybridIterator *hr) {
     if (child_num_estimated > child_upper_bound) {
       child_num_estimated = child_upper_bound;
     }
-    if (VecSimIndex_PreferAdHocSearch(hr->index, child_num_estimated, hr->query.k)) {
+    if (VecSimIndex_PreferAdHocSearch(hr->index, child_num_estimated, hr->query.k, false)) {
       // Change policy from batches to AD-HOC BF.
       VecSimBatchIterator_Free(batch_it);
-      hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
+      hr->searchMode = VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
       // Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
       while (heap_count(hr->topResults) > 0) {
         IndexResult_Free(heap_poll(hr->topResults));
@@ -394,7 +394,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
       subset_size = VecSimIndex_IndexSize(hParams.index);
     }
     // Use a pre-defined heuristics that determines which approach should be faster.
-    if (VecSimIndex_PreferAdHocSearch(hParams.index, subset_size, hParams.query.k)) {
+    if (VecSimIndex_PreferAdHocSearch(hParams.index, subset_size, hParams.query.k, true)) {
       hi->searchMode = VECSIM_HYBRID_ADHOC_BF;
     } else {
       hi->searchMode = VECSIM_HYBRID_BATCHES;
