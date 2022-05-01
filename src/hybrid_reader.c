@@ -341,12 +341,13 @@ void HybridIterator_Free(struct indexIterator *self) {
   if (it == NULL) {
     return;
   }
-  if (it->searchMode == VECSIM_HYBRID_ADHOC_BF || it->searchMode == VECSIM_HYBRID_BATCHES ||
-      it->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
+  if (it->topResults) {   // Iterator is in one of the hybrid modes.
     while (heap_count(it->topResults) > 0) {
       IndexResult_Free(heap_poll(it->topResults));
     }
     heap_free(it->topResults);
+  }
+  if (it->returnedResults) {   // Iterator is in one of the hybrid modes.
     for (int i = 0; i < (int)array_len(it->returnedResults); i++) {
       IndexResult_Free(it->returnedResults[i]);
     }
@@ -376,6 +377,8 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   hi->base.isValid = 1;
   hi->list = NULL;
   hi->iter = NULL;
+  hi->topResults = NULL;
+  hi->returnedResults = NULL;
   hi->numIterations = 0;
   hi->ignoreScores = hParams.ignoreDocScore;
 
