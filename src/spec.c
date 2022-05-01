@@ -60,7 +60,7 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
 
   size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
   size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
-  memoryLimit = (maxmemory && maxmemory < total_system_memory) ? maxmemory : total_system_memory;
+  memoryLimit = (maxmemory && (maxmemory < total_system_memory)) ? maxmemory : total_system_memory;
 
   used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
 
@@ -380,7 +380,7 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
 }
 
 // memoryLimit / 10 - default is 10% of global memory limit
-#define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vectorMaxResizeMB) ? RSGlobalConfig.vectorMaxResizeMB * 0x100000 : memoryLimit / 10)
+#define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResizeMB) ? RSGlobalConfig.vssMaxResizeMB * 0x100000 : memoryLimit / 10)
 
 static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
@@ -563,9 +563,9 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
       fs->vectorOpts.vecSimParams.bfParams.blockSize = DEFAULT_BLOCK_SIZE;
     }
   }
-  size_t index_estimation = VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams);
-  index_estimation += elementSize * fs->vectorOpts.vecSimParams.bfParams.blockSize;
-  if (index_estimation > memoryLimit - used_memory) {
+  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams);
+  index_size_estimation += elementSize * fs->vectorOpts.vecSimParams.bfParams.blockSize;
+  if (index_size_estimation > memoryLimit - used_memory) {
     QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB)", memoryLimit);
     return 0;
   } else if (fs->vectorOpts.vecSimParams.bfParams.blockSize  > maxBlockSize) {

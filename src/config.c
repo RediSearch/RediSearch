@@ -397,16 +397,16 @@ CONFIG_GETTER(getDefaultDialectVersion) {
   return sdscatprintf(ss, "%u", config->defaultDialectVersion);
 }
 
-CONFIG_SETTER(setVectorMaxResizeMB) {
+CONFIG_SETTER(setVSSMaxResizeMB) {
   size_t resize;
   int acrc = AC_GetSize(ac, &resize, AC_F_GE0);
-  config->vectorMaxResizeMB = resize;
+  config->vssMaxResizeMB = resize;
   RETURN_STATUS(acrc);
 }
 
-CONFIG_GETTER(getVectorMaxResizeMB) {
+CONFIG_GETTER(getVSSMaxResizeMB) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->vectorMaxResizeMB);
+  return sdscatprintf(ss, "%u", config->vssMaxResizeMB);
 }
 
 CONFIG_SETTER(setGcPolicy) {
@@ -731,10 +731,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Set RediSearch default dialect version throught the lifetime of the server.",
          .setValue = setDefaultDialectVersion,
          .getValue = getDefaultDialectVersion},
-        {.name = "VECTOR_MAX_RESIZE_MB",
+        {.name = "VSS_MAX_RESIZE_MB",
          .helpText = "Set RediSearch vector indexes max resize (in MB).",
-         .setValue = setVectorMaxResizeMB,
-         .getValue = getVectorMaxResizeMB},
+         .setValue = setVSSMaxResizeMB,
+         .getValue = getVSSMaxResizeMB},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
