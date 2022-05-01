@@ -124,9 +124,6 @@ common options for upload operations:
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
 
-make docs          # create documentation
-make deploy-docs   # deploy documentation
-
 make docker        # build for specified platform
   OSNICK=nick        # platform to build for (default: host platform)
   TEST=1             # run tests after build
@@ -681,16 +678,6 @@ upload-cov:
 	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
 
 .PHONY: coverage show-cov upload-cov
-
-#----------------------------------------------------------------------------------------------
-
-docs:
-	$(SHOW)mkdocs build
-
-deploy-docs:
-	$(SHOW)mkdocs gh-deploy
-
-.PHONY: docs deploy-docs
 
 #----------------------------------------------------------------------------------------------
 
