@@ -10,7 +10,7 @@ from redis.client import NEVER_DECODE
 from random import randrange
 
 
-def test_sanity():
+def test_sanity(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
@@ -48,7 +48,7 @@ def test_sanity():
         env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
-def testDel():
+def testDel(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
@@ -96,7 +96,7 @@ def testDel():
         env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
-def testDelReuse():
+def testDelReuse(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
 
     def test_query_empty(env):
@@ -163,7 +163,7 @@ def query_vector(env, idx, query_vec):
     return env.execute_command('FT.SEARCH', idx, '*=>[KNN 5 @vector $v AS score]', 'PARAMS', '2', 'v', query_vec.tobytes(),
                                'SORTBY', 'score', 'ASC', 'RETURN', 1, 'score', 'LIMIT', 0, 5, **{NEVER_DECODE: []})
 
-def testDelReuseLarge():
+def testDelReuseLarge(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     INDEX_NAME = 'items'
@@ -181,7 +181,7 @@ def testDelReuseLarge():
         for i in range(4):
             env.assertLessEqual(float(res[2 + i * 2][1]), float(res[2 + (i + 1) * 2][1]))
 
-def testCreate():
+def testCreate(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
@@ -215,7 +215,7 @@ def testCreate():
     # info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'FLAT', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'BLOCK_SIZE', str(1024 * 1024)]]
     # assertInfoField(env, 'idx5', 'attributes', info)
 
-def testCreateErrors():
+def testCreateErrors(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # missing init args
@@ -260,7 +260,7 @@ def testCreateErrors():
         .error().contains('Bad arguments for vector similarity HNSW index efRuntime')
 
 
-def testSearchErrors():
+def testSearchErrors(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
@@ -297,7 +297,7 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
     return id_vec_list
 
 
-def test_with_fields():
+def test_with_fields(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
@@ -327,7 +327,7 @@ def get_vecsim_index_size(env, index_key, field_name):
     return int(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", index_key, field_name))["INDEX_SIZE"])
 
 
-def test_memory_info():
+def test_memory_info(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     # This test flow adds two vectors and deletes them. The test checks for memory increase in Redis and RediSearch upon insertion and decrease upon delete.
     conn = getConnectionByEnv(env)
@@ -440,7 +440,7 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
     return ret
 
 
-def test_hybrid_query_batches_mode_with_text():
+def test_hybrid_query_batches_mode_with_text(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
@@ -514,7 +514,7 @@ def test_hybrid_query_batches_mode_with_text():
     env.expect('FT.SEARCH', 'idx', '(@t:t* @t:text)=>[KNN 10 @v $vec_param]', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal([0])
 
 
-def test_hybrid_query_batches_mode_with_tags():
+def test_hybrid_query_batches_mode_with_tags(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
@@ -582,7 +582,7 @@ def test_hybrid_query_batches_mode_with_tags():
                          sort_by_vector=False).equal(expected_res)
 
 
-def test_hybrid_query_with_numeric():
+def test_hybrid_query_with_numeric(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
@@ -632,7 +632,7 @@ def test_hybrid_query_with_numeric():
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
 
 
-def test_hybrid_query_with_geo():
+def test_hybrid_query_with_geo(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
@@ -663,7 +663,7 @@ def test_hybrid_query_with_geo():
                          hybrid_mode='HYBRID_ADHOC_BF').equal([0])
 
 
-def test_hybrid_query_batches_mode_with_complex_queries():
+def test_hybrid_query_batches_mode_with_complex_queries(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 4
@@ -712,7 +712,7 @@ def test_hybrid_query_batches_mode_with_complex_queries():
                'RETURN', 2, 't1', 't2').equal([0])
 
 
-def test_hybrid_query_non_vector_score():
+def test_hybrid_query_non_vector_score(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
@@ -799,7 +799,7 @@ def test_hybrid_query_non_vector_score():
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
 
 
-def test_single_entry():
+def test_single_entry(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     SkipOnNonCluster(env)
     # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator.
@@ -818,7 +818,7 @@ def test_single_entry():
                 'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1, '0'])
 
 
-def test_hybrid_query_adhoc_bf_mode():
+def test_hybrid_query_adhoc_bf_mode(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
@@ -854,7 +854,7 @@ def test_hybrid_query_adhoc_bf_mode():
                              hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
 
 
-def test_wrong_vector_size():
+def test_wrong_vector_size(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dimension = 128
@@ -877,7 +877,7 @@ def test_wrong_vector_size():
     assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q', np.ones(dimension, 'float32').tobytes()).equal([2, '1', '4'])
 
-def test_hybrid_query_cosine():
+def test_hybrid_query_cosine(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 4
@@ -924,7 +924,7 @@ def test_hybrid_query_cosine():
     for res_id in actual_res_ids:
         env.assertContains(res_id, expected_res_ids)
 
-def test_fail_ft_aggregate():
+def test_fail_ft_aggregate(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     dim = 1
     conn = getConnectionByEnv(env)
@@ -939,7 +939,7 @@ def test_fail_ft_aggregate():
         # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
         res.equal([0])
 
-def test_fail_on_v1_dialect():
+def test_fail_on_v1_dialect(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
     dim = 1
     conn = getConnectionByEnv(env)
@@ -951,7 +951,7 @@ def test_fail_on_v1_dialect():
     res.error().contains("Syntax error")
 
 
-def test_hybrid_query_with_global_filters():
+def test_hybrid_query_with_global_filters(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
@@ -1025,7 +1025,7 @@ def test_hybrid_query_with_global_filters():
                'NOCONTENT', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
 
 
-def test_hybrid_query_change_policy():
+def test_hybrid_query_change_policy(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
@@ -1071,7 +1071,7 @@ def test_hybrid_query_change_policy():
     env.assertEqual(res[:2], [1, str(n)])
 
 
-def test_system_memory_limits():
+def test_system_memory_limits(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -1114,7 +1114,7 @@ def test_system_memory_limits():
     #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).error().contains(
     #            'Vector index block size ' + str(block_size) + ' exceeded server limit')
 
-def test_redis_memory_limits():
+def test_redis_memory_limits(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -1151,7 +1151,7 @@ def test_redis_memory_limits():
     #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
     #            'Vector index block size ' + str(block_size) + ' exceeded server limit')
 
-def test_default_block_size():
+def test_default_block_size(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
@@ -1177,7 +1177,7 @@ def test_default_block_size():
     # env.assertLessEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
     currIdx+=1
 
-def test_redisearch_memory_limit():
+def test_redisearch_memory_limit(env):
     # test block size with VSS_MAX_RESIZE_MB configure
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     env.skipOnCluster()
