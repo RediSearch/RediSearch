@@ -107,6 +107,90 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
+  // module version
+  RedisModule_InfoAddSection(ctx, "version");
+  RedisModuleString *rs_version = RedisModule_CreateStringPrintf(
+      NULL, "%d.%d.%d", redisVersion.majorVersion, redisVersion.minorVersion, redisVersion.patchVersion);
+  RedisModule_InfoAddFieldString(ctx, "RedisSearch_version", rs_version);
+  RedisModule_FreeString(NULL, rs_version);
+
+  // numer of indexes
+  RedisModule_InfoAddSection(ctx, "index");
+  RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
+
+  // // info for each index
+  // dictIterator *iter = dictGetIterator(specDict_g);
+  // dictEntry *entry;
+  // while ((entry = dictNext(iter))) {
+  //   IndexSpec *spec = dictGetVal(entry);
+  //   size_t failures = spec->stats.indexingFailures;
+  //   if (failures > 0) {
+  //     RedisModule_InfoAddSection(ctx, spec->name);
+  //     RedisModule_InfoAddFieldLongLong(ctx, "number_of_failures", failures);
+  //   }
+  // }
+
+  // fields statistics
+  RedisModule_InfoAddSection(ctx, "fields_statistics");
+  // 
+  if (RSGlobalConfig.fieldsStats.numTextFields > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_text_fields", RSGlobalConfig.fieldsStats.numTextFields);
+  if (RSGlobalConfig.fieldsStats.numTextFieldsSortable > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_sortable_text_fields", RSGlobalConfig.fieldsStats.numTextFieldsSortable);
+  if (RSGlobalConfig.fieldsStats.numTextFieldsNoIndex > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_text_fields_no_index", RSGlobalConfig.fieldsStats.numTextFieldsNoIndex);
+  if (RSGlobalConfig.fieldsStats.numNumericFields > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_numeric_fields", RSGlobalConfig.fieldsStats.numNumericFields);
+  if (RSGlobalConfig.fieldsStats.numNumericFieldsSortable > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_sortable_numeric_fields", RSGlobalConfig.fieldsStats.numNumericFieldsSortable);
+  if (RSGlobalConfig.fieldsStats.numNumericFieldsNoIndex > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_numeric_fields_no_index", RSGlobalConfig.fieldsStats.numNumericFieldsNoIndex);
+  if (RSGlobalConfig.fieldsStats.numTagFields > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_tag_fields", RSGlobalConfig.fieldsStats.numTagFields);
+  if (RSGlobalConfig.fieldsStats.numTagFieldsCaseSensitive > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_tag_fields_case_sensitive", RSGlobalConfig.fieldsStats.numTagFieldsCaseSensitive);
+  if (RSGlobalConfig.fieldsStats.numTagFieldsSortable > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_sortable_tag_fields", RSGlobalConfig.fieldsStats.numTagFieldsSortable);
+  if (RSGlobalConfig.fieldsStats.numTagFieldsNoIndex > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_tag_fields_no_index", RSGlobalConfig.fieldsStats.numTagFieldsNoIndex);
+  if (RSGlobalConfig.fieldsStats.numGeoFields > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_geo_fields", RSGlobalConfig.fieldsStats.numGeoFields);
+  if (RSGlobalConfig.fieldsStats.numGeoFieldsSortable > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_sortable_geo_fields", RSGlobalConfig.fieldsStats.numGeoFieldsSortable);
+  if (RSGlobalConfig.fieldsStats.numGeoFieldsNoIndex > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_geo_fields_no_index", RSGlobalConfig.fieldsStats.numGeoFieldsNoIndex);
+  if (RSGlobalConfig.fieldsStats.numVectorFieldsFlat > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_vector_fields_flat", RSGlobalConfig.fieldsStats.numVectorFieldsFlat);
+  if (RSGlobalConfig.fieldsStats.numVectorFieldsHSNW > 0)
+    RedisModule_InfoAddFieldLongLong(ctx, "number_of_vector_fields_hsnw", RSGlobalConfig.fieldsStats.numVectorFieldsHSNW);
+
+  // load time configuration
+  RedisModule_InfoAddSection(ctx, "run_time_configs");
+  RedisModule_InfoAddFieldCString(ctx, "concurrent_mode", (char*)RSGlobalConfig.concurrentMode ? "ON" : "OFF");
+  if (RSGlobalConfig.extLoad != NULL) {
+    RedisModule_InfoAddFieldCString(ctx, "extension_load", (char*)RSGlobalConfig.extLoad);
+  }
+  if (RSGlobalConfig.frisoIni != NULL) {
+    RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char*)RSGlobalConfig.frisoIni);
+  }
+  RedisModule_InfoAddFieldCString(ctx, "enableGC", (char*)RSGlobalConfig.enableGC ? "ON" : "OFF");
+  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.minTermPrefix);
+  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.maxPrefixExpansions);
+  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.queryTimeoutMS);
+  RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.timeoutPolicy));
+  RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
+
+  RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "search_pool_size", RSGlobalConfig.searchPoolSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_pool_size", RSGlobalConfig.indexPoolSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcScanSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
+}
+
 static inline const char* RS_GetExtraVersion() {
 #ifdef GIT_VERSPEC
   return GIT_VERSPEC;
@@ -193,6 +277,10 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     DO_LOG("warning", "Could not register default extension");
     return REDISMODULE_ERR;
   }
+
+  // Register Info function
+  if (RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
 
   Initialize_KeyspaceNotifications(ctx);
   Initialize_CommandFilter(ctx);

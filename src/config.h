@@ -31,6 +31,24 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
   }
 }
 
+typedef struct {
+  size_t numTextFields;
+  size_t numTextFieldsSortable;
+  size_t numTextFieldsNoIndex;
+  size_t numNumericFields;
+  size_t numNumericFieldsSortable;
+  size_t numNumericFieldsNoIndex;
+  size_t numGeoFields;
+  size_t numGeoFieldsSortable;
+  size_t numGeoFieldsNoIndex;
+  size_t numTagFields;
+  size_t numTagFieldsSortable;
+  size_t numTagFieldsNoIndex;
+  size_t numTagFieldsCaseSensitive;
+  size_t numVectorFieldsFlat;
+  size_t numVectorFieldsHSNW;
+} FieldsGlobalStats;
+
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
 typedef struct {
@@ -55,7 +73,7 @@ typedef struct {
   // 0 means unlimited
   long long queryTimeoutMS;
 
-  long long timeoutPolicy;
+  RSTimeoutPolicy timeoutPolicy;
 
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
@@ -82,11 +100,13 @@ typedef struct {
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
 
+  FieldsGlobalStats fieldsStats;
+
   // Chained configuration data
   void *chainedConfig;
 
   long long maxResultsToUnsortedMode;
-  long long minUnionIterHeap;;
+  long long minUnionIterHeap;
 
   int noMemPool;
 

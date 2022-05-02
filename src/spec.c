@@ -329,13 +329,13 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
     return rc;
   }
   // Uncomment these when support for other type is added.
-  if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len)) 
+  if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len))
     *type = VecSimType_FLOAT32;
-  // else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len)) 
+  // else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
   //   *type = VecSimType_FLOAT64;
-  // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len)) 
+  // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len))
   //   *type = VecSimType_INT32;
-  // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len)) 
+  // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len))
   //   *type = VecSimType_INT64;
   else
     return AC_ERR_ENOENT;
@@ -351,11 +351,11 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   if ((rc = AC_GetString(ac, &metricStr, &len, 0)) != AC_OK) {
     return rc;
   }
-  if (!strncasecmp(VECSIM_METRIC_IP, metricStr, len)) 
+  if (!strncasecmp(VECSIM_METRIC_IP, metricStr, len))
     *metric = VecSimMetric_IP;
-  else if (!strncasecmp(VECSIM_METRIC_L2, metricStr, len)) 
+  else if (!strncasecmp(VECSIM_METRIC_L2, metricStr, len))
     *metric = VecSimMetric_L2;
-  else if (!strncasecmp(VECSIM_METRIC_COSINE, metricStr, len)) 
+  else if (!strncasecmp(VECSIM_METRIC_COSINE, metricStr, len))
     *metric = VecSimMetric_Cosine;
   else
     return AC_ERR_ENOENT;
@@ -562,12 +562,12 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
     return 0;
   }
 
-  if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
+  if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
     fs->types |= INDEXFLD_T_FULLTEXT;
     if (!parseTextField(fs, ac, status)) {
       goto error;
     }
-  } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {
+  } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     fs->types |= INDEXFLD_T_GEO;
@@ -598,8 +598,8 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
       } else {
         break;
       }
-   }
-  } else {  // not numeric and not text - nothing more supported currently
+    }
+  } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
   }
@@ -649,7 +649,7 @@ int IndexSpec_CreateTextId(const IndexSpec *sp) {
 }
 
 /**
- * Add fields to an existing (or newly created) index. If the addition fails,
+ * Add fields to an existing (or newly created) index. If the addition fails, THEN WHAT?!
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError *status,
                                        int isNew) {
@@ -772,6 +772,39 @@ reset:
   return 0;
 }
 
+void UpdateGlobalFieldsStat(FieldSpec *fs, int toAdd) {
+  if (fs->types & INDEXFLD_T_FULLTEXT) {  // text field
+    RSGlobalConfig.fieldsStats.numTextFields += toAdd;
+  } else if (fs->types & INDEXFLD_T_NUMERIC) {  // numeric field
+    RSGlobalConfig.fieldsStats.numNumericFields += toAdd;
+  } else if (fs->types & INDEXFLD_T_GEO) {  // geo field
+    RSGlobalConfig.fieldsStats.numGeoFields += toAdd;
+  } else if (fs->types & INDEXFLD_T_VECTOR) {  // vector field
+    if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_BF)
+      RSGlobalConfig.fieldsStats.numVectorFieldsFlat += toAdd;
+    else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB)
+      RSGlobalConfig.fieldsStats.numVectorFieldsHSNW += toAdd;
+  } else if (fs->types & INDEXFLD_T_TAG) {  // tag field
+    RSGlobalConfig.fieldsStats.numTagFields += toAdd;
+    if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
+      RSGlobalConfig.fieldsStats.numTagFieldsCaseSensitive += toAdd;
+    }
+  }
+
+  if (fs->options & FieldSpec_Sortable) {
+    if (fs->types & INDEXFLD_T_FULLTEXT) RSGlobalConfig.fieldsStats.numTextFieldsSortable += toAdd;
+    else if (fs->types & INDEXFLD_T_NUMERIC) RSGlobalConfig.fieldsStats.numNumericFieldsSortable += toAdd;
+    else if (fs->types & INDEXFLD_T_GEO) RSGlobalConfig.fieldsStats.numGeoFieldsSortable += toAdd;
+    else if (fs->types & INDEXFLD_T_TAG) RSGlobalConfig.fieldsStats.numTagFieldsSortable += toAdd;
+  }
+  if (fs->options & FieldSpec_NotIndexable) {
+    if (fs->types & INDEXFLD_T_FULLTEXT) RSGlobalConfig.fieldsStats.numTextFieldsNoIndex += toAdd;
+    else if (fs->types & INDEXFLD_T_NUMERIC) RSGlobalConfig.fieldsStats.numNumericFieldsNoIndex += toAdd;
+    else if (fs->types & INDEXFLD_T_GEO) RSGlobalConfig.fieldsStats.numGeoFieldsNoIndex += toAdd;
+    else if (fs->types & INDEXFLD_T_TAG) RSGlobalConfig.fieldsStats.numTagFieldsNoIndex += toAdd;
+  }
+}
+
 int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status) {
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
@@ -871,6 +904,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     SchemaRule_FilterFields(spec->rule);
   }
 
+  for (int i = 0; i < spec->numFields; i++) {
+    UpdateGlobalFieldsStat(spec->fields + i, 1);
+  }
+
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
@@ -916,7 +953,7 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     ret->fields[ii] = spec->fields[ii];
     ret->fields[ii].name = rm_strdup(spec->fields[ii].name);
-    // if name & path are pointing to the same string, copy pointer 
+    // if name & path are pointing to the same string, copy pointer
     if (ret->fields[ii].path && (spec->fields[ii].name != spec->fields[ii].path)) {
       ret->fields[ii].path = rm_strdup(spec->fields[ii].path);
     } else {
@@ -1018,8 +1055,8 @@ void CleanPool_ThreadPoolDestroy() {
 }
 
 /*
- * Free resources of unlinked index spec 
- */ 
+ * Free resources of unlinked index spec
+ */
 static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free all documents metadata
   DocTable_Free(&spec->docs);
@@ -1472,7 +1509,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
   if (f->path != f->name) {
     RedisModule_SaveUnsigned(rdb, 1);
-    RedisModule_SaveStringBuffer(rdb, f->path, strlen(f->path) + 1);  
+    RedisModule_SaveStringBuffer(rdb, f->path, strlen(f->path) + 1);
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
@@ -1549,14 +1586,14 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     }
     // Calculate blob size limitation on lower encvers.
     if(encver < INDEX_VECSIM_2_VERSION) {
-      switch (f->vectorOpts.vecSimParams.algo) 
+      switch (f->vectorOpts.vecSimParams.algo)
       {
       case VecSimAlgo_HNSWLIB:
         f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.hnswParams.type);
         break;
       case VecSimAlgo_BF:
         f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.bfParams.type);
-        break; 
+        break;
       default:
         break;
       }
@@ -1592,6 +1629,42 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->offsetVecsSize);
   RedisModule_SaveUnsigned(rdb, stats->offsetVecRecords);
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
+}
+
+static void FieldsGlobalStats_RdbLoad(RedisModuleIO *rdb, FieldsGlobalStats *stats) {
+  stats->numTextFields = RedisModule_LoadUnsigned(rdb);
+  stats->numTextFieldsSortable = RedisModule_LoadUnsigned(rdb);
+  stats->numTextFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
+  stats->numNumericFields = RedisModule_LoadUnsigned(rdb);
+  stats->numNumericFieldsSortable = RedisModule_LoadUnsigned(rdb);
+  stats->numNumericFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
+  stats->numGeoFields = RedisModule_LoadUnsigned(rdb);
+  stats->numGeoFieldsSortable = RedisModule_LoadUnsigned(rdb);
+  stats->numGeoFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
+  stats->numTagFields = RedisModule_LoadUnsigned(rdb);
+  stats->numTagFieldsSortable = RedisModule_LoadUnsigned(rdb);
+  stats->numTagFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
+  stats->numTagFieldsCaseSensitive = RedisModule_LoadUnsigned(rdb);
+  stats->numVectorFieldsFlat = RedisModule_LoadUnsigned(rdb);
+  stats->numVectorFieldsHSNW = RedisModule_LoadUnsigned(rdb);
+}
+
+static void FieldsGlobalStats_RdbSave(RedisModuleIO *rdb, FieldsGlobalStats *stats) {
+  RedisModule_SaveUnsigned(rdb, stats->numTextFields);
+  RedisModule_SaveUnsigned(rdb, stats->numTextFieldsSortable);
+  RedisModule_SaveUnsigned(rdb, stats->numTextFieldsNoIndex);
+  RedisModule_SaveUnsigned(rdb, stats->numNumericFields);
+  RedisModule_SaveUnsigned(rdb, stats->numNumericFieldsSortable);
+  RedisModule_SaveUnsigned(rdb, stats->numNumericFieldsNoIndex);
+  RedisModule_SaveUnsigned(rdb, stats->numGeoFields);
+  RedisModule_SaveUnsigned(rdb, stats->numGeoFieldsSortable);
+  RedisModule_SaveUnsigned(rdb, stats->numGeoFieldsNoIndex);
+  RedisModule_SaveUnsigned(rdb, stats->numTagFields);
+  RedisModule_SaveUnsigned(rdb, stats->numTagFieldsSortable);
+  RedisModule_SaveUnsigned(rdb, stats->numTagFieldsNoIndex);
+  RedisModule_SaveUnsigned(rdb, stats->numTagFieldsCaseSensitive);
+  RedisModule_SaveUnsigned(rdb, stats->numVectorFieldsFlat);
+  RedisModule_SaveUnsigned(rdb, stats->numVectorFieldsHSNW);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1868,7 +1941,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
   }
-  
+
 
   //    DocTable_RdbLoad(&sp->docs, rdb, encver);
   sp->terms = NewTrie();
@@ -1934,6 +2007,10 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     sp = oldSpec;
   } else {
     dictAdd(specDict_g, sp->name, sp);
+  }
+
+  for (int i = 0; i < sp->numFields; i++) {
+    UpdateGlobalFieldsStat(sp->fields + i, 1);
   }
 
   return sp;
@@ -2279,7 +2356,7 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-        
+
         RedisModuleString *rmskey = RedisModule_CreateString(ctx, spec->fields[i].name, strlen(spec->fields[i].name));
         KeysDictValue *kdv = dictFetchValue(spec->keysDict, rmskey);
         RedisModule_FreeString(ctx, rmskey);
@@ -2410,7 +2487,7 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
       }
     }
     // optimize. change of score and payload fields just require an update of the doc table
-    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) || 
+    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) ||
         (spec->rule->score_field && !strcmp(field, spec->rule->score_field)) ||
         (spec->rule->payload_field && !strcmp(field, spec->rule->payload_field))) {
       return true;
@@ -2428,7 +2505,7 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
   if (type == DocumentType_None) {
-    // COPY could overwrite a hash/json with other types so we must try and remove old doc 
+    // COPY could overwrite a hash/json with other types so we must try and remove old doc
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
     return;
   }

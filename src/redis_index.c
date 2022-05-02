@@ -357,9 +357,9 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
     }
   }
 
-  if (!idx->numDocs || 
+  if (!idx->numDocs ||
      (Index_StoreFieldMask(ctx->spec) && !(idx->fieldMask & fieldMask))) {
-    // empty index! or index does not have results from requested field. 
+    // empty index! or index does not have results from requested field.
     // pass
     goto err;
   }
@@ -478,16 +478,15 @@ int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
 }
 
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
-
   IndexSpec *spec = ctx->spec;
-
   SchemaPrefixes_RemoveSpec(spec);
-
   if (deleteDocuments || !!(spec->flags & Index_Temporary)) {
     DocTable *dt = &spec->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx->redisCtx, dmd->keyPtr));
   }
-
+  for (int i = 0; i < spec->numFields; i++) {
+    UpdateGlobalFieldsStat(spec->fields + i, -1);
+  }
   IndexSpec_FreeInternals(spec);
   return REDISMODULE_OK;
 }
