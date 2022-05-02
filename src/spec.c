@@ -565,14 +565,6 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   // Calculating index size estimation, after first vector block was allocated.
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams);
   index_size_estimation += elementSize * fs->vectorOpts.vecSimParams.bfParams.blockSize;
-
-  RedisModule_Log(NULL, "warning", "memory limit is %zu\n", memoryLimit);
-  RedisModule_Log(NULL, "warning", "used memory is %zu\n", used_memory);
-  RedisModule_Log(NULL, "warning", "element size is %zu\n", elementSize);
-  RedisModule_Log(NULL, "warning", "max block size is %zu\n", maxBlockSize);
-  RedisModule_Log(NULL, "warning", "block size is %zu\n",fs->vectorOpts.vecSimParams.bfParams.blockSize);
-  RedisModule_Log(NULL, "warning", "index size estimation is %zu\n", index_size_estimation);
-
   if (index_size_estimation > memoryLimit - used_memory) {
     QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters", memoryLimit);
     return 0;
