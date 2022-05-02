@@ -899,6 +899,78 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
   return 0;
 }
 
+int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
+  while (array_len(it->stack) > 0) {
+    __tmi_stackNode *current = __tmi_current(it);
+    TrieMapNode *n = current->n;
+
+    if (current->state == TM_ITERSTATE_SELF) {
+      while (current->stringOffset < n->len) {
+        char b = current->n->str[current->stringOffset];
+        if (!current->found) {
+          if (it->prefix[array_len(it->buf)] != b) {
+            goto pop;
+          }
+          if (array_len(it->buf) == it->prefixLen - 1) {
+            current->found = true;
+          }
+        }
+
+
+        // advance the buffer offset and character offset
+        it->buf = array_ensure_append_1(it->buf, b);
+        //it->buf[it->bufOffset++] = b;
+        current->stringOffset++;
+      }
+
+      // this is required for an empty node to switch to suffix mode
+      if (array_len(it->buf) == it->prefixLen) {
+        current->found = true;
+      }
+
+      // switch to "children mode"
+      current->state = TM_ITERSTATE_CHILDREN;
+
+      // we've reached
+      if (__trieMapNode_isTerminal(n) && current->found) {
+        *ptr = it->buf;
+        *len = array_len(it->buf);
+        *value = n->value;
+        return 1;
+      }
+    }
+
+    if (current->state == TM_ITERSTATE_CHILDREN) {
+      // push the next child that matches
+      tm_len_t nch = current->n->numChildren;
+      while (current->childOffset < nch) {
+        if (current->found ||
+            *__trieMapNode_childKey(n, current->childOffset) == it->prefix[array_len(it->buf)]) {
+          TrieMapNode *ch = __trieMapNode_children(n)[current->childOffset++];
+
+          // unless in suffix mode, no need to go back here after popping the
+          // child, so we just set the child offset at the end
+          if (!current->found) current->childOffset = nch;
+
+          // Add the matching child to the stack
+          __tmi_Push(it, ch, current->found);
+
+          goto next;
+        }
+        // if the child doesn't match- just advance one
+        current->childOffset++;
+      }
+    }
+  pop:
+    // at the end of the node - pop and go up
+    __tmi_Pop(it);
+  next:
+    continue;
+  }
+
+  return 0;
+}
+
 void TrieMap_Free(TrieMap *t, void (*freeCB)(void *)) {
   if (t) {
     TrieMapNode_Free(t->root, freeCB);
