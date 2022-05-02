@@ -108,9 +108,11 @@ size_t TrieMap_MemUsage(TrieMap *t);
 typedef struct {
   int state;
   bool found;
+  bool visited;
   TrieMapNode *n;
   tm_len_t stringOffset;
   tm_len_t childOffset;
+  tm_len_t globalOffset;
 } __tmi_stackNode;
 
 typedef struct {
