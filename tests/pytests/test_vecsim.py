@@ -11,6 +11,7 @@ from RLTest import Env
 from common import *
 from includes import *
 from redis.client import NEVER_DECODE
+from random import randrange
 
 
 def test_sanity():
@@ -416,7 +417,7 @@ def test_memory_info():
 
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field=False,
-                         batches_mode=True):
+                         hybrid_mode='HYBRID_BATCHES'):
     if sort_by_vector:
         ret = env.expect('FT.SEARCH', 'idx', query_string,
                    'SORTBY', '__v_score',
@@ -437,10 +438,9 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
 
     # in cluster mode, we send `_FT.DEBUG' to the local shard.
     prefix = '_' if env.isCluster() else ''
-    if batches_mode:
-        env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
-    else:
-        env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+    # returns the test name and line number from called this helper function.
+    caller_pos = f'{sys._getframe(1).f_code.co_filename.split("/")[-1]}:{sys._getframe(1).f_lineno}'
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], hybrid_mode, message=caller_pos)
     return ret
 
 
@@ -480,7 +480,9 @@ def test_hybrid_query_batches_mode_with_text():
     execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
     # Expect empty score for the intersection (disjoint sets of results)
-    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't').equal([0])
+    # The hybrid policy changes to ad hoc after the first batch
+    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't',
+                         hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal([0])
 
     # Expect the same results as in above ('other AND NOT text')
     execute_hybrid_query(env, '(@t:other -text)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
@@ -611,14 +613,18 @@ def test_hybrid_query_with_numeric():
     # Expect that no result will pass the filter.
     execute_hybrid_query(env, '(@num:[0 0.5])=>[KNN 10 @v $vec_param]', query_data, 'num').equal([0])
 
-    # Expect to get results with maximum numeric value of index_size-100
+    # Expect to get results with maximum numeric value of the top 100 id in the shard.
+    lower_bound_num = 100 * env.shardsCount
     expected_res = [10]
     for i in range(10):
-        expected_res.append(str(index_size-100-i))
-        expected_res.append(['__v_score', str(dim*(100+i)**2), 'num', str(index_size-100-i)])
-    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-100), query_data, 'num').equal(expected_res)
-    execute_hybrid_query(env, '(@num:[-inf {}] | @num:[100 {}])=>[KNN 10 @v $vec_param]'
-                         .format(index_size-200, index_size-100), query_data, 'num').equal(expected_res)
+        expected_res.append(str(index_size-lower_bound_num-i))
+        expected_res.append(['__v_score', str(dim*(lower_bound_num+i)**2), 'num', str(index_size-lower_bound_num-i)])
+    # We switch from batches to ad-hoc BF mode during the run.
+    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-lower_bound_num), query_data, 'num',
+                         hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal(expected_res)
+    execute_hybrid_query(env, '(@num:[-inf {}] | @num:[{} {}])=>[KNN 10 @v $vec_param]'
+                         .format(lower_bound_num, index_size-2*lower_bound_num, index_size-lower_bound_num), query_data, 'num',
+                         hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal(expected_res)
 
     # Expect for 5 results only (45-49), this will use ad-hoc BF since ratio between docs that pass the filter to
     # index size is low.
@@ -658,7 +664,7 @@ def test_hybrid_query_with_geo():
 
     # Expect that no results will pass the filter
     execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate',
-                         batches_mode=False).equal([0])
+                         hybrid_mode='HYBRID_ADHOC_BF').equal([0])
 
 
 def test_hybrid_query_batches_mode_with_complex_queries():
@@ -739,8 +745,10 @@ def test_hybrid_query_non_vector_score():
                       '97', '2', ['__v_score', '1152', 't', 'text value'],
                       '98', '2', ['__v_score', '512', 't', 'text value'],
                       '99', '2', ['__v_score', '128', 't', 'text value']]
-    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, batches_mode=False).equal(expected_res_1)
-    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True, batches_mode=False).equal(expected_res_1)
+    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+                         hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
+    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
     expected_res_2 = [10,
@@ -754,8 +762,10 @@ def test_hybrid_query_non_vector_score():
                       '97', '1', ['__v_score', '1152', 't', 'text value'],
                       '98', '1', ['__v_score', '512', 't', 'text value'],
                       '99', '1', ['__v_score', '128', 't', 'text value']]
-    execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, batches_mode=False).equal(expected_res_2)
-    execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True, batches_mode=False).equal(expected_res_2)
+    execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+                         hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_2)
+    execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_2)
 
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10,
@@ -844,7 +854,8 @@ def test_hybrid_query_adhoc_bf_mode():
 
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
-        execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal(expected_res)
+        execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't',
+                             hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
 
 
 def test_wrong_vector_size():
@@ -1016,3 +1027,49 @@ def test_hybrid_query_with_global_filters():
                'filter', 'num', 0, index_size/2, 'filter', 'num', index_size/3, index_size/2,
                'geofilter', 'coordinate', 5.0, 5.0, 50, 'km', 'SORTBY', '__v_score',
                'NOCONTENT', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+
+def test_hybrid_query_change_policy():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    n = 6000 * env.shardsCount
+    vectors = np.random.rand(n, dim).astype(np.float32)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
+
+    file = 1
+    tags = range(10)
+    subset_size = int(n/2)
+    with conn.pipeline(transaction = False) as p:
+        for i, v in enumerate(vectors[:subset_size]):
+            conn.execute_command('HSET', i, 'v', v.tobytes(),
+                                 'tag1', str(tags[randrange(10)]), 'tag2', 'word'+str(file))
+        p.execute()
+
+    file = 2
+    with conn.pipeline(transaction = False) as p:
+        for i, v in enumerate(vectors[subset_size:]):
+            conn.execute_command('HSET', i + subset_size, 'v', v.tobytes(),
+                                 'tag1', str(10 + tags[randrange(10)]), 'tag2', 'word'+str(file))
+        p.execute()
+
+    # This should return 10 results and run in HYBRID_BATCHES mode
+    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param]'
+    res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', hybrid_mode='HYBRID_BATCHES').res
+    env.assertEqual(res[0], 10)
+
+    # This query has 0 results, since none of the tags in @tag1 go along with 'word2' in @tag2.
+    # However, the estimated number of the "child" results should be index_size/2.
+    # While running the batches, the policy should change dynamically to AD-HOC BF.
+    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param]'
+    execute_hybrid_query(env, query_string, vectors[0], 'tag2',
+                         hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal([0])
+
+    # Add one valid document and re-run the query (still expect to change to AD-HOC BF)
+    # This doc should return in the first batch, and then it is removed and reinserted to the results heap
+    # after the policy is changed to ad-hoc.
+    conn.execute_command('HSET', n, 'v', vectors[0].tobytes(),
+                         'tag1', str(1), 'tag2', 'word'+str(file))
+    res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').res
+    env.assertEqual(res[:2], [1, str(n)])

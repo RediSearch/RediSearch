@@ -668,6 +668,10 @@
       {
         "name": "option",
         "type": "string"
+      },
+      {
+        "name": "value",
+        "type": "string"
       }
     ],
     "since": "1.0.0",
@@ -679,10 +683,6 @@
     "arguments": [
       {
         "name": "option",
-        "type": "string"
-      },
-      {
-        "name": "value",
         "type": "string"
       }
     ],
