@@ -687,7 +687,7 @@ static void rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
     rangeIterateSubTree(arr[ii], r);
   }
 
-  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+  array_trimm_len(r->buf, n->len);
 }
 
 /**
@@ -820,7 +820,7 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
   }
 
 clean_stack:
-  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+  array_trimm_len(r->buf, n->len);
 }
 
 // LexRange iteration.

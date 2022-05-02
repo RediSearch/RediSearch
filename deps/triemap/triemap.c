@@ -540,7 +540,7 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
 }
 
 /* the current top of the iterator stack */
-#define __tmi_current(it) &it->stack[it->stackOffset - 1]
+#define __tmi_current(it) &array_tail(it->stack)
 
 /* Step itearator return codes below: */
 
@@ -549,35 +549,26 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
 
 /* Push a new trie node on the iterator's stack */
 inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, bool found) {
-  if (it->stackOffset == it->stackCap) {
-    // make sure we don't overflow stackCap
-    if ((int)it->stackCap + 1024 > 0xFFFF) {
-      it->stackCap = 0xFFFF;
-    } else {
-      it->stackCap += MIN(it->stackCap, 1024);
-    }
-    it->stack = rm_realloc(it->stack, it->stackCap * sizeof(__tmi_stackNode));
-  }
-  it->stack[it->stackOffset++] = (__tmi_stackNode){
+  __tmi_stackNode stackNode = {
       .childOffset = 0,
       .stringOffset = 0,
       .found = found,
       .n = node,
       .state = TM_ITERSTATE_SELF,
   };
+  it->stack = array_ensure_append_1(it->stack, stackNode);
 }
 
 inline void __tmi_Pop(TrieMapIterator *it) {
-  it->buf = array_trimm_len(it->buf, array_len(it->buf) - (__tmi_current(it))->stringOffset);
-  --it->stackOffset;
+  it->buf = array_trimm_len(it->buf, (__tmi_current(it))->stringOffset);
+  array_pop(it->stack);
 }
 
 TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t len) {
   TrieMapIterator *it = rm_calloc(1, sizeof(TrieMapIterator));
 
   it->buf = array_new(char, 16);
-  it->stackCap = 8;
-  it->stack = rm_calloc(it->stackCap, sizeof(__tmi_stackNode));
+  it->stack = array_new(__tmi_stackNode, 8);
   it->prefix = prefix;
   it->prefixLen = len;
 
@@ -588,7 +579,7 @@ TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t len) {
 
 void TrieMapIterator_Free(TrieMapIterator *it) {
   array_free(it->buf);
-  rm_free(it->stack);
+  array_free(it->stack);
   rm_free(it);
 }
 
@@ -666,7 +657,7 @@ static void TrieMaprangeIterateSubTree(TrieMapNode *n, TrieMapRangeCtx *r) {
     TrieMaprangeIterateSubTree(arr[ii], r);
   }
 
-  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+  array_trimm_len(r->buf, n->len);
 }
 
 /**
@@ -795,7 +786,7 @@ static void TrieMapRangeIterate(TrieMapNode *n, const char *min, int nmin, const
   }
 
 clean_stack:
-  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+  array_trimm_len(r->buf, n->len);
 }
 
 void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool includeMin,
@@ -837,7 +828,7 @@ void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool inclu
 }
 
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
-  while (it->stackOffset > 0) {
+  while (array_len(it->stack) > 0) {
     __tmi_stackNode *current = __tmi_current(it);
     TrieMapNode *n = current->n;
 

@@ -116,9 +116,7 @@ typedef struct {
 typedef struct {
   arrayof(char) buf;
 
-  __tmi_stackNode *stack;
-  tm_len_t stackOffset;
-  tm_len_t stackCap;
+  arrayof(__tmi_stackNode) stack;
 
   const char *prefix;
   tm_len_t prefixLen;

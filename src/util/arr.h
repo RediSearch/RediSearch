@@ -234,7 +234,10 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   return arr_hdr->buf;
 }
 
-#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, len, ARR_CAP_NOSHRINK)
+/* Trim array by `len` elements */
+#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, array_len(arr) - len, ARR_CAP_NOSHRINK)
+
+/* Resize array to `cap` elements */
 #define array_trimm_cap(arr, len) (__typeof__(arr)) array_trimm(arr, len, len)
 
 /* Free the array, without dealing with individual elements */
