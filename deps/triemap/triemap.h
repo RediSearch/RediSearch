@@ -121,9 +121,7 @@ typedef enum {
 } IterateMode;
 
 typedef struct {
-  char *buf;
-  tm_len_t bufLen;
-  tm_len_t bufOffset;
+  arrayof(char) buf;
 
   __tmi_stackNode *stack;
   tm_len_t stackOffset;

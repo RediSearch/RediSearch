@@ -561,7 +561,6 @@ inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, bool found) {
   it->stack[it->stackOffset++] = (__tmi_stackNode){
       .childOffset = 0,
       .stringOffset = 0,
-      .globalOffset = 0,
       .found = found,
       .n = node,
       .state = TM_ITERSTATE_SELF,
@@ -569,18 +568,16 @@ inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, bool found) {
 }
 
 inline void __tmi_Pop(TrieMapIterator *it) {
-  it->bufOffset -= (__tmi_current(it))->stringOffset;
+  it->buf = array_trimm_len(it->buf, array_len(it->buf) - (__tmi_current(it))->stringOffset);
   --it->stackOffset;
 }
 
 TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t len) {
   TrieMapIterator *it = rm_calloc(1, sizeof(TrieMapIterator));
 
-  it->bufLen = 16;
-  it->buf = rm_calloc(1, it->bufLen);
+  it->buf = array_new(char, 16);
   it->stackCap = 8;
   it->stack = rm_calloc(it->stackCap, sizeof(__tmi_stackNode));
-  it->bufOffset = 0;
   it->prefix = prefix;
   it->prefixLen = len;
 
@@ -590,7 +587,7 @@ TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t len) {
 }
 
 void TrieMapIterator_Free(TrieMapIterator *it) {
-  rm_free(it->buf);
+  array_free(it->buf);
   rm_free(it->stack);
   rm_free(it);
 }
@@ -848,43 +845,33 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
       while (current->stringOffset < n->len) {
         char b = current->n->str[current->stringOffset];
         if (!current->found) {
-
-          if (it->prefix[it->bufOffset] != b) {
+          if (it->prefix[array_len(it->buf)] != b) {
             goto pop;
           }
-          if (it->bufOffset == it->prefixLen - 1) {
+          if (array_len(it->buf) == it->prefixLen - 1) {
             current->found = true;
           }
         }
 
 
         // advance the buffer offset and character offset
-        it->buf[it->bufOffset++] = b;
+        it->buf = array_ensure_append_1(it->buf, b);
+        //it->buf[it->bufOffset++] = b;
         current->stringOffset++;
-        current->globalOffset++;
-
-        // if needed - increase the buffer on the heap
-        if (it->bufOffset == it->bufLen) {
-          if ((int)it->bufLen + 1024 > 0xFFFF) {
-            it->bufLen = 0xFFFF;
-          } else {
-            it->bufLen += MIN(it->bufLen, 1024);
-          }
-          it->buf = rm_realloc(it->buf, it->bufLen);
-        }
       }
 
       // this is required for an empty node to switch to suffix mode
-      if (it->bufOffset == it->prefixLen) {
+      if (array_len(it->buf) == it->prefixLen) {
         current->found = true;
       }
+
       // switch to "children mode"
       current->state = TM_ITERSTATE_CHILDREN;
 
       // we've reached
       if (__trieMapNode_isTerminal(n) && current->found) {
         *ptr = it->buf;
-        *len = it->bufOffset;
+        *len = array_len(it->buf);
         *value = n->value;
         return 1;
       }
@@ -895,7 +882,7 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
       tm_len_t nch = current->n->numChildren;
       while (current->childOffset < nch) {
         if (current->found ||
-            *__trieMapNode_childKey(n, current->childOffset) == it->prefix[it->bufOffset]) {
+            *__trieMapNode_childKey(n, current->childOffset) == it->prefix[array_len(it->buf)]) {
           TrieMapNode *ch = __trieMapNode_children(n)[current->childOffset++];
 
           // unless in suffix mode, no need to go back here after popping the
