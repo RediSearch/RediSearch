@@ -111,14 +111,7 @@ typedef struct {
   TrieMapNode *n;
   tm_len_t stringOffset;
   tm_len_t childOffset;
-  tm_len_t globalOffset;
 } __tmi_stackNode;
-
-typedef enum {
-  PREFIX_MODE,
-  CONTAINS_MODE,
-  SUFFIX_MODE
-} IterateMode;
 
 typedef struct {
   arrayof(char) buf;
@@ -129,7 +122,6 @@ typedef struct {
 
   const char *prefix;
   tm_len_t prefixLen;
-  IterateMode mode;
 } TrieMapIterator;
 
 void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, bool found);
