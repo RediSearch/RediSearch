@@ -1071,7 +1071,7 @@ def test_hybrid_query_change_policy():
     env.assertEqual(res[:2], [1, str(n)])
 
 
-def test_memory_limits():
+def test_system_memory_limits():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -1103,20 +1103,26 @@ def test_memory_limits():
                'Vector index size exceeded server limit')
     currIdx+=1
 
-    # Block size with no limits fail
+    # Block size with no configuration limits fails
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', system_memory // 100).error().contains(
-               'Vector index block size exceeded server limit')
+               'Vector index block size ' + str(system_memory // 100) + ' exceeded server limit')
     currIdx+=1
 
     # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
     #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', system_memory // 100).error().contains(
     #            'Vector index block size exceeded server limit')
-    # currIdx+=1
+
+def test_redis_memory_limits():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
+    currIdx = 0
 
     # Config max memory (redis server memory limit)
-    maxmemory = used_memory * 10
+    maxmemory = used_memory * 5
     conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
 
     # Index initial size exceeded new limits
@@ -1135,55 +1141,69 @@ def test_memory_limits():
     currIdx+=1
 
     # Block size with new limits fail
-    # 16*4 - blob size
+    block_size = maxmemory // (16*4) // 2 # half of memory limit divided by blob size
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
-               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', maxmemory // (16*4) // 2).error().contains(
-               'Vector index block size exceeded server limit')
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
+               'Vector index block size ' + str(block_size) + ' exceeded server limit')
     currIdx+=1
     # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
-    #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', maxmemory // (16*4) // 2).error().contains(
-    #            'Vector index block size exceeded server limit')
+    #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
+    #            'Vector index block size ' + str(block_size) + ' exceeded server limit')
+
+def test_default_block_size():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
+    maxmemory = used_memory + 800000
+    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
+    currIdx = 0
+    exp_block_size = maxmemory // 10 // (128*4) # limit * 10% / dim * size of float
+
+    env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32',
+                                        'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0))
+    env.assertLessEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
+    currIdx+=1
+
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
+    maxmemory = used_memory + 800000
+    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
+    env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                                        'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0))
+    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    # exp_block_size = maxmemory // 10 // (128*4) # limit * 10% / dim * size of float
+    # env.assertLessEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
+    currIdx+=1
+
+def test_VSS_MAX_RESIZE_MB_config():
+    # test block size with VSS_MAX_RESIZE_MB configure
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
+    maxmemory = used_memory * 5
+    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
+    currIdx = 0
+    block_size = maxmemory // (16*4) // 2 # half of memory limit divided by blob size
+
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
+                'Vector index block size ' + str(block_size) + ' exceeded server limit')
+    currIdx+=1
+    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
+    #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
+    #            'Vector index block size ' + str(block_size) + ' exceeded server limit')
     # currIdx+=1
 
-    # test default block size
-    if not env.isCluster():
-        used_memory = int(env.cmd('info', 'memory')['used_memory'])
-        maxmemory = used_memory + 800000
-        conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
-        env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32',
-                                          'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0))
-        exp_block_size = maxmemory // 10 // (128*4) # limit * 10% / dim * size of float
-        env.assertLessEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
-        currIdx+=1
+    env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE_MB', '30')
 
-        used_memory = int(env.cmd('info', 'memory')['used_memory'])
-        maxmemory = used_memory + 800000
-        conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
-        env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                                          'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0))
-        # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # exp_block_size = maxmemory // 10 // (128*4) # limit * 10% / dim * size of float
-        # env.assertLessEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
-        currIdx+=1
-
-    # test block size with VSS_MAX_RESIZE_MB configure
-    if not env.isCluster():
-        used_memory = int(env.cmd('info', 'memory')['used_memory'])
-        maxmemory = used_memory * 5
-        conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
-        block_size = maxmemory // (16*4) // 2 # half of memory limit divided by blob size
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
-                   'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-                   'Vector index block size exceeded server limit')
-        currIdx+=1
-        # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
-        #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-        #            'Vector index block size exceeded server limit')
-        # currIdx+=1
-
-        env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE_MB', '30')
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
-                   'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
-        currIdx+=1
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    # currIdx+=1
+    # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
+    #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
