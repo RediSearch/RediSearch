@@ -124,7 +124,8 @@ typedef struct {
   tm_len_t prefixLen;
 } TrieMapIterator;
 
-void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, bool found);
+void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, tm_len_t stringOffset,
+                tm_len_t globalOffset, bool found);
 void __tmi_Pop(TrieMapIterator *it);
 
 /* Iterate the trie for all the suffixes of a given prefix. This returns an

@@ -555,7 +555,7 @@ inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, tm_len_t stringOf
       .found = found,
       .visited = false,
       .stringOffset = stringOffset,
-      .globalOffset = globalOffset;
+      .globalOffset = globalOffset,
       .n = node,
       .state = TM_ITERSTATE_SELF,
   };
@@ -564,7 +564,7 @@ inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, tm_len_t stringOf
 
 inline void __tmi_Pop(TrieMapIterator *it) {
   __tmi_stackNode *current = __tmi_current(it);
-  it->buf = array_trimm_len(it->buf, 1);
+  it->buf = array_trimm_len(it->buf, current->stringOffset);
   array_pop(it->stack);
 }
 
@@ -917,7 +917,7 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
         char b = current->n->str[current->stringOffset];
         it->buf = array_ensure_append_1(it->buf, b);
         
-        match = (b == it->prefix[current->globalOffset]
+        match = (b == it->prefix[current->globalOffset]);
         // Next char matches
         if (match) {
           if (current->globalOffset + 1 == it->prefixLen) { // full match
