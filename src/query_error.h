@@ -44,7 +44,9 @@ extern "C" {
   X(QUERY_ENODISTRIBUTE, "Could not distribute the operation")                  \
   X(QUERY_EUNSUPPTYPE, "Unsupported index type")                                \
   X(QUERY_ENOTNUMERIC, "Could not convert value to a number")                   \
-  X(QUERY_ENOPARAM, "Parameter not found")
+  X(QUERY_ENOPARAM, "Parameter not found")                                      \
+  X(QUERY_EBADVECSIMPOLICY, "Incompatible hybrid policy attributes")            \
+  X(QUERY_EBADVECSIMATTR, "Invalid value was given")
 
 typedef enum {
   QUERY_OK = 0,
