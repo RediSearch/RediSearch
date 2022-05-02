@@ -1076,7 +1076,6 @@ def test_system_memory_limits():
     conn = getConnectionByEnv(env)
 
     system_memory = int(env.cmd('info', 'memory')['total_system_memory'])
-    used_memory = int(env.cmd('info', 'memory')['used_memory'])
     currIdx = 0
 
     # OK parameters
