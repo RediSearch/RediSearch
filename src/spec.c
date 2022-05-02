@@ -50,16 +50,16 @@ bool isCrdt;
 bool isTrimming = false;
 
 // Default values make no limits.
-size_t memoryLimit = -1;
-size_t used_memory = 0;
+unsigned long long memoryLimit = -1;
+unsigned long long used_memory = 0;
 
 //---------------------------------------------------------------------------------------------
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
   RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
 
-  size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
-  size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
+  unsigned long long maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  unsigned long long total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
   memoryLimit = (maxmemory && (maxmemory < total_system_memory)) ? maxmemory : total_system_memory;
 
   used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
@@ -466,15 +466,15 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   // Calculating expected blob size of a vector in bytes.
   fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.hnswParams.type);
   // Calculating max block size (in # of vectors), according to memory limits
-  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
+  unsigned long long maxBlockSize = BLOCK_MEMORY_LIMIT / VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
   // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
   if (fs->vectorOpts.vecSimParams.hnswParams.blockSize == 0) {
     fs->vectorOpts.vecSimParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   }
   if (VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams) > memoryLimit - used_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters", memoryLimit);
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%lluB) with the given parameters", memoryLimit);
     return 0;
-  } else if (fs->vectorOpts.vecSimParams.hnswParams.blockSize  > maxBlockSize) {
+  } else if ((unsigned long long)fs->vectorOpts.vecSimParams.hnswParams.blockSize  > maxBlockSize) {
     // TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     // QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
     // return 0;
@@ -555,9 +555,9 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   }
   // Calculating expected blob size of a vector in bytes.
   fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.bfParams.type);
-  size_t elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
+  unsigned long long elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
   // Calculating max block size (in # of vectors), according to memory limits
-  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
+  unsigned long long maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
   // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
   if (fs->vectorOpts.vecSimParams.bfParams.blockSize == 0) {
     fs->vectorOpts.vecSimParams.bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
@@ -565,11 +565,19 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   // Calculating index size estimation, after first vector block was allocated.
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams);
   index_size_estimation += elementSize * fs->vectorOpts.vecSimParams.bfParams.blockSize;
-  if (index_size_estimation > memoryLimit - used_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters", memoryLimit);
+
+  RedisModule_Log(NULL, "warning", "memory limit is %llu\n", memoryLimit);
+  RedisModule_Log(NULL, "warning", "used memory is %llu\n", used_memory);
+  RedisModule_Log(NULL, "warning", "element size is %llu\n", elementSize);
+  RedisModule_Log(NULL, "warning", "max block size is %llu\n", maxBlockSize);
+  RedisModule_Log(NULL, "warning", "block size is %zu\n",fs->vectorOpts.vecSimParams.bfParams.blockSize);
+  RedisModule_Log(NULL, "warning", "index size estimation is %zu\n", index_size_estimation);
+
+  if ((unsigned long long)index_size_estimation > memoryLimit - used_memory) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%lluB) with the given parameters", memoryLimit);
     return 0;
-  } else if (fs->vectorOpts.vecSimParams.bfParams.blockSize > maxBlockSize) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
+  } else if ((unsigned long long)fs->vectorOpts.vecSimParams.bfParams.blockSize > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%llu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
     return 0;
   }
   return 1;
