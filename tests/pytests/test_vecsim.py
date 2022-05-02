@@ -1104,15 +1104,16 @@ def test_system_memory_limits():
     currIdx+=1
 
     # Block size with no configuration limits fails
+    block_size = system_memory // (16*4) // 9 # memory needed for this block size is more than 10% of system memory
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
-               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', system_memory // 100).error().contains(
-               'Vector index block size ' + str(system_memory // 100) + ' exceeded server limit')
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).error().contains(
+               'Vector index block size ' + str(block_size) + ' exceeded server limit')
     currIdx+=1
 
     # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
-    #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', system_memory // 100).error().contains(
-    #            'Vector index block size exceeded server limit')
+    #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).error().contains(
+    #            'Vector index block size ' + str(block_size) + ' exceeded server limit')
 
 def test_redis_memory_limits():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1177,7 +1178,7 @@ def test_default_block_size():
     # env.assertLessEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
     currIdx+=1
 
-def test_VSS_MAX_RESIZE_MB_config():
+def test_redisearch_memory_limit():
     # test block size with VSS_MAX_RESIZE_MB configure
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     env.skipOnCluster()
