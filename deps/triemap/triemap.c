@@ -903,42 +903,120 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
   return 0;
 }
 
+// main loop
+// partial match algo
+// full match algo - return all children or suffixes
+
+int __matchs_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
+  return TrieMapIterator_Next(it->matchIter, ptr, len, value);
+}
+
+int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_t *len, void **value) {
+  int rv = 0;
+  size_t compareLen;                    // number of chars to compare in current node
+  int termOffset = 1;                   // number of chars matched. there is match for the first char
+  TrieMapNode *n = sn->n;
+  int localOffset = sn->stringOffset;
+
+  while (termOffset < it->prefixLen) {
+    size_t globalRemain = it->prefixLen - termOffset;
+    size_t localRemain = n->len - localOffset;
+    
+    compareLen = MIN(localRemain, globalRemain);
+
+    if (strncmp(&n->str[localOffset], &it->prefix[termOffset], compareLen)) {
+      goto end;
+    }
+    termOffset += compareLen;
+
+    // go to next child if matches
+    bool found = false;
+    if (termOffset < it->prefixLen) {
+      for (int i = 0; i < n->numChildren; ++i) {
+        if (*__trieMapNode_childKey(n, i) == it->prefix[termOffset]) {
+          n = __trieMapNode_children(n)[i];
+          localOffset = 0;
+          found = true;
+          break;
+        }
+      }
+      // children do not match
+      if (!found) goto end;
+    }
+  }
+  assert(termOffset == it->prefixLen);
+
+  // in suffix mode we return only an exact terminal node
+  if (it->mode == TM_SUFFIX_MODE) {
+    if (compareLen == n->len && __trieMapNode_isTerminal(n)) {
+      it->buf = array_ensure_append_n(it->buf, it->prefix + 1, it->prefixLen - 1);
+      *ptr = it->buf;
+      *len = array_len(it->buf);
+      *value = n->value;
+      array_trimm_len(it->buf, termOffset - 1); // shrink back w/o changing releasing the memory
+      rv = 1;
+    }
+    goto end;
+  }
+  
+  rv = 1;
+  // set iterator to be used with TrieMapIterator_Next
+  TrieMapIterator *iter = it->matchIter = rm_calloc(1, sizeof(*it->matchIter));
+  // copy string to new buffer
+  iter->buf = array_ensure_append_n(iter->buf, it->buf, array_len(it->buf));
+  iter->buf = array_ensure_append_n(iter->buf, it->prefix + 1, it->prefixLen - 1);
+  if (compareLen < n->len) {
+    iter->buf = array_ensure_append_n(iter->buf, n->str + compareLen, n->len - compareLen);
+  }
+  iter->stack = array_new(__tmi_stackNode, 8);
+  __tmi_Push(iter, n, n->len, 0, true);
+  iter->prefix = "";
+  iter->prefixLen = 0;
+  
+  // return current node values
+  *ptr = iter->buf;
+  *len = array_len(iter->buf);
+  *value = n->value;
+
+end:
+  return rv;
+}
+
 int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
+  // TODO: exit on timeout
+
+  TrieMapIterator *iter = it->matchIter;
+  if (iter) {
+    if (__matchs_Next(it, ptr, len, value)) {
+      return 1;
+    }
+    array_free(iter->buf);
+    array_free(iter->stack);
+    rm_free(iter);
+    it->matchIter = NULL;
+    return 0;
+  }
+
   while (array_len(it->stack) > 0) {
     __tmi_stackNode *current = __tmi_current(it);
     TrieMapNode *n = current->n;
     int match = 0;
 
-    // TODO: exit on timeout
 
     if (current->state == TM_ITERSTATE_SELF) {
       // more chars on node string
       if (current->stringOffset < n->len) {
-        char b = current->n->str[current->stringOffset];
+        char b = current->n->str[current->stringOffset++];
         it->buf = array_ensure_append_1(it->buf, b);
-        
-        match = (b == it->prefix[current->globalOffset]);
-        // Next char matches
+        match = (b == it->prefix[0]);
+
         if (match) {
-          if (current->globalOffset + 1 == it->prefixLen) { // full match
-            current->found = true;
-            // if prefix
-            // if suffix
-          } else { // partial match
-            __tmi_Push(it, n, current->stringOffset + 1, current->globalOffset + 1, false);
-            goto next;
+          int res = __partial_Next(it, current, ptr, len, value);
+          if (res == 1) {
+            return 1;
           }
         }
-
-        // no match
-        // remove found chars
-        if (current->globalOffset > 0) {
-          for (int i = 0; i < current->globalOffset; ++i) {
-            __tmi_Pop(it);
-          }
-        }
-        goto pop;
-
+        goto next;
       // node string is complete
       } else {
         current->state = TM_ITERSTATE_CHILDREN;
@@ -951,22 +1029,13 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
         TrieMapNode *ch = __trieMapNode_children(n)[current->childOffset++];
 
         // Add the matching child to the stack
-        __tmi_Push(it, ch, 0, current->globalOffset, current->found);
+        __tmi_Push(it, ch, 0, 0, current->found);
 
         goto next;        
       }
     }
-    current->visited = true;
   
-  pop:
-    // if hasn't visited yet, push next char
-    if (current->visited) {
-      __tmi_Pop(it);
-    } else {
-      current->visited = true;
-      __tmi_Push(it, n, current->stringOffset + 1, 0, false);
-    }
-  
+    __tmi_Pop(it); 
   next:
     continue;
   }

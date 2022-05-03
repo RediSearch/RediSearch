@@ -109,19 +109,33 @@ typedef struct {
   int state;
   bool found;
   bool visited;
+  bool matched;
   TrieMapNode *n;
   tm_len_t stringOffset;
   tm_len_t childOffset;
   tm_len_t globalOffset;
+
+
 } __tmi_stackNode;
 
-typedef struct {
+typedef enum {
+  TM_PREFIX_MODE,
+  TM_CONTAINS_MODE,
+  TM_SUFFIX_MODE,
+} tm_iter_mode;
+
+typedef struct TrieMapIterator{
   arrayof(char) buf;
 
   arrayof(__tmi_stackNode) stack;
+  arrayof(__tmi_stackNode) matchStack;
 
   const char *prefix;
   tm_len_t prefixLen;
+
+  tm_iter_mode mode;
+
+  struct TrieMapIterator *matchIter;
 } TrieMapIterator;
 
 void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, tm_len_t stringOffset,
