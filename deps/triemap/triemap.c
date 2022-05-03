@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include "util/bsearch.h"
 #include "util/arr.h"
+#include "rmutil/rm_assert.h"
 
 void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
@@ -575,6 +576,7 @@ TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t len) {
   it->stack = array_new(__tmi_stackNode, 8);
   it->prefix = prefix;
   it->prefixLen = len;
+  it->mode = TM_PREFIX_MODE;
 
   __tmi_Push(it, t->root, 0, 0, false);
 
@@ -913,14 +915,15 @@ int __matchs_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) 
 
 int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_t *len, void **value) {
   int rv = 0;
-  size_t compareLen;                    // number of chars to compare in current node
-  int termOffset = 1;                   // number of chars matched. there is match for the first char
+  tm_len_t compareLen;                    // number of chars to compare in current node
+  tm_len_t termOffset = 1;                // number of chars matched. there is match for the first char
+  tm_len_t localOffset = sn->stringOffset;
+  tm_len_t origBufLen = array_len(it->buf);
   TrieMapNode *n = sn->n;
-  int localOffset = sn->stringOffset;
 
   while (termOffset < it->prefixLen) {
-    size_t globalRemain = it->prefixLen - termOffset;
-    size_t localRemain = n->len - localOffset;
+    tm_len_t globalRemain = it->prefixLen - termOffset;
+    tm_len_t localRemain = n->len - localOffset;
     
     compareLen = MIN(localRemain, globalRemain);
 
@@ -929,7 +932,7 @@ int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_
     }
     termOffset += compareLen;
 
-    // go to next child if matches
+    // go to next child that matches
     bool found = false;
     if (termOffset < it->prefixLen) {
       for (int i = 0; i < n->numChildren; ++i) {
@@ -944,16 +947,18 @@ int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_
       if (!found) goto end;
     }
   }
-  assert(termOffset == it->prefixLen);
+  RS_LOG_ASSERT(termOffset == it->prefixLen, "oops");
 
   // in suffix mode we return only an exact terminal node
   if (it->mode == TM_SUFFIX_MODE) {
-    if (compareLen == n->len && __trieMapNode_isTerminal(n)) {
+    if ((compareLen + localOffset == n->len) && __trieMapNode_isTerminal(n)) {
       it->buf = array_ensure_append_n(it->buf, it->prefix + 1, it->prefixLen - 1);
       *ptr = it->buf;
       *len = array_len(it->buf);
       *value = n->value;
-      array_trimm_len(it->buf, termOffset - 1); // shrink back w/o changing releasing the memory
+      tm_len_t trimBy = termOffset - 1;
+      //array_trimm_len(it->buf, termOffset - 1); // shrink back w/o changing releasing the memory
+      array_trimm(it->buf, origBufLen, -1); // shrink back w/o changing releasing the memory
       rv = 1;
     }
     goto end;
@@ -965,18 +970,15 @@ int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_
   // copy string to new buffer
   iter->buf = array_ensure_append_n(iter->buf, it->buf, array_len(it->buf));
   iter->buf = array_ensure_append_n(iter->buf, it->prefix + 1, it->prefixLen - 1);
-  if (compareLen < n->len) {
-    iter->buf = array_ensure_append_n(iter->buf, n->str + compareLen, n->len - compareLen);
+  if (compareLen + localOffset < n->len) {
+    iter->buf = array_ensure_append_n(iter->buf, n->str + compareLen + localOffset,
+                                                 n->len - compareLen - localOffset);
   }
   iter->stack = array_new(__tmi_stackNode, 8);
   __tmi_Push(iter, n, n->len, 0, true);
   iter->prefix = "";
   iter->prefixLen = 0;
-  
-  // return current node values
-  *ptr = iter->buf;
-  *len = array_len(iter->buf);
-  *value = n->value;
+  __matchs_Next(it, ptr, len, value);
 
 end:
   return rv;
@@ -993,8 +995,7 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
     array_free(iter->buf);
     array_free(iter->stack);
     rm_free(iter);
-    it->matchIter = NULL;
-    return 0;
+    it->matchIter = NULL;    //goto pop;
   }
 
   while (array_len(it->stack) > 0) {

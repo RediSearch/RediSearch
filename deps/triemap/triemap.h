@@ -159,6 +159,11 @@ void TrieMapIterator_Free(TrieMapIterator *it);
  * or 0 if we're done and should exit */
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
 
+/* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
+ * or 0 if we're done and should exit */
+int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
+int TrieMapIterator_NextSuffix(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
+
 typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
 void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool includeMin,
