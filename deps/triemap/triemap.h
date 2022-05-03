@@ -9,6 +9,10 @@
 
 #include "util/arr.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef uint16_t tm_len_t;
 
 #define TM_NODE_DELETED 0x01
@@ -160,5 +164,9 @@ typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
 void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool includeMin,
                           const char *max, int maxlen, bool includeMax,
                           TrieMapRangeCallback callback, void *ctx);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

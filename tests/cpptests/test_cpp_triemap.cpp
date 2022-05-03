@@ -52,6 +52,8 @@ TrieMap *loadTrieMap() {
   return t;
 }
 
+void freeCb(void *val) {}
+
 /**
  * This test ensures that the stack isn't overflown from all the frames.
  * The maximum trie depth cannot be greater than the maximum length of the
@@ -59,17 +61,29 @@ TrieMap *loadTrieMap() {
  */
 TEST_F(TrieMapTest, testPrefix) {
   TrieMap *t = loadTrieMap();
-  TrieMapIterator *it = TrieMap_Iterate(t, "hel", strlen("hel"));
   
   char *ptr;
   tm_len_t len;
   void *val;
   int numRes = 0;
   
+  TrieMapIterator *it = TrieMap_Iterate(t, "hel", strlen("hel"));
   while (TrieMapIterator_Next(it, &ptr, &len, &val)) {
+    printf("%s\n", ptr);
     ++numRes;
   }
   ASSERT_EQ(numRes, 5);
+  TrieMapIterator_Free(it);
 
-  TrieMap_Free(t, NULL);
+
+  it = TrieMap_Iterate(t, "he", strlen("he"));
+  while (TrieMapIterator_Next(it, &ptr, &len, &val)) {
+    ptr[len] = '\0';
+    printf("%s\n", ptr);
+    ++numRes;
+  }
+  ASSERT_EQ(numRes, 5);
+  TrieMapIterator_Free(it);
+
+  TrieMap_Free(t, freeCb);
 }
