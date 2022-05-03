@@ -150,13 +150,22 @@ pack_ramp() {
 		exit 1
 	else
 		local packname=`cat /tmp/ramp.fname`
+		echo "Created $packname"
 	fi
 
 	$ramp pack -m /tmp/ramp.yml $RAMP_ARGS -n $MODULE_NAME --verbose --debug \
 		--packname-file /tmp/ramp.fname -o $packfile_debug \
 		$MODULE_SO.debug >/tmp/ramp.err 2>&1 || true
 
-	echo "Created $packname"
+	if [[ ! -e $packfile_debug ]]; then
+		eprint "Error generating RAMP file:"
+		>&2 cat /tmp/ramp.err
+		exit 1
+	else
+		local packname=`cat /tmp/ramp.fname`
+		echo "Created $packname"
+	fi
+
 	cd $ROOT
 }
 
