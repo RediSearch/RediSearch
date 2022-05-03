@@ -21,7 +21,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 VERBOSE = 0
 NOP = False
 OPERETO3_URL = "opereto.qa.redislabs.com"
-DEFAULT_JSON_VER = '2.0.7'
+DEFAULT_JSON_VER = '2.0.8'
 
 
 RLEC_PLATFORMS = {
@@ -33,16 +33,26 @@ RLEC_PLATFORMS = {
         'env': 'bionic-amd64-aws' },
     'centos7': {
         'os': 'Linux-rhel7',
-        'env': 'rhel7.9-x86_64-aws' },
+        'env': 'rhel7.7-x86_64-aws' },
     'centos8': {
         'os': 'Linux-rhel8',
-        'env': 'rhel8-x86_64-aws',
+        'env': 'rhel8.5-x86_64-aws',
         'run': False },
     'rocky8': {
         'os': 'Linux-rhel8',
-        'env': 'rhel8-x86_64-aws' }
+        'env': 'rhel8.5-x86_64-aws' }
 }
 
+RLEC_VER_ENVS = {
+    '6.0.8': ['xenial', 'bionic', 'centos7'],
+    '6.0.12': ['xenial', 'bionic', 'centos7'],
+    '6.0.20': ['xenial', 'bionic', 'centos7'],
+    '6.2.4': ['xenial', 'bionic', 'centos7'],
+    '6.2.8': ['xenial', 'bionic', 'centos7', 'rocky8'],
+    '6.2.10': ['xenial', 'bionic', 'centos7', 'rocky8'],
+    '6.2.12': ['xenial', 'bionic', 'centos7', 'rocky8'],
+    '100.0.0': ['xenial', 'bionic', 'centos7', 'rocky8']
+}
 
 class Command1(click.Command):
     def header(self):
@@ -85,6 +95,7 @@ class Test:
         self.snapshot = snapshot
         self.jsonver = jsonver
         self.rlecver = rlecver
+        self.rlecver_base = re.sub(r'^([^-]*)-.*', r'\1', rlecver)
         self.osnick = osnick
         self.light = light
         self.vecsim = vecsim
@@ -96,10 +107,7 @@ class Test:
         if not light:
             ENV['SEARCH_FILE_PREFIX'] = 'redisearch'
             ENV['SEARCH_DOWNLOAD_NAME'] = 'search'
-            if not vecsim:
-                ENV['SEARCH_TEST_NAME'] = 'RediSearchEnterprise'
-            else:
-                ENV['SEARCH_TEST_NAME'] = 'RediSearchVecsim'
+            ENV['SEARCH_TEST_NAME'] = 'RediSearchEnterprise'
         else:
             ENV['SEARCH_FILE_PREFIX'] = 'redisearch-light'
             ENV['SEARCH_DOWNLOAD_NAME'] = 'searchlight'
@@ -115,29 +123,45 @@ class Test:
         ENV['REJSON_DIR'] = 'rejson'
         ENV['REJSON_FILE_PREFIX'] = 'rejson'
 
+        ENV['SEARCH_VECSIM'] = 'true' if vecsim else 'false'
+
         self.xtx_vars = ['SEARCH_VERSION', 'SEARCH_DIR', 'SEARCH_FILE_PREFIX',
-                         'SEARCH_TEST_NAME', 'SEARCH_DOWNLOAD_NAME',
-                         'RLEC_VERSION', 'RLEC_ENV', 'RLEC_OS', 'RLEC_ARCH',
+                         'SEARCH_TEST_NAME', 'SEARCH_DOWNLOAD_NAME', 'SEARCH_VECSIM',
+                         'RLEC_VERSION', 'RLEC_ENVS', 'RLEC_ARCH',
                          'REJSON_VERSION', 'REJSON_DIR', 'REJSON_FILE_PREFIX']
 
     def run(self):
+        if VERBOSE:
+            click.echo(f"{self.module_name}/{self.modver} for RS {self.rlecver}:")
+        rlec_envs = ""
+        if self.rlecver_base in RLEC_VER_ENVS:
+            envs = RLEC_VER_ENVS[self.rlecver_base]
+        else:
+            envs = RLEC_PLATFORMS.keys()
         found_osnick = False
-        click.echo(f"Testing {self.module_name}/{self.modver} for RS {self.rlecver}:")
-        for osnick in RLEC_PLATFORMS.keys():
+        for osnick in envs:
             if self.osnick is None:
                 if 'run' in RLEC_PLATFORMS[osnick] and RLEC_PLATFORMS[osnick]['run'] is False:
                     continue
             if self.osnick is None or osnick == self.osnick:
                 found_osnick = True
-                rlec_os = RLEC_PLATFORMS[osnick]['os']
                 rlec_env = RLEC_PLATFORMS[osnick]['env']
-                self.run_for_os(rlec_os, rlec_env)
+                env_spec = """
+                    {{
+                      "teardown": true,
+                      "name": "{rlec_env}",
+                      "concurrency": 1
+                    }}
+                    """.format(rlec_env=rlec_env)
+                rlec_envs +=  (",\n" if rlec_envs != "" else "") + env_spec
         if not found_osnick:
-            click.echo(f"    osnick {osnick}: not found")
+            ret = f"error: osnick {osnick}: not found"
+        else:
+            ret = self.run_envs(rlec_envs)
+        click.echo(f"{self.module_name}/{self.modver} for RS {self.rlecver}: {ret}")
 
-    def run_for_os(self, rlec_os, rlec_env):
-        ENV['RLEC_OS'] = rlec_os
-        ENV['RLEC_ENV'] = rlec_env
+    def run_envs(self, rlec_envs):
+        ENV['RLEC_ENVS'] = rlec_envs
 
         global NOP, VERBOSE
         var_args = ' '.join(map(lambda v: f"-e {v}", self.xtx_vars))
@@ -159,26 +183,22 @@ class Test:
             fatal(x)
 
         if NOP:
-            click.echo(f"    {rlec_os}: https://{OPERETO3_URL}/ui#dashboard/flow/...")
-            return 0
+            return f"https://{OPERETO3_URL}/ui#dashboard/flow/..."
 
         res = requests.post(f"https://{OPERETO3_URL}/processes", verify=False,
                             headers={'Authorization': f'Bearer {self.token}',
                                      'Content-Type': 'application/json'},
                             data=rest)
         if not res.ok:
-            click.echo(f"    {rlec_os}: error: {res.reason} [{res.status_code}]")
-            return 1
+            return f"error: {res.reason} [{res.status_code}]"
+
         j = json.loads(res.content)
         if j['status'] != 'success':
             err = j['text']
-            click.echo(f"    {rlec_os}: error: {err}")
-            return 1
+            return f"error: {err}"
 
         self.id = j['data'][0]
-        # click.echo(f"Tests running on {desc}")
-        click.echo(f"    {rlec_os}: https://{OPERETO3_URL}/ui#dashboard/flow/{self.id}")
-        return 0
+        return f"https://{OPERETO3_URL}/ui#dashboard/flow/{self.id}"
 
 
 @click.command(help='Invoke QA Automation tests', cls=Command1)
