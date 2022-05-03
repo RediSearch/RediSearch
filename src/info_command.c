@@ -217,19 +217,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   REPLY_KVNUM(n, "indexing", !!global_spec_scanner || sp->scan_in_progress);
 
-  double percent_indexed;
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  if (scanner || sp->scan_in_progress) {
-    if (scanner) {
-      percent_indexed =
-          scanner->totalKeys > 0 ? (double)scanner->scannedKeys / scanner->totalKeys : 0;
-    } else {
-      percent_indexed = 0;
-    }
-  } else {
-    percent_indexed = 1.0;
-  }
-
+  double percent_indexed = IndexesScanner_IndexedPrecent(scanner, sp);
   REPLY_KVNUM(n, "percent_indexed", percent_indexed);
 
   if (sp->gc) {

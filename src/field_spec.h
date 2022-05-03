@@ -117,6 +117,11 @@ typedef struct FieldSpec {
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
+/**
+ * Check the type of the the given field and update RSGlobalConfig.fieldsStats
+ * according to the givan toAdd value.
+ */
+void FieldSpec_UpdateGlobalStat(FieldSpec *fs, int toAdd);
 
 RSValueType fieldTypeToValueType(FieldType ft);
 

@@ -608,7 +608,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     }
   }
   IndexSpec_AddFields(sp, ctx, &ac, initialScan, &status);
-  UpdateGlobalFieldsStat(sp->fields + (sp->numFields - 1), 1);
+  FieldSpec_UpdateGlobalStat(sp->fields + (sp->numFields - 1), 1);
   if (QueryError_HasError(&status)) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {

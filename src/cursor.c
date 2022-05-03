@@ -313,6 +313,20 @@ void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) 
   CursorList_Unlock(cl);
 }
 
+void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInfoCtx *ctx) {
+  CursorList_Lock(cl);
+  CursorSpecInfo *info = findInfo(cl, name, NULL);
+
+  RedisModule_InfoBeginDictField(ctx, "cursor_stats");
+  RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
+  RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup));
+  RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", info->cap);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_total", info->used);
+  RedisModule_InfoEndDictField(ctx);
+
+  CursorList_Unlock(cl);
+}
+
 static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
   CursorSpecInfo *info = arg;
   if (cur->specInfo != info) {

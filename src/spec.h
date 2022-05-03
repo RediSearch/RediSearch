@@ -95,7 +95,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
                                       [IXFLDPOS_TAG] = SPEC_TAG_STR,
                                       [IXFLDPOS_VECTOR] = SPEC_VECTOR_STR};
 
-// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace 
+// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
@@ -326,7 +326,7 @@ typedef struct IndexSpecCache {
 void Spec_AddToDict(const IndexSpec *spec);
 
 /**
- * compare redis versions
+ * Compare redis versions
  */
 int CompareVestions(Version v1, Version v2);
 
@@ -531,6 +531,8 @@ typedef struct IndexesScanner {
   size_t scannedKeys, totalKeys;
   bool cancelled;
 } IndexesScanner;
+
+double IndexesScanner_IndexedPrecent(IndexesScanner *scanner, IndexSpec *sp);
 
 //---------------------------------------------------------------------------------------------
 

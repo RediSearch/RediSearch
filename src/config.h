@@ -45,6 +45,7 @@ typedef struct {
   size_t numTagFieldsSortable;
   size_t numTagFieldsNoIndex;
   size_t numTagFieldsCaseSensitive;
+  size_t numVectorFields;
   size_t numVectorFieldsFlat;
   size_t numVectorFieldsHSNW;
 } FieldsGlobalStats;

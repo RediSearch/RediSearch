@@ -1397,6 +1397,19 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
   RedisModule_ReplySetArrayLength(ctx, n);
 }
 
+static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
+  ForkGC *gc = gcCtx;
+  RedisModule_InfoBeginDictField(ctx, "gc_stats");
+  RedisModule_InfoAddFieldLongLong(ctx, "bytes_collected", gc->stats.totalCollected);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_ms_run", gc->stats.totalMSRun);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_cycles", gc->stats.numCycles);
+  RedisModule_InfoAddFieldDouble(ctx, "average_cycle_time_ms", (double)gc->stats.totalMSRun / gc->stats.numCycles);
+  RedisModule_InfoAddFieldDouble(ctx, "last_run_time_ms", (double)gc->stats.lastRunTimeMs);
+  RedisModule_InfoAddFieldDouble(ctx, "gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
+  RedisModule_InfoAddFieldDouble(ctx, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
+  RedisModule_InfoEndDictField(ctx);
+}
+
 static void killCb(void *ctx) {
   ForkGC *gc = ctx;
   gc->deleting = 1;
@@ -1431,6 +1444,7 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   callbacks->onTerm = onTerminateCb;
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
+  callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;
   callbacks->kill = killCb;
   callbacks->onDelete = deleteCb;

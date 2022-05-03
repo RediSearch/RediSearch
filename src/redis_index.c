@@ -485,7 +485,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx->redisCtx, dmd->keyPtr));
   }
   for (int i = 0; i < spec->numFields; i++) {
-    UpdateGlobalFieldsStat(spec->fields + i, -1);
+    FieldSpec_UpdateGlobalStat(spec->fields + i, -1);
   }
   IndexSpec_FreeInternals(spec);
   return REDISMODULE_OK;

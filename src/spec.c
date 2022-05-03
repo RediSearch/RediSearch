@@ -209,6 +209,18 @@ static void Indexes_SetTempSpecsTimers() {
   dictReleaseIterator(iter);
 }
 
+double IndexesScanner_IndexedPrecent(IndexesScanner *scanner, IndexSpec *sp) {
+  if (scanner || sp->scan_in_progress) {
+    if (scanner) {
+      return scanner->totalKeys > 0 ? (double)scanner->scannedKeys / scanner->totalKeys : 0;
+    } else {
+      return 0;
+    }
+  } else {
+    return 1.0;
+  }
+}
+
 //---------------------------------------------------------------------------------------------
 
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -772,39 +784,6 @@ reset:
   return 0;
 }
 
-void UpdateGlobalFieldsStat(FieldSpec *fs, int toAdd) {
-  if (fs->types & INDEXFLD_T_FULLTEXT) {  // text field
-    RSGlobalConfig.fieldsStats.numTextFields += toAdd;
-  } else if (fs->types & INDEXFLD_T_NUMERIC) {  // numeric field
-    RSGlobalConfig.fieldsStats.numNumericFields += toAdd;
-  } else if (fs->types & INDEXFLD_T_GEO) {  // geo field
-    RSGlobalConfig.fieldsStats.numGeoFields += toAdd;
-  } else if (fs->types & INDEXFLD_T_VECTOR) {  // vector field
-    if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_BF)
-      RSGlobalConfig.fieldsStats.numVectorFieldsFlat += toAdd;
-    else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB)
-      RSGlobalConfig.fieldsStats.numVectorFieldsHSNW += toAdd;
-  } else if (fs->types & INDEXFLD_T_TAG) {  // tag field
-    RSGlobalConfig.fieldsStats.numTagFields += toAdd;
-    if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
-      RSGlobalConfig.fieldsStats.numTagFieldsCaseSensitive += toAdd;
-    }
-  }
-
-  if (fs->options & FieldSpec_Sortable) {
-    if (fs->types & INDEXFLD_T_FULLTEXT) RSGlobalConfig.fieldsStats.numTextFieldsSortable += toAdd;
-    else if (fs->types & INDEXFLD_T_NUMERIC) RSGlobalConfig.fieldsStats.numNumericFieldsSortable += toAdd;
-    else if (fs->types & INDEXFLD_T_GEO) RSGlobalConfig.fieldsStats.numGeoFieldsSortable += toAdd;
-    else if (fs->types & INDEXFLD_T_TAG) RSGlobalConfig.fieldsStats.numTagFieldsSortable += toAdd;
-  }
-  if (fs->options & FieldSpec_NotIndexable) {
-    if (fs->types & INDEXFLD_T_FULLTEXT) RSGlobalConfig.fieldsStats.numTextFieldsNoIndex += toAdd;
-    else if (fs->types & INDEXFLD_T_NUMERIC) RSGlobalConfig.fieldsStats.numNumericFieldsNoIndex += toAdd;
-    else if (fs->types & INDEXFLD_T_GEO) RSGlobalConfig.fieldsStats.numGeoFieldsNoIndex += toAdd;
-    else if (fs->types & INDEXFLD_T_TAG) RSGlobalConfig.fieldsStats.numTagFieldsNoIndex += toAdd;
-  }
-}
-
 int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status) {
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
@@ -905,7 +884,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   }
 
   for (int i = 0; i < spec->numFields; i++) {
-    UpdateGlobalFieldsStat(spec->fields + i, 1);
+    FieldSpec_UpdateGlobalStat(spec->fields + i, 1);
   }
 
   return spec;
@@ -2010,7 +1989,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   }
 
   for (int i = 0; i < sp->numFields; i++) {
-    UpdateGlobalFieldsStat(sp->fields + i, 1);
+    FieldSpec_UpdateGlobalStat(sp->fields + i, 1);
   }
 
   return sp;
