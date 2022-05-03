@@ -1132,8 +1132,8 @@ def test_hybrid_query_change_policy():
     execute_hybrid_query(env, query_string, vectors[0], 'tag2',
                          hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal([0])
     # Ask explicitly to use AD-HOC policy.
-    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param HYBRID_POLICY ADHOC_BF]'
-    execute_hybrid_query(env, query_string, vectors[0], 'tag2', hybrid_mode='HYBRID_ADHOC_BF').equal([0])
+    query_string_adhoc_bf = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param HYBRID_POLICY ADHOC_BF]'
+    execute_hybrid_query(env, query_string_adhoc_bf, vectors[0], 'tag2', hybrid_mode='HYBRID_ADHOC_BF').equal([0])
 
     # Add one valid document and re-run the query (still expect to change to AD-HOC BF)
     # This doc should return in the first batch, and then it is removed and reinserted to the results heap

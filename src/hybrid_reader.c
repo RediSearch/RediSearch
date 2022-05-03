@@ -169,6 +169,38 @@ void computeDistances(HybridIterator *hr) {
   IndexResult_Free(cur_vec_res);
 }
 
+// Review the estimated child results num, and returns true if hybrid policy should change.
+static bool reviewHybridSearchPolicy(HybridIterator *hr, size_t n_res_left, size_t child_upper_bound,
+                                     size_t *child_num_estimated) {
+  // Re-evaluate the child num estimated results and the hybrid policy based on the current batch.
+  size_t new_results_cur_batch = heap_count(hr->topResults) - (hr->query.k - n_res_left);
+  // This is the ratio between index_size to child results size as reflected by this batch.
+  float cur_ratio = (float)new_results_cur_batch / n_res_left;
+  // Child estimated number of results as reflected by this batch.
+  size_t cur_child_num_estimated = cur_ratio * VecSimIndex_IndexSize(hr->index);
+  // Conclude the new estimation of the child res num as the average between the old
+  // and new estimation (get the accumulated estimation).
+  *child_num_estimated = (*child_num_estimated + cur_child_num_estimated) / 2;
+  if (*child_num_estimated > child_upper_bound) {
+    *child_num_estimated = child_upper_bound;
+  }
+  if ((VecSimSearchMode)hr->runtimeParams.searchMode == VECSIM_HYBRID_BATCHES) {
+    return false;
+  }
+  if (VecSimIndex_PreferAdHocSearch(hr->index, *child_num_estimated, hr->query.k, false)) {
+    // Change policy from batches to AD-HOC BF.
+    hr->searchMode = VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
+    // Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
+    while (heap_count(hr->topResults) > 0) {
+      IndexResult_Free(heap_poll(hr->topResults));
+    }
+    hr->child->Rewind(hr->child->ctx);
+    computeDistances(hr);
+    return true;
+  }
+  return false;
+}
+
 static void prepareResults(HybridIterator *hr) {
     if (hr->searchMode == VECSIM_STANDARD_KNN) {
       hr->list =
@@ -196,14 +228,12 @@ static void prepareResults(HybridIterator *hr) {
   size_t child_upper_bound = child_num_estimated;
   while (VecSimBatchIterator_HasNext(batch_it)) {
     hr->numIterations++;
-    size_t batch_size;
     size_t vec_index_size = VecSimIndex_IndexSize(hr->index);
     size_t n_res_left = hr->query.k - heap_count(hr->topResults);
     // If user requested explicitly a batch size, use it. Otherwise, compute optimal batch size
     // based on the ratio between child_num_estimated and the index size.
-    if (hr->runtimeParams.batchSize) {
-      batch_size = hr->runtimeParams.batchSize;
-    } else {
+    size_t batch_size = hr->runtimeParams.batchSize;
+    if (hr->runtimeParams.batchSize == 0) {
       batch_size = n_res_left * ((float)vec_index_size / child_num_estimated) + 1;
     }
     if (hr->list) {
@@ -222,37 +252,15 @@ static void prepareResults(HybridIterator *hr) {
     if (heap_count(hr->topResults) == hr->query.k) {
       break;
     }
+
     // If user asked explicitly to run in batches with a fixed batch size, continue immediately
     // to the next batch without revisiting the hybrid policy.
-    if (hr->runtimeParams.searchMode == VECSIM_HYBRID_BATCHES && hr->runtimeParams.batchSize) {
+    if ((VecSimSearchMode)hr->runtimeParams.searchMode == VECSIM_HYBRID_BATCHES && hr->runtimeParams.batchSize) {
       continue;
     }
-    // Re-evaluate the child num estimated results and the hybrid policy based on the current batch.
-    size_t new_results_cur_batch = heap_count(hr->topResults) - (hr->query.k - n_res_left);
-    // This is the ratio between index_size to child results size as reflected by this batch.
-    float cur_ratio = (float)new_results_cur_batch / n_res_left;
-    // Child estimated number of results as reflected by this batch.
-    size_t cur_child_num_estimated = cur_ratio * VecSimIndex_IndexSize(hr->index);
-    // Conclude the new estimation of the child res num as the average between the old
-    // and new estimation (get the accumulated estimation).
-    child_num_estimated = (child_num_estimated + cur_child_num_estimated) / 2;
-    if (child_num_estimated > child_upper_bound) {
-      child_num_estimated = child_upper_bound;
-    }
-    if (hr->runtimeParams.searchMode == VECSIM_HYBRID_BATCHES) {
-      continue;
-    }
-    if (VecSimIndex_PreferAdHocSearch(hr->index, child_num_estimated, hr->query.k, false)) {
-      // Change policy from batches to AD-HOC BF.
-      VecSimBatchIterator_Free(batch_it);
-      hr->searchMode = VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
-      // Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
-      while (heap_count(hr->topResults) > 0) {
-        IndexResult_Free(heap_poll(hr->topResults));
-      }
-      hr->child->Rewind(hr->child->ctx);
-      computeDistances(hr);
-      return;
+    if (reviewHybridSearchPolicy(hr, n_res_left, child_num_estimated, &child_num_estimated)) {
+      // Hybrid policy has changed to adhoc-bf, results are now prepared.
+      break;
     }
   }
   VecSimBatchIterator_Free(batch_it);
