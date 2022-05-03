@@ -112,14 +112,9 @@ size_t TrieMap_MemUsage(TrieMap *t);
 typedef struct {
   int state;
   bool found;
-  bool visited;
-  bool matched;
   TrieMapNode *n;
   tm_len_t stringOffset;
   tm_len_t childOffset;
-  tm_len_t globalOffset;
-
-
 } __tmi_stackNode;
 
 typedef enum {
@@ -143,7 +138,7 @@ typedef struct TrieMapIterator{
 } TrieMapIterator;
 
 void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, tm_len_t stringOffset,
-                tm_len_t globalOffset, bool found);
+                bool found);
 void __tmi_Pop(TrieMapIterator *it);
 
 /* Iterate the trie for all the suffixes of a given prefix. This returns an

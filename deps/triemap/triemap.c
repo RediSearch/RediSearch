@@ -550,13 +550,11 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
 
 /* Push a new trie node on the iterator's stack */
 inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, tm_len_t stringOffset,
-                       tm_len_t globalOffset, bool found) {
+                       bool found) {
   __tmi_stackNode stackNode = {
       .childOffset = 0,
-      .found = found,
-      .visited = false,
       .stringOffset = stringOffset,
-      .globalOffset = globalOffset,
+      .found = found,
       .n = node,
       .state = TM_ITERSTATE_SELF,
   };
@@ -578,7 +576,7 @@ TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t len) {
   it->prefixLen = len;
   it->mode = TM_PREFIX_MODE;
 
-  __tmi_Push(it, t->root, 0, 0, false);
+  __tmi_Push(it, t->root, 0, false);
 
   return it;
 }
@@ -887,7 +885,7 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
           if (!current->found) current->childOffset = nch;
 
           // Add the matching child to the stack
-          __tmi_Push(it, ch, 0, 0, current->found);
+          __tmi_Push(it, ch, 0, current->found);
 
           goto next;
         }
@@ -905,15 +903,11 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
   return 0;
 }
 
-// main loop
-// partial match algo
-// full match algo - return all children or suffixes
-
-int __matchs_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
+static int __fullmatch_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
   return TrieMapIterator_Next(it->matchIter, ptr, len, value);
 }
 
-int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_t *len, void **value) {
+static int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_t *len, void **value) {
   int rv = 0;
   tm_len_t compareLen;                    // number of chars to compare in current node
   tm_len_t termOffset = 1;                // number of chars matched. there is match for the first char
@@ -968,6 +962,9 @@ int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_
   // set iterator to be used with TrieMapIterator_Next
   TrieMapIterator *iter = it->matchIter = rm_calloc(1, sizeof(*it->matchIter));
   // copy string to new buffer
+  // 1. current buffer
+  // 2. affix string - 1
+  // 3. remainder of node string 
   iter->buf = array_ensure_append_n(iter->buf, it->buf, array_len(it->buf));
   iter->buf = array_ensure_append_n(iter->buf, it->prefix + 1, it->prefixLen - 1);
   if (compareLen + localOffset < n->len) {
@@ -975,10 +972,12 @@ int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_
                                                  n->len - compareLen - localOffset);
   }
   iter->stack = array_new(__tmi_stackNode, 8);
-  __tmi_Push(iter, n, n->len, 0, true);
+  __tmi_Push(iter, n, n->len, true);
   iter->prefix = "";
   iter->prefixLen = 0;
-  __matchs_Next(it, ptr, len, value);
+
+  // get a match
+  __fullmatch_Next(it, ptr, len, value);
 
 end:
   return rv;
@@ -989,7 +988,7 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
 
   TrieMapIterator *iter = it->matchIter;
   if (iter) {
-    if (__matchs_Next(it, ptr, len, value)) {
+    if (__fullmatch_Next(it, ptr, len, value)) {
       return 1;
     }
     array_free(iter->buf);
@@ -1030,7 +1029,7 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
         TrieMapNode *ch = __trieMapNode_children(n)[current->childOffset++];
 
         // Add the matching child to the stack
-        __tmi_Push(it, ch, 0, 0, current->found);
+        __tmi_Push(it, ch, 0, current->found);
 
         goto next;        
       }
