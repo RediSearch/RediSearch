@@ -222,6 +222,7 @@ def testCreate():
 
 def test_create_multiple_vector_fields():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env.skipOnCluster()
     dim = 2
     conn = getConnectionByEnv(env)
     # Create index with 2 vector fields, where the first is a prefix of the second.
