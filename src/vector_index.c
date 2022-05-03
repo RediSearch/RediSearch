@@ -36,8 +36,9 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
   const char *fieldStr = RedisModule_StringPtrLen(keyName, &fieldLen);
   FieldSpec *fieldSpec = NULL;
   for (int i = 0; i < spec->numFields; ++i) {
-    if (!strncasecmp(fieldStr, spec->fields[i].name, fieldLen)) {
+    if (!strcasecmp(fieldStr, spec->fields[i].name)) {
       fieldSpec = &spec->fields[i];
+      break;
     }
   }
   if (fieldSpec == NULL) {
@@ -79,7 +80,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   }
   switch (vq->type) {
     case VECSIM_QT_KNN: {
-      VecSimQueryParams qParams;
+      VecSimQueryParams qParams = {0};
       bool hybrid = (child_it != NULL);
       if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
                                     &qParams, hybrid, q->status) != VecSim_OK)  {
@@ -298,7 +299,7 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_BatchSize_GT_EfRuntime: {
-      error_msg = "'EF_RUNTIME' cannot be lower than the batch size of hybrid query";
+      error_msg = "'EF_RUNTIME' cannot be lower than the batch size of a hybrid query";
       break;
     }
     default: {
