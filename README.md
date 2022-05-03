@@ -85,6 +85,8 @@ You can use any standard Redis client library to run RediSearch commands, but it
 | Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
+| Julia | [RediSearch.jl][redi_search-jl-url] | [Jackson Calvert][redi_search-jl-author] | MIT | [![redi_search-jl-stars]][redi_search-jl-url]|
+
 
 [redis-py-url]: https://github.com/redis/redis-py
 [redis-py-author]: https://redis.com
@@ -165,6 +167,10 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
 [redisearch-api-rs-author]: https://redis.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[redi_search-jl-url]: https://github.com/jacksoncalvert/RediSearch.jl
+[redi_search-jl-author]: https://github.com/jacksoncalvertm
+[redi_search-jl-stars]: https://img.shields.io/github/stars/jacksoncalvert/RediSearch.jl.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 ## RediSearch features
 
