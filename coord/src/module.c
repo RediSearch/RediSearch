@@ -419,6 +419,9 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
     }
     array_free(r->specialCases);
   }
+  if(r->requiredFields) {
+    array_free(r->requiredFields);
+  }
   free(r);
 }
 
@@ -484,6 +487,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     ctx->knn.k = k;
     ctx->knn.fieldName = scoreField;
     ctx->knn.pq = NULL;
+    ctx->knn.queryNode = queryNode;
     ctx->specialCaseType = SPECIAL_CASE_KNN;
     if(!req->specialCases) {
       req->specialCases = array_new(specialCaseCtx*, 1);
@@ -1642,8 +1646,6 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 }
 
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **argv, int argc) {
-  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_AutoMemory(ctx);
   QueryError status = {0};
   searchRequestCtx *req = rscParseRequest(argv, argc, &status);
 

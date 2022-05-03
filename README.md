@@ -179,7 +179,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 * Stemming-based query expansion in [many languages](https://oss.redis.com/redisearch/Stemming/) (using [Snowball](http://snowballstem.org/))
 * Support for Chinese-language tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
 * Numeric filters and ranges
-* Geospatial searches using [Redis geospatial indexing](https://redis.io/commands/georadius)
+* Geospatial searches using [Redis geospatial indexing](/commands/georadius)
 * A powerful aggregations engine
 * Supports for all utf-8 encoded text
 * Retrieve full documents, selected fields, or only the document IDs
