@@ -404,3 +404,19 @@ def test_SkipFieldWithNoMatch(env):
   env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
   env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+
+def testModifierList(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
+    env.expect('FT.EXPLAIN', 'idx', '@t1|t2:(text value)').equal(r'''
+@t1|t2:INTERSECT {
+  @t1|t2:UNION {
+    @t1|t2:text
+    @t1|t2:+text(expanded)
+  }
+  @t1|t2:UNION {
+    @t1|t2:value
+    @t1|t2:+valu(expanded)
+    @t1|t2:valu(expanded)
+  }
+}
+'''[1:])
