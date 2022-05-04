@@ -112,8 +112,6 @@ commands:
 
   build-steps:
     parameters:
-      platform:
-        type: string
       redis_version:
         type: string
         default: "6"
@@ -184,6 +182,7 @@ commands:
       - setup-automation
       - run:
           name: Build for platform
+          shell: /bin/bash -l -eo pipefail
           command: |
             ROOT=$PWD
             cd build/docker
@@ -196,12 +195,14 @@ commands:
       - early-return-for-forked-pull-requests
       - run:
           name: Upload artifacts to S3
+          shell: /bin/bash -l -eo pipefail
           command: |
             if [[ -n $CIRCLE_BRANCH ]]; then
                 make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
             fi
       - run:
           name: Publish container
+          shell: /bin/bash -l -eo pipefail
           command: |
             docker login -u redisfab -p $DOCKER_REDISFAB_PWD
             cd build/docker
@@ -246,10 +247,8 @@ commands:
             make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1
       - persist-artifacts
 
-  benchmark-automation:
+  benchmark-steps:
     parameters:
-      platform:
-        type: string
       github_actor:
         type: string
         default: $CIRCLE_USERNAME
@@ -307,7 +306,6 @@ jobs:
         default: "yes"
     steps:
       - build-steps:
-          platform: bullseye
           redis_version: <<parameters.redis_version>>
       - test-steps
       - run:
@@ -346,6 +344,11 @@ jobs:
   build-macos:
     macos:
       xcode: 12.4.0
+    resource_class: macos.x86.medium.gen2
+    parameters:
+      upload:
+        type: string
+        default: "yes"
     steps:
       - early-returns
       # - run:
@@ -354,25 +357,22 @@ jobs:
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
-      - build-steps:
-          platform: catalina
+      - build-steps
       - test-steps
       - run:
           name: Upload artifacts to S3
           command: |
-            if [[ -n $CIRCLE_BRANCH ]]; then
+            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
                 make upload-artifacts SHOW=1
             fi
       - persist-artifacts
 
-  benchmark:
+  benchmarks:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bionic
     steps:
-      - build-steps:
-          platform: bionic
-      - benchmark-automation:
-          platform: bionic
+      - build-steps
+      - benchmark-steps
 
   coverage:
     docker:
@@ -496,7 +496,7 @@ jobs:
                 make upload-release SHOW=1 STAGING=1
             fi
 
-  release-automation:
+  release-qa-tests:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     steps:
@@ -510,7 +510,6 @@ jobs:
       - run:
           name: Run QA Automation (RediSearch Light)
           command: ./tests/qa/qatests -m "$CIRCLE_TAG" --light
-
 
 #----------------------------------------------------------------------------------------------------------------------------------
 
@@ -542,6 +541,7 @@ on-integ-branch: &on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       ignore: /.*/
 
@@ -552,6 +552,7 @@ not-on-integ-branch: &not-on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       ignore: /.*/
 
@@ -569,6 +570,7 @@ on-integ-and-version-tags: &on-integ-and-version-tags
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       only: /^v[0-9].*/
 
@@ -581,12 +583,6 @@ workflows:
       - build-linux-debian:
           name: build
           <<: *not-on-integ-branch
-      - build-linux-debian:
-          name: build-with-redis-<<matrix.redis_version>>
-          <<: *on-integ-and-version-tags
-          matrix:
-            parameters:
-              redis_version: ["6.0", "6.2"]
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -606,13 +602,13 @@ workflows:
           <<: *on-any-branch
       - sanitize:
           name: sanitize-<< matrix.san-type >>
+          <<: *on-any-branch
           matrix:
             parameters:
               san-type: [address] # [address, memory]
-          <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
-      - benchmark:
+      - benchmarks:
           context: common
           <<: *on-integ-and-version-tags
       - upload-artifacts:
@@ -632,11 +628,11 @@ workflows:
             - build-platforms
             - build-arm-platforms
             - build-macos
-      - release-automation:
+      - release-qa-tests:
           context: common
+          <<: *on-version-tags
           requires:
             - upload-release-artifacts
-          <<: *on-version-tags
 
   nightly:
     triggers:
@@ -644,16 +640,21 @@ workflows:
           cron: "20 17 * * 0,3"
           filters:
             branches:
-              only: master
+              only:
+                - master
+                - /^\d+\.\d+.*$/
+                - /^feature-.*$/
     jobs:
-      - build-macos
+      - build-macos:
+          name: nightly-macos
+          upload: "no"
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2"]
+              redis_version: ["6.0", "7", "unstable"]
 
-  nightly-performance:
+  nightly-benchmarks:
     triggers:
       - schedule:
           cron: "20 17 * * *"
@@ -665,5 +666,5 @@ workflows:
                 - /^feature-.*$/
 
     jobs:
-      - benchmark:
+      - benchmarks:
           context: common

@@ -1,10 +1,15 @@
 
 get_filename_component(RS_DIR ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
-message("# search root: " ${RS_DIR})
-message("# search binroot: " ${binroot})
+if(NOT DEFINED root)
+	set(root ${RS_DIR})
+endif()
+message("# RediSearch root: " ${RS_DIR})
+message("# RediSearch binroot: " ${binroot})
 
 include(build/cmake/common.cmake)
+
+#----------------------------------------------------------------------------------------------
 
 option(RS_BUILD_STATIC "Build a static library" OFF)
 # RS_BUILD_COORDINATOR
