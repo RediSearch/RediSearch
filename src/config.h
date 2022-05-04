@@ -192,7 +192,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
-    .vssMaxResizeMB = 0,                                                                             \
+    .vssMaxResizeMB = 0,                                                                          \
   }
 
 #define REDIS_ARRAY_LIMIT 7
