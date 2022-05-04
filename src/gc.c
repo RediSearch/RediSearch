@@ -69,7 +69,7 @@ static long long getNextPeriod(GCContext* gc) {
 }
 
 static RedisModuleTimerID scheduleNext(GCTask *task) {
-  if (!RedisModule_CreateTimer) return 0;
+  if (RS_IsMock) return 0;
 
   long long period = getNextPeriod(task->gc);
   return RedisModule_CreateTimer(RSDummyContext, period, timerCallback, task);
@@ -150,7 +150,7 @@ void GCContext_Start(GCContext* gc) {
 }
 
 void GCContext_Stop(GCContext* gc) {
-  if (!RedisModule_StopTimer) {
+  if (RS_IsMock) {
     // for fork gc debug
     RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
     free(gc->gcCtx);

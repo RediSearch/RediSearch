@@ -238,50 +238,52 @@ typedef struct {
 
 //---------------------------------------------------------------------------------------------
 
+
 typedef struct IndexSpec {
-  char *name;
-  FieldSpec *fields;
-  int numFields;
+  char *name;                     // Index name
+  uint64_t uniqueId;              // Id of index
+  FieldSpec *fields;              // Fields in the index schema
+  int numFields;                  // Number of fields
 
-  IndexStats stats;
-  IndexFlags flags;
+  IndexStats stats;               // Statistics of memory used and quantities 
+  IndexFlags flags;               // Flags                   
 
-  Trie *terms;
+  Trie *terms;                    // Trie of all terms. Used for GC and fuzzy queries
+  Trie *suffix;                   // Trie of suffix tokens of terms. Used for contains queries
+  t_fieldMask suffixMask;         // Mask of all field that support contains query
+  dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT terms
 
-  RSSortingTable *sortables;
+  RSSortingTable *sortables;      // Contains sortable data of documents
 
-  DocTable docs;
+  DocTable docs;                  // Contains metadata of all documents
 
-  StopWordList *stopwords;
+  StopWordList *stopwords;        // List of stopwords for TEXT fields
 
-  GCContext *gc;
+  GCContext *gc;                  // Garbage collection
 
-  SynonymMap *smap;
+  SynonymMap *smap;               // List of synonym
+  char **aliases;                 // Aliases to self-remove when the index is deleted
 
-  uint64_t uniqueId;
+  struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
+  struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
+  // can be true even if scanner == NULL, in case of a scan being cancelled
+  // in favor on a newer, pending scan
+  bool scan_in_progress;
+  bool cascadeDelete;             // remove keys when removing spec. used by temporary index
+
+  struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
-
-  // For index expiretion
+  // For index expiration
   long long timeout;
   RedisModuleTimerID timerId;
   bool isTimerSet;
 
-  dict *keysDict;
+  // For criteria tester
   RSGetValueCallback getValue;
   void *getValueCtx;
-  char **aliases;  // Aliases to self-remove when the index is deleted
-  struct DocumentIndexer *indexer;
-
-  struct SchemaRule *rule;
-
-  struct IndexesScanner *scanner;
-  // can be true even if scanner == NULL, in case of a scan being cancelled
-  // in favor on a newer, pending scan
-  bool scan_in_progress;
-  bool cascadeDelete;  // remove keys when removing spec
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -404,6 +406,8 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
+
+int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
 /**
  * Indicate that the index spec should use an internal dictionary,rather than

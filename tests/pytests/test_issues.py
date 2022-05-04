@@ -238,6 +238,8 @@ def test_MOD1266(env):
   env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2') \
     .equal([2, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
 
+  assertInfoField(env, 'idx', 'num_docs', '2')
+
   # Test fetching failure. An object cannot be indexed
   env.execute_command('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
   conn.execute_command('JSON.SET', '1', '$', r'{"t":"Redis"}')

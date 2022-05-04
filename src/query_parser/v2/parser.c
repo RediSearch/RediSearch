@@ -1618,20 +1618,26 @@ static YYACTIONTYPE yy_reduce(
 {
 
     if (yymsp[0].minor.yy111 == NULL) {
+        for (size_t i = 0; i < Vector_Size(yymsp[-2].minor.yy103); i++) {
+          char *s;
+          Vector_Get(yymsp[-2].minor.yy103, i, &s);
+          rm_free(s);
+        }
+        Vector_Free(yymsp[-2].minor.yy103);
         yylhsminor.yy111 = NULL;
     } else {
         //yymsp[0].minor.yy111->opts.fieldMask = 0;
         t_fieldMask mask = 0;
-        if (ctx->sctx->spec) {
-            for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy103); i++) {
-                char *p;
-                Vector_Get(yymsp[-2].minor.yy103, i, &p);
-                mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p));
-                rm_free(p);
+        for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy103); i++) {
+            char *p;
+            Vector_Get(yymsp[-2].minor.yy103, i, &p);
+            if (ctx->sctx->spec) {
+              mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p));
             }
+            rm_free(p);
         }
-        QueryNode_SetFieldMask(yymsp[0].minor.yy111, mask);
         Vector_Free(yymsp[-2].minor.yy103);
+        QueryNode_SetFieldMask(yymsp[0].minor.yy111, mask);
         yylhsminor.yy111=yymsp[0].minor.yy111;
     }
 }
