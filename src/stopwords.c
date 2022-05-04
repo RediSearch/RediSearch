@@ -198,7 +198,7 @@ void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
   TrieMapIterator_Free(it);
 }
 
-void ReplyWithStopWordsListForInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
+void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
   if (sl == NULL) {
     return;
   }
@@ -210,8 +210,9 @@ void ReplyWithStopWordsListForInfo(RedisModuleInfoCtx *ctx, struct StopWordList 
   bool first = true;
   char stopwords[512];
   stopwords[0] = '\0';
+  char temp[128];
   while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
-    char temp[128];
+    temp[0] = '\0';
     sprintf(temp, "%s\"%s\"", first ? "" : ",", str);
     strncat(stopwords, temp, sizeof(stopwords));
     stopwords[sizeof(stopwords)-1] = '\0';

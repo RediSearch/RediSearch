@@ -231,8 +231,9 @@ static void RS_moduleInfoIndexInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   if (num_prefixes && rule->prefixes[0][0] != '\0') {
     char prefixes[512];
     prefixes[0] = '\0';
+    char temp[128];
     for (int i = 0; i < num_prefixes; ++i) {
-      char temp[128];
+      temp[0] = '\0';
       sprintf(temp, "%s\"%s\"", i == 0 ? "" : ",", rule->prefixes[i]);
       strncat(prefixes, temp, sizeof(prefixes));
       prefixes[sizeof(prefixes)-1] = '\0';
@@ -318,7 +319,7 @@ static void RS_moduleInfoIndexInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 
   // Stop words
   if (sp->flags & Index_HasCustomStopwords)
-    ReplyWithStopWordsListForInfo(ctx, sp->stopwords);
+    AddStopWordsListToInfo(ctx, sp->stopwords);
 }
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -435,7 +436,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     return REDISMODULE_ERR;
   }
 
-  // Register Info function
+  // Register to Info function
   if (RedisModule_RegisterInfoFunc && RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
