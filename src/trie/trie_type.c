@@ -15,11 +15,12 @@
 #include <string.h>
 #include <limits.h>
 
-Trie *NewTrie() {
+Trie *NewTrie(TrieFreeCallback freecb) {
   Trie *tree = rm_malloc(sizeof(Trie));
   rune *rs = strToRunes("", 0);
   tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0);
   tree->size = 0;
+  tree->freecb = freecb;
   rm_free(rs);
   return tree;
 }
@@ -38,28 +39,50 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
   }
   runeBuf buf;
   rune *runes = runeBufFill(s, len, &buf, &len);
-  int rc;
-
-  if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
-    rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
-    t->size += rc;
-  } else {
-    rc = 0;
-  }
-
+  int rc = Trie_InsertRune(t, runes, len, score, incr, payload);
   runeBufFree(&buf);
   return rc;
 }
 
-int Trie_Delete(Trie *t, const char *s, size_t len) {
+int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int incr,
+                    RSPayload *payload) {
+  int rc = 0;                              
+  if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
+    rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE, t->freecb);
+    t->size += rc;
+  }
+  return rc;
+}
 
-  rune *runes = strToRunes(s, &len);
+void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact) {
+  if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
+    return 0;
+  }
+  runeBuf buf;
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  void *val = Trie_GetValueRune(t, runes, len, exact);
+  runeBufFree(&buf);
+  return val;
+}
+
+void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact) {
+  return TrieNode_GetValue(t->root, runes, len, exact);
+}
+
+int Trie_Delete(Trie *t, const char *s, size_t len) {
+  runeBuf buf;
+  rune *runes = runeBufFill(s, len, &buf, &len);
   if (!runes || len > TRIE_INITIAL_STRING_LEN) {
     return 0;
   }
-  int rc = TrieNode_Delete(t->root, runes, len);
+  int rc = Trie_DeleteRunes(t, runes, len);
+  runeBufFree(&buf);
+  return rc;
+}
+
+int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len) {
+  int rc = TrieNode_Delete(t->root, runes, len, t->freecb);
   t->size -= rc;
-  rm_free(runes);
   return rc;
 }
 
@@ -276,7 +299,7 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
   Trie *tree = NULL;
   char *str = NULL;
   uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
-  tree = NewTrie();
+  tree = NewTrie(NULL);
 
   while (elements--) {
     size_t len;
@@ -355,8 +378,7 @@ void TrieType_Digest(RedisModuleDigest *digest, void *value) {
 void TrieType_Free(void *value) {
   Trie *tree = value;
   if (tree->root) {
-
-    TrieNode_Free(tree->root);
+    TrieNode_Free(tree->root, tree->freecb);
   }
 
   rm_free(tree);

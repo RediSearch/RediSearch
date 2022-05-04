@@ -3464,6 +3464,7 @@ def test_empty_field_name(env):
     conn.execute_command('hset', 'doc1', '', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])
 
+@unstable
 def test_free_resources_on_thread(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)

@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 /* Internally, the trie works with 16/32 bit "Runes", i.e. fixed width unicode
- * characters. 16 bit shuold be fine for most use cases */
+ * characters. 16 bit should be fine for most use cases */
 #ifdef TRIE_32BIT_RUNES
 typedef uint32_t rune;
 #else  // default - 16 bit runes
