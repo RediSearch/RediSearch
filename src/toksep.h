@@ -9,6 +9,7 @@ static const char ToksepMap_g[256] = {
     ['}'] = 1, ['['] = 1,  [']'] = 1,  [':'] = 1, [';'] = 1, ['~'] = 1, ['!'] = 1, ['@'] = 1,
     ['#'] = 1, ['$'] = 1,  ['%'] = 1,  ['^'] = 1, ['&'] = 1, ['*'] = 1, ['-'] = 1, ['='] = 1,
     ['+'] = 1, ['|'] = 1,  ['\''] = 1, ['`'] = 1, ['"'] = 1, ['<'] = 1, ['>'] = 1, ['?'] = 1,
+    ['\n'] = 2,
 };
 
 /**
@@ -36,7 +37,7 @@ static inline char *toksep(char **s, size_t *tokLen) {
 }
 
 static inline int istoksep(int c) {
-  return ToksepMap_g[(uint8_t)c] != 0;
+  return ToksepMap_g[(uint8_t)c] == 1;
 }
 
 #endif
