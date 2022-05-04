@@ -365,3 +365,19 @@ def test_MOD1907(env):
   # Test FT.CREATE w/o fields parameters
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Fields arguments are missing')
   env.expect('FT.CREATE', 'idx', 'STOPWORDS', 0, 'SCHEMA').error().contains('Fields arguments are missing')
+
+def testModifierList(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
+    env.expect('FT.EXPLAIN', 'idx', '@t1|t2:(text value)').equal(r'''
+@t1|t2:INTERSECT {
+  @t1|t2:UNION {
+    @t1|t2:text
+    @t1|t2:+text(expanded)
+  }
+  @t1|t2:UNION {
+    @t1|t2:value
+    @t1|t2:+valu(expanded)
+    @t1|t2:valu(expanded)
+  }
+}
+'''[1:])
