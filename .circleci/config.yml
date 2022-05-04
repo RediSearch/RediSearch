@@ -435,11 +435,11 @@ jobs:
       - checkout
       - setup-automation
       - run:
-          name: Run QA Automation
-          command: MODULE_VERSION=$CIRCLE_TAG VERBOSE=1 TEST=release ./tests/qa/run
+          name: Run QA Automation (RediSearch)
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG"
       - run:
-          name: Run QA Tests (RediSearch Light)
-          command: MODULE_VERSION=$CIRCLE_TAG VERBOSE=1 TEST=release LIGHT=1 ./tests/qa/run
+          name: Run QA Automation (RediSearch Light)
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --light
 
 #----------------------------------------------------------------------------------------------------------------------------------
 

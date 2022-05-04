@@ -7,15 +7,13 @@
     "sut_environments": [],
     "tools_environment": {},
     "modules_version": "{{SEARCH_VERSION}}",
-    "search_vecsim": {{SEARCH_VECSIM}},
     "test_names_modules": [
       "{{SEARCH_TEST_NAME}}"
     ],
     "global_spot_instances": "ondemand",
     "module_download_url": true,
     "module_download_urls": {
-      "{{SEARCH_DOWNLOAD_NAME}}": "http://redismodules.s3.amazonaws.com/{{SEARCH_DIR}}/{{SEARCH_FILE_PREFIX}}.Linux-$OS.{{SEARCH_VERSION}}.zip",
-      "ReJSON": "http://redismodules.s3.amazonaws.com/{{REJSON_DIR}}/{{REJSON_FILE_PREFIX}}.Linux-$OS.{{REJSON_VERSION}}.zip"
+      "{{SEARCH_DOWNLOAD_NAME}}": "http://redismodules.s3.amazonaws.com/{{SEARCH_DIR}}/{{SEARCH_FILE_PREFIX}}.Linux-$OS.{{SEARCH_VERSION}}.zip"
     },
     "cycle_environments_setup": [
 	  {{RLEC_ENVS}}
