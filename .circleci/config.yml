@@ -505,7 +505,7 @@ jobs:
       - checkout
       - setup-automation
       - run:
-          name: Run QA Automation
+          name: Run QA Automation (RediSearch)
           command: ./tests/qa/qatests -m "$CIRCLE_TAG"
       - run:
           name: Run QA Automation (RediSearch Light)

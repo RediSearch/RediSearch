@@ -86,7 +86,7 @@ ARTDIR=$(cd $ARTDIR && pwd)
 MODULE_NAME=${MODULE_NAME:-redisearch}
 PACKAGE_NAME=${PACKAGE_NAME:-redisearch-oss}
 
-DEP_NAMES="debug"
+DEP_NAMES=""
 
 #----------------------------------------------------------------------------------------------
 
@@ -94,6 +94,7 @@ pack_ramp() {
 	cd $ROOT
 
 	local stem=${PACKAGE_NAME}.${PLATFORM}
+	local stem_debug=${PACKAGE_NAME}.debug.${PLATFORM}
 
 	if [[ $SNAPSHOT == 0 ]]; then
 		local verspec=${SEMVER}${VARIANT}
@@ -106,10 +107,12 @@ pack_ramp() {
 	fi
 	
 	local fq_package=$stem.${verspec}.zip
+	local fq_package_debug=$stem_debug.${verspec}.zip
 
 	[[ ! -d $ARTDIR/$packdir ]] && mkdir -p $ARTDIR/$packdir
 
 	local packfile=$ARTDIR/$packdir/$fq_package
+	local packfile_debug=$ARTDIR/$packdir/$fq_package_debug
 
 	local xtx_vars=""
 	for dep in $DEP_NAMES; do
@@ -146,9 +149,22 @@ pack_ramp() {
 		exit 1
 	else
 		local packname=`cat /tmp/ramp.fname`
+		echo "Created $packname"
 	fi
 
-	echo "Created $packname"
+	$ramp pack -m /tmp/ramp.yml $RAMP_ARGS -n $MODULE_NAME --verbose --debug \
+		--packname-file /tmp/ramp.fname -o $packfile_debug \
+		$MODULE_SO.debug >/tmp/ramp.err 2>&1 || true
+
+	if [[ ! -e $packfile_debug ]]; then
+		eprint "Error generating RAMP file:"
+		>&2 cat /tmp/ramp.err
+		exit 1
+	else
+		local packname=`cat /tmp/ramp.fname`
+		echo "Created $packname"
+	fi
+
 	cd $ROOT
 }
 
