@@ -951,8 +951,7 @@ static int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, 
       *len = array_len(it->buf);
       *value = n->value;
       tm_len_t trimBy = termOffset - 1;
-      //array_trimm_len(it->buf, termOffset - 1); // shrink back w/o changing releasing the memory
-      array_trimm(it->buf, origBufLen, -1); // shrink back w/o changing releasing the memory
+      array_trimm_len(it->buf, termOffset - 1); // shrink back w/o changing releasing the memory
       rv = 1;
     }
     goto end;
