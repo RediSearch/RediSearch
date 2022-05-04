@@ -109,10 +109,12 @@ static int JSON_getFloat32(RedisJSON json, float *val) {
 //   return ret;
 // }
 
+typedef int (*getJSONElementFunc)(RedisJSON, void *);
+
 int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struct DocumentField *df) {
   VecSimType type;
   size_t dim;
-  int (*getElement)(RedisJSON, void *);
+  getJSONElementFunc getElement;
 
   switch (fs->vectorOpts.vecSimParams.algo) {
     case VecSimAlgo_HNSWLIB:
@@ -133,17 +135,17 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
   switch (type) {
     default:
     case VecSimType_FLOAT32:
-      getElement = (int (*)(RedisJSON, void *))JSON_getFloat32;
+      getElement = (getJSONElementFunc)JSON_getFloat32;
       break;
     // Uncomment when support for more types is added
     // case VecSimType_FLOAT64:
-    //   getElement = (int (*)(RedisJSON, void *))JSON_getFloat64;
+    //   getElement = (getJSONElementFunc)JSON_getFloat64;
     //   break;
     // case VecSimType_INT32:
-    //   getElement = (int (*)(RedisJSON, void *))JSON_getInt32;
+    //   getElement = (getJSONElementFunc)JSON_getInt32;
     //   break;
     // case VecSimType_INT64:
-    //   getElement = (int (*)(RedisJSON, void *))japi->getInt;
+    //   getElement = (getJSONElementFunc)japi->getInt;
     //   break;
   }
 
