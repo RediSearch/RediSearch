@@ -345,7 +345,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   int rc = rp->upstream->Next(rp->upstream, h);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_EOF) {
+  if (rc == RS_RESULT_EOF || (rc == RS_RESULT_TIMEDOUT && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return)) {
     // Transition state:
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
