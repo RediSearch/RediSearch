@@ -2,7 +2,7 @@ Sets runtime configuration options.
 
 #### Parameters
 
-* **option**: the name of the configuration option, or '*' for all.
+* **option**: the name of the configuration option.
 * **value**: a value for the configuration option.
 
 @return
