@@ -182,7 +182,7 @@ void Suffix_IterateContains(TrieNode *n, const rune *str, size_t nstr, bool pref
 }
 
 void suffixData_freeCallback(void *payload) {
-  suffixData *data =  (suffixData *)((TriePayload *)payload)->data;
+  suffixData *data = payload;
   array_free(data->array);
   data->array = NULL;
   rm_free(data->term);

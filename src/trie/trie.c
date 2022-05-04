@@ -49,7 +49,7 @@ static inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
 
 static void triePayload_Free(TriePayload *payload, TrieFreeCallback freecb) {
   if (freecb) {
-    freecb(payload);
+    freecb(payload->data);
   } else {
     rm_free(payload);
   }
@@ -86,11 +86,12 @@ TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len,
 
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset, TrieFreeCallback freecb) {
   // Copy the current node's data and children to a new child node
-  TrieNode *newChild = __newTrieNode(n->str, offset, n->len, n->payload ? n->payload->data : NULL,
-                                     n->payload ? n->payload->len : 0, n->numChildren, n->score,
+  TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
                                      __trieNode_isTerminal(n));
   newChild->maxChildScore = n->maxChildScore;
   newChild->flags = n->flags;
+  newChild->payload = n->payload;
+  n->payload = NULL;
   TrieNode **children = __trieNode_children(n);
   TrieNode **newChildren = __trieNode_children(newChild);
   memcpy(newChildren, children, sizeof(TrieNode *) * n->numChildren);
@@ -104,11 +105,6 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset, TrieFreeCallback freecb) {
   n->sortmode = TRIENODE_SORTED_NONE;
 
   n->maxChildScore = MAX(n->maxChildScore, newChild->score);
-  if (n->payload != NULL) {
-    // here we just need to free the payload struct, not the internals
-    rm_free(n->payload);
-    n->payload = NULL;
-  }
   n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
   __trieNode_children(n)[0] = newChild;
 
@@ -129,18 +125,16 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   memcpy(nstr, n->str, sizeof(rune) * n->len);
   memcpy(&nstr[n->len], ch->str, sizeof(rune) * ch->len);
   TrieNode *merged = __newTrieNode(
-      nstr, 0, n->len + ch->len, ch->payload ? ch->payload->data : NULL,
-      ch->payload ? ch->payload->len : 0, ch->numChildren, ch->score, __trieNode_isTerminal(ch));
+      nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren, 
+      ch->score, __trieNode_isTerminal(ch));
   merged->maxChildScore = ch->maxChildScore;
   merged->numChildren = ch->numChildren;
+  merged->payload = ch->payload;
+  ch->payload = NULL;
   merged->flags = ch->flags;
   TrieNode **children = __trieNode_children(ch);
   TrieNode **newChildren = __trieNode_children(merged);
   memcpy(newChildren, children, sizeof(TrieNode *) * merged->numChildren);
-  if (ch->payload) {
-    rm_free(ch->payload);
-    ch->payload = NULL;
-  }
   if (n->payload != NULL) {
     triePayload_Free(n->payload, freecb);
     n->payload = NULL;
@@ -267,7 +261,8 @@ TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int 
     }
 
     if (offset == len) {
-      // we're at the end of both strings!
+      // we're at the end of both strings or we are in prefix mode and do not
+      // require an exact match
       if (localOffset == n->len || !exact) {
         if (offsetOut) {
           *offsetOut = offset - localOffset;
@@ -306,6 +301,12 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
   return res ? res->score : 0;
 }
 
+//TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len);
+void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact) {
+  TrieNode *res = TrieNode_Get(n, str, len, exact, NULL);
+  return (res && res->payload) ? res->payload->data : NULL;
+}
+
 void __trieNode_sortChildren(TrieNode *n);
 
 /* Optimize the node and its children:
@@ -338,7 +339,7 @@ void __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
 
       // this node is ok!
       // if needed - merge this node with it its single child
-      if (nodes[i] && nodes[i]->numChildren == 1) {
+      if (nodes[i]->numChildren == 1) {
         nodes[i] = __trieNode_MergeWithSingleChild(nodes[i], freecb);
       }
       n->maxChildScore = MAX(n->maxChildScore, nodes[i]->maxChildScore);
@@ -742,8 +743,6 @@ static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
   }
 
   array_trimm_len(r->buf, array_len(r->buf) - n->len);
-  // char *final_str = runesToStr(r->buf, array_len(r->buf), &len);
-  // printf("%s %s %s\n", before_str, after_str, final_str);
   return REDISEARCH_OK;
 }
 
@@ -910,6 +909,7 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
       .cbctx = ctx,
       .includeMin = includeMin,
       .includeMax = includeMax,
+      .stop = 0,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
   rangeIterate(n, min, nmin, max, nmax, &r);

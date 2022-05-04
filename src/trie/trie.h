@@ -120,6 +120,8 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len);
 
 /* Find the entry with a given string and length, and return it. */
 TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut);
+/* Returns the payload of the node. */
+void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact);
 
 /* Mark a node as deleted. For simplicity for now we don't actually delete
  * anything,
