@@ -215,6 +215,43 @@ def testCreate():
     # info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'FLAT', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'BLOCK_SIZE', str(1024 * 1024)]]
     # assertInfoField(env, 'idx5', 'attributes', info)
 
+
+def test_create_multiple_vector_fields():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env.skipOnCluster()
+    dim = 2
+    conn = getConnectionByEnv(env)
+    # Create index with 2 vector fields, where the first is a prefix of the second.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+               'v_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+    # Validate each index type.
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
+    env.assertEqual(info_data[:2], ['ALGORITHM', 'HNSW'])
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
+    env.assertEqual(info_data[:2], ['ALGORITHM', 'FLAT'])
+
+    # Insert one vector only to each index, validate it was inserted only to the right index.
+    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
+    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 1])
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
+    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 0])
+
+    conn.execute_command('HSET', 'b', 'v_flat', 'bbbbbbbb')
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
+    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 1])
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
+    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 1])
+
+    # Search in every index once, validate it was performed only to the right index.
+    env.cmd('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh')
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
+    env.assertEqual(info_data[-2:], ['LAST_SEARCH_MODE', 'STANDARD_KNN'])
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
+    env.assertEqual(info_data[-2:], ['LAST_SEARCH_MODE', 'EMPTY_MODE'])
+
+
 def testCreateErrors():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)

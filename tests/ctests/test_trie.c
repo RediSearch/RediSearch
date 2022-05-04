@@ -47,7 +47,7 @@ int __trie_add(TrieNode **n, char *str, char *payloadStr, float sc, TrieAddOp op
   rune *runes = strToRunes(str, &rlen);
 
   RSPayload payload = {.data = payloadStr, .len = payloadStr ? strlen(payloadStr) : 0};
-  int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op);
+  int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op, NULL);
   free(runes);
   return rc;
 }
@@ -144,7 +144,7 @@ int testPayload() {
   TrieIterator_Free(it);
   free(runes);
 
-  TrieNode_Free(root);
+  TrieNode_Free(root, NULL);
   return 0;
 }
 
@@ -193,15 +193,15 @@ int testTrie() {
   char *str = runesToStr(rstr, l, &sl);
   fprintf(stderr, " found node: %s\n", str);
   free(rstr);
-  rc = TrieNode_Delete(root, runes, rlen);
+  rc = TrieNode_Delete(root, runes, rlen, NULL);
   ASSERT(rc == 1);
-  rc = TrieNode_Delete(root, runes, rlen);
+  rc = TrieNode_Delete(root, runes, rlen, NULL);
   ASSERT(rc == 0);
   sc = TrieNode_Find(root, runes, rlen);
 
   ASSERT(sc == 0);
 
-  TrieNode_Free(root);
+  TrieNode_Free(root, NULL);
   free(runes);
   free(str);
 
@@ -226,7 +226,7 @@ int testUnicode() {
   float sc = TrieNode_Find(root, runes, rlen);
   free(runes);
   ASSERT(sc == 1);
-  TrieNode_Free(root);
+  TrieNode_Free(root, NULL);
   return 0;
 }
 
@@ -256,7 +256,7 @@ int testDFAFilter() {
     }
 
     runes = strToRunes(line, &rlen);
-    int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE);
+    int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE, NULL);
     ASSERT(rc == 1);
     free(runes);
 
@@ -342,7 +342,7 @@ int testDFAFilter() {
     free(runes);
   }
 
-  TrieNode_Free(root);
+  TrieNode_Free(root, NULL);
 
   return 0;
 }
