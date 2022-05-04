@@ -191,13 +191,13 @@ static void RS_moduleInfoConfig(RedisModuleInfoCtx *ctx) {
 }
 
 static void RS_moduleInfoIndexInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
-  char *temp = "ft_info";
+  char *temp = "info";
   char name[strlen(sp->name) + strlen(temp) + 2];
-  sprintf(name, "%s_%s", sp->name, temp);
+  sprintf(name, "%s_%s", temp, sp->name);
   RedisModule_InfoAddSection(ctx, name);
 
   // Index flags
-  if (sp->flags) {
+  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | ~Index_WideSchema)) {
     RedisModule_InfoBeginDictField(ctx, "index_options");
     if (!(sp->flags & (Index_StoreFreqs)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOFREQS_STR, "ON");
@@ -213,18 +213,7 @@ static void RS_moduleInfoIndexInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   // Index defenition
   RedisModule_InfoBeginDictField(ctx, "index_definition");
   SchemaRule *rule = sp->rule;
-  RedisModule_InfoAddFieldCString(ctx, "key_type", (char*)DocumentType_ToString(rule->type));
-  int num_prefixes = array_len(rule->prefixes);
-  char prefixes[num_prefixes * sizeof(char*)];
-  prefixes[0] = '\0';
-  if (num_prefixes > 0) {
-    for (int i = 0; i < num_prefixes; ++i) {
-      if (i != 0)
-        strcat(prefixes, ",");
-      strcat(prefixes, rule->prefixes[i]);
-    }
-    RedisModule_InfoAddFieldCString(ctx, "prefixes", prefixes);
-  }
+  RedisModule_InfoAddFieldCString(ctx, "type", (char*)DocumentType_ToString(rule->type));
   if (rule->filter_exp_str)
     RedisModule_InfoAddFieldCString(ctx, "filter", rule->filter_exp_str);
   if (rule->lang_default)
@@ -237,30 +226,83 @@ static void RS_moduleInfoIndexInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     RedisModule_InfoAddFieldCString(ctx, "score_field", rule->score_field);
   if (rule->payload_field)
     RedisModule_InfoAddFieldCString(ctx, "payload_field", rule->payload_field);
+  // Prefixes
+  int num_prefixes = array_len(rule->prefixes);
+  if (num_prefixes && rule->prefixes[0][0] != '\0') {
+    char prefixes[512];
+    prefixes[0] = '\0';
+    for (int i = 0; i < num_prefixes; ++i) {
+      char temp[128];
+      sprintf(temp, "%s\"%s\"", i == 0 ? "" : ",", rule->prefixes[i]);
+      strncat(prefixes, temp, sizeof(prefixes));
+      prefixes[sizeof(prefixes)-1] = '\0';
+    }
+    RedisModule_InfoAddFieldCString(ctx, "prefixes", prefixes);
+  }
   RedisModule_InfoEndDictField(ctx);
 
   // Attributes
-  RedisModule_InfoBeginDictField(ctx, "attributes");
-  RedisModule_InfoEndDictField(ctx);
+  for (int i = 0; i < sp->numFields; i++) {
+    const FieldSpec *fs = sp->fields + i;
+    char title[7 + sizeof(int)];
+    sprintf(title, "%s_%d", "field", (i+1));
+    RedisModule_InfoBeginDictField(ctx, title);
+
+    RedisModule_InfoAddFieldCString(ctx, "identifier", fs->path);
+    RedisModule_InfoAddFieldCString(ctx, "attribute", fs->name);
+
+    if (fs->options & FieldSpec_Dynamic)
+      RedisModule_InfoAddFieldCString(ctx, "type", "<DYNAMIC>");
+    else
+      RedisModule_InfoAddFieldCString(ctx, "type", FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
+
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT))
+      RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->ftWeight);
+    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+      char buf[4];
+      sprintf(buf, "\"%c\"", fs->tagOpts.tagSep);
+      RedisModule_InfoAddFieldCString(ctx, SPEC_TAG_SEPARATOR_STR, buf);
+    }
+    if (FieldSpec_IsSortable(fs))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_SORTABLE_STR, "ON");
+    if (FieldSpec_IsNoStem(fs))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOSTEM_STR, "ON");
+    if (!FieldSpec_IsIndexable(fs))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOINDEX_STR, "ON");
+
+    RedisModule_InfoEndDictField(ctx);
+  }
 
   // More properties
+  RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", sp->stats.numDocuments);
+
   RedisModule_InfoBeginDictField(ctx, "index_properties");
-  RedisModule_InfoAddFieldLongLong(ctx, "num_docs", sp->stats.numDocuments);
   RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);
   RedisModule_InfoAddFieldLongLong(ctx, "num_terms", sp->stats.numTerms);
   RedisModule_InfoAddFieldLongLong(ctx, "num_records", sp->stats.numRecords);
-  RedisModule_InfoAddFieldDouble(ctx, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "vector_index_sz_mb", sp->stats.vectorIndexSize / (float)0x100000);
+  RedisModule_InfoEndDictField(ctx);
+
+  RedisModule_InfoBeginDictField(ctx, "index_properties_in_mb");
+  RedisModule_InfoAddFieldDouble(ctx, "inverted_size", sp->stats.invertedSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", sp->stats.vectorIndexSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  RedisModule_InfoEndDictField(ctx);
+
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", TotalIIBlocks);
-  RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+
+  RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
   RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   RedisModule_InfoAddFieldDouble(ctx, "bytes_per_record_avg",(float)sp->stats.invertedSize / (float)sp->stats.numRecords);
   RedisModule_InfoAddFieldDouble(ctx, "offsets_per_term_avg",(float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   RedisModule_InfoAddFieldDouble(ctx, "offset_bits_per_record_avg",8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
+  RedisModule_InfoEndDictField(ctx);
+
   RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexingFailures);
+
+  RedisModule_InfoBeginDictField(ctx, "index_failures");
   RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   double percent_indexed = IndexesScanner_IndexedPrecent(scanner, sp);
@@ -273,6 +315,10 @@ static void RS_moduleInfoIndexInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 
   // Cursor stat
   Cursors_RenderStatsForInfo(&RSCursors, sp->name, ctx);
+
+  // Stop words
+  if (sp->flags & Index_HasCustomStopwords)
+    ReplyWithStopWordsListForInfo(ctx, sp->stopwords);
 }
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -390,8 +436,9 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
 
   // Register Info function
-  if (RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR)
+  if (RedisModule_RegisterInfoFunc && RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
+  }
 
   Initialize_KeyspaceNotifications(ctx);
   Initialize_CommandFilter(ctx);

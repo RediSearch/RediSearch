@@ -44,6 +44,7 @@ void FieldSpec_UpdateGlobalStat(FieldSpec *fs, int toAdd) {
   } else if (fs->types & INDEXFLD_T_GEO) {  // geo field
     RSGlobalConfig.fieldsStats.numGeoFields += toAdd;
   } else if (fs->types & INDEXFLD_T_VECTOR) {  // vector field
+    RSGlobalConfig.fieldsStats.numVectorFields += toAdd;
     if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_BF)
       RSGlobalConfig.fieldsStats.numVectorFieldsFlat += toAdd;
     else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB)
@@ -66,5 +67,19 @@ void FieldSpec_UpdateGlobalStat(FieldSpec *fs, int toAdd) {
     else if (fs->types & INDEXFLD_T_NUMERIC) RSGlobalConfig.fieldsStats.numNumericFieldsNoIndex += toAdd;
     else if (fs->types & INDEXFLD_T_GEO) RSGlobalConfig.fieldsStats.numGeoFieldsNoIndex += toAdd;
     else if (fs->types & INDEXFLD_T_TAG) RSGlobalConfig.fieldsStats.numTagFieldsNoIndex += toAdd;
+  }
+}
+
+const char *FieldSpec_GetTypeNames(int idx) {
+  switch (idx) {
+  case IXFLDPOS_FULLTEXT: return SPEC_TEXT_STR;
+  case IXFLDPOS_TAG:      return SPEC_TAG_STR;
+  case IXFLDPOS_NUMERIC:  return SPEC_NUMERIC_STR;
+  case IXFLDPOS_GEO:      return SPEC_GEO_STR;
+  case IXFLDPOS_VECTOR:   return SPEC_VECTOR_STR;
+
+  default:
+    RS_LOG_ASSERT(0, "oops");
+    break;
   }
 }

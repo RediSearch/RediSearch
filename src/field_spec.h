@@ -122,6 +122,10 @@ void FieldSpec_Cleanup(FieldSpec* fs);
  * according to the givan toAdd value.
  */
 void FieldSpec_UpdateGlobalStat(FieldSpec *fs, int toAdd);
+/**
+ * Convert field type given by integer to the name type in string form.
+ */
+const char *FieldSpec_GetTypeNames(int idx);
 
 RSValueType fieldTypeToValueType(FieldType ft);
 

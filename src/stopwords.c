@@ -45,7 +45,7 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
   strtolower(lowStr);
   int ret = TrieMap_Find(sl->m, (char *)lowStr, len) != TRIEMAP_NOTFOUND;
 
-  // free memory if allocated 
+  // free memory if allocated
   if (len >= 32) rm_free(lowStr);
 
   return ret;
@@ -195,6 +195,29 @@ void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
     ++i;
   }
   RedisModule_ReplySetArrayLength(ctx, i);
+  TrieMapIterator_Free(it);
+}
+
+void ReplyWithStopWordsListForInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
+  if (sl == NULL) {
+    return;
+  }
+
+  TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
+  char *str;
+  tm_len_t len;
+  void *ptr;
+  bool first = true;
+  char stopwords[512];
+  stopwords[0] = '\0';
+  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
+    char temp[128];
+    sprintf(temp, "%s\"%s\"", first ? "" : ",", str);
+    strncat(stopwords, temp, sizeof(stopwords));
+    stopwords[sizeof(stopwords)-1] = '\0';
+    if (first) first = false;
+  }
+  RedisModule_InfoAddFieldCString(ctx, "stop_words", stopwords);
   TrieMapIterator_Free(it);
 }
 

@@ -1624,6 +1624,7 @@ static void FieldsGlobalStats_RdbLoad(RedisModuleIO *rdb, FieldsGlobalStats *sta
   stats->numTagFieldsSortable = RedisModule_LoadUnsigned(rdb);
   stats->numTagFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
   stats->numTagFieldsCaseSensitive = RedisModule_LoadUnsigned(rdb);
+  stats->numVectorFields = RedisModule_LoadUnsigned(rdb);
   stats->numVectorFieldsFlat = RedisModule_LoadUnsigned(rdb);
   stats->numVectorFieldsHSNW = RedisModule_LoadUnsigned(rdb);
 }
@@ -1642,6 +1643,7 @@ static void FieldsGlobalStats_RdbSave(RedisModuleIO *rdb, FieldsGlobalStats *sta
   RedisModule_SaveUnsigned(rdb, stats->numTagFieldsSortable);
   RedisModule_SaveUnsigned(rdb, stats->numTagFieldsNoIndex);
   RedisModule_SaveUnsigned(rdb, stats->numTagFieldsCaseSensitive);
+  RedisModule_SaveUnsigned(rdb, stats->numVectorFields);
   RedisModule_SaveUnsigned(rdb, stats->numVectorFieldsFlat);
   RedisModule_SaveUnsigned(rdb, stats->numVectorFieldsHSNW);
 }
