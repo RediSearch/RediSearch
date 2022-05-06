@@ -380,7 +380,7 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
 }
 
 // memoryLimit / 10 - default is 10% of global memory limit
-#define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResizeMB) ? RSGlobalConfig.vssMaxResizeMB * 0x100000 : memoryLimit / 10)
+#define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : memoryLimit / 10)
 
 static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;

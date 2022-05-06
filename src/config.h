@@ -104,8 +104,8 @@ typedef struct {
   int invertedIndexRawDocidEncoding;
   // Default dialect level used throughout database lifetime.
   unsigned int defaultDialectVersion;
-  // sets the memory limit for vector indexes to resize by.
-  unsigned int vssMaxResizeMB;
+  // sets the memory limit for vector indexes to resize by (in bytes).
+  unsigned int vssMaxResize;
 } RSConfig;
 
 typedef enum {
@@ -192,7 +192,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
-    .vssMaxResizeMB = 0,                                                                          \
+    .vssMaxResize = 0,                                                                            \
   }
 
 #define REDIS_ARRAY_LIMIT 7

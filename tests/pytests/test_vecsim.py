@@ -1205,7 +1205,7 @@ def test_redisearch_memory_limit():
     #            'Vector index block size ' + str(block_size) + ' exceeded server limit')
     # currIdx+=1
 
-    env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE_MB', '30').ok()
+    env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE', maxmemory).ok()
 
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                 'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
@@ -1216,4 +1216,4 @@ def test_redisearch_memory_limit():
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
-    env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE_MB', '0').ok()
+    env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE', '0').ok()
