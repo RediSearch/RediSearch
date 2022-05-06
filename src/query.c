@@ -490,7 +490,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   rangeItersAddIterator(ctx, ir);
 }
 
-static void rangeIterCb(const rune *r, size_t n, void *p) {
+static int rangeIterCb(const rune *r, size_t n, void *p) {
   LexRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   RSToken tok = {0};
@@ -501,10 +501,11 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
   rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
-    return;
+    return REDISMODULE_OK;
   }
 
   rangeItersAddIterator(ctx, ir);
+  return REDISMODULE_OK;
 }
 
 static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
