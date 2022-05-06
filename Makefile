@@ -124,9 +124,6 @@ common options for upload operations:
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
 
-make docs          # create documentation
-make deploy-docs   # deploy documentation
-
 make docker        # build for specified platform
   OSNICK=nick        # platform to build for (default: host platform)
   TEST=1             # run tests after build
@@ -488,6 +485,7 @@ endif
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
+ifneq ($(REJSON),0)
 ifneq ($(SAN),)
 REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
 
@@ -495,6 +493,7 @@ $(REJSON_SO):
 	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
 else
 REJSON_SO=
+endif
 endif
 
 ifeq ($(SLOW),1)
@@ -679,16 +678,6 @@ upload-cov:
 	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
 
 .PHONY: coverage show-cov upload-cov
-
-#----------------------------------------------------------------------------------------------
-
-docs:
-	$(SHOW)mkdocs build
-
-deploy-docs:
-	$(SHOW)mkdocs gh-deploy
-
-.PHONY: docs deploy-docs
 
 #----------------------------------------------------------------------------------------------
 
