@@ -152,6 +152,43 @@ def testDelReuse():
     res = [4, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').equal(res)
 
+# test for issue https://github.com/RediSearch/RediSearch/pull/2705
+def testUpdateWithBadValue(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                        'SCHEMA', '$.v', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+    env.execute_command('FT.CREATE', 'idx2',
+                        'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+
+    res = [1, 'doc:1', ['$', '{"v":[1,3]}']]
+    # Add doc contains a vector to the index
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"v":[1,2]}'))
+    # Override with bad vector value (wrong blob size)
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '2', '3'), [3])
+    # Override again with legal vector value
+    env.assertEqual(conn.execute_command('JSON.ARRPOP', 'doc:1', '$.v', '1'), ['2'])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,3]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
+    waitForIndex(env, 'idx')
+    # before the issue fix, the second query will result in empty result, as the first vector value was not deleted when
+    # its value was override with a bad value
+    env.expect('FT.SEARCH', 'idx', '*').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal(res)
+
+    res = [1, 'h1', ['vec', '????>>>>']]
+    # Add doc contains a vector to the index
+    env.assertEqual(conn.execute_command('HSET', 'h1', 'vec', '????????'), 1)
+    # Override with bad vector value (wrong blob size)
+    env.assertEqual(conn.execute_command('HSET', 'h1', 'vec', 'bad-val'), 0)
+    # Override again with legal vector value
+    env.assertEqual(conn.execute_command('HSET', 'h1', 'vec', '????>>>>'), 0)
+    waitForIndex(env, 'idx2')
+    # before the issue fix, the second query will result in empty result, as the first vector value was not deleted when
+    # its value was override with a bad value
+    env.expect('FT.SEARCH', 'idx2', '*').equal(res)
+    env.expect('FT.SEARCH', 'idx2', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', 'vec').equal(res)
+
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
