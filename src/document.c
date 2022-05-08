@@ -507,10 +507,16 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(vectorPreprocessor) {
-  size_t len;
-  fdata->vector = RedisModule_StringPtrLen(field->text, &len);
-  fdata->vecLen = len;
-  if (len != fs->vectorOpts.expBlobSize) {
+  fdata->vecLen = 0;
+  if (field->unionType == FLD_VAR_T_RMS) {
+    fdata->vector = RedisModule_StringPtrLen(field->text, &fdata->vecLen);
+  } else if (field->unionType == FLD_VAR_T_CSTR) {
+    fdata->vector = field->strval;
+    fdata->vecLen = field->strlen;
+  } else if (field->unionType == FLD_VAR_T_NULL) {
+    return 0; // Skipping indexing missing vector
+  }
+  if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
     // "Could not add vector with blob size %zu (expected size %zu)", len, fs->vectorOpts.expBlobSize
     QueryError_SetCode(status, QUERY_EBADATTR);
     return -1;
@@ -530,8 +536,10 @@ FIELD_BULK_INDEXER(vectorIndexer) {
       return -1;
     }
   }
-  ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);;
-  ctx->spec->stats.numRecords++;
+  if (fdata->vecLen) { // If document is loaded with null vector (on JSON), skip.
+    ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);;
+    ctx->spec->stats.numRecords++;
+  }
   return 0;
 }
 

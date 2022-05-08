@@ -159,9 +159,9 @@ def testProfileErrors(env):
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   # missing args
-  env.expect('ft.profile', 'idx').error().contains("wrong number of arguments for 'ft.profile'")
-  env.expect('ft.profile', 'idx', 'SEARCH').error().contains("wrong number of arguments for 'ft.profile'")
-  env.expect('ft.profile', 'idx', 'SEARCH', 'QUERY').error().contains("wrong number of arguments for 'ft.profile'")
+  env.expect('ft.profile', 'idx').error().contains('wrong number of arguments')
+  env.expect('ft.profile', 'idx', 'SEARCH').error().contains('wrong number of arguments')
+  env.expect('ft.profile', 'idx', 'SEARCH', 'QUERY').error().contains('wrong number of arguments')
   # wrong `query` type
   env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH` or `AGGREGATE` provided')
   # miss `QUERY` keyword
@@ -238,10 +238,11 @@ def testProfileVector(env):
 
   for i in range(6, 10001):
     conn.execute_command('hset', str(i), 'v', 'bababada', 't', "hello world")
-
   # Expect batched search to take place - going over child iterator exactly once (reading 2 results)
   # Expect in the first batch to get 1, 2, 4, 6 and then ask for one more batch - and get 7 in the next results.
-  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]', 'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  # In the second batch - batch size is determined to be 2
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]',
+                                    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   env.assertEqual(actual_res[0], [3, '4', '6', '7'])
   expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 3, 'Batches number', 2, 'Child iterator',
                                                  ['Type', 'INTERSECT', 'Counter', 8, 'Child iterators',
@@ -251,6 +252,21 @@ def testProfileVector(env):
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
   env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+
+  # Add another 10K vectors with a different tag.
+  for i in range(10001, 20001):
+    conn.execute_command('hset', str(i), 'v', '????????', 't', "other")
+
+  # expected results that pass the filter is index_size/2. after two iterations with no results,
+  # we should move ad-hoc BF.
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 0, 'Batches number', 2, 'Child iterator',
+                                                  ['Type', 'INTERSECT', 'Counter', 2, 'Child iterators',
+                                                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 5, 'Size', 10000],
+                                                   ['Type', 'TEXT', 'Term', 'other', 'Counter', 3, 'Size', 10000]]]]
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 3 @v $vec]',
+                                      'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
+  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 
 def testResultProcessorCounter(env):
