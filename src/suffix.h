@@ -9,6 +9,9 @@ extern "C" {
 
 #define MIN_SUFFIX 2
 
+/***********************************************************/
+/*****************        Trie          ********************/
+/***********************************************************/
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
 
@@ -16,6 +19,15 @@ void suffixData_freeCallback(void *data);
 
 void Suffix_IterateContains(TrieNode *n, const rune *str, size_t nstr, bool prefix,
                               TrieSuffixCallback callback, void *ctx);
+
+
+/***********************************************************/
+/*****************        TrieMap       ********************/
+/***********************************************************/
+void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
+void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
+
+arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len, bool prefix);
 
 #ifdef __cplusplus
 }

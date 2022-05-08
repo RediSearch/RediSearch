@@ -1104,6 +1104,10 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     if (idx->numDocs == 0) {
       // printf("Delete GC %s %p\n", tagVal, TrieMap_Find(tagIdx->values, tagVal, tagValLen));
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
+
+      if (tagIdx->suffix) {
+        deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);
+      }
     }
 
   loop_cleanup:

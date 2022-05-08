@@ -850,43 +850,80 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                              IndexIteratorArray *iterout, double weight) {
+                                              IndexIteratorArray *iterout, double weight,
+                                              int withSuffix) {
+  RSToken *tok = &qn->pfx.tok;
   if (qn->type != QN_PREFIX) {
     return NULL;
   }
 
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (qn->pfx.tok.len < RSGlobalConfig.minTermPrefix) {
+  if (tok->len < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
 
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, qn->pfx.tok.str, qn->pfx.tok.len);
-  if (!it) return NULL;
-
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
-  // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-  char *s;
-  tm_len_t sl;
-  void *ptr;
+  if (!qn->pfx.suffix || !withSuffix) {    // prefix query or no suffix triemap, use bruteforce
+    TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
+    TrieMapIterator_NextFunc nextFunc = TrieMapIterator_Next;
+    if (!it) return NULL;
 
-  // Find all completions of the prefix
-  while (TrieMapIterator_Next(it, &s, &sl, &ptr) &&
-         (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
-    IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
-    if (!ret) continue;
-
-    // Add the reader to the iterator array
-    its[itsSz++] = ret;
-    if (itsSz == itsCap) {
-      itsCap *= 2;
-      its = rm_realloc(its, itsCap * sizeof(*its));
+    if (qn->pfx.suffix) {
+      nextFunc = TrieMapIterator_NextContains;
+      if (qn->pfx.prefix) { // contains mode
+        it->mode = TM_CONTAINS_MODE;
+      } else {
+        it->mode = TM_SUFFIX_MODE;
+        //nextFunc = TrieMapIterator_NextSuffix;
+      }
     }
-  }
 
-  TrieMapIterator_Free(it);
+
+    // an upper limit on the number of expansions is enforced to avoid stuff like "*"
+    char *s;
+    tm_len_t sl;
+    void *ptr;
+
+    // Find all completions of the prefix
+    while (nextFunc(it, &s, &sl, &ptr) &&
+          (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+      IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
+      if (!ret) continue;
+
+      // Add the reader to the iterator array
+      its[itsSz++] = ret;
+      if (itsSz == itsCap) {
+        itsCap *= 2;
+        its = rm_realloc(its, itsCap * sizeof(*its));
+      }
+    }
+    TrieMapIterator_Free(it);
+  } else {    // TAG field has suffix triemap
+    arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len, qn->pfx.prefix);
+    if (!arr) return NULL;
+    for (int i = 0; i < array_len(arr); ++i) {
+      size_t iarrlen = array_len(arr);
+      for (int j = 0; j < array_len(arr[i]); ++j) {
+        size_t jarrlen = array_len(arr[i]);
+        if (itsSz >= RSGlobalConfig.maxPrefixExpansions) {
+          break;
+        }
+        IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, arr[i][j], strlen(arr[i][j]), 1);
+        if (!ret) continue;
+
+        // Add the reader to the iterator array
+        its[itsSz++] = ret;
+        if (itsSz == itsCap) {
+          itsCap *= 2;
+          its = rm_realloc(its, itsCap * sizeof(*its));
+        }
+      }
+    }
+    array_free(arr);
+  }
 
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
@@ -922,7 +959,7 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
 
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
                                               IndexIteratorArray *iterout, double weight,
-                                              int caseSensitive) {
+                                              int caseSensitive, int withSuffix) {
   IndexIterator *ret = NULL;
 
   if (n->tn.str) {
@@ -935,7 +972,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       break;
     }
     case QN_PREFIX:
-      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight);
+      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, withSuffix);
 
     case QN_LEXRANGE:
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);
@@ -989,7 +1026,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   // a union stage with one child is the same as the child, so we just return it
   if (QueryNode_NumChildren(qn) == 1) {
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight,
-                                  fs->tagOpts.tagFlags & TagField_CaseSensitive);
+                                  fs->tagOpts.tagFlags & TagField_CaseSensitive, FieldSpec_HasContains(fs));
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
@@ -1007,7 +1044,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
     IndexIterator *it =
         query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight,
-                                fs->tagOpts.tagFlags & TagField_CaseSensitive);
+                                fs->tagOpts.tagFlags & TagField_CaseSensitive, FieldSpec_HasContains(fs));
     if (it) {
       iters[n++] = it;
     }

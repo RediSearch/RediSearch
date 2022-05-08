@@ -105,6 +105,63 @@ def testSanity(env):
         env.expect('ft.search', index_list[i], '*234', 'LIMIT', 0 , 0).equal([40])
         env.expect('ft.search', index_list[i], '*13', 'LIMIT', 0 , 0).equal([400])
 
+
+def testSanityTags(env):
+    env.skipOnCluster()
+    env.expect('ft.config', 'set', 'MINPREFIX', 1).ok()
+    env.expect('ft.config', 'set', 'TIMEOUT', 100000).ok()
+    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
+    item_qty = 10000
+
+    index_list = ['idx_bf', 'idx_suffix']
+    env.cmd('ft.create', index_list[0], 'SCHEMA', 't', 'TAG')
+    env.cmd('ft.create', index_list[1], 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
+
+    conn = getConnectionByEnv(env)
+
+    start = time.time()
+    pl = conn.pipeline()
+    for i in range(item_qty):
+        pl.execute_command('HSET', 'doc%d' % i, 't', 'foo%d' % i)
+        pl.execute_command('HSET', 'doc%d' % (i + item_qty), 't', 'fooo%d' % i)
+        pl.execute_command('HSET', 'doc%d' % (i + item_qty * 2), 't', 'foooo%d' % i)
+        pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
+        pl.execute()
+
+    for i in range(len(index_list)):
+        #prefix
+        env.expect('ft.search', index_list[i], '@t:{f*}', 'LIMIT', 0 , 0).equal([40000])
+        env.expect('ft.search', index_list[i], '@t:{foo*}', 'LIMIT', 0 , 0).equal([40000])
+        env.expect('ft.search', index_list[i], '@t:{foo1*}', 'LIMIT', 0 , 0).equal([1111])
+        env.expect('ft.search', index_list[i], '@t:{*ooo1*}', 'LIMIT', 0 , 0).equal([2222])
+
+        # contains
+        env.expect('ft.search', index_list[i], '@t:{*oo*}', 'LIMIT', 0 , 0).equal([40000])
+        # 55xx & x55x & xx55 - 555x - x555 
+        env.expect('ft.search', index_list[i], '@t:{*55*}', 'LIMIT', 0 , 0).equal([1120])
+        # 555x & x555 - 5555
+        env.expect('ft.search', index_list[i], '@t:{*555*}', 'LIMIT', 0 , 0).equal([76])
+        env.expect('ft.search', index_list[i], '@t:{*o55*}', 'LIMIT', 0 , 0).equal([444])
+        env.expect('ft.search', index_list[i], '@t:{*oo55*}', 'LIMIT', 0 , 0).equal([333])
+        env.expect('ft.search', index_list[i], '@t:{*oo555*}', 'LIMIT', 0 , 0).equal([33])
+
+        # 23xx & x23x & xx23 - 2323
+        env.expect('ft.search', index_list[i], '@t:{*23*}', 'LIMIT', 0 , 0).equal([1196])
+        # 234x & x234
+        start = time.time()
+        env.expect('ft.search', index_list[i], '@t:{*234*}', 'LIMIT', 0 , 0).equal([80])
+        print (time.time() - start)
+        start = time.time()
+        env.expect('ft.search', index_list[i], '@t:{*o23*}', 'LIMIT', 0 , 0).equal([444])
+        print (time.time() - start)
+        env.expect('ft.search', index_list[i], '@t:{*oo23*}', 'LIMIT', 0 , 0).equal([333])
+        env.expect('ft.search', index_list[i], '@t:{*oo234*}', 'LIMIT', 0 , 0).equal([33])
+
+        # suffix
+        env.expect('ft.search', index_list[i], '@t:{*oo234}', 'LIMIT', 0 , 0).equal([3])
+        env.expect('ft.search', index_list[i], '@t:{*234}', 'LIMIT', 0 , 0).equal([40])
+        env.expect('ft.search', index_list[i], '@t:{*13}', 'LIMIT', 0 , 0).equal([400])
+
 def testBible(env):
     env.skip()
     # env.expect('ft.config', 'set', 'MINPREFIX', 1).ok()

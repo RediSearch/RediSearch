@@ -96,6 +96,7 @@ extern "C" {
 typedef struct {
   uint32_t uniqueId;
   TrieMap *values;
+  TrieMap *suffix;
 } TagIndex;
 
 #define TAG_INDEX_KEY_FMT "tag:%s/%s"

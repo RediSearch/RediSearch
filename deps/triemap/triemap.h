@@ -78,7 +78,7 @@ int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplace
  * constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
  * comparing to it, becase NULL can be a valid result.
  */
-void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len);
+void *TrieMap_Find(TrieMap *t, const char *str, tm_len_t len);
 
 /* Find nodes that have a given prefix. Results are placed in an array.
  */
@@ -87,7 +87,7 @@ int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void
 /* Mark a node as deleted. It also optimizes the trie by merging nodes if
  * needed. If freeCB is given, it will be used to free the value of the deleted
  * node. If it doesn't, we simply call free() */
-int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *));
+int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, void (*freeCB)(void *));
 
 /* Free the trie's root and all its children recursively. If freeCB is given, we
  * call it to free individual payload values. If not, free() is used instead. */
@@ -158,6 +158,8 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
  * or 0 if we're done and should exit */
 int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
 int TrieMapIterator_NextSuffix(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
+
+typedef int (*TrieMapIterator_NextFunc)(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
 
 typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
 

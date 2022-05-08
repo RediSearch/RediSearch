@@ -13,14 +13,11 @@ typedef struct suffixData {
 #define Suffix_GetData(node) node ? node->payload ? \
                              (suffixData *)node->payload->data : NULL : NULL
 
-void delCb(void *val) {
-  suffixData *node = val;
-  array_free(node->array);
-  if (node->term) {
-    rm_free(node->term);
-  }
-  rm_free(node);
-}
+
+/***********************************************************/
+/*****************        Trie          ********************/
+/***********************************************************/
+
 
 static suffixData createSuffixNode(char *term, int keepPtr) {
   suffixData node = { 0 };
@@ -56,7 +53,6 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   }
 
   char *copyStr = rm_strndup(str, len);
-  // printf("string %s len %ld rlen %ld\n", str, len, rlen);
   if (!data) {
     suffixData newdata = createSuffixNode(copyStr, 1);
     RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
@@ -73,9 +69,6 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     TrieNode *trienode = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
     
     data = Suffix_GetData(trienode);
-    //void *payload = trienode ? trienode->payload : NULL;
-    size_t len;
-    // printf("%s %p %p %p\n", runesToStr(runes + j, rlen - j, &len), trienode, payload, node);
     if (!trienode || !trienode->payload) {
       suffixData newdata = createSuffixNode(copyStr, 0);
       RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
@@ -188,4 +181,98 @@ void suffixData_freeCallback(void *payload) {
   rm_free(data->term);
   data->term = NULL;
   rm_free(payload);
+}
+
+
+/***********************************************************/
+/*****************        TrieMap       ********************/
+/***********************************************************/
+
+
+void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
+  suffixData *data = TrieMap_Find(trie, (char *)str, len);
+
+  // if we found a node and term exists, we already have the term in the suffix
+  if (data != TRIEMAP_NOTFOUND && data->term) {
+    return;
+  }
+
+  char *copyStr = rm_strndup(str, len);
+  if (data == TRIEMAP_NOTFOUND) {    // node doesn't exist even as suffix of another term
+    data = rm_calloc(1, sizeof(*data));
+    data->term = copyStr;
+    data->array = array_ensure_append_1(data->array, copyStr);
+    TrieMap_Add(trie, copyStr, len, data, NULL);
+  } else {    // node exists as suffix for other term
+    RS_LOG_ASSERT(!data->term, "can't reach here");
+    data->term = copyStr;
+    data->array = array_ensure_append_1(data->array, copyStr);
+  }
+
+  // Save string copy to all suffixes of it
+  // If it exists, move to the next field
+  for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
+    data = TrieMap_Find(trie, copyStr + j, len - j);
+
+    if (data == TRIEMAP_NOTFOUND) {
+      data = rm_calloc(1, sizeof(*data));
+      data->array = array_ensure_append_1(data->array, copyStr);
+      TrieMap_Add(trie, copyStr + j, len - j, data, NULL);
+    } else {
+      data->array = array_ensure_append_1(data->array, copyStr);
+    }
+  }
+}
+
+void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
+  char *oldTerm = NULL;
+
+  // iterate all matching terms and remove word
+  for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
+    suffixData *data = TrieMap_Find(trie, str + j, len - j);
+    RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
+    if (j == 0) {
+      // keep pointer to word string to free after it was found in al sub tokens.
+      oldTerm = data->term;
+      data->term = NULL;
+    }
+    // remove from array
+    removeSuffix(str, len, data->array);
+    // if array is empty, remove the node
+    if (array_len(data->array) == 0) {
+      RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
+      TrieMap_Delete(trie, str + j, len - j, freeSuffixNode);
+    }
+  }
+  rm_free(oldTerm);
+}
+
+arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len, bool prefix) {
+  arrayof(char**) arr = NULL;
+  suffixData *data = NULL;
+  if (!prefix) {
+    data = TrieMap_Find(trie, str, len);
+    if (data == TRIEMAP_NOTFOUND) {
+      return NULL;
+    } else {
+      arr = array_ensure_append_1(arr, data->array);
+      return arr;
+    }
+  } else {
+    TrieMapIterator *it = TrieMap_Iterate(trie, str, len);
+    if (!it) {
+      return NULL;
+    }
+    // an upper limit on the number of expansions is enforced to avoid stuff like "*"
+    char *s;
+    tm_len_t sl;
+    //void *ptr;
+
+    // Find all completions of the prefix
+    while (TrieMapIterator_Next(it, &s, &sl, (void**)&data)) {
+      arr = array_ensure_append_1(arr, data->array);
+    }
+    TrieMapIterator_Free(it);
+    return arr;
+  }
 }

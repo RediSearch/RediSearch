@@ -1,4 +1,5 @@
 #include "tag_index.h"
+#include "suffix.h"
 #include "rmalloc.h"
 #include "rmutil/vector.h"
 #include "inverted_index.h"
@@ -142,6 +143,9 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
     const char *tok = values[ii];
     if (tok && *tok != '\0') {
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
+      if (idx->suffix) { // add to suffix triemap if exist 
+        addSuffixTrieMap(idx->suffix, tok, strlen(tok));
+      }
     }
   }
   return ret;

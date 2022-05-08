@@ -200,7 +200,7 @@ static inline void __trieNode_sortChildren(TrieMapNode *n) {
   }
 }
 
-void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
+void *TrieMapNode_Find(TrieMapNode *n, const char *str, tm_len_t len) {
   tm_len_t offset = 0;
   while (n && (offset < len || len == 0)) {
     tm_len_t localOffset = 0;
@@ -363,7 +363,7 @@ TrieMapNode *TrieMapNode_FindNode(TrieMapNode *n, char *str, tm_len_t len, tm_le
   return NULL;
 }
 
-void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len) {
+void *TrieMap_Find(TrieMap *t, const char *str, tm_len_t len) {
   return TrieMapNode_Find(t->root, str, len);
 }
 
@@ -442,7 +442,7 @@ int __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
   return rc;
 }
 
-int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len, void (*freeCB)(void *)) {
+int TrieMapNode_Delete(TrieMapNode *n, const char *str, tm_len_t len, void (*freeCB)(void *)) {
   tm_len_t offset = 0;
   int stackCap = 8;
   TrieMapNode **stack = rm_calloc(stackCap, sizeof(TrieMapNode *));
@@ -509,7 +509,7 @@ end:
   return rc;
 }
 
-int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *)) {
+int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, void (*freeCB)(void *)) {
   int rc = TrieMapNode_Delete(t->root, str, len, freeCB);
   t->size -= rc;
   int deleted = rc ? 1 : 0;

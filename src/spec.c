@@ -597,6 +597,8 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
         fs->tagOpts.tagSep = *sep;
       } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
         fs->tagOpts.tagFlags |= TagField_CaseSensitive;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+        fs->options |= FieldSpec_Contains;
       } else {
         break;
       }
@@ -752,7 +754,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
     }
-    if (FieldSpec_HasContains(fs)) {
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasContains(fs)) {
       sp->flags |= Index_HasContains;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
