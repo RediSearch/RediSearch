@@ -105,6 +105,7 @@ typedef struct {
   // Default dialect level used throughout database lifetime.
   unsigned int defaultDialectVersion;
   // sets the memory limit for vector indexes to resize by (in bytes).
+  // 0 indicates no limit. Default value is 0.
   unsigned int vssMaxResize;
 } RSConfig;
 
