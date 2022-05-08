@@ -382,6 +382,57 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
 // memoryLimit / 10 - default is 10% of global memory limit
 #define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : memoryLimit / 10)
 
+static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *status) {
+  // Calculating max block size (in # of vectors), according to memory limits
+  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / VecSimIndex_EstimateElementSize(params);
+  // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
+  if (params->hnswParams.blockSize == 0) {
+    params->hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  }
+  if (VecSimIndex_EstimateInitialSize(params) > memoryLimit - used_memory) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters", memoryLimit);
+    return 0;
+  } else if (params->hnswParams.blockSize  > maxBlockSize) {
+    // TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    // QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
+    // return 0;
+  }
+  return 1;
+}
+
+static int parseVectorField_validate_flat(VecSimParams *params, QueryError *status) {
+  size_t elementSize = VecSimIndex_EstimateElementSize(params);
+  // Calculating max block size (in # of vectors), according to memory limits
+  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
+  // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
+  if (params->bfParams.blockSize == 0) {
+    params->bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  }
+  // Calculating index size estimation, after first vector block was allocated.
+  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
+  index_size_estimation += elementSize * params->bfParams.blockSize;
+  if (index_size_estimation > memoryLimit - used_memory) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters", memoryLimit);
+    return 0;
+  } else if (params->bfParams.blockSize > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", params->bfParams.blockSize, maxBlockSize);
+    return 0;
+  }
+  return 1;
+}
+
+int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, QueryError *status) {
+  setMemoryInfo(ctx);
+  if (VecSimAlgo_HNSWLIB == params->algo) {
+    if (parseVectorField_validate_hnsw(params, status))
+      return REDISMODULE_OK;
+  } else if (VecSimAlgo_BF == params->algo) {
+    if (parseVectorField_validate_flat(params, status))
+      return REDISMODULE_OK;
+  }
+  return REDISMODULE_ERR;
+}
+
 static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
 
@@ -465,21 +516,8 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   }
   // Calculating expected blob size of a vector in bytes.
   fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.hnswParams.type);
-  // Calculating max block size (in # of vectors), according to memory limits
-  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
-  // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
-  if (fs->vectorOpts.vecSimParams.hnswParams.blockSize == 0) {
-    fs->vectorOpts.vecSimParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
-  }
-  if (VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams) > memoryLimit - used_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters", memoryLimit);
-    return 0;
-  } else if (fs->vectorOpts.vecSimParams.hnswParams.blockSize  > maxBlockSize) {
-    // TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-    // QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
-    // return 0;
-  }
-  return 1;
+
+  return parseVectorField_validate_hnsw(&fs->vectorOpts.vecSimParams, status);
 }
 
 static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
@@ -555,24 +593,8 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   }
   // Calculating expected blob size of a vector in bytes.
   fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.bfParams.type);
-  size_t elementSize = VecSimIndex_EstimateElementSize(&fs->vectorOpts.vecSimParams);
-  // Calculating max block size (in # of vectors), according to memory limits
-  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
-  // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
-  if (fs->vectorOpts.vecSimParams.bfParams.blockSize == 0) {
-    fs->vectorOpts.vecSimParams.bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
-  }
-  // Calculating index size estimation, after first vector block was allocated.
-  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(&fs->vectorOpts.vecSimParams);
-  index_size_estimation += elementSize * fs->vectorOpts.vecSimParams.bfParams.blockSize;
-  if (index_size_estimation > memoryLimit - used_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters", memoryLimit);
-    return 0;
-  } else if (fs->vectorOpts.vecSimParams.bfParams.blockSize > maxBlockSize) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
-    return 0;
-  }
-  return 1;
+
+  return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
 
 static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
