@@ -2104,6 +2104,7 @@ def testTimeoutOnSorter(env):
 
     res = env.cmd('ft.search', 'idx', '*', 'SORTBY', 'n', 'DESC')
     env.assertGreater(elements, res[0])
+    env.assertGreater(len(res), 2)
 
 def testAlias(env):
     conn = getConnectionByEnv(env)
