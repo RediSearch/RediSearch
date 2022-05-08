@@ -1143,13 +1143,13 @@ def test_system_memory_limits():
     block_size = system_memory // (16*4) // 9 # memory needed for this block size is more than 10% of system memory
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).error().contains(
-               'Vector index block size ' + str(block_size) + ' exceeded server limit')
+               f'Vector index block size {block_size} exceeded server limit')
     currIdx+=1
 
     # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
     #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).error().contains(
-    #            'Vector index block size ' + str(block_size) + ' exceeded server limit')
+    #            f'Vector index block size {block_size} exceeded server limit')
 
 def test_redis_memory_limits():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1181,12 +1181,12 @@ def test_redis_memory_limits():
     block_size = maxmemory // (16*4) // 2 # half of memory limit divided by blob size
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-               'Vector index block size ' + str(block_size) + ' exceeded server limit')
+               f'Vector index block size {block_size} exceeded server limit')
     currIdx+=1
     # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
     #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-    #            'Vector index block size ' + str(block_size) + ' exceeded server limit')
+    #            f'Vector index block size {block_size} exceeded server limit')
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
@@ -1234,12 +1234,12 @@ def test_redisearch_memory_limit():
 
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                 'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-                'Vector index block size ' + str(block_size) + ' exceeded server limit')
+                f'Vector index block size {block_size} exceeded server limit')
     currIdx+=1
     # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
     #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-    #            'Vector index block size ' + str(block_size) + ' exceeded server limit')
+    #            f'Vector index block size {block_size} exceeded server limit')
     # currIdx+=1
 
     env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE', maxmemory).ok()
@@ -1254,3 +1254,35 @@ def test_redisearch_memory_limit():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
     env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE', '0').ok()
+
+def test_rdb_memory_limit():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
+    maxmemory = used_memory * 5
+    block_size = maxmemory // (16*4) // 2 # half of memory limit divided by blob size
+
+    # succeed to create indexes with no limits
+    env.expect('FT.CREATE', 'idx-flat', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+    env.expect('FT.CREATE', 'idx-hnsw', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+               'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 1000000).ok()
+    # sets memory limit
+    env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', maxmemory))
+
+    # The actual test: try creating indexes from rdb.
+    # should succeed after changing initial cap and block size to 0 and default
+    env.assertTrue(conn.execute_command('DEBUG', 'RELOAD'))
+
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx-flat", "v"))
+    env.assertNotEqual(info_data['BLOCK_SIZE'], block_size)
+    # TODO: if we ever add INITIAL_CAP to debug data, add check here
+    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    # info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx-hnsw", "v"))
+    # env.assertNotEqual(info_data['BLOCK_SIZE'], block_size)
+    # # TODO: if we ever add INITIAL_CAP to debug data, add check here
+
+    # reset env (for clean RLTest run with env reuse)
+    env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
