@@ -742,7 +742,7 @@ static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
     }
   }
 
-  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+  array_trimm_len(r->buf, n->len);
   return REDISEARCH_OK;
 }
 
@@ -876,7 +876,7 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
   }
 
 clean_stack:
-  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+  array_trimm_len(r->buf, n->len);
 }
 
 // LexRange iteration.
@@ -943,7 +943,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
     int offset = 0;
     TrieNode *res = TrieNode_Get(n, (rune *)str, nstr, false, &offset);
     if (res) {
-      array_trimm_len(r.buf, offset);
+      array_trimm_len(r.buf, array_len(r.buf) - offset);
       rangeIterateSubTree(res , &r);
     }
     goto done;
@@ -967,8 +967,7 @@ done:
 str = runesToStr(r->buf, array_len(r->buf), &len);   \
 printf("%s:%s %ld\n", stage, str, len);
 */
-#define trimOne(n, r)                                   \
-if (n->len) array_trimm_len(r->buf, array_len(r->buf) - 1)
+#define trimOne(n, r)  if (n->len) array_trimm_len(r->buf, 1)
 
 // check next char on node or children
 static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
@@ -1012,7 +1011,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
     /* full match found */
     if (globalOffset + 1 == r->lenOrigStr) {
       if (r->prefix) { // contains mode
-        array_trimm_len(r->buf, array_len(r->buf) - (localOffset + 1));
+        array_trimm_len(r->buf, localOffset + 1);
         //char *str = runesToStr(r->buf, array_len(r->buf), &len);
         //printf("%s %d %d %d\n", str, array_len(r->buf), localOffset + 1, globalOffset + 1);
         rangeIterateSubTree(n, r);
