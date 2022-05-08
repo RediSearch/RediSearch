@@ -22,6 +22,8 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED_SCORE 1
 #define TRIENODE_SORTED_LEX 2
 
+typedef void (*TrieFreeCallback)(void *node);
+
 #pragma pack(1)
 typedef struct {
   uint32_t len;  // 4G payload is more than enough!!!!
@@ -107,7 +109,7 @@ typedef enum {
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
 int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
-                 float score, TrieAddOp op);
+                 float score, TrieAddOp op, TrieFreeCallback freecb);
 
 /* Find the entry with a given string and length, and return its score. Returns
  * 0 if the entry was
@@ -115,14 +117,19 @@ int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
  * Note that you cannot put entries with zero score */
 float TrieNode_Find(TrieNode *n, rune *str, t_len len);
 
+/* Find the entry with a given string and length, and return it. */
+TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut);
+/* Returns the payload of the node. */
+void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact);
+
 /* Mark a node as deleted. For simplicity for now we don't actually delete
  * anything,
  * but the node will not be persisted to disk, thus deleted after reload.
  * Returns 1 if the node was indeed deleted, 0 otherwise */
-int TrieNode_Delete(TrieNode *n, const rune *str, t_len len);
+int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb);
 
 /* Free the trie's root and all its children recursively */
-void TrieNode_Free(TrieNode *n);
+void TrieNode_Free(TrieNode *n, TrieFreeCallback freecb);
 
 /* trie iterator stack node. for internal use only */
 typedef struct {
@@ -203,7 +210,8 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
 
 TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
 
-typedef void(TrieRangeCallback)(const rune *, size_t, void *);
+typedef int(TrieRangeCallback)(const rune *, size_t, void *);
+typedef int(TrieSuffixCallback)(const char *, size_t, void *);
 
 /**
  * Iterate all nodes within range.

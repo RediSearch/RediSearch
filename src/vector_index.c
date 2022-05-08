@@ -3,24 +3,6 @@
 #include "query_param.h"
 #include "rdb.h"
 
-// taken from parser.c
-void unescape(char *s, size_t *sz) {
-  
-  char *dst = s;
-  char *src = dst;
-  char *end = s + *sz;
-  while (src < end) {
-      // unescape 
-      if (*src == '\\' && src + 1 < end &&
-         (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          --*sz;
-          continue;
-      }
-      *dst++ = *src++;
-  }
-}
-
 static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
   IndexSpec *spec = ctx->spec;
