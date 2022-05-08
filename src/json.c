@@ -68,9 +68,9 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   case JSONType_Null:
     rv = REDISMODULE_OK;
     break;
-  // VECTOR field is represented as array
+  // TEXT and VECTOR fields can be represented as array
   case JSONType_Array:
-    if (fieldType == INDEXFLD_T_VECTOR) {
+    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR) {
       rv = REDISMODULE_OK;
     }
     break;
@@ -178,6 +178,38 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
   return REDISMODULE_OK;
 }
 
+int JSON_StoreTextInDocField(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
+    df->multiVal = rm_calloc(len , sizeof(*df->multiVal));    
+
+    int i = 0, nulls = 0;
+    size_t strlen;
+    RedisJSON json;
+    const char *str;
+    while ((json = japi->next(jsonIter))) {
+      JSONType jsonType = japi->getType(json);
+      if (jsonType == JSONType_String) {
+        japi->getString(json, &str, &strlen);
+        df->multiVal[i++] = rm_strndup(str, strlen);
+      } else if (jsonType == JSONType_Null) {
+        nulls++; // Skip Nulls
+      }
+      else {
+        // Text fields can handle only strings or Nulls
+        for (int j = 0; j < i; ++j) {
+          rm_free(df->multiVal[j]);
+        }
+        rm_free(df->multiVal);
+        return REDISMODULE_ERR;
+      }
+    }
+    RS_LOG_ASSERT ((i + nulls) == len, "TEXT iterator count and len must be equal");
+    // TODO: if Nulls are found, consider reallocating with the exact len
+    // (currently remain with surplus unused entries until `Document_Clear` is called)
+    df->arrayLen = i;
+    df->unionType = FLD_VAR_T_ARRAY;
+    return REDISMODULE_OK;
+}
+
 int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df) {
   int rv = REDISMODULE_OK;
 
@@ -215,10 +247,18 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       df->unionType = FLD_VAR_T_NULL;
       break;
     case JSONType_Array:;
-      // Flattening the array to go over it with iterator api
-      JSONResultsIterator arrIter = japi->get(json, "$.[*]");
-      rv = JSON_StoreVectorInDocField(fs, arrIter, df);
-      japi->freeIter(arrIter);
+      if (fs->types == INDEXFLD_T_VECTOR || fs->types == INDEXFLD_T_FULLTEXT) {
+        // Flattening the array to go over it with iterator api
+        JSONResultsIterator arrIter = japi->get(json, "$.[*]");
+        if (fs->types == INDEXFLD_T_VECTOR) {
+          rv = JSON_StoreVectorInDocField(fs, arrIter, df);
+        } else {
+          rv = JSON_StoreTextInDocField(japi->len(arrIter), arrIter, df);
+        }
+        japi->freeIter(arrIter);
+      } else {
+        rv = REDISMODULE_ERR;  
+      }
       break;
     case JSONType_Object:
       rv = REDISMODULE_ERR;
@@ -250,7 +290,7 @@ int JSON_StoreTagsInDocField(size_t len, JSONResultsIterator jsonIter, struct Do
       japi->getString(json, &str, &strlen);
       df->multiVal[i++] = rm_strndup(str, strlen);
     }
-    RS_LOG_ASSERT (i == len, "Iterator count and len must be equal");
+    RS_LOG_ASSERT (i == len, "TAG iterator count and len must be equal");
     df->unionType = FLD_VAR_T_ARRAY;
     return REDISMODULE_OK;
 }
@@ -273,6 +313,9 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   } else if (fs->types == INDEXFLD_T_TAG) {
     // Handling multiple values as a Tag list
     rv = JSON_StoreTagsInDocField(len, jsonIter, df);
+  } else if (fs->types == INDEXFLD_T_FULLTEXT) {
+    // Hendling multiple values as Text
+    rv = JSON_StoreTextInDocField(len, jsonIter, df);
   } else {
     rv = REDISMODULE_ERR;
   }

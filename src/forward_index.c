@@ -45,10 +45,15 @@ static size_t estimtateTermCount(const Document *doc) {
   size_t nChars = 0;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     DocumentField *field = doc->fields + ii;
-    if (field->unionType == FLD_VAR_T_CSTR || field->unionType == FLD_VAR_T_RMS) {
-      size_t n;
+    size_t n;
+    if (field->unionType == FLD_VAR_T_CSTR || field->unionType == FLD_VAR_T_RMS) {      
       DocumentField_GetValueCStr(field, &n);
       nChars += n;
+    } else if (field->unionType == FLD_VAR_T_ARRAY) {
+      for (size_t jj = 0; jj < field->arrayLen; ++jj) {
+        DocumentField_GetArrayValueCStr(field, &n, jj);
+        nChars += n;
+      }
     }
   }
   return nChars / CHARS_PER_TERM;
