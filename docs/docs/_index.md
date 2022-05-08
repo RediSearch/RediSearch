@@ -6,6 +6,8 @@ type: docs
 ---
 
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
+[![Discord](https://img.shields.io/static/v1?label=&message=repository&color=5961FF&logo=github)](https://github.com/RediSearch/RediSearch/)
+
 
 RediSearch is a [source available](https://github.com/RediSearch/RediSearch/blob/master/LICENSE) Redis module that provides queryability, secondary indexing, and full-text search for Redis.
 
