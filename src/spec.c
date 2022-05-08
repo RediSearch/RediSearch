@@ -2034,6 +2034,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   IndexStats_RdbLoad(rdb, &sp->stats);
+  FieldsGlobalStats_RdbLoad(rdb, &RSGlobalConfig.fieldsStats);
 
   DocTable_LegacyRdbLoad(&sp->docs, rdb, encver);
   /* For version 3 or up - load the generic trie */

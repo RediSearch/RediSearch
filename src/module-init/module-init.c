@@ -245,7 +245,7 @@ static void RS_moduleInfoIndexInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   // Attributes
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = sp->fields + i;
-    char title[7 + sizeof(int)];
+    char title[28];
     sprintf(title, "%s_%d", "field", (i+1));
     RedisModule_InfoBeginDictField(ctx, title);
 
@@ -255,7 +255,7 @@ static void RS_moduleInfoIndexInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     if (fs->options & FieldSpec_Dynamic)
       RedisModule_InfoAddFieldCString(ctx, "type", "<DYNAMIC>");
     else
-      RedisModule_InfoAddFieldCString(ctx, "type", FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
+      RedisModule_InfoAddFieldCString(ctx, "type", (char*)FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT))
       RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->ftWeight);
@@ -301,9 +301,8 @@ static void RS_moduleInfoIndexInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoAddFieldDouble(ctx, "offset_bits_per_record_avg",8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
   RedisModule_InfoEndDictField(ctx);
 
-  RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexingFailures);
-
   RedisModule_InfoBeginDictField(ctx, "index_failures");
+  RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexingFailures);
   RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   double percent_indexed = IndexesScanner_IndexedPrecent(scanner, sp);
