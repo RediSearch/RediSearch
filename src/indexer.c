@@ -223,6 +223,9 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
       writeIndexEntry(ctx->spec, invidx, encoder, entry);
+      if (Index_StoreFieldMask(ctx->spec)) {
+        invidx->fieldMask |= entry->fieldMask;
+      }
     }
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
