@@ -452,20 +452,26 @@ expr(A) ::= modifier(B) COLON text_expr(C) . {
 expr(A) ::= modifierlist(B) COLON text_expr(C) . {
 
     if (C == NULL) {
+        for (size_t i = 0; i < Vector_Size(B); i++) {
+          char *s;
+          Vector_Get(B, i, &s);
+          rm_free(s);
+        }
+        Vector_Free(B);
         A = NULL;
     } else {
         //C->opts.fieldMask = 0;
         t_fieldMask mask = 0;
-        if (ctx->sctx->spec) {
-            for (int i = 0; i < Vector_Size(B); i++) {
-                char *p;
-                Vector_Get(B, i, &p);
-                mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p));
-                rm_free(p);
+        for (int i = 0; i < Vector_Size(B); i++) {
+            char *p;
+            Vector_Get(B, i, &p);
+            if (ctx->sctx->spec) {
+              mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p));
             }
+            rm_free(p);
         }
-        QueryNode_SetFieldMask(C, mask);
         Vector_Free(B);
+        QueryNode_SetFieldMask(C, mask);
         A=C;
     }
 }
