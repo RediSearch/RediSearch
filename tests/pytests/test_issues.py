@@ -238,6 +238,8 @@ def test_MOD1266(env):
   env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2') \
     .equal([2, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
 
+  assertInfoField(env, 'idx', 'num_docs', '2')
+
   # Test fetching failure. An object cannot be indexed
   env.execute_command('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
   conn.execute_command('JSON.SET', '1', '$', r'{"t":"Redis"}')
@@ -365,6 +367,43 @@ def test_MOD1907(env):
   # Test FT.CREATE w/o fields parameters
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Fields arguments are missing')
   env.expect('FT.CREATE', 'idx', 'STOPWORDS', 0, 'SCHEMA').error().contains('Fields arguments are missing')
+
+def test_SkipFieldWithNoMatch(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
+
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]
+
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  # bar exists in `t2` only
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
+  env.assertEqual(res[1][3][1], ['Type', 'EMPTY', 'Counter', 0])
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'bar')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
+
+  # Check with NOFIELDS flag
+  env.execute_command('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+  waitForIndex(env, 'idx_nomask')
+
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:bar')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
 
 def testModifierList(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
