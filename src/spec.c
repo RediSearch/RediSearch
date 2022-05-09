@@ -884,7 +884,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   }
 
   for (int i = 0; i < spec->numFields; i++) {
-    FieldSpec_UpdateGlobalStat(spec->fields + i, 1);
+    FieldsGlobalStats_UpdateStats(spec->fields + i, 1);
   }
 
   return spec;
@@ -1076,6 +1076,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free fields data
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
+      FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
       if (spec->fields[i].name != spec->fields[i].path) {
         rm_free(spec->fields[i].name);
       }
@@ -1610,43 +1611,43 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
-static void FieldsGlobalStats_RdbLoad(RedisModuleIO *rdb, FieldsGlobalStats *stats) {
-  stats->numTextFields = RedisModule_LoadUnsigned(rdb);
-  stats->numTextFieldsSortable = RedisModule_LoadUnsigned(rdb);
-  stats->numTextFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
-  stats->numNumericFields = RedisModule_LoadUnsigned(rdb);
-  stats->numNumericFieldsSortable = RedisModule_LoadUnsigned(rdb);
-  stats->numNumericFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
-  stats->numGeoFields = RedisModule_LoadUnsigned(rdb);
-  stats->numGeoFieldsSortable = RedisModule_LoadUnsigned(rdb);
-  stats->numGeoFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
-  stats->numTagFields = RedisModule_LoadUnsigned(rdb);
-  stats->numTagFieldsSortable = RedisModule_LoadUnsigned(rdb);
-  stats->numTagFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
-  stats->numTagFieldsCaseSensitive = RedisModule_LoadUnsigned(rdb);
-  stats->numVectorFields = RedisModule_LoadUnsigned(rdb);
-  stats->numVectorFieldsFlat = RedisModule_LoadUnsigned(rdb);
-  stats->numVectorFieldsHSNW = RedisModule_LoadUnsigned(rdb);
-}
+// static void FieldsGlobalStats_RdbLoad(RedisModuleIO *rdb, FieldsGlobalStats *stats) {
+//   stats->numTextFields = RedisModule_LoadUnsigned(rdb);
+//   stats->numTextFieldsSortable = RedisModule_LoadUnsigned(rdb);
+//   stats->numTextFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
+//   stats->numNumericFields = RedisModule_LoadUnsigned(rdb);
+//   stats->numNumericFieldsSortable = RedisModule_LoadUnsigned(rdb);
+//   stats->numNumericFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
+//   stats->numGeoFields = RedisModule_LoadUnsigned(rdb);
+//   stats->numGeoFieldsSortable = RedisModule_LoadUnsigned(rdb);
+//   stats->numGeoFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
+//   stats->numTagFields = RedisModule_LoadUnsigned(rdb);
+//   stats->numTagFieldsSortable = RedisModule_LoadUnsigned(rdb);
+//   stats->numTagFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
+//   stats->numTagFieldsCaseSensitive = RedisModule_LoadUnsigned(rdb);
+//   stats->numVectorFields = RedisModule_LoadUnsigned(rdb);
+//   stats->numVectorFieldsFlat = RedisModule_LoadUnsigned(rdb);
+//   stats->numVectorFieldsHSNW = RedisModule_LoadUnsigned(rdb);
+// }
 
-static void FieldsGlobalStats_RdbSave(RedisModuleIO *rdb, FieldsGlobalStats *stats) {
-  RedisModule_SaveUnsigned(rdb, stats->numTextFields);
-  RedisModule_SaveUnsigned(rdb, stats->numTextFieldsSortable);
-  RedisModule_SaveUnsigned(rdb, stats->numTextFieldsNoIndex);
-  RedisModule_SaveUnsigned(rdb, stats->numNumericFields);
-  RedisModule_SaveUnsigned(rdb, stats->numNumericFieldsSortable);
-  RedisModule_SaveUnsigned(rdb, stats->numNumericFieldsNoIndex);
-  RedisModule_SaveUnsigned(rdb, stats->numGeoFields);
-  RedisModule_SaveUnsigned(rdb, stats->numGeoFieldsSortable);
-  RedisModule_SaveUnsigned(rdb, stats->numGeoFieldsNoIndex);
-  RedisModule_SaveUnsigned(rdb, stats->numTagFields);
-  RedisModule_SaveUnsigned(rdb, stats->numTagFieldsSortable);
-  RedisModule_SaveUnsigned(rdb, stats->numTagFieldsNoIndex);
-  RedisModule_SaveUnsigned(rdb, stats->numTagFieldsCaseSensitive);
-  RedisModule_SaveUnsigned(rdb, stats->numVectorFields);
-  RedisModule_SaveUnsigned(rdb, stats->numVectorFieldsFlat);
-  RedisModule_SaveUnsigned(rdb, stats->numVectorFieldsHSNW);
-}
+// static void FieldsGlobalStats_RdbSave(RedisModuleIO *rdb, FieldsGlobalStats *stats) {
+//   RedisModule_SaveUnsigned(rdb, stats->numTextFields);
+//   RedisModule_SaveUnsigned(rdb, stats->numTextFieldsSortable);
+//   RedisModule_SaveUnsigned(rdb, stats->numTextFieldsNoIndex);
+//   RedisModule_SaveUnsigned(rdb, stats->numNumericFields);
+//   RedisModule_SaveUnsigned(rdb, stats->numNumericFieldsSortable);
+//   RedisModule_SaveUnsigned(rdb, stats->numNumericFieldsNoIndex);
+//   RedisModule_SaveUnsigned(rdb, stats->numGeoFields);
+//   RedisModule_SaveUnsigned(rdb, stats->numGeoFieldsSortable);
+//   RedisModule_SaveUnsigned(rdb, stats->numGeoFieldsNoIndex);
+//   RedisModule_SaveUnsigned(rdb, stats->numTagFields);
+//   RedisModule_SaveUnsigned(rdb, stats->numTagFieldsSortable);
+//   RedisModule_SaveUnsigned(rdb, stats->numTagFieldsNoIndex);
+//   RedisModule_SaveUnsigned(rdb, stats->numTagFieldsCaseSensitive);
+//   RedisModule_SaveUnsigned(rdb, stats->numVectorFields);
+//   RedisModule_SaveUnsigned(rdb, stats->numVectorFieldsFlat);
+//   RedisModule_SaveUnsigned(rdb, stats->numVectorFieldsHSNW);
+// }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1802,6 +1803,137 @@ void ReindexPool_ThreadPoolDestroy() {
 }
 
 //---------------------------------------------------------------------------------------------
+
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
+  char *temp = "info";
+  char name[strlen(sp->name) + strlen(temp) + 2];
+  sprintf(name, "%s_%s", temp, sp->name);
+  RedisModule_InfoAddSection(ctx, name);
+
+  // Index flags
+  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets) || sp->flags & Index_WideSchema) {
+    RedisModule_InfoBeginDictField(ctx, "index_options");
+    if (!(sp->flags & (Index_StoreFreqs)))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOFREQS_STR, "ON");
+    if (!(sp->flags & (Index_StoreFieldFlags)))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOFIELDS_STR, "ON");
+    if (!(sp->flags & (Index_StoreTermOffsets)))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOOFFSETS_STR, "ON");
+    if (sp->flags & Index_WideSchema)
+      RedisModule_InfoAddFieldCString(ctx, SPEC_SCHEMA_EXPANDABLE_STR, "ON");
+    RedisModule_InfoEndDictField(ctx);
+  }
+
+  // Index defenition
+  RedisModule_InfoBeginDictField(ctx, "index_definition");
+  SchemaRule *rule = sp->rule;
+  RedisModule_InfoAddFieldCString(ctx, "type", (char*)DocumentType_ToString(rule->type));
+  if (rule->filter_exp_str)
+    RedisModule_InfoAddFieldCString(ctx, "filter", rule->filter_exp_str);
+  if (rule->lang_default)
+    RedisModule_InfoAddFieldCString(ctx, "default_language", (char*)RSLanguage_ToString(rule->lang_default));
+  if (rule->lang_field)
+    RedisModule_InfoAddFieldCString(ctx, "language_field", rule->lang_field);
+  if (rule->score_default)
+    RedisModule_InfoAddFieldDouble(ctx, "default_score", rule->score_default);
+  if (rule->score_field)
+    RedisModule_InfoAddFieldCString(ctx, "score_field", rule->score_field);
+  if (rule->payload_field)
+    RedisModule_InfoAddFieldCString(ctx, "payload_field", rule->payload_field);
+  // Prefixes
+  int num_prefixes = array_len(rule->prefixes);
+  if (num_prefixes && rule->prefixes[0][0] != '\0') {
+    char prefixes[512];
+    prefixes[0] = '\0';
+    char temp[128];
+    for (int i = 0; i < num_prefixes; ++i) {
+      temp[0] = '\0';
+      sprintf(temp, "%s\"%s\"", i == 0 ? "" : ",", rule->prefixes[i]);
+      strncat(prefixes, temp, sizeof(prefixes));
+      prefixes[sizeof(prefixes)-1] = '\0';
+    }
+    RedisModule_InfoAddFieldCString(ctx, "prefixes", prefixes);
+  }
+  RedisModule_InfoEndDictField(ctx);
+
+  // Attributes
+  for (int i = 0; i < sp->numFields; i++) {
+    const FieldSpec *fs = sp->fields + i;
+    char title[28];
+    sprintf(title, "%s_%d", "field", (i+1));
+    RedisModule_InfoBeginDictField(ctx, title);
+
+    RedisModule_InfoAddFieldCString(ctx, "identifier", fs->path);
+    RedisModule_InfoAddFieldCString(ctx, "attribute", fs->name);
+
+    if (fs->options & FieldSpec_Dynamic)
+      RedisModule_InfoAddFieldCString(ctx, "type", "<DYNAMIC>");
+    else
+      RedisModule_InfoAddFieldCString(ctx, "type", (char*)FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
+
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT))
+      RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->ftWeight);
+    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+      char buf[4];
+      sprintf(buf, "\"%c\"", fs->tagOpts.tagSep);
+      RedisModule_InfoAddFieldCString(ctx, SPEC_TAG_SEPARATOR_STR, buf);
+    }
+    if (FieldSpec_IsSortable(fs))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_SORTABLE_STR, "ON");
+    if (FieldSpec_IsNoStem(fs))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOSTEM_STR, "ON");
+    if (!FieldSpec_IsIndexable(fs))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOINDEX_STR, "ON");
+
+    RedisModule_InfoEndDictField(ctx);
+  }
+
+  // More properties
+  RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", sp->stats.numDocuments);
+
+  RedisModule_InfoBeginDictField(ctx, "index_properties");
+  RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);
+  RedisModule_InfoAddFieldLongLong(ctx, "num_terms", sp->stats.numTerms);
+  RedisModule_InfoAddFieldLongLong(ctx, "num_records", sp->stats.numRecords);
+  RedisModule_InfoEndDictField(ctx);
+
+  RedisModule_InfoBeginDictField(ctx, "index_properties_in_mb");
+  RedisModule_InfoAddFieldDouble(ctx, "inverted_size", sp->stats.invertedSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", sp->stats.vectorIndexSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  RedisModule_InfoEndDictField(ctx);
+
+  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", TotalIIBlocks);
+
+  RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
+  RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)sp->stats.numRecords / (float)sp->stats.numDocuments);
+  RedisModule_InfoAddFieldDouble(ctx, "bytes_per_record_avg",(float)sp->stats.invertedSize / (float)sp->stats.numRecords);
+  RedisModule_InfoAddFieldDouble(ctx, "offsets_per_term_avg",(float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
+  RedisModule_InfoAddFieldDouble(ctx, "offset_bits_per_record_avg",8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
+  RedisModule_InfoEndDictField(ctx);
+
+  RedisModule_InfoBeginDictField(ctx, "index_failures");
+  RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexingFailures);
+  RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
+  IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
+  double percent_indexed = IndexesScanner_IndexedPrecent(scanner, sp);
+  RedisModule_InfoAddFieldDouble(ctx, "percent_indexed", percent_indexed);
+  RedisModule_InfoEndDictField(ctx);
+
+  // Garbage collector
+  if (sp->gc)
+    GCContext_RenderStatsForInfo(sp->gc, ctx);
+
+  // Cursor stat
+  Cursors_RenderStatsForInfo(&RSCursors, sp->name, ctx);
+
+  // Stop words
+  if (sp->flags & Index_HasCustomStopwords)
+    AddStopWordsListToInfo(ctx, sp->stopwords);
+}
 
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
   size_t nkeys = RedisModule_DbSize(ctx);
@@ -1991,7 +2123,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   }
 
   for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec_UpdateGlobalStat(sp->fields + i, 1);
+    FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
   }
 
   return sp;
@@ -2034,7 +2166,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   IndexStats_RdbLoad(rdb, &sp->stats);
-  FieldsGlobalStats_RdbLoad(rdb, &RSGlobalConfig.fieldsStats);
 
   DocTable_LegacyRdbLoad(&sp->docs, rdb, encver);
   /* For version 3 or up - load the generic trie */

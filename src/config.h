@@ -4,6 +4,7 @@
 #include "redismodule.h"
 #include "rmutil/sds.h"
 #include "query_error.h"
+#include "fields_global_stats.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -30,25 +31,6 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
       return "huh?";  // LCOV_EXCL_LINE cannot be reached
   }
 }
-
-typedef struct {
-  size_t numTextFields;
-  size_t numTextFieldsSortable;
-  size_t numTextFieldsNoIndex;
-  size_t numNumericFields;
-  size_t numNumericFieldsSortable;
-  size_t numNumericFieldsNoIndex;
-  size_t numGeoFields;
-  size_t numGeoFieldsSortable;
-  size_t numGeoFieldsNoIndex;
-  size_t numTagFields;
-  size_t numTagFieldsSortable;
-  size_t numTagFieldsNoIndex;
-  size_t numTagFieldsCaseSensitive;
-  size_t numVectorFields;
-  size_t numVectorFieldsFlat;
-  size_t numVectorFieldsHSNW;
-} FieldsGlobalStats;
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
@@ -182,6 +164,8 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
 
 sds RSConfig_GetInfoString(const RSConfig *config);
 
+void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
+
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
 #define CONCURRENT_SEARCH_POOL_DEFAULT_SIZE 20
@@ -210,7 +194,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
-    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1, \
+    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
   }
 
 #define REDIS_ARRAY_LIMIT 7

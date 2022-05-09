@@ -46,7 +46,7 @@ def testInfoModulesBasic(env):
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(fieldsInfo['search_fields_text'], 'Text=2,Sortable=1')
   env.assertEqual(fieldsInfo['search_fields_tag'], 'Tag=2,Sortable=1,CaseSensitive=1')
-  env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=1,NoIndex=1')
+  env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=2,NoIndex=1')
   env.assertEqual(fieldsInfo['search_fields_geo'], 'Geo=1')
   env.assertEqual(fieldsInfo['search_fields_vector'], 'Vector=2,Flat=1,HSNW=1')
 
@@ -83,3 +83,25 @@ def testInfoModulesAlter(env):
 
   idx1Info = info['search_info_' + idx1]
   env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
+
+def testInfoModulesDrop(env):
+  conn = env.getConnection()
+  idx1 = 'idx1'
+  idx2 = 'idx2'
+
+  env.expect('FT.CREATE', idx1, 'STOPWORDS', 3, 'TLV', 'summer', '2020',
+                                'SCHEMA', 'title', 'TEXT', 'SORTABLE',
+                                          'body', 'TEXT').ok()
+
+  env.expect('FT.CREATE', idx2, 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
+                                          'body', 'TEXT',
+                                          'id', 'NUMERIC', 'NOINDEX').ok()
+
+  env.expect('FT.DROP', idx2).ok()
+
+  info = info_modules_to_dict(conn)
+  env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
+
+  fieldsInfo = info['search_fields_statistics']
+  env.assertEqual(fieldsInfo['search_fields_text'], 'Text=2,Sortable=1')
+  env.assertFalse('search_fields_numeric' in fieldsInfo) # no numeric fields since we removed idx2

@@ -245,8 +245,8 @@ typedef struct IndexSpec {
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields
 
-  IndexStats stats;               // Statistics of memory used and quantities 
-  IndexFlags flags;               // Flags                   
+  IndexStats stats;               // Statistics of memory used and quantities
+  IndexFlags flags;               // Flags
 
   Trie *terms;                    // Trie of all terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of suffix tokens of terms. Used for contains queries
@@ -419,6 +419,10 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
+/**
+ * Exposing all the fields of the index to INFO command.
+ */
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
 
 /**
  * Gets the next text id from the index. This does not currently

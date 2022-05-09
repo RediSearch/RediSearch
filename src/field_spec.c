@@ -36,40 +36,6 @@ void FieldSpec_SetSortable(FieldSpec* fs) {
   fs->options |= FieldSpec_Sortable;
 }
 
-void FieldSpec_UpdateGlobalStat(FieldSpec *fs, int toAdd) {
-  if (fs->types & INDEXFLD_T_FULLTEXT) {  // text field
-    RSGlobalConfig.fieldsStats.numTextFields += toAdd;
-  } else if (fs->types & INDEXFLD_T_NUMERIC) {  // numeric field
-    RSGlobalConfig.fieldsStats.numNumericFields += toAdd;
-  } else if (fs->types & INDEXFLD_T_GEO) {  // geo field
-    RSGlobalConfig.fieldsStats.numGeoFields += toAdd;
-  } else if (fs->types & INDEXFLD_T_VECTOR) {  // vector field
-    RSGlobalConfig.fieldsStats.numVectorFields += toAdd;
-    if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_BF)
-      RSGlobalConfig.fieldsStats.numVectorFieldsFlat += toAdd;
-    else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB)
-      RSGlobalConfig.fieldsStats.numVectorFieldsHSNW += toAdd;
-  } else if (fs->types & INDEXFLD_T_TAG) {  // tag field
-    RSGlobalConfig.fieldsStats.numTagFields += toAdd;
-    if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
-      RSGlobalConfig.fieldsStats.numTagFieldsCaseSensitive += toAdd;
-    }
-  }
-
-  if (fs->options & FieldSpec_Sortable) {
-    if (fs->types & INDEXFLD_T_FULLTEXT) RSGlobalConfig.fieldsStats.numTextFieldsSortable += toAdd;
-    else if (fs->types & INDEXFLD_T_NUMERIC) RSGlobalConfig.fieldsStats.numNumericFieldsSortable += toAdd;
-    else if (fs->types & INDEXFLD_T_GEO) RSGlobalConfig.fieldsStats.numGeoFieldsSortable += toAdd;
-    else if (fs->types & INDEXFLD_T_TAG) RSGlobalConfig.fieldsStats.numTagFieldsSortable += toAdd;
-  }
-  if (fs->options & FieldSpec_NotIndexable) {
-    if (fs->types & INDEXFLD_T_FULLTEXT) RSGlobalConfig.fieldsStats.numTextFieldsNoIndex += toAdd;
-    else if (fs->types & INDEXFLD_T_NUMERIC) RSGlobalConfig.fieldsStats.numNumericFieldsNoIndex += toAdd;
-    else if (fs->types & INDEXFLD_T_GEO) RSGlobalConfig.fieldsStats.numGeoFieldsNoIndex += toAdd;
-    else if (fs->types & INDEXFLD_T_TAG) RSGlobalConfig.fieldsStats.numTagFieldsNoIndex += toAdd;
-  }
-}
-
 const char *FieldSpec_GetTypeNames(int idx) {
   switch (idx) {
   case IXFLDPOS_FULLTEXT: return SPEC_TEXT_STR;

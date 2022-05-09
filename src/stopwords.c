@@ -217,6 +217,7 @@ void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
     strncat(stopwords, temp, sizeof(stopwords));
     stopwords[sizeof(stopwords)-1] = '\0';
     if (first) first = false;
+    // str[0] = '\0';
   }
   RedisModule_InfoAddFieldCString(ctx, "stop_words", stopwords);
   TrieMapIterator_Free(it);
