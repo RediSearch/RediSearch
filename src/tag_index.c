@@ -20,6 +20,7 @@ TagIndex *NewTagIndex() {
   TagIndex *idx = rm_new(TagIndex);
   idx->values = NewTrieMap();
   idx->uniqueId = tagUniqueId++;
+  idx->suffix = NULL;
   return idx;
 }
 
