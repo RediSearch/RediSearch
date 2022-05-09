@@ -50,9 +50,8 @@ static inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
 static void triePayload_Free(TriePayload *payload, TrieFreeCallback freecb) {
   if (freecb) {
     freecb(payload->data);
-  } else {
-    rm_free(payload);
   }
+  rm_free(payload);
 }
 
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,

@@ -29,8 +29,8 @@ int testTMNumResults(TrieMap *t, const char *str, tm_iter_mode mode) {
   it->mode = mode;
   affixFunc *f = (mode == TM_PREFIX_MODE) ? TrieMapIterator_Next : TrieMapIterator_NextContains;
   while (f(it, &ptr, &len, &val)) {
-    ptr[len] = '\0';
-    printf("numres %d string %s\n", numRes, ptr);
+    //ptr[len] = '\0';
+    //printf("numres %d string %s\n", numRes, ptr);
     ++numRes;
   }
   TrieMapIterator_Free(it);

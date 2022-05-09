@@ -374,3 +374,13 @@ def testContainsDebugCommand(env):
   conn.execute_command('FT.CREATE', 'idx_tag', 'SCHEMA', 'tag', 'TAG', 'WITHSUFFIXTRIE')
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no').error().contains('Could not find given field in index spec')
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no', 'tag_yes').error().contains('wrong number of arguments')
+
+def testContainsMixedWithSuffix(env):
+  env.skipOnCluster()
+
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'WITHSUFFIXTRIE', 't2', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't1', 'hello', 't2', 'hello')
+
+  env.expect('ft.search', 'idx', '@t1:*ell*', 'NOCONTENT').equal([1, 'doc1'])
+  env.expect('ft.search', 'idx', '@t2:*ell*', 'NOCONTENT').error(). contains('Contains query on fields without WITHSUFFIXTRIE support')

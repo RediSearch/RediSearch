@@ -7,6 +7,7 @@
 #include "search_options.h"
 #include "query_internal.h"
 #include "numeric_filter.h"
+#include "suffix.h"
 #include "query.h"
 #include "indexer.h"
 #include "extension.h"
@@ -147,6 +148,16 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   if (options & RSFLDOPT_TXTPHONETIC) {
     fs->options |= FieldSpec_Phonetics;
     sp->flags |= Index_HasPhonetic;
+  }
+  if (options & RSFLDOPT_WITHSUFFIXTRIE) {
+    fs->options |= FieldSpec_Contains;
+    if (fs->types == INDEXFLD_T_FULLTEXT) {
+      sp->suffixMask |= FIELD_BIT(fs);
+      if (!sp->suffix) {
+        sp->suffix = NewTrie(suffixData_freeCallback);
+        sp->flags |= Index_HasContains;
+      }    
+    }
   }
 
   RWLOCK_RELEASE();
@@ -368,12 +379,13 @@ QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lat
   return ret;
 }
 
-QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
+static QueryNode* RediSearch_CreateAffixNode(IndexSpec* sp, const char* fieldName, const char* s,
+                                      bool prefix, bool suffix) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
   ret->pfx = (QueryPrefixNode){
     .tok = (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0},
-    .prefix = true,
-    .suffix = false
+    .prefix = prefix,
+    .suffix = suffix
   };
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
@@ -381,14 +393,39 @@ QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, con
   return ret;
 }
 
-QueryNode* RediSearch_CreateTagPrefixNode(IndexSpec* sp, const char* s) {
+QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
+  return RediSearch_CreateAffixNode(sp, fieldName, s, true, false);
+}
+
+QueryNode* RediSearch_CreateContainsNode(IndexSpec* sp, const char* fieldName, const char* s) {
+  return RediSearch_CreateAffixNode(sp, fieldName, s, true, true);
+}
+
+QueryNode* RediSearch_CreateSuffixNode(IndexSpec* sp, const char* fieldName, const char* s) {
+  return RediSearch_CreateAffixNode(sp, fieldName, s, false, true);
+}
+
+static QueryNode* RediSearch_CreateTagAffixNode(IndexSpec* sp, const char* s,
+                                                bool prefix, bool suffix) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
   ret->pfx = (QueryPrefixNode){
     .tok = (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0},
-    .prefix = true,
-    .suffix = false
+    .prefix = prefix,
+    .suffix = suffix
   };
   return ret;
+}
+
+QueryNode* RediSearch_CreateTagPrefixNode(IndexSpec* sp, const char* s) {
+  return RediSearch_CreateTagAffixNode(sp, s, true, false);
+}
+
+QueryNode* RediSearch_CreateTagContainsNode(IndexSpec* sp, const char* s) {
+  return RediSearch_CreateTagAffixNode(sp, s, true, true);
+}
+
+QueryNode* RediSearch_CreateTagSuffixNode(IndexSpec* sp, const char* s) {
+  return RediSearch_CreateTagAffixNode(sp, s, false, true);
 }
 
 QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,

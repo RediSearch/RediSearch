@@ -755,9 +755,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       sp->flags |= Index_HasPhonetic;
     }
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasContains(fs)) {
-      sp->flags |= Index_HasContains;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
+        sp->flags |= Index_HasContains;
         sp->suffix = NewTrie(suffixData_freeCallback);
       }
     }

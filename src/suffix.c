@@ -180,7 +180,6 @@ void suffixData_freeCallback(void *payload) {
   data->array = NULL;
   rm_free(data->term);
   data->term = NULL;
-  rm_free(payload);
 }
 
 

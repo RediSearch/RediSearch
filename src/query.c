@@ -489,8 +489,8 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   // spec support contains queries
   if (spec->suffix) {
     // all modifier fields are supported
-    if (q->opts->fieldmask == RS_FIELDMASK_ALL ||
-       (spec->suffixMask & q->opts->fieldmask) == q->opts->fieldmask) {
+    if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
+       (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
     Suffix_IterateContains(spec->suffix->root, str, nstr, qn->pfx.prefix,
                            suffixIterCb, &ctx);
     } else {
