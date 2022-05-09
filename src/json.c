@@ -109,12 +109,14 @@ static int JSON_getFloat32(RedisJSON json, float *val) {
 // Uncomment when support for more types is added
 // static int JSON_getFloat64(RedisJSON json, double *val) {
 //   int ret = japi->getDouble(json, val);
-//   if (REDISMODULE_OK != ret) {
+//   if (REDISMODULE_OK == ret) {
+//     return ret;
+//   } else {
 //     long long temp;
 //     ret = japi->getInt(json, &temp);
 //     *val = (double)temp;
+//     return ret;
 //   }
-//   return ret;
 // }
 
 int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struct DocumentField *df) {
