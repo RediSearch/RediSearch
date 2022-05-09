@@ -964,7 +964,7 @@ def testVector_correct_eval(env):
     
     env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[1,1]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[1,-0.189207144]}'))
-    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[2.2533141,-0.2533141]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[2.772453851,1]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j4', '$', r'{"vec":[-1,1]}'))
     blob = np.ones(2, 'float32').tobytes()
 
