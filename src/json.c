@@ -94,8 +94,16 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
 static int JSON_getFloat32(RedisJSON json, float *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
-  *val = (float)temp;
-  return ret;
+  if (REDISMODULE_OK == ret) {
+    *val = (float)temp;
+    return ret;
+  } else {
+    // On RedisJSON<2.0.9, getDouble can't handle integer values.
+    long long tempInt;
+    ret = japi->getInt(json, &tempInt);
+    *val = (float)tempInt;
+    return ret;
+  }
 }
 
 // Uncomment when support for more types is added
@@ -109,11 +117,10 @@ static int JSON_getFloat32(RedisJSON json, float *val) {
 //   return ret;
 // }
 
-typedef int (*getJSONElementFunc)(RedisJSON, void *);
-
 int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struct DocumentField *df) {
   VecSimType type;
   size_t dim;
+  typedef int (*getJSONElementFunc)(RedisJSON, void *);
   getJSONElementFunc getElement;
 
   switch (fs->vectorOpts.vecSimParams.algo) {
@@ -157,8 +164,8 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
   RedisJSON json;
   unsigned char step = VecSimType_sizeof(type);
   // At this point iterator length matches blob length
-  for (size_t offset = 0; (json = japi->next(arrIter)); offset += step) {
-    if (getElement(json, df->strval + offset) != REDISMODULE_OK) {
+  for (char *offset = df->strval; (json = japi->next(arrIter)); offset += step) {
+    if (getElement(json, offset) != REDISMODULE_OK) {
       rm_free(df->strval);
       return REDISMODULE_ERR;
     }
