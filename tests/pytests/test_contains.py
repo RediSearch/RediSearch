@@ -3,29 +3,49 @@ from common import *
 import os
 import csv
 
-def testWITHSUFFIXTRIEParam(env):
+def testWITHSUFFIXTRIEParamText(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 'schema', 't', 'text', 'SORTABLE', 'WITHSUFFIXTRIE').error()
-    env.expect('ft.create', 'idx', 'schema', 't', 'text', 'SORTABLE', 'NOSTEM').error() # sortable must be last
+    env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'SORTABLE', 'WITHSUFFIXTRIE').error()
+    env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'SORTABLE', 'NOSTEM').error() # sortable must be last
 
     # without sortable
-    env.expect('ft.create', 'idx', 'schema', 't', 'text', 'WITHSUFFIXTRIE').ok()
+    env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
     res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'WITHSUFFIXTRIE']]
     assertInfoField(env, 'idx', 'attributes', res_info)
 
     # with sortable
-    env.expect('ft.create', 'idx_sortable', 'schema', 't', 'text', 'WITHSUFFIXTRIE', 'SORTABLE').ok()
+    env.expect('ft.create', 'idx_sortable', 'schema', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE').ok()
     res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'SORTABLE', 'WITHSUFFIXTRIE']]
     assertInfoField(env, 'idx_sortable', 'attributes', res_info)
 
     # nostem 1st
-    env.expect('ft.create', 'idx_nostem1', 'schema', 't', 'text', 'WITHSUFFIXTRIE', 'NOSTEM').ok()
+    env.expect('ft.create', 'idx_nostem1', 'schema', 't', 'TEXT', 'WITHSUFFIXTRIE', 'NOSTEM').ok()
     res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM', 'WITHSUFFIXTRIE']]
     assertInfoField(env, 'idx_nostem1', 'attributes', res_info)
 
     # nostem 2nd
-    env.expect('ft.create', 'idx_nostem2', 'schema', 't', 'text', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
+    env.expect('ft.create', 'idx_nostem2', 'schema', 't', 'TEXT', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
     assertInfoField(env, 'idx_nostem2', 'attributes', res_info)
+
+def testWITHSUFFIXTRIEParamTag(env):
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'SORTABLE', 'WITHSUFFIXTRIE').error()
+    env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'SORTABLE', 'CASESENSITIVE').error() # sortable must be last
+
+    # without sortable
+    env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'WITHSUFFIXTRIE').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TAG', 'SEPARATOR', ',', 'WITHSUFFIXTRIE']]
+    assertInfoField(env, 'idx', 'attributes', res_info)
+
+    # with sortable
+    env.expect('ft.create', 'idx_sortable', 'schema', 't', 'TAG', 'WITHSUFFIXTRIE', 'SORTABLE').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TAG', 'SEPARATOR', ',', 'SORTABLE', 'WITHSUFFIXTRIE']]
+    assertInfoField(env, 'idx_sortable', 'attributes', res_info)
+
+    # with casesensitive
+    env.expect('ft.create', 'idx_casesensitive', 'schema', 't', 'TAG', 'WITHSUFFIXTRIE', 'CASESENSITIVE', 'SORTABLE').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TAG', 'SEPARATOR', ',', 'CASESENSITIVE', 'SORTABLE', 'WITHSUFFIXTRIE']]
+    assertInfoField(env, 'idx_casesensitive', 'attributes', res_info)
 
 def testBasicContains(env):
     conn = getConnectionByEnv(env)
@@ -318,12 +338,39 @@ def testContainsGC(env):
 
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['orld', 'ld', 'world', 'rld'])
 
+def testContainsGCTag(env):
+  env.skipOnCluster()
+  env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
+
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE', 'SORTABLE')
+  
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['hello', 'ello', 'llo', 'lo'])
+  conn.execute_command('HSET', 'doc1', 't', 'world')
+  
+  forceInvokeGC(env, 'idx')
+
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'world', 'orld', 'rld'])
+
+  conn.execute_command('HSET', 'doc2', 't', 'bold')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'world', 'orld', 'old', 'rld', 'bold'])
+  conn.execute_command('DEL', 'doc2')
+
+  forceInvokeGC(env, 'idx')
+
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'world', 'orld', 'rld'])
+
 def testContainsDebugCommand(env):
   env.skipOnCluster()
 
   conn = getConnectionByEnv(env)
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'field').error().contains('wrong number of arguments')
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'WITHSUFFIXTRIE')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'field').error().contains('Could not find given field in index spec')
 
-  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 'text', 'TEXT')
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx_no').error().contains('Index does not have suffix trie')
+
+  conn.execute_command('FT.CREATE', 'idx_tag', 'SCHEMA', 'tag', 'TAG', 'WITHSUFFIXTRIE')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no').error().contains('Could not find given field in index spec')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no', 'tag_yes').error().contains('wrong number of arguments')
