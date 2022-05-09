@@ -1304,6 +1304,7 @@ def test_rdb_memory_limit():
     # succeed to create indexes with no limits
     env.expect('FT.CREATE', 'idx-flat', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+    # TODO: add block size to HNSW index for testing change in block size when block size is available
     env.expect('FT.CREATE', 'idx-hnsw', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 1000000).ok()
     # sets memory limit
@@ -1311,7 +1312,7 @@ def test_rdb_memory_limit():
 
     # The actual test: try creating indexes from rdb.
     # should succeed after changing initial cap and block size to 0 and default
-    env.assertTrue(conn.execute_command('DEBUG', 'RELOAD'))
+    env.dumpAndReload()
 
     info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx-flat", "v"))
     env.assertNotEqual(info_data['BLOCK_SIZE'], block_size)
