@@ -118,11 +118,6 @@ typedef struct FieldSpec {
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
 /**
- * Check the type of the the given field and update RSGlobalConfig.fieldsStats
- * according to the givan toAdd value.
- */
-void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
-/**
  * Convert field type given by integer to the name type in string form.
  */
 const char *FieldSpec_GetTypeNames(int idx);
