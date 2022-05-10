@@ -290,7 +290,7 @@ jobs:
       redis_version:
         type: string
         default: "6"
-      persist:
+      upload:
         type: string
         default: "yes"
     steps:
