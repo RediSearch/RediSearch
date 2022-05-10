@@ -174,7 +174,7 @@ void Suffix_IterateContains(TrieNode *n, const rune *str, size_t nstr, bool pref
   }                              
 }
 
-void suffixData_freeCallback(void *payload) {
+void suffixTrie_freeCallback(void *payload) {
   suffixData *data = payload;
   array_free(data->array);
   data->array = NULL;
@@ -274,4 +274,9 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
     TrieMapIterator_Free(it);
     return arr;
   }
+}
+
+void suffixTrieMap_freeCallback(void *payload) {
+  suffixTrie_freeCallback(payload);
+  rm_free(payload);  
 }

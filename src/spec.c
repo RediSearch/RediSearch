@@ -758,7 +758,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
         sp->flags |= Index_HasContains;
-        sp->suffix = NewTrie(suffixData_freeCallback);
+        sp->suffix = NewTrie(suffixTrie_freeCallback);
       }
     }
     fs = NULL;
@@ -1881,7 +1881,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
       sp->flags |= Index_HasContains;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->suffix = NewTrie(suffixData_freeCallback);
+        sp->suffix = NewTrie(suffixTrie_freeCallback);
       }
     }
 
