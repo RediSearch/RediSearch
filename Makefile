@@ -88,7 +88,6 @@ make test          # run all tests (via ctest)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=regex         # run tests that match regex
   CTEST_ARGS=...     # pass args to CTest
-  CTEST_PARALLEL=n   # run ctests in n parallel jobs
 make pytest        # run python tests (tests/pytests)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
@@ -122,9 +121,6 @@ common options for upload operations:
   FORCE=1               # allow operation outside CI environment
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
-
-make docs          # create documentation
-make deploy-docs   # deploy documentation
 
 make docker        # build for specified platform
   OSNICK=nick        # platform to build for (default: host platform)
@@ -444,8 +440,18 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
+CTEST_DEFS=\
+	BINROOT=$(BINROOT) \
+	BINDIR=$(BINDIR) \
+	COV=$(COV) \
+	SAN=$(SAN) \
+	SLOW=$(SLOW)
+
+#----------------------------------------------------------------------------------------------
+
 export REJSON ?= 1
 
+ifneq ($(REJSON),0)
 ifneq ($(SAN),)
 REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
 
@@ -454,15 +460,9 @@ $(REJSON_SO):
 else
 REJSON_SO=
 endif
+endif
 
 #----------------------------------------------------------------------------------------------
-
-CTEST_DEFS=\
-	BINROOT=$(BINROOT) \
-	BINDIR=$(BINDIR) \
-	COV=$(COV) \
-	SAN=$(SAN) \
-	PARALLEL=$(PARALLEL)
 
 FLOW_TESTS_DEFS=\
 	BINROOT=$(BINROOT) \
@@ -474,15 +474,6 @@ FLOW_TESTS_DEFS += EXISTING_ENV=1
 endif
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
-
-ifneq ($(SAN),)
-REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
-
-$(REJSON_SO):
-	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
-else
-REJSON_SO=
-endif
 
 ifeq ($(SLOW),1)
 _RLTEST_PARALLEL=0
@@ -566,7 +557,6 @@ callgrind: $(TARGET)
 RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 
 RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
-# RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
 ifneq ($(RAMP_YAML),)
 
@@ -653,8 +643,6 @@ else
 endif
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
-# CTEST_PARALLEL=8
-
 show-cov:
 	$(SHOW)lcov -l $(COV_INFO)
 
@@ -662,16 +650,6 @@ upload-cov:
 	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
 
 .PHONY: coverage show-cov upload-cov
-
-#----------------------------------------------------------------------------------------------
-
-docs:
-	$(SHOW)mkdocs build
-
-deploy-docs:
-	$(SHOW)mkdocs gh-deploy
-
-.PHONY: docs deploy-docs
 
 #----------------------------------------------------------------------------------------------
 

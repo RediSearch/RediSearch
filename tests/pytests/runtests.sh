@@ -119,6 +119,9 @@ OP=
 [[ $NOP == 1 ]] && OP=echo
 
 RLTEST_ARGS+=" $@"
+
+RLTEST_ARGS+=" --clear-logs"
+
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
 	[[ $LOG != 1 ]] && RLTEST_ARGS+=" -v -s"
@@ -160,22 +163,25 @@ if [[ -n $SAN ]]; then
 	export SANITIZER="$SAN"
 	export SHORT_READ_BYTES_DELTA=512
 	
-	SAN_ARGS="--no-output-catch --exit-on-failure --check-exitcode --unix"
+	# --no-output-catch --exit-on-failure --check-exitcode
+	SAN_ARGS="--unix --sanitizer $SAN"
 
-	if [[ -z $REJSON_PATH ]]; then
-		if [[ -z $BINROOT ]]; then
-			eprint "BINROOT is not set - cannot build RedisJSON"
+	if [[ -n $REJSON && $REJSON != 0 ]]; then
+		if [[ -z $REJSON_PATH ]]; then
+			if [[ -z $BINROOT ]]; then
+				eprint "BINROOT is not set - cannot build RedisJSON"
+				exit 1
+			fi
+			if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
+				echo Building RedisJSON ...
+				# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
+				$ROOT/sbin/build-redisjson
+			fi
+			export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
+		elif [[ ! -f $REJSON_PATH ]]; then
+			eprint "REJSON_PATH is set to '$REJSON_PATH' but does not exist"
 			exit 1
 		fi
-		if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
-			echo Building RedisJSON ...
-			# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
-			$ROOT/sbin/build-redisjson
-		fi
-		export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
-	elif [[ ! -f $REJSON_PATH ]]; then
-		eprint "REJSON_PATH is set to '$REJSON_PATH' but does not exist"
-		exit 1
 	fi
 
 	if [[ $SAN == addr || $SAN == address ]]; then
@@ -394,6 +400,15 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
+if [[ $NOP != 1 && -n $SAN ]]; then
+	if grep -l "leaked in" logs/*.asan.log* &> /dev/null; then
+		echo
+		echo "${LIGHTRED}Sanitizer: leaks detected:${RED}"
+		grep -l "leaked in" logs/*.asan.log*
+		echo "${NOCOLOR}"
+	fi
+fi
+
 if [[ $COLLECT_LOGS == 1 ]]; then
 	ARCH=`$READIES/bin/platform --arch`
 	OSNICK=`$READIES/bin/platform --osnick`
@@ -414,6 +429,5 @@ fi
 
 if [[ $NOFAIL == 1 ]]; then
 	exit 0
-fi
 
 exit $E

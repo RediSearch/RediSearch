@@ -87,10 +87,7 @@ commands:
       - run:
           name: Cleanup test log dir
           command: |
-            if [[ -d tests/pytests/logs ]]; then
-              cd tests/pytests/logs
-              rm -f *.aof *.rdb
-            fi
+            rm -f tests/pytests/logs/*.{aof,rdb}
           when: always
       - store_artifacts:
           path: tests/pytests/logs
@@ -360,7 +357,7 @@ jobs:
       - run:
           name: Upload artifacts to S3
           command: |
-            if [[ -n $CIRCLE_BRANCH ]]; then
+            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
                 make upload-artifacts SHOW=1
             fi
       - persist-artifacts
@@ -496,7 +493,7 @@ jobs:
       - checkout
       - setup-automation
       - run:
-          name: Run QA Automation
+          name: Run QA Automation (RediSearch)
           command: ./tests/qa/qatests -m "$CIRCLE_TAG"
       - run:
           name: Run QA Automation (RediSearch Light)
@@ -504,6 +501,9 @@ jobs:
       - run:
           name: Run QA Automation (RediSearch/VecSim)
           command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim
+      - run:
+          name: Run QA Automation (RediSearch Light/VecSim)
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim --light
 
   benchmarks:
     docker:
@@ -575,6 +575,16 @@ on-integ-and-version-tags: &on-integ-and-version-tags
     tags:
       only: /^v[0-9].*/
 
+on-perf-tags: &on-perf-tags
+  filters:
+    branches:
+      only:
+        - master
+        - /^\d+\.\d+.*$/
+        - /^perf-.*$/
+    tags:
+      only: /^v[0-9].*/
+
 #----------------------------------------------------------------------------------------------------------------------------------
 
 workflows:
@@ -584,21 +594,13 @@ workflows:
       - build-linux-debian:
           name: build
           <<: *not-on-integ-branch
-      - build-linux-debian:
-          name: build-with-redis-<<matrix.redis_version>>
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
-          matrix:
-            parameters:
-              #@@redis_version: ["6.0", "6.2", "7", "unstable"]
-              redis_version: ["7"]
       - build-platforms:
           #@@<<: *on-integ-and-version-tags
           <<: *on-any-branch
           context: common
           matrix:
             parameters:
-              #@@ platform: [focal, bionic, xenial, centos7, rocky8, bullseye]
+              #@@ platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye]
               platform: [bionic, centos7]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
@@ -657,12 +659,12 @@ workflows:
                 - /^feature-.*$/
     jobs:
       - build-macos:
-          persist: "no"
+          upload: "no"
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2"]
+              redis_version: ["6.0", "7", "unstable"]
 
   nightly-benchmarks:
     triggers:
