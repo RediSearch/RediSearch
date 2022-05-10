@@ -1920,16 +1920,15 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   // Prefixes
   int num_prefixes = array_len(rule->prefixes);
   if (num_prefixes && rule->prefixes[0][0] != '\0') {
-    char prefixes[512];
-    prefixes[0] = '\0';
-    char temp[128];
+    arrayof(char) prefixes = array_new(char, 512);
     for (int i = 0; i < num_prefixes; ++i) {
-      temp[0] = '\0';
-      sprintf(temp, "%s\"%s\"", i == 0 ? "" : ",", rule->prefixes[i]);
-      strncat(prefixes, temp, sizeof(prefixes));
-      prefixes[sizeof(prefixes)-1] = '\0';
+      prefixes = array_ensure_append_1(prefixes, "\"");
+      prefixes = array_ensure_append_n(prefixes, rule->prefixes[i], strlen(rule->prefixes[i]));
+      prefixes = array_ensure_append_n(prefixes, "\",", 2);
     }
+    prefixes[array_len(prefixes)-1] = '\0';
     RedisModule_InfoAddFieldCString(ctx, "prefixes", prefixes);
+    array_free(prefixes);
   }
   RedisModule_InfoEndDictField(ctx);
 

@@ -12,7 +12,7 @@ def info_modules_to_dict(conn):
         section_name = line[2:]
         info[section_name] = dict()
       else:
-        data = line.split(':')
+        data = line.split(':', 1)
         info[section_name][data[0]] = data[1]
   return info
 
@@ -31,7 +31,7 @@ def testInfoModulesBasic(env):
                                           'subject location', 'GEO').ok()
 
   env.expect('FT.CREATE', idx2, 'LANGUAGE', 'french', 'NOOFFSETS', 'NOFREQS',
-                                'PREFIX', 2, 'TLV:', 'S',
+                                'PREFIX', 2, 'TLV:', 'NY:',
                                 'SCHEMA', 't1', 'TAG', 'CASESENSITIVE', 'SORTABLE',
                                           'T2', 'AS', 't2', 'TAG',
                                           'id', 'NUMERIC', 'NOINDEX').ok()
@@ -58,10 +58,11 @@ def testInfoModulesBasic(env):
   env.assertTrue('search_stop_words' in idx1Info)
   env.assertTrue('search_field_4' in idx1Info)
   env.assertEqual(idx1Info['search_field_2'], 'identifier=body,attribute=body,type=TEXT,WEIGHT=1')
+  env.assertEqual(idx1Info['search_stop_words'], '"tlv","summer","2020"')
 
   idx2Info = info['search_info_' + idx2]
   env.assertTrue('search_stop_words' not in idx2Info)
-  env.assertTrue('prefixes=' in idx2Info['search_index_definition'])
+  env.assertTrue('prefixes="TLV:","NY:"' in idx2Info['search_index_definition'])
   env.assertTrue('default_language=' in idx2Info['search_index_definition'])
   env.assertEqual(idx2Info['search_field_2'], 'identifier=T2,attribute=t2,type=TAG,SEPARATOR=","')
 

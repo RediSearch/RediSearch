@@ -208,18 +208,15 @@ void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
   tm_len_t len;
   void *ptr;
   bool first = true;
-  char stopwords[512];
-  stopwords[0] = '\0';
-  char temp[128];
+  arrayof(char) stopwords = array_new(char, 512);
   while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
-    temp[0] = '\0';
-    sprintf(temp, "%s\"%s\"", first ? "" : ",", str);
-    strncat(stopwords, temp, sizeof(stopwords));
-    stopwords[sizeof(stopwords)-1] = '\0';
-    if (first) first = false;
-    // str[0] = '\0';
+    stopwords = array_ensure_append_1(stopwords, "\"");
+    stopwords = array_ensure_append_n(stopwords, str, len);
+    stopwords = array_ensure_append_n(stopwords, "\",", 2);
   }
+  stopwords[array_len(stopwords)-1] = '\0';
   RedisModule_InfoAddFieldCString(ctx, "stop_words", stopwords);
+  array_free(stopwords);
   TrieMapIterator_Free(it);
 }
 
