@@ -300,7 +300,7 @@ jobs:
       - run:
           name: Persist artifacts?
           command: |
-            if [[ "<<parameters.persist>>" != "yes" ]]; then
+            if [[ "<<parameters.upload>>" != "yes" ]]; then
               circleci step halt
             fi
       - persist-artifacts
@@ -351,7 +351,7 @@ jobs:
       - run:
           name: Persist artifacts?
           command: |
-            if [[ "<<parameters.persist>>" != "yes" ]]; then
+            if [[ "<<parameters.upload>>" != "yes" ]]; then
               circleci step halt
             fi
       - run:
