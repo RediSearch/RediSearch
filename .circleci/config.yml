@@ -160,12 +160,12 @@ commands:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test SHOW=1
+          command: make test PLATFORM_MODE=1 SHOW=1
       - run:
           name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test COORD=oss SHOW=1
+          command: make test COORD=oss PLATFORM_MODE=1 SHOW=1
       - save-tests-logs
 
   build-platforms-steps:
@@ -373,7 +373,7 @@ jobs:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
-            make coverage SHOW=1
+            make coverage PLATFORM_MODE=1 SHOW=1
             make upload-cov SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
@@ -456,7 +456,7 @@ jobs:
           command: |
             python3 -m pip list
             mkdir -p ~/workspace/tests
-            make test COORD=1 SHOW=1
+            make test COORD=1 PLATFORM_MODE=1 SHOW=1
       - save-tests-logs
 
   upload-artifacts:

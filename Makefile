@@ -492,7 +492,7 @@ endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
@@ -643,13 +643,7 @@ else
 endif
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
-show-cov:
-	$(SHOW)lcov -l $(COV_INFO)
-
-upload-cov:
-	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
-
-.PHONY: coverage show-cov upload-cov
+.PHONY: coverage
 
 #----------------------------------------------------------------------------------------------
 

@@ -406,6 +406,7 @@ if [[ $NOP != 1 && -n $SAN ]]; then
 		echo "${LIGHTRED}Sanitizer: leaks detected:${RED}"
 		grep -l "leaked in" logs/*.asan.log*
 		echo "${NOCOLOR}"
+		E=1
 	fi
 fi
 
@@ -429,5 +430,6 @@ fi
 
 if [[ $NOFAIL == 1 ]]; then
 	exit 0
+fi
 
 exit $E
