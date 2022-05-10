@@ -432,6 +432,11 @@ int IndexSpec_CreateTextId(const IndexSpec *sp);
 int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status);
 
+/**
+ * Checks that the given parameters pass memory limits (used while starting from RDB)
+ */
+int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, QueryError *status);
+
 //---------------------------------------------------------------------------------------------
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
