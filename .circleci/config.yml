@@ -338,7 +338,7 @@ jobs:
       xcode: 12.4.0
     resource_class: macos.x86.medium.gen2
     parameters:
-      persist:
+      upload:
         type: string
         default: "yes"
     steps:

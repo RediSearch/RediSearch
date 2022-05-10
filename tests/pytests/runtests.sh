@@ -23,7 +23,10 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 		RLTEST_ARGS=args      Extra RLTest args
 		MODARGS=args          RediSearch module arguments
+
 		TEST=name             Operate in single-test mode
+		TESTFILE=file         Run tests listed in `file`
+		FAILEDFILE=file       Write failed tests into `file`
 		ONLY_STABLE=1         Skip unstable tests
 
 		COORD=1|oss|rlec      Test Coordinator
@@ -122,6 +125,9 @@ if [[ -n $TEST ]]; then
 	RLTEST_ARGS+=" --test $TEST"
 	export RUST_BACKTRACE=1
 fi
+[[ -n $TESTFILE ]] && RLTEST_ARGS+=" -f $TESTFILE"
+[[ -n $FAILEDFILE ]] && RLTEST_ARGS+=" -F $FAILEDFILE"
+
 if [[ $LIST == 1 ]]; then
 	RLTEST_ARGS+=" --collect-only"
 fi
