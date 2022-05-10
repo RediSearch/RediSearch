@@ -421,9 +421,9 @@ fi
 if [[ -n $STATFILE ]]; then
 	mkdir -p $(dirname $STATFILE)
 	if [[ -f $STATFILE ]]; then
-		echo "STATFILE=$STATFILE"
-		cat $STATFILE
-		(( E |= `cat $STATFILE || echo 1` ))
+		# echo "STATFILE=$STATFILE"
+		# cat $STATFILE
+		(( E |= `cat $STATFILE || echo 1` )) || true
 	fi
 	echo $E > $STATFILE
 fi

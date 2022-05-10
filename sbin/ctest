@@ -55,6 +55,17 @@ fi
 
 #----------------------------------------------------------------------------------------------
 
+if [[ -n $REJSON && $REJSON != 0 ]]; then
+	if [[ -z $REJSON_PATH ]]; then
+		FORCE_GET=
+		[[ $REJSON == get ]] && FORCE_GET=1
+		export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
+		BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
+	fi
+fi
+
+#----------------------------------------------------------------------------------------------
+
 # [[ $SAN == 1 ]] && export ASAN_OPTIONS=detect_odr_violation=0
 
 [[ $VERBOSE == 1 ]] && CTEST_ARGS+=" --debug"
@@ -99,9 +110,9 @@ fi
 if [[ -n $STATFILE ]]; then
 	mkdir -p $(dirname $STATFILE)
 	if [[ -f $STATFILE ]]; then
-		echo "STATFILE=$STATFILE"
-		cat $STATFILE
-		(( E |= `cat $STATFILE || echo 1` ))
+		# echo "STATFILE=$STATFILE"
+		# cat $STATFILE
+		(( E |= `cat $STATFILE || echo 1` )) || true
 	fi
 	echo $E > $STATFILE
 fi
