@@ -132,6 +132,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     IndexSpec *spec = dictGetVal(entry);
     IndexSpec_AddToInfo(ctx, spec);
   }
+  dictReleaseIterator(iter);
 }
 
 static inline const char* RS_GetExtraVersion() {
