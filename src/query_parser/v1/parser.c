@@ -524,7 +524,7 @@ static const char *const yyTokenName[] = {
   /*   29 */ "expr",
   /*   30 */ "attribute",
   /*   31 */ "attribute_list",
-  /*   32 */ "prefix",
+  /*   32 */ "affix",
   /*   33 */ "termlist",
   /*   34 */ "union",
   /*   35 */ "fuzzy",
@@ -562,7 +562,7 @@ static const char *const yyRuleName[] = {
  /*  16 */ "expr ::= QUOTE termlist QUOTE",
  /*  17 */ "expr ::= QUOTE term QUOTE",
  /*  18 */ "expr ::= term",
- /*  19 */ "expr ::= prefix",
+ /*  19 */ "expr ::= affix",
  /*  20 */ "expr ::= termlist",
  /*  21 */ "expr ::= STOPWORD",
  /*  22 */ "termlist ::= term term",
@@ -570,9 +570,9 @@ static const char *const yyRuleName[] = {
  /*  24 */ "termlist ::= termlist STOPWORD",
  /*  25 */ "expr ::= MINUS expr",
  /*  26 */ "expr ::= TILDE expr",
- /*  27 */ "prefix ::= PREFIX",
- /*  28 */ "prefix ::= SUFFIX",
- /*  29 */ "prefix ::= CONTAINS",
+ /*  27 */ "affix ::= PREFIX",
+ /*  28 */ "affix ::= SUFFIX",
+ /*  29 */ "affix ::= CONTAINS",
  /*  30 */ "expr ::= PERCENT term PERCENT",
  /*  31 */ "expr ::= PERCENT PERCENT term PERCENT PERCENT",
  /*  32 */ "expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT",
@@ -585,11 +585,11 @@ static const char *const yyRuleName[] = {
  /*  39 */ "expr ::= modifier COLON tag_list",
  /*  40 */ "tag_list ::= LB term",
  /*  41 */ "tag_list ::= LB STOPWORD",
- /*  42 */ "tag_list ::= LB prefix",
+ /*  42 */ "tag_list ::= LB affix",
  /*  43 */ "tag_list ::= LB termlist",
  /*  44 */ "tag_list ::= tag_list OR term",
  /*  45 */ "tag_list ::= tag_list OR STOPWORD",
- /*  46 */ "tag_list ::= tag_list OR prefix",
+ /*  46 */ "tag_list ::= tag_list OR affix",
  /*  47 */ "tag_list ::= tag_list OR termlist",
  /*  48 */ "tag_list ::= tag_list RB",
  /*  49 */ "expr ::= modifier COLON numeric_range",
@@ -736,7 +736,7 @@ static void yy_destructor(
 }
       break;
     case 29: /* expr */
-    case 32: /* prefix */
+    case 32: /* affix */
     case 33: /* termlist */
     case 34: /* union */
     case 35: /* fuzzy */
@@ -1078,7 +1078,7 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     29,  /* (16) expr ::= QUOTE termlist QUOTE */
     29,  /* (17) expr ::= QUOTE term QUOTE */
     29,  /* (18) expr ::= term */
-    29,  /* (19) expr ::= prefix */
+    29,  /* (19) expr ::= affix */
     29,  /* (20) expr ::= termlist */
     29,  /* (21) expr ::= STOPWORD */
     33,  /* (22) termlist ::= term term */
@@ -1086,9 +1086,9 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     33,  /* (24) termlist ::= termlist STOPWORD */
     29,  /* (25) expr ::= MINUS expr */
     29,  /* (26) expr ::= TILDE expr */
-    32,  /* (27) prefix ::= PREFIX */
-    32,  /* (28) prefix ::= SUFFIX */
-    32,  /* (29) prefix ::= CONTAINS */
+    32,  /* (27) affix ::= PREFIX */
+    32,  /* (28) affix ::= SUFFIX */
+    32,  /* (29) affix ::= CONTAINS */
     29,  /* (30) expr ::= PERCENT term PERCENT */
     29,  /* (31) expr ::= PERCENT PERCENT term PERCENT PERCENT */
     29,  /* (32) expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
@@ -1101,11 +1101,11 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     29,  /* (39) expr ::= modifier COLON tag_list */
     36,  /* (40) tag_list ::= LB term */
     36,  /* (41) tag_list ::= LB STOPWORD */
-    36,  /* (42) tag_list ::= LB prefix */
+    36,  /* (42) tag_list ::= LB affix */
     36,  /* (43) tag_list ::= LB termlist */
     36,  /* (44) tag_list ::= tag_list OR term */
     36,  /* (45) tag_list ::= tag_list OR STOPWORD */
-    36,  /* (46) tag_list ::= tag_list OR prefix */
+    36,  /* (46) tag_list ::= tag_list OR affix */
     36,  /* (47) tag_list ::= tag_list OR termlist */
     36,  /* (48) tag_list ::= tag_list RB */
     29,  /* (49) expr ::= modifier COLON numeric_range */
@@ -1141,7 +1141,7 @@ static const signed char yyRuleInfoNRhs[] = {
    -3,  /* (16) expr ::= QUOTE termlist QUOTE */
    -3,  /* (17) expr ::= QUOTE term QUOTE */
    -1,  /* (18) expr ::= term */
-   -1,  /* (19) expr ::= prefix */
+   -1,  /* (19) expr ::= affix */
    -1,  /* (20) expr ::= termlist */
    -1,  /* (21) expr ::= STOPWORD */
    -2,  /* (22) termlist ::= term term */
@@ -1149,9 +1149,9 @@ static const signed char yyRuleInfoNRhs[] = {
    -2,  /* (24) termlist ::= termlist STOPWORD */
    -2,  /* (25) expr ::= MINUS expr */
    -2,  /* (26) expr ::= TILDE expr */
-   -1,  /* (27) prefix ::= PREFIX */
-   -1,  /* (28) prefix ::= SUFFIX */
-   -1,  /* (29) prefix ::= CONTAINS */
+   -1,  /* (27) affix ::= PREFIX */
+   -1,  /* (28) affix ::= SUFFIX */
+   -1,  /* (29) affix ::= CONTAINS */
    -3,  /* (30) expr ::= PERCENT term PERCENT */
    -5,  /* (31) expr ::= PERCENT PERCENT term PERCENT PERCENT */
    -7,  /* (32) expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
@@ -1164,11 +1164,11 @@ static const signed char yyRuleInfoNRhs[] = {
    -3,  /* (39) expr ::= modifier COLON tag_list */
    -2,  /* (40) tag_list ::= LB term */
    -2,  /* (41) tag_list ::= LB STOPWORD */
-   -2,  /* (42) tag_list ::= LB prefix */
+   -2,  /* (42) tag_list ::= LB affix */
    -2,  /* (43) tag_list ::= LB termlist */
    -3,  /* (44) tag_list ::= tag_list OR term */
    -3,  /* (45) tag_list ::= tag_list OR STOPWORD */
-   -3,  /* (46) tag_list ::= tag_list OR prefix */
+   -3,  /* (46) tag_list ::= tag_list OR affix */
    -3,  /* (47) tag_list ::= tag_list OR termlist */
    -2,  /* (48) tag_list ::= tag_list RB */
    -3,  /* (49) expr ::= modifier COLON numeric_range */
@@ -1411,7 +1411,7 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[0].minor.yy75 = yylhsminor.yy75;
         break;
-      case 19: /* expr ::= prefix */
+      case 19: /* expr ::= affix */
 {
     yylhsminor.yy75= yymsp[0].minor.yy75;
 }
@@ -1468,19 +1468,19 @@ static YYACTIONTYPE yy_reduce(
     }
 }
         break;
-      case 27: /* prefix ::= PREFIX */
+      case 27: /* affix ::= PREFIX */
 {
     yylhsminor.yy75 = NewPrefixNode_WithParams(ctx, &yymsp[0].minor.yy0, true, false);
 }
   yymsp[0].minor.yy75 = yylhsminor.yy75;
         break;
-      case 28: /* prefix ::= SUFFIX */
+      case 28: /* affix ::= SUFFIX */
 {
     yylhsminor.yy75 = NewPrefixNode_WithParams(ctx, &yymsp[0].minor.yy0, false, true);
 }
   yymsp[0].minor.yy75 = yylhsminor.yy75;
         break;
-      case 29: /* prefix ::= CONTAINS */
+      case 29: /* affix ::= CONTAINS */
 {
     yylhsminor.yy75 = NewPrefixNode_WithParams(ctx, &yymsp[0].minor.yy0, true, true);
 }
@@ -1555,7 +1555,7 @@ static YYACTIONTYPE yy_reduce(
     QueryNode_AddChild(yymsp[-1].minor.yy75, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
         break;
-      case 42: /* tag_list ::= LB prefix */
+      case 42: /* tag_list ::= LB affix */
       case 43: /* tag_list ::= LB termlist */ yytestcase(yyruleno==43);
 {
     yymsp[-1].minor.yy75 = NewPhraseNode(0);
@@ -1570,7 +1570,7 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
         break;
-      case 46: /* tag_list ::= tag_list OR prefix */
+      case 46: /* tag_list ::= tag_list OR affix */
       case 47: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==47);
 {
     QueryNode_AddChild(yymsp[-2].minor.yy75, yymsp[0].minor.yy75);

@@ -656,7 +656,7 @@ static const char *const yyTokenName[] = {
   /*   33 */ "expr",
   /*   34 */ "attribute",
   /*   35 */ "attribute_list",
-  /*   36 */ "prefix",
+  /*   36 */ "affix",
   /*   37 */ "suffix",
   /*   38 */ "contains",
   /*   39 */ "termlist",
@@ -720,7 +720,7 @@ static const char *const yyRuleName[] = {
  /*  28 */ "text_expr ::= QUOTE term QUOTE",
  /*  29 */ "text_expr ::= QUOTE ATTRIBUTE QUOTE",
  /*  30 */ "text_expr ::= param_term",
- /*  31 */ "text_expr ::= prefix",
+ /*  31 */ "text_expr ::= affix",
  /*  32 */ "text_expr ::= STOPWORD",
  /*  33 */ "termlist ::= param_term param_term",
  /*  34 */ "termlist ::= termlist param_term",
@@ -729,9 +729,9 @@ static const char *const yyRuleName[] = {
  /*  37 */ "text_expr ::= MINUS text_expr",
  /*  38 */ "expr ::= TILDE expr",
  /*  39 */ "text_expr ::= TILDE text_expr",
- /*  40 */ "prefix ::= PREFIX",
- /*  41 */ "prefix ::= SUFFIX",
- /*  42 */ "prefix ::= CONTAINS",
+ /*  40 */ "affix ::= PREFIX",
+ /*  41 */ "affix ::= SUFFIX",
+ /*  42 */ "affix ::= CONTAINS",
  /*  43 */ "text_expr ::= PERCENT param_term PERCENT",
  /*  44 */ "text_expr ::= PERCENT PERCENT param_term PERCENT PERCENT",
  /*  45 */ "text_expr ::= PERCENT PERCENT PERCENT param_term PERCENT PERCENT PERCENT",
@@ -744,11 +744,11 @@ static const char *const yyRuleName[] = {
  /*  52 */ "expr ::= modifier COLON LB tag_list RB",
  /*  53 */ "tag_list ::= param_term",
  /*  54 */ "tag_list ::= STOPWORD",
- /*  55 */ "tag_list ::= prefix",
+ /*  55 */ "tag_list ::= affix",
  /*  56 */ "tag_list ::= termlist",
  /*  57 */ "tag_list ::= tag_list OR param_term",
  /*  58 */ "tag_list ::= tag_list OR STOPWORD",
- /*  59 */ "tag_list ::= tag_list OR prefix",
+ /*  59 */ "tag_list ::= tag_list OR affix",
  /*  60 */ "tag_list ::= tag_list OR termlist",
  /*  61 */ "expr ::= modifier COLON numeric_range",
  /*  62 */ "numeric_range ::= LSQB param_any param_any RSQB",
@@ -930,7 +930,7 @@ static void yy_destructor(
 }
       break;
     case 33: /* expr */
-    case 36: /* prefix */
+    case 36: /* affix */
     case 37: /* suffix */
     case 38: /* contains */
     case 39: /* termlist */
@@ -1310,7 +1310,7 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     42,  /* (28) text_expr ::= QUOTE term QUOTE */
     42,  /* (29) text_expr ::= QUOTE ATTRIBUTE QUOTE */
     42,  /* (30) text_expr ::= param_term */
-    42,  /* (31) text_expr ::= prefix */
+    42,  /* (31) text_expr ::= affix */
     42,  /* (32) text_expr ::= STOPWORD */
     39,  /* (33) termlist ::= param_term param_term */
     39,  /* (34) termlist ::= termlist param_term */
@@ -1319,9 +1319,9 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     42,  /* (37) text_expr ::= MINUS text_expr */
     33,  /* (38) expr ::= TILDE expr */
     42,  /* (39) text_expr ::= TILDE text_expr */
-    36,  /* (40) prefix ::= PREFIX */
-    36,  /* (41) prefix ::= SUFFIX */
-    36,  /* (42) prefix ::= CONTAINS */
+    36,  /* (40) affix ::= PREFIX */
+    36,  /* (41) affix ::= SUFFIX */
+    36,  /* (42) affix ::= CONTAINS */
     42,  /* (43) text_expr ::= PERCENT param_term PERCENT */
     42,  /* (44) text_expr ::= PERCENT PERCENT param_term PERCENT PERCENT */
     42,  /* (45) text_expr ::= PERCENT PERCENT PERCENT param_term PERCENT PERCENT PERCENT */
@@ -1334,11 +1334,11 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     33,  /* (52) expr ::= modifier COLON LB tag_list RB */
     44,  /* (53) tag_list ::= param_term */
     44,  /* (54) tag_list ::= STOPWORD */
-    44,  /* (55) tag_list ::= prefix */
+    44,  /* (55) tag_list ::= affix */
     44,  /* (56) tag_list ::= termlist */
     44,  /* (57) tag_list ::= tag_list OR param_term */
     44,  /* (58) tag_list ::= tag_list OR STOPWORD */
-    44,  /* (59) tag_list ::= tag_list OR prefix */
+    44,  /* (59) tag_list ::= tag_list OR affix */
     44,  /* (60) tag_list ::= tag_list OR termlist */
     33,  /* (61) expr ::= modifier COLON numeric_range */
     52,  /* (62) numeric_range ::= LSQB param_any param_any RSQB */
@@ -1414,7 +1414,7 @@ static const signed char yyRuleInfoNRhs[] = {
    -3,  /* (28) text_expr ::= QUOTE term QUOTE */
    -3,  /* (29) text_expr ::= QUOTE ATTRIBUTE QUOTE */
    -1,  /* (30) text_expr ::= param_term */
-   -1,  /* (31) text_expr ::= prefix */
+   -1,  /* (31) text_expr ::= affix */
    -1,  /* (32) text_expr ::= STOPWORD */
    -2,  /* (33) termlist ::= param_term param_term */
    -2,  /* (34) termlist ::= termlist param_term */
@@ -1423,9 +1423,9 @@ static const signed char yyRuleInfoNRhs[] = {
    -2,  /* (37) text_expr ::= MINUS text_expr */
    -2,  /* (38) expr ::= TILDE expr */
    -2,  /* (39) text_expr ::= TILDE text_expr */
-   -1,  /* (40) prefix ::= PREFIX */
-   -1,  /* (41) prefix ::= SUFFIX */
-   -1,  /* (42) prefix ::= CONTAINS */
+   -1,  /* (40) affix ::= PREFIX */
+   -1,  /* (41) affix ::= SUFFIX */
+   -1,  /* (42) affix ::= CONTAINS */
    -3,  /* (43) text_expr ::= PERCENT param_term PERCENT */
    -5,  /* (44) text_expr ::= PERCENT PERCENT param_term PERCENT PERCENT */
    -7,  /* (45) text_expr ::= PERCENT PERCENT PERCENT param_term PERCENT PERCENT PERCENT */
@@ -1438,11 +1438,11 @@ static const signed char yyRuleInfoNRhs[] = {
    -5,  /* (52) expr ::= modifier COLON LB tag_list RB */
    -1,  /* (53) tag_list ::= param_term */
    -1,  /* (54) tag_list ::= STOPWORD */
-   -1,  /* (55) tag_list ::= prefix */
+   -1,  /* (55) tag_list ::= affix */
    -1,  /* (56) tag_list ::= termlist */
    -3,  /* (57) tag_list ::= tag_list OR param_term */
    -3,  /* (58) tag_list ::= tag_list OR STOPWORD */
-   -3,  /* (59) tag_list ::= tag_list OR prefix */
+   -3,  /* (59) tag_list ::= tag_list OR affix */
    -3,  /* (60) tag_list ::= tag_list OR termlist */
    -3,  /* (61) expr ::= modifier COLON numeric_range */
    -4,  /* (62) numeric_range ::= LSQB param_any param_any RSQB */
@@ -1747,7 +1747,7 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[0].minor.yy103 = yylhsminor.yy103;
         break;
-      case 31: /* text_expr ::= prefix */
+      case 31: /* text_expr ::= affix */
 {
 yylhsminor.yy103 = yymsp[0].minor.yy103;
 }
@@ -1799,19 +1799,19 @@ yylhsminor.yy103 = yymsp[0].minor.yy103;
     }
 }
         break;
-      case 40: /* prefix ::= PREFIX */
+      case 40: /* affix ::= PREFIX */
 {
     yylhsminor.yy103 = NewPrefixNode_WithParams(ctx, &yymsp[0].minor.yy0, true, false);
 }
   yymsp[0].minor.yy103 = yylhsminor.yy103;
         break;
-      case 41: /* prefix ::= SUFFIX */
+      case 41: /* affix ::= SUFFIX */
 {
     yylhsminor.yy103 = NewPrefixNode_WithParams(ctx, &yymsp[0].minor.yy0, false, true);
 }
   yymsp[0].minor.yy103 = yylhsminor.yy103;
         break;
-      case 42: /* prefix ::= CONTAINS */
+      case 42: /* affix ::= CONTAINS */
 {
     yylhsminor.yy103 = NewPrefixNode_WithParams(ctx, &yymsp[0].minor.yy0, true, true);
 }
@@ -1897,7 +1897,7 @@ yylhsminor.yy103 = yymsp[0].minor.yy103;
 }
   yymsp[0].minor.yy103 = yylhsminor.yy103;
         break;
-      case 55: /* tag_list ::= prefix */
+      case 55: /* tag_list ::= affix */
       case 56: /* tag_list ::= termlist */ yytestcase(yyruleno==56);
 {
     yylhsminor.yy103 = NewPhraseNode(0);
@@ -1923,7 +1923,7 @@ yylhsminor.yy103 = yymsp[0].minor.yy103;
 }
   yymsp[-2].minor.yy103 = yylhsminor.yy103;
         break;
-      case 59: /* tag_list ::= tag_list OR prefix */
+      case 59: /* tag_list ::= tag_list OR affix */
       case 60: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==60);
 {
     QueryNode_AddChild(yymsp[-2].minor.yy103, yymsp[0].minor.yy103);

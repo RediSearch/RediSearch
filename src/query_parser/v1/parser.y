@@ -119,8 +119,8 @@ static int one_not_null(void *a, void *b, void *out) {
 %type attribute_list {QueryAttribute *}
 %destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
 
-%type prefix { QueryNode * } 
-%destructor prefix { QueryNode_Free($$); }
+%type affix { QueryNode * } 
+%destructor affix { QueryNode_Free($$); }
 
 %type termlist { QueryNode * } 
 %destructor termlist { QueryNode_Free($$); }
@@ -334,7 +334,7 @@ expr(A) ::= term(B) . [LOWEST]  {
    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
 }
 
-expr(A) ::= prefix(B) . [PREFIX]  {
+expr(A) ::= affix(B) . [PREFIX]  {
     A= B;
 }
 
@@ -390,15 +390,15 @@ expr(A) ::= TILDE expr(B) . {
 /////////////////////////////////////////////////////////////////
 
 // v2.2.9 diff - string duplication are happening in NewPrefixNode_WithParams now.
-prefix(A) ::= PREFIX(B) . [PREFIX] {
+affix(A) ::= PREFIX(B) . [PREFIX] {
     A = NewPrefixNode_WithParams(ctx, &B, true, false);
 }
 
-prefix(A) ::= SUFFIX(B) . [PREFIX] {
+affix(A) ::= SUFFIX(B) . [PREFIX] {
     A = NewPrefixNode_WithParams(ctx, &B, false, true);
 }
 
-prefix(A) ::= CONTAINS(B) . [PREFIX] {
+affix(A) ::= CONTAINS(B) . [PREFIX] {
     A = NewPrefixNode_WithParams(ctx, &B, true, true);
 }
 
@@ -491,7 +491,7 @@ tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
 }
 
-tag_list(A) ::= LB prefix(B) . [TAGLIST] {
+tag_list(A) ::= LB affix(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
 }
@@ -511,7 +511,7 @@ tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
     A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
     QueryNode_AddChild(B, C);
     A = B;
 }
