@@ -52,7 +52,6 @@ def testInfoModulesBasic(env):
 
   configInfo = info['search_run_time_configs']
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
-  env.assertEqual(configInfo['search_query_timeout_ms'], '500')
   env.assertEqual(configInfo['search_gc_scan_size'], '100')
 
   idx1Info = info['search_info_' + idx1]
