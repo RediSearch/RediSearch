@@ -328,6 +328,9 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithSimpleString(ctx, str);
       ++resultSize;
     }
+
+    TrieMapIterator_Free(it);
+
     RedisModule_ReplySetArrayLength(ctx, resultSize);  
   }
 end:
