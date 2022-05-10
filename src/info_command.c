@@ -232,6 +232,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   REPLY_KVNUM(n, "percent_indexed", percent_indexed);
 
+  REPLY_KVNUM(n, "number_of_uses", sp->counter);
+
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
     GCContext_RenderStats(sp->gc, ctx);
