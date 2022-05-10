@@ -1,7 +1,7 @@
 from includes import *
 from common import *
-import os
 import csv
+from RLTest import Env
 
 def testWITHSUFFIXTRIEParamText(env):
     conn = getConnectionByEnv(env)
@@ -272,7 +272,10 @@ def testEscape(env):
   # none
   env.expect('ft.search', 'idx', '\*foo\*').equal([0])
 
-def test_orl(env):
+  env.expect('ft.search', 'idx', '*\*foo\**').equal([0])
+
+
+def test_misc1(env):
   # this test check that `\*` is escaped correctly on contains queries
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE')
@@ -321,11 +324,11 @@ def testContainsGC(env):
 
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE')
-  
+
   conn.execute_command('HSET', 'doc1', 't', 'hello')
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['hello', 'ello', 'llo', 'lo'])
   conn.execute_command('HSET', 'doc1', 't', 'world')
-  
+
   forceInvokeGC(env, 'idx')
 
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'world', 'orld', 'rld'])
@@ -344,11 +347,11 @@ def testContainsGCTag(env):
 
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE', 'SORTABLE')
-  
+
   conn.execute_command('HSET', 'doc1', 't', 'hello')
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['hello', 'ello', 'llo', 'lo'])
   conn.execute_command('HSET', 'doc1', 't', 'world')
-  
+
   forceInvokeGC(env, 'idx')
 
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'world', 'orld', 'rld'])
@@ -381,6 +384,19 @@ def testContainsMixedWithSuffix(env):
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'WITHSUFFIXTRIE', 't2', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't1', 'hello', 't2', 'hello')
+  conn.execute_command('HSET', 'doc1', 't1', 'hello', 't2', 'hello')
 
   env.expect('ft.search', 'idx', '@t1:*ell*', 'NOCONTENT').equal([1, 'doc1'])
   env.expect('ft.search', 'idx', '@t2:*ell*', 'NOCONTENT').error(). contains('Contains query on fields without WITHSUFFIXTRIE support')
+
+def test_params(env):
+  env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+  # this test check that `\*` is escaped correctly on contains queries
+  conn = getConnectionByEnv(env)
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
+
+  conn.execute_command('HSET', 'doc1', 't', 'world')
+
+  env.expect('ft.search', 'idx', '$prefix*', 'PARAMS', 2, 'prefix', 'wor').equal([1, 'doc1', ['t', 'world']])
+  env.expect('ft.search', 'idx', '*$contains*', 'PARAMS', 2, 'contains', 'orl').equal([1, 'doc1', ['t', 'world']])
+  env.expect('ft.search', 'idx', '*$suffix', 'PARAMS', 2, 'suffix', 'rld').equal([1, 'doc1', ['t', 'world']])
