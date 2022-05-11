@@ -87,10 +87,7 @@ commands:
       - run:
           name: Cleanup test log dir
           command: |
-            if [[ -d tests/pytests/logs ]]; then
-              cd tests/pytests/logs
-              rm -f *.aof *.rdb
-            fi
+            rm -f tests/pytests/logs/*.{aof,rdb}
           when: always
       - store_artifacts:
           path: tests/pytests/logs
@@ -510,7 +507,7 @@ jobs:
       - checkout
       - setup-automation
       - run:
-          name: Run QA Automation
+          name: Run QA Automation (RediSearch)
           command: ./tests/qa/qatests -m "$CIRCLE_TAG"
       - run:
           name: Run QA Automation (RediSearch Light)
@@ -518,6 +515,9 @@ jobs:
       - run:
           name: Run QA Automation (RediSearch/VecSim)
           command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim
+      - run:
+          name: Run QA Automation (RediSearch Light/VecSim)
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim --light
 
 
 #----------------------------------------------------------------------------------------------------------------------------------
@@ -550,6 +550,7 @@ on-integ-branch: &on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       ignore: /.*/
 
@@ -560,6 +561,7 @@ not-on-integ-branch: &not-on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       ignore: /.*/
 
@@ -580,6 +582,16 @@ on-integ-and-version-tags: &on-integ-and-version-tags
     tags:
       only: /^v[0-9].*/
 
+on-perf-tags: &on-perf-tags
+  filters:
+    branches:
+      only:
+        - master
+        - /^\d+\.\d+.*$/
+        - /^perf-.*$/
+    tags:
+      only: /^v[0-9].*/
+
 #----------------------------------------------------------------------------------------------------------------------------------
 
 workflows:
@@ -594,7 +606,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, rocky8, bullseye]
+              platform: [focal, bionic, xenial, centos7, rocky8, bullseye, jammy]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -635,11 +647,10 @@ workflows:
             - build-arm-platforms
             - build-macos
       - release-automation:
+          <<: *on-version-tags
           context: common
           requires:
             - upload-release-artifacts
-          # <<: *on-version-tags
-          <<: *never
 
   nightly:
     triggers:

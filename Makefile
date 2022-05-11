@@ -124,9 +124,6 @@ common options for upload operations:
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
 
-make docs          # create documentation
-make deploy-docs   # deploy documentation
-
 make docker        # build for specified platform
   OSNICK=nick        # platform to build for (default: host platform)
   TEST=1             # run tests after build
@@ -455,15 +452,18 @@ ifeq ($(TESTDEBUG),1)
 override CTEST_ARGS.debug += --debug
 endif
 
-ifneq ($(SLOW),1)
-ifneq ($(SAN),)
-CTEST_PARALLEL=8
-else ifeq ($(COV),1)
-CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
+ifeq ($(SLOW),1)
+	override CTEST_PARALLEL=
 else
-CTEST_PARALLEL=
-endif
-endif # SLOW
+	ifneq ($(SAN),)
+		override CTEST_PARALLEL=
+	else ifeq ($(COV),1)
+		override CTEST_PARALLEL=
+	else
+		# CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
+		override CTEST_PARALLEL=
+	endif
+endif # !SLOW
 
 ifneq ($(CTEST_PARALLEL),)
 CTEST_ARGS.parallel += -j$(CTEST_PARALLEL)
@@ -472,10 +472,10 @@ endif
 override CTEST_ARGS += \
 	--output-on-failure \
 	--timeout 15000 \
-	$(CTEST.debug) \
-	$(CTEST.parallel)
+	$(CTEST_ARGS.debug) \
+	$(CTEST_ARGS.parallel)
 
-CTESTS_DEFS += \
+CTEST_DEFS += \
 	BINROOT=$(BINROOT)
 
 override FLOW_TESTS_ARGS+=\
@@ -502,17 +502,18 @@ endif
 ifeq ($(SLOW),1)
 _RLTEST_PARALLEL=0
 else
-_RLTEST_PARALLEL=1
+# _RLTEST_PARALLEL=1
+_RLTEST_PARALLEL=8
 endif
 
 test: $(REJSON_SO)
 ifneq ($(TEST),)
-	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) RLTEST_ARGS+="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
 ifeq ($(ARCH),arm64v8)
 	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
-	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) ctest $(CTEST_ARGS)
+	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) ctest $(CTEST_ARGS)
 endif
 ifeq ($(COORD),oss)
 	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
@@ -585,7 +586,6 @@ callgrind: $(TARGET)
 RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 
 RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
-# RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
 ifneq ($(RAMP_YAML),)
 
@@ -672,25 +672,7 @@ else
 endif
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
-# CTEST_PARALLEL=8
-
-show-cov:
-	$(SHOW)lcov -l $(COV_INFO)
-
-upload-cov:
-	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
-
-.PHONY: coverage show-cov upload-cov
-
-#----------------------------------------------------------------------------------------------
-
-docs:
-	$(SHOW)mkdocs build
-
-deploy-docs:
-	$(SHOW)mkdocs gh-deploy
-
-.PHONY: docs deploy-docs
+.PHONY: coverage
 
 #----------------------------------------------------------------------------------------------
 
