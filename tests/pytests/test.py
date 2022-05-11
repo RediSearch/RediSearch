@@ -3523,9 +3523,9 @@ def test_aggregate_return_fail(env):
 def test_emoji(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'doc1', 'test', '📌')
-    env.expect('ft.search', 'idx', '📌').equal([1, 'doc1', ['test', '📌']])
-    conn.execute_command('HSET', 'doc2', 'test', '💮')
-    env.expect('ft.search', 'idx', '💮').equal([1, 'doc2', ['test', '💮']])
+    conn.execute_command('HSET', 'doc1', 'test', 'a📌')
+    env.expect('ft.search', 'idx', 'a📌').equal([1, 'doc1', ['test', 'a📌']])
+    conn.execute_command('HSET', 'doc2', 'test', '💮a')
+    env.expect('ft.search', 'idx', '💮a').equal([1, 'doc2', ['test', '💮a']])
     conn.execute_command('HSET', 'doc3', 'test', '💩')
     env.expect('ft.search', 'idx', '💩').equal([1, 'doc3', ['test', '💩']])
