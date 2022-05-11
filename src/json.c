@@ -165,12 +165,14 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
 
   RedisJSON json;
   unsigned char step = VecSimType_sizeof(type);
+  char *offset = df->strval;
   // At this point iterator length matches blob length
-  for (char *offset = df->strval; (json = japi->next(arrIter)); offset += step) {
+  while ((json = japi->next(arrIter))) {
     if (getElement(json, offset) != REDISMODULE_OK) {
       rm_free(df->strval);
       return REDISMODULE_ERR;
     }
+    offset += step;
   }
   df->unionType = FLD_VAR_T_CSTR;
   return REDISMODULE_OK;
