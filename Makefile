@@ -452,15 +452,17 @@ ifeq ($(TESTDEBUG),1)
 override CTEST_ARGS.debug += --debug
 endif
 
-ifneq ($(SLOW),1)
-ifneq ($(SAN),)
-CTEST_PARALLEL=8
-else ifeq ($(COV),1)
-CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
+ifeq ($(SLOW),1)
+	override CTEST_PARALLEL=
 else
-CTEST_PARALLEL=
-endif
-endif # SLOW
+	ifneq ($(SAN),)
+		override CTEST_PARALLEL=8
+	else ifeq ($(COV),1)
+		override CTEST_PARALLEL=8
+	else
+		CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
+	endif
+endif # !SLOW
 
 ifneq ($(CTEST_PARALLEL),)
 CTEST_ARGS.parallel += -j$(CTEST_PARALLEL)
@@ -582,7 +584,6 @@ callgrind: $(TARGET)
 RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 
 RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
-# RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
 ifneq ($(RAMP_YAML),)
 
@@ -669,15 +670,7 @@ else
 endif
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
-# CTEST_PARALLEL=8
-
-show-cov:
-	$(SHOW)lcov -l $(COV_INFO)
-
-upload-cov:
-	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
-
-.PHONY: coverage show-cov upload-cov
+.PHONY: coverage
 
 #----------------------------------------------------------------------------------------------
 
