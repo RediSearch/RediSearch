@@ -456,9 +456,9 @@ ifeq ($(SLOW),1)
 	override CTEST_PARALLEL=
 else
 	ifneq ($(SAN),)
-		override CTEST_PARALLEL=8
+		override CTEST_PARALLEL=
 	else ifeq ($(COV),1)
-		override CTEST_PARALLEL=8
+		override CTEST_PARALLEL=
 	else
 		CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
 	endif
