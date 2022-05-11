@@ -460,7 +460,8 @@ else
 	else ifeq ($(COV),1)
 		override CTEST_PARALLEL=
 	else
-		CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
+		# CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
+		override CTEST_PARALLEL=8
 	endif
 endif # !SLOW
 
@@ -501,7 +502,8 @@ endif
 ifeq ($(SLOW),1)
 _RLTEST_PARALLEL=0
 else
-_RLTEST_PARALLEL=1
+# _RLTEST_PARALLEL=1
+_RLTEST_PARALLEL=8
 endif
 
 test: $(REJSON_SO)
