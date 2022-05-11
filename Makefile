@@ -461,7 +461,7 @@ else
 		override CTEST_PARALLEL=
 	else
 		# CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
-		override CTEST_PARALLEL=8
+		override CTEST_PARALLEL=
 	endif
 endif # !SLOW
 
