@@ -83,7 +83,7 @@ TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len,
   return n;
 }
 
-TrieNode *__trie_SplitNode(TrieNode *n, t_len offset, TrieFreeCallback freecb) {
+TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
   TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
                                      __trieNode_isTerminal(n));
@@ -174,7 +174,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
     // 1. a child representing the new string from the diverted offset onwards
     // 2. a child representing the old node's suffix from the diverted offset
     // and the old children
-    n = __trie_SplitNode(n, offset, freecb);
+    n = __trie_SplitNode(n, offset);
     // the new string matches the split node exactly!
     // we simply turn the split node, which is now non terminal, into a terminal
     // node
@@ -721,10 +721,7 @@ static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
   }
 
   // Push string to stack
-  size_t len;
-  // char *before_str = runesToStr(r->buf, array_len(r->buf), &len);
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
-  // char *after_str = runesToStr(r->buf, array_len(r->buf), &len);
   if (__trieNode_isTerminal(n)) {
     if (r->callback(r->buf, array_len(r->buf), r->cbctx) != REDISEARCH_OK) {
       r->stop = 1;

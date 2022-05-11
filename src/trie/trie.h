@@ -98,10 +98,9 @@ TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len,
 /* Split node n at string offset n. This returns a new node which has a string
  * up until offset, and
  * a single child holding The old score of n, and its score */
-TrieNode *__trie_SplitNode(TrieNode *n, t_len offset, TrieFreeCallback freecb);
+TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
 
 typedef enum {
-  ADD_IGNORE,
   ADD_REPLACE,
   ADD_INCR,
 } TrieAddOp;
