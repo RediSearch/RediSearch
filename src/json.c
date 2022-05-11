@@ -273,9 +273,6 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   } else if (fs->types == INDEXFLD_T_TAG) {
     // Handling multiple values as a Tag list
     rv = JSON_StoreTagsInDocField(len, jsonIter, df);
-  } else if (fs->types == INDEXFLD_T_VECTOR) {
-    // Hendling multiple values as a Vector.
-    rv = JSON_StoreVectorInDocField(fs, jsonIter, df);
   } else {
     rv = REDISMODULE_ERR;
   }

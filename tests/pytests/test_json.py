@@ -463,24 +463,6 @@ def testMultiValueTag_Recursive_Decent(env):
     env.expect('FT.SEARCH', 'idx', '@name:{bar}').equal(res)
 
 @no_msan
-def testMultiValueVector(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
-                        'SCHEMA', '$..num', 'AS', 'vec1', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2',
-                                  '$.vec2', 'AS', 'vec2', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
-                               '$.*.vec3[*]', 'AS', 'vec3', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '4','DISTANCE_METRIC', 'L2')
-    conn.execute_command('JSON.SET', 'doc:1', '$', '{"vec2":[42,46], \
-                                                     "first" : {"num":3.14}, "second" : {"deeper" : {"num":0.42}}, "num" : 2.71, \
-                                                     "x" : {"vec3" : [1]}, "y" : {"vec3" : [2,3,4]}, "z" : {"vec3" : []}}')
-
-    res = [1, 'doc:1']
-    env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '0').equal(res)
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec1 $b AS first_score]', 'PARAMS', '2', 'b', '<<<<????>>>>', 'RETURN', '0').equal(res)
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec2 $b EF_RUNTIME 5 AS second_score]', 'PARAMS', '2', 'b', '<<<<>>>>', 'RETURN', '0').equal(res)
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec3 $b AS third_score]', 'PARAMS', '2', 'b', '<<<<????????>>>>', 'RETURN', '0').equal(res)
-
-@no_msan
 def testMultiValueErrors(env):
     # Index with Tag for array with multi-values
     env.execute_command('FT.CREATE', 'idxtext', 'ON', 'JSON',
