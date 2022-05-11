@@ -65,7 +65,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       VecSimQueryParams qParams = {0};
       bool hybrid = (child_it != NULL);
       if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
-                                    &qParams, hybrid, q->status) != VecSim_OK)  {
+                                    &qParams, hybrid, vq->knn.k, q->status) != VecSim_OK)  {
         return NULL;
       }
 
@@ -289,9 +289,9 @@ fail:
 }
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
-                          VecSimQueryParams *qParams, bool hybrid, QueryError *status) {
+                          VecSimQueryParams *qParams, bool hybrid, size_t k, QueryError *status) {
 
-  VecSimResolveCode code = VecSimIndex_ResolveParams(index, params, params_len, qParams, hybrid);
+  VecSimResolveCode code = VecSimIndex_ResolveParams(index, params, params_len, qParams, hybrid, k);
   if (code == VecSim_OK) {
     return code;
   }
@@ -308,6 +308,10 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
     }
     case VecSimParamResolverErr_BadValue: {
       error_msg = QueryError_Strerror(QUERY_EBADVECSIMATTR);
+      break;
+    }
+    case VecSimParamResolverErr_k_GT_EfRuntime: {
+      error_msg = "'EF_RUNTIME' cannot be lower than k in a standard KNN query";
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NHybrid: {

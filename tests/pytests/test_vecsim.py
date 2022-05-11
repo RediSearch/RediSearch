@@ -364,6 +364,8 @@ def testSearchErrors():
 
     # ef_runtime is invalid for FLAT index.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v_flat $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+    # ef_runtime always >= k (requesting explicitly a lower EF_RUNTIME is an error)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $b EF_RUNTIME 5]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("'EF_RUNTIME' cannot be lower than k in a standard KNN query")
 
     # Hybrid attributes with non-hybrid query is invalid.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid VSS query')
