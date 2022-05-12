@@ -176,26 +176,26 @@ Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](/
 ### Hybrid vector similarity search
 
 We refer vector similarity queries of the form `{primary filter query}=>[{vector similarity query}]` as *hybrid queries*. RediSearch has an internal mechanism for optimizing the computation of such queries. There are 2 modes in which hybrid queries are executed: 
-1. **Batches mode** - an iterative procedure, where in each step a batch of the top results that correspond to the `{vector similarity query}` part of the query are obtained from the vector index. Then, every result (which represents a certain document in the index) is evaluated, and returns only if the rest of the document's fields pass the `{primary filter query}` part of the query. If the accumulated number of results hadn't reached the requested `k` results, this procedure continue and another batch of the *next best* results is obtained from the vector index in the next step. The procedure terminates when `k` documents that pass the `{primary filter query}` are collected (or until every vector in the index was obtained and processed).
+1. **Batches mode** - an iterative procedure, where in each step a batch of the top results that correspond to the `{vector similarity query}` part of the query are obtained from the vector index. Then, every result (which represents a certain document in the index) is evaluated, and returned only if the rest of the document's fields pass the `{primary filter query}` part of the query. If the accumulated number of results hadn't reached the requested `k` results, this procedure continues and another batch of the *next best* results is obtained from the vector index in the next step. The procedure terminates when `k` documents that pass the `{primary filter query}` are collected (or until every vector in the index was obtained and processed).
     
-    The **Batch size** is determined by a heuristics that is based on `k`, and the ratio between the expected number of documents in the index that pass the `{primary filter query}` and the vector index size. The goal of the aforementioned heuristics is to minimize the total number of batches required to get the `k` results, while preserving a low batch size as possible. Note that the batch size may change *dynamically* in each iteration, based on the number of results that pass the filter in previous batches.
-2. **Ad-hoc brute-force mode** - in general, this approach is preferable when the number of documents that pass the `{primary filter query}` part of the query is relatively low. Here, the score of *every* vector which corresponds to a document that pass the filter is computed, and the top `k` results are selected and returned. Note that the results of the KNN query will *always be accurate* in this mode, even if the underline vector index algorithm is an approximate one. 
+    The **Batch size** is determined by a heuristics that is based on `k`, and the ratio between the expected number of documents in the index that pass the `{primary filter query}` and the vector index size. The goal of the aforementioned heuristics is to minimize the total number of batches required to get the `k` results, while preserving a small batch size as possible. Note that the batch size may change *dynamically* in each iteration, based on the number of results that passed the filter in previous batches.
+2. **Ad-hoc brute-force mode** - in general, this approach is preferable when the number of documents that pass the `{primary filter query}` part of the query is relatively small. Here, the score of *every* vector which corresponds to a document that passes the filter is computed, and the top `k` results are selected and returned. Note that the results of the KNN query will *always be accurate* in this mode, even if the underline vector index algorithm is an approximate one.
 
-The specific mode in which a hybrid query is going to be executed in is determined by a heuristics that aims to minimize the query runtime, which is based on several factors dervied from the query and the index. Moreover, the mode may change from *batches* to *ad-hoc BF* during the query runtime, based on changes in estimations that are updated in during the run.  
+The specific execution mode of a hybrid query is determined by a heuristics that aims to minimize the query runtime, and is based on several factors that derive from the query and the index. Moreover, the execution mode may change from *batches* to *ad-hoc BF* during the run, based on estimations of some relevant factors, that are being updated from one batch to another.  
 
 ## Runtime attributes
 
 ###Hybrid query attributes
 
-The following **optional** attributes allow to override the default auto-selected policy in which a hybrid query is executed:
+The following **optional** attributes allow overriding the default auto-selected policy in which a hybrid query is executed:
 
-* **HYBRID_POLICY** - the policy to run the hybrid query with. Possible values are *BATCHES* and *ADHOC_BF* (not case-sensitive). Note that the *batch size* will be auto selected dynamically in *BATCHES* mode, unless *BATCH_SIZE* attribute is given as well.
+* **HYBRID_POLICY** - the policy to run the hybrid query in. Possible values are *BATCHES* and *ADHOC_BF* (not case-sensitive). Note that the *batch size* will be auto selected dynamically in *BATCHES* mode, unless *BATCH_SIZE* attribute is given as well.
 * **BATCH_SIZE** - a fixed batch size to use in *every iteration*, when *BATCHES* policy is auto-selected or requested.
 
 ###Algorithm specific attributes
 ### FLAT
 
-Currently there are no runtime parameters available for FLAT indexes
+Currently there are no runtime parameters available for FLAT indexes.
 
 ### HNSW
 
@@ -206,9 +206,9 @@ Currently there are no runtime parameters available for FLAT indexes
 
 ### A few notes
 
-1. Although specifing `K` requested results, the default `LIMIT` in RediSearch is 10, so for getting all the returned results, make sure to specify `LIMIT 0 {K}` in your command.
+1. Although specifying `K` requested results, the default `LIMIT` in RediSearch is 10, so for getting all the returned results, make sure to specify `LIMIT 0 {K}` in your command.
 
-2. By default, the resluts are sorted by their documents default RediSearch score. for getting the results sorted by similarity score, use `SORTBY {score field name}` as explained earlier.
+2. By default, the results are sorted by their documents default RediSearch score. for getting the results sorted by similarity score, use `SORTBY {score field name}` as explained earlier.
 
 ### Examples for querying vector fields
 
