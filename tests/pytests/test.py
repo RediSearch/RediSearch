@@ -3520,10 +3520,7 @@ def testUsesCounter(env):
     env.execute_command('ft.info', 'idx')
     env.execute_command('ft.search', 'idx', '*')
 
-    res = env.execute_command('ft.info', 'idx')
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-
-    env.assertEqual(str(d['number_of_uses']), '3')
+    assertInfoField(env, 'idx', 'number_of_uses', 3)
 
 def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
