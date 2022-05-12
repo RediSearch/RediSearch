@@ -94,26 +94,35 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
 static int JSON_getFloat32(RedisJSON json, float *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
-  *val = (float)temp;
-  return ret;
+  if (REDISMODULE_OK == ret) {
+    *val = (float)temp;
+    return ret;
+  } else {
+    // On RedisJSON<2.0.9, getDouble can't handle integer values.
+    long long tempInt;
+    ret = japi->getInt(json, &tempInt);
+    *val = (float)tempInt;
+    return ret;
+  }
 }
 
 // Uncomment when support for more types is added
 // static int JSON_getFloat64(RedisJSON json, double *val) {
 //   int ret = japi->getDouble(json, val);
-//   if (REDISMODULE_OK != ret) {
+//   if (REDISMODULE_OK == ret) {
+//     return ret;
+//   } else {
 //     long long temp;
 //     ret = japi->getInt(json, &temp);
 //     *val = (double)temp;
+//     return ret;
 //   }
-//   return ret;
 // }
-
-typedef int (*getJSONElementFunc)(RedisJSON, void *);
 
 int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struct DocumentField *df) {
   VecSimType type;
   size_t dim;
+  typedef int (*getJSONElementFunc)(RedisJSON, void *);
   getJSONElementFunc getElement;
 
   switch (fs->vectorOpts.vecSimParams.algo) {
@@ -156,12 +165,14 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
 
   RedisJSON json;
   unsigned char step = VecSimType_sizeof(type);
+  char *offset = df->strval;
   // At this point iterator length matches blob length
-  for (size_t offset = 0; (json = japi->next(arrIter)); offset += step) {
-    if (getElement(json, df->strval + offset) != REDISMODULE_OK) {
+  while ((json = japi->next(arrIter))) {
+    if (getElement(json, offset) != REDISMODULE_OK) {
       rm_free(df->strval);
       return REDISMODULE_ERR;
     }
+    offset += step;
   }
   df->unionType = FLD_VAR_T_CSTR;
   return REDISMODULE_OK;
@@ -262,9 +273,6 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   } else if (fs->types == INDEXFLD_T_TAG) {
     // Handling multiple values as a Tag list
     rv = JSON_StoreTagsInDocField(len, jsonIter, df);
-  } else if (fs->types == INDEXFLD_T_VECTOR) {
-    // Hendling multiple values as a Vector.
-    rv = JSON_StoreVectorInDocField(fs, jsonIter, df);
   } else {
     rv = REDISMODULE_ERR;
   }
