@@ -364,8 +364,6 @@ def testSearchErrors():
 
     # ef_runtime is invalid for FLAT index.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v_flat $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
-    # ef_runtime always >= k (requesting explicitly a lower EF_RUNTIME is an error)
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $b EF_RUNTIME 5]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("'EF_RUNTIME' cannot be lower than k in a standard KNN query")
 
     # Hybrid attributes with non-hybrid query is invalid.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid VSS query')
@@ -383,7 +381,6 @@ def testSearchErrors():
     # Invalid hybrid attributes combinations.
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for 'ADHOC_BF' policy")
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF EF_RUNTIME 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 100 EF_RUNTIME 50]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'EF_RUNTIME' cannot be lower than the batch size of a hybrid query")
 
 
 def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):

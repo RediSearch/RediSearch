@@ -65,7 +65,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       VecSimQueryParams qParams = {0};
       bool hybrid = (child_it != NULL);
       if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
-                                    &qParams, hybrid, vq->knn.k, q->status) != VecSim_OK)  {
+                                    &qParams, hybrid, q->status) != VecSim_OK)  {
         return NULL;
       }
 
@@ -289,9 +289,9 @@ fail:
 }
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
-                          VecSimQueryParams *qParams, bool hybrid, size_t k, QueryError *status) {
+                          VecSimQueryParams *qParams, bool hybrid, QueryError *status) {
 
-  VecSimResolveCode code = VecSimIndex_ResolveParams(index, params, params_len, qParams, hybrid, k);
+  VecSimResolveCode code = VecSimIndex_ResolveParams(index, params, params_len, qParams, hybrid);
   if (code == VecSim_OK) {
     return code;
   }
@@ -310,10 +310,6 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
       error_msg = QueryError_Strerror(QUERY_EBADVECSIMATTR);
       break;
     }
-    case VecSimParamResolverErr_k_GT_EfRuntime: {
-      error_msg = "'EF_RUNTIME' cannot be lower than k in a standard KNN query";
-      break;
-    }
     case VecSimParamResolverErr_InvalidPolicy_NHybrid: {
       error_msg = "hybrid query attributes were sent for a non-hybrid VSS query";
       break;
@@ -328,10 +324,6 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_EfRuntime: {
       error_msg = "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy";
-      break;
-    }
-    case VecSimParamResolverErr_InvalidPolicy_BatchSize_GT_EfRuntime: {
-      error_msg = "'EF_RUNTIME' cannot be lower than the batch size of a hybrid query";
       break;
     }
     default: {
