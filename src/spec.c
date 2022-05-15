@@ -390,8 +390,9 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
     params->hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   }
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
-  if (index_size_estimation >= memoryLimit - used_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters. Requested: %zu, available: %zu", memoryLimit, index_size_estimation, memoryLimit - used_memory);
+  size_t free_memory = memoryLimit - used_memory;
+  if (index_size_estimation >= free_memory) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters. Requested: %zu, available: %zu", memoryLimit, index_size_estimation, free_memory);
     return 0;
   } else if (params->hnswParams.blockSize  > maxBlockSize) {
     // TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
@@ -412,8 +413,9 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
   // Calculating index size estimation, after first vector block was allocated.
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
   index_size_estimation += elementSize * params->bfParams.blockSize;
-  if (index_size_estimation >= memoryLimit - used_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters. Requested: %zu, available: %zu", memoryLimit, index_size_estimation, memoryLimit - used_memory);
+  size_t free_memory = memoryLimit - used_memory;
+  if (index_size_estimation >= free_memory) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters. Requested: %zu, available: %zu", memoryLimit, index_size_estimation, free_memory);
     return 0;
   } else if (params->bfParams.blockSize > maxBlockSize) {
     QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", params->bfParams.blockSize, maxBlockSize);
