@@ -225,7 +225,7 @@ static void Indexes_SetTempSpecsTimers() {
   dictReleaseIterator(iter);
 }
 
-double IndexesScanner_IndexedPrecent(IndexesScanner *scanner, IndexSpec *sp) {
+double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp) {
   if (scanner || sp->scan_in_progress) {
     if (scanner) {
       return scanner->totalKeys > 0 ? (double)scanner->scannedKeys / scanner->totalKeys : 0;
@@ -1995,7 +1995,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexingFailures);
   RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  double percent_indexed = IndexesScanner_IndexedPrecent(scanner, sp);
+  double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
   RedisModule_InfoAddFieldDouble(ctx, "percent_indexed", percent_indexed);
   RedisModule_InfoEndDictField(ctx);
 

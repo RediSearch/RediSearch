@@ -545,7 +545,7 @@ typedef struct IndexesScanner {
   bool cancelled;
 } IndexesScanner;
 
-double IndexesScanner_IndexedPrecent(IndexesScanner *scanner, IndexSpec *sp);
+double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
 
 //---------------------------------------------------------------------------------------------
 

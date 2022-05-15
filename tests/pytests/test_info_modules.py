@@ -105,3 +105,21 @@ def testInfoModulesDrop(env):
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(fieldsInfo['search_fields_text'], 'Text=2,Sortable=1')
   env.assertFalse('search_fields_numeric' in fieldsInfo) # no numeric fields since we removed idx2
+
+def testInfoModulesAfterReload(env):
+  conn = env.getConnection()
+  idx1 = 'idx1'
+
+  env.expect('FT.CREATE', idx1, 'SCHEMA', 'age', 'NUMERIC', 'SORTABLE',
+                                          'geo', 'GEO', 'SORTABLE', 'NOINDEX',
+                                          'body', 'TAG', 'NOINDEX').ok()
+
+  for _ in env.retry_with_rdb_reload():
+    info = info_modules_to_dict(conn)
+    env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
+
+    fieldsInfo = info['search_fields_statistics']
+    env.assertFalse('search_fields_text' in fieldsInfo) # no text fields
+    env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=1,Sortable=1')
+    env.assertEqual(fieldsInfo['search_fields_geo'], 'Geo=1,Sortable=1,NoIndex=1')
+    env.assertEqual(fieldsInfo['search_fields_tag'], 'Tag=1,NoIndex=1')
