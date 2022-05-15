@@ -1164,16 +1164,16 @@ def test_system_memory_limits():
     # Index initial size exceeded limits
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory).error().contains(
-               'Vector index size exceeded server limit')
+               'Vector index will reach server limit')
     currIdx+=1
 
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory, 'BLOCK_SIZE', 100).error().contains(
-               'Vector index size exceeded server limit')
+               'Vector index will reach server limit')
     currIdx+=1
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', system_memory).error().contains(
-               'Vector index size exceeded server limit')
+               'Vector index will reach server limit')
     currIdx+=1
 
     # Block size with no configuration limits fails
@@ -1202,16 +1202,16 @@ def test_redis_memory_limits():
     # Index initial size exceeded new limits
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', maxmemory).error().contains(
-               'Vector index size exceeded server limit')
+               'Vector index will reach server limit')
     currIdx+=1
 
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', maxmemory, 'BLOCK_SIZE', 100).error().contains(
-               'Vector index size exceeded server limit')
+               'Vector index will reach server limit')
     currIdx+=1
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', maxmemory).error().contains(
-               'Vector index size exceeded server limit')
+               'Vector index will reach server limit')
     currIdx+=1
 
     # Block size with new limits fail
