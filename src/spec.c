@@ -399,7 +399,7 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
     // QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
     // return 0;
   }
-  RedisModule_Log(RSDummyContext, "warning", "creating vector index. Server memory limit: %zu, required memory: %zuB, available memory: %zuB", memoryLimit, index_size_estimation, free_memory);
+  RedisModule_Log(RSDummyContext, "warning", "creating vector index. Server memory limit: %zuB, required memory: %zuB, available memory: %zuB", memoryLimit, index_size_estimation, free_memory);
   return 1;
 }
 
