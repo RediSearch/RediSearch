@@ -172,6 +172,12 @@ void computeDistances(HybridIterator *hr) {
 // Review the estimated child results num, and returns true if hybrid policy should change.
 static bool reviewHybridSearchPolicy(HybridIterator *hr, size_t n_res_left, size_t child_upper_bound,
                                      size_t *child_num_estimated) {
+
+  // If user asked explicitly to run in batches with a fixed batch size, continue immediately
+  // to the next batch without revisiting the hybrid policy.
+  if ((VecSimSearchMode)hr->runtimeParams.searchMode == VECSIM_HYBRID_BATCHES && hr->runtimeParams.batchSize) {
+    return false;
+  }
   // Re-evaluate the child num estimated results and the hybrid policy based on the current batch.
   size_t new_results_cur_batch = heap_count(hr->topResults) - (hr->query.k - n_res_left);
   // This is the ratio between index_size to child results size as reflected by this batch.
@@ -233,7 +239,7 @@ static void prepareResults(HybridIterator *hr) {
     // If user requested explicitly a batch size, use it. Otherwise, compute optimal batch size
     // based on the ratio between child_num_estimated and the index size.
     size_t batch_size = hr->runtimeParams.batchSize;
-    if (hr->runtimeParams.batchSize == 0) {
+    if (batch_size == 0) {
       batch_size = n_res_left * ((float)vec_index_size / child_num_estimated) + 1;
     }
     if (hr->list) {
@@ -253,11 +259,6 @@ static void prepareResults(HybridIterator *hr) {
       break;
     }
 
-    // If user asked explicitly to run in batches with a fixed batch size, continue immediately
-    // to the next batch without revisiting the hybrid policy.
-    if ((VecSimSearchMode)hr->runtimeParams.searchMode == VECSIM_HYBRID_BATCHES && hr->runtimeParams.batchSize) {
-      continue;
-    }
     if (reviewHybridSearchPolicy(hr, n_res_left, child_num_estimated, &child_num_estimated)) {
       // Hybrid policy has changed to adhoc-bf, results are now prepared.
       break;

@@ -299,7 +299,7 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
   const char *error_msg = "";
   switch (code) {
     case VecSimParamResolverErr_AlreadySet: {
-      error_msg = QueryError_Strerror(QUERY_EDUPFIELD);
+      error_msg = QueryError_Strerror(QUERY_EDUPPARAM);
       break;
     }
     case VecSimParamResolverErr_UnknownParam: {
@@ -307,23 +307,23 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
       break;
     }
     case VecSimParamResolverErr_BadValue: {
-      error_msg = QueryError_Strerror(QUERY_EBADVECSIMATTR);
+      error_msg = QueryError_Strerror(QUERY_EBADVAL);
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NHybrid: {
-      error_msg = "hybrid query attributes were sent for a non-hybrid VSS query";
+      error_msg = QueryError_Strerror(QUERY_ENHYBRID);
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NExits: {
-      error_msg = "invalid hybrid policy was given";
+      error_msg = QueryError_Strerror(QUERY_EHYBRIDNEXIST);
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_BatchSize: {
-      error_msg = "'batch size' is irrelevant for 'ADHOC_BF' policy";
+      error_msg = QueryError_Strerror(QUERY_EADHOCWBATCHSIZE);
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_EfRuntime: {
-      error_msg = "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy";
+      error_msg = QueryError_Strerror(QUERY_EADHOCWEFRUNTIME);
       break;
     }
     default: {

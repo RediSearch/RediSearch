@@ -8,7 +8,7 @@
 
 // This enum should match the VecSearchMode enum in VecSim
 typedef enum {
-  VECSIM_EMPTR_MODE,
+  VECSIM_EMPTY_MODE,
   VECSIM_STANDARD_KNN,               // Run k-nn query over the entire vector index.
   VECSIM_HYBRID_ADHOC_BF,            // Measure ad-hoc the distance for every result that passes the filters,
                                      // and take the top k results.
