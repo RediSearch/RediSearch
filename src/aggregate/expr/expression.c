@@ -306,6 +306,10 @@ EvalCtx *EvalCtx_Create() {
   r->ee.srcrow = &r->row;
   r->ee.err = &r->status;
 
+  r->res = *RS_NullVal();
+
+  r->_expr = NULL;
+
   return r;
 }
 
