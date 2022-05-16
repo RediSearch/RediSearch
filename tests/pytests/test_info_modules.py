@@ -26,7 +26,7 @@ def testInfoModulesBasic(env):
 
   env.expect('FT.CREATE', idx1, 'STOPWORDS', 3, 'TLV', 'summer', '2020',
                                 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
-                                          'body', 'TEXT',
+                                          'body', 'TEXT', 'NOINDEX',
                                           'id', 'NUMERIC',
                                           'subject location', 'GEO').ok()
 
@@ -44,7 +44,7 @@ def testInfoModulesBasic(env):
   env.assertEqual(info['search_index']['search_number_of_indexes'], '3')
 
   fieldsInfo = info['search_fields_statistics']
-  env.assertEqual(fieldsInfo['search_fields_text'], 'Text=2,Sortable=1')
+  env.assertEqual(fieldsInfo['search_fields_text'], 'Text=2,Sortable=1,NoIndex=1')
   env.assertEqual(fieldsInfo['search_fields_tag'], 'Tag=2,Sortable=1,CaseSensitive=1')
   env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=2,NoIndex=1')
   env.assertEqual(fieldsInfo['search_fields_geo'], 'Geo=1')
@@ -57,7 +57,7 @@ def testInfoModulesBasic(env):
   idx1Info = info['search_info_' + idx1]
   env.assertTrue('search_stop_words' in idx1Info)
   env.assertTrue('search_field_4' in idx1Info)
-  env.assertEqual(idx1Info['search_field_2'], 'identifier=body,attribute=body,type=TEXT,WEIGHT=1')
+  env.assertEqual(idx1Info['search_field_2'], 'identifier=body,attribute=body,type=TEXT,WEIGHT=1,NOINDEX=ON')
   env.assertEqual(idx1Info['search_stop_words'], '"tlv","summer","2020"')
 
   idx2Info = info['search_info_' + idx2]
