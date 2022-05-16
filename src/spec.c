@@ -391,10 +391,11 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   }
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
   size_t free_memory = memoryLimit - used_memory;
-  if (index_size_estimation >= free_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index will reach server limit (%zuB) with the given parameters. Requested: %zuB, available: %zuB", memoryLimit, index_size_estimation, free_memory);
+  if (params->hnswParams.initialCapacity > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->hnswParams.initialCapacity, maxBlockSize);
     return 0;
-  } else if (params->hnswParams.blockSize  > maxBlockSize) {
+  }
+  else if (params->hnswParams.blockSize  > maxBlockSize) {
     // TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     // QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
     // return 0;
@@ -415,10 +416,11 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
   index_size_estimation += elementSize * params->bfParams.blockSize;
   size_t free_memory = memoryLimit - used_memory;
-  if (index_size_estimation >= free_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index will reach server limit (%zuB) with the given parameters. Requested: %zuB, available: %zuB", memoryLimit, index_size_estimation, free_memory);
+  if (params->bfParams.initialCapacity > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->bfParams.initialCapacity, maxBlockSize);
     return 0;
-  } else if (params->bfParams.blockSize > maxBlockSize) {
+  }
+  if (params->bfParams.blockSize > maxBlockSize) {
     QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", params->bfParams.blockSize, maxBlockSize);
     return 0;
   }
