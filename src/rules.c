@@ -14,7 +14,7 @@ const char *DocumentType_ToString(DocumentType type) {
       return "HASH";
     case DocumentType_Json:
       return "JSON";
-    case DocumentType_None:
+    case DocumentType_Unsupported:
     default:
       RS_LOG_ASSERT(true, "SchameRuleType_Any is not supported");
       return "";
@@ -138,7 +138,7 @@ error:
  *
  * The fields within the list are compared to the list of fieldSpecs and find
  * the index for each field.
- * 
+ *
  * At documentation, the field index is used to load required fields instead of
  * expensive comparisons.
  */
@@ -165,7 +165,7 @@ void SchemaRule_FilterFields(SchemaRule *rule) {
   } else {
     array_free(properties);
   }
-  
+
 }
 
 void SchemaRule_Free(SchemaRule *rule) {
@@ -359,7 +359,7 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   } else {
     args.prefixes = rm_calloc(args.nprefixes, sizeof(*args.prefixes));
   }
-  
+
   for (size_t i = 0; i < args.nprefixes; ++i) {
     args.prefixes[i] = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
