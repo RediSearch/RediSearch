@@ -1305,10 +1305,10 @@ def test_rdb_memory_limit():
 
     # succeed to create indexes with no limits
     env.expect('FT.CREATE', 'idx-flat', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
-               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', block_size, 'BLOCK_SIZE', block_size).ok()
     # TODO: add block size to HNSW index for testing change in block size when block size is available
     env.expect('FT.CREATE', 'idx-hnsw', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-               'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 1000000).ok()
+               'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', block_size).ok()
     # sets memory limit
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', maxmemory))
 
