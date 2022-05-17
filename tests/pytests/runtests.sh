@@ -22,6 +22,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		MODULE=path           Path to RediSearch module .so
 		BINROOT=path          Path to repo binary root dir
 
+		RLTEST=path|'view'    Take RLTest from repo path or from local view
 		RLTEST_ARGS=args      Extra RLTest args
 		MODARGS=args          RediSearch module arguments
 		TEST=name             Operate in single-test mode
@@ -63,21 +64,24 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-# If current directory has RLTest in it, then we're good to go
-if [[ -d $HERE/RLTest ]]; then
-    true
-    # Do nothing - tests are already loaded
+if [[ $RLTEST == view ]]; then
+	if [[ ! -d $ROOT/../RLTest ]]; then
+		eprint "RLTest not found in view $ROOT"
+		exit 1
+	fi
+    RLTEST=$(cd $ROOT/../RLTest; pwd)
 fi
 
 if [[ -n $RLTEST ]]; then
-    # Specifically search for it in the specified location
-    PYTHONPATH="$PYTHONPATH:$RLTEST"
-else
-    # Assume there is a sibling directory called `RLTest`
-    PYTHONPATH="$PYTHONPATH:$HERE"
-fi
+	if [[ ! -d $RLTEST ]]; then
+		eprint "Invalid RLTest location: $RLTEST"
+		exit 1
+	fi
 
-export PYTHONPATH
+    # Specifically search for it in the specified location
+    export PYTHONPATH="$PYTHONPATH:$RLTEST"
+	[[ $VERBOSE == 1 ]] && echo "PYTHONPATH=$PYTHONPATH"
+fi
 
 #---------------------------------------------------------------------------------------------- 
 
