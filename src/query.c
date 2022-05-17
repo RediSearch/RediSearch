@@ -877,7 +877,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
         it->mode = TM_CONTAINS_MODE;
       } else {
         it->mode = TM_SUFFIX_MODE;
-        //nextFunc = TrieMapIterator_NextSuffix;
       }
     }
 
