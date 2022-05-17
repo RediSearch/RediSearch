@@ -845,7 +845,7 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
 }
 
 void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "run_time_configs");
+  RedisModule_InfoAddSection(ctx, "runtime_configurations");
 
   RedisModule_InfoAddFieldCString(ctx, "concurrent_mode", RSGlobalConfig.concurrentMode ? "ON" : "OFF");
   if (RSGlobalConfig.extLoad != NULL) {
