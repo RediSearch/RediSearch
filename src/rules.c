@@ -165,7 +165,6 @@ void SchemaRule_FilterFields(SchemaRule *rule) {
   } else {
     array_free(properties);
   }
-
 }
 
 void SchemaRule_Free(SchemaRule *rule) {
