@@ -18,7 +18,7 @@ static inline DocumentType getDocType(RedisModuleKey *key) {
   } else if (keyType == REDISMODULE_KEYTYPE_MODULE && japi && japi->isJSON(key)) {
     return DocumentType_Json;
   }
-  return DocumentType_None;
+  return DocumentType_Unsupported;
 }
 
 static inline DocumentType getDocTypeFromString(RedisModuleString *keyStr) {

@@ -45,7 +45,7 @@ extern "C" {
 typedef enum {
   DocumentType_Hash,
   DocumentType_Json,
-  DocumentType_None,
+  DocumentType_Unsupported,
 } DocumentType;
 
 #define isSpecHash(spec) (spec->rule && spec->rule->type == DocumentType_Hash)
