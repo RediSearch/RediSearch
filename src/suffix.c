@@ -35,6 +35,7 @@ static void freeSuffixNode(suffixData *node) {
 }
 
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
+  //if () {}  check here gor other types
   size_t rlen = 0;
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);

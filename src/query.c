@@ -889,6 +889,8 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     // Find all completions of the prefix
     while (nextFunc(it, &s, &sl, &ptr) &&
           (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+            // TODO: use NewIndexReaderGeneric
+      //NewIndexReaderGeneric(ptr, q->sctx->spec, )
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
       if (!ret) continue;
 
@@ -928,6 +930,12 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   if (itsSz == 0) {
     rm_free(its);
     return NULL;
+  }
+  if (itsSz == 1) {
+    // TODO:
+    IndexIterator *iter = its[0];
+    rm_free(its);
+    return iter;
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);

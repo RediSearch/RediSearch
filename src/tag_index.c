@@ -220,6 +220,17 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
   ConcurrentSearch_AddKey(conc, TagReader_OnReopen, tctx, concCtxFree);
 }
 
+IndexIterator *TagIndex_GetReader(IndexSpec *sp, InvertedIndex *iv, const char *value, size_t len,
+                                   double weight) {
+  RSToken tok = {.str = (char *)value, .len = len};
+  RSQueryTerm *t = NewQueryTerm(&tok, 0);
+  IndexReader *r = NewTermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
+  if (!r) {
+    return NULL;
+  }
+  return NewReadIterator(r);
+}
+
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
@@ -229,14 +240,7 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *val
   if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
-
-  RSToken tok = {.str = (char *)value, .len = len};
-  RSQueryTerm *t = NewQueryTerm(&tok, 0);
-  IndexReader *r = NewTermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
-  if (!r) {
-    return NULL;
-  }
-  return NewReadIterator(r);
+  return TagIndex_GetReader(sp, iv, value, len, weight);
 }
 
 /* Format the key name for a tag index */

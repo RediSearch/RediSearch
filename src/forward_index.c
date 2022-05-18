@@ -165,6 +165,7 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
 
 #define TOKOPT_F_STEM 0x01
 #define TOKOPT_F_COPYSTR 0x02
+#define TOKOPT_F_SUFFIX_TRIE 0x04
 
 static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
                                      uint32_t pos, float fieldScore, t_fieldId fieldId,
@@ -228,6 +229,7 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   int options = 0;
   if (tokInfo->flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
+    options |= TOKOPT_F_SUFFIX_TRIE;
   }
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, options);
