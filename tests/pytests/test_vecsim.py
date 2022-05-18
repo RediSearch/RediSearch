@@ -1127,16 +1127,16 @@ def test_system_memory_limits():
     # Index initial size exceeded limits
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index initial capacity {system_memory} exceeded server limit')
     currIdx+=1
 
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory, 'BLOCK_SIZE', 100).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index initial capacity {system_memory} exceeded server limit')
     currIdx+=1
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', system_memory).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index block size {system_memory} exceeded server limit')
     currIdx+=1
 
     # Block size with no configuration limits fails
@@ -1162,19 +1162,21 @@ def test_redis_memory_limits():
     maxmemory = used_memory * 5
     conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
 
-    # Index initial size exceeded new limits
+    # Index initial capacity exceeded new limits
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', maxmemory).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index initial capacity {maxmemory} exceeded server limit')
     currIdx+=1
 
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', maxmemory, 'BLOCK_SIZE', 100).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index initial capacity {maxmemory} exceeded server limit')
     currIdx+=1
+
+    # Block size
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', maxmemory).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index block size {maxmemory} exceeded server limit')
     currIdx+=1
 
     # Block size with new limits fail
@@ -1266,10 +1268,10 @@ def test_rdb_memory_limit():
 
     # succeed to create indexes with no limits
     env.expect('FT.CREATE', 'idx-flat', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
-               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', block_size, 'BLOCK_SIZE', block_size).ok()
     # TODO: add block size to HNSW index for testing change in block size when block size is available
     env.expect('FT.CREATE', 'idx-hnsw', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-               'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 1000000).ok()
+               'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', block_size).ok()
     # sets memory limit
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', maxmemory))
 
