@@ -737,7 +737,8 @@ int IndexSpec_CreateTextId(const IndexSpec *sp) {
 }
 
 /**
- * Add fields to an existing (or newly created) index. If the addition fails, THEN WHAT?!
+ * Add fields to an existing (or newly created) index. If the addition fails,
+ * 
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError *status,
                                        int isNew) {
