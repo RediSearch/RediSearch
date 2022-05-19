@@ -169,7 +169,7 @@ static void NumericRangeNode_Balance(NumericRangeNode **n) {
     left->right = node;
     --node->maxDepth;
     *n = left;
-  } 
+  }
 }
 
 NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
@@ -379,7 +379,7 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   if (rvRight == CHILD_NOT_EMPTY && rvLeft == CHILD_NOT_EMPTY) {
     if (rv->changed) {
       NumericRangeNode_Balance(node);
-    }  
+    }
     return CHILD_NOT_EMPTY;
   }
 
@@ -404,7 +404,7 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
 
     return CHILD_EMPTY;
   }
-  
+
   // one child is not empty, save copy as parent and free
   if (rvRight == CHILD_EMPTY) {
     // right child is empty, save left as parent

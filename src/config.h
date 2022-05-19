@@ -86,7 +86,7 @@ typedef struct {
   void *chainedConfig;
 
   long long maxResultsToUnsortedMode;
-  long long minUnionIterHeap;;
+  long long minUnionIterHeap;
 
   int noMemPool;
 

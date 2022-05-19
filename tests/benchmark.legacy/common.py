@@ -1,4 +1,7 @@
-from collections import Iterable
+try:
+    from collections import Iterable
+except:
+    from collections.abc import Iterable
 import time
 
 def getConnectionByEnv(env):
@@ -18,15 +21,13 @@ def waitForIndex(env, idx):
 
 def toSortedFlatList(res):
     if isinstance(res, str):
-        return [res]    
+        return [res]
     if isinstance(res, Iterable):
         finalList = []
         for e in res:
             finalList += toSortedFlatList(e)
         return sorted(finalList)
     return [res]
-
-
 
 def sortedResults(res):
     n = res[0]

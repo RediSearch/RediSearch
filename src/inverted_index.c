@@ -438,7 +438,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
 
   // use proper block size. Index_DocIdsOnly == 0x00
-  uint16_t blockSize = (idx->flags & INDEX_STORAGE_MASK) ? 
+  uint16_t blockSize = (idx->flags & INDEX_STORAGE_MASK) ?
           INDEX_BLOCK_SIZE :
           INDEX_BLOCK_SIZE_DOCID_ONLY;
 
@@ -748,7 +748,7 @@ SKIPPER(seekRawDocIdsOnly) {
     curVal = buf[cur];
   }
 
-  // we cannot get out of range since we check in 
+  // we cannot get out of range since we check in
   if (curVal < delta) {
     cur++;
   }

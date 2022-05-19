@@ -129,7 +129,7 @@ TEST_F(TrieTest, testDeepEntry) {
  */
 TEST_F(TrieTest, testPayload) {
   char buf1[] = "world";
-  
+
   Trie *t = NewTrie(NULL);
 
   RSPayload payload = { .data = buf1, .len = 2 };
@@ -140,12 +140,12 @@ TEST_F(TrieTest, testPayload) {
   Trie_InsertStringBuffer(t, buf1, 5, 1, 1, &payload);
   payload.len = 3;
   Trie_InsertStringBuffer(t, buf1, 3, 1, 1, &payload);
-  
+
   char buf2[] = "work";
   payload = { .data = buf2, .len = 4 };
   Trie_InsertStringBuffer(t, buf2, 4, 1, 1, &payload);
 
-  
+
   // check for prefix of existing term
   // with exact returns null, w/o return load of next term
   ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 1, 0), "wo", 2), 0);
@@ -156,7 +156,7 @@ TEST_F(TrieTest, testPayload) {
   ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl", 4), 0);
   ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
   ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
-  
+
   ASSERT_EQ(Trie_Delete(t, buf1, 3), 1);
   ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
   ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
@@ -173,7 +173,7 @@ TEST_F(TrieTest, testPayload) {
 
   // testing with exact = 0
   // "wor" node exists with NULL payload.
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 0) == NULL); 
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 0) == NULL);
   // "worl" does not exist but is partial offset of =>`wor`+`ld`.
   // payload of `ld` is returned.
   ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 0), "world", 5), 0);
@@ -197,6 +197,6 @@ TEST_F(TrieTest, testFreeCallback) {
 
   RSPayload payload = { .data = (char *)&str, .len = sizeof(str) };
   Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload);
-  
+
   TrieType_Free(t);
 }
