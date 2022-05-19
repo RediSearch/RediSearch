@@ -80,7 +80,9 @@ static void threadHandleCommand(void *p) {
   if (!(ctx->options & CMDCTX_KEEP_RCTX)) {
     RedisModule_FreeThreadSafeContext(ctx->ctx);
   }
-
+  if (ctx->options & CMDCTX_COORD) { 
+    RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
+  }
   RedisModule_UnblockClient(ctx->bc, NULL);
   rm_free(ctx->argv);
   rm_free(p);
@@ -106,6 +108,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
     cmdCtx->argv[i] = RedisModule_CreateStringFromString(cmdCtx->ctx, argv[i]);
   }
 
+  RedisModule_BlockedClientMeasureTimeStart(cmdCtx->bc);  
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
   return REDISMODULE_OK;
 }
