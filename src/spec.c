@@ -674,7 +674,7 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     ret->fields[ii] = spec->fields[ii];
     ret->fields[ii].name = rm_strdup(spec->fields[ii].name);
-    // if name & path are pointing to the same string, copy pointer 
+    // if name & path are pointing to the same string, copy pointer
     if (ret->fields[ii].path && (spec->fields[ii].name != spec->fields[ii].path)) {
       ret->fields[ii].path = rm_strdup(spec->fields[ii].path);
     } else {
@@ -776,8 +776,8 @@ void CleanPool_ThreadPoolDestroy() {
 }
 
 /*
- * Free resources of unlinked index spec 
- */ 
+ * Free resources of unlinked index spec
+ */
 static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free all documents metadata
   DocTable_Free(&spec->docs);
@@ -1139,7 +1139,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
         fs->tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
       case DocumentType_Json:
         fs->tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
-      case DocumentType_None:
+      case DocumentType_Unsupported:
         RS_LOG_ASSERT(0, "shouldn't get here");
     }
   }
@@ -1225,7 +1225,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
   if (f->path != f->name) {
     RedisModule_SaveUnsigned(rdb, 1);
-    RedisModule_SaveStringBuffer(rdb, f->path, strlen(f->path) + 1);  
+    RedisModule_SaveStringBuffer(rdb, f->path, strlen(f->path) + 1);
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
@@ -1393,7 +1393,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   }
 
   DocumentType type = getDocType(key);
-  if (type == DocumentType_None) {
+  if (type == DocumentType_Unsupported) {
     return;
   }
 
@@ -1593,7 +1593,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
   }
-  
+
 
   //    DocTable_RdbLoad(&sp->docs, rdb, encver);
   sp->terms = NewTrie();
@@ -1955,7 +1955,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   case DocumentType_Json:
     rv = Document_LoadSchemaFieldJson(&doc, &sctx);
     break;
-  case DocumentType_None:
+  case DocumentType_Unsupported:
     RS_LOG_ASSERT(0, "Should receieve valid type");
   }
 
@@ -2114,7 +2114,7 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
       }
     }
     // optimize. change of score and payload fields just require an update of the doc table
-    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) || 
+    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) ||
         (spec->rule->score_field && !strcmp(field, spec->rule->score_field)) ||
         (spec->rule->payload_field && !strcmp(field, spec->rule->payload_field))) {
       return true;
@@ -2131,8 +2131,8 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
-  if (type == DocumentType_None) {
-    // COPY could overwrite a hash/json with other types so we must try and remove old doc 
+  if (type == DocumentType_Unsupported) {
+    // COPY could overwrite a hash/json with other types so we must try and remove old doc
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
     return;
   }
@@ -2200,6 +2200,11 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key) {
+  DocumentType type = getDocTypeFromString(to_key);
+  if (type == DocumentType_Unsupported) {
+    return;
+  }
+
   SpecOpIndexingCtx *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key, true, to_key);
   SpecOpIndexingCtx *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key, true, NULL);
 
@@ -2235,7 +2240,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // on the spec from section.
       continue;
     }
-    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, getDocTypeFromString(to_key));
+    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type);
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);
