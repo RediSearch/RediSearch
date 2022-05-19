@@ -118,9 +118,9 @@ typedef struct {
 } __tmi_stackNode;
 
 typedef enum {
-  TM_PREFIX_MODE,
-  TM_CONTAINS_MODE,
-  TM_SUFFIX_MODE,
+  TM_PREFIX_MODE = 0,
+  TM_CONTAINS_MODE = 1,
+  TM_SUFFIX_MODE = 2,
 } tm_iter_mode;
 
 typedef struct TrieMapIterator{
