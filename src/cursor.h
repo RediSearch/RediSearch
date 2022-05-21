@@ -5,7 +5,7 @@
 #include "search_ctx.h"
 
 #include "util/array.h"
-#include "util/khash.h"
+#include "util/map.h"
 
 #include <unistd.h>
 #include <pthread.h>
@@ -64,7 +64,7 @@ struct Cursor : public Object {
 //---------------------------------------------------------------------------------------------
 
 // KHash type definition (name, value type) with key of int64
-KHASH_MAP_INIT_INT64(cursors, Cursor *);
+// KHASH_MAP_INIT_INT64(cursors, Cursor *);
 
 typedef uint64_t CursorId;
 
@@ -74,7 +74,9 @@ typedef uint64_t CursorId;
 
 struct CursorList : public Object {
   // Cursor lookup by ID
-  khash_t(cursors) *lookup;
+  // khash_t(cursors) *lookup;
+  typedef UnorderedMap<CursorId, Cursor*> CursorsMap;
+  CursorsMap lookup;
 
   // List of spec infos; we just iterate over this
   CursorSpecInfo **infos;

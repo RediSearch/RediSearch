@@ -281,10 +281,10 @@ Cursor *CursorList::Reserve(const char *lookupName, unsigned interval, QueryErro
   }
 
   cur = new Cursor(*this, spec, inteval)
-
-  int dummy;
-  khiter_t iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
-  kh_value(cl->lookup, iter) = cur;
+  cl->lookup.emplace(cur->id, cur);
+  // int dummy;
+  // khiter_t iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
+  // kh_value(cl->lookup, iter) = cur;
 
 done:
   if (cur) {

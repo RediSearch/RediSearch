@@ -4,57 +4,51 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct {
-  const RLookupKey *srckey;
-  size_t n;
-  double oldM, newM, oldS, newS;
-} devCtx;
-
 #define BLOCK_SIZE 1024 * sizeof(devCtx)
 
 //---------------------------------------------------------------------------------------------
 
-static void *stddevNewInstance(Reducer *rbase) {
-  devCtx *dctx = BlkAlloc_Alloc(&rbase->alloc, sizeof(*dctx), BLOCK_SIZE);
-  memset(dctx, 0, sizeof(*dctx));
-  dctx->srckey = rbase->srckey;
-  return dctx;
+RDCRStdDev::Data *RDCRStdDev::NewInstance() {
+  Data *dd = alloc.Alloc(sizeof(*dd), BLOCK_SIZE);
+  memset(dd, 0, sizeof(*dd));
+  dd->srckey = srckey;
+  return dd;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void stddevAddInternal(devCtx *dctx, double d) {
+void RDCRStdDev::Data::Add(double d) {
   // https://www.johndcook.com/blog/standard_deviation/
-  dctx->n++;
-  if (dctx->n == 1) {
-    dctx->oldM = dctx->newM = d;
-    dctx->oldS = 0.0;
+  n++;
+  if (n == 1) {
+    oldM = newM = d;
+    oldS = 0.0;
   } else {
-    dctx->newM = dctx->oldM + (d - dctx->oldM) / dctx->n;
-    dctx->newS = dctx->oldS + (d - dctx->oldM) * (d - dctx->newM);
+    newM = oldM + (d - oldM) / n;
+    newS = oldS + (d - oldM) * (d - newM);
 
     // set up for next iteration
-    dctx->oldM = dctx->newM;
-    dctx->oldS = dctx->newS;
+    oldM = newM;
+    oldS = newS;
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-static int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
-  devCtx *dctx = ctx;
+int RDCRStdDev::Add(Data *dd, const RLookupRow *srcrow) {
   double d;
-  RSValue *v = RLookup_GetItem(dctx->srckey, srcrow);
+  RSValue *v = srcrow->GetItem(dd->srckey);
   if (v) {
     if (v->t != RSValue_Array) {
-      if (RSValue_ToNumber(v, &d)) {
-        stddevAddInternal(dctx, d);
+      if (v->ToNumber(&d)) {
+        dd->Add(d);
       }
     } else {
-      uint32_t sz = RSValue_ArrayLen(v);
+      uint32_t sz = v->ArrayLen();
       for (uint32_t i = 0; i < sz; i++) {
-        if (RSValue_ToNumber(RSValue_ArrayItem(v, i), &d)) {
-          stddevAddInternal(dctx, d);
+        RSValue *v1 = v->ArrayItem(i);
+        if (v1->ToNumber(&d)) {
+          dd->Add(d);
         }
       }
     }
@@ -64,27 +58,19 @@ static int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 //---------------------------------------------------------------------------------------------
 
-static RSValue *stddevFinalize(Reducer *parent, void *instance) {
-  devCtx *dctx = instance;
-  double variance = ((dctx->n > 1) ? dctx->newS / (dctx->n - 1) : 0.0);
+RSValue *RDCRStdDev::Finalize(Data *dd) {
+  double variance = ((dd->n > 1) ? newS / (n - 1) : 0.0);
   double stddev = sqrt(variance);
   return RS_NumVal(stddev);
 }
 
 //---------------------------------------------------------------------------------------------
 
-Reducer *RDCRStdDev_New(const ReducerOptions *options) {
-  Reducer *r = rm_calloc(1, sizeof(*r));
-  if (!ReducerOptions_GetKey(options, &r->srckey)) {
-    rm_free(r);
-    return NULL;
+RDCRStdDev::RDCRStdDev(const ReducerOptions *options) {
+  if (!options->GetKey(&srckey)) {
+    throw Error("RDCRStdDev: no key found")
   }
-  r->Add = stddevAdd;
-  r->Finalize = stddevFinalize;
-  r->Free = Reducer_GenericFree;
-  r->NewInstance = stddevNewInstance;
-  r->reducerId = REDUCER_T_STDDEV;
-  return r;
+  reducerId = REDUCER_T_STDDEV;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

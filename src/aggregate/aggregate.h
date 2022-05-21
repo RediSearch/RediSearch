@@ -7,7 +7,7 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 
-#include "util/khash.h"
+#include "util/map.h"
 #include "rmutil/rm_assert.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -184,12 +184,14 @@ struct Group {
 
 //---------------------------------------------------------------------------------------------
 
-KHASH_MAP_INIT_INT64(khid, Group *);
+// KHASH_MAP_INIT_INT64(khid, Group *);
 
 struct Grouper : ResultProcessor {
   // Map of group_name => `Group` structure
-  static const int khid;
-  khash_t(khid) *groups;
+  // static const int khid;
+  // khash_t(khid) *groups;
+  typedef UnorderedMap<uint64_t, Group*> GroupsMap;
+  GroupsMap groups;
 
   // Backing store for the groups themselves
   BlkAlloc groupsAlloc;
@@ -206,7 +208,7 @@ struct Grouper : ResultProcessor {
   arrayof(Reducer*) reducers;
 
   // Used for maintaining state when yielding groups
-  khiter_t iter;
+  GroupsMap::iterator iter;
   bool _yield;
 
   Grouper(const RLookupKey **srckeys_, const RLookupKey **dstkeys, size_t nkeys);
@@ -217,8 +219,8 @@ struct Grouper : ResultProcessor {
 
   size_t numReducers() const;
   
-  virtual int Next(SearchResult *res);
-  int Yield(SearchResult *res);
+  virtual int Next(SearchResult &res);
+  int Yield(SearchResult &res);
 
   void AddReducer(Reducer *r, RLookupKey *dstkey);
   ResultProcessor *GetRP();

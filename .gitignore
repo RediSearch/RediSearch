@@ -30,3 +30,4 @@ src/pytest/RLTest
 VSCODE.DB*
 callgrind.out.*
 /cmake-build-debug/
+/1/

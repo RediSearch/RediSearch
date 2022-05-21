@@ -5,6 +5,7 @@
 #include "dep/triemap/triemap.h"
 #include "util/block_alloc.h"
 #include "query_error.h"
+#include "dep/hll/hll.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -33,13 +34,13 @@ enum ReducerType {
 
 //---------------------------------------------------------------------------------------------
 
-struct Reducer {
+struct Reducer : public Object {
   // Most reducers only operate on a single source key. This can be used to
   // store the key. This value is not read by the grouper system.
   const RLookupKey *srckey;
 
-  RLookupKey *dstkey;  // Destination key where the reducer output is placed
-
+  // Destination key where the reducer output is placed
+  RLookupKey *dstkey;
 
   // Common allocator for all groups. Used to reduce fragmentation when allocating
   // like-sized objects for different groups.
@@ -50,49 +51,28 @@ struct Reducer {
 
   // Creates a new per-group instance of this reducer. This is used to create
   // actual data. The reducer structure itself, on the other hand, may be
-  // used to retain settings common to all group.s
+  // used to retain settings common to all group.
 
-  void *(*NewInstance)(struct Reducer *r);
+  virtual void *NewInstance();
 
   // Passes a result through the reducer. The reducer can then store the
   // results internally until it can be outputted in `dstrow`.
   //
-  // The function should return 1 if added successfully, or nonzero if an error
-  // occurred
-  int (*Add)(struct Reducer *parent, void *instance, const RLookupRow *srcrow);
+  // The function should return 1 if added successfully, or nonzero if an error occurred
+  virtual int Add(const RLookupRow *srcrow);
 
   // Called when Add() has been invoked for the last time. This is used to
   // populate the result of the reduce function.
-  RSValue *(*Finalize)(struct Reducer *parent, void *instance);
+  virtual RSValue *Finalize();
 
   // Frees the object created by NewInstance()
-  void (*FreeInstance)(struct Reducer *parent, void *instance);
+  virtual void FreeInstance();
 
   // Frees the global reducer struct (this object)
-  void (*Free)(struct Reducer *r);
+  virtual ~Reducer() {}
+
+  void *BlkAlloc(size_t elemsz, size_t absBlkSize);
 };
-
-//---------------------------------------------------------------------------------------------
-
-static inline void Reducer_GenericFree(Reducer *r) {
-  r->alloc.FreeAll(NULL, 0, 0);
-  rm_free(r);
-}
-
-// Format a function name in the form of s(arg). Returns a pointer for use with 'free'
-static inline char *FormatAggAlias(const char *alias, const char *fname, const char *propname) {
-  if (alias) {
-    return rm_strdup(alias);
-  }
-
-  if (!propname || *propname == 0) {
-    return rm_strdup(fname);
-  }
-
-  char *s = NULL;
-  rm_asprintf(&s, "%s(%s)", fname, propname);
-  return s;
-}
 
 //---------------------------------------------------------------------------------------------
 
@@ -106,45 +86,131 @@ struct ReducerOptions {
 
   QueryError *status;
 
-  Reducer *RDCRCount_New(const ReducerOptions *);
-  Reducer *RDCRSum_New(const ReducerOptions *);
-  Reducer *RDCRToList_New(const ReducerOptions *);
-  Reducer *RDCRMin_New(const ReducerOptions *);
-  Reducer *RDCRMax_New(const ReducerOptions *);
-  Reducer *RDCRAvg_New(const ReducerOptions *);
-  Reducer *RDCRCountDistinct_New(const ReducerOptions *);
-  Reducer *RDCRCountDistinctish_New(const ReducerOptions *);
-  Reducer *RDCRQuantile_New(const ReducerOptions *);
-  Reducer *RDCRStdDev_New(const ReducerOptions *);
-  Reducer *RDCRFirstValue_New(const ReducerOptions *);
-  Reducer *RDCRRandomSample_New(const ReducerOptions *);
-  Reducer *RDCRHLL_New(const ReducerOptions *);
-  Reducer *RDCRHLLSum_New(const ReducerOptions *);
+  bool EnsureArgsConsumed() const;
+  bool GetKey(const RLookupKey **kout) const;
+};
 
-  int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options);
-int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **kout);
+//---------------------------------------------------------------------------------------------
+
+struct RDCRCount : public Reducer {
+  RDCRCount(const ReducerOptions *);
+  virtual int Add(Reducer *r, const RLookupRow *srcrow);
+
+  struct Data {
+    size_t count;
+  };
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRSum : public Reducer {
+  RDCRSum(const ReducerOptions *);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRToList : public Reducer {
+  RDCRToList(const ReducerOptions *);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRMin : public Reducer {
+  RDCRMin(const ReducerOptions *);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRMax : public Reducer {
+  RDCRMax(const ReducerOptions *);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRAvg : public Reducer {
+  RDCRAvg(const ReducerOptions *);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRCountDistinct : public Reducer {
+  RDCRCountDistinct(const ReducerOptions *);
+
+  struct Data {
+    size_t count;
+    const RLookupKey *srckey;
+    //@@khash_t(khid) * dedup;
+  };
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRQuantile : public Reducer {
+  RDCRQuantile(const ReducerOptions *);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRStdDev : public Reducer {
+  RDCRStdDev(const ReducerOptions *);
+
+  struct Data {
+    const RLookupKey *srckey;
+    size_t n;
+    double oldM, newM, oldS, newS;
+
+    void Add(double d);
+  };
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRFirstValue : public Reducer {
+  RDCRFirstValue(const ReducerOptions *);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRRandomSample : public Reducer {
+  RDCRRandomSample(const ReducerOptions *);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRHLLCommon : public Reducer {
+  RDCRHLLCommon(const ReducerOptions *);
+
+  struct Data {
+    struct HLL hll;
+    const RLookupKey *key;
+  };
+};
+
+struct RDCRCountDistinctish : public RDCRHLLCommon {
+  RDCRCountDistinctish(const ReducerOptions *);
+};
+
+struct RDCRHLL : public RDCRHLLCommon {
+  RDCRHLL(const ReducerOptions *);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct RDCRHLLSum : public Reducer {
+  RDCRHLLSum(const ReducerOptions *);
+
+  struct Data {
+    const RLookupKey *srckey;
+    struct HLL hll;
+
+    int Add(const char *buf);
+  };
 };
 
 //---------------------------------------------------------------------------------------------
 
 // Macro to ensure that we don't skip important initialization steps
 #define REDUCEROPTS_INIT(name_, args_, lk_, statusp_) { name_, args_, lk_, statusp_ }
-
-/**
- * Utility function to read the next argument as a lookup key.
- * This advances the args variable (ReducerOptions::options) by one.
- *
- * If the lookup fails, the appropriate error code is stored in the status
- * within the options
- *
- * @return boolean - 0=fail, !0=success
- */
-#define ReducerOptions_GetKey ReducerOpts_GetKey
-
-// This helper function ensures that all of a reducer's arguments are consumed.
-// Otherwise, an error is raised to the user.
-
-void *Reducer_BlkAlloc(Reducer *r, size_t elemsz, size_t absBlkSize);
 
 typedef Reducer *(*ReducerFactory)(const ReducerOptions *);
 ReducerFactory RDCR_GetFactory(const char *name);
