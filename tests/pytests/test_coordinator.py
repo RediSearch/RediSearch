@@ -55,5 +55,5 @@ def testCommandStatsOnRedis(env):
     env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([3])
     test_info_commandstats(env, 'FT.AGGREGATE')
 
-    env.cmd('FT.INFO', 'idx')
+    conn.execute_command('FT.INFO', 'idx')
     test_info_commandstats(env, 'FT.INFO')
