@@ -314,7 +314,7 @@ typedef struct {
   int isCn;
   union {
     struct {
-      RSTokenizer *tokenizer;
+      SimpleTokenizer *tokenizer;
       Vector *tokList;
     } cn;
     struct sb_stemmer *latin;
@@ -323,13 +323,13 @@ typedef struct {
 
 static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
   defaultExpanderCtx *dd = ctx->privdata;
-  RSTokenizer *tokenizer;
+  SimpleTokenizer *tokenizer;
   if (!dd) {
     dd = ctx->privdata = rm_calloc(1, sizeof(*dd));
     dd->isCn = 1;
   }
   if (!dd->data.cn.tokenizer) {
-    tokenizer = dd->data.cn.tokenizer = NewChineseTokenizer(NULL, NULL, 0);
+    tokenizer = dd->data.cn.tokenizer = new ChineseTokenizer(NULL, NULL, 0);
     dd->data.cn.tokList = NewVector(char *, 4);
   }
 

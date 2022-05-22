@@ -309,7 +309,7 @@ int RPEvaluator::Next(SearchResult *r) {
   eval.err = parent->err;
 
   if (!val) {
-    val = RS_NewValue(RSValue_Undef);
+    val = new RSValue(RSValue_Undef);
   }
 
   rc = eval.Eval(val);
@@ -357,7 +357,7 @@ RPEvaluator::~RPEvaluator() {
 
 //---------------------------------------------------------------------------------------------
 
-RPEvaluator::RPEvaluator(const char *name, const RSExpr *ast, const RLookup *lookup, 
+RPEvaluator::RPEvaluator(const char *name, const RSExpr *ast, const RLookup *lookup,
     const RLookupKey *dstkey) : ResultProcessor(name) {
   eval.lookup = lookup;
   eval.root = ast;
@@ -370,11 +370,11 @@ RPEvaluator::RPEvaluator(const char *name, const RSExpr *ast, const RLookup *loo
  * Creates a new result processor in the form of a projector. The projector will
  * execute the expression in `ast` and write the result of that expression to the
  * appropriate place.
- * 
+ *
  * @param ast the parsed expression
  * @param lookup the lookup registry that contains the keys to search for
  * @param dstkey the target key (in lookup) to store the result.
- * 
+ *
  * @note The ast needs to be paired with the appropriate RLookupKey objects. This
  * can be done by calling EXPR_GetLookupKeys()
  */
@@ -389,10 +389,10 @@ RPProjector::RPProjector(const RSExpr *ast, const RLookup *lookup, const RLookup
  * Creates a new result processor in the form of a filter. The filter will
  * execute the expression in `ast` on each upstream result. If the expression
  * evaluates to false, the result will not be propagated to the next processor.
- * 
+ *
  * @param ast the parsed expression
  * @param lookup lookup used to find the key for the value
- * 
+ *
  * See notes for RPProjector.
  */
 

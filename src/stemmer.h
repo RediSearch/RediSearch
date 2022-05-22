@@ -41,14 +41,20 @@ enum StemmerType {
 //---------------------------------------------------------------------------------------------
 
 // Abstract "interface" for a pluggable stemmer, ensuring we can use multiple stemmer libs
-struct Stemmer {
+class Stemmer : Object {
+  void __newSnowballStemmer(RSLanguage language);
+  int __sbstemmer_Reset(StemmerType type, RSLanguage language);
+public:
   void *ctx;
   const char *(*Stem)(void *ctx, const char *word, size_t len, size_t *outlen);
-  void (*Free)(struct stemmer *);
+
+  Stemmer();
+  virtual ~Stemmer();
 
   // Attempts to reset the stemmer using the given language and type. Returns 0
   // if this stemmer cannot be reused.
-  int (*Reset)(struct stemmer *, StemmerType type, RSLanguage language);
+  // int (*Reset)(struct stemmer *, StemmerType type, RSLanguage language);
+  virtual int Reset(StemmerType type, RSLanguage language);
 
   RSLanguage language;
   StemmerType type;  // Type of stemmer
@@ -56,9 +62,6 @@ struct Stemmer {
 
 //---------------------------------------------------------------------------------------------
 
-Stemmer *NewStemmer(StemmerType type, RSLanguage language);
-
-int ResetStemmer(Stemmer *stemmer, StemmerType type, RSLanguage language);
 
 // check if a language is supported by our stemmers
 RSLanguage RSLanguage_Find(const char *language);
@@ -69,7 +72,5 @@ void RegisterStemmerExpander();
 
 // Snoball Stemmer wrapper implementation
 const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen);
-void __sbstemmer_Free(Stemmer *s);
-Stemmer *__newSnowballStemmer(RSLanguage language);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

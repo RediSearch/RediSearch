@@ -30,7 +30,7 @@ enum RSValueType {
   RSValue_Array = 6,
   // A redis string, but we own a refcount to it; tied to RSDummy
   RSValue_OwnRstring = 7,
-  
+
   RSValue_Reference = 8, // Reference to another value
 };
 
@@ -67,7 +67,7 @@ enum RSStringType {
 
 // Variant value union
 
-struct RSValue {
+struct RSValue : Object {
   union {
     double numval; // numeric value
 
@@ -88,16 +88,19 @@ struct RSValue {
       // Whether the storage space of the array itself should be freed
       uint8_t staticarray : 1;
     } arrval;
-    
+
     struct RedisModuleString *rstrval; // redis string value
     struct RSValue *ref; // reference to another value
   };
+
+  RSValue(RSValueType t);
+  ~RSValue();
 
   RSValueType t : 8;
   uint32_t refcount : 23;
   uint8_t allocated : 1;
 
-  RSValue(RSValueType t_ = RSValue_Undef, uint32_t refcount = 0, uint8_t allocated = 0) : 
+  RSValue(RSValueType t_ = RSValue_Undef, uint32_t refcount = 0, uint8_t allocated = 0) :
     ref(NULL), t(t_), refcount(refcount), allocated(allocated) {
   }
 
@@ -135,7 +138,7 @@ struct RSValue {
   void MakeOwnReference(RSValue *src);
 
   void MakePersistent();
-  
+
   RSValue *ArrayItem(uint32_t index) const;
   uint32_t ArrayLen() const;
 
@@ -150,10 +153,6 @@ struct RSValue {
 
 //---------------------------------------------------------------------------------------------
 
-// Free a value's internal value. It only does anything in the case of a string, 
-// and doesn't free the actual value object
-void RSValue_Free(RSValue *v);
-
 inline RSValue *RSValue::IncrRef() {
   ++refcount;
   return this;
@@ -165,7 +164,6 @@ inline void RSValue::Decref() {
   }
 }
 
-RSValue *RS_NewValue(RSValueType t);
 
 static RSValue RS_StaticValue(RSValueType t) {
 #ifdef __cplusplus

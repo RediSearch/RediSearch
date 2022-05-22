@@ -157,9 +157,4 @@ extern CursorList *RSCursors;
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
-// Free a given cursor. This should be called on an already-obtained cursor
-int Cursor_Free(Cursor *cl);
-
-void Cursor_FreeExecState(void *);
-
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -5,14 +5,14 @@
 #include "rmutil/sds.h"
 #include "query_error.h"
 
-typedef enum {
+enum RSTimeoutPolicy {
   TimeoutPolicy_Default = 0,  // Defer to global config
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
   TimeoutPolicy_Invalid       // Not a real value
-} RSTimeoutPolicy;
+};
 
-typedef enum { GCPolicy_Fork = 0, GCPolicy_Sync } GCPolicy;
+enum GCPolicy { GCPolicy_Fork = 0, GCPolicy_Sync };
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 
@@ -34,7 +34,7 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
-typedef struct {
+struct RSConfig{
   // Use concurrent serach (default: 1, disable with SAFEMODE)
   int concurrentMode;
   // If not null, this points at a .so file of an extension we try to load (default: NULL)
@@ -69,7 +69,7 @@ typedef struct {
 
   size_t gcScanSize;
   GCPolicy gcPolicy;
-  
+
   size_t forkGcRunIntervalSec;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
@@ -86,62 +86,47 @@ typedef struct {
 
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
-} RSConfig;
 
-typedef enum {
+  void DumpProto(const RSConfigOptions *options, const char *name,
+                 RedisModuleCtx *ctx, int isHelp) const;
+
+  int SetOption(RSConfigOptions *options, const char *name, RedisModuleString **argv,
+                int argc, size_t *offset, QueryError *status);
+
+  sds GetInfoString() const;
+};
+
+enum RSConfigVarFlags{
   RSCONFIGVAR_F_IMMUTABLE = 0x01,
   RSCONFIGVAR_F_MODIFIED = 0x02,
   RSCONFIGVAR_F_FLAG = 0x04,
   RSCONFIGVAR_F_SHORTHAND = 0x08
-} RSConfigVarFlags;
+};
 
-typedef struct {
+struct RSConfigVar {
   const char *name;
   const char *helpText;
   // Whether this configuration option can be modified after initial loading
   int (*setValue)(RSConfig *, ArgsCursor *, QueryError *);
   sds (*getValue)(const RSConfig *);
   uint32_t flags;
-} RSConfigVar;
+};
 
 #define RS_MAX_CONFIG_VARS 255
-typedef struct RSConfigOptions {
+struct RSConfigOptions {
   RSConfigVar vars[RS_MAX_CONFIG_VARS];
   struct RSConfigOptions *next;
-} RSConfigOptions;
+
+  void AddConfigs(RSConfigOptions *dst);
+};
 
 // global config extern references
 extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
 
-/**
- * Add new configuration options to the chain of already recognized options
- */
-void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst);
-
 /* Read configuration from redis module arguments into the global config object. Return
  * REDISMODULE_ERR and sets an error message if something is invalid */
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
-
-/**
- * Writes the retrieval of the configuration value to the network.
- * isHelp will use a more dict-like pattern, which should be a bit friendlier
- * on the eyes
- */
-void RSConfig_DumpProto(const RSConfig *cfg, const RSConfigOptions *options, const char *name,
-                        RedisModuleCtx *ctx, int isHelp);
-
-/**
- * Sets a configuration variable. The argv, argc, and offset variables should
- * point to the global argv array. You can also make argv point at the specific
- * (after-the-option-name) arguments and set offset to 0, and argc to the number
- * of remaining arguments. offset is advanced to the next unread argument (which
- * can be == argc)
- */
-int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
-                       RedisModuleString **argv, int argc, size_t *offset, QueryError *status);
-
-sds RSConfig_GetInfoString(const RSConfig *config);
 
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000

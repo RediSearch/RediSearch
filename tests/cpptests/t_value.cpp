@@ -58,7 +58,7 @@ TEST_F(ValueTest, testArray) {
 }
 
 static std::string toString(RSValue *v) {
-  RSValue *tmp = RS_NewValue(RSValue_Undef);
+  RSValue *tmp = new RSValue(RSValue_Undef);
   RSValue_ToString(tmp, v);
   size_t n = 0;
   const char *s = RSValue_StringPtrLen(tmp, &n);

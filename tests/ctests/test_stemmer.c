@@ -6,7 +6,7 @@
 
 int testStemmer() {
 
-  Stemmer *s = NewStemmer(SnowballStemmer, RS_LANG_ENGLISH);
+  Stemmer *s = new Stemmer(SnowballStemmer, RS_LANG_ENGLISH);
   ASSERT(s != NULL)
 
   size_t sl;
@@ -17,7 +17,7 @@ int testStemmer() {
   printf("stem: %s\n", stem);
 
   // free((void*)stem);
-  s->Free(s);
+  delete s;
   return 0;
 }
 
@@ -43,15 +43,15 @@ int testTokenize() {
   ctx.expectedTokens = expectedToks;
   ctx.expectedStems = expectedStems;
 
-  Stemmer *s = NewStemmer(SnowballStemmer, RS_LANG_ENGLISH);
+  Stemmer *s = new Stemmer(SnowballStemmer, RS_LANG_ENGLISH);
   ASSERT(s != NULL)
 
-  RSTokenizer *tk = NewSimpleTokenizer(s, DefaultStopWordList(), 0);
+  SimpleTokenizer *tk = new SimpleTokenizer(s, DefaultStopWordList(), 0);
   Token t;
 
   tokenContext *tx = &ctx;
-  tk->Start(tk, txt, strlen(txt), 0);
-  while (tk->Next(tk, &t)) {
+  tk->Start(txt, strlen(txt), 0);
+  while (tk->Next(&t)) {
     printf("round %d\n", ctx.num);
     int ret = strncmp(t.tok, tx->expectedTokens[tx->num], t.tokLen);
     ASSERT(ret == 0);
@@ -72,8 +72,8 @@ int testTokenize() {
   ASSERT_EQUAL(ctx.num, 7);
 
   free(txt);
-  tk->Free(tk);
-  s->Free(s);
+  delete tk;
+  delete s;
 
   return 0;
 }

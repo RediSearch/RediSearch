@@ -6,41 +6,31 @@
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);
 
-int RS_SuggestionCompare(const void *val1, const void *val2) {
-  const RS_Suggestion **a = (const RS_Suggestion **)val1;
-  const RS_Suggestion **b = (const RS_Suggestion **)val2;
-  if ((*a)->score > (*b)->score) {
+int RS_Suggestions::Compare(const RS_Suggestion **val1, const RS_Suggestion **val2) {
+  if ((*val1)->score > (*val2)->score) {
     return -1;
   }
-  if ((*a)->score < (*b)->score) {
+  if ((*val1)->score < (*val2)->score) {
     return 1;
   }
   return 0;
 }
 
-RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score) {
-  RS_Suggestion *res = rm_calloc(1, sizeof(RS_Suggestion));
-  res->suggestion = suggestion;
-  res->len = len;
-  res->score = score;
-  return res;
+RS_Suggestion::RS_Suggestion(char *suggestion, size_t len, double score) :
+  suggestion(suggestion), len(len), score(score) {
 }
 
-static void RS_SuggestionFree(RS_Suggestion *suggestion) {
-  rm_free(suggestion->suggestion);
+RS_Suggestion::~RS_Suggestion() {
   rm_free(suggestion);
 }
 
-RS_Suggestions *RS_SuggestionsCreate() {
-#define SUGGESTIONS_ARRAY_INITIAL_SIZE 10
-  RS_Suggestions *ret = rm_calloc(1, sizeof(RS_Suggestions));
-  ret->suggestionsTrie = NewTrie();
-  return ret;
+RS_Suggestions::RS_Suggestions() {
+  suggestionsTrie = new Trie();
 }
 
-void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, int incr) {
+void RS_Suggestions::Add(char *term, size_t len, double score, int incr) {
   double currScore;
-  bool isExists = SpellCheck_IsTermExistsInTrie(s->suggestionsTrie, term, len, &currScore);
+  bool isExists = SpellCheck_IsTermExistsInTrie(suggestionsTrie, term, len, &currScore);
   if (score == 0) {
     /** we can not add zero score so we set it to -1 instead :\ **/
     score = -1;
@@ -48,7 +38,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
 
   if (!incr) {
     if (!isExists) {
-      Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL);
+      Trie_InsertStringBuffer(suggestionsTrie, term, len, score, incr, NULL);
     }
     return;
   }
@@ -61,13 +51,12 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
     incr = 0;
   }
 
-  Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL);
+  Trie_InsertStringBuffer(suggestionsTrie, term, len, score, incr, NULL);
 }
 
-void RS_SuggestionsFree(RS_Suggestions *s) {
+RS_Suggestions::~RS_Suggestions() {
   //  array_free_ex(s->suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
-  TrieType_Free(s->suggestionsTrie);
-  rm_free(s);
+  TrieType_Free(suggestionsTrie);
 }
 
 /**
@@ -155,9 +144,9 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   TrieIterator_Free(it);
 }
 
-RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
-  TrieIterator *iter = Trie_Iterate(s->suggestionsTrie, "", 0, 0, 1);
-  RS_Suggestion **ret = array_new(RS_Suggestion *, s->suggestionsTrie->size);
+RS_Suggestion **RS_Suggestions::GetSuggestions() {
+  TrieIterator *iter = Trie_Iterate(suggestionsTrie, "", 0, 0, 1);
+  RS_Suggestion **ret = array_new(RS_Suggestion *, suggestionsTrie->size);
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
@@ -173,14 +162,13 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   return ret;
 }
 
-void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_Suggestions *s,
-                                uint64_t totalDocNumber) {
+void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, uint64_t totalDocNumber) {
 #define TERM "TERM"
   RedisModule_ReplyWithArray(ctx, 3);
   RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
 
-  RS_Suggestion **suggestions = spellCheck_GetSuggestions(s);
+  RS_Suggestion **suggestions = GetSuggestions();
 
   for (int i = 0; i < array_len(suggestions); ++i) {
     if (suggestions[i]->score == -1) {
@@ -192,7 +180,7 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
     }
   }
 
-  qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), RS_SuggestionCompare);
+  qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), RS_Suggestion::Compare);
 
   if (array_len(suggestions) == 0) {
     // no results found, we return an empty array
@@ -245,7 +233,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
     RedisModule_CloseKey(k);
   }
 
-  RS_Suggestions *s = RS_SuggestionsCreate();
+  RS_Suggestions *s = new RS_Suggestions();
 
   SpellCheck_FindSuggestions(scCtx, scCtx->sctx->spec->terms, term, len, fieldMask, s, 1);
 
@@ -266,7 +254,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
   SpellCheck_SendReplyOnTerm(scCtx->sctx->redisCtx, term, len, s,
                              (!scCtx->fullScoreInfo) ? scCtx->sctx->spec->docs.size - 1 : 0);
 
-  RS_SuggestionsFree(s);
+  delete s;
 
   return true;
 }
@@ -310,20 +298,19 @@ static int forEachCallback(QueryNode *n, QueryNode *orig, void *arg) {
   return 1;
 }
 
-void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
-  if (!SpellCheck_CheckTermDictsExistance(scCtx)) {
+void SpellCheck::Reply(QueryAST *q) {
+  if (!SpellCheck_CheckTermDictsExistance(this)) {
     return;
   }
 
-  RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-  if (scCtx->fullScoreInfo) {
+  if (fullScoreInfo) {
     // sending the total number of docs for the ability to calculate score on cluster
-    RedisModule_ReplyWithLongLong(scCtx->sctx->redisCtx, scCtx->sctx->spec->docs.size - 1);
+    RedisModule_ReplyWithLongLong(sctx->redisCtx, sctx->spec->docs.size - 1);
   }
 
   QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
 
-  RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx,
-                                  scCtx->results + (scCtx->fullScoreInfo ? 1 : 0));
+  RedisModule_ReplySetArrayLength(sctx->redisCtx, results + (fullScoreInfo ? 1 : 0));
 }

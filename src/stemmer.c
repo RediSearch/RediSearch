@@ -63,7 +63,7 @@ const char *RSLanguage_ToString(RSLanguage language) {
     case  RS_LANG_TAMIL:       ret = "tamil";      break;
     case  RS_LANG_TURKISH:     ret = "turkish";    break;
     case  RS_LANG_CHINESE:     ret = "chinese";    break;
-    case  RS_LANG_UNSUPPORTED:  
+    case  RS_LANG_UNSUPPORTED:
     default: break;
   }
   return (const char *)ret;
@@ -123,19 +123,16 @@ const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *ou
 
 //---------------------------------------------------------------------------------------------
 
-void __sbstemmer_Free(Stemmer *s) {
-  struct sbStemmerCtx *ctx = s->ctx;
+Stemmer::~Stemmer() {
   sb_stemmer_delete(ctx->sb);
   rm_free(ctx->buf);
   rm_free(ctx);
-  rm_free(s);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, RSLanguage language) {
-  if (type != stemmer->type || stemmer->language == RS_LANG_UNSUPPORTED ||
-                               stemmer->language == language) {
+int Stemmer::__sbstemmer_Reset(StemmerType type, RSLanguage language) {
+  if (type != type || language == RS_LANG_UNSUPPORTED || language == language) {
     return 0;
   }
   return 1;
@@ -143,11 +140,11 @@ static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, RSLanguage langua
 
 //---------------------------------------------------------------------------------------------
 
-Stemmer *__newSnowballStemmer(RSLanguage language) {
+void Stemmer::__newSnowballStemmer(RSLanguage language) {
   struct sb_stemmer *sb = sb_stemmer_new(RSLanguage_ToString(language), NULL);
   // No stemmer available for this language
   if (!sb) {
-    return NULL;
+    throw Error("No stemmer available for this language");
   }
 
   struct sbStemmerCtx *ctx = rm_malloc(sizeof(*ctx));
@@ -156,37 +153,27 @@ Stemmer *__newSnowballStemmer(RSLanguage language) {
   ctx->buf = rm_malloc(ctx->cap);
   ctx->buf[0] = STEM_PREFIX;
 
-  Stemmer *ret = rm_malloc(sizeof(Stemmer));
-  ret->ctx = ctx;
-  ret->Stem = __sbstemmer_Stem;
-  ret->Free = __sbstemmer_Free;
-  ret->Reset = sbstemmer_Reset;
-  return ret;
+  ctx = ctx;
+  Stem = __sbstemmer_Stem;
 }
 
 //---------------------------------------------------------------------------------------------
 
-Stemmer *NewStemmer(StemmerType type, RSLanguage language) {
-  Stemmer *ret = NULL;
+Stemmer::Stemmer(StemmerType type, RSLanguage language) {
   if (type == SnowballStemmer) {
-    ret = __newSnowballStemmer(language);
-    if (!ret) {
-      return NULL;
-    }
+    __newSnowballStemmer(language);
   } else {
-    fprintf(stderr, "Invalid stemmer type");
-    return NULL;
+    throw Error("Invalid stemmer type");
   }
 
-  ret->language = language;
-  ret->type = type;
-  return ret;
+  language = language;
+  type = type;
 }
 
 //---------------------------------------------------------------------------------------------
 
-int ResetStemmer(Stemmer *stemmer, StemmerType type, RSLanguage language) {
-  return stemmer->Reset && stemmer->Reset(stemmer, type, language);
+int Stemmer::Reset(StemmerType type, RSLanguage language) {
+  return __sbstemmer_Reset && __sbstemmer_Reset(type, language);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -6,15 +6,15 @@
 class TokenizerTest : public ::testing::Test {};
 
 TEST_F(TokenizerTest, testTokenize) {
-  Stemmer *st = NewStemmer(SnowballStemmer, RS_LANG_ENGLISH);
-  RSTokenizer *tk = GetSimpleTokenizer(st, DefaultStopWordList());
+  Stemmer *st = new Stemmer(SnowballStemmer, RS_LANG_ENGLISH);
+  SimpleTokenizer *tk = GetSimpleTokenizer(st, DefaultStopWordList());
   char *txt = strdup("hello worlds    - - -,,, . . . -=- hello\\-world to be שלום עולם");
   const char *expected[] = {"hello", "worlds", "hello-world", "שלום", "עולם"};
   const char *stems[] = {NULL, "+world", NULL, NULL, NULL, NULL, NULL};
-  tk->Start(tk, txt, strlen(txt), TOKENIZE_DEFAULT_OPTIONS);
+  tk->Start(txt, strlen(txt), TOKENIZE_DEFAULT_OPTIONS);
   Token tok;
   size_t i = 0;
-  while (tk->Next(tk, &tok)) {
+  while (tk->Next(&tok)) {
     ASSERT_EQ(i + 1, tok.pos);
     ASSERT_EQ(tok.tokLen, strlen(expected[i]));
     std::string got(tok.tok, tok.tokLen);
@@ -28,7 +28,7 @@ TEST_F(TokenizerTest, testTokenize) {
     i++;
   }
   free(txt);
-  st->Free(st);
+  delete st;
   tk->Free(tk);
 }
 
@@ -51,7 +51,7 @@ struct MyToken {
 };
 
 TEST_F(TokenizerTest, testChineseMixed) {
-  auto tk = NewChineseTokenizer(NULL, NULL, 0);
+  auto tk = new ChineseTokenizer(NULL, NULL, 0);
   std::string tokstr(
       "同时支持对 UTF-8/GBK \\\\ 编码的切分，hello-world hello\\-world \\:\\:world \\:\\:支持 php5 "
       "trailing\\-backslash\\- hi "
@@ -71,11 +71,11 @@ TEST_F(TokenizerTest, testChineseMixed) {
   // printf("tokstr: %s\n", tokstr.c_str());
 
   char *txt = strdup(tokstr.c_str());
-  tk->Start(tk, txt, strlen(txt), 0);
+  tk->Start(txt, strlen(txt), 0);
   Token t = {0};
   size_t pos = 1;
   std::set<std::string> tokens;
-  while (tk->Next(tk, &t)) {
+  while (tk->Next(&t)) {
     ASSERT_EQ(t.pos, pos);
     std::string tok(t.tok, t.tokLen);
     tokens.insert(tok);
@@ -97,19 +97,19 @@ TEST_F(TokenizerTest, testChineseMixed) {
   ASSERT_NE(tokens.end(), tokens.find("multiple-words-with-hyphens"));
   // FIXME: Current parsing behavior makes this really odd..
   //   ASSERT_NE(tokens.end(), tokens.find("\\"));
-  tk->Free(tk);
+  delete tk;
   free(txt);
 }
 
 TEST_F(TokenizerTest, testTrailingEscapes) {
-  auto tk = NewChineseTokenizer(NULL, NULL, 0);
+  auto tk = new ChineseTokenizer(NULL, NULL, 0);
   char *txt = strdup("hello world\\ ");
-  tk->Start(tk, txt, strlen(txt), 0);
+  tk->Start(txt, strlen(txt), 0);
 
   std::set<std::string> tokens;
   Token t;
   size_t pos = 1;
-  while (tk->Next(tk, &t)) {
+  while (tk->Next(&t)) {
     ASSERT_EQ(t.pos, pos);
     std::string tok(t.tok, t.tokLen);
     tokens.insert(tok);
@@ -118,6 +118,6 @@ TEST_F(TokenizerTest, testTrailingEscapes) {
   }
   ASSERT_NE(tokens.end(), tokens.find("hello"));
   ASSERT_NE(tokens.end(), tokens.find("world "));  // note the space
-  tk->Free(tk);
+  delete tk;
   free(txt);
 }

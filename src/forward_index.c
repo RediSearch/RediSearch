@@ -76,7 +76,7 @@ static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t i
   }
 
   if (!idx->stemmer) {
-    idx->stemmer = NewStemmer(SnowballStemmer, doc->language);
+    idx->stemmer = new Stemmer(SnowballStemmer, doc->language);
   }
 }
 

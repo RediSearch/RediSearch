@@ -33,18 +33,6 @@ pthread_key_t mempoolKey_g;
 
 //---------------------------------------------------------------------------------------------
 
-static void *_valueAlloc() {
-  return rm_malloc(sizeof(RSValue));
-}
-
-//---------------------------------------------------------------------------------------------
-
-static void _valueFree(void *p) {
-  rm_free(p);
-}
-
-//---------------------------------------------------------------------------------------------
-
 static void __attribute__((constructor)) initKey() {
   pthread_key_create(&mempoolKey_g, mempoolThreadPoolDtor);
 }
@@ -76,12 +64,11 @@ size_t RSValue::NumToString(double dd, char *buf) {
 
 //---------------------------------------------------------------------------------------------
 
-RSValue *RS_NewValue(RSValueType t) {
-  RSValue *v = mempool_get(getPoolInfo()->values);
-  v->t = t;
-  v->refcount = 1;
-  v->allocated = 1;
-  return v;
+RSValue::RSValue(RSValueType t) {
+  // RSValue *v = mempool_get(getPoolInfo()->values);
+  t = t;
+  refcount = 1;
+  allocated = 1;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -107,7 +94,7 @@ void RSValue::Clear() {
           break;
       }
       break;
-      
+
     case RSValue_Array:
       for (uint32_t i = 0; i < arrval.len; i++) {
         arrval.vals[i]->Decref();
@@ -141,22 +128,11 @@ void RSValue::Clear() {
 // Free a value's internal value. It only does anything in the case of a string, and doesn't free
 // the actual value object.
 
-void RSValue_Free(RSValue *v) {
+RSValue::~RSValue() {
   v->Clear();
-  if (v->allocated) {
-    mempool_release(getPoolInfo()->values, v);
-  }
-}
-
-//---------------------------------------------------------------------------------------------
-
-RSValue RS_Value(RSValueType t) {
-  RSValue v = (RSValue){
-      .t = t,
-      .refcount = 1,
-      .allocated = 0,
-  };
-  return v;
+  // if (allocated) {
+  //   mempool_release(getPoolInfo()->values, v);
+  // }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -178,7 +154,7 @@ void RSValue:::SetString(char *str, size_t len) {
 //---------------------------------------------------------------------------------------------
 
 RSValue *RS_NewCopiedString(const char *s, size_t n) {
-  RSValue *v = RS_NewValue(RSValue_String);
+  RSValue *v = new RSValue(RSValue_String);
   char *cp = rm_malloc(n + 1);
   cp[n] = 0;
   memcpy(cp, s, n);
@@ -211,7 +187,7 @@ void RSValue::SetConstString(const char *str, size_t len) {
 
 inline RSValue *RS_StringVal(char *str, uint32_t len) {
   RS_LOG_ASSERT(len <= (UINT32_MAX >> 4), "string length exceeds limit");
-  RSValue *v = RS_NewValue(RSValue_String);
+  RSValue *v = new RSValue(RSValue_String);
   v->strval.str = str;
   v->strval.len = len;
   v->strval.stype = RSString_Malloc;
@@ -223,7 +199,7 @@ inline RSValue *RS_StringVal(char *str, uint32_t len) {
 // Same as RS_StringVal but with explicit string type
 
 inline RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t) {
-  RSValue *v = RS_NewValue(RSValue_String);
+  RSValue *v = new RSValue(RSValue_String);
   v->strval.str = str;
   v->strval.len = len;
   v->strval.stype = t;
@@ -246,7 +222,7 @@ RSValue *RS_StringValFmt(const char *fmt, ...) {
 // Wrap a redis string value
 
 RSValue *RS_RedisStringVal(RedisModuleString *str) {
-  RSValue *v = RS_NewValue(RSValue_RedisString);
+  RSValue *v = new RSValue(RSValue_RedisString);
   v->rstrval = str;
   return v;
 }
@@ -332,8 +308,8 @@ RSValue *RSValue::ParseNumber(const char *p, size_t l) {
 //---------------------------------------------------------------------------------------------
 
 // Convert a value to a number, either returning the actual numeric values or by parsing a string
-// into a number. 
-// Return 1 if the value is a number or a numeric string and can be converted, or 0 if not. 
+// into a number.
+// Return 1 if the value is a number or a numeric string and can be converted, or 0 if not.
 // If possible, we put the actual value into the double pointer
 
 int RSValue::ToNumber(double *d) const {
@@ -456,7 +432,7 @@ const char *RSValue::ConvertStringPtrLen(size_t *lenp, char *buf, size_t buflen)
 
 /* Wrap a number into a value object */
 RSValue *RS_NumVal(double n) {
-  RSValue *v = RS_NewValue(RSValue_Number);
+  RSValue *v = new RSValue(RSValue_Number);
   v->numval = n;
   return v;
 }
@@ -464,7 +440,7 @@ RSValue *RS_NumVal(double n) {
 //---------------------------------------------------------------------------------------------
 
 RSValue *RS_Int64Val(int64_t dd) {
-  RSValue *v = RS_NewValue(RSValue_Number);
+  RSValue *v = new RSValue(RSValue_Number);
   v->numval = dd;
   return v;
 }
@@ -477,7 +453,7 @@ RSValue *RS_Int64Val(int64_t dd) {
 // @param options RSVAL_ARRAY_*
 
 RSValue *RSValue::NewArray(RSValue **vals, size_t n, int options) {
-  RSValue *arr = RS_NewValue(RSValue_Array);
+  RSValue *arr = new RSValue(RSValue_Array);
   RSValue **list;
   if (options & RSVAL_ARRAY_ALLOC) {
     list = vals;

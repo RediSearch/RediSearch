@@ -438,15 +438,19 @@ RSConfigOptions RSGlobalConfigOptions = {
          flags: RSCONFIGVAR_F_IMMUTABLE},
         {name: NULL}}};
 
-void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
-  while (src->next != NULL) {
-    src = src->next;
+/**
+ * Add new configuration options to the chain of already recognized options
+ */
+
+void RSConfigOptions::AddConfigs(RSConfigOptions *dst) {
+  while (next != NULL) {
+    src = next;
   }
-  src->next = dst;
+  next = dst;
   dst->next = NULL;
 }
 
-sds RSConfig_GetInfoString(const RSConfig *config) {
+sds RSConfig::GetInfoString() const {
   sds ss = sdsempty();
 
   ss = sdscatprintf(ss, "concurrent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
@@ -501,14 +505,20 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
   RedisModule_ReplySetArrayLength(ctx, numElems);
 }
 
-void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, const char *name,
+/**
+ * Writes the retrieval of the configuration value to the network.
+ * isHelp will use a more dict-like pattern, which should be a bit friendlier
+ * on the eyes
+ */
+
+void RSConfig::DumpProto(const RSConfigOptions *options, const char *name,
                         RedisModuleCtx *ctx, int isHelp) {
   size_t numElems = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   if (!strcmp("*", name)) {
     for (const RSConfigOptions *curOpts = options; curOpts; curOpts = curOpts->next) {
       for (const RSConfigVar *cur = &curOpts->vars[0]; cur->name; cur++) {
-        dumpConfigOption(config, cur, ctx, isHelp);
+        dumpConfigOption(this, cur, ctx, isHelp);
         numElems++;
       }
     }
@@ -516,14 +526,22 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
     const RSConfigVar *v = findConfigVar(options, name);
     if (v) {
       numElems++;
-      dumpConfigOption(config, v, ctx, isHelp);
+      dumpConfigOption(this, v, ctx, isHelp);
     }
   }
   RedisModule_ReplySetArrayLength(ctx, numElems);
 }
 
-int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
-                       RedisModuleString **argv, int argc, size_t *offset, QueryError *status) {
+/**
+ * Sets a configuration variable. The argv, argc, and offset variables should
+ * point to the global argv array. You can also make argv point at the specific
+ * (after-the-option-name) arguments and set offset to 0, and argc to the number
+ * of remaining arguments. offset is advanced to the next unread argument (which
+ * can be == argc)
+ */
+
+int RSConfig::SetOption(RSConfigOptions *options, const char *name, RedisModuleString **argv,
+                        int argc, size_t *offset, QueryError *status) {
   RSConfigVar *var = findConfigVar(options, name);
   if (!var) {
     status->SetError(QUERY_ENOOPTION, NULL);
@@ -535,7 +553,7 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   }
   ArgsCursor ac;
   ArgsCursor_InitRString(&ac, argv + *offset, argc - *offset);
-  int rc = var->setValue(config, &ac, status);
+  int rc = var->setValue(this, &ac, status);
   *offset += ac.offset;
   return rc;
 }

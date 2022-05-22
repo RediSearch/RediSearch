@@ -59,17 +59,17 @@ static char *getFile(const char *name) {
 
 static int testCnTokenize(void) {
   char *cnTxt = getFile("cn_sample.txt");
-  RSTokenizer *cnTok = NewChineseTokenizer(NULL, NULL, 0);
+  SimpleTokenizer *cnTok = new ChineseTokenizer(NULL, NULL, 0);
   ASSERT(cnTok != NULL);
-  cnTok->Start(cnTok, cnTxt, strlen(cnTxt), 0);
+  cnTok->Start(cnTxt, strlen(cnTxt), 0);
   Token t;
   uint32_t pos;
-  while ((pos = cnTok->Next(cnTok, &t)) != 0) {
+  while ((pos = cnTok->Next(&t)) != 0) {
     // printf("Token: %.*s. Raw: %.*s. Pos=%u\n", (int)t.tokLen, t.tok, (int)t.rawLen, t.raw,
     // t.pos);
     ASSERT(pos == t.pos);
   }
-  cnTok->Free(cnTok);
+  delete cnTok;
   free(cnTxt);
   return 0;
 }
