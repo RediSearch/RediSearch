@@ -1,0 +1,13 @@
+SOURCEDIR = .
+CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c)
+CC_OBJECTS = $(sort $(patsubst $(SOURCEDIR)/%.c, $(SOURCEDIR)/%.o , $(CC_SOURCES)))
+
+.SUFFIXES: .c .cc .o
+
+all: libfriso.a
+
+libfriso.a: $(CC_OBJECTS)
+	ar rc $@ $^
+
+clean:
+	rm -rf *.xo *.so *.o *.a
