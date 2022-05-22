@@ -1,5 +1,5 @@
 
-from collections.abc import Iterable
+from collections import Iterable
 import time
 from packaging import version
 from functools import wraps
