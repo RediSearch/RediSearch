@@ -1,7 +1,9 @@
-#include <stdio.h>
-#include <assert.h>
+
 #include "qint.h"
 #include "rmutil/alloc.h"
+
+#include <stdio.h>
+#include <assert.h>
 
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();

@@ -1,8 +1,0 @@
-[server]
-; Module to actually test
-module = @RMTEST_MODULE_PATH@
-
-[testvars]
-; for the test_ext.py script
-EXT_TEST_PATH = @RMTEST_EXT_PATH@
-

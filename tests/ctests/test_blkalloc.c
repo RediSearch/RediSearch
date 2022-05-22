@@ -1,5 +1,7 @@
-#include "../../src/util/block_alloc.h"
+
+#include "src/util/block_alloc.h"
 #include "test_util.h"
+
 #include <stdint.h>
 #include <assert.h>
 #include "rmutil/alloc.h"

@@ -1,5 +1,5 @@
 #include "cndict_loader.h"
-#include "dep/miniz/miniz.h"
+#include "miniz/miniz.h"
 #include "buffer.h"
 #include <arpa/inet.h>  // htonl, etc.
 #include <stdint.h>

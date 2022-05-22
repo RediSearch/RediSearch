@@ -1,16 +1,18 @@
 // TODO: We might not need all these includes
-#include "../../src/buffer.h"
-#include "../../src/index.h"
-#include "../../src/inverted_index.h"
-#include "../../src/index_result.h"
-#include "../../src/query_parser/tokenizer.h"
-#include "../../src/rmutil/alloc.h"
-#include "../../src/spec.h"
-#include "../../src/tokenize.h"
-#include "../../src/varint.h"
 #include "test_util.h"
 #include "time_sample.h"
-#include "../../src/rmutil/alloc.h"
+
+#include "src/buffer.h"
+#include "src/index.h"
+#include "src/inverted_index.h"
+#include "src/index_result.h"
+#include "src/query_parser/tokenizer.h"
+#include "src/spec.h"
+#include "src/tokenize.h"
+#include "src/varint.h"
+
+#include "rmutil/alloc.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
