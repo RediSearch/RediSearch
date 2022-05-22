@@ -183,7 +183,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, status);
+  RSAddDocumentCtx *aCtx = new RSAddDocumentCtx(sp, &doc, status);
   if (aCtx == NULL) {
     Document_Free(&doc);
     goto error;

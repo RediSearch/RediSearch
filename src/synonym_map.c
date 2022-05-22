@@ -208,6 +208,13 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, uin
   RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
   int ret;
   for (size_t i = 0; i < size; i++) {
+    /*
+    auto &syn = synonyms[i];
+    auto it = h_table.get(syn);
+    if (!!it) {
+      it->set(new TermData(rm_strdup(syn)));
+    }
+    */
     khiter_t k =
         kh_get(SynMapKhid, smap->h_table, calculate_hash(synonyms[i], strlen(synonyms[i])));
     if (k == kh_end(smap->h_table)) {

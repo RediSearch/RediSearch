@@ -21,25 +21,8 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Memory pool for RSAddDocumentContext contexts
-static mempool_t *actxPool_g = NULL;
-
-// For documentation, see these functions' definitions
-static void *allocDocumentContext(void) {
-  // See if there's one in the pool?
-  RSAddDocumentCtx *aCtx = rm_calloc(1, sizeof(*aCtx));
-  return aCtx;
-}
-
-static void freeDocumentContext(void *p) {
-  RSAddDocumentCtx *aCtx = p;
-  if (aCtx->fwIdx) {
-    ForwardIndexFree(aCtx->fwIdx);
-  }
-
-  rm_free(aCtx->fspecs);
-  rm_free(aCtx->fdatas);
-  rm_free(aCtx);
-}
+//static mempool_t *actxPool_g = NULL;
+template<> AddDocumentPool MemPoolObject<AddDocumentPool>::pool(16, 0, true);
 
 #define DUP_FIELD_ERRSTR "Requested to index field twice"
 
@@ -179,57 +162,42 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
  * When done, call AddDocumentCtx_Free
  */
 
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status) {
-
-  if (!actxPool_g) {
-    mempool_options mopts = {
-        alloc: allocDocumentContext,
-        free: freeDocumentContext,
-        initialCap: 16,
-        maxCap: 0,
-        isGlobal: 1};
-    actxPool_g = mempool_new(&mopts);
-  }
-
-  // Get a new context
-  RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
-  aCtx->stateFlags = 0;
-  aCtx->status.ClearError();
-  aCtx->totalTokens = 0;
-  aCtx->docFlags = 0;
-  aCtx->client.bc = NULL;
-  aCtx->next = NULL;
-  aCtx->specFlags = sp->flags;
-  aCtx->indexer = sp->indexer;
+RSAddDocumentCtx::RSAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) {
+  stateFlags = 0;
+  status.ClearError();
+  totalTokens = 0;
+  docFlags = 0;
+  client.bc = NULL;
+  next = NULL;
+  specFlags = sp->flags;
+  indexer = sp->indexer;
   RS_LOG_ASSERT(sp->indexer, "No indexer");
-  Indexer_Incref(aCtx->indexer);
+  Indexer_Incref(indexer);
 
   // Assign the document:
-  if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
-    *status = aCtx->status;
-    aCtx->status.detail = NULL;
-    mempool_release(actxPool_g, aCtx);
-    return NULL;
+  if (SetDocument(sp, b, doc.numFields) != 0) {
+    *status_ = status;
+    status.detail = NULL;
+    throw Error("RSAddDocumentCtx: SetDocument failed");
   }
 
   // try to reuse the forward index on recycled contexts
-  if (aCtx->fwIdx) {
-    ForwardIndex_Reset(aCtx->fwIdx, &aCtx->doc, sp->flags);
+  if (fwIdx) {
+    fwIdx->Reset(&doc, sp->flags);
   } else {
-    aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
+    fwIdx = new ForwardIndex(&doc, sp->flags);
   }
 
   if (sp->smap) {
     // we get a read only copy of the synonym map for accessing in the index thread with out worring
     // about thready safe issues
-    aCtx->fwIdx->smap = SynonymMap_GetReadOnlyCopy(sp->smap);
+    fwIdx->smap = sp->smap->GetReadOnlyCopy();
   } else {
-    aCtx->fwIdx->smap = NULL;
+    fwIdx->smap = NULL;
   }
 
-  aCtx->tokenizer = GetTokenizer(b->language, aCtx->fwIdx->stemmer, sp->stopwords);
-  aCtx->doc.docId = 0;
-  return aCtx;
+  tokenizer = GetTokenizer(b->language, fwIdx->stemmer, sp->stopwords);
+  doc.docId = 0;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -254,11 +222,11 @@ static void threadCallback(void *p) {
  * Indicate that processing is finished on the current document
  */
 
-void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
-  if (aCtx->stateFlags & ACTX_F_NOBLOCK) {
-    doReplyFinish(aCtx, aCtx->client.sctx->redisCtx);
+void AddDocumentCtx::Finish() {
+  if (stateFlags & ACTX_F_NOBLOCK) {
+    doReplyFinish(this, client.sctx->redisCtx);
   } else {
-    RedisModule_UnblockClient(aCtx->client.bc, aCtx);
+    RedisModule_UnblockClient(client.bc, this);
   }
 }
 
@@ -279,7 +247,7 @@ void Document_Dump(const Document *doc) {
     printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
            RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
   }
-} 
+}
 // LCOV_EXCL_STOP
 
 //---------------------------------------------------------------------------------------------
@@ -373,46 +341,31 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
  * when the client is unblocked.
  */
 
-void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
-  /**
-   * Free preprocessed data; this is the only reliable place
-   * to do it
-   */
-  for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
-    if (FIELD_IS_VALID(aCtx, ii) && FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) &&
-        !!aCtx->fdatas[ii].tags) {
-      aCtx->fdatas[ii].tags.Clear();
+~RSAddDocumentCtx::RSAddDocumentCtx() {
+  // Free preprocessed data; this is the only reliable place to do it
+  for (size_t ii = 0; ii < doc.numFields; ++ii) {
+    if (FIELD_IS_VALID(this, ii) && FIELD_IS(fspecs + ii, INDEXFLD_T_TAG) &&
+        !!fdatas[ii].tags) {
+      fdatas[ii].tags.Clear();
     }
   }
 
-  // Destroy the common fields:
-  Document_Free(&aCtx->doc);
+  delete sv;
+  delete byteOffsets;
+  delete tokenizer;
 
-  if (aCtx->sv) {
-    SortingVector_Free(aCtx->sv);
-    aCtx->sv = NULL;
+  if (oldMd) {
+    DMD_Decref(oldMd);
+    oldMd = NULL;
   }
 
-  if (aCtx->byteOffsets) {
-    RSByteOffsets_Free(aCtx->byteOffsets);
-    aCtx->byteOffsets = NULL;
-  }
+  offsetsWriter->Cleanup();
+  status.ClearError();
 
-  if (aCtx->tokenizer) {
-    // aCtx->tokenizer->Free(aCtx->tokenizer);
-    Tokenizer_Release(aCtx->tokenizer);
-    aCtx->tokenizer = NULL;
-  }
+  delete fwIdx;
 
-  if (aCtx->oldMd) {
-    DMD_Decref(aCtx->oldMd);
-    aCtx->oldMd = NULL;
-  }
-
-  ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
-  aCtx->status.ClearError();
-
-  mempool_release(actxPool_g, aCtx);
+  rm_free(fspecs);
+  rm_free(fdatas);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -669,7 +622,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
 cleanup:
   if (ourRv != REDISMODULE_OK) {
     aCtx->status.SetCode(QUERY_EGENERIC);
-    AddDocumentCtx_Finish(aCtx);
+    aCtx->Finish();
   }
   return ourRv;
 }
@@ -703,7 +656,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     if (status->HasError()) {
       RSExpr_Free(e);
       return REDISMODULE_ERR;
-    } 
+    }
 
     RLookupRow row = {0};
     IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);

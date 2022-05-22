@@ -157,9 +157,12 @@ struct FieldIndexerData;
 
 struct DocumentIndexer;
 
+struct AddDocumentPool : MemPool {
+};
+
 // Context used when indexing documents
 
-struct RSAddDocumentCtx {
+struct RSAddDocumentCtx : MemPoolObject<AddDocumentPool> {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document doc;                   // Document which is being indexed
 
@@ -204,7 +207,7 @@ struct RSAddDocumentCtx {
   void *donecbData;
 
   RSAddDocumentCtx(IndexSpec *sp, Document *base, QueryError *status);
-  ~RSAddDocumentCtx();
+  virtual ~RSAddDocumentCtx();
 
   void Submit(RedisSearchCtx *sctx, uint32_t options);
 

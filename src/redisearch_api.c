@@ -234,7 +234,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
 
   RSError err = {.s = errs};
   QueryError status = {0};
-  RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
+  RSAddDocumentCtx* aCtx = new RSAddDocumentCtx(sp, d, &status);
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
   RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
@@ -254,7 +254,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
 
   options |= DOCUMENT_ADD_NOSAVE;
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
-  AddDocumentCtx_Submit(aCtx, &sctx, options);
+  aCtx->Submit(&sctx, options);
   rm_free(d);
 
   RWLOCK_RELEASE();

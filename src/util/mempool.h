@@ -19,7 +19,7 @@ struct mempool_t {
     size_t maxCap;      // maxmimum size of the pool
 
     // if true, will be added to the list of global mempool objects which
-    // will be destroyed via mempool_free_global(). 
+    // will be destroyed via mempool_free_global().
     // This also means you cannot call mempool_destroy() on it manually.
     int isGlobal;
   };
@@ -94,7 +94,7 @@ public:
 
   template <class P>
   void* operator new(std::size_t sz, P &pool) { return pool.alloc(sz); }
-  
+
   template <class P>
   void operator delete(void *p, P &pool) { pool.free(p); }
 };
