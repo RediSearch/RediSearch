@@ -190,6 +190,14 @@ def testRename(env):
     env.cmd('SET foo bar')
     env.cmd('RENAME foo fubu')
 
+def testRenameChangePrefix(env):
+    env.skipOnCluster()
+    env.cmd('ft.create idx1 PREFIX 1 1: SCHEMA name text')
+    env.cmd('ft.create idx2 PREFIX 1 2: SCHEMA name text')
+
+    env.cmd('SET 1:1 bar')
+    env.expect('RENAME 1:1 2:1').ok()
+
 def testCopy(env):
     env.skipOnCluster()
     if not server_version_at_least(env, "6.2.0"):
