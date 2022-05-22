@@ -44,7 +44,7 @@ def testCompressionConfig(env):
 	# w/o compression. exact number match.
 	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'false').equal('OK')
 	for i in range(100):
-		env.execute_command('hset', i, 'n', str(1 + i / 100.0))
+	  env.execute_command('hset', i, 'n', str(1 + i / 100.0))
 	for i in range(100):
 		num = str(1 + i / 100.0)
 		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1, str(i), ['n', num]])
@@ -52,7 +52,7 @@ def testCompressionConfig(env):
 	# with compression. no exact number match.
 	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
 	for i in range(100):
-		env.execute_command('hset', i, 'n', str(1 + i / 100.0))
+	  env.execute_command('hset', i, 'n', str(1 + i / 100.0))
 
 	# delete keys where compression does not change value
 	env.execute_command('del', '0')
