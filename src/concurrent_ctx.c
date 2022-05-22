@@ -107,8 +107,9 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
   for (int i = 0; i < argc; i++) {
     cmdCtx->argv[i] = RedisModule_CreateStringFromString(cmdCtx->ctx, argv[i]);
   }
-
-  RedisModule_BlockedClientMeasureTimeStart(cmdCtx->bc);  
+  if (options & CMDCTX_COORD) {
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, cmdCtx->bc);  
+  }
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
   return REDISMODULE_OK;
 }

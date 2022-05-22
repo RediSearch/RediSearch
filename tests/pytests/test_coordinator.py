@@ -38,11 +38,13 @@ def test_info_commandstats(env, cmd):
     res = env.execute_command('INFO', 'COMMANDSTATS')
     env.assertGreater(res['cmdstat_' + cmd]['usec'], res['cmdstat__' + cmd]['usec'])
 
-def testCommandStats(env):
+def testCommandStatsOnRedis(env):
+    # This test checks the total time spent on the Coordinator is greater then
+    # on a single shard 
     SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
-    test_info_commandstats(env, 'FT.CREATE')
+    # _FT.CREATE is not called. No option to test
 
     for i in range(100):
         conn.execute_command('HSET', i, 't', 'Hello world!')
