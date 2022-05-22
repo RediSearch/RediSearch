@@ -497,6 +497,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
       QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
+
     TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
                            rangeIterCb, &ctx);
   }
@@ -617,36 +618,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight, QN_LEXRANGE, NULL);
   }
 }
-/*
-static IndexIterator *Query_EvalContainsNode(QueryEvalCtx *q, QueryNode *cn) {
-  Trie *t = q->sctx->spec->terms;
-  ContainsCtx ctx = {.q = q, .opts = &cn->opts};
 
-  if (!t) {
-    return NULL;
-  }
-
-  ctx.cap = 8;
-  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
-  ctx.nits = 0;
-
-  rune *str = NULL;
-  size_t nstr;
-  if (cn->con.str) {
-    str = strToFoldedRunes(cn->con.str, &nstr);
-  }
-
-  TrieNode_IterateContains(t->root, str, str ? nstr : -1, cn->con.prefix, cn->con.suffix,
-                           rangeIterCb, &ctx);
-  rm_free(str);
-  if (!ctx.its || ctx.nits == 0) {
-    rm_free(ctx.its);
-    return NULL;
-  } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, cn->opts.weight, QN_PREFIX, NULL);
-  }
-}
-*/
 static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_FUZZY, "query node type should be fuzzy");
 
@@ -851,7 +823,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                               IndexIteratorArray *iterout, double weight,
-                                              int withSuffix) {
+                                              int withSuffixTrie) {
   RSToken *tok = &qn->pfx.tok;
   if (qn->type != QN_PREFIX) {
     return NULL;
@@ -866,7 +838,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
-  if (!qn->pfx.suffix || !withSuffix) {    // prefix query or no suffix triemap, use bruteforce
+  if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
     TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
     TrieMapIterator_NextFunc nextFunc = TrieMapIterator_Next;
     if (!it) return NULL;
@@ -966,11 +938,11 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
 
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
                                               IndexIteratorArray *iterout, double weight,
-                                              int caseSensitive, int withSuffix) {
+                                              FieldSpec *fs) {
   IndexIterator *ret = NULL;
 
   if (n->tn.str) {
-    tag_strtolower(n->tn.str, &n->tn.len, caseSensitive);
+    tag_strtolower(n->tn.str, &n->tn.len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
   }
 
   switch (n->type) {
@@ -979,7 +951,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       break;
     }
     case QN_PREFIX:
-      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, withSuffix);
+      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasContains(fs));
 
     case QN_LEXRANGE:
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);
@@ -1032,8 +1004,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   // a union stage with one child is the same as the child, so we just return it
   if (QueryNode_NumChildren(qn) == 1) {
-    ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight,
-                                  fs->tagOpts.tagFlags & TagField_CaseSensitive, FieldSpec_HasContains(fs));
+    ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight, fs);
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
@@ -1050,8 +1021,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   size_t n = 0;
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
     IndexIterator *it =
-        query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight,
-                                fs->tagOpts.tagFlags & TagField_CaseSensitive, FieldSpec_HasContains(fs));
+        query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight, fs);
     if (it) {
       iters[n++] = it;
     }
@@ -1173,7 +1143,8 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .sctx = sctx,
       .status = status,
       .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
-      .reqFlags = reqflags
+      .reqFlags = reqflags,
+      
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {

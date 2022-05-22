@@ -1,6 +1,7 @@
 #pragma once
 
 #include <time.h>
+#include "redisearch.h"
 
 /*****************************************
  *            Timeout API

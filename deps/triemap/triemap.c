@@ -576,12 +576,17 @@ TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t len) {
   it->prefixLen = len;
   it->mode = TM_PREFIX_MODE;
 
+  it->timeoutCounter = 0;
+
   __tmi_Push(it, t->root, 0, false);
 
   return it;
 }
 
 void TrieMapIterator_Free(TrieMapIterator *it) {
+  if (it->matchIter) {
+    TrieMapIterator_Free(it->matchIter);
+  }
   array_free(it->buf);
   array_free(it->stack);
   rm_free(it);
@@ -833,6 +838,9 @@ void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool inclu
 
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
   while (array_len(it->stack) > 0) {
+    if (TimedOut(it->timeout, &it->timeoutCounter)) {
+      return 0;
+    }
     __tmi_stackNode *current = __tmi_current(it);
     TrieMapNode *n = current->n;
 
@@ -907,6 +915,12 @@ static int __fullmatch_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void
   return TrieMapIterator_Next(it->matchIter, ptr, len, value);
 }
 
+/* 
+ * The function is called after a match of one characther was found.
+ * It checks whether the partial match is a full match and if not, it returns 0.
+ * If a full match is found, in `suffix` mode the string buffer is updated and return 1.
+ * In `contains`, an internal iterator is created. and return all children until exhuasted.
+ */
 static int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_t *len, void **value) {
   int rv = 0;
   tm_len_t compareLen;                    // number of chars to compare in current node
@@ -984,7 +998,9 @@ end:
 }
 
 int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
-  // TODO: exit on timeout
+  if (TimedOut(it->timeout, &it->timeoutCounter)) {
+    return 0;
+  }
 
   TrieMapIterator *iter = it->matchIter;
   if (iter) {

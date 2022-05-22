@@ -8,6 +8,7 @@
 #include <stdbool.h>
 
 #include "util/arr.h"
+#include "util/timeout.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,6 +118,7 @@ typedef struct {
   tm_len_t childOffset;
 } __tmi_stackNode;
 
+/* Use by TrieMapIterator to determine type of query */
 typedef enum {
   TM_PREFIX_MODE = 0,
   TM_CONTAINS_MODE = 1,
@@ -127,7 +129,6 @@ typedef struct TrieMapIterator{
   arrayof(char) buf;
 
   arrayof(__tmi_stackNode) stack;
-  arrayof(__tmi_stackNode) matchStack;
 
   const char *prefix;
   tm_len_t prefixLen;
@@ -135,6 +136,9 @@ typedef struct TrieMapIterator{
   tm_iter_mode mode;
 
   struct TrieMapIterator *matchIter;
+
+  struct timespec timeout;
+  size_t timeoutCounter;
 } TrieMapIterator;
 
 void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, tm_len_t stringOffset,

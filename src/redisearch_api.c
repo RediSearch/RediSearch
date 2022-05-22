@@ -379,13 +379,16 @@ QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lat
   return ret;
 }
 
-static QueryNode* RediSearch_CreateAffixNode(IndexSpec* sp, const char* fieldName, const char* s,
-                                      bool prefix, bool suffix) {
+#define NODE_PREFIX 0x1
+#define NODE_SUFFIX 0x2
+
+static QueryNode* RediSearch_CreateAffixNode(IndexSpec* sp, const char* fieldName,
+                                             const char* s, int flags) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
   ret->pfx = (QueryPrefixNode){
     .tok = (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0},
-    .prefix = prefix,
-    .suffix = suffix
+    .prefix = flags & NODE_PREFIX,
+    .suffix = flags & NODE_SUFFIX,
   };
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
@@ -394,38 +397,37 @@ static QueryNode* RediSearch_CreateAffixNode(IndexSpec* sp, const char* fieldNam
 }
 
 QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  return RediSearch_CreateAffixNode(sp, fieldName, s, true, false);
+  return RediSearch_CreateAffixNode(sp, fieldName, s, NODE_PREFIX);
 }
 
 QueryNode* RediSearch_CreateContainsNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  return RediSearch_CreateAffixNode(sp, fieldName, s, true, true);
+  return RediSearch_CreateAffixNode(sp, fieldName, s, NODE_PREFIX | NODE_SUFFIX);
 }
 
 QueryNode* RediSearch_CreateSuffixNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  return RediSearch_CreateAffixNode(sp, fieldName, s, false, true);
+  return RediSearch_CreateAffixNode(sp, fieldName, s, NODE_SUFFIX);
 }
 
-static QueryNode* RediSearch_CreateTagAffixNode(IndexSpec* sp, const char* s,
-                                                bool prefix, bool suffix) {
+static QueryNode* RediSearch_CreateTagAffixNode(IndexSpec* sp, const char* s, int flags) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
   ret->pfx = (QueryPrefixNode){
     .tok = (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0},
-    .prefix = prefix,
-    .suffix = suffix
+    .prefix = flags & NODE_PREFIX,
+    .suffix = flags & NODE_SUFFIX,
   };
   return ret;
 }
 
 QueryNode* RediSearch_CreateTagPrefixNode(IndexSpec* sp, const char* s) {
-  return RediSearch_CreateTagAffixNode(sp, s, true, false);
+  return RediSearch_CreateTagAffixNode(sp, s, NODE_PREFIX);
 }
 
 QueryNode* RediSearch_CreateTagContainsNode(IndexSpec* sp, const char* s) {
-  return RediSearch_CreateTagAffixNode(sp, s, true, true);
+  return RediSearch_CreateTagAffixNode(sp, s, NODE_PREFIX | NODE_SUFFIX);
 }
 
 QueryNode* RediSearch_CreateTagSuffixNode(IndexSpec* sp, const char* s) {
-  return RediSearch_CreateTagAffixNode(sp, s, false, true);
+  return RediSearch_CreateTagAffixNode(sp, s, NODE_SUFFIX);
 }
 
 QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
