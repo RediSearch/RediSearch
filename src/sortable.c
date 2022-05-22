@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "rmutil/rm_assert.h"
-#include "dep/libnu/libnu.h"
+#include "libnu/libnu.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "rmalloc.h"

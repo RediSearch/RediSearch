@@ -7,7 +7,7 @@
 #include "rmalloc.h"
 #include "module.h"
 
-#include "dep/thpool/thpool.h"
+#include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
 
 #include <assert.h>

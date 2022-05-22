@@ -50,7 +50,7 @@ struct mergedEntry {
 //---------------------------------------------------------------------------------------------
 
 // Boilerplate hashtable compare function
-static int mergedCompare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h) {
+int MergeHashTable::Compare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h) {
   mergedEntry *e = (mergedEntry *)ent;
   // 0 return value means "true"
   return !(e->head->hash == h && e->head->len == n && memcmp(e->head->term, s, n) == 0);
@@ -59,7 +59,7 @@ static int mergedCompare(const KHTableEntry *ent, const void *s, size_t n, uint3
 //---------------------------------------------------------------------------------------------
 
 // Boilerplate hash retrieval function. Used for rebalancing the table
-static uint32_t mergedHash(const KHTableEntry *ent) {
+uint32_t MergeHashTable::Hash(const KHTableEntry *ent) {
   mergedEntry *e = (mergedEntry *)ent;
   return e->head->hash;
 }
@@ -67,7 +67,7 @@ static uint32_t mergedHash(const KHTableEntry *ent) {
 //---------------------------------------------------------------------------------------------
 
 // Boilerplate dict entry allocator
-static KHTableEntry *mergedAlloc(void *ctx) {
+KHTableEntry *MergeHashTable::Alloc(void *ctx) {
   return BlkAlloc_Alloc(ctx, sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
 }
 
@@ -515,7 +515,7 @@ cleanup:
   }
   if (useTermHt) {
     BlkAlloc_Clear(&alloc, NULL, NULL, 0);
-    KHTable_Clear(&mergeHt);
+    mergeHt.Clear();
   }
 }
 
@@ -608,7 +608,7 @@ int DocumentIndexer::Add(RSAddDocumentCtx *aCtx) {
 // thread. This does not insert it into the list of threads, though
 // todo: remove the withIndexThread var once we switch to threadpool
 
-DocumentIndexer::DocumentIndexer(IndexSpec *spec) {
+DocumentIndexer::DocumentIndexer(IndexSpec *spec) : mergeHt(alloc, 4096) {
   size = 0;
   isDbSelected = false;
   refcount = 1;
@@ -618,10 +618,6 @@ DocumentIndexer::DocumentIndexer(IndexSpec *spec) {
   if (!!(spec->flags & Index_Temporary) || !RSGlobalConfig.concurrentMode) {
     options |= INDEXER_THREADLESS;
   }
-
-  BlkAlloc_Init(&alloc);
-  static const KHTableProcs procs = {Compare: mergedCompare, Hash: mergedHash, Alloc: mergedAlloc};
-  KHTable_Init(&mergeHt, &procs, &alloc, 4096);
 
   if (!(options & INDEXER_THREADLESS)) {
     pthread_cond_init(&cond, NULL);
@@ -647,9 +643,9 @@ DocumentIndexer::~DocumentIndexer() {
   }
   delete concCtx;
   RedisModule_FreeString(redisCtx, specKeyName);
-  KHTable_Clear(&mergeHt);
-  KHTable_Free(&mergeHt);
-  BlkAlloc_FreeAll(&alloc, NULL, 0, 0);
+  mergeHt.Clear();
+  // KHTable_Free(&mergeHt);
+  alloc.FreeAll(NULL, 0, 0);
   RedisModule_FreeThreadSafeContext(redisCtx);
 }
 

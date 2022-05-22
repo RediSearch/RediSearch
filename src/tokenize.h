@@ -6,7 +6,7 @@
 #include "redisearch.h"
 #include "varint.h"
 
-#include "dep/friso/friso.h"
+#include "friso/friso.h"
 
 #include <ctype.h>
 #include <stdlib.h>

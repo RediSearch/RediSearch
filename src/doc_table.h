@@ -6,7 +6,7 @@
 #include "byte_offsets.h"
 
 #include "redismodule.h"
-#include "dep/triemap/triemap.h"
+#include "triemap/triemap.h"
 #include "rmutil/sds.h"
 
 #include <stdlib.h>

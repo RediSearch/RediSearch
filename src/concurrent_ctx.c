@@ -1,7 +1,7 @@
 
 #include "concurrent_ctx.h"
 
-#include "dep/thpool/thpool.h"
+#include "thpool/thpool.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 

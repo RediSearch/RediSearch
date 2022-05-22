@@ -21,6 +21,14 @@ struct FieldIndexerData {
 
 //---------------------------------------------------------------------------------------------
 
+struct MergeHashTable : KHTable {
+  virtual int Compare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h);
+  virtual uint32_t Hash(const KHTableEntry *ent);
+  virtual KHTableEntry *Alloc(void *ctx);
+};
+
+//---------------------------------------------------------------------------------------------
+
 struct DocumentIndexer : public Object {
   RSAddDocumentCtx *head;          // first item in the queue
   RSAddDocumentCtx *tail;          // last item in the queue
@@ -32,9 +40,9 @@ struct DocumentIndexer : public Object {
   RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
   uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced
   bool isDbSelected;
-  struct DocumentIndexer *next;  // Next structure in the indexer list
-  KHTable mergeHt;               // Hashtable and block allocator for merging
+  struct DocumentIndexer *next;    // Next structure in the indexer list
   BlkAlloc alloc;
+  MergeHashTable mergeHt;          // Hashtable and block allocator for merging
   int options;
   pthread_t thr;
   size_t refcount;

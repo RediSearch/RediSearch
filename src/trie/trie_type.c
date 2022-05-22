@@ -1,8 +1,9 @@
-#include "../dep/libnu/libnu.h"
-#include "../rmutil/strings.h"
-#include "../rmutil/util.h"
-#include "../util/heap.h"
-#include "../util/misc.h"
+
+#include "libnu/libnu.h"
+#include "rmutil/strings.h"
+#include "rmutil/util.h"
+#include "util/heap.h"
+#include "util/misc.h"
 #include "rune_util.h"
 
 #include "trie_type.h"

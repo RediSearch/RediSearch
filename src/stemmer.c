@@ -1,5 +1,5 @@
 #include "stemmer.h"
-#include "dep/snowball/include/libstemmer.h"
+#include "snowball/include/libstemmer.h"
 #include "rmalloc.h"
 
 #include <string.h>

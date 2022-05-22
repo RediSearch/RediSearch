@@ -6,7 +6,7 @@
 #include "config.h"
 
 #include "util/fnv.h"
-#include "dep/triemap/triemap.h"
+#include "triemap/triemap.h"
 #include "rmutil/rm_assert.h"
 
 #include <sys/param.h>

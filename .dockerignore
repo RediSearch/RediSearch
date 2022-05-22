@@ -9,5 +9,6 @@
 **/*.o
 **/*.a
 # .git
-site
-build*/
+/bin/
+/site/
+/build*/

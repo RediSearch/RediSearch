@@ -1,10 +1,11 @@
-#ifndef CPPTESTS_COMMON_H
-#define CPPTESTS_COMMON_H
+
+#pragma once
 
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "spec.h"
 #include "document.h"
+
 #include "rwlock.h"
 
 namespace RS {
@@ -47,5 +48,3 @@ std::vector<std::string> search(RSIndex *index, RSQueryNode *qn);
 std::vector<std::string> search(RSIndex *index, const char *s);
 
 }  // namespace RS
-
-#endif

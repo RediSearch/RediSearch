@@ -5,7 +5,7 @@
 #include "redismodule.h"
 #include "config.h"
 
-#include "dep/thpool/thpool.h"
+#include "thpool/thpool.h"
 
 #include <time.h>
 

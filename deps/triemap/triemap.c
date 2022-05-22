@@ -636,6 +636,9 @@ static void TrieMaprangeIterateSubTree(TrieMapNode *n, TrieMapRangeCtx *r) {
  */
 static void TrieMapRangeIterate(TrieMapNode *n, const char *min, int nmin, const char *max,
                                 int nmax, TrieMapRangeCtx *r) {
+  int beginIdx = 0, endIdx;
+  int beginEqIdx, endEqIdx;
+
   // Push string to stack
   r->buf = array_ensure_append(r->buf, n->str, n->len, char);
 
@@ -663,7 +666,7 @@ static void TrieMapRangeIterate(TrieMapNode *n, const char *min, int nmin, const
   // Use binary search to find the beginning and end ranges:
   TrieMaprsbHelper h;
 
-  int beginEqIdx = -1;
+  beginEqIdx = -1;
   if (nmin > 0) {
     // searching for node that matches the prefix of our min value
     h.r = min;
@@ -671,7 +674,7 @@ static void TrieMapRangeIterate(TrieMapNode *n, const char *min, int nmin, const
     beginEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, TrieMaprsbComparePrefix);
   }
 
-  int endEqIdx = -1;
+  endEqIdx = -1;
   if (nmax > 0) {
     // searching for node that matches the prefix of our max value
     h.r = max;
@@ -718,7 +721,6 @@ static void TrieMapRangeIterate(TrieMapNode *n, const char *min, int nmin, const
     TrieMapRangeIterate(child, nextMin, nNextMin, NULL, -1, r);
   }
 
-  int beginIdx = 0;
   if (nmin > 0) {
     // search for the first element which are greater then our min value
     h.r = min;
@@ -726,7 +728,7 @@ static void TrieMapRangeIterate(TrieMapNode *n, const char *min, int nmin, const
     beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, TrieMaprsbCompareExact);
   }
 
-  int endIdx = nmax ? arrlen - 1 : -1;
+  endIdx = nmax ? arrlen - 1 : -1;
   if (nmax > 0) {
     // search for the first element which are less then our max value
     h.r = max;

@@ -11,18 +11,15 @@
 *.DS_Store
 *.dSYM
 *.zip
-*.gz
-*.bz2
+# *.gz
+# *.bz2
 *.tar
+/bin/
 /site/*
 /build*/
 /venv*/
-srcutil/lemon
-src/query_parser/lemon
-src/dep/gtest
-src/dep/googletest*
-src/pytest/rmtest2
-src/pytest/RLTest
+/srcutil/lemon
+/src/query_parser/lemon
 .vscode/*
 .idea/*
 .project
@@ -31,3 +28,4 @@ VSCODE.DB*
 callgrind.out.*
 /cmake-build-debug/
 /1/
+

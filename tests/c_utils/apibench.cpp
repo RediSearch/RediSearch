@@ -1,14 +1,14 @@
+#include "redisearch.h"
+#include "module.h"
+#include "version.h"
+#include "redisearch_api.h"
+#include "../cpptests/redismock/redismock.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>
 #include <cstring>
 #include <cassert>
-
-#include <redisearch.h>
-#include <module.h>
-#include <version.h>
-#include <redisearch_api.h>
-#include <cpptests/redismock/redismock.h>
 
 #define NUM_DOCS 5000000UL  // 10M
 #define NUM_ITER 100UL

@@ -1,7 +1,7 @@
 #include "cndict_loader.h"
 #include "buffer.h"
 
-#include "dep/miniz/miniz.h"
+#include "miniz/miniz.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 

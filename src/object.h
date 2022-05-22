@@ -4,6 +4,7 @@
 #include <new>
 #include <stdexcept>
 #include <mutex>
+#include <memory>
 
 #include "rmalloc.h"
 #include "util/arr.h"
@@ -46,5 +47,31 @@ public:
 };
 
 #endif //0
+
+//---------------------------------------------------------------------------------------------
+
+template <class T>
+class rm_allocator {
+public:
+    using value_type = T;
+
+    rm_allocator() noexcept {}
+    template <class U> rm_allocator(rm_allocator<U> const&) noexcept {}
+
+    value_type* allocate(std::size_t n) {
+        return static_cast<value_type*>(rm_alloc(n * sizeof(value_type)));
+    }
+
+    void
+    deallocate(value_type* p, std::size_t) noexcept {
+        rm_free(p);
+    }
+};
+
+template <class T, class U>
+bool operator==(rm_allocator<T> const&, rm_allocator<U> const&) noexcept { return true; }
+
+template <class T, class U>
+bool operator!=(rm_allocator<T> const& x, rm_allocator<U> const& y) noexcept { return !(x == y); }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

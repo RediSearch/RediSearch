@@ -3,7 +3,7 @@
 
 #include <stdlib.h>
 #include "sparse_vector.h"
-#include "../rmutil/vector.h"
+#include "rmutil/vector.h"
 #include "trie.h"
 
 /*

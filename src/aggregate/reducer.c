@@ -19,11 +19,11 @@ void RDCR_RegisterFactory(const char *name, ReducerFactory factory) {
 
 //---------------------------------------------------------------------------------------------
 
-static int isBuiltinsRegistered = 0;
+static bool isBuiltinsRegistered = false;
 
 ReducerFactory RDCR_GetFactory(const char *name) {
   if (!isBuiltinsRegistered) {
-    isBuiltinsRegistered = 1;
+    isBuiltinsRegistered = true;
     RDCR_RegisterBuiltins();
   }
   size_t n = array_len(globalRegistry);
@@ -75,7 +75,7 @@ bool ReducerOptions::GetKey(const RLookupKey **out) const {
     return false;
   }
 
-  // Get the input key..
+  // Get the input key
   if (*s == '@') {
     s++;
   }

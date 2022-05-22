@@ -13,7 +13,7 @@
 #include "rmutil/rm_assert.h"
 
 #include "rmalloc.h"
-#include "util/khash.h"
+#include "util/map.h"
 
 #include <stdlib.h>
 #include <stdbool.h>

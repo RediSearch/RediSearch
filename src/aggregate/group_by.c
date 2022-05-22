@@ -32,7 +32,7 @@
 //
 // These will be placed in the output row.
 
-Group::Group(Grouper &grouper, const arrayof(RSValue*) *groupvals, size_t ngrpvals) {
+Group::Group(Grouper &grouper, const arrayof(RSValue*) groupvals, size_t ngrpvals) {
   size_t numReducers = array_len(grouper.reducers);
   size_t elemSize = GROUP_BYTESIZE(&grouper);
   Group *group = grouper.groupsAlloc.Alloc(elemSize, GROUPS_PER_BLOCK * elemSize);

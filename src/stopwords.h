@@ -2,7 +2,7 @@
 #pragma once
 
 #include "redismodule.h"
-#include "dep/triemap/triemap.h"
+#include "triemap/triemap.h"
 
 #include <stdlib.h>
 

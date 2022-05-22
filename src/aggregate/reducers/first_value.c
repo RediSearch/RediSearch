@@ -3,19 +3,19 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct {
+struct fvCtx {
   const RLookupKey *retprop;   // The key to return
   const RLookupKey *sortprop;  // The key to sort by
   RSValue *value;              // Value to return
   RSValue *sortval;            // Top sorted value
   int ascending;
-} fvCtx;
+};
 
-typedef struct {
+struct FVReducer {
   Reducer base;
   const RLookupKey *sortprop;  // The property the value is sorted by
   int ascending;
-} FVReducer;
+};
 
 //---------------------------------------------------------------------------------------------
 

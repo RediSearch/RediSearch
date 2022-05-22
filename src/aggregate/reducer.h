@@ -2,10 +2,10 @@
 
 #include "redisearch.h"
 #include "result_processor.h"
-#include "dep/triemap/triemap.h"
+#include "triemap/triemap.h"
 #include "util/block_alloc.h"
 #include "query_error.h"
-#include "dep/hll/hll.h"
+#include "hll/hll.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
