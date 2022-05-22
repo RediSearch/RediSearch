@@ -16,7 +16,6 @@
 *.tar
 /bin/
 /site/*
-/build*/
 /venv*/
 /srcutil/lemon
 /src/query_parser/lemon
