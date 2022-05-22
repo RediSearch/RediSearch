@@ -3,6 +3,10 @@
 #include <time.h>
 #include "version.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*****************************************
  *            Timeout API
  ****************************************/
@@ -32,21 +36,36 @@ static inline void rs_timersub(struct timespec *a, struct timespec *b, struct ti
   }	
 }
 
-static inline int TimedOut(struct timespec timeout, size_t *counter) {
+#define NOT_TIMED_OUT 0
+#define TIMED_OUT 1
+
+typedef struct TimeoutCtx {
+  size_t counter;
+  struct timespec timeout;
+} TimeoutCtx;
+
+// A NormalizeFunc converts a raw token to the normalized form in which it will be stored
+typedef int(*TimeoutCb)(TimeoutCtx *);
+
+static inline int TimedOut(struct timespec *timeout, size_t *counter) {
   if (RS_IsMock) return 0;
 
-  if (++(*counter) == 100) {
-    *counter = 0;
+  if (!counter || ++(*counter) == 100) {
+    if (counter) *counter = 0;
     static struct timespec now;
     clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-    if (__builtin_expect(rs_timer_ge(&now, &timeout), 0)) {
-      return 1;
+    if (__builtin_expect(rs_timer_ge(&now, timeout), 0)) {
+      return TIMED_OUT;
     }
   }
-  return 0;
+  return NOT_TIMED_OUT;
 }
 
-static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
+static inline int TimedOutWithCtx(TimeoutCtx *ctx) {
+  return TimedOut(&ctx->timeout, &ctx->counter);
+}
+
+static inline void updateTimeout(struct timespec *timeout, int durationNS) {
   if (RS_IsMock) return;
 
   // 0 disables the timeout
@@ -60,3 +79,7 @@ static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
   rs_timeradd(&now, &duration, timeout);
 }
+
+#ifdef __cplusplus
+}
+#endif

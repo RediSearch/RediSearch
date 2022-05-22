@@ -69,7 +69,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
 
-  if (TimedOut(self->timeout, &self->timeoutLimiter)) {
+  if (TimedOut(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -90,6 +90,8 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       return RS_RESULT_EOF;
     } else if (!r || rc == INDEXREAD_NOTFOUND) {
       continue;
+    } else if (rc == INDEXREAD_TIMEOUT) {
+      return RS_RESULT_TIMEDOUT;
     }
 
     dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);

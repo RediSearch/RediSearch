@@ -2095,7 +2095,7 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
     # check no time w/o sorter/grouper
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*',
                   'LOAD', 1, 't',
                   'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                   'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
@@ -2103,7 +2103,7 @@ def testTimeout(env):
     env.assertEqual(res[0], 1)
 
     # test grouper
-    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*',
                'LOAD', 1, 't',
                'GROUPBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
@@ -2112,7 +2112,7 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test sorter
-    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*',
                'LOAD', 1, 't',
                'SORTBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
