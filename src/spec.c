@@ -218,7 +218,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     RedisModule_SetExpire(k, sp->timeout * 1000);
   }
   // Create the indexer
-  sp->indexer = NewIndexer(sp);
+  sp->indexer = new Indexer(sp);
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
@@ -266,34 +266,34 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
   int rc;
   // this is a text field
   // init default weight and type
-  while (!AC_IsAtEnd(ac)) {
-    if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
+  while (!ac->IsAtEnd()) {
+    if (ac->AdvanceIfMatch(SPEC_NOSTEM_STR)) {
       sp->options |= FieldSpec_NoStemming;
       continue;
 
-    } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
+    } else if (ac->AdvanceIfMatch(SPEC_WEIGHT_STR)) {
       double d;
-      if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
+      if ((rc = ac->GetDouble(&d, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "weight", rc);
         return 0;
       }
       sp->ftWeight = d;
       continue;
 
-    } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
-      if (AC_IsAtEnd(ac)) {
+    } else if (ac->AdvanceIfMatch(SPEC_PHONETIC_STR)) {
+      if (ac->IsAtEnd()) {
         status->SetError(QUERY_EPARSEARGS, SPEC_PHONETIC_STR " requires an argument");
         return 0;
       }
 
-      const char *matcher = AC_GetStringNC(ac, NULL);
+      const char *matcher = ac->GetStringNC(NULL);
       // try and parse the matcher
       // currently we just make sure algorithm is double metaphone (dm)
       // and language is one of the following : English (en), French (fr), Portuguese (pt) and
       // Spanish (es)
       // in the future we will support more algorithms and more languages
       if (!checkPhoneticAlgorithmAndLang(matcher)) {
-        
+
             status->SetError(QUERY_EINVAL,
             "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
             "double metaphone (dm). Supported languages: English (en), French (fr), "
@@ -325,28 +325,28 @@ void FieldSpec_Initialize(FieldSpec *sp, FieldType types) {
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
-  if (AC_IsAtEnd(ac)) {
+  if (ac->IsAtEnd()) {
     status->SetErrorFmt(QUERY_EPARSEARGS, "Field `%s` does not have a type", sp->name);
     return 0;
   }
 
-  if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
+  if (ac->AdvanceIfMatch(SPEC_TEXT_STR)) {
     FieldSpec_Initialize(sp, INDEXFLD_T_FULLTEXT);
     if (!parseTextField(sp, ac, status)) {
       goto error;
     }
-  } else if (AC_AdvanceIfMatch(ac, NUMERIC_STR)) {
+  } else if (ac->AdvanceIfMatch(NUMERIC_STR)) {
     FieldSpec_Initialize(sp, INDEXFLD_T_NUMERIC);
-  } else if (AC_AdvanceIfMatch(ac, GEO_STR)) {  // geo field
+  } else if (ac->AdvanceIfMatch(GEO_STR)) {  // geo field
     FieldSpec_Initialize(sp, INDEXFLD_T_GEO);
-  } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
+  } else if (ac->AdvanceIfMatch(SPEC_TAG_STR)) {  // tag field
     FieldSpec_Initialize(sp, INDEXFLD_T_TAG);
-    if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
-      if (AC_IsAtEnd(ac)) {
+    if (ac->AdvanceIfMatch(SPEC_SEPARATOR_STR)) {
+      if (ac->IsAtEnd()) {
         status->SetError(QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");
         goto error;
       }
-      const char *sep = AC_GetStringNC(ac, NULL);
+      const char *sep = ac->GetStringNC(NULL);
       if (strlen(sep) != 1) {
         status->SetErrorFmt(QUERY_EPARSEARGS,
                                "Tag separator must be a single character. Got `%s`", sep);
@@ -359,11 +359,11 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
     goto error;
   }
 
-  while (!AC_IsAtEnd(ac)) {
-    if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
+  while (!ac->IsAtEnd()) {
+    if (ac->AdvanceIfMatch(SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(sp);
       continue;
-    } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
+    } else if (ac->AdvanceIfMatch(SPEC_NOINDEX_STR)) {
       sp->options |= FieldSpec_NotIndexable;
       continue;
     } else {
@@ -415,9 +415,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
   const size_t prevSortLen = sp->sortables->len;
   FieldSpec *fs = NULL;
 
-  while (!AC_IsAtEnd(ac)) {
+  while (!ac->IsAtEnd()) {
     size_t nfieldName = 0;
-    const char *fieldName = AC_GetStringNC(ac, &nfieldName);
+    const char *fieldName = ac->GetStringNC(&nfieldName);
     if (IndexSpec_GetField(sp, fieldName, nfieldName)) {
       status->SetError(QUERY_EINVAL, "Duplicate field in schema");
       goto reset;
@@ -442,7 +442,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
         if (isNew) {
           sp->flags |= Index_WideSchema;
         } else if ((sp->flags & Index_WideSchema) == 0) {
-          
+
               status->SetError(QUERY_ELIMIT,
               "Cannot add more fields. Declare index with wide fields to allow adding "
               "unlimited fields");
@@ -518,7 +518,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {.name = NULL}};
 
   ACArgSpec *errarg = NULL;
-  int rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+  int rc = &ac->ParseArgSpec(argopts, &errarg);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
@@ -531,17 +531,17 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   }
   spec->timeout = timeout;
 
-  if (AC_IsInitialized(&acStopwords)) {
+  if (&acStopwords->IsInitialized()) {
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
     }
-    spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
+    spec->stopwords = new StopWordList((const char **)acStopwords.objs, acStopwords.argc);
     spec->flags |= Index_HasCustomStopwords;
   }
 
-  if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
-    if (AC_NumRemaining(&ac)) {
-      const char *badarg = AC_GetStringNC(&ac, NULL);
+  if (!&ac->AdvanceIfMatch(SPEC_SCHEMA_STR)) {
+    if (&ac->NumRemaining()) {
+      const char *badarg = &ac->GetStringNC(NULL);
       status->SetErrorFmt(QUERY_EPARSEARGS, "Unknown argument `%s`", badarg);
     } else {
       status->SetError(QUERY_EPARSEARGS, "No schema found");
@@ -1295,12 +1295,12 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       QueryError status;
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
-      int rc = IndexAlias_Add(s, sp, 0, &status);
+      int rc = IndexAlias::Add(s, sp, 0, &status);
       RedisModule_Free(s);
       RS_LOG_ASSERT(rc == REDISMODULE_OK, "adding alias to index failed");
     }
   }
-  sp->indexer = NewIndexer(sp);
+  sp->indexer = new DocumentIndexer(sp);
   return sp;
 }
 

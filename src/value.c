@@ -480,7 +480,7 @@ RSValue *RSValue::NewArray(RSValue **vals, size_t n, int options) {
         continue;
       }
       if (!(options & RSVAL_ARRAY_NOINCREF)) {
-        RSValue_IncrRef(v);
+        v->IncrRef();
       }
     }
   }
@@ -499,7 +499,7 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
     arr[i] = RS_StringValC(p);
   }
   va_end(ap);
-  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
+  return RSValue::NewArray(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -511,7 +511,7 @@ RSValue *RS_StringArray(char **strs, uint32_t sz) {
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValC(strs[i]);
   }
-  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
+  return RSValue::NewArray(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -522,7 +522,7 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValT(strs[i], strlen(strs[i]), st);
   }
-  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
+  return RSValue::NewArray(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
 //---------------------------------------------------------------------------------------------

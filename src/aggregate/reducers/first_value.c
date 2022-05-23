@@ -45,7 +45,7 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
     fvx->value = RS_NullVal();
     return 1;
   }
-  fvx->value = RSValue_IncrRef(val);
+  fvx->value = val->IncrRef();
   return 1;
 }
 
@@ -65,13 +65,13 @@ static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
   if (!fvx->sortval) {
     // No current value: assign value and continue
-    fvx->value = RSValue_IncrRef(val);
-    fvx->sortval = RSValue_IncrRef(curSortval);
+    fvx->value = val->IncrRef();
+    fvx->sortval = curSortval->IncrRef();
     return 1;
   }
 
-  int rc = (fvx->ascending ? -1 : 1) * RSValue_Cmp(curSortval, fvx->sortval, NULL);
-  int isnull = RSValue_IsNull(fvx->sortval);
+  int rc = (fvx->ascending ? -1 : 1) * RSValue::Cmp(curSortval, fvx->sortval, NULL);
+  int isnull = fvx->sortval->IsNull();
 
   if (!fvx->value || (!isnull && rc > 0) || (isnull && rc < 0)) {
     RSVALUE_REPLACE(&fvx->sortval, curSortval);
@@ -102,25 +102,25 @@ Reducer *RDCRFirstValue_New(const ReducerOptions *options) {
   FVReducer *fvr = rm_calloc(1, sizeof(*fvr));
   fvr->ascending = 1;
 
-  if (!ReducerOpts_GetKey(options, &fvr->base.srckey)) {
+  if (!options->GetKey(&fvr->base.srckey)) {
     rm_free(fvr);
     return NULL;
   }
 
-  if (AC_AdvanceIfMatch(options->args, "BY")) {
+  if (options->args->AdvanceIfMatch("BY")) {
     // Get the next field...
-    if (!ReducerOptions_GetKey(options, &fvr->sortprop)) {
+    if (!options->GetKey(&fvr->sortprop)) {
       rm_free(fvr);
       return NULL;
     }
-    if (AC_AdvanceIfMatch(options->args, "ASC")) {
+    if (options->args->AdvanceIfMatch("ASC")) {
       fvr->ascending = 1;
-    } else if (AC_AdvanceIfMatch(options->args, "DESC")) {
+    } else if (options->args->AdvanceIfMatch("DESC")) {
       fvr->ascending = 0;
     }
   }
 
-  if (!ReducerOpts_EnsureArgsConsumed(options)) {
+  if (!options->EnsureArgsConsumed()) {
     rm_free(fvr);
     return NULL;
   }

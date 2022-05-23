@@ -138,7 +138,7 @@ static RSValue *hllFinalize(Reducer *parent, void *ctx) {
 
 static Reducer *newHllCommon(const ReducerOptions *options, int isRaw) {
   Reducer *r = rm_calloc(1, sizeof(*r));
-  if (!ReducerOpts_GetKey(options, &r->srckey)) {
+  if (!options->GetKey(&r->srckey)) {
     rm_free(r);
     return NULL;
   }

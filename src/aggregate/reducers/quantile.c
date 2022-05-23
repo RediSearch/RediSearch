@@ -68,7 +68,7 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
     goto error;
   }
   int rv;
-  if ((rv = AC_GetDouble(options->args, &r->pct, 0)) != AC_OK) {
+  if ((rv = options->args->GetDouble(&r->pct, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(options->status, options->name, rv);
     goto error;
   }

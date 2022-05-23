@@ -22,7 +22,7 @@ static void writeEntry(InvertedIndex *idx, size_t id) {
 
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
-  InvertedIndex *idx = NewInvertedIndex(MY_FLAGS, 1);
+  InvertedIndex *idx = new InvertedIndex(MY_FLAGS, 1);
   for (size_t ii = 0; ii < NUM_ENTRIES; ++ii) {
     writeEntry(idx, ii);
   }

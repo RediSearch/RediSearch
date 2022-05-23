@@ -118,7 +118,7 @@ int AREQ::parseCursorSettings(ArgsCursor *ac, QueryError *status) {
 
   int rv;
   ACArgSpec *errArg = NULL;
-  if ((rv = AC_ParseArgSpec(ac, specs, &errArg)) != AC_OK && rv != AC_ERR_ENOENT) {
+  if ((rv = ac->ParseArgSpec(specs, &errArg)) != AC_OK && rv != AC_ERR_ENOENT) {
     QERR_MKBADARGS_AC(status, errArg->name, rv);
     return REDISMODULE_ERR;
   }
@@ -139,15 +139,15 @@ int AREQ::parseCursorSettings(ArgsCursor *ac, QueryError *status) {
 int AREQ::handleCommonArgs(ArgsCursor *ac, bool allowLegacy, QueryError *status) {
   int rv;
   // This handles the common arguments that are not stateful
-  if (AC_AdvanceIfMatch(ac, "LIMIT")) {
+  if (ac->AdvanceIfMatch("LIMIT")) {
     PLN_ArrangeStep *arng = ap.GetOrCreateArrangeStep();
     // Parse offset, length
-    if (AC_NumRemaining(ac) < 2) {
+    if (ac->NumRemaining() < 2) {
       status->SetError(QUERY_EPARSEARGS, "LIMIT requires two arguments");
       return ARG_ERROR;
     }
-    if ((rv = AC_GetU64(ac, &arng->offset, 0)) != AC_OK ||
-        (rv = AC_GetU64(ac, &arng->limit, 0)) != AC_OK) {
+    if ((rv = ac->GetU64(&arng->offset, 0)) != AC_OK ||
+        (rv = ac->GetU64(&arng->limit, 0)) != AC_OK) {
       status->SetError(QUERY_EPARSEARGS, "LIMIT needs two numeric arguments");
       return ARG_ERROR;
     }
@@ -160,30 +160,30 @@ int AREQ::handleCommonArgs(ArgsCursor *ac, bool allowLegacy, QueryError *status)
                              SEARCH_REQUEST_RESULTS_MAX);
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
+  } else if (ac->AdvanceIfMatch("SORTBY")) {
     PLN_ArrangeStep *arng = ap.GetOrCreateArrangeStep();
     if ((parseSortby(arng, ac, status, reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "ON_TIMEOUT")) {
-    if (AC_NumRemaining(ac) < 1) {
+  } else if (ac->AdvanceIfMatch("ON_TIMEOUT")) {
+    if (ac->NumRemaining() < 1) {
       status->SetError(QUERY_EPARSEARGS, "Need argument for ON_TIMEOUT");
       return ARG_ERROR;
     }
-    const char *policystr = AC_GetStringNC(ac, NULL);
+    const char *policystr = ac->GetStringNC(NULL);
     tmoPolicy = TimeoutPolicy_Parse(policystr, strlen(policystr));
     if (tmoPolicy == TimeoutPolicy_Invalid) {
       status->SetErrorFmt(QUERY_EPARSEARGS, "'%s' is not a valid timeout policy",
                              policystr);
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
+  } else if (ac->AdvanceIfMatch("WITHCURSOR")) {
     if (parseCursorSettings(ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
+  } else if (ac->AdvanceIfMatch("_NUM_SSTRING")) {
     reqflags |= QEXEC_F_TYPED;
-  } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
+  } else if (ac->AdvanceIfMatch("WITHRAWIDS")) {
     reqflags |= QEXEC_F_SENDRAWIDS;
   } else {
     return ARG_UNKNOWN;
@@ -206,19 +206,19 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   const char **keys = NULL;
 
   if (isLegacy) {
-    if (AC_NumRemaining(ac) > 0) {
+    if (ac->NumRemaining() > 0) {
       // Mimic subArgs to contain the single field we already have
-      AC_GetSlice(ac, &subArgs, 1);
-      if (AC_AdvanceIfMatch(ac, "DESC")) {
+      ac->GetSlice(&subArgs, 1);
+      if (ac->AdvanceIfMatch("DESC")) {
         legacyDesc = 1;
-      } else if (AC_AdvanceIfMatch(ac, "ASC")) {
+      } else if (ac->AdvanceIfMatch("ASC")) {
         legacyDesc = 0;
       }
     } else {
       goto err;
     }
   } else {
-    rv = AC_GetVarArgs(ac, &subArgs);
+    rv = ac->GetVarArgs(&subArgs);
     if (rv != AC_OK) {
       QERR_MKBADARGS_AC(status, "SORTBY", rv);
       goto err;
@@ -230,16 +230,15 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   if (isLegacy) {
     // Legacy demands one field and an optional ASC/DESC parameter. Both
     // of these are handled above, so no need for argument parsing
-    const char *s = AC_GetStringNC(&subArgs, NULL);
+    const char *s = &subArgs->GetStringNC(NULL);
     keys = array_append(keys, s);
 
     if (legacyDesc) {
       SORTASCMAP_SETDESC(ascMap, 0);
     }
   } else {
-    while (!AC_IsAtEnd(&subArgs)) {
-
-      const char *s = AC_GetStringNC(&subArgs, NULL);
+    while (!&subArgs->IsAtEnd()) {
+      const char *s = &subArgs->GetStringNC(NULL);
       if (*s == '@') {
         if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
           QERR_MKBADARGS_FMT(status, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
@@ -265,9 +264,9 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   // Parse optional MAX
   // MAX is not included in the normal SORTBY arglist.. so we need to switch
   // back to `ac`
-  if (AC_AdvanceIfMatch(ac, "MAX")) {
+  if (ac->AdvanceIfMatch("MAX")) {
     unsigned mx = 0;
-    if ((rv = AC_GetUnsigned(ac, &mx, 0) != AC_OK)) {
+    if ((rv = ac->GetUnsigned( &mx, 0) != AC_OK)) {
       QERR_MKBADARGS_AC(status, "MAX", rv);
       goto err;
     }
@@ -288,7 +287,7 @@ err:
 //---------------------------------------------------------------------------------------------
 
 static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryError *status) {
-  if (AC_AdvanceIfMatch(ac, "FILTER")) {
+  if (ac->AdvanceIfMatch("FILTER")) {
     // Numeric filter
     NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
     try {
@@ -299,7 +298,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
     if (!*curpp) {
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
+  } else if (ac->AdvanceIfMatch("GEOFILTER")) {
     try {
       options->legacy.gf = new GeoFilter(ac, status);
     } catch (Error &x) {
@@ -339,9 +338,9 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
       {name: "PAYLOAD", type: AC_ARGTYPE_STRING, target: &ast->udata, len: &ast->udatalen},
       {0}};
 
-  while (!AC_IsAtEnd(ac)) {
+  while (!ac->IsAtEnd()) {
     ACArgSpec *errSpec = NULL;
-    int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
+    int rv = ac->ParseArgSpec(querySpecs, &errSpec);
     if (rv == AC_OK) {
       continue;
     }
@@ -352,12 +351,12 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
     }
 
     // See if this is one of our arguments which requires special handling
-    if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
+    if (ac->AdvanceIfMatch("SUMMARIZE")) {
       ensureSimpleMode();
       outFields.ParseSummarize(ac);
       reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
-    } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
+    } else if (ac->AdvanceIfMatch("HIGHLIGHT")) {
       ensureSimpleMode();
       outFields.ParseHighlight(ac);
       reqflags |= QEXEC_F_SEND_HIGHLIGHT;
@@ -385,7 +384,7 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
   searchOpts->legacy.ninfields = inFields.argc;
   searchOpts->language = RSLanguage_Find(languageStr);
 
-  if (AC_IsInitialized(&returnFields)) {
+  if (&returnFields->IsInitialized()) {
     ensureSimpleMode();
 
     outFields.explicitReturn = 1;
@@ -393,8 +392,8 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
       reqflags |= QEXEC_F_SEND_NOFIELDS;
     }
 
-    while (!AC_IsAtEnd(&returnFields)) {
-      const char *name = AC_GetStringNC(&returnFields, NULL);
+    while (!&returnFields->IsAtEnd()) {
+      const char *name = &returnFields->GetStringNC(NULL);
       ReturnedField *f = outFields.GetCreateField(name);
       f->explicitReturn = 1;
     }
@@ -412,16 +411,16 @@ char *PLN_Reducer::getAlias(const char *func) {
   // only put parentheses if we actually have args
   char buf[255];
   ArgsCursor tmp = args;
-  while (!AC_IsAtEnd(&tmp)) {
+  while (!&tmp->IsAtEnd()) {
     size_t l;
-    const char *s = AC_GetStringNC(&tmp, &l);
+    const char *s = &tmp->GetStringNC(&l);
     while (*s == '@') {
       // Don't allow the leading '@' to be included as an alias!
       ++s;
       --l;
     }
     out = sdscatlen(out, s, l);
-    if (!AC_IsAtEnd(&tmp)) {
+    if (!&tmp->IsAtEnd()) {
       out = sdscat(out, ",");
     }
   }
@@ -451,13 +450,13 @@ PLN_GroupStep::~PLN_GroupStep() {
 
 PLN_Reducer::PLN_Reducer(const char *name_, const ArgsCursor *ac) {
   name = name_; //@@ owership
-  int rv = AC_GetVarArgs(ac, &args);
+  int rv = ac->GetVarArgs(&args);
   if (rv != AC_OK) throw BadArgsError(rv, name);
 
   const char *_alias = NULL;
   // See if there is an alias
-  if (AC_AdvanceIfMatch(ac, "AS")) {
-    rv = AC_GetString(ac, &_alias, NULL, 0);
+  if (ac->AdvanceIfMatch("AS")) {
+    rv = ac->GetString(&_alias, NULL, 0);
     if (rv != AC_OK) {
       throw BadArgsError(rv, "AS");
     }
@@ -515,8 +514,8 @@ PLN_GroupStep::PLN_GroupStep(const char **properties_, size_t nproperties_) : PL
 int AREQ::parseGroupby(ArgsCursor *ac, QueryError *status) {
   ArgsCursor groupArgs = {0};
   const char *s;
-  AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
-  int rv = AC_GetVarArgs(ac, &groupArgs);
+  ac->GetString(&s, NULL, AC_F_NOADVANCE);
+  int rv = ac->GetVarArgs(&groupArgs);
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "GROUPBY", rv);
     return REDISMODULE_ERR;
@@ -526,9 +525,9 @@ int AREQ::parseGroupby(ArgsCursor *ac, QueryError *status) {
   PLN_GroupStep *gstp = new PLN_GroupStep((const char **)groupArgs.objs, groupArgs.argc);
   ap.AddStep(gstp);
 
-  while (AC_AdvanceIfMatch(ac, "REDUCE")) {
+  while (ac->AdvanceIfMatch("REDUCE")) {
     const char *name;
-    if (AC_GetString(ac, &name, NULL, 0) != AC_OK) {
+    if (ac->GetString(&name, NULL, 0) != AC_OK) {
       QERR_MKBADARGS_AC(status, "REDUCE", rv);
       return REDISMODULE_ERR;
     }
@@ -562,7 +561,7 @@ PLN_MapFilterStep::PLN_MapFilterStep(const char *expr, int mode) : PLN_BaseStep(
 int AREQ::handleApplyOrFilter(ArgsCursor *ac, bool isApply, QueryError *status) {
   // Parse filters!
   const char *expr = NULL;
-  int rv = AC_GetString(ac, &expr, NULL, 0);
+  int rv = ac->GetString(&expr, NULL, 0);
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "APPLY/FILTER", rv);
     return REDISMODULE_ERR;
@@ -572,9 +571,9 @@ int AREQ::handleApplyOrFilter(ArgsCursor *ac, bool isApply, QueryError *status) 
   ap.AddStep(stp);
 
   if (isApply) {
-    if (AC_AdvanceIfMatch(ac, "AS")) {
+    if (ac->AdvanceIfMatch("AS")) {
       const char *alias;
-      if (AC_GetString(ac, &alias, NULL, 0) != AC_OK) {
+      if (ac->GetString(&alias, NULL, 0) != AC_OK) {
         QERR_MKBADARGS_FMT(status, "AS needs argument");
         goto error;
       }
@@ -610,7 +609,7 @@ PLN_LoadStep::~PLN_LoadStep() {
 
 int AREQ::handleLoad(ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
-  int rc = AC_GetVarArgs(ac, &loadfields);
+  int rc = ac->GetVarArgs(&loadfields);
   if (rc != AC_OK) {
     QERR_MKBADARGS_AC(status, "LOAD", rc);
     return REDISMODULE_ERR;
@@ -669,13 +668,13 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
   ArgsCursor ac = {0};
   ArgsCursor_InitSDS(&ac, args, nargs);
 
-  if (AC_IsAtEnd(&ac)) {
+  if (&ac->IsAtEnd()) {
     status->SetError(QUERY_EPARSEARGS, "No query string provided");
     return REDISMODULE_ERR;
   }
 
-  query = AC_GetStringNC(&ac, NULL);
-  
+  query = &ac->GetStringNC(NULL);
+
   if (parseQueryArgs(&ac, &searchopts, &ap, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -684,7 +683,7 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
 
   // Now we have a 'compiled' plan. Let's get some more options..
 
-  while (!AC_IsAtEnd(&ac)) {
+  while (!&ac->IsAtEnd()) {
     int rv = handleCommonArgs(&ac, !!(reqflags & QEXEC_F_IS_SEARCH), status);
     if (rv == ARG_HANDLED) {
       continue;
@@ -692,22 +691,22 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
-    if (AC_AdvanceIfMatch(&ac, "GROUPBY")) {
+    if (&ac->AdvanceIfMatch("GROUPBY")) {
       if (!ensureExtendedMode("GROUPBY", status)) {
         return REDISMODULE_ERR;
       }
       if (parseGroupby(&ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
-    } else if (AC_AdvanceIfMatch(&ac, "APPLY")) {
+    } else if (&ac->AdvanceIfMatch("APPLY")) {
       if (handleApplyOrFilter(&ac, true, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
-    } else if (AC_AdvanceIfMatch(&ac, "LOAD")) {
+    } else if (&ac->AdvanceIfMatch("LOAD")) {
       if (handleLoad(&ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
-    } else if (AC_AdvanceIfMatch(&ac, "FILTER")) {
+    } else if (&ac->AdvanceIfMatch("FILTER")) {
       if (handleApplyOrFilter(&ac, false, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
@@ -1154,8 +1153,8 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
           goto error;
         }
         // Get all the keys for this lookup...
-        while (!AC_IsAtEnd(&lstp->args)) {
-          const char *s = AC_GetStringNC(&lstp->args, NULL);
+        while (!&lstp->args->IsAtEnd()) {
+          const char *s = &lstp->args->GetStringNC(NULL);
           if (*s == '@') {
             s++;
           }
@@ -1229,7 +1228,7 @@ AREQ::~AREQ() {
     rootiter = NULL;
   }
 
-  // Finally, free the context. 
+  // Finally, free the context.
   // If we are a cursor, some more cleanup is required since we also now own the
   // detached ("Thread Safe") context.
   RedisModuleCtx *thctx = NULL;

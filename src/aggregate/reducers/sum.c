@@ -63,7 +63,7 @@ static RSValue *sumFinalize(Reducer *baseparent, void *instance) {
 
 static Reducer *newReducerCommon(const ReducerOptions *options, int isAvg) {
   SumReducer *r = rm_calloc(1, sizeof(*r));
-  if (!ReducerOpts_GetKey(options, &r->srckey)) {
+  if (!options->GetKey(&r->srckey)) {
     rm_free(r);
     return NULL;
   }

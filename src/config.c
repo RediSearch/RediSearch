@@ -40,7 +40,7 @@
 
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
-  int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
+  int acrc = ac->GetString(&config->extLoad, NULL, 0);
   RETURN_STATUS(acrc);
 }
 
@@ -84,7 +84,7 @@ CONFIG_BOOLEAN_GETTER(getNoMemPools, noMemPool, 0)
 
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
-  int acrc = AC_GetLongLong(ac, &config->minTermPrefix, AC_F_GE1);
+  int acrc = ac->GetLongLong( &config->minTermPrefix, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
@@ -94,7 +94,7 @@ CONFIG_GETTER(getMinPrefix) {
 }
 
 CONFIG_SETTER(setForkGCSleep) {
-  int acrc = AC_GetSize(ac, &config->forkGcSleepBeforeExit, AC_F_GE0);
+  int acrc = ac->GetSize(&config->forkGcSleepBeforeExit, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
@@ -106,7 +106,7 @@ CONFIG_GETTER(getForkGCSleep) {
 // MAXDOCTABLESIZE
 CONFIG_SETTER(setMaxDocTableSize) {
   size_t newsize = 0;
-  int acrc = AC_GetSize(ac, &newsize, AC_F_GE1);
+  int acrc = ac->GetSize(&newsize, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newsize > MAX_DOC_TABLE_SIZE) {
     status->SetError(QUERY_ELIMIT, "Value exceeds maximum possible document table size");
@@ -123,7 +123,7 @@ CONFIG_GETTER(getMaxDocTableSize) {
 
 // MAXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
-  int acrc = AC_GetLongLong(ac, &config->maxPrefixExpansions, AC_F_GE1);
+  int acrc = ac->GetLongLong( &config->maxPrefixExpansions, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
@@ -134,7 +134,7 @@ CONFIG_GETTER(getMaxExpansions) {
 
 // TIMEOUT
 CONFIG_SETTER(setTimeout) {
-  int acrc = AC_GetLongLong(ac, &config->queryTimeoutMS, AC_F_GE0);
+  int acrc = ac->GetLongLong( &config->queryTimeoutMS, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
@@ -145,7 +145,7 @@ CONFIG_GETTER(getTimeout) {
 
 // INDEX_THREADS
 CONFIG_SETTER(setIndexThreads) {
-  int acrc = AC_GetSize(ac, &config->indexPoolSize, AC_F_GE1);
+  int acrc = ac->GetSize(&config->indexPoolSize, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
   config->poolSizeNoAuto = 1;
   return REDISMODULE_OK;
@@ -158,7 +158,7 @@ CONFIG_GETTER(getIndexthreads) {
 
 // INDEX_THREADS
 CONFIG_SETTER(setSearchThreads) {
-  int acrc = AC_GetSize(ac, &config->searchPoolSize, AC_F_GE1);
+  int acrc = ac->GetSize(&config->searchPoolSize, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
   config->poolSizeNoAuto = 1;
   return REDISMODULE_OK;
@@ -171,7 +171,7 @@ CONFIG_GETTER(getSearchThreads) {
 
 // FRISOINI
 CONFIG_SETTER(setFrisoINI) {
-  int acrc = AC_GetString(ac, &config->frisoIni, NULL, 0);
+  int acrc = ac->GetString(&config->frisoIni, NULL, 0);
   RETURN_STATUS(acrc);
 }
 CONFIG_GETTER(getFrisoINI) {
@@ -181,7 +181,7 @@ CONFIG_GETTER(getFrisoINI) {
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
   const char *policy;
-  int acrc = AC_GetString(ac, &policy, NULL, 0);
+  int acrc = ac->GetString(&policy, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
 
   if ((config->timeoutPolicy = TimeoutPolicy_Parse(policy, strlen(policy))) ==
@@ -197,7 +197,7 @@ CONFIG_GETTER(getOnTimeout) {
 
 // GC_SCANSIZE
 CONFIG_SETTER(setGcScanSize) {
-  int acrc = AC_GetSize(ac, &config->gcScanSize, AC_F_GE1);
+  int acrc = ac->GetSize(&config->gcScanSize, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
@@ -208,27 +208,27 @@ CONFIG_GETTER(getGcScanSize) {
 
 // MIN_PHONETIC_TERM_LEN
 CONFIG_SETTER(setForkGcInterval) {
-  int acrc = AC_GetSize(ac, &config->forkGcRunIntervalSec, AC_F_GE1);
+  int acrc = ac->GetSize(&config->forkGcRunIntervalSec, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setForkGcCleanThreshold) {
-  int acrc = AC_GetSize(ac, &config->forkGcCleanThreshold, 0);
+  int acrc = ac->GetSize(&config->forkGcCleanThreshold, 0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setForkGcRetryInterval) {
-  int acrc = AC_GetSize(ac, &config->forkGcRetryInterval, AC_F_GE1);
+  int acrc = ac->GetSize(&config->forkGcRetryInterval, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setMaxResultsToUnsortedMode) {
-  int acrc = AC_GetLongLong(ac, &config->maxResultsToUnsortedMode, AC_F_GE1);
+  int acrc = ac->GetLongLong( &config->maxResultsToUnsortedMode, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setCursorMaxIdle) {
-  int acrc = AC_GetLongLong(ac, &config->cursorMaxIdle, AC_F_GE1);
+  int acrc = ac->GetLongLong( &config->cursorMaxIdle, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
@@ -258,7 +258,7 @@ CONFIG_GETTER(getCursorMaxIdle) {
 }
 
 CONFIG_SETTER(setMinPhoneticTermLen) {
-  int acrc = AC_GetSize(ac, &config->minPhoneticTermLen, AC_F_GE1);
+  int acrc = ac->GetSize(&config->minPhoneticTermLen, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
@@ -269,7 +269,7 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
-  int acrc = AC_GetString(ac, &policy, NULL, 0);
+  int acrc = ac->GetString(&policy, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcPolicy = GCPolicy_Fork;
@@ -312,8 +312,8 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   }
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
-  while (!AC_IsAtEnd(&ac)) {
-    const char *name = AC_GetStringNC(&ac, NULL);
+  while (!&ac->IsAtEnd()) {
+    const char *name = &ac->GetStringNC(NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
     if (curVar == NULL) {
       rm_asprintf(err, "No such configuration option `%s`", name);

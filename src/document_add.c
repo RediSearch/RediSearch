@@ -68,17 +68,17 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
                          {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
                          {.name = NULL}};
 
-  while (!AC_IsAtEnd(ac)) {
+  while (!ac->IsAtEnd()) {
     int rv = 0;
     ACArgSpec *errArg = NULL;
 
-    if ((rv = AC_ParseArgSpec(ac, argList, &errArg)) == AC_OK) {
+    if ((rv = ac->ParseArgSpec(argList, &errArg)) == AC_OK) {
       continue;
     } else if (rv == AC_ERR_ENOENT) {
       size_t narg;
-      const char *s = AC_GetStringNC(ac, &narg);
+      const char *s = ac->GetStringNC(&narg);
       if (!strncasecmp("FIELDS", s, narg)) {
-        size_t numRemaining = AC_NumRemaining(ac);
+        size_t numRemaining = ac->NumRemaining();
         if (numRemaining % 2 != 0) {
           status->SetError(QUERY_EADDARGS,
                               "Fields must be specified in FIELD VALUE pairs");
@@ -232,7 +232,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
 
   int rv = 0;
-  if ((rv = AC_GetDouble(&ac, &opts.score, 0) != AC_OK)) {
+  if ((rv = &ac->GetDouble(&opts.score, 0) != AC_OK)) {
     status.SetError(QUERY_EADDARGS, "Could not parse document score");
   } else if (opts.score < 0 || opts.score > 1.0) {
     status.SetError(QUERY_EADDARGS, "Score must be between 0 and 1");
@@ -320,7 +320,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   double ds;
   int rv = 0;
 
-  if ((rv = AC_GetDouble(&ac, &ds, 0)) != AC_OK) {
+  if ((rv = &ac->GetDouble(&ds, 0)) != AC_OK) {
     status.SetError(QUERY_EADDARGS, "Could not parse document score");
     goto cleanup;
   } else if (ds < 0 || ds > 1.0) {
@@ -335,11 +335,11 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
        {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
        {.name = NULL}};
   ACArgSpec *errArg = NULL;
-  rv = AC_ParseArgSpec(&ac, specs, &errArg);
+  rv = &ac->ParseArgSpec(specs, &errArg);
   if (rv == AC_OK) {
     // OK. No error
   } else if (rv == AC_ERR_ENOENT) {
-    const char *keyword = AC_GetStringNC(&ac, NULL);
+    const char *keyword = &ac->GetStringNC(, NULL);
     status.SetErrorFmt(QUERY_EADDARGS, "Unknown keyword: `%s`", keyword);
     goto cleanup;
   } else {

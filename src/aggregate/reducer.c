@@ -70,7 +70,7 @@ void RDCR_RegisterBuiltins() {
 bool ReducerOptions::GetKey(const RLookupKey **out) const {
   ArgsCursor *ac = args;
   const char *s;
-  if (AC_GetString(ac, &s, NULL, 0) != AC_OK) {
+  if (ac->GetString(&s, NULL, 0) != AC_OK) {
     QERR_MKBADARGS_FMT(status, "Missing arguments for %s", name);
     return false;
   }
@@ -90,7 +90,7 @@ bool ReducerOptions::GetKey(const RLookupKey **out) const {
 //---------------------------------------------------------------------------------------------
 
 bool ReducerOptions::EnsureArgsConsumed() const {
-  if (AC_NumRemaining(args)) {
+  if (args->NumRemaining()) {
     status->FmtUnknownArg(args, name);
     return false;
   }

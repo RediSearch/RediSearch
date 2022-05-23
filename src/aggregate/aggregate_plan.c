@@ -111,7 +111,7 @@ AGGPlan::AGGPlan() {
  *  can be used for any plan type which creates a new RLookup
  */
 
-const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseStep *end, 
+const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseStep *end,
                                       PLN_StepType type) const {
   if (!begin) {
     //begin = DLLIST_ITEM(steps.next, PLN_BaseStep, llnodePln);
@@ -329,7 +329,7 @@ static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
 
 static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {
   for (size_t ii = 0; ii < ac->argc; ++ii) {
-    append_string(arr, AC_StringArg(ac, ii));
+    append_string(arr, ac->StringArg(ii));
   }
 }
 

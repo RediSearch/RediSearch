@@ -31,16 +31,16 @@ QueryError::~QueryError() {
  *
  * Equivalent to the following boilerplate:
  * @code{c}
- *  const char *unknown = AC_GetStringNC(ac, NULL);
+ *  const char *unknown = ac->GetStringNC(NULL);
  *  err.SetErrorFmt(QUERY_EPARSEARGS, "Unknown argument for %s: %s", name, unknown);
  * @endcode
  */
 
 void QueryError::FmtUnknownArg(ArgsCursor *ac, const char *name) {
-  RS_LOG_ASSERT(!AC_IsAtEnd(ac), "cursor should not be at the end");
+  RS_LOG_ASSERT(!ac->IsAtEnd(), "cursor should not be at the end");
   const char *s;
   size_t n;
-  if (AC_GetString(ac, &s, &n, AC_F_NOADVANCE) != AC_OK) {
+  if (ac->GetString(&s, &n, AC_F_NOADVANCE) != AC_OK) {
     s = "Unknown (FIXME)";
     n = strlen(s);
   }

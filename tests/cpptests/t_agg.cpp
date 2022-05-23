@@ -214,8 +214,8 @@ TEST_F(AggTest, testGroupSplit) {
     // RLookupRow_Dump(&res.rowdata);
     RSValue *rv = RLookup_GetItem(val_out, &res.rowdata);
     ASSERT_FALSE(NULL == rv);
-    ASSERT_FALSE(RSValue_IsNull(rv));
-    ASSERT_TRUE(RSValue_IsString(rv));
+    ASSERT_FALSE(rv->IsNull());
+    ASSERT_TRUE(rv->IsString());
     bool foundValue = false;
     for (auto s : gen.values) {
       if (!strcmp(rv->strval.str, s)) {

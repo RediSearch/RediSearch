@@ -695,17 +695,17 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   QueryError status = {0};
 
-  const char *ixname = AC_GetStringNC(&ac, NULL);
+  const char *ixname = &ac->GetStringNC(NULL);
   IndexSpec *sp = IndexSpec_Load(ctx, ixname, 1);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  if (AC_AdvanceIfMatch(&ac, "SCHEMA")) {
-    if (!AC_AdvanceIfMatch(&ac, "ADD")) {
+  if (&ac->AdvanceIfMatch("SCHEMA")) {
+    if (!&ac->AdvanceIfMatch("ADD")) {
       return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
     }
-    if (!AC_NumRemaining(&ac)) {
+    if (!&ac->NumRemaining()) {
       return RedisModule_ReplyWithError(ctx, "No fields provided");
     }
     IndexSpec_AddFields(sp, &ac, &status);
@@ -733,7 +733,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     error->SetError(QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
     return REDISMODULE_ERR;
   }
-  return IndexAlias_Add(RedisModule_StringPtrLen(argv[1], NULL), sptmp, 0, error);
+  return IndexAlias::Add(RedisModule_StringPtrLen(argv[1], NULL), sptmp, 0, error);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -795,7 +795,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     if (spOrig) {
       QueryError e2 = {0};
       const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
-      IndexAlias_Add(alias, spOrig, 0, &e2);
+      IndexAlias::Add(alias, spOrig, 0, &e2);
       e2.ClearError();
     }
     return QueryError_ReplyAndClear(ctx, &status);

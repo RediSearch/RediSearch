@@ -234,7 +234,7 @@ TEST_F(ExprTest, testNull) {
   ASSERT_TRUE(ctx) << ctx.error();
   int rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc) << ctx.error();
-  ASSERT_TRUE(RSValue_IsNull(&ctx.result()));
+  ASSERT_TRUE(&ctx.result()->IsNull());
 
   ctx.assign("null");
   ASSERT_FALSE(ctx);

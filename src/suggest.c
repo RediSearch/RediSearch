@@ -45,12 +45,12 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RSPayload payload = {0};
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv + 4, argc - 4);
-  while (!AC_IsAtEnd(&ac)) {
-    const char *s = AC_GetStringNC(&ac, NULL);
+  while (!&ac->IsAtEnd()) {
+    const char *s = &ac->GetStringNC(NULL);
     if (!strcasecmp(s, "INCR")) {
       incr = 1;
     } else if (!strcasecmp(s, "PAYLOAD")) {
-      if ((rv = AC_GetString(&ac, (const char **)&payload.data, &payload.len, 0)) != AC_OK) {
+      if ((rv = &ac->GetString((const char **)&payload.data, &payload.len, 0)) != AC_OK) {
         return RMUtil_ReplyWithErrorFmt(ctx, "Invalid payload: %s", AC_Strerror(rv));
       }
     } else {
@@ -211,12 +211,12 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
   ACArgSpec *errArg = NULL;
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
-  int rv = AC_ParseArgSpec(&ac, argList, &errArg);
+  int rv = &ac->ParseArgSpec(argList, &errArg);
   if (rv != AC_OK) {
     if (rv == AC_ERR_ENOENT) {
       // Argument not recognized
       status->SetErrorFmt(QUERY_EPARSEARGS, "Unrecognized argument: %s",
-                             AC_GetStringNC(&ac, NULL));
+                             &ac->GetStringNC(NULL));
     } else if (errArg) {
       status->SetErrorFmt(QUERY_EPARSEARGS, "%s: %s", errArg->name, AC_Strerror(rv));
     } else {

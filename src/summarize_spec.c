@@ -14,12 +14,12 @@
 
 int FieldList::parseFieldList(ArgsCursor *ac, Array *fieldPtrs) {
   ArgsCursor fieldArgs = {0};
-  if (AC_GetVarArgs(ac, &fieldArgs) != AC_OK) {
+  if (ac->GetVarArgs(&fieldArgs) != AC_OK) {
     return -1;
   }
 
-  while (!AC_IsAtEnd(&fieldArgs)) {
-    const char *name = AC_GetStringNC(&fieldArgs, NULL);
+  while (!&fieldArgs->IsAtEnd()) {
+    const char *name = &fieldArgs->GetStringNC(NULL);
     ReturnedField *fieldInfo = GetCreateField(name);
     size_t ix = fieldInfo - fields;
     Array_Write(fieldPtrs, &ix, sizeof(size_t));
@@ -76,36 +76,36 @@ int FieldList::parseArgs(ArgsCursor *ac, bool isHighlight) {
   Array fieldPtrs;
   Array_Init(&fieldPtrs);
 
-  if (AC_AdvanceIfMatch(ac, "FIELDS")) {
+  if (ac->AdvanceIfMatch("FIELDS")) {
     if (parseFieldList(ac, fields, &fieldPtrs) != 0) {
       rc = REDISMODULE_ERR;
       goto done;
     }
   }
 
-  while (!AC_IsAtEnd(ac)) {
-    if (isHighlight && AC_AdvanceIfMatch(ac, "TAGS")) {
+  while (!ac->IsAtEnd()) {
+    if (isHighlight && ac->AdvanceIfMatch("TAGS")) {
       // Open tag, close tag
-      if (AC_NumRemaining(ac) < 2) {
+      if (ac->NumRemaining() < 2) {
         rc = REDISMODULE_ERR;
         goto done;
       }
-      defOpts.highlightSettings.openTag = (char *)AC_GetStringNC(ac, NULL);
-      defOpts.highlightSettings.closeTag = (char *)AC_GetStringNC(ac, NULL);
-    } else if (!isHighlight && AC_AdvanceIfMatch(ac, "LEN")) {
-      if (AC_GetUnsigned(ac, &defOpts.summarizeSettings.contextLen, 0) != AC_OK) {
+      defOpts.highlightSettings.openTag = (char *)ac->GetStringNC(NULL);
+      defOpts.highlightSettings.closeTag = (char *)ac->GetStringNC(NULL);
+    } else if (!isHighlight && ac->AdvanceIfMatch("LEN")) {
+      if (ac->GetUnsigned( &defOpts.summarizeSettings.contextLen, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
         goto done;
       }
-    } else if (!isHighlight && AC_AdvanceIfMatch(ac, "FRAGS")) {
+    } else if (!isHighlight && ac->AdvanceIfMatch("FRAGS")) {
       unsigned tmp;
-      if (AC_GetUnsigned(ac, &tmp, 0) != AC_OK) {
+      if (ac->GetUnsigned( &tmp, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
         goto done;
       }
       defOpts.summarizeSettings.numFrags = tmp;
-    } else if (!isHighlight && AC_AdvanceIfMatch(ac, "SEPARATOR")) {
-      if (AC_GetString(ac, (const char **)&defOpts.summarizeSettings.separator, NULL, 0) != AC_OK) {
+    } else if (!isHighlight && ac->AdvanceIfMatch("SEPARATOR")) {
+      if (ac->GetString((const char **)&defOpts.summarizeSettings.separator, NULL, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
         goto done;
       }

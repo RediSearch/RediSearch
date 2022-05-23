@@ -67,7 +67,7 @@ static RSValue *minmaxFinalize(Reducer *parent, void *instance) {
 
 static Reducer *newMinMax(const ReducerOptions *options, MinmaxMode mode) {
   MinmaxReducer *r = rm_calloc(1, sizeof(*r));
-  if (!ReducerOpts_GetKey(options, &r->base.srckey)) {
+  if (!options->GetKey(&r->base.srckey)) {
     rm_free(r);
     return NULL;
   }

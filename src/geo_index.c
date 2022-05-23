@@ -49,7 +49,7 @@ void GeoIndex::RemoveEntries(IndexSpec *sp, t_docId docId) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], 
+/* Parse a geo filter from redis arguments. We assume the filter args start at argv[0],
  * and FILTER is not passed to us.
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
  * Returns REDISMODUEL_OK or ERR  */
@@ -60,34 +60,34 @@ GeoFilter::GeoFilter(ArgsCursor *ac, QueryError *status) {
   radius = 0;
   unitType = GeoDistance::Unit::KM;
 
-  if (AC_NumRemaining(ac) < 5) {
+  if (ac->NumRemaining() < 5) {
     QERR_MKBADARGS_FMT(status, "GEOFILTER requires 5 arguments");
     throw Error(status);
   }
 
   int rv;
-  if ((rv = AC_GetString(ac, &property, NULL, 0)) != AC_OK) {
+  if ((rv = ac->GetString(&property, NULL, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<geo property>", rv);
     throw Error(status);
   }
   property = rm_strdup(property);
 
-  if ((rv = AC_GetDouble(ac, &lon, 0) != AC_OK)) {
+  if ((rv = ac->GetDouble(&lon, 0) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<lon>", rv);
     throw Error(status);
   }
 
-  if ((rv = AC_GetDouble(ac, &lat, 0)) != AC_OK) {
+  if ((rv = ac->GetDouble(&lat, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<lat>", rv);
     throw Error(status);
   }
 
-  if ((rv = AC_GetDouble(ac, &radius, 0)) != AC_OK) {
+  if ((rv = ac->GetDouble(&radius, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<radius>", rv);
     throw Error(status);
   }
 
-  const char *unitstr = AC_GetStringNC(ac, NULL);
+  const char *unitstr = ac->GetStringNC(NULL);
   if ((unitType = GeoDistance(unitstr)) == GeoDistance::Unit::INVALID) {
     QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", unitstr);
     throw Error(status);

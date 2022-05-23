@@ -463,7 +463,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   ArgsCursor ac = {0};
   ACArgSpec *errSpec = NULL;
   ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
-  int rv = AC_ParseArgSpec(&ac, argspecs, &errSpec);
+  int rv = &ac->ParseArgSpec(argspecs, &errSpec);
   if (rv != AC_OK) {
     RedisModule_ReplyWithError(ctx, "Could not parse argument (argspec fixme)");
     goto end;

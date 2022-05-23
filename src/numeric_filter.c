@@ -52,7 +52,7 @@ int NumericFilter::parseDoubleRange(const char *s, bool &inclusive, double &targ
  */
 
 NumericFilter::NumericFilter(ArgsCursor *ac, QueryError *status) {
-  if (AC_NumRemaining(ac) < 3) {
+  if (ac->NumRemaining() < 3) {
     QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");
     throw Error("FILTER requires 3 arguments");
   }
@@ -62,14 +62,14 @@ NumericFilter::NumericFilter(ArgsCursor *ac, QueryError *status) {
   inclusiveMin = true;
   min = 0;
   max = 0;
-  fieldName = rm_strdup(AC_GetStringNC(ac, NULL));
+  fieldName = rm_strdup(ac->GetStringNC(NULL));
 
   // Parse the min range
-  const char *s = AC_GetStringNC(ac, NULL);
+  const char *s = ac->GetStringNC(NULL);
   if (parseDoubleRange(s, inclusiveMin, min, true, status) != REDISMODULE_OK) {
     throw Error(status->detail);
   }
-  s = AC_GetStringNC(ac, NULL);
+  s = ac->GetStringNC(NULL);
   if (parseDoubleRange(s, inclusiveMax, max, false, status) != REDISMODULE_OK) {
     throw Error(status->detail);
   }
@@ -95,7 +95,7 @@ NumericFilter::NumericFilter(double min_, double max_, bool inclusiveMin_, bool 
 
 //---------------------------------------------------------------------------------------------
 
-NumericFilter::NumericFilter(const NumericFilter &nf) : min(nf.min), max(nf.max), 
+NumericFilter::NumericFilter(const NumericFilter &nf) : min(nf.min), max(nf.max),
     inclusiveMin(nf.inclusiveMin), inclusiveMax(nf.inclusiveMax) {
   if (nf.fieldName) {
     fieldName = rm_strdup(nf.fieldName);
