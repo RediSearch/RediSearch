@@ -35,7 +35,7 @@ def testSanity(env):
 		conn.execute_command('hset', i, 'n', i % 100)
 	env.expect('ft.search', 'idx', ('@n:[0 %d]' % (repeat)), 'limit', 0 ,0).equal([repeat])
 	env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'n') \
-				.equal(['numRanges', 12, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 11])
+				.equal(['numRanges', 15, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 14])
 
 def testCompressionConfig(env):
 	env.skipOnCluster()
@@ -74,7 +74,7 @@ def testRangeParentsConfig(env):
 	if str(concurrent[0][1]) == 'true':
 		env.skip()
 
-	result = [['numRanges', 6], ['numRanges', 8]]
+	result = [['numRanges', 4], ['numRanges', 6]]
 	for test in range(2):
 		# check number of ranges
 		env.cmd('ft.create', 'idx0', 'SCHEMA', 'n', 'numeric')
