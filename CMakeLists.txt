@@ -85,7 +85,8 @@ file(GLOB RS_SRC
     "src/aggregate/reducers/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
-    "src/query_parser/*.c"
+    "src/query_parser/v1/*.c"
+    "src/query_parser/v2/*.c"
     "src/util/*.c"
     "src/trie/*.c"
     ${RS_DEBUG_SRC}
@@ -154,11 +155,20 @@ else() # OSS RediSearch
         set_target_properties(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
     endif()
 
-	if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG AND NOT APPLE)
-        add_custom_command(TARGET redisearch POST_BUILD
-            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
-            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
-            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
+	if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG)
+		if (NOT APPLE)
+			add_custom_command(TARGET redisearch POST_BUILD
+				COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+				COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
+				COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
+		else()
+			add_custom_command(TARGET redisearch POST_BUILD
+				COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug)
+		endif()
+#        add_custom_command(TARGET redisearch POST_BUILD
+#            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+#            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
+#            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
     endif()
 	
 	add_dependencies(redisearch VectorSimilarity)

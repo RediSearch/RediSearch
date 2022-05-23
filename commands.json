@@ -1,9 +1,18 @@
 {
   "FT.CREATE": {
     "summary": "Creates an index with the given spec",
-    "complexity": [
-      "O(K) at creation where K is the number of fields,",
-      "O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace"],
+    "complexity": 
+      "O(K) at creation where K is the number of fields, O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace",
+      "history": [        
+        [
+          "2.0.0",
+          "Added `PAYLOAD_FIELD` argument for backward support of `FT.SEARCH` deprecated `WITHPAYLOADS` argument"
+        ],
+        [
+          "2.0.0",
+          "Deprecated `PAYLOAD_FIELD` argument"
+        ]
+      ],
     "arguments": [
       {
         "name": "index",
@@ -11,21 +20,31 @@
       },
       {
         "name": "data_type",
-        "command": "ON",
-        "type": "enum",
-        "enum": [
-          "HASH", "JSON"
+        "token": "ON",
+        "type": "oneof",
+        "arguments": [
+          {
+              "name": "hash",
+              "type": "pure-token",
+              "token": "HASH"
+          },
+          {
+              "name": "json",
+              "type": "pure-token",
+              "token": "JSON"
+          }
         ],
         "optional": true
       },
       {
+        "name": "prefix",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "integer",
-            "command":"PREFIX"
+            "token":"PREFIX"
           },
           {
             "name": "prefix",
@@ -37,84 +56,75 @@
       {
         "name": "default_lang",
         "type": "string",
-        "command":"LANGUAGE",
+        "token":"LANGUAGE",
         "optional": true
       },
       {
         "name": "lang_attribute",
         "type": "string",
-        "command":"LANGUAGE_FIELD",
+        "token":"LANGUAGE_FIELD",
         "optional": true
       },
       {
         "name": "default_score",
         "type": "double",
-        "command":"SCORE",
+        "token":"SCORE",
         "optional": true
       },
       {
         "name": "score_attribute",
         "type": "string",
-        "command":"SCORE_FIELD",
+        "token":"SCORE_FIELD",
         "optional": true
       },
       {
         "name": "payload_attribute",
         "type": "string",
-        "command":"PAYLOAD_FIELD",
+        "token":"PAYLOAD_FIELD",
         "optional": true
       },
       {
           "name": "maxtextfields",
-          "type": "enum",
-          "enum": [
-              "MAXTEXTFIELDS"
-          ],
+          "type": "pure-token",
+          "token": "MAXTEXTFIELDS",
           "optional": true
       },
       {
         "name": "seconds",
         "type": "double",
-        "command":"TEMPORARY",
+        "token":"TEMPORARY",
         "optional": true
       },
       {
         "name": "nooffsets",
-        "type": "enum",
-        "enum": [
-            "NOOFFSETS"
-        ],
+        "type": "pure-token",
+        "token": "NOOFFSETS",
         "optional": true
       },
       {
         "name": "nohl",
-        "type": "enum",
-        "enum": [
-            "NOHL"
-        ],
+        "type": "pure-token",
+        "token": "NOHL",
         "optional": true
       },
       {
         "name": "nofields",
-        "type": "enum",
-        "enum": [
-            "NOFIELDS"
-        ],
+        "type": "pure-token",
+        "token": "NOFIELDS",
         "optional": true
       },
       {
         "name": "nofreqs",
-        "type": "enum",
-        "enum": [
-            "NOFREQS"
-        ],
+        "type": "pure-token",
+        "token": "NOFREQS",
         "optional": true
       },
       {
+        "name": "stopwords",
         "type": "block",
         "optional": true,
-        "command":"STOPWORDS",
-        "block": [
+        "token":"STOPWORDS",
+        "arguments": [
           {
             "name": "count",
             "type": "integer"
@@ -128,16 +138,14 @@
       },
       {
         "name": "schema",
-        "type": "enum",
-        "enum": [
-            "SCHEMA"
-        ]
+        "type": "pure-token",
+        "token": "SCHEMA"
       },
       {
         "name": "field",
         "type": "block",
         "multiple": true,
-        "block": [
+        "arguments": [
           {
             "name": "field_name",
             "type": "string"
@@ -145,45 +153,63 @@
           {
             "name": "alias",
             "type": "string",
-            "command": "AS",
+            "token": "AS",
             "optional": true
           },
           {
             "name": "field_type",
-            "type": "enum",
-            "enum": [
-              "TEXT", "TAG", "NUMERIC", "GEO"
+            "type": "oneof",
+            "arguments": [
+              {
+                "name": "text",
+                "type": "pure-token",
+                "token": "TEXT"
+              },
+              {
+                "name": "tag",
+                "type": "pure-token",
+                "token": "TAG"
+              },
+              {
+                "name": "numeric",
+                "type": "pure-token",
+                "token": "NUMERIC"
+              },
+              {
+                "name": "geo",
+                "type": "pure-token",
+                "token": "GEO"
+              },
+              {
+                "name": "vector",
+                "type": "pure-token",
+                "token": "VECTOR"
+              }
             ]
           },
           {
             "name": "sortable",
             "type": "block",
             "optional": true,
-            "block": [
+            "arguments": [
               {
                 "name": "sortable",
-                "type": "enum",
-                "enum": [ 
-                  "SORTABLE"
-                ]
+                "type": "pure-token",
+                "token": "SORTABLE"
               },
               {
                 "name": "UNF",
-                "type": "enum",
-                "enum": [ 
-                  "UNF"
-                ],
+                "type": "pure-token",
+                "token": "UNF",
                 "optional": true
               }
             ]
           },
           {
             "name": "noindex",
-            "type": "enum",
-            "optional": true,
-            "enum": [
-              "NOINDEX"
-            ]
+            "type": "pure-token",
+            "token": "NOINDEX",
+            "optional": true
           }
         ]
       }
@@ -214,6 +240,13 @@
       {
         "name": "query",
         "type": "string"
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -230,6 +263,13 @@
       {
         "name": "query",
         "type": "string"
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -245,17 +285,13 @@
       },
       {
         "name": "schema",
-        "type": "enum",
-        "enum": [
-          "SCHEMA"
-        ]
+        "type": "pure-token",
+        "token": "SCHEMA"
       },
       {
         "name": "add",
-        "type": "enum",
-        "enum": [
-          "ADD"
-        ]
+        "type": "pure-token",
+        "token": "ADD"
       },
       {
         "name": "field",
@@ -279,9 +315,13 @@
       },
       {
         "name": "delete docs",
-        "type": "enum",
-        "enum": [
-          "DD"
+        "type": "oneof",
+        "arguments": [
+          {
+            "name": "delete docs",
+            "type": "pure-token",
+            "token":"DD"
+          }
         ],
         "optional": true
       }
@@ -352,6 +392,12 @@
   "FT.SUGADD": {
     "summary": "Adds a suggestion string to an auto-complete suggestion dictionary",
     "complexity": "O(1)",
+    "history": [
+      [
+          "2.0.0",
+          "Deprecated `PAYLOAD` argument"
+      ]
+    ],
     "arguments": [
       {
         "name": "key",
@@ -367,15 +413,19 @@
       },
       {
         "name": "increment score",
-        "type": "enum",
-        "enum": [
-          "INCR"
+        "type": "oneof",
+        "arguments": [
+          {
+            "name": "incr",
+            "type": "pure-token",
+            "token":"INCR"
+          }
         ],
         "optional": true
       },
       {
           "name": "payload",
-          "command": "PAYLOAD",
+          "token": "PAYLOAD",
           "type": "string",
           "optional": true
       }
@@ -386,6 +436,12 @@
   "FT.SUGGET": {
     "summary": "Gets completion suggestions for a prefix",
     "complexity": "O(1)",
+    "history": [
+      [
+          "2.0.0",
+          "Deprecated `WITHPAYLOADS` argument"
+      ]
+    ],
     "arguments": [
       {
         "name": "key",
@@ -397,31 +453,25 @@
       },
       {
         "name": "fuzzy",
-        "type": "enum",
-        "enum": [
-          "FUZZY"
-        ],
+        "type": "pure-token",
+        "token": "FUZZY",
         "optional": true
       },
       {
         "name": "withscores",
-        "type": "enum",
-        "enum": [
-          "WITHSCORES"
-        ],
+        "type": "pure-token",
+        "token": "WITHSCORES",
         "optional": true
       },
       {
         "name": "withpayloads",
-        "type": "enum",
-        "enum": [
-          "WITHPAYLOADS"
-        ],
+        "type": "pure-token",
+        "token": "WITHPAYLOADS",
         "optional": true
       },
       {
           "name": "max",
-          "command": "MAX",
+          "token": "MAX",
           "type": "integer",
           "optional": true
       }
@@ -471,10 +521,8 @@
       },
       {
         "name": "skipinitialscan",
-        "type": "enum",
-        "enum": [
-          "SKIPINITIALSCAN"
-        ],
+        "type": "pure-token",
+        "token": "SKIPINITIALSCAN",
         "optional": true
       },
       {
@@ -512,21 +560,30 @@
       },
       {
           "name": "distance",
-          "command": "DISTANCE",
+          "token": "DISTANCE",
           "type": "integer",
           "optional": true
       },
       {
         "name": "terms",
-        "command": "TERMS",
+        "token": "TERMS",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "inclusion",
-            "type": "enum",
-            "enum": [
-              "INCLUDE", "EXCLUDE"
+            "type": "oneof",
+            "arguments": [
+              {
+                "name": "include",
+                "type": "pure-token",
+                "token": "INCLUDE"
+              },
+              {
+                "name": "exclude",
+                "type": "pure-token",
+                "token": "EXCLUDE"
+              }
             ]
           },
           {
@@ -540,6 +597,13 @@
             "optional": true
           }
         ]
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.4.0",
@@ -604,6 +668,10 @@
       {
         "name": "option",
         "type": "string"
+      },
+      {
+        "name": "value",
+        "type": "string"
       }
     ],
     "since": "1.0.0",
@@ -615,10 +683,6 @@
     "arguments": [
       {
         "name": "option",
-        "type": "string"
-      },
-      {
-        "name": "value",
         "type": "string"
       }
     ],
@@ -640,6 +704,12 @@
   "FT.SEARCH": {
     "summary": "Searches the index with a textual query, returning either documents or just ids",
     "complexity": "O(N)",
+    "history": [
+      [
+          "2.0.0",
+          "Deprecated `WITHPAYLOADS` and `PAYLOAD` arguments"
+      ]
+    ],
     "arguments": [
       {
         "name": "index",
@@ -651,62 +721,50 @@
       },
       {
         "name": "nocontent",
-        "type": "enum",
-        "optional": true,
-        "enum": [
-          "NOCONTENT"
-        ]
+        "type": "pure-token",
+        "token": "NOCONTENT",
+        "optional": true
       },
       {
         "name": "verbatim",
-        "type": "enum",
-        "optional": true,
-        "enum": [
-          "VERBATIM"
-        ]
+        "type": "pure-token",
+        "token":"VERBATIM",
+        "optional": true
       },
       {
         "name": "nostopwords",
-        "type": "enum",
-        "optional": true,
-        "enum": [
-          "NOSTOPWORDS"
-        ]
+        "type": "pure-token",
+        "token": "NOSTOPWORDS",
+        "optional": true
       },
       {
         "name": "withscores",
-        "type": "enum",
-        "optional": true,
-        "enum": [
-          "WITHSCORES"
-        ]
+        "type": "pure-token",
+        "token": "WITHSCORES",
+        "optional": true
       },
       {
         "name": "withpayloads",
-        "type": "enum",
-        "optional": true,
-        "enum": [
-          "WITHPAYLOADS"
-        ]
+        "type": "pure-token",
+        "token": "WITHPAYLOADS",
+        "optional": true
       },
       {
         "name": "withsortkeys",
-        "type": "enum",
-        "optional": true,
-        "enum": [
-          "WITHSORTKEYS"
-        ]
+        "type": "pure-token",
+        "token": "WITHSORTKEYS",
+        "optional": true
       },
       {
         "name": "filter",
         "type": "block",
         "optional": true,
         "multiple": true,
-        "block": [
+        "arguments": [
           {
             "name": "numeric_field",
             "type": "string",
-            "command":"FILTER"
+            "token":"FILTER"
           },
           {
             "name": "min",
@@ -723,11 +781,11 @@
         "type": "block",
         "optional": true,
         "multiple": true,
-        "block": [
+        "arguments": [
           {
             "name": "geo_field",
             "type": "string",
-            "command":"GEOFILTER"
+            "token":"GEOFILTER"
           },
           {
             "name": "lon",
@@ -743,9 +801,28 @@
           },
           {
             "name": "radius_type",
-            "type": "enum",
-            "enum": [
-              "m", "km", "mi", "ft"
+            "type": "oneof",
+            "arguments": [
+              {
+                "name": "m",
+                "type": "pure-token",
+                "token": "m"
+              },
+              {
+                "name": "km",
+                "type": "pure-token",
+                "token": "km"
+              },
+              {
+                "name": "mi",
+                "type": "pure-token",
+                "token": "mi"
+              },
+              {
+                "name": "ft",
+                "type": "pure-token",
+                "token": "ft"
+              }
             ]
           }
         ]
@@ -754,11 +831,11 @@
         "name": "in_keys",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "string",
-            "command":"INKEYS"
+            "token":"INKEYS"
           },
           {
             "name": "key",
@@ -771,11 +848,11 @@
         "name": "in_fields",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "string",
-            "command":"INFIELDS"
+            "token":"INFIELDS"
           },
           {
             "name": "field",
@@ -788,16 +865,28 @@
         "name": "return",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "string",
-            "command":"RETURN"
+            "token":"RETURN"
           },
           {
-            "name": "field",
-            "type": "string",
-            "multiple": true
+            "name": "identifiers",
+            "type": "block",
+            "multiple": true,
+            "arguments": [
+              {
+                "name": "identifier",
+                "type": "string"
+              },
+              {
+                "name": "property",
+                "type": "string",
+                "token": "AS",
+                "optional": true
+              }
+            ]
           }
         ]
       },
@@ -805,23 +894,22 @@
         "name": "summarize",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "summarize",
-            "type": "enum",
-            "enum": [
-              "SUMMARIZE"
-            ]
+            "type": "pure-token",
+            "token": "SUMMARIZE",
+            "optional": true
           },
           {
             "name": "fields",
             "type": "block",
             "optional": true,
-            "block": [
+            "arguments": [
               {
                 "name": "count",
                 "type": "string",
-                "command":"FIELDS"
+                "token":"FIELDS"
               },
               {
                 "name": "field",
@@ -833,19 +921,19 @@
           {
             "name": "num",
             "type": "integer",
-            "command":"FRAGS",
+            "token":"FRAGS",
             "optional": true
           },
           {
             "name": "fragsize",
             "type": "integer",
-            "command":"LEN",
+            "token":"LEN",
             "optional": true
           },
           {
             "name": "separator",
             "type": "string",
-            "command":"SEPARATOR",
+            "token":"SEPARATOR",
             "optional": true
           }
         ]
@@ -854,23 +942,22 @@
         "name": "highlight",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "highlight",
-            "type": "enum",
-            "enum": [
-              "HIGHLIGHT"
-            ]
+            "type": "pure-token",
+            "token": "HIGHLIGHT",
+            "optional": true
           },
           {
             "name": "fields",
             "type": "block",
             "optional": true,
-            "block": [
+            "arguments": [
               {
                 "name": "count",
                 "type": "string",
-                "command":"FIELDS"
+                "token":"FIELDS"
               },
               {
                 "name": "field",
@@ -883,17 +970,19 @@
             "name": "tags",
             "type": "block",
             "optional": true,
-            "block": [
+            "arguments": [
               {
                 "name": "tags",
-                "type": "enum",
-                "enum": [
-                  "TAGS"
-                ]
+                "type": "pure-token",
+                "token": "TAGS"
               },
               {
-                "name": ["open", "close"],
-                "type": ["string", "string"]
+                "name": "open",
+                "type": "string"
+              },
+              {
+                "name": "close",
+                "type": "string"
               }
             ]
           }
@@ -903,64 +992,75 @@
         "name": "slop",
         "type": "integer",
         "optional": true,
-        "command":"SLOP"
+        "token":"SLOP"
       },
       {
-        "name": "tags",
-        "type": "enum",
+        "name": "timeout",
+        "type": "integer",
         "optional": true,
-        "enum": [
-          "INORDER"
-        ]
+        "token":"TIMEOUT"
+      },
+      {
+        "name": "inorder",
+        "type": "pure-token",
+        "token": "INORDER",
+        "optional": true
       },
       {
         "name": "language",
         "type": "string",
         "optional": true,
-        "command":"LANGUAGE"
+        "token":"LANGUAGE"
       },
       {
         "name": "expander",
         "type": "string",
         "optional": true,
-        "command":"EXPANDER"
+        "token":"EXPANDER"
       },
       {
         "name": "scorer",
         "type": "string",
         "optional": true,
-        "command":"SCORER"
+        "token":"SCORER"
       },
       {
         "name": "explainscore",
-        "type": "enum",
-        "optional": true,
-        "enum": [
-          "EXPLAINSCORE"
-        ]
+        "type": "pure-token",
+        "token": "EXPLAINSCORE",
+        "optional": true
       },
       {
         "name": "payload",
         "type": "string",
         "optional": true,
-        "command":"PAYLOAD"
+        "token":"PAYLOAD"
       },
       {
         "name": "sortby",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "sortby",
             "type": "string",
-            "command":"SORTBY"
+            "token":"SORTBY"
           },
           {
             "name": "order",
-            "type": "enum",
+            "type": "oneof",
             "optional": true,
-            "enum": [
-              "ASC", "DESC"
+            "arguments": [
+              {
+                "name": "asc",
+                "type": "pure-token",
+                "token": "ASC"
+              },
+              {
+                "name": "desc",
+                "type": "pure-token",
+                "token": "DESC"
+              }
             ]
           }
         ]
@@ -969,19 +1069,59 @@
         "name": "limit",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "limit",
-            "type": "enum",
-            "enum": [
-              "LIMIT"
-            ]
+            "type": "pure-token",
+            "token": "LIMIT"
           },
           {
-            "name": ["offset", "num"],
-            "type": ["integer", "integer"]
+            "name": "offset",
+            "type": "integer"
+          },
+          {
+            "name": "num",
+            "type": "integer"
           }
         ]
+      },
+      {
+        "name": "PARAMS",
+        "type": "block",
+        "optional": true,
+        "arguments": [          
+          {
+            "name": "params",
+            "type": "pure-token",
+            "token": "params"
+          },
+          {
+            "name": "nargs",
+            "type": "integer"
+          },
+          {
+            "name": "values",
+            "type": "block",
+            "multiple": true,
+            "arguments": [
+              {
+                "name": "name",
+                "type": "string"
+              },
+              {
+                "name": "value",
+                "type": "string"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.0.0",
@@ -1002,21 +1142,19 @@
       },
       {
         "name": "verbatim",
-        "type": "enum",
-        "optional": true,
-        "enum": [
-          "VERBATIM"
-        ]
+        "type": "pure-token",
+        "token": "VERBATIM",
+        "optional": true
       },
       {
         "name": "load",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "count",
             "type": "string",
-            "command":"LOAD"
+            "token":"LOAD"
           },
           {
             "name": "field",
@@ -1026,23 +1164,27 @@
         ]
       },
       {
-        "name": "loadall",
-        "type": "enum",
+        "name": "timeout",
+        "type": "integer",
         "optional": true,
-        "enum": [
-          "LOAD *"
-        ]
+        "token":"TIMEOUT"
+      },
+      {
+        "name": "loadall",
+        "type": "pure-token",
+        "token": "LOAD *",
+        "optional": true
       },
       {
         "name": "groupby",
         "type": "block",
         "optional": true,
         "multiple": true,
-        "block" : [
+        "arguments": [
           {
             "name": "nargs",
             "type": "integer",
-            "command":"GROUPBY"
+            "token":"GROUPBY"
           },
           {
             "name": "property",
@@ -1054,11 +1196,11 @@
             "type": "block",
             "optional": true,
             "multiple": true,
-            "block" : [
+            "arguments": [
               {
                 "name": "function",
                 "type": "string",
-                "command":"REDUCE"
+                "token":"REDUCE"
               },
               {
                 "name": "nargs",
@@ -1072,7 +1214,7 @@
               {
                 "name": "name",
                 "type": "string",
-                "command":"AS",
+                "token":"AS",
                 "optional": true
               }
             ]
@@ -1083,27 +1225,36 @@
         "name": "sortby",
         "type": "block",
         "optional": true,
-        "block" : [
+        "arguments": [
           {
             "name": "nargs",
             "type": "integer",
-            "command":"SORTBY"
+            "token":"SORTBY"
           },
           {
             "name": "fields",
             "type": "block",
             "optional": true,
             "multiple": true,
-            "block" : [
+            "arguments": [
               {
                 "name": "property",
                 "type": "string"
               },
               {
                 "name": "order",
-                "type": "enum",
-                "enum": [
-                  "ASC", "DESC"
+                "type": "oneof",
+                "arguments": [
+                  {
+                    "name": "asc",
+                    "type": "pure-token",
+                    "token": "ASC"
+                  },
+                  {
+                    "name": "desc",
+                    "type": "pure-token",
+                    "token": "DESC"
+                  }
                 ]
               }
             ]
@@ -1111,7 +1262,7 @@
           {
             "name": "num",
             "type": "integer",
-            "command":"MAX",
+            "token":"MAX",
             "optional": true
           }
         ]
@@ -1121,16 +1272,16 @@
         "type": "block",
         "optional": true,
         "multiple": true,
-        "block" : [
+        "arguments": [
           {
             "name": "expression",
             "type": "string",
-            "command":"APPLY"
+            "token":"APPLY"
           },
           {
             "name": "name",
             "type": "string",
-            "command":"AS"
+            "token":"AS"
           }
         ]
       },
@@ -1138,17 +1289,19 @@
         "name": "limit",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "limit",
-            "type": "enum",
-            "enum": [
-              "LIMIT"
-            ]
+            "type": "pure-token",
+            "token": "LIMIT"
           },
           {
-            "name": ["offset", "num"],
-            "type": ["integer", "integer"]
+            "name": "offset",
+            "type": "integer"
+          },
+          {
+            "name": "num",
+            "type": "integer"
           }
         ]
       },
@@ -1156,36 +1309,120 @@
         "name": "filter",
         "type": "string",
         "optional": true,
-        "command":"FILTER"
+        "token":"FILTER"
       },
       {
         "name": "cursor",
         "type": "block",
         "optional": true,
-        "block": [
+        "arguments": [
           {
             "name": "withcursor",
-            "type": "enum",
-            "enum": ["WITHCURSOR"]
+            "type": "pure-token",
+            "token": "WITHCURSOR",
+            "optional": true
           },
           {
             "name": "read_size",
             "type": "integer",
             "optional": true,
-            "command":"COUNT"
+            "token":"COUNT"
           },
           {
             "name": "idle_time",
             "type": "integer",
             "optional": true,
-            "command":"MAXIDLE"
+            "token":"MAXIDLE"
           }
         ]
+      },
+      {
+        "name": "PARAMS",
+        "type": "block",
+        "optional": true,
+        "arguments": [          
+          {
+            "name": "params",
+            "type": "pure-token",
+            "token": "params"
+          },
+          {
+            "name": "NARGS",
+            "type": "integer"
+          },
+          {
+            "name": "values",
+            "type": "block",
+            "multiple": true,
+            "arguments": [
+              {
+                "name": "name",
+                "type": "string"
+              },
+              {
+                "name": "value",
+                "type": "string"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "dialect",
+        "type": "integer",
+        "optional": true,
+        "token": "DIALECT",
+        "since": "2.4.3"
       }
     ],
     "since": "1.1.0",
     "group": "search"
   },
+
+  "FT.PROFILE": {
+    "summary": "Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information",
+    "complexity": "O(N)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string"
+      },
+      {
+        "name": "querytype",
+        "type": "oneof",
+        "arguments": [
+          {
+            "name": "search",
+            "type": "pure-token",
+            "token": "SEARCH"
+          },
+          {
+            "name": "aggregate",
+            "type": "pure-token",
+            "token": "AGGREGATE"
+          }
+        ]
+      },
+      {
+        "name": "limited",
+        "type": "pure-token",
+        "token": "LIMITED",
+        "optional": true
+      },
+      {
+        "name": "queryword",
+        "type": "pure-token",
+        "token": "QUERY"
+      },
+      {
+        "name": "query",
+        "type": "string"
+      }
+    ],
+    "since": "2.2.0",
+    "group": "search"
+  },
+
   "FT.CURSOR READ": {
     "summary": "Reads from a cursor",
     "complexity": "O(1)",
@@ -1202,7 +1439,7 @@
         "name": "read size",
         "type": "integer",
         "optional": true,
-        "command":"COUNT"
+        "token":"COUNT"
       }
     ],
     "since": "1.1.0",

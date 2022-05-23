@@ -62,6 +62,7 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
     RedisModule_ReplyWithArray(ctx, (2 + PROFILE_VERBOSE) * 2);
     switch (rp->type) {
       case RP_INDEX:
+      case RP_VECSIM:
       case RP_LOADER:
       case RP_SCORER:
       case RP_SORTER:

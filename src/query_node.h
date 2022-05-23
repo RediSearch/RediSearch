@@ -80,7 +80,9 @@ typedef struct {
  * tokenizers. Later this gets passed to scoring functions in a Term object. See RSIndexRecord */
 typedef RSToken QueryTokenNode;
 
-typedef RSToken QueryPrefixNode;
+typedef struct {
+  RSToken tok;
+} QueryPrefixNode;
 
 typedef struct {
   RSToken tok;
@@ -97,7 +99,7 @@ typedef struct {
 } QueryGeofilterNode;
 
 typedef struct {
-  struct VectorFilter *vf;
+  struct VectorQuery *vq;
 } QueryVectorNode;
 
 typedef struct {
@@ -117,8 +119,7 @@ typedef enum {
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
- * Currently supported are `weight`, `slop`, and `inorder`,
- * And `base64` and `efRuntime` for vector
+ * Currently supported are `weight`, `slop`, and `inorder`.
  */
 typedef struct {
   const char *name;

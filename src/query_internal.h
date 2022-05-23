@@ -5,7 +5,8 @@
 #include <query_error.h>
 #include <query_node.h>
 #include "query_param.h"
-#include "search_options.h"
+#include "vector_index.h"
+#include "query_ctx.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,17 +39,6 @@ extern "C" {
 
 #define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
 
-typedef struct {
-  ConcurrentSearchCtx *conc;
-  RedisSearchCtx *sctx;
-  const RSSearchOptions *opts;
-  QueryError *status;
-
-  size_t numTokens;
-  uint32_t tokenId;
-  DocTable *docTable;
-} QueryEvalCtx;
-
 struct QueryAST;
 struct NumericFilter;
 struct GeoFilter;
@@ -72,7 +62,7 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist);
 QueryNode *NewNumericNode(QueryParam *p);
 QueryNode *NewGeofilterNode(QueryParam *p);
-QueryNode *NewVectorNode(QueryParam *p);
+QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec);
 QueryNode *NewTagNode(const char *tag, size_t len);
 
 QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt);

@@ -2,7 +2,9 @@
 #define __QUERY_TOKENIZER_H__
 
 #include <stdlib.h>
+#include <stdbool.h>
 #include "../tokenize.h"
+#include "VecSim/vec_sim_common.h"
 
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
 typedef struct {
@@ -21,17 +23,17 @@ typedef enum {
   QT_TERM,
   QT_TERM_CASE,
   QT_NUMERIC,
-  QT_VEC,
+  QT_SIZE,
   // Parameterized types
   QT_PARAM_ANY,
   QT_PARAM_TERM,
   QT_PARAM_TERM_CASE,
   QT_PARAM_NUMERIC,
+  QT_PARAM_SIZE,
   QT_PARAM_NUMERIC_MIN_RANGE,
   QT_PARAM_NUMERIC_MAX_RANGE,
   QT_PARAM_GEO_COORD,
   QT_PARAM_GEO_UNIT,
-  QT_PARAM_VEC_SIM_TYPE,
   QT_PARAM_VEC
 } QueryTokenType;
 
@@ -50,6 +52,11 @@ typedef struct {
   double num;
   int inclusive;
 } RangeNumber;
+
+typedef struct {
+  VecSimRawParam param;
+  bool needResolve;
+} SingleVectorQueryParam;
 
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
 

@@ -60,10 +60,11 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == trusty ]] && OSNICK=ubuntu14.04
 [[ $OSNICK == xenial ]] && OSNICK=ubuntu16.04
 [[ $OSNICK == bionic ]] && OSNICK=ubuntu18.04
-[[ $OSNICK == focal ]] && OSNICK=ubuntu20.04
+[[ $OSNICK == focal ]]   && OSNICK=ubuntu20.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
-[[ $OSNICK == ol8 ]] && OSNICK=rhel8
+[[ $OSNICK == ol8 ]]     && OSNICK=rhel8
+[[ $OSNICK == rocky8 ]] && OSNICK=rhel8
 
 PLATFORM="$OS-$OSNICK-$ARCH"
 
@@ -86,7 +87,7 @@ ARTDIR=$(cd $ARTDIR && pwd)
 MODULE_NAME=${MODULE_NAME:-redisearch}
 PACKAGE_NAME=${PACKAGE_NAME:-redisearch-oss}
 
-DEP_NAMES="debug"
+DEP_NAMES=""
 
 #----------------------------------------------------------------------------------------------
 
@@ -94,6 +95,7 @@ pack_ramp() {
 	cd $ROOT
 
 	local stem=${PACKAGE_NAME}.${PLATFORM}
+	local stem_debug=${PACKAGE_NAME}.debug.${PLATFORM}
 
 	if [[ $SNAPSHOT == 0 ]]; then
 		local verspec=${SEMVER}${VARIANT}
@@ -106,10 +108,12 @@ pack_ramp() {
 	fi
 	
 	local fq_package=$stem.${verspec}.zip
+	local fq_package_debug=$stem_debug.${verspec}.zip
 
 	[[ ! -d $ARTDIR/$packdir ]] && mkdir -p $ARTDIR/$packdir
 
 	local packfile=$ARTDIR/$packdir/$fq_package
+	local packfile_debug=$ARTDIR/$packdir/$fq_package_debug
 
 	local xtx_vars=""
 	for dep in $DEP_NAMES; do
@@ -126,12 +130,12 @@ pack_ramp() {
 		RAMP_YAML=$ROOT/ramp.yml
 	fi
 	
-	python2 $READIES/bin/xtx \
+	python3 $READIES/bin/xtx \
 		$xtx_vars \
 		-e NUMVER -e SEMVER \
 		$RAMP_YAML > /tmp/ramp.yml
 
-	local ramp="$(command -v python2) -m RAMP.ramp"
+	local ramp="$(command -v python3) -m RAMP.ramp"
 	rm -f /tmp/ramp.fname
 	
 	# ROOT is required so ramp will detect the right git commit
@@ -146,9 +150,24 @@ pack_ramp() {
 		exit 1
 	else
 		local packname=`cat /tmp/ramp.fname`
+		echo "Created $packname"
 	fi
 
-	echo "Created $packname"
+	if [[ -f $MODULE_SO.debug ]]; then
+		$ramp pack -m /tmp/ramp.yml $RAMP_ARGS -n $MODULE_NAME --verbose --debug \
+			--packname-file /tmp/ramp.fname -o $packfile_debug \
+			$MODULE_SO.debug >/tmp/ramp.err 2>&1 || true
+
+		if [[ ! -e $packfile_debug ]]; then
+			eprint "Error generating RAMP file:"
+			>&2 cat /tmp/ramp.err
+			exit 1
+		else
+			local packname=`cat /tmp/ramp.fname`
+			echo "Created $packname"
+		fi
+	fi
+
 	cd $ROOT
 }
 

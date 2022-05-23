@@ -202,7 +202,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
-    if (JSON_LoadDocumentField(jsonIter, len, field->types, &doc->fields[oix]) != REDISMODULE_OK) {
+    if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix]) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
       goto done;
     }
@@ -355,7 +355,9 @@ void Document_Clear(Document *d) {
             rm_free(field->multiVal[i]);
           }
           rm_free(field->multiVal);
-        default:
+        case FLD_VAR_T_GEO:
+        case FLD_VAR_T_NUM:
+        case FLD_VAR_T_NULL:
           break;
       }
     }
@@ -442,7 +444,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
       arguments[i] = RedisModule_CreateStringFromString(ctx->redisCtx, arguments[i]);
     }
   }
-  rep = RedisModule_Call(ctx->redisCtx, "HSET", "!v", arguments, array_len(arguments));
+  rep = RedisModule_Call(ctx->redisCtx, "HSET", "!v", arguments, (size_t)array_len(arguments));
   if (rep) {
     RedisModule_FreeCallReply(rep);
   }

@@ -38,6 +38,7 @@ char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
   if (RedisModule_CallReplyLength(rep) == 0){
+    RedisModule_FreeCallReply(rep);
     return NULL;
   }
   RedisModule_Assert(RedisModule_CallReplyLength(rep) == 2);
@@ -54,9 +55,9 @@ char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
   return res;
 }
 
-int checkTLS(char** client_key, char** client_cert, char** ca_cert){
+int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass){
   int ret = 1;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_ThreadSafeContextLock(ctx);
   char* clusterTls = NULL;
   char* tlsPort = NULL;
@@ -73,6 +74,7 @@ int checkTLS(char** client_key, char** client_cert, char** ca_cert){
   *client_key = getConfigValue(ctx, "tls-key-file");
   *client_cert = getConfigValue(ctx, "tls-cert-file");
   *ca_cert = getConfigValue(ctx, "tls-ca-cert-file");
+  *key_pass = getConfigValue(ctx, "tls-key-file-pass");
 
   if (!*client_key || !*client_cert || !*ca_cert){
     ret = 0;
@@ -261,7 +263,7 @@ int SpellCheckMuxIterator_Next(void *ctx, MRCommand *cmd) {
 
   cmd->targetSlot = GetSlotByPartition(&it->cluster->part, it->offset++);
 
-  MRCommand_AppendArgs(cmd, 1, "FULLSCOREINFO");
+  MRCommand_AppendArgsAtPos(cmd, 3, 1, "FULLSCOREINFO");
 
   return 1;
 }

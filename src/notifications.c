@@ -135,7 +135,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       break;
 
 /********************************************************
- *              Handling Redis commands                 * 
+ *              Handling Redis commands                 *
  ********************************************************/
     case restore_cmd:
     case copy_to_cmd:
@@ -153,12 +153,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case change_cmd:
     // TODO: hash/json
       kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-      kType = DocumentType_None;
+      kType = DocumentType_Unsupported;
       if (kp) {
         kType = getDocType(kp);
         RedisModule_CloseKey(kp);
       }
-      if (kType == DocumentType_None) {
+      if (kType == DocumentType_Unsupported) {
         // in crdt empty key means that key was deleted
         // TODO:FIX
         Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
@@ -170,7 +170,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       break;
 
     case rename_from_cmd:
-      // Notification rename_to is called right after rename_from so this is safe.  
+      // Notification rename_to is called right after rename_from so this is safe.
       global_RenameFromKey = key;
       break;
 
@@ -181,7 +181,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
 
 /********************************************************
- *              Handling RedisJSON commands             * 
+ *              Handling RedisJSON commands             *
  ********************************************************/
   if (!strncmp(event, "json.", strlen("json."))) {
     if (!strncmp(event + JSON_LEN, "set", strlen("set")) ||
@@ -296,6 +296,11 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   }
 }
 
+void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  RedisModule_Log(ctx, "notice", "%s", "Clearing resources on shutdown");
+  RediSearch_CleanupModule();
+}
+
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToKeyspaceEvents(ctx,
     REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
@@ -312,6 +317,13 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
       RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
       RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
     }
+  }
+
+  if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {
+    // clear resources when the server exits
+    // used only with sanitizer or valgrind
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
   }
 }
 

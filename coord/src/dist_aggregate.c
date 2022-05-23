@@ -6,6 +6,7 @@
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
 #include "profile.h"
+#include "util/timeout.h"
 #include <err.h>
 
 /* Get cursor command using a cursor id and an existing aggregate command */
@@ -392,6 +393,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
   QueryError status = {0};
   r->qiter.err = &status;
+  r->reqflags |= QEXEC_F_IS_EXTENDED;
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;

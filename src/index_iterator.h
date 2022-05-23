@@ -14,7 +14,7 @@
 
 enum iteratorType {
   READ_ITERATOR,
-  LIST_ITERATOR,
+  HYBRID_ITERATOR,
   UNION_ITERATOR,
   INTERSECT_ITERATOR,
   NOT_ITERATOR,
@@ -106,6 +106,8 @@ typedef struct indexIterator {
 
 #define IITER_SET_EOF(ii) (ii)->isValid = 0
 #define IITER_CLEAR_EOF(ii) (ii)->isValid = 1
+
+#define IITER_INVALID_NUM_ESTIMATED_RESULTS UINT32_MAX
 
 // #define IITER_HAS_NEXT(ii) ((ii)->HasNext ? (ii)->HasNext((ii)->ctx) : (!(ii)->atEnd))
 

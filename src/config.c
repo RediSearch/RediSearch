@@ -351,6 +351,10 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
 CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
+// _FREE_RESOURCE_ON_THREAD
+CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
+CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
+
 // _PRINT_PROFILE_CLOCK
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, printProfileClock)
 CONFIG_BOOLEAN_GETTER(getPrintProfileClock, printProfileClock, 0)
@@ -375,6 +379,34 @@ CONFIG_SETTER(setNumericTreeMaxDepthRange) {
 CONFIG_GETTER(getNumericTreeMaxDepthRange) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%ld", config->numericTreeMaxDepthRange);
+}
+
+CONFIG_SETTER(setDefaultDialectVersion) {
+  unsigned int defaultDialectVersion;
+  int acrc = AC_GetUnsigned(ac, &defaultDialectVersion, AC_F_GE1);
+  if (defaultDialectVersion > MAX_DIALECT_VERSION) {
+    QueryError_SetErrorFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
+    return REDISMODULE_ERR;   
+  }
+  config->defaultDialectVersion = defaultDialectVersion;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getDefaultDialectVersion) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->defaultDialectVersion);
+}
+
+CONFIG_SETTER(setVSSMaxResize) {
+  size_t resize;
+  int acrc = AC_GetSize(ac, &resize, AC_F_GE0);
+  config->vssMaxResize = resize;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getVSSMaxResize) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->vssMaxResize);
 }
 
 CONFIG_SETTER(setGcPolicy) {
@@ -677,6 +709,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable legacy compression of double to float.",
          .setValue = setNumericCompress,
          .getValue = getNumericCompress},
+        {.name = "_FREE_RESOURCE_ON_THREAD",
+         .helpText = "Determine whether some index resources are free on a second thread.",
+         .setValue = setFreeResourcesThread,
+         .getValue = getFreeResourcesThread},
         {.name = "_PRINT_PROFILE_CLOCK",
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,
@@ -691,6 +727,14 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "for `x` generations.",
          .setValue = setNumericTreeMaxDepthRange,
          .getValue = getNumericTreeMaxDepthRange},
+        {.name = "DEFAULT_DIALECT",
+         .helpText = "Set RediSearch default dialect version throught the lifetime of the server.",
+         .setValue = setDefaultDialectVersion,
+         .getValue = getDefaultDialectVersion},
+        {.name = "VSS_MAX_RESIZE",
+         .helpText = "Set RediSearch vector indexes max resize (in bytes).",
+         .setValue = setVSSMaxResize,
+         .getValue = getVSSMaxResize},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

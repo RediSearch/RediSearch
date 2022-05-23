@@ -92,6 +92,8 @@ typedef struct {
 
   int filterCommands;
 
+  // free resource on shutdown
+  int freeResourcesThread;
   // compress double to float
   int numericCompress;
   // keep numeric ranges in parents of leafs
@@ -100,6 +102,11 @@ typedef struct {
   int printProfileClock;
   // disable compression for inverted index DocIdsOnly
   int invertedIndexRawDocidEncoding;
+  // Default dialect level used throughout database lifetime.
+  unsigned int defaultDialectVersion;
+  // sets the memory limit for vector indexes to resize by (in bytes).
+  // 0 indicates no limit. Default value is 0.
+  unsigned int vssMaxResize;
 } RSConfig;
 
 typedef enum {
@@ -168,6 +175,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
+#define MAX_DIALECT_VERSION 2
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -184,7 +192,8 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
-    .forkGCCleanNumericEmptyNodes = true,                                                            \
+    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
+    .vssMaxResize = 0,                                                                            \
   }
 
 #define REDIS_ARRAY_LIMIT 7
