@@ -393,7 +393,6 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   t_len slen = 0;
   float score = 0;
   int dist = 0;
-  size_t timeoutCounter = 0;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
@@ -427,10 +426,6 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     if (itsSz == itsCap) {
       itsCap *= 2;
       its = rm_realloc(its, itsCap * sizeof(*its));
-    }
-    if (q->sctx && TimedOut(&q->sctx->timeout, &timeoutCounter) == TIMED_OUT) {
-      QueryError_SetCode(q->status, QUERY_TIMEDOUT);
-      break;
     }
   }
 
@@ -770,7 +765,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   char *s;
   tm_len_t sl;
   void *ptr;
-  size_t timeoutCounter = 0;
 
   // Find all completions of the prefix
   while (TrieMapIterator_Next(it, &s, &sl, &ptr) &&
@@ -783,10 +777,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     if (itsSz == itsCap) {
       itsCap *= 2;
       its = rm_realloc(its, itsCap * sizeof(*its));
-    }
-    if (q->sctx && TimedOut(&q->sctx->timeout, &timeoutCounter) == TIMED_OUT) {
-      QueryError_SetCode(q->status, QUERY_TIMEDOUT);
-      break;
     }
   }
 
