@@ -34,7 +34,7 @@ def test_required_fields(env):
     env.expect('ft.search', 'idx', 'hello', 'nocontent', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', None])
 
 
-def test_info_commandstats(env, cmd):
+def check_info_commandstats(env, cmd):
     res = env.execute_command('INFO', 'COMMANDSTATS')
     env.assertGreater(res['cmdstat_' + cmd]['usec'], res['cmdstat__' + cmd]['usec'])
 
@@ -50,10 +50,10 @@ def testCommandStatsOnRedis(env):
         conn.execute_command('HSET', i, 't', 'Hello world!')
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 0).equal([100])
-    test_info_commandstats(env, 'FT.SEARCH')
+    check_info_commandstats(env, 'FT.SEARCH')
 
     env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([3])
-    test_info_commandstats(env, 'FT.AGGREGATE')
+    check_info_commandstats(env, 'FT.AGGREGATE')
 
     conn.execute_command('FT.INFO', 'idx')
-    test_info_commandstats(env, 'FT.INFO')
+    check_info_commandstats(env, 'FT.INFO')
