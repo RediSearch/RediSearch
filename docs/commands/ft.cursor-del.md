@@ -11,9 +11,9 @@ Delete a cursor.
 
 ```
 redis> FT.CURSOR DEL idx 342459320
-OK 
+OK
 ```
 ```
 redis> FT.CURSOR DEL idx 342459320
-(error) Cursor does not exist 
+(error) Cursor does not exist
 ```

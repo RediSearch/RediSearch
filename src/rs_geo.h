@@ -7,7 +7,7 @@
 
 /*
  * Encode longetude and latitude doubles into a single double.
- * This value can be sorted and used for distance. 
+ * This value can be sorted and used for distance.
  */
 int  encodeGeo(double lon, double lat, double *bits);
 
@@ -18,7 +18,7 @@ int  decodeGeo(double bits, double *xy);
 
 /*
  * Calculate which neighboring squares around a point contain the given radius.
- * 
+ *
  * `isWithinRadiusLonLat` must be use the filter out results that are within
  * the squares but not in radius.
  */

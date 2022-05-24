@@ -12,7 +12,6 @@ int GetSlotByPartition(PartitionCtx *ctx, size_t partition){
 }
 
 const char *PartitionTag(PartitionCtx *ctx, size_t partition) {
-
   if (partition > ctx->size) {
     return NULL;
   }

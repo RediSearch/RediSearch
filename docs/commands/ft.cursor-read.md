@@ -11,5 +11,5 @@ Reads next results from an existing cursor.
 @array-reply where each row is an @array-reply and represents a single aggregate result.
 
 ```
-redis> FT.CURSOR READ idx 342459320 COUNT 50 
+redis> FT.CURSOR READ idx 342459320 COUNT 50
 ```

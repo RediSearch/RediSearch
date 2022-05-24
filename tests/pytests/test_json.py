@@ -943,7 +943,7 @@ def testVector_correct_eval(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
-    
+
     env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[1,1]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[1,-0.189207144]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[2.772453851,1]}'))
@@ -960,7 +960,7 @@ def testVector_bad_values(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '5','DISTANCE_METRIC', 'L2').ok()
-    
+
     env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[1,2,3,4,"ab"]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[1,2,3,true,5]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[1,2,null,4,5]}'))
@@ -976,7 +976,7 @@ def testVector_delete(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
-    
+
     env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[0.1,0.1]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[0.2,0.3]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[0.3,0.3]}'))
@@ -997,5 +997,5 @@ def testVector_delete(env):
     env.assertEqual(conn.execute_command('JSON.DEL', 'j3'), 1)
     env.assertEqual(conn.execute_command('JSON.DEL', 'j4'), 1)
     env.assertEqual(conn.execute_command('JSON.DEL', 'j5'), 1)
-    
+
     env.expect(*q).equal([1, 'j6'])

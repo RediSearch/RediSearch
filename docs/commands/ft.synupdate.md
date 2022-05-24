@@ -7,7 +7,7 @@ The command is used to create or update a synonym group with additional terms. T
 * **SKIPINITIALSCAN**: If set, we do not scan and index and only documents which were indexed after the update will be affected.
 
 @return
- 
+
 @simple-string-reply - `OK` if executed correctly, or @error-reply otherwise.
 
 @examples
