@@ -389,14 +389,18 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   if (params->hnswParams.blockSize == 0) {
     params->hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   }
-  if (VecSimIndex_EstimateInitialSize(params) > memoryLimit - used_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters", memoryLimit);
+  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
+  size_t free_memory = memoryLimit - used_memory;
+  if (params->hnswParams.initialCapacity > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->hnswParams.initialCapacity, maxBlockSize);
     return 0;
-  } else if (params->hnswParams.blockSize  > maxBlockSize) {
+  }
+  else if (params->hnswParams.blockSize  > maxBlockSize) {
     // TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     // QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
     // return 0;
   }
+  RedisModule_Log(RSDummyContext, "warning", "creating vector index. Server memory limit: %zuB, required memory: %zuB, available memory: %zuB", memoryLimit, index_size_estimation, free_memory);
   return 1;
 }
 
@@ -411,13 +415,16 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
   // Calculating index size estimation, after first vector block was allocated.
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
   index_size_estimation += elementSize * params->bfParams.blockSize;
-  if (index_size_estimation > memoryLimit - used_memory) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index size exceeded server limit (%zuB) with the given parameters", memoryLimit);
+  size_t free_memory = memoryLimit - used_memory;
+  if (params->bfParams.initialCapacity > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->bfParams.initialCapacity, maxBlockSize);
     return 0;
-  } else if (params->bfParams.blockSize > maxBlockSize) {
+  }
+  if (params->bfParams.blockSize > maxBlockSize) {
     QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", params->bfParams.blockSize, maxBlockSize);
     return 0;
   }
+  RedisModule_Log(RSDummyContext, "warning", "creating vector index. Server memory limit: %zuB, required memory: %zuB, available memory: %zuB", memoryLimit, index_size_estimation, free_memory);
   return 1;
 }
 
@@ -1466,7 +1473,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
         fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
       case DocumentType_Json:
         fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
-      case DocumentType_None:
+      case DocumentType_Unsupported:
         RS_LOG_ASSERT(0, "shouldn't get here");
     }
   }
@@ -1748,7 +1755,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   }
 
   DocumentType type = getDocType(key);
-  if (type == DocumentType_None) {
+  if (type == DocumentType_Unsupported) {
     return;
   }
 
@@ -2310,7 +2317,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   case DocumentType_Json:
     rv = Document_LoadSchemaFieldJson(&doc, &sctx);
     break;
-  case DocumentType_None:
+  case DocumentType_Unsupported:
     RS_LOG_ASSERT(0, "Should receieve valid type");
   }
 
@@ -2356,7 +2363,6 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-
         RedisModuleString *rmskey = RedisModule_CreateString(ctx, spec->fields[i].name, strlen(spec->fields[i].name));
         KeysDictValue *kdv = dictFetchValue(spec->keysDict, rmskey);
         RedisModule_FreeString(ctx, rmskey);
@@ -2504,7 +2510,7 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
-  if (type == DocumentType_None) {
+  if (type == DocumentType_Unsupported) {
     // COPY could overwrite a hash/json with other types so we must try and remove old doc
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
     return;
@@ -2573,6 +2579,11 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key) {
+  DocumentType type = getDocTypeFromString(to_key);
+  if (type == DocumentType_Unsupported) {
+    return;
+  }
+
   SpecOpIndexingCtx *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key, true, to_key);
   SpecOpIndexingCtx *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key, true, NULL);
 
@@ -2608,7 +2619,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // on the spec from section.
       continue;
     }
-    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, getDocTypeFromString(to_key));
+    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type);
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);
