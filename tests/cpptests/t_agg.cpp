@@ -109,7 +109,7 @@ class ReducerOptionsCXX : public ReducerOptions {
     memset(this, 0, sizeof(*this));
     std::vector<T...> tmpvec{args...};
     m_args = std::move(tmpvec);
-    ArgsCursor_InitCString(&m_ac, &m_args[0], m_args.size());
+    &m_ac->InitCString(&m_args[0], m_args.size());
     this->name = name;
     this->args = &m_ac;
     this->status = &m_status;

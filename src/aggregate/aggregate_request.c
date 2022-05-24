@@ -666,7 +666,7 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
 
   // Parse the query and basic keywords first..
   ArgsCursor ac = {0};
-  ArgsCursor_InitSDS(&ac, args, nargs);
+  &ac->InitSDS(args, nargs);
 
   if (&ac->IsAtEnd()) {
     status->SetError(QUERY_EPARSEARGS, "No query string provided");
@@ -736,7 +736,7 @@ void QueryAST::applyGlobalFilters(RSSearchOptions &opts, const RedisSearchCtx &s
   if (opts.inkeys) {
     opts.inids = rm_malloc(sizeof(*opts.inids) * opts.ninkeys);
     for (size_t ii = 0; ii < opts.ninkeys; ++ii) {
-      t_docId did = DocTable_GetId(&sctx.spec->docs, opts.inkeys[ii], strlen(opts.inkeys[ii]));
+      t_docId did = &sctx.spec->docs->GetId(opts.inkeys[ii], strlen(opts.inkeys[ii]));
       if (did) {
         opts.inids[opts.nids++] = did;
       }

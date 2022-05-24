@@ -172,11 +172,11 @@ void RediSearch_FreeDocument(RSDoc* doc) {
 int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RWLOCK_ACQUIRE_WRITE();
   int rc = REDISMODULE_OK;
-  t_docId id = DocTable_GetId(&sp->docs, docKey, len);
+  t_docId id = &sp->docs->GetId(docKey, len);
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    if (DocTable_Delete(&sp->docs, docKey, len)) {
+    if (&sp->docs->Delete(docKey, len)) {
       // Delete returns true/false, not RM_{OK,ERR}
       sp->stats.numDocuments--;
     } else {
@@ -238,7 +238,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
   RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
-  int exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
+  int exists = !!&sp->docs->GetIdR(d->docKey);
   if (exists) {
     if (options & REDISEARCH_ADD_REPLACE) {
       options |= DOCUMENT_ADD_REPLACE;
@@ -450,7 +450,7 @@ end:
 //---------------------------------------------------------------------------------------------
 
 int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
-  return DocTable_GetId(&sp->docs, docKey, len) != 0;
+  return &sp->docs->GetId(docKey, len) != 0;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -483,7 +483,7 @@ int RediSearch_QueryNodeType(QueryNode* qn) {
 
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
   while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
-    const RSDocumentMetadata* md = DocTable_Get(&sp->docs, iter->res->docId);
+    const RSDocumentMetadata* md = &sp->docs->Get(iter->res->docId);
     if (md == NULL || ((md)->flags & Document_Deleted)) {
       continue;
     }

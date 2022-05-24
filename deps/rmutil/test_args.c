@@ -13,7 +13,7 @@ int testCArgs() {
   const char *args[] = {"hello",  "stringArg",   "goodbye",        "666", "cute", "3.14",
                         "toobig", "99999999999", "negative_nancy", "-1"};
   size_t argc = sizeof(args) / sizeof(args[0]);
-  ArgsCursor_InitCString(&ac, args, argc);
+  &ac->InitCString(args, argc);
   ASSERT(ac.offset == 0);
   ASSERT(ac.argc == argc);
 
@@ -66,7 +66,7 @@ int testCArgs() {
 static int testTypeConversion() {
   const char *objs[] = {NULL};
   ArgsCursor ac;
-  ArgsCursor_InitCString(&ac, objs, 1);
+  &ac->InitCString(objs, 1);
 #define PREP_ARG(arg) \
   ac.objs[0] = arg;   \
   ac.offset = 0;      \

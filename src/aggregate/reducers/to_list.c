@@ -28,21 +28,21 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 
   // for non array values we simply add the value to the list */
   if (v->t != RSValue_Array) {
-    uint64_t hval = RSValue_Hash(v, 0);
+    uint64_t hval = v->Hash(0);
     if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
 
       TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
-                  RSValue_IncrRef(RSValue_MakePersistent(v)), NULL);
+                  v->MakePersistent()->IncrRef(), NULL);
     }
   } else {  // For array values we add each distinct element to the list
     uint32_t len = RSValue_ArrayLen(v);
     for (uint32_t i = 0; i < len; i++) {
-      RSValue *av = RSValue_ArrayItem(v, i);
-      uint64_t hval = RSValue_Hash(av, 0);
+      RSValue *av = v->ArrayItem(i);
+      uint64_t hval = av->Hash(0);
       if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
 
         TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
-                    RSValue_IncrRef(RSValue_MakePersistent(av)), NULL);
+                    av->MakePersistent()->IncrRef(), NULL);
       }
     }
   }

@@ -38,14 +38,9 @@ int ArgsCursor::AdvanceIfMatch(const char *s) {
   return rv;
 }
 
-#define MAYBE_ADVANCE()            \
-  if (!(flags & AC_F_NOADVANCE)) { \
-    this->Advance();               \
-  }
-
-static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
+int ArgsCursor::tryReadAsDouble(long long *ll, unsigned int flags) {
   double dTmp = 0.0;
-  if (ac->GetDouble(&dTmp, flags | AC_F_NOADVANCE) != AC_OK) {
+  if (GetDouble(&dTmp, flags | AC_F_NOADVANCE) != AC_OK) {
     return AC_ERR_PARSE;
   }
   if (flags & AC_F_COALESCE) {
@@ -61,7 +56,7 @@ static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
   }
 }
 
-int ArgsCursor::GetLongLong(long long *ll, int flags) {
+int ArgsCursor::GetLongLong(long long *ll, unsigned int flags) {
   long long tmpll = 0;
   if (offset == argc) {
     return AC_ERR_NOARG;
@@ -94,38 +89,36 @@ int ArgsCursor::GetLongLong(long long *ll, int flags) {
   if ((flags & AC_F_GE1) && tmpll < 1) {
     return AC_ERR_ELIMIT;
   }
-  MAYBE_ADVANCE();
+  MAYBE_ADVANCE(flags);
   *ll = tmpll;
   return AC_OK;
 }
 
-// לשאול את רפי
-#define GEN_AC_FUNC(name, T, minVal, maxVal, isUnsigned)      \
-  int name(ArgsCursor *ac, T *p, int flags) {                 \
-    if (isUnsigned) {                                         \
-      flags |= AC_F_GE0;                                      \
-    }                                                         \
-    long long ll;                                             \
-    int rv = ac->GetLongLong( &ll, flags | AC_F_NOADVANCE); \
-    if (rv) {                                                 \
-      return rv;                                              \
-    }                                                         \
-    if (ll > maxVal || ll < minVal) {                         \
-      return AC_ERR_ELIMIT;                                   \
-    }                                                         \
-    *p = ll;                                                  \
-    MAYBE_ADVANCE();                                          \
-    return AC_OK;                                             \
-  }
+int ArgsCursor::GetUnsignedLongLong(unsigned long long *ull, unsigned int flags) {
+  return GetInteger<0, LLONG_MAX, true>(ull, flags);
+}
 
-GEN_AC_FUNC(GetUnsignedLongLong, unsigned long long, 0, LLONG_MAX, 1)
-GEN_AC_FUNC(GetUnsigned, unsigned, 0, UINT_MAX, 1)
-GEN_AC_FUNC(GetInt, int, INT_MIN, INT_MAX, 0)
-GEN_AC_FUNC(GetU32, uint32_t, 0, UINT32_MAX, 1)
-GEN_AC_FUNC(GetU64, uint64_t, 0, UINT64_MAX, 1)
-GEN_AC_FUNC(GetSize, size_t, 0, SIZE_MAX, 1)
+int ArgsCursor::GetUnsigned(unsigned *u, unsigned int flags) {
+  return GetInteger<0, UINT_MAX, true>(u, flags);
+}
 
-int ArgsCursor::GetDouble(double *d, int flags) {
+int ArgsCursor::GetInt(int *i, unsigned int flags) {
+  return GetInteger<INT_MIN, INT_MAX, false>(i, flags);
+}
+
+int ArgsCursor::GetU32(uint32_t *u, unsigned int flags) {
+  return GetInteger<0, UINT32_MAX, true>(u, flags);
+}
+
+int ArgsCursor::GetU64(uint64_t *u, unsigned int flags) {
+  return GetInteger<0, UINT64_MAX, true>(u, flags);
+}
+
+int ArgsCursor::GetSize(size_t *u, unsigned int flags) {
+  return GetInteger<0, SIZE_MAX, true>(u, flags);
+}
+
+int ArgsCursor::GetDouble(double *d, unsigned int flags) {
   double tmpd = 0;
   if (type == AC_TYPE_RSTRING) {
     if (RedisModule_StringToDouble(objs[offset], &tmpd) != REDISMODULE_OK) {
@@ -144,22 +137,22 @@ int ArgsCursor::GetDouble(double *d, int flags) {
   if ((flags & AC_F_GE1) && tmpd < 1.0) {
     return AC_ERR_ELIMIT;
   }
-  MAYBE_ADVANCE();
+  MAYBE_ADVANCE(flags);
   *d = tmpd;
   return AC_OK;
 }
 
-int ArgsCursor::GetRString(RedisModuleString **s, int flags) {
+int ArgsCursor::GetRString(RedisModuleString **s, unsigned int flags) {
   assert(type == AC_TYPE_RSTRING);
   if (offset == argc) {
     return AC_ERR_NOARG;
   }
   *s = CURRENT();
-  MAYBE_ADVANCE();
+  MAYBE_ADVANCE(flags);
   return AC_OK;
 }
 
-int ArgsCursor::GetString(const char **s, size_t *n, int flags) {
+int ArgsCursor::GetString(const char **s, size_t *n, unsigned int flags) {
   if (offset == argc) {
     return AC_ERR_NOARG;
   }
@@ -175,7 +168,7 @@ int ArgsCursor::GetString(const char **s, size_t *n, int flags) {
       }
     }
   }
-  MAYBE_ADVANCE();
+  MAYBE_ADVANCE(flags);
   return AC_OK;
 }
 
@@ -203,23 +196,22 @@ int ArgsCursor::GetVarArgs(ArgsCursor *dst) {
   return GetSlice(dst, nargs);
 }
 
-// Consume the next <n> arguments and place them in <dest>
+// Consume the next <n> arguments and place them in <dst>
 
-int ArgsCursor::GetSlice(ArgsCursor *ac, ArgsCursor *dst, size_t n) {
-  if (n > ac->NumRemaining()) {
+int ArgsCursor::GetSlice(ArgsCursor *dst, size_t n) {
+  if (n > NumRemaining()) {
     return AC_ERR_NOARG;
   }
 
-  dst->objs = ac->objs + ac->offset;
+  dst->objs = objs + offset;
   dst->argc = n;
   dst->offset = 0;
-  dst->type = ac->type;
-  ac->AdvanceBy(n);
+  dst->type = type;
+  AdvanceBy(n);
   return 0;
 }
 
-// למה זה סטטי
-static int parseSingleSpec(ArgsCursor *ac, ACArgSpec *spec) {
+int ArgsCursor::parseSingleSpec(ACArgSpec *spec) {
   switch (spec->type) {
     case AC_ARGTYPE_BOOLFLAG:
       *(int *)spec->target = 1;
@@ -231,23 +223,23 @@ static int parseSingleSpec(ArgsCursor *ac, ACArgSpec *spec) {
       *(uint32_t *)spec->target &= ~spec->slicelen;
       return AC_OK;
     case AC_ARGTYPE_DOUBLE:
-      return ac->GetDouble(spec->target, spec->intflags);
+      return GetDouble(spec->target, spec->intflags);
     case AC_ARGTYPE_INT:
-      return ac->GetInt(spec->target, spec->intflags);
+      return GetInt(spec->target, spec->intflags);
     case AC_ARGTYPE_LLONG:
-      return ac->GetLongLong( spec->target, spec->intflags);
+      return GetLongLong(spec->target, spec->intflags);
     case AC_ARGTYPE_ULLONG:
-      return ac->GetUnsignedLongLong( spec->target, spec->intflags);
+      return GetInt1(reinterpret_cast<unsigned long long *>(spec->target), spec->intflags);
     case AC_ARGTYPE_UINT:
-      return ac->GetUnsigned(spec->target, spec->intflags);
+      return GetUnsigned(spec->target, spec->intflags);
     case AC_ARGTYPE_STRING:
-      return ac->GetString(spec->target, spec->len, 0);
+      return GetString(spec->target, spec->len, 0);
     case AC_ARGTYPE_RSTRING:
-      return ac->GetRString(spec->target, 0);
+      return GetRString(spec->target, 0);
     case AC_ARGTYPE_SUBARGS:
-      return ac->GetVarArgs(spec->target);
+      return GetVarArgs(spec->target);
     case AC_ARGTYPE_SUBARGS_N:
-      return ac->GetSlice(spec->target, spec->slicelen);
+      return GetSlice(spec->target, spec->slicelen);
     default:
       fprintf(stderr, "Unknown type");
       abort();
@@ -295,7 +287,7 @@ int ArgsCursor::ParseArgSpec(ACArgSpec *specs, ACArgSpec **errSpec) {
     }
 
     Advance();
-    if ((rv = parseSingleSpec(this, cur)) != AC_OK) {
+    if ((rv = parseSingleSpec(cur)) != AC_OK) {
       if (errSpec) {
         *errSpec = cur;
       }

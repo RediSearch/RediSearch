@@ -17,7 +17,7 @@ RSSortingVector *NewSortingVector(int len) {
   ret->len = len;
   // set all values to NIL
   for (int i = 0; i < len; i++) {
-    ret->values[i] = RSValue_IncrRef(RS_NullVal());
+    ret->values[i] = RS_NullVal()->IncrRef();
   }
   return ret;
 }

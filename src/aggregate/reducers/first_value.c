@@ -85,7 +85,7 @@ static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *fvFinalize(Reducer *parent, void *ctx) {
   fvCtx *fvx = ctx;
-  return RSValue_IncrRef(fvx->value);
+  return fvx->value->IncrRef();
 }
 
 //---------------------------------------------------------------------------------------------

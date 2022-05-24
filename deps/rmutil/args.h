@@ -43,48 +43,73 @@ struct ArgsCursor {
 
   // These functions return AC_OK or an error code on error. Note that the
   // output value is not guaranteed to remain untouched in the case of an error
-  int GetString(const char **s, size_t *n, int flags);
-  int GetRString(RedisModuleString **s, int flags);
-  int GetLongLong(long long *ll, int flags);
-  int GetUnsignedLongLong(unsigned long long *ull, int flags);
-  int GetUnsigned(unsigned *u, int flags);
-  int GetInt(int *i, int flags);
-  int GetDouble(double *d, int flags);
-  int GetU32(uint32_t *u, int flags);
-  int GetU64(uint64_t *u, int flags);
-  int GetSize(size_t *sz, int flags);
+  int GetString(const char **s, size_t *n, unsigned int flags);
+  int GetRString(RedisModuleString **s, unsigned int flags);
+  int GetLongLong(long long *ll, unsigned int flags);
+  int GetUnsignedLongLong(unsigned long long *ull, unsigned int flags);
+  int GetUnsigned(unsigned *u, unsigned int flags);
+  int GetInt(int *i, unsigned int flags);
+  int GetDouble(double *d, unsigned int flags);
+  int GetU32(uint32_t *u, unsigned int flags);
+  int GetU64(uint64_t *u, unsigned int flags);
+  int GetSize(size_t *sz, unsigned int flags);
 
   const char *GetStringNC(size_t *len);
   int GetVarArgs(ArgsCursor *dest);
-  static int GetSlice(ArgsCursor *ac, ArgsCursor *dest, size_t n);
+  int GetSlice(ArgsCursor *dest, size_t n);
+  int tryReadAsDouble(long long *ll, unsigned int flags) {
 
   int ParseArgSpec(ACArgSpec *specs, ACArgSpec **errSpec);
+  int parseSingleSpec(ACArgSpec *spec) {
 
   int Advance();
   int AdvanceBy(size_t by);
   int AdvanceIfMatch(const char *arg);
+  void MAYBE_ADVANCE(unsigned int flags) {
+    if (!(flags & AC_F_NOADVANCE)) {
+      Advance();
+    }
+  }
+
+  template <class T, size_t minVal, size_t maxVal, bool isUnsigned>
+  int ArgsCursor::GetInteger(T *p, unsigned int flags) {
+    if (isUnsigned) {
+      flags |= AC_F_GE0;
+    }
+    long long ll;
+    int rv = GetLongLong(&ll, flags | AC_F_NOADVANCE);
+    if (rv) {
+      return rv;
+    }
+    if (ll > maxVal || ll < minVal) {
+      return AC_ERR_ELIMIT;
+    }
+    *p = ll;
+    maybeAdvance(flags);
+    return AC_OK;
+  }
+
+  void InitCString(const char **argv, int argc) {
+    objs = (void **)argv;
+    type = AC_TYPE_CHAR;
+    offset = 0;
+    argc = argc;
+  }
+
+  void InitSDS(const sds *argv, int argc) {
+    objs = (void **)argv;
+    type = AC_TYPE_SDS;
+    offset = 0;
+    argc = argc;
+  }
+
+  void InitRString(RedisModuleString **argv, int argc) {
+    objs = (void **)argv;
+    type = AC_TYPE_RSTRING;
+    offset = 0;
+    argc = argc;
+  }
 };
-
-static inline void ArgsCursor_InitCString(ArgsCursor *cursor, const char **argv, int argc) {
-  cursor->objs = (void **)argv;
-  cursor->type = AC_TYPE_CHAR;
-  cursor->offset = 0;
-  cursor->argc = argc;
-}
-
-static inline void ArgsCursor_InitSDS(ArgsCursor *cursor, const sds *argv, int argc) {
-  cursor->objs = (void **)argv;
-  cursor->type = AC_TYPE_SDS;
-  cursor->offset = 0;
-  cursor->argc = argc;
-}
-
-static inline void ArgsCursor_InitRString(ArgsCursor *cursor, RedisModuleString **argv, int argc) {
-  cursor->objs = (void **)argv;
-  cursor->type = AC_TYPE_RSTRING;
-  cursor->offset = 0;
-  cursor->argc = argc;
-}
 
 enum ACStatus {
   AC_OK = 0,      // Not an error
@@ -212,10 +237,10 @@ class ArgsCursorCXX : public ArgsCursor {
  private:
   std::vector<const void *> arr;
   void init(const char **s, size_t n) {
-    ArgsCursor_InitCString(this, s, n);
+    InitCString(s, n);
   }
   void init(RedisModuleString **s, size_t n) {
-    ArgsCursor_InitRString(this, s, n);
+    InitRString(s, n);
   }
 };
 

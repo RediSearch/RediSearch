@@ -642,7 +642,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
                             int *result, QueryError *status) {
 
   int rc = REDISMODULE_ERR;
-  const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, key);
+  const RSDocumentMetadata *dmd = &sctx->spec->docs->GetByKeyR(key);
   if (!dmd) {
     // We don't know the document...
     status->SetError(QUERY_ENODOC, "");
@@ -701,11 +701,11 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   } while (0);
 
   Document *doc = &aCtx->doc;
-  t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
+  t_docId docId = &sctx->spec->docs->GetIdR(doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");
   }
-  RSDocumentMetadata *md = DocTable_Get(&sctx->spec->docs, docId);
+  RSDocumentMetadata *md = &sctx->spec->docs->Get(docId);
   if (!md) {
     BAIL("Couldn't load document metadata");
   }
@@ -714,7 +714,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   md->score = doc->score;
   // Set the payload if needed
   if (doc->payload) {
-    DocTable_SetPayload(&sctx->spec->docs, docId, doc->payload, doc->payloadSize);
+    &sctx->spec->docs->SetPayload(docId, doc->payload, doc->payloadSize);
   }
 
   if (aCtx->stateFlags & ACTX_F_SORTABLES) {

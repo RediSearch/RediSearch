@@ -831,7 +831,8 @@ public:
 
   int Test(t_docId id) {
     size_t len;
-    const char *externalId = DocTable_GetKey((DocTable *) &spec->docs, id, &len);
+    DocTable *td = (DocTable *) &spec->docs;
+    const char *externalId = td->GetKey(id, &len);
     double n;
     int ret = spec->getValue(spec->getValueCtx, nf.fieldName, externalId, NULL, &n);
     RS_LOG_ASSERT(ret == RSVALTYPE_DOUBLE, "RSvalue type should be a double");
@@ -858,7 +859,8 @@ public:
 
   int Test(t_docId id) {
     size_t len;
-    const char *externalId = DocTable_GetKey((DocTable *) &spec->docs, id, &len);
+    DocTable *td = (DocTable *) &spec->docs;
+    const char *externalId = td->GetKey(id, &len);
     for (int i = 0; i < spec->numFields; ++i) {
       FieldSpec *field = &spec->fields[i];
       if (!(FIELD_BIT(field) & fieldMask)) {
@@ -1070,7 +1072,7 @@ size_t IndexReader::NumDocs() const {
 //---------------------------------------------------------------------------------------------
 
 IndexReader::IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
-    RSIndexResult *record, double weight) : IndexIterator(this), sp(sp), idx(idx), decoder(decoder), 
+    RSIndexResult *record, double weight) : IndexIterator(this), sp(sp), idx(idx), decoder(decoder),
     record(record), weight(weight) {
   gcMarker = idx->gcMarker;
   lastId = CurrentBlock().firstId;
@@ -1105,8 +1107,8 @@ static RSQueryTerm *termWithIDF(RSQueryTerm *term, InvertedIndex *idx, IndexSpec
 //---------------------------------------------------------------------------------------------
 
 TermIndexReader::TermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
-    RSQueryTerm *term, double weight) : IndexReader(sp, idx, 
-      IndexDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK, fieldMask), 
+    RSQueryTerm *term, double weight) : IndexReader(sp, idx,
+      IndexDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK, fieldMask),
       NewTermRecord(termWithIDF(term, idx, sp), weight),
       weight) {
 }
@@ -1189,7 +1191,7 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
     }
     isFirstRes = false;
     lastReadId = res->docId;
-    int docExists = DocTable_Exists(dt, res->docId);
+    int docExists = dt->Exists(res->docId);
 
     // If we found a deleted document, we increment the number of found "frags",
     // and not write anything, so the reader will advance but the writer won't.
@@ -1242,7 +1244,7 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
     // if we left with no elements we do need to keep the
     // first id so the binary search on the block will still working.
     // The last_id will turn zero indicating there is no records in this block.
-    // We will not save empty blocks in rdb and also we will not read empty block 
+    // We will not save empty blocks in rdb and also we will not read empty block
     // from rdb (in case we read a corrunpted rdb from older versions).
     firstId = oldFirstBlock;
   }
@@ -1282,10 +1284,10 @@ int InvertedIndex::Repair(DocTable *dt, uint32_t startBlock, IndexRepairParams *
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexIterator::IndexIterator() : ir(NULL), mode(IndexIteratorMode::Sorted), isValid(false), 
+IndexIterator::IndexIterator() : ir(NULL), mode(IndexIteratorMode::Sorted), isValid(false),
   current(ir->record) {}
 
-IndexIterator::IndexIterator(IndexReader *ir) : ir(ir), mode(IndexIteratorMode::Sorted), 
+IndexIterator::IndexIterator(IndexReader *ir) : ir(ir), mode(IndexIteratorMode::Sorted),
   isValid(!ir->atEnd), current(ir->record) {}
 
 IndexIterator::~IndexIterator() {

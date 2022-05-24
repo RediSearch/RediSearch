@@ -293,7 +293,7 @@ DEBUG_COMMAND(IdToDocId) {
     RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     goto end;
   }
-  RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
+  RSDocumentMetadata *doc = &sctx->spec->docs->Get(id);
   if (!doc || (doc->flags & Document_Deleted)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
   } else {
@@ -313,7 +313,7 @@ DEBUG_COMMAND(DocIdToId) {
   GET_SEARCH_CTX(argv[0])
   size_t n;
   const char *key = RedisModule_StringPtrLen(argv[1], &n);
-  t_docId id = DocTable_GetId(&sctx->spec->docs, key, n);
+  t_docId id = &sctx->spec->docs->GetId(key, n);
   RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -462,7 +462,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   RedisModuleKey *keyp = NULL;
   ArgsCursor ac = {0};
   ACArgSpec *errSpec = NULL;
-  ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
+  &ac->InitRString(argv + 2, argc - 2);
   int rv = &ac->ParseArgSpec(argspecs, &errSpec);
   if (rv != AC_OK) {
     RedisModule_ReplyWithError(ctx, "Could not parse argument (argspec fixme)");
@@ -599,7 +599,7 @@ DEBUG_COMMAND(DocInfo) {
   }
   GET_SEARCH_CTX(argv[0]);
 
-  const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, argv[1]);
+  const RSDocumentMetadata *dmd = &sctx->spec->docs->GetByKeyR(argv[1]);
   if (!dmd) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");

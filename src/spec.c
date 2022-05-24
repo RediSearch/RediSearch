@@ -500,7 +500,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
 
-  ArgsCursor_InitCString(&ac, argv, argc);
+  &ac->InitCString(argv, argc);
   long long timeout = -1;
   int dummy;
 
@@ -709,7 +709,7 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
-  DocTable_Free(&spec->docs);
+  delete (&spec->docs);
 
   if (spec->uniqueId) {
     // If uniqueid is 0, it means the index was not initialized
@@ -1013,7 +1013,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
-  sp->docs = DocTable_New(100);
+  sp->docs = new DocTable(100);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
   sp->keysDict = NULL;
@@ -1225,7 +1225,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
-  sp->docs = DocTable_New(1000);
+  sp->docs = new DocTable(1000);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   char *tmpName = rm_strdup(sp->name);
   RedisModule_Free(sp->name);
@@ -1255,7 +1255,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   IndexStats_RdbLoad(rdb, &sp->stats);
 
-  DocTable_RdbLoad(&sp->docs, rdb, encver);
+  &sp->docs->RdbLoad(rdb, encver);
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
     sp->terms = TrieType_GenericLoad(rdb, 0);
@@ -1319,7 +1319,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   }
 
   IndexStats_RdbSave(rdb, &sp->stats);
-  DocTable_RdbSave(&sp->docs, rdb);
+  &sp->docs->RdbSave(rdb);
   // save trie of terms
   TrieType_GenericSave(rdb, sp->terms, 0);
 

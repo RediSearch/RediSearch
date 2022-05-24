@@ -66,7 +66,7 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   /* Find the document by its key */
-  t_docId docId = DocTable_GetIdR(&sp->docs, argv[2]);
+  t_docId docId = &sp->docs->GetIdR(argv[2]);
   if (docId == 0) {
     RedisModule_ReplyWithError(ctx, "Document not in index");
     goto cleanup;
@@ -75,7 +75,7 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t mdlen;
   const char *md = RedisModule_StringPtrLen(argv[3], &mdlen);
 
-  if (DocTable_SetPayload(&sp->docs, docId, md, mdlen) == 0) {
+  if (&sp->docs->SetPayload(docId, md, mdlen) == 0) {
     RedisModule_ReplyWithError(ctx, "Could not set payload ¯\\_(ツ)_/¯");
     goto cleanup;
   }
@@ -110,7 +110,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
 
-    if (DocTable_GetIdR(dt, argv[i]) == 0) {
+    if (dt->GetIdR(argv[i]) == 0) {
       // Document does not exist in index; even though it exists in keyspace
       RedisModule_ReplyWithNull(ctx);
       continue;
@@ -153,7 +153,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   Document doc = {0};
   Document_Init(&doc, argv[2], 0, DEFAULT_LANGUAGE);
 
-  if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0 ||
+  if (&sctx->spec->docs->GetIdR(argv[2]) == 0 ||
       Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
     RedisModule_ReplyWithNull(ctx);
   } else {
@@ -320,7 +320,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModuleString *docKey = argv[2];
 
   // Get the doc ID
-  t_docId id = DocTable_GetIdR(&sp->docs, docKey);
+  t_docId id = &sp->docs->GetIdR(docKey);
   if (id == 0) {
     return RedisModule_ReplyWithLongLong(ctx, 0);
     // ID does not exist.
@@ -335,7 +335,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     gi.RemoveEntries(id);
   }
 
-  int rc = DocTable_DeleteR(&sp->docs, docKey);
+  int rc = &sp->docs->DeleteR(docKey);
   if (rc) {
     sp->stats.numDocuments--;
 
@@ -685,7 +685,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
+  &ac->InitRString(argv + 1, argc - 1);
 
   // Need at least <cmd> <index> <subcommand> <args...>
   RedisModule_AutoMemory(ctx);
@@ -724,7 +724,7 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           QueryError *error) {
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
+  &ac->InitRString(argv + 1, argc - 1);
   IndexLoadOptions loadOpts = {
       name: {rstring: argv[2]},
       flags: INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};

@@ -44,7 +44,7 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   int incr = 0, rv = AC_OK;
   RSPayload payload = {0};
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, argv + 4, argc - 4);
+  &ac->InitRString(argv + 4, argc - 4);
   while (!&ac->IsAtEnd()) {
     const char *s = &ac->GetStringNC(NULL);
     if (!strcasecmp(s, "INCR")) {
@@ -210,7 +210,7 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
 
   ACArgSpec *errArg = NULL;
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, argv, argc);
+  &ac->InitRString(argv, argc);
   int rv = &ac->ParseArgSpec(argList, &errArg);
   if (rv != AC_OK) {
     if (rv == AC_ERR_ENOENT) {

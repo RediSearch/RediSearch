@@ -947,14 +947,14 @@ TEST_F(IndexTest, testIndexFlags) {
 
 TEST_F(IndexTest, testDocTable) {
   char buf[16];
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = new DocTable(10, 10);
   t_docId did = 0;
   // N is set to 100 and the max cap of the doc table is 10 so we surely will
   // get overflow and check that everything works correctly
   int N = 100;
   for (int i = 0; i < N; i++) {
     size_t nkey = sprintf(buf, "doc_%d", i);
-    t_docId nd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf));
+    t_docId nd = &dt->Put(buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf));
     ASSERT_EQ(did + 1, nd);
     did = nd;
   }
@@ -966,13 +966,13 @@ TEST_F(IndexTest, testDocTable) {
 #endif
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
-    const char *key = DocTable_GetKey(&dt, i + 1, NULL);
+    const char *key = &dt->GetKey(i + 1, NULL);
     ASSERT_STREQ(key, buf);
 
-    float score = DocTable_GetScore(&dt, i + 1);
+    float score = &dt->GetScore(i + 1);
     ASSERT_EQ((int)score, i);
 
-    RSDocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
+    RSDocumentMetadata *dmd = &dt->Get(i + 1);
     DMD_Incref(dmd);
     ASSERT_TRUE(dmd != NULL);
     ASSERT_TRUE(dmd->flags & Document_HasPayload);
@@ -983,34 +983,34 @@ TEST_F(IndexTest, testDocTable) {
     ASSERT_EQ((int)dmd->score, i);
     ASSERT_EQ((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload));
 
-    t_docId xid = DocIdMap_Get(&dt.dim, buf, strlen(buf));
+    t_docId xid = &dt.dim->Get(buf, strlen(buf));
 
     ASSERT_EQ((int)xid, i + 1);
 
-    int rc = DocTable_Delete(&dt, dmd->keyPtr, sdslen(dmd->keyPtr));
+    int rc = &dt->Delete(dmd->keyPtr, sdslen(dmd->keyPtr));
     ASSERT_EQ(1, rc);
     ASSERT_TRUE((int)(dmd->flags & Document_Deleted));
     DMD_Decref(dmd);
-    dmd = DocTable_Get(&dt, i + 1);
+    dmd = &dt->Get(i + 1);
     ASSERT_TRUE(!dmd);
   }
 
-  ASSERT_FALSE(DocIdMap_Get(&dt.dim, "foo bar", strlen("foo bar")));
-  ASSERT_FALSE(DocTable_Get(&dt, N + 2));
+  ASSERT_FALSE(&dt.dim->Get("foo bar", strlen("foo bar")));
+  ASSERT_FALSE(&dt->Get(N + 2));
 
-  t_docId strDocId = DocTable_Put(&dt, "Hello", 5, 1.0, 0, NULL, 0);
+  t_docId strDocId = &dt->Put("Hello", 5, 1.0, 0, NULL, 0);
   ASSERT_TRUE(0 != strDocId);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
   const size_t binBufLen = 11;
-  ASSERT_FALSE(DocIdMap_Get(&dt.dim, binBuf, binBufLen));
-  t_docId binDocId = DocTable_Put(&dt, binBuf, binBufLen, 1.0, 0, NULL, 0);
+  ASSERT_FALSE(&dt.dim->Get(binBuf, binBufLen));
+  t_docId binDocId = &dt->Put(binBuf, binBufLen, 1.0, 0, NULL, 0);
   ASSERT_TRUE(binDocId);
   ASSERT_NE(binDocId, strDocId);
-  ASSERT_EQ(binDocId, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
-  ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
-  DocTable_Free(&dt);
+  ASSERT_EQ(binDocId, &dt.dim->Get(binBuf, binBufLen));
+  ASSERT_EQ(strDocId, &dt.dim->Get("Hello", 5));
+  delete &dt;
 }
 
 TEST_F(IndexTest, testSortable) {

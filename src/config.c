@@ -311,7 +311,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     RSGlobalConfig.poolSizeNoAuto = 1;
   }
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, argv, argc);
+  &ac->InitRString(argv, argc);
   while (!&ac->IsAtEnd()) {
     const char *name = &ac->GetStringNC(NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
@@ -552,7 +552,7 @@ int RSConfig::SetOption(RSConfigOptions *options, const char *name, RedisModuleS
     return REDISMODULE_ERR;
   }
   ArgsCursor ac;
-  ArgsCursor_InitRString(&ac, argv + *offset, argc - *offset);
+  &ac->InitRString(argv + *offset, argc - *offset);
   int rc = var->setValue(this, &ac, status);
   *offset += ac.offset;
   return rc;

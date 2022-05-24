@@ -35,7 +35,7 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   }
 
   if (sc->seen < r->len) {
-    RSVALUE_ARRELEM(sc->samplesArray, sc->seen) = RSValue_IncrRef(v);
+    RSVALUE_ARRELEM(sc->samplesArray, sc->seen) = v->IncrRef();
     RSVALUE_ARRLEN(sc->samplesArray)++;
     assert(RSVALUE_ARRLEN(sc->samplesArray) <= r->len);
   } else {

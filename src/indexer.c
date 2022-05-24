@@ -221,13 +221,13 @@ int DocumentIndexer::writeMergedEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *
 //---------------------------------------------------------------------------------------------
 
 // Simple implementation, writes all the entries for a single document.
-// This function is used when there is only one item in the queue. 
+// This function is used when there is only one item in the queue.
 // In this case it's simpler to forego building the merged dictionary because there is
 // nothing to merge.
 
 void DocumentIndexer::writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx shound not be NULL");
-  
+
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
   IndexEncoder encoder = InvertedIndex::GetEncoder(aCtx->specFlags);
@@ -281,7 +281,7 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
   DocTable *table = &spec->docs;
   Document *doc = &aCtx->doc;
   if (replace) {
-    RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
+    RSDocumentMetadata *dmd = table->PopR(doc->docKey);
     if (dmd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
@@ -300,7 +300,7 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
 
   doc->docId =
-      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize);
+    table->Put(s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
     status->SetError(QUERY_EDOCEXISTS, NULL);
     return -1;
@@ -332,18 +332,18 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       continue;
     }
 
-    RSDocumentMetadata *md = DocTable_Get(&spec->docs, cur->doc.docId);
+    RSDocumentMetadata *md = &spec->docs->Get(cur->doc.docId);
     md->maxFreq = cur->fwIdx->maxFreq;
     md->len = cur->fwIdx->totalFreq;
 
     if (cur->sv) {
-      DocTable_SetSortingVector(&spec->docs, cur->doc.docId, cur->sv);
+      &spec->docs->SetSortingVector(cur->doc.docId, cur->sv);
       cur->sv = NULL;
     }
 
     if (cur->byteOffsets) {
       cur->offsetsWriter.Move(cur->byteOffsets);
-      DocTable_SetByteOffsets(&spec->docs, cur->doc.docId, cur->byteOffsets);
+      &spec->docs->SetByteOffsets(cur->doc.docId, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
   }
@@ -393,7 +393,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
 struct DocumentIndexerConcurrentKey : public ConcurrentKey {
   RedisSearchCtx sctx;
-  
+
   DocumentIndexerConcurrentKey(RedisModuleKey *key, RedisModuleString *keyName) :
     ConcurrentKey(key, keyName, REDISMODULE_READ | REDISMODULE_WRITE) {
   }

@@ -9,7 +9,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // General Result Processor Helper functions
- 
+
 void QueryIterator::Cleanup() {
   ResultProcessor *p = rootProc;
   while (p) {
@@ -101,7 +101,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       continue;
     }
 
-    dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);
+    dmd = &RP_SPEC(base)->docs->Get(r->docId);
     if (!dmd || (dmd->flags & Document_Deleted)) {
       continue;
     }

@@ -134,7 +134,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   int rc = REDISMODULE_ERR;
   // If the ID is 0, then the document does not exist.
   IndexSpec *sp = sctx->spec;
-  int exists = !!DocTable_GetIdR(&sp->docs, name);
+  int exists = !!&sp->docs->GetIdR(name);
   if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
     status->SetError(QUERY_EDOCEXISTS, NULL);
     goto error;
@@ -229,7 +229,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AddDocumentOptions opts = {.donecb = replyCallback};
   QueryError status = {0};
 
-  ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
+  &ac->InitRString(argv + 3, argc - 3);
 
   int rv = 0;
   if ((rv = &ac->GetDouble(&opts.score, 0) != AC_OK)) {
@@ -316,7 +316,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   QueryError status = {0};
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
+  &ac->InitRString(argv + 3, argc - 3);
   double ds;
   int rv = 0;
 
