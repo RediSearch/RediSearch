@@ -173,10 +173,10 @@ Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](/
 
 *   `[ AS {score field name | $score_field_name_attribute}]` - An optional part for specifying a score field name, for later sorting by the similarity score. By default the score field name is "`__{vector field}_score`" and it can be used for sorting without using `AS {score field name}` in the query.
 
-### Hybrid vector similarity search
+### Hybrid Queries
 
-We refer vector similarity queries of the form `{primary filter query}=>[{vector similarity query}]` as *hybrid queries*. RediSearch has an internal mechanism for optimizing the computation of such queries. There are 2 modes in which hybrid queries are executed: 
-1. **Batches mode** - an iterative procedure, where in each step a batch of the top results that correspond to the `{vector similarity query}` part of the query are obtained from the vector index. Then, every result (which represents a certain document in the index) is evaluated, and returned only if the rest of the document's fields pass the `{primary filter query}` part of the query. If the accumulated number of results hadn't reached the requested `k` results, this procedure continues and another batch of the *next best* results is obtained from the vector index in the next step. The procedure terminates when `k` documents that pass the `{primary filter query}` are collected (or until every vector in the index was obtained and processed).
+We refer to vector similarity queries of the form `{primary filter query}=>[{vector similarity query}]` as *hybrid queries*. RediSearch has an internal mechanism for optimizing the computation of such queries. There are 2 modes in which hybrid queries are executed: 
+1. **Batches mode** - In this mode, a batch of the high-scoring documents from the vector index are retrieved. These documents are returned ONLY if `{primary filter query}` is satisfied. (i.e., the document contains a similar vector and meets the filter criteria). The procedure terminates when `k` documents that pass the `{primary filter query}` are returned or after every vector in the index was obtained and processed.
     
     The **Batch size** is determined by a heuristics that is based on `k`, and the ratio between the expected number of documents in the index that pass the `{primary filter query}` and the vector index size. The goal of the aforementioned heuristics is to minimize the total number of batches required to get the `k` results, while preserving a small batch size as possible. Note that the batch size may change *dynamically* in each iteration, based on the number of results that passed the filter in previous batches.
 2. **Ad-hoc brute-force mode** - in general, this approach is preferable when the number of documents that pass the `{primary filter query}` part of the query is relatively small. Here, the score of *every* vector which corresponds to a document that passes the filter is computed, and the top `k` results are selected and returned. Note that the results of the KNN query will *always be accurate* in this mode, even if the underline vector index algorithm is an approximate one.
@@ -208,7 +208,7 @@ Currently there are no runtime parameters available for FLAT indexes.
 
 1. Although specifying `K` requested results, the default `LIMIT` in RediSearch is 10, so for getting all the returned results, make sure to specify `LIMIT 0 {K}` in your command.
 
-2. By default, the results are sorted by their documents default RediSearch score. for getting the results sorted by similarity score, use `SORTBY {score field name}` as explained earlier.
+2. By default, the results are sorted by their documents RediSearch score. If you would like to sort by vector similarity score, use `SORTBY {score field name}`. See examples below.
 
 ### Examples for querying vector fields
 
