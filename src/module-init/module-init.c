@@ -124,6 +124,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Run time configuration
   RSConfig_AddToInfo(ctx);
 
+  #ifdef FTINFO_FOR_INFO_MODULES
   // FT.INFO for some of the indexes
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
@@ -133,6 +134,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     IndexSpec_AddToInfo(ctx, spec);
   }
   dictReleaseIterator(iter);
+  #endif
 }
 
 static inline const char* RS_GetExtraVersion() {

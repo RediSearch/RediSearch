@@ -1850,6 +1850,7 @@ void ReindexPool_ThreadPoolDestroy() {
 
 //---------------------------------------------------------------------------------------------
 
+#ifdef FTINFO_FOR_INFO_MODULES
 void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   char *temp = "info";
   char name[strlen(sp->name) + strlen(temp) + 2];
@@ -1979,6 +1980,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   if (sp->flags & Index_HasCustomStopwords)
     AddStopWordsListToInfo(ctx, sp->stopwords);
 }
+#endif // FTINFO_FOR_INFO_MODULES
 
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
   size_t nkeys = RedisModule_DbSize(ctx);

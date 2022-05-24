@@ -43,7 +43,9 @@ GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint6
 void GCContext_Start(GCContext* gc);
 void GCContext_Stop(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);
+#ifdef FTINFO_FOR_INFO_MODULES
 void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
+#endif
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);

@@ -313,6 +313,7 @@ void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) 
   CursorList_Unlock(cl);
 }
 
+#ifdef FTINFO_FOR_INFO_MODULES
 void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInfoCtx *ctx) {
   CursorList_Lock(cl);
   CursorSpecInfo *info = findInfo(cl, name, NULL);
@@ -326,6 +327,7 @@ void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInf
 
   CursorList_Unlock(cl);
 }
+#endif // FTINFO_FOR_INFO_MODULES
 
 static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
   CursorSpecInfo *info = arg;

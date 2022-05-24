@@ -1365,6 +1365,7 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
   RedisModule_ReplySetArrayLength(ctx, n);
 }
 
+#ifdef FTINFO_FOR_INFO_MODULES
 static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   ForkGC *gc = gcCtx;
   RedisModule_InfoBeginDictField(ctx, "gc_stats");
@@ -1377,6 +1378,7 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   RedisModule_InfoAddFieldDouble(ctx, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
   RedisModule_InfoEndDictField(ctx);
 }
+#endif
 
 static void killCb(void *ctx) {
   ForkGC *gc = ctx;
@@ -1412,7 +1414,7 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   callbacks->onTerm = onTerminateCb;
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
-  callbacks->renderStatsForInfo = statsForInfoCb;
+  // callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;
   callbacks->kill = killCb;
   callbacks->onDelete = deleteCb;

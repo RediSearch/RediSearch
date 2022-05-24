@@ -54,17 +54,17 @@ def testInfoModulesBasic(env):
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
   env.assertEqual(configInfo['search_gc_scan_size'], '100')
 
-  idx1Info = info['search_info_' + idx1]
-  env.assertTrue('search_stop_words' in idx1Info)
-  env.assertTrue('search_field_4' in idx1Info)
-  env.assertEqual(idx1Info['search_field_2'], 'identifier=body,attribute=body,type=TEXT,WEIGHT=1,NOINDEX=ON')
-  env.assertEqual(idx1Info['search_stop_words'], '"tlv","summer","2020"')
+  # idx1Info = info['search_info_' + idx1]
+  # env.assertTrue('search_stop_words' in idx1Info)
+  # env.assertTrue('search_field_4' in idx1Info)
+  # env.assertEqual(idx1Info['search_field_2'], 'identifier=body,attribute=body,type=TEXT,WEIGHT=1,NOINDEX=ON')
+  # env.assertEqual(idx1Info['search_stop_words'], '"tlv","summer","2020"')
 
-  idx2Info = info['search_info_' + idx2]
-  env.assertTrue('search_stop_words' not in idx2Info)
-  env.assertTrue('prefixes="TLV:","NY:"' in idx2Info['search_index_definition'])
-  env.assertTrue('default_language=' in idx2Info['search_index_definition'])
-  env.assertEqual(idx2Info['search_field_2'], 'identifier=T2,attribute=t2,type=TAG,SEPARATOR=","')
+  # idx2Info = info['search_info_' + idx2]
+  # env.assertTrue('search_stop_words' not in idx2Info)
+  # env.assertTrue('prefixes="TLV:","NY:"' in idx2Info['search_index_definition'])
+  # env.assertTrue('default_language=' in idx2Info['search_index_definition'])
+  # env.assertEqual(idx2Info['search_field_2'], 'identifier=T2,attribute=t2,type=TAG,SEPARATOR=","')
 
 
 def testInfoModulesAlter(env):
@@ -81,8 +81,8 @@ def testInfoModulesAlter(env):
   env.assertEqual(fieldsInfo['search_fields_text'], 'Text=1,Sortable=1')
   env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=1,NoIndex=1')
 
-  idx1Info = info['search_info_' + idx1]
-  env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
+  # idx1Info = info['search_info_' + idx1]
+  # env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
 
 def testInfoModulesDrop(env):
   conn = env.getConnection()

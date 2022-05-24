@@ -419,10 +419,12 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
+#ifdef FTINFO_FOR_INFO_MODULES
 /**
  * Exposing all the fields of the index to INFO command.
  */
 void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
+#endif
 
 /**
  * Gets the next text id from the index. This does not currently
