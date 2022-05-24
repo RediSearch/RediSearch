@@ -61,7 +61,7 @@ typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
   struct timespec timeout;  // milliseconds until timeout
-  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut()
+  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
 } RPIndexIterator;
 
 /* Next implementation */
@@ -69,7 +69,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
 
-  if (TimedOut(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
+  if (TimedOut_WithCounter(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
     return RS_RESULT_TIMEDOUT;
   }
 

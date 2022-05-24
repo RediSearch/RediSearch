@@ -47,34 +47,38 @@ typedef struct TimeoutCtx {
 
 typedef int(*TimeoutCb)(TimeoutCtx *);
 
-// Check if time has been reached (run once every 100 calls) 
-static inline int TimedOut(struct timespec *timeout, size_t *counter) {
-  if (RS_IsMock) return 0;
-
-  if (++(*counter) == 100) {
-    *counter = 0;
-    static struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-    if (__builtin_expect(rs_timer_ge(&now, timeout), 0)) {
-      return TIMED_OUT;
-    }
+static inline int TimedOut(struct timespec *timeout) {
+  static struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  if (__builtin_expect(rs_timer_ge(&now, timeout), 0)) {
+    return TIMED_OUT;
   }
   return NOT_TIMED_OUT;
 }
 
+// Check if time has been reached (run once every 100 calls) 
+static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter) {
+  if (RS_IsMock) return 0;
+
+  if (++(*counter) == 100) {
+    *counter = 0;
+    return TimedOut(timeout);
+  }
+  return NOT_TIMED_OUT;
+}
+
+// Check if time has been reached (run once every 100 calls) 
+static inline int TimedOut_WithCtx(TimeoutCtx *ctx) {
+  return TimedOut_WithCounter(&ctx->timeout, &ctx->counter);
+}
+
 // Check if time has been reached
 static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *status) {
-  size_t counter = 99;
-  int rc = TimedOut(timeout, &counter);
+  int rc = TimedOut(timeout);
   if (status && rc == TIMED_OUT) {
     QueryError_SetCode(status, QUERY_TIMEDOUT);
   }
   return rc; 
-}
-
-// Check if time has been reached (run once every 100 calls) 
-static inline int TimedOutWithCtx(TimeoutCtx *ctx) {
-  return TimedOut(&ctx->timeout, &ctx->counter);
 }
 
 static inline void updateTimeout(struct timespec *timeout, int durationNS) {

@@ -381,7 +381,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   hi->returnedResults = NULL;
   hi->numIterations = 0;
   hi->ignoreScores = hParams.ignoreDocScore;
-  hi->timeoutCb = TimedOutWithCtx;
+  hi->timeoutCb = TimedOut_WithCtx;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
 
   if (hParams.childIt == NULL) {
