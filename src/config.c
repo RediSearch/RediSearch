@@ -370,7 +370,7 @@ CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   if (maxDepthRange > NR_MAX_DEPTH_BALANCE) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Max depth for range cannot be higher "
                                                   "than max depth for balance");
-    return REDISMODULE_ERR;   
+    return REDISMODULE_ERR;
   }
   config->numericTreeMaxDepthRange = maxDepthRange;
   RETURN_STATUS(acrc);
@@ -386,7 +386,7 @@ CONFIG_SETTER(setDefaultDialectVersion) {
   int acrc = AC_GetUnsigned(ac, &defaultDialectVersion, AC_F_GE1);
   if (defaultDialectVersion > MAX_DIALECT_VERSION) {
     QueryError_SetErrorFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
-    return REDISMODULE_ERR;   
+    return REDISMODULE_ERR;
   }
   config->defaultDialectVersion = defaultDialectVersion;
   RETURN_STATUS(acrc);
@@ -723,7 +723,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getRawDocIDEncoding,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "_NUMERIC_RANGES_PARENTS",
-         .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs " 
+         .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs "
                      "for `x` generations.",
          .setValue = setNumericTreeMaxDepthRange,
          .getValue = getNumericTreeMaxDepthRange},

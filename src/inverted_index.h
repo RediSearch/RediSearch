@@ -50,7 +50,7 @@ typedef struct {
   t_fieldMask num;
 
   // used by profile
-  double rangeMin;    
+  double rangeMin;
   double rangeMax;
 } IndexDecoderCtx;
 

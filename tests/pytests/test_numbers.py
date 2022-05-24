@@ -39,7 +39,6 @@ def testSanity(env):
 
 def testCompressionConfig(env):
 	env.skipOnCluster()
-	conn = getConnectionByEnv(env)
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
 
 	# w/o compression. exact number match.
@@ -68,7 +67,6 @@ def testCompressionConfig(env):
 def testRangeParentsConfig(env):
 	env.skipOnCluster()
 	elements = 1000
-	conn = getConnectionByEnv(env)
 
 	concurrent = env.cmd('ft.config', 'get', 'CONCURRENT_WRITE_MODE')
 	if str(concurrent[0][1]) == 'true':
