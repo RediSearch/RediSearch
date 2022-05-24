@@ -2076,9 +2076,9 @@ def testTimeout(env):
     env.cmd('ft.config', 'set', 'timeout', '1')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
 
-    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT')
+    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
-        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i))
+        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i), 'geo', str(i/10000) + ',' + str(i/1000))
 
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
 
@@ -2095,15 +2095,23 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
     # check no time w/o sorter/grouper
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*',
-                  'LOAD', 1, 't',
-                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
-                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
-    env.assertEqual(res[0], 1)
-
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa1*',
+                'LOAD', 1, 'geo',
+                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance1',
+                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance2',
+                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance3',
+                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
+                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5',
+                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance6',
+                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance7',
+                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance8',
+                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance9',
+                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistanc10',
+                'APPLY', 'geodistance(@geo, "1.1,-1.1")', 'AS', 'geodistance11')
+    env.assertLess(len(res[1:]), 111)
+    
     # test grouper
-    env.expect('FT.AGGREGATE', 'myIdx', 'aa*',
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
                'LOAD', 1, 't',
                'GROUPBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
@@ -2112,7 +2120,7 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test sorter
-    env.expect('FT.AGGREGATE', 'myIdx', 'aa*',
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
                'LOAD', 1, 't',
                'SORTBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
