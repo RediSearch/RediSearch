@@ -778,6 +778,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
     }
     Trie_Delete(sctx->spec->terms, term, len);
     sctx->spec->stats.numTerms--;
+    sctx->spec->stats.termsSize -= len;
     RedisModule_FreeString(sctx->redisCtx, termKey);
   }
 
