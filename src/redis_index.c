@@ -478,8 +478,11 @@ int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
 }
 
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
+
   IndexSpec *spec = ctx->spec;
+
   SchemaPrefixes_RemoveSpec(spec);
+
   if (deleteDocuments || !!(spec->flags & Index_Temporary)) {
     DocTable *dt = &spec->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx->redisCtx, dmd->keyPtr));

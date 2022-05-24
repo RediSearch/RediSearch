@@ -745,7 +745,6 @@ int IndexSpec_CreateTextId(const IndexSpec *sp) {
 
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
- *
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError *status,
                                        int isNew) {
@@ -1696,44 +1695,6 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
-// static void FieldsGlobalStats_RdbLoad(RedisModuleIO *rdb, FieldsGlobalStats *stats) {
-//   stats->numTextFields = RedisModule_LoadUnsigned(rdb);
-//   stats->numTextFieldsSortable = RedisModule_LoadUnsigned(rdb);
-//   stats->numTextFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
-//   stats->numNumericFields = RedisModule_LoadUnsigned(rdb);
-//   stats->numNumericFieldsSortable = RedisModule_LoadUnsigned(rdb);
-//   stats->numNumericFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
-//   stats->numGeoFields = RedisModule_LoadUnsigned(rdb);
-//   stats->numGeoFieldsSortable = RedisModule_LoadUnsigned(rdb);
-//   stats->numGeoFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
-//   stats->numTagFields = RedisModule_LoadUnsigned(rdb);
-//   stats->numTagFieldsSortable = RedisModule_LoadUnsigned(rdb);
-//   stats->numTagFieldsNoIndex = RedisModule_LoadUnsigned(rdb);
-//   stats->numTagFieldsCaseSensitive = RedisModule_LoadUnsigned(rdb);
-//   stats->numVectorFields = RedisModule_LoadUnsigned(rdb);
-//   stats->numVectorFieldsFlat = RedisModule_LoadUnsigned(rdb);
-//   stats->numVectorFieldsHSNW = RedisModule_LoadUnsigned(rdb);
-// }
-
-// static void FieldsGlobalStats_RdbSave(RedisModuleIO *rdb, FieldsGlobalStats *stats) {
-//   RedisModule_SaveUnsigned(rdb, stats->numTextFields);
-//   RedisModule_SaveUnsigned(rdb, stats->numTextFieldsSortable);
-//   RedisModule_SaveUnsigned(rdb, stats->numTextFieldsNoIndex);
-//   RedisModule_SaveUnsigned(rdb, stats->numNumericFields);
-//   RedisModule_SaveUnsigned(rdb, stats->numNumericFieldsSortable);
-//   RedisModule_SaveUnsigned(rdb, stats->numNumericFieldsNoIndex);
-//   RedisModule_SaveUnsigned(rdb, stats->numGeoFields);
-//   RedisModule_SaveUnsigned(rdb, stats->numGeoFieldsSortable);
-//   RedisModule_SaveUnsigned(rdb, stats->numGeoFieldsNoIndex);
-//   RedisModule_SaveUnsigned(rdb, stats->numTagFields);
-//   RedisModule_SaveUnsigned(rdb, stats->numTagFieldsSortable);
-//   RedisModule_SaveUnsigned(rdb, stats->numTagFieldsNoIndex);
-//   RedisModule_SaveUnsigned(rdb, stats->numTagFieldsCaseSensitive);
-//   RedisModule_SaveUnsigned(rdb, stats->numVectorFields);
-//   RedisModule_SaveUnsigned(rdb, stats->numVectorFieldsFlat);
-//   RedisModule_SaveUnsigned(rdb, stats->numVectorFieldsHSNW);
-// }
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static threadpool reindexPool = NULL;
@@ -2550,10 +2511,6 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-<<<<<<< HEAD
-
-=======
->>>>>>> master
         RedisModuleString *rmskey = RedisModule_CreateString(ctx, spec->fields[i].name, strlen(spec->fields[i].name));
         KeysDictValue *kdv = dictFetchValue(spec->keysDict, rmskey);
         RedisModule_FreeString(ctx, rmskey);
