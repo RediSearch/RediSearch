@@ -22,7 +22,7 @@
 #endif  //NDEBUG
 
 #define RS_CHECK_FUNC(funcName, ...)                                          \
-    if (funcName) {                                      \
+    if (funcName) {                                                           \
         funcName(__VA_ARGS__);                                                \
     } 
 
