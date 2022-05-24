@@ -149,7 +149,6 @@ typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int
 
 #define CMDCTX_KEEP_RCTX 0x01
 #define CMDCTX_NO_GIL 0x02
-#define CMDCTX_COORD 0x04
 
 /**
  * Take ownership of the underlying Redis command context. Once ownership is
