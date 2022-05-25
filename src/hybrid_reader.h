@@ -5,6 +5,7 @@
 #include "redisearch.h"
 #include "spec.h"
 #include "util/heap.h"
+#include "util/timeout.h"
 
 typedef enum {
   VECSIM_STANDARD_KNN,               // Run k-nn query over the entire vector index.
@@ -26,6 +27,7 @@ typedef struct {
   char *vectorScoreField;
   bool ignoreDocScore;
   IndexIterator *childIt;
+  struct timespec timeout;
 } HybridIteratorParams;
 
 typedef struct {
@@ -49,6 +51,8 @@ typedef struct {
   //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
   size_t numIterations;
   bool ignoreScores;               // Ignore the document scores, only vector score matters.
+  TimeoutCb timeoutCb;             // Timeout callback function
+  TimeoutCtx timeoutCtx;           // Timeout parameters
 } HybridIterator;
 
 #ifdef __cplusplus
