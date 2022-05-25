@@ -2095,20 +2095,14 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
     # check no time w/o sorter/grouper
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa1*',
+    res = env.cmd('FT.AGGREGATE', 'myIdx', '*',
                 'LOAD', 1, 'geo',
                 'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance1',
                 'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance2',
                 'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance3',
                 'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
-                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5',
-                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance6',
-                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance7',
-                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance8',
-                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance9',
-                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistanc10',
-                'APPLY', 'geodistance(@geo, "1.1,-1.1")', 'AS', 'geodistance11')
-    env.assertLess(len(res[1:]), 111)
+                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5')
+    env.assertLess(len(res[1:]), num_range)
     
     # test grouper
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
