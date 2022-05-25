@@ -117,7 +117,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .qParams = qParams,
                                       .vectorScoreField = vq->scoreField,
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
-                                      .childIt = child_it
+                                      .childIt = child_it,
+                                      .timeout = q->sctx->timeout,
       };
       return NewHybridVectorIterator(hParams);
     }
