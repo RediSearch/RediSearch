@@ -88,10 +88,10 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     // This means we are done!
     if (rc == INDEXREAD_EOF) {
       return RS_RESULT_EOF;
-    } else if (!r || rc == INDEXREAD_NOTFOUND) {
-      continue;
     } else if (rc == INDEXREAD_TIMEOUT) {
       return RS_RESULT_TIMEDOUT;
+    } else if (!r || rc == INDEXREAD_NOTFOUND) {
+      continue;
     }
 
     dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);
