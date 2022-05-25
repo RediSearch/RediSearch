@@ -125,6 +125,11 @@ def testSanity(env):
         env.expect('ft.search', index_list[i], '*234', 'LIMIT', 0 , 0).equal([40])
         env.expect('ft.search', index_list[i], '*13', 'LIMIT', 0 , 0).equal([400])
 
+    # test timeout
+    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
+    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
 
 def testSanityTags(env):
     env.skipOnCluster()
@@ -181,6 +186,12 @@ def testSanityTags(env):
         env.expect('ft.search', index_list[i], '@t:{*oo234}', 'LIMIT', 0 , 0).equal([3])
         env.expect('ft.search', index_list[i], '@t:{*234}', 'LIMIT', 0 , 0).equal([40])
         env.expect('ft.search', index_list[i], '@t:{*13}', 'LIMIT', 0 , 0).equal([400])
+    
+    # test timeout
+    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
+    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
 
 def testEscape(env):
   # this test check that `\*` is escaped correctly on contains queries

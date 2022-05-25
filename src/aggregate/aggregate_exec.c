@@ -335,6 +335,13 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   updateTimeout(&(*r)->timeoutTime, (*r)->reqTimeout);
 
   rc = AREQ_ApplyContext(*r, sctx, status);
+
+  size_t counter = 99;
+  if (TimedOut((*r)->timeoutTime, &counter)) {
+    QueryError_SetCode(status, QUERY_TIMEDOUT);
+    rc = REDISMODULE_ERR;
+  }
+
   thctx = NULL;
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {

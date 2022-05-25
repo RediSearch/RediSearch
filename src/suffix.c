@@ -241,13 +241,14 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
     // if array is empty, remove the node
     if (array_len(data->array) == 0) {
       RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
-      TrieMap_Delete(trie, str + j, len - j, freeSuffixNode);
+      TrieMap_Delete(trie, str + j, len - j, (freeCB)freeSuffixNode);
     }
   }
   rm_free(oldTerm);
 }
 
-arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len, bool prefix) {
+arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
+                                          bool prefix, struct timespec timeout) {
   arrayof(char**) arr = NULL;
   suffixData *data = NULL;
   if (!prefix) {
@@ -260,6 +261,7 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
     }
   } else {
     TrieMapIterator *it = TrieMap_Iterate(trie, str, len);
+    TrieMapIterator_SetTimeout(it, timeout);
     if (!it) {
       return NULL;
     }

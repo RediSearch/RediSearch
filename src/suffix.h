@@ -29,7 +29,8 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
 
 void suffixTrieMap_freeCallback(void *payload);
 
-arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len, bool prefix);
+arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
+                                        bool prefix, struct timespec timeout);
 
 #ifdef __cplusplus
 }

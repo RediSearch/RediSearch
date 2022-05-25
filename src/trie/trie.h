@@ -241,7 +241,7 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includ
  * @param ctx data to be passed to the callback
  */
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
-                              TrieRangeCallback callback, void *ctx);
+                              TrieRangeCallback callback, void *ctx, struct timespec timeout);
 
 #ifdef __cplusplus
 }

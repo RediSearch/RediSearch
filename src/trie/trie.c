@@ -906,6 +906,7 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
       .includeMin = includeMin,
       .includeMax = includeMax,
       .stop = 0,
+      .timeoutCounter = REDISEARCH_UNINITIALIZED,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
   rangeIterate(n, min, nmin, max, nmax, &r);
@@ -916,7 +917,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
 
 // Contains iteration.
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
-                              TrieRangeCallback callback, void *ctx) {
+                              TrieRangeCallback callback, void *ctx, struct timespec timeout) {
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     if (TrieNode_Find(n, (rune *)str, nstr) != 0) {
@@ -928,9 +929,9 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
+      .timeout = timeout,
       .timeoutCounter = 0,
   };
-  updateTimeout(&r.timeout, 100000); // TODO: for timeout tests
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
 
   // prefix mode
@@ -944,8 +945,6 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
     }
     goto done;
   }
-
-  updateTimeout(&r.timeout, RSGlobalConfig.queryTimeoutMS); // TODO: nit using RSGlobalConfig.queryTimeoutMS for timeout tests
 
   // contains and suffix mode
   r.origStr = str;
