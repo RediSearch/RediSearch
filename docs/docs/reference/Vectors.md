@@ -173,11 +173,29 @@ Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](/
 
 *   `[ AS {score field name | $score_field_name_attribute}]` - An optional part for specifying a score field name, for later sorting by the similarity score. By default the score field name is "`__{vector field}_score`" and it can be used for sorting without using `AS {score field name}` in the query.
 
-## Specific runtime attributes per algorithm
+### Hybrid Queries
 
+We refer to vector similarity queries of the form `{primary filter query}=>[{vector similarity query}]` as *hybrid queries*. RediSearch has an internal mechanism for optimizing the computation of such queries. There are 2 modes in which hybrid queries are executed: 
+1. **Batches mode** - In this mode, a batch of the high-scoring documents from the vector index are retrieved. These documents are returned ONLY if `{primary filter query}` is satisfied. (i.e., the document contains a similar vector and meets the filter criteria). The procedure terminates when `k` documents that pass the `{primary filter query}` are returned or after every vector in the index was obtained and processed.
+    
+    The **Batch size** is determined by a heuristics that is based on `k`, and the ratio between the expected number of documents in the index that pass the `{primary filter query}` and the vector index size. The goal of the aforementioned heuristics is to minimize the total number of batches required to get the `k` results, while preserving a small batch size as possible. Note that the batch size may change *dynamically* in each iteration, based on the number of results that passed the filter in previous batches.
+2. **Ad-hoc brute-force mode** - in general, this approach is preferable when the number of documents that pass the `{primary filter query}` part of the query is relatively small. Here, the score of *every* vector which corresponds to a document that passes the filter is computed, and the top `k` results are selected and returned. Note that the results of the KNN query will *always be accurate* in this mode, even if the underline vector index algorithm is an approximate one.
+
+The specific execution mode of a hybrid query is determined by a heuristics that aims to minimize the query runtime, and is based on several factors that derive from the query and the index. Moreover, the execution mode may change from *batches* to *ad-hoc BF* during the run, based on estimations of some relevant factors, that are being updated from one batch to another.  
+
+## Runtime attributes
+
+###Hybrid query attributes
+
+The following **optional** attributes allow overriding the default auto-selected policy in which a hybrid query is executed:
+
+* **HYBRID_POLICY** - the policy to run the hybrid query in. Possible values are *BATCHES* and *ADHOC_BF* (not case-sensitive). Note that the *batch size* will be auto selected dynamically in *BATCHES* mode, unless *BATCH_SIZE* attribute is given as well.
+* **BATCH_SIZE** - a fixed batch size to use in *every iteration*, when *BATCHES* policy is auto-selected or requested.
+
+###Algorithm specific attributes
 ### FLAT
 
-Currently there are no runtime parameters available for FLAT indexes
+Currently there are no runtime parameters available for FLAT indexes.
 
 ### HNSW
 
@@ -188,9 +206,9 @@ Currently there are no runtime parameters available for FLAT indexes
 
 ### A few notes
 
-1. Although specifing `K` requested results, the default `LIMIT` in RediSearch is 10, so for getting all the returned results, make sure to specify `LIMIT 0 {K}` in your command.
+1. Although specifying `K` requested results, the default `LIMIT` in RediSearch is 10, so for getting all the returned results, make sure to specify `LIMIT 0 {K}` in your command.
 
-2. By default, the resluts are sorted by their documents default RediSearch score. for getting the results sorted by similarity score, use `SORTBY {score field name}` as explained earlier.
+2. By default, the results are sorted by their documents RediSearch score. If you would like to sort by vector similarity score, use `SORTBY {score field name}`. See examples below.
 
 ### Examples for querying vector fields
 
@@ -216,4 +234,10 @@ Currently there are no runtime parameters available for FLAT indexes
 
 *   ```
     FT.SEARCH idx "(@type:{shirt} ~@color:{blue})=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores DIALECT 2
+    ```
+*   ```
+    FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY ADHOC_BF]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores DIALECT 2
+    ```
+*   ```
+    FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY BATCHES BATCH_SIZE 50]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores DIALECT 2
     ```

@@ -7,7 +7,6 @@ from time import sleep
 from RLTest import Env
 
 
-
 def testSuggestions(env):
     r = env
     skipOnCrdtEnv(env)

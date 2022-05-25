@@ -174,16 +174,19 @@ def testProfileNumeric(env):
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
-  conn.execute_command('hset', '1', 'n', '1.2')
-  conn.execute_command('hset', '2', 'n', '1.5')
-  conn.execute_command('hset', '3', 'n', '8.2')
-  conn.execute_command('hset', '4', 'n', '6.7')
-  conn.execute_command('hset', '5', 'n', '-14')
+  for i in range(10000):
+    conn.execute_command('hset', i, 'n', 50 - float(i % 1000) / 10)
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[0,100]', 'nocontent')
-  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 4, 'Child iterators',
-                    ['Type', 'NUMERIC', 'Term', '-14 - 1.35', 'Counter', 1, 'Size', 2],
-                    ['Type', 'NUMERIC', 'Term', '1.35 - 8.2', 'Counter', 3, 'Size', 3]]]
+  expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 5010, 'Child iterators',
+                    ['Type', 'NUMERIC', 'Term', '-2.9 - 14.4', 'Counter', 1450, 'Size', 1740],
+                    ['Type', 'NUMERIC', 'Term', '14.5 - 30.7', 'Counter', 1630, 'Size', 1630],
+                    ['Type', 'NUMERIC', 'Term', '30.8 - 38', 'Counter', 730, 'Size', 730],
+                    ['Type', 'NUMERIC', 'Term', '38.1 - 44.6', 'Counter', 660, 'Size', 660],
+                    ['Type', 'NUMERIC', 'Term', '44.7 - 46.7', 'Counter', 210, 'Size', 210],
+                    ['Type', 'NUMERIC', 'Term', '46.8 - 48.5', 'Counter', 180, 'Size', 180],
+                    ['Type', 'NUMERIC', 'Term', '48.6 - 50', 'Counter', 150, 'Size', 150]]]
+
   env.assertEqual(actual_res[1][3], expected_res)
 
 def testProfileTag(env):
@@ -265,6 +268,42 @@ def testProfileVector(env):
                                                    ['Type', 'TEXT', 'Term', 'other', 'Counter', 3, 'Size', 10000]]]]
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 3 @v $vec]',
                                       'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
+  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES_TO_ADHOC_BF')
+
+  # Ask explicitly to run in batches mode, without asking for a certain batch size.
+  # First batch size is 4, and every batch should be double in its size from its previous one. We go over the entire
+  # index after the 13th batch.
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 2 @v $vec HYBRID_POLICY BATCHES]',
+                                    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 0, 'Batches number', 13, 'Child iterator',
+                                                   ['Type', 'INTERSECT', 'Counter', 12, 'Child iterators',
+                                                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 25, 'Size', 10000],
+                                                    ['Type', 'TEXT', 'Term', 'other', 'Counter', 13, 'Size', 10000]]]]
+  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+
+  # Ask explicitly to run in batches mode, with batch size of 100.
+  # After 200 iterations, we should go over the entire index.
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 2 @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 100]',
+                                    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 0, 'Batches number', 200, 'Child iterator',
+                                                  ['Type', 'INTERSECT', 'Counter', 199, 'Child iterators',
+                                                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 399, 'Size', 10000],
+                                                   ['Type', 'TEXT', 'Term', 'other', 'Counter', 200, 'Size', 10000]]]]
+  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+
+  # Asking only for a batch size without asking for batches policy. While batchs mode is on, the bacth size will be as
+  # requested, but the mode can change dynamically to ADHOC-BF.
+  # Note that the batch_size here as no effect, since the child_num_estimated will always be decreased in half after
+  # every iteration that returned 0 results.
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 2 @v $vec BATCH_SIZE 100]',
+                                    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
+  expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 0, 'Batches number', 2, 'Child iterator',
+                                                  ['Type', 'INTERSECT', 'Counter', 2, 'Child iterators',
+                                                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 5, 'Size', 10000],
+                                                   ['Type', 'TEXT', 'Term', 'other', 'Counter', 3, 'Size', 10000]]]]
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES_TO_ADHOC_BF')
 

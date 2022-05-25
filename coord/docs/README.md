@@ -9,15 +9,15 @@ RSCoordinator is an add-on module that enables scalable distributed search over 
 
 ## How It Works
 
-RSCoordinator runs alongside RediSearch, and distributes search commands across the cluster. 
+RSCoordinator runs alongside RediSearch, and distributes search commands across the cluster.
 It translates its own API, which is similar to RediSearch's API, into a set of RediSearch commands, sends those to the appropriate shards,
-and merges the responses to a single one. 
+and merges the responses to a single one.
 
 ### Example Usage
 
 ```
 # Creating an index
-> FT.CREATE myIdx SCHEMA foo TEXT 
+> FT.CREATE myIdx SCHEMA foo TEXT
 
 # Adding a document
 > FT.ADD myIdx doc1 1.0 FIELDS foo "hello world"
