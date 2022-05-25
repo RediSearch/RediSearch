@@ -8,6 +8,7 @@
 #include "redis_index.h"
 #include "suffix.h"
 #include "rmutil/rm_assert.h"
+#include "phonetic_manager.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -234,7 +235,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     }
     
     if (spec->suffixMask & entry->fieldMask && entry->term[0] != STEM_PREFIX
-                                            /*&& entry->term[0] != PHONETIC_PREFIX*/) {
+                                            && entry->term[0] != PHONETIC_PREFIX) {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
 

@@ -150,7 +150,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
     sp->flags |= Index_HasPhonetic;
   }
   if (options & RSFLDOPT_WITHSUFFIXTRIE) {
-    fs->options |= FieldSpec_Contains;
+    fs->options |= FieldSpec_WithSuffixTrie;
     if (fs->types == INDEXFLD_T_FULLTEXT) {
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {

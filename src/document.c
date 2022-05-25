@@ -607,7 +607,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
       return -1;
     }
-    if (FieldSpec_HasContains(fs) && !tidx->suffix) {
+    if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
       tidx->suffix = NewTrieMap();
     }
   }

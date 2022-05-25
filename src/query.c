@@ -938,7 +938,7 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
 
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
                                               IndexIteratorArray *iterout, double weight,
-                                              FieldSpec *fs) {
+                                              const FieldSpec *fs) {
   IndexIterator *ret = NULL;
 
   if (n->tn.str) {
@@ -951,7 +951,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       break;
     }
     case QN_PREFIX:
-      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasContains(fs));
+      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasSuffixTrie(fs));
 
     case QN_LEXRANGE:
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);

@@ -330,7 +330,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       fs->options |= FieldSpec_Phonetics;
       continue;
     } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
-      fs->options |= FieldSpec_Contains;
+      fs->options |= FieldSpec_WithSuffixTrie;
     } else {
       break;
     }
@@ -681,7 +681,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
       } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
         fs->tagOpts.tagFlags |= TagField_CaseSensitive;
       } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
-        fs->options |= FieldSpec_Contains;
+        fs->options |= FieldSpec_WithSuffixTrie;
       } else {
         break;
       }
@@ -837,7 +837,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
     }
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasContains(fs)) {
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
         sp->flags |= Index_HasContains;
@@ -1961,7 +1961,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     if (FieldSpec_IsSortable(fs)) {
       RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
     }
-    if (FieldSpec_HasContains(fs)) {
+    if (FieldSpec_HasSuffixTrie(fs)) {
       sp->flags |= Index_HasContains;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
