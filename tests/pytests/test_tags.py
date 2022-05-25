@@ -11,7 +11,6 @@ def testTagIndex(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag').ok()
     N = 10
     for n in range(N):
-
         env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
                                        'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n).ok()
     for _ in r.retry_with_rdb_reload():

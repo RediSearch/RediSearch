@@ -96,7 +96,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
                                       [IXFLDPOS_TAG] = SPEC_TAG_STR,
                                       [IXFLDPOS_VECTOR] = SPEC_VECTOR_STR};
 
-// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace 
+// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
@@ -247,8 +247,8 @@ typedef struct IndexSpec {
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields
 
-  IndexStats stats;               // Statistics of memory used and quantities 
-  IndexFlags flags;               // Flags                   
+  IndexStats stats;               // Statistics of memory used and quantities
+  IndexFlags flags;               // Flags
 
   Trie *terms;                    // Trie of all terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of suffix tokens of terms. Used for contains queries

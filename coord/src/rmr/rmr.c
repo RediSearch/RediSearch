@@ -268,7 +268,7 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
     mrctx->numExpected =
         MRCluster_FanoutCommand(cluster_g, mrctx->strategy, cmd, fanoutCallback, mrctx);
   }
-  
+
   for (int i = 0; i < mrctx->numCmds; ++i) {
     mrctx->cmds[i] = mc->cmds[i];
   }
@@ -288,7 +288,6 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
   mrctx->numReplied = 0;
   mrctx->reducer = mc->f;
   mrctx->numExpected = 0;
-
   mrctx->numCmds = mc->numCmds;
   mrctx->cmds = calloc(mrctx->numCmds, sizeof(MRCommand));
 

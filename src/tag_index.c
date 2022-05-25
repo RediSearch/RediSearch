@@ -70,7 +70,7 @@ static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, cha
   }
 
   char *p;
-  char *pp = p = rm_strdup(str);  
+  char *pp = p = rm_strdup(str);
   while (p) {
     // get the next token
     size_t toklen;
@@ -110,7 +110,7 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
   case FLD_VAR_T_NULL:
     break;
   case FLD_VAR_T_GEO:
-  case FLD_VAR_T_NUM:  
+  case FLD_VAR_T_NUM:
     RS_LOG_ASSERT(0, "nope")
   }
   return ret;

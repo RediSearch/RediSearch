@@ -45,7 +45,7 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
   strtolower(lowStr);
   int ret = TrieMap_Find(sl->m, (char *)lowStr, len) != TRIEMAP_NOTFOUND;
 
-  // free memory if allocated 
+  // free memory if allocated
   if (len >= 32) rm_free(lowStr);
 
   return ret;

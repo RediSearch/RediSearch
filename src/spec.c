@@ -348,13 +348,13 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
     return rc;
   }
   // Uncomment these when support for other type is added.
-  if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len)) 
+  if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len))
     *type = VecSimType_FLOAT32;
-  // else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len)) 
+  // else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
   //   *type = VecSimType_FLOAT64;
-  // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len)) 
+  // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len))
   //   *type = VecSimType_INT32;
-  // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len)) 
+  // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len))
   //   *type = VecSimType_INT64;
   else
     return AC_ERR_ENOENT;
@@ -370,11 +370,11 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   if ((rc = AC_GetString(ac, &metricStr, &len, 0)) != AC_OK) {
     return rc;
   }
-  if (!strncasecmp(VECSIM_METRIC_IP, metricStr, len)) 
+  if (!strncasecmp(VECSIM_METRIC_IP, metricStr, len))
     *metric = VecSimMetric_IP;
-  else if (!strncasecmp(VECSIM_METRIC_L2, metricStr, len)) 
+  else if (!strncasecmp(VECSIM_METRIC_L2, metricStr, len))
     *metric = VecSimMetric_L2;
-  else if (!strncasecmp(VECSIM_METRIC_COSINE, metricStr, len)) 
+  else if (!strncasecmp(VECSIM_METRIC_COSINE, metricStr, len))
     *metric = VecSimMetric_Cosine;
   else
     return AC_ERR_ENOENT;
@@ -1011,7 +1011,7 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     ret->fields[ii] = spec->fields[ii];
     ret->fields[ii].name = rm_strdup(spec->fields[ii].name);
-    // if name & path are pointing to the same string, copy pointer 
+    // if name & path are pointing to the same string, copy pointer
     if (ret->fields[ii].path && (spec->fields[ii].name != spec->fields[ii].path)) {
       ret->fields[ii].path = rm_strdup(spec->fields[ii].path);
     } else {
@@ -1113,8 +1113,8 @@ void CleanPool_ThreadPoolDestroy() {
 }
 
 /*
- * Free resources of unlinked index spec 
- */ 
+ * Free resources of unlinked index spec
+ */
 static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free all documents metadata
   DocTable_Free(&spec->docs);
@@ -1487,7 +1487,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
         fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
       case DocumentType_Json:
         fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
-      case DocumentType_None:
+      case DocumentType_Unsupported:
         RS_LOG_ASSERT(0, "shouldn't get here");
     }
   }
@@ -1573,7 +1573,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
   if (f->path != f->name) {
     RedisModule_SaveUnsigned(rdb, 1);
-    RedisModule_SaveStringBuffer(rdb, f->path, strlen(f->path) + 1);  
+    RedisModule_SaveStringBuffer(rdb, f->path, strlen(f->path) + 1);
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
@@ -1650,14 +1650,14 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     }
     // Calculate blob size limitation on lower encvers.
     if(encver < INDEX_VECSIM_2_VERSION) {
-      switch (f->vectorOpts.vecSimParams.algo) 
+      switch (f->vectorOpts.vecSimParams.algo)
       {
       case VecSimAlgo_HNSWLIB:
         f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.hnswParams.type);
         break;
       case VecSimAlgo_BF:
         f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.bfParams.type);
-        break; 
+        break;
       default:
         break;
       }
@@ -1769,7 +1769,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   }
 
   DocumentType type = getDocType(key);
-  if (type == DocumentType_None) {
+  if (type == DocumentType_Unsupported) {
     return;
   }
 
@@ -1977,7 +1977,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
   }
-  
+
 
   //    DocTable_RdbLoad(&sp->docs, rdb, encver);
   sp->terms = NewTrie(NULL);
@@ -2339,7 +2339,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   case DocumentType_Json:
     rv = Document_LoadSchemaFieldJson(&doc, &sctx);
     break;
-  case DocumentType_None:
+  case DocumentType_Unsupported:
     RS_LOG_ASSERT(0, "Should receieve valid type");
   }
 
@@ -2385,7 +2385,6 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-        
         RedisModuleString *rmskey = RedisModule_CreateString(ctx, spec->fields[i].name, strlen(spec->fields[i].name));
         KeysDictValue *kdv = dictFetchValue(spec->keysDict, rmskey);
         RedisModule_FreeString(ctx, rmskey);
@@ -2516,7 +2515,7 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
       }
     }
     // optimize. change of score and payload fields just require an update of the doc table
-    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) || 
+    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) ||
         (spec->rule->score_field && !strcmp(field, spec->rule->score_field)) ||
         (spec->rule->payload_field && !strcmp(field, spec->rule->payload_field))) {
       return true;
@@ -2533,8 +2532,8 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
-  if (type == DocumentType_None) {
-    // COPY could overwrite a hash/json with other types so we must try and remove old doc 
+  if (type == DocumentType_Unsupported) {
+    // COPY could overwrite a hash/json with other types so we must try and remove old doc
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
     return;
   }
@@ -2602,6 +2601,11 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key) {
+  DocumentType type = getDocTypeFromString(to_key);
+  if (type == DocumentType_Unsupported) {
+    return;
+  }
+
   SpecOpIndexingCtx *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key, true, to_key);
   SpecOpIndexingCtx *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key, true, NULL);
 
@@ -2637,7 +2641,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // on the spec from section.
       continue;
     }
-    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, getDocTypeFromString(to_key));
+    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type);
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);
