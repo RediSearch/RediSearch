@@ -31,7 +31,7 @@ void fill_first()
         for (int xx = 0; xx < n*2; xx++) {
             rand_idx[xx] = rand() % 0xff;
         }
-        
+
         for (int i = 0; i < n; i ++)
             tag[i] = alphanum[rand_idx[i] % sizeof(alphanum)]; // fill the array with alphanum chars
 
@@ -75,12 +75,12 @@ void search(const char* str)
 // void TimeSampler_End(TimerSampler *ts) {
 
 //    clock_gettime(CLOCK_REALTIME, &ts->end_time);
-   
+
 // }
 
 // long long TimeSampler_DurationNS(TimerSampler *ts) {
-    
-//     long long diffInNanos = ((long long)1000000000 * ts->end_time.tv_sec + ts->end_time.tv_nsec) - 
+
+//     long long diffInNanos = ((long long)1000000000 * ts->end_time.tv_sec + ts->end_time.tv_nsec) -
 //     ((long long)1000000000 * ts->start_time.tv_sec + ts->start_time.tv_nsec);
 //     return diffInNanos;
 // }
@@ -89,22 +89,17 @@ void search(const char* str)
 
 int main (int argc, char** argv)
 {
-
     printf("filling first!\n");
 
-
     TIME_SAMPLE_RUN(fill_first());
-        
-    
-    
+
     for (int i  =0; i < 10; i++) {
     TIME_SAMPLE_RUN(search("asdfg"));
     }
     TIME_SAMPLE_RUN(add_delete("asdfg")); // now add 1000000 entries of a variant string and remove those entries
-    
+
  for (int i  =0; i < 10; i++) {
     TIME_SAMPLE_RUN(search("asdfg")); // ended in 2 ms
-    
  }
     //search("asdfg"); // ended in 66 ms, i.e. 33 times slower on the same key-set
     redisContext* c = redisConnect("127.0.0.1", PORT);

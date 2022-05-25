@@ -385,7 +385,7 @@ DEBUG_COMMAND(GCCleanNumeric) {
 
   rt->numRanges += rv.numRanges;
   rt->emptyLeaves = 0;
-  
+
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
@@ -684,7 +684,7 @@ DEBUG_COMMAND(VecsimInfo) {
       break;
     }
   }
-  VecSimInfoIterator_Free(infoIter);     
+  VecSimInfoIterator_Free(infoIter);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }

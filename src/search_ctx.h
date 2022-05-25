@@ -25,10 +25,11 @@ typedef struct RedisSearchCtx {
   uint32_t refcount;
   int isStatic;
   uint64_t specId;  // Unique id of the spec; used when refreshing
+  struct timespec timeout;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_STATIC(ctx, sp) \
-  { ctx, NULL, sp, 0, 1 }
+  { ctx, NULL, sp, 0, 1, 0, {0, 0} }
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
 // Create a string context on the heap
