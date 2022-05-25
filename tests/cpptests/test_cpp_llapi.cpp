@@ -889,7 +889,7 @@ TEST_F(LLApiTest, testGetters) {
   RediSearch_FreeDocument(d);
 
   RediSearch_FreeIndexOptions(opt);
-  RediSearch_DropIndex(index);  
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testInfo) {
@@ -929,7 +929,7 @@ TEST_F(LLApiTest, testInfo) {
 
   // test invalid option
   RSIdxInfo info = { .version = 0 };
-  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);  
+  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);
 
   info = { .version = RS_INFO_CURRENT_VERSION };
   ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_OK);
@@ -983,7 +983,7 @@ TEST_F(LLApiTest, testInfo) {
   RediSearch_IndexInfoFree(&info);
 
   RediSearch_FreeIndexOptions(opt);
-  RediSearch_DropIndex(index);  
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testLanguage) {

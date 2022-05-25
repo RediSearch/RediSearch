@@ -18,15 +18,13 @@ def waitForIndex(env, idx):
 
 def toSortedFlatList(res):
     if isinstance(res, str):
-        return [res]    
+        return [res]
     if isinstance(res, Iterable):
         finalList = []
         for e in res:
             finalList += toSortedFlatList(e)
         return sorted(finalList)
     return [res]
-
-
 
 def sortedResults(res):
     n = res[0]

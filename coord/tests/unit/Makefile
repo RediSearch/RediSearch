@@ -11,7 +11,7 @@ DEP_DIR := $(abspath ../src/dep)
 
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
-CFLAGS := -I"$(RM_INCLUDE_DIR)" -I"$(DEP_DIR)" -Wall -g -fPIC -O1 -std=gnu99  
+CFLAGS := -I"$(RM_INCLUDE_DIR)" -I"$(DEP_DIR)" -Wall -g -fPIC -O1 -std=gnu99
 
 
 # Compile flags for linux / osx
@@ -25,7 +25,7 @@ endif
 
 CC:=$(shell sh -c 'type $(CC) >/dev/null 2>/dev/null && echo $(CC) || echo gcc')
 SOURCEDIR=$(abspath ../)
-CC_SOURCES = ../src/search_cluster.c  ../src/fnv32.c ../src/partition.c $(wildcard ../src/dep/rmr/redise_parser/*.c) 
+CC_SOURCES = ../src/search_cluster.c  ../src/fnv32.c ../src/partition.c $(wildcard ../src/dep/rmr/redise_parser/*.c)
 CC_OBJECTS = $(patsubst %.c, %.o, $(CC_SOURCES))
 
 LIBS= $(abspath ../src/dep/rmr/librmr.a ../src/dep/rmr/hiredis/libhiredis.a  ../src/libuv.a ../src/dep/rmutil/librmutil.a ../src/dep/triemap/libtriemap.a )

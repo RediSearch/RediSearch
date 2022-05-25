@@ -11,7 +11,7 @@ RedisJSONAPI_V1 *japi = NULL;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, 
+void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
                          RedisModuleModuleChange *ei) {
   REDISMODULE_NOT_USED(e);
   if (sub != REDISMODULE_SUBEVENT_MODULE_LOADED || strcmp(ei->module_name, "ReJSON") || japi)
@@ -46,21 +46,21 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   int rv = REDISMODULE_ERR;
   switch (type) {
-  // TEXT, TAG and GEO fields are represented as string 
+  // TEXT, TAG and GEO fields are represented as string
   case JSONType_String:
     if (fieldType == INDEXFLD_T_FULLTEXT || fieldType == INDEXFLD_T_TAG || fieldType == INDEXFLD_T_GEO) {
       rv = REDISMODULE_OK;
     }
     break;
-  // NUMERIC field is represented as either integer or double 
+  // NUMERIC field is represented as either integer or double
   case JSONType_Int:
   case JSONType_Double:
     if (fieldType == INDEXFLD_T_NUMERIC) {
       rv = REDISMODULE_OK;
     }
     break;
-  // Boolean values can be represented only as TAG 
-  case JSONType_Bool:    
+  // Boolean values can be represented only as TAG
+  case JSONType_Bool:
     if (fieldType == INDEXFLD_T_TAG) {
       rv = REDISMODULE_OK;
     }
@@ -266,7 +266,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     if (FieldSpec_CheckJsonType(fs->types, jsonType) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-    
+
     if (JSON_StoreInDocField(json, jsonType, fs, df) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
