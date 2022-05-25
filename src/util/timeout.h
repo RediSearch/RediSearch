@@ -81,7 +81,7 @@ static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *stat
   return rc; 
 }
 
-static inline void updateTimeout(struct timespec *timeout, int durationNS) {
+static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
   if (RS_IsMock) return;
 
   // 0 disables the timeout
