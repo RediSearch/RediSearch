@@ -22,19 +22,19 @@ static inline int rs_timer_ge(struct timespec *a, struct timespec *b) {
 static inline void rs_timeradd(struct timespec *a, struct timespec *b, struct timespec *result) {
   result->tv_sec = a->tv_sec + b->tv_sec;
   result->tv_nsec = a->tv_nsec + b->tv_nsec;
-  if (result->tv_nsec >= 1000000000) { 
+  if (result->tv_nsec >= 1000000000) {
     result->tv_sec  += 1;
     result->tv_nsec -= 1000000000;
-  } 
+  }
 }
 
 static inline void rs_timersub(struct timespec *a, struct timespec *b, struct timespec *result) {
   result->tv_sec = a->tv_sec - b->tv_sec;
   result->tv_nsec = a->tv_nsec - b->tv_nsec;
-  if (result->tv_nsec < 0) {	
+  if (result->tv_nsec < 0) {
     result->tv_sec  -= 1;
     result->tv_nsec += 1000000000;
-  }	
+  }
 }
 
 #define NOT_TIMED_OUT 0

@@ -13,7 +13,6 @@ typedef struct {
   int* shardsStartSlots;
   PartitionCtx part;
   size_t myPartition;
-
 } SearchCluster;
 
 SearchCluster *GetSearchCluster();
