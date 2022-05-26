@@ -2079,9 +2079,9 @@ def testTimeout(env):
     env.cmd('ft.config', 'set', 'timeout', '1')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
 
-    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT')
+    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
-        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i))
+        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i), 'geo', str(i/10000) + ',' + str(i/1000))
 
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
 
@@ -2089,8 +2089,11 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
        .contains('Timeout limit was reached')
 
+    # test `TIMEOUT` param in query
     res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
     env.assertEqual(res[0], num_range)
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)    \
+        .error().contains('Timeout limit was reached')
 
     # test erroneous params
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout').error()
@@ -2106,7 +2109,7 @@ def testTimeout(env):
                 'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
                 'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5')
     env.assertLess(len(res[1:]), num_range)
-
+    
     # test grouper
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
                'LOAD', 1, 't',

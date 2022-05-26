@@ -10,6 +10,7 @@
 #include "extension.h"
 #include "profile.h"
 #include "config.h"
+#include "util/timeout.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -715,6 +716,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
+  req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
   return req;
 }
 
@@ -781,6 +783,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       goto error;
     }
   }
+
+  // Set timeout for the query
+  updateTimeout(&req->timeoutTime, req->reqTimeout);
+
   return REDISMODULE_OK;
 
 error:
@@ -871,6 +877,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
+
+  TimedOut_WithStatus(&req->timeoutTime, status);
+
   if (QueryError_HasError(status))
     return REDISMODULE_ERR;
   if (IsProfile(req)) {

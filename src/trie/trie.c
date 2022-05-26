@@ -715,7 +715,7 @@ static int rsbComparePrefix(const void *h, const void *e) {
 static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
   if (r->stop) return REDISEARCH_ERR;
 
-  if (TimedOut(r->timeout, &r->timeoutCounter)) {
+  if (TimedOut_WithCounter(&r->timeout, &r->timeoutCounter)) {
     r->stop = 1;
     return REDISEARCH_ERR;
   }
@@ -990,7 +990,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
     return;
   }
 
-  if (TimedOut(r->timeout, &r->timeoutCounter)) {
+  if (TimedOut_WithCounter(&r->timeout, &r->timeoutCounter)) {
     r->stop = 1;
     return;
   }

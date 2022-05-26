@@ -843,7 +843,7 @@ void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool inclu
 
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
   while (array_len(it->stack) > 0) {
-    if (TimedOut(it->timeout, &it->timeoutCounter)) {
+    if (TimedOut_WithCounter(&it->timeout, &it->timeoutCounter)) {
       return 0;
     }
     __tmi_stackNode *current = __tmi_current(it);
@@ -1004,7 +1004,7 @@ end:
 }
 
 int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
-  if (TimedOut(it->timeout, &it->timeoutCounter)) {
+  if (TimedOut_WithCounter(&it->timeout, &it->timeoutCounter)) {
     return 0;
   }
 
