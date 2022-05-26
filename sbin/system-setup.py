@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 import sys
 import os
@@ -68,13 +68,12 @@ class RediSearchSetup(paella.Setup):
         self.install("pkg-config")
         self.install("libtool m4 automake")
 
-        # for now depending on redis from brew, it's version6 with TLS.
         self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),
                  sudo=self.os != 'macos')
-        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall --modern".format(PYTHON=self.python, READIES=READIES))
+        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall".format(PYTHON=self.python, READIES=READIES))
         if self.dist != "arch":
             self.install("lcov")
         else:

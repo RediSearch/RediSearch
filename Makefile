@@ -289,6 +289,10 @@ CMAKE_FLAGS=\
 CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) \
 	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
 
+ifneq ($(FILE),)
+CMAKE_FILE_FLAGS=$(filter %.o,$(FILE:.c=.o) $(FILE:.cpp=.o) $(FILE:.cc=.o))
+endif
+
 #----------------------------------------------------------------------------------------------
 
 include $(MK)/defs
@@ -347,9 +351,9 @@ endif
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
 ifneq ($(DRY_RUN),1)
-	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
+	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J) $(CMAKE_FILE_FLAGS)
 else
-	@make -C $(BINDIR) $(MAKE_J)
+	@make -C $(BINDIR) $(MAKE_J) $(CMAKE_FILE_FLAGS)
 endif
 
 .PHONY: build clean run 
