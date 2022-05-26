@@ -840,7 +840,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->flags |= Index_HasContains;
+        sp->flags |= Index_HasSuffixTrie;
         sp->suffix = NewTrie(suffixTrie_freeCallback);
       }
     }
@@ -1962,7 +1962,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
       RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
     }
     if (FieldSpec_HasSuffixTrie(fs)) {
-      sp->flags |= Index_HasContains;
+      sp->flags |= Index_HasSuffixTrie;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
         sp->suffix = NewTrie(suffixTrie_freeCallback);

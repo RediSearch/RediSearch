@@ -127,6 +127,10 @@ def testSanity(env):
 
     # test timeout
     env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
+    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
+    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
+
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
     env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
@@ -189,6 +193,10 @@ def testSanityTags(env):
     
     # test timeout
     env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
+    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
+    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
+
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
     env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0 , 0).contains('Timeout limit was reached')

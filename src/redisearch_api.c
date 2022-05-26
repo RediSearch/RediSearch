@@ -155,7 +155,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
         sp->suffix = NewTrie(suffixTrie_freeCallback);
-        sp->flags |= Index_HasContains;
+        sp->flags |= Index_HasSuffixTrie;
       }    
     }
   }
