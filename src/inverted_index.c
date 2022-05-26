@@ -140,14 +140,14 @@ void IndexReader::OnReopen(RedisModuleKey *k) {
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 ENCODER(encodeFull) {
   size_t sz = qint_encode4(bw, delta, res->freq, (uint32_t)res->fieldMask, res->offsetsSz);
-  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
 ENCODER(encodeFullWide) {
   size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
-  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
@@ -181,14 +181,14 @@ ENCODER(encodeFieldsOnlyWide) {
 // 5. (field, offset)
 ENCODER(encodeFieldsOffsets) {
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, res->term.offsets.len);
-  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
 ENCODER(encodeFieldsOffsetsWide) {
   size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
-  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
@@ -196,14 +196,14 @@ ENCODER(encodeFieldsOffsetsWide) {
 ENCODER(encodeOffsetsOnly) {
 
   size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
-  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
 // 7. Offsets and freqs
 ENCODER(encodeFreqsOffsets) {
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, (uint32_t)res->term.offsets.len);
-  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
@@ -293,12 +293,12 @@ ENCODER(encodeNumeric) {
   EncodingHeader header = {.storage = 0};
 
   size_t pos = BufferWriter_Offset(bw);
-  size_t sz = Buffer_Write(bw, "\0", 1);
+  size_t sz = bw->Write("\0", 1);
 
   // Write the delta
   size_t numDeltaBytes = 0;
   do {
-    sz += Buffer_Write(bw, &delta, 1);
+    sz += bw->Write(&delta, 1);
     numDeltaBytes++;
     delta >>= 8;
   } while (delta);
@@ -320,7 +320,7 @@ ENCODER(encodeNumeric) {
 
     size_t numValueBytes = 0;
     do {
-      sz += Buffer_Write(bw, &u64Num, 1);
+      sz += bw->Write(&u64Num, 1);
       numValueBytes++;
       u64Num >>= 8;
     } while (u64Num);
@@ -337,10 +337,10 @@ ENCODER(encodeNumeric) {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
     if (fabs(absVal - f32Num) < 0.01) {
-      sz += Buffer_Write(bw, (void *)&f32Num, 4);
+      sz += bw->Write((void *)&f32Num, 4);
       encFloat->isDouble = 0;
     } else {
-      sz += Buffer_Write(bw, (void *)&absVal, 8);
+      sz += bw->Write((void *)&absVal, 8);
       encFloat->isDouble = 1;
     }
 

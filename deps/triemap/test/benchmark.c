@@ -33,7 +33,7 @@ size_t formatKey(char *buf, int i) {
   //  buf[4] = ':';
 }
 void populate(int N) {
-  TrieMap *tm = NewTrieMap();
+  TrieMap *tm = new TrieMap();
   int k = 32;
 
   char buf[k + 1];
@@ -50,20 +50,20 @@ void populate(int N) {
     // printf("%s\n", buf);
     dataSize += sz;
     TimeSampler_StartSection(&ts);
-    TrieMap_Add(tm, buf, sz, NULL, NULL);
+    tm->Add(buf, sz, NULL, NULL);
     TimeSampler_EndSection(&ts);
     TimeSampler_Tick(&ts);
     if (i % 1000000 == 999999) {
       printf("Insertion after %d items: %.03fsec (%.02fns/iteration), %.02fMB "
              "(%.02fMB raw data)\n",
              i + 1, TimeSampler_DurationSec(&ts), TimeSampler_IterationNS(&ts),
-             MB(TrieMap_MemUsage(tm)), MB(dataSize));
+             MB(tm->MemUsage()), MB(dataSize));
       // TimeSampler_Reset(&ts);
     }
   }
 
   // memset(childrenHist, 0, sizeof(childrenHist));
-  // size_t x = TrieMapNode_MemUsage(tm);
+  // size_t x = tm->MemUsage();
   // for (int i = 0; i < 256; i++) {
   //   if (childrenHist[i])
   //     printf("%d -> %d\n", i, childrenHist[i]);
@@ -75,7 +75,7 @@ void populate(int N) {
   TimeSampler_Start(&ts);
   for (int i = 0; i < L; i++) {
     size_t sz = formatKey((char *)buf, i);
-    TrieMap_Find(tm, buf, sz);
+    tm->Find(buf, sz);
     TimeSampler_Tick(&ts);
   }
   TimeSampler_End(&ts);
@@ -85,7 +85,7 @@ void populate(int N) {
   TimeSampler_Start(&ts);
   for (int i = 0; i < L; i++) {
     size_t sz = formatKey((char *)buf, rand() % N);
-    TrieMap_Find(tm, buf, sz);
+    tm->Find(buf, sz);
     TimeSampler_Tick(&ts);
   }
   TimeSampler_End(&ts);
@@ -99,7 +99,7 @@ void populate(int N) {
     formatKey((char *)buf, i);
 
     TimeSampler_StartSection(&ts);
-    TrieMap_Delete(tm, buf, strlen((char *)buf), NULL);
+    tm->Delete(buf, strlen((char *)buf), NULL);
     TimeSampler_EndSection(&ts);
     TimeSampler_Tick(&ts);
 

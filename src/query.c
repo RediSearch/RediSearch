@@ -667,8 +667,8 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
   int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
 
-  TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
-                       rangeIterCbStrs, &ctx);
+  t->IterateRange(begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
+                  rangeIterCbStrs, &ctx);
   if (ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
@@ -692,7 +692,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
   if (!idx || !idx->values) return NULL;
 
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, qn->pfx.str, qn->pfx.len);
+  TrieMapIterator *it = idx->values->Iterate(qn->pfx.str, qn->pfx.len);
   if (!it) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
@@ -705,9 +705,9 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   // Find all completions of the prefix
   size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
-  while (TrieMapIterator_Next(it, &s, &sl, &ptr) &&
+  while (it->Next(&s, &sl, &ptr) &&
          (itsSz < maxExpansions || maxExpansions == -1)) {
-    IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
+    IndexIterator *ret = idx->OpenReader(q->sctx->spec, s, sl, 1);
     if (!ret) continue;
 
     // Add the reader to the iterator array
@@ -717,8 +717,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       its = rm_realloc(its, itsCap * sizeof(*its));
     }
   }
-
-  TrieMapIterator_Free(it);
 
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
@@ -737,7 +735,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
   IndexIterator *ret = NULL;
   switch (n->type) {
     case QN_TOKEN: {
-      ret = TagIndex_OpenReader(idx, q->sctx->spec, n->tn.str, n->tn.len, weight);
+      ret = idx->OpenReader(q->sctx->spec, n->tn.str, n->tn.len, weight);
       break;
     }
     case QN_PREFX:
@@ -758,7 +756,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
       sds s = sdsjoin(terms, QueryNode_NumChildren(n), " ");
 
-      ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sdslen(s), weight);
+      ret = idx->OpenReader(q->sctx->spec, s, sdslen(s), weight);
       sdsfree(s);
       break;
     }
@@ -787,7 +785,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(q->sctx, kstr, 0, &k);
+  TagIndex *idx = q->sctxOpen(kstr, 0, &k);
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
@@ -800,7 +798,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight);
     if (ret) {
       if (q->conc) {
-        TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+        idx->RegisterConcurrentIterators(q->conc, k, kstr, (array_t *)total_its);
         k = NULL;  // we passed ownershit
       } else {
         array_free(total_its);
@@ -826,7 +824,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (total_its) {
     if (q->conc) {
-      TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+      idx->RegisterConcurrentIterators(q->conc, k, kstr, (array_t *)total_its);
       k = NULL;  // we passed ownershit
     } else {
       array_free(total_its);
@@ -881,13 +879,13 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
 
 //---------------------------------------------------------------------------------------------
 
-QueryParse::QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_, 
+QueryParse::QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_,
                        const RSSearchOptions &opts_, QueryError *status_) {
   raw =  query;
   len = nquery;
   sctx = (RedisSearchCtx *)&sctx_;
   opts = &opts_;
-  status = status;
+  status = status_;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -931,7 +929,7 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
 
 //---------------------------------------------------------------------------------------------
 
-Query::Query(QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx_, 
+Query::Query(QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx_,
              ConcurrentSearchCtx *conc) {
   conc = conc_;
   opts = opts_;
@@ -966,7 +964,7 @@ IndexIterator *QueryAST::Iterate(const RSSearchOptions &opts, RedisSearchCtx &sc
 
 //---------------------------------------------------------------------------------------------
 
-QueryAST::~QueryAST()) {
+QueryAST::~QueryAST() {
   QueryNode_Free(q->root);
   root = NULL;
   numTokens = 0;

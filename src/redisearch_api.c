@@ -153,9 +153,8 @@ void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable
 RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
   RSLanguage language = lang ? RSLanguage_Find(lang) : DEFAULT_LANGUAGE;
-  Document* ret = rm_calloc(1, sizeof(*ret));
-  Document_Init(ret, docKeyStr, score, language);
-  Document_MakeStringsOwner(ret);
+  Document* ret = new Document(docKeyStr, score, language);
+  ret->MakeStringsOwner();
   RedisModule_FreeString(RSDummyContext, docKeyStr);
   return ret;
 }
@@ -163,8 +162,7 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
 //---------------------------------------------------------------------------------------------
 
 void RediSearch_FreeDocument(RSDoc* doc) {
-  Document_Free(doc);
-  rm_free(doc);
+  delete doc;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -192,14 +190,14 @@ int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
 
 void RediSearch_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
                                  RedisModuleCtx* ctx, unsigned as) {
-  Document_AddField(d, fieldName, value, as);
+  d->AddField(fieldName, value, as);
 }
 
 //---------------------------------------------------------------------------------------------
 
 void RediSearch_DocumentAddFieldString(Document* d, const char* fieldname, const char* s, size_t n,
                                        unsigned as) {
-  Document_AddFieldC(d, fieldname, s, n, as);
+  d->AddFieldC(fieldname, s, n, as);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -207,7 +205,7 @@ void RediSearch_DocumentAddFieldString(Document* d, const char* fieldname, const
 void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double n, unsigned as) {
   char buf[512];
   size_t len = sprintf(buf, "%lf", n);
-  Document_AddFieldC(d, fieldname, buf, len, as);
+  d->AddFieldC(fieldname, buf, len, as);
 }
 
 //---------------------------------------------------------------------------------------------

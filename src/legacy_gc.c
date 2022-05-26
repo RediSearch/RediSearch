@@ -210,7 +210,7 @@ size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
   InvertedIndex *iv;
   tm_len_t len;
   char *randomKey = NULL;
-  if (!TrieMap_RandomKey(indexTag->values, &randomKey, &len, (void **)&iv)) {
+  if (!indexTag->values->RandomKey(&randomKey, &len, (void **)&iv)) {
     goto end;
   }
 
@@ -241,7 +241,7 @@ size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
     if (!indexTag) {
       break;
     }
-    iv = TrieMap_Find(indexTag->values, randomKey, len);
+    iv = indexTag->values->Find(randomKey, len);
     if (iv == TRIEMAP_NOTFOUND) {
       break;
     }

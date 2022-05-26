@@ -24,7 +24,7 @@
  * document has been prepared, acquire a new RSAddDocumentCtx() by calling
  * NewAddDocumentCtx().
  *
- * Once the new context has been received, call Document_AddToIndexes(). This
+ * Once the new context has been received, call Document::AddToIndexes(). This
  * will start tokenizing the documents, and should be called in a separate
  * thread. This function will tokenize the document and send a reply back to
  * the client. You may free the RSAddDocumentCtx structure by calling
@@ -35,7 +35,7 @@
 
 //---------------------------------------------------------------------------------------------
 
-struct DocumentField {
+struct DocumentField : Object {
   const char *name;  // Can either be char or RMString
   RedisModuleString *text;
   FieldType indexAs;
@@ -43,7 +43,7 @@ struct DocumentField {
 
 //---------------------------------------------------------------------------------------------
 
-struct Document {
+struct Document : Object {
   RedisModuleString *docKey;
   DocumentField *fields;
   uint32_t numFields;
@@ -65,14 +65,19 @@ struct Document {
 
   void SetPayload(const void *payload, size_t n);
   void MakeStringsOwner();
-  void MakeRefOwner();
+  void MakeRefOwner(); // TODO(cpp):: looks like nobody is using this func
   void Clear();
+  void Dump() const; // TODO(cpp):: looks like nobody is using this func
 
   static void Move(Document *dst, Document *src);
-
+  static int AddToIndexes(RSAddDocumentCtx *aCtx);
+  static int EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
+                            int *result, QueryError *err);
   int LoadSchemaFields(RedisSearchCtx *sctx);
   int LoadAllFields(RedisModuleCtx *ctx);
   void LoadPairwiseArgs(RedisModuleString **args, size_t nargs);
+
+  DocumentField *addFieldCommon(const char *fieldname, uint32_t typemask);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -216,13 +221,6 @@ struct RSAddDocumentCtx : MemPoolObject<AddDocumentPool> {
 
   bool IsBlockable() const { return !(stateFlags & ACTX_F_NOBLOCK); }
 };
-
-//---------------------------------------------------------------------------------------------
-
-int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
-                            int *result, QueryError *err);
-
-//---------------------------------------------------------------------------------------------
 
 // Don't create document if it does not exist. Replace only
 #define REDIS_SAVEDOC_NOCREATE 0x01

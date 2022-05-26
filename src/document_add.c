@@ -143,7 +143,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   // handle update condition, only if the document exists
   if (exists && opts->evalExpr) {
     int res = 0;
-    if (Document_EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
+    if (Document::EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
       if (res == 0) {
         status->SetError(QUERY_EDOCNOTADDED, NULL);
         goto error;
@@ -159,13 +159,12 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   }
 
   RedisModuleCtx *ctx = sctx->redisCtx;
-  Document doc = {0};
+  Document doc = new Document(name, opts->score, opts->language);
 
-  Document_Init(&doc, name, opts->score, opts->language);
   if (opts->payload) {
     size_t npayload = 0;
     const char *payload = RedisModule_StringPtrLen(opts->payload, &npayload);
-    Document_SetPayload(&doc, payload, npayload);
+    &doc->SetPayload(payload, npayload);
   }
   Document_LoadPairwiseArgs(&doc, opts->fieldsArray, opts->numFieldElems);
 
@@ -176,7 +175,6 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     }
     RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp);
     if (Redis_SaveDocument(&sctx_s, &doc, saveopts, status) != REDISMODULE_OK) {
-      Document_Free(&doc);
       goto error;
     }
   }
@@ -185,7 +183,6 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
            doc.numFields);
   RSAddDocumentCtx *aCtx = new RSAddDocumentCtx(sp, &doc, status);
   if (aCtx == NULL) {
-    Document_Free(&doc);
     goto error;
   }
 
@@ -362,11 +359,9 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   // Load the document score
 
-  Document doc = {0};
+  Document doc = new Document(argv[2], ds, language);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Document_Init(&doc, argv[2], ds, language);
-  if (Document_LoadAllFields(&doc, ctx) != REDISMODULE_OK) {
-    Document_Free(&doc);
+  if (&doc->LoadAllFields(ctx) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
 
@@ -375,7 +370,6 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &status);
   if (aCtx == NULL) {
-    Document_Free(&doc);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 

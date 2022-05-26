@@ -435,8 +435,6 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
      * could still be accessed for simple queries (e.g. get, exist). Ensure
      * we don't have to rely on Set/Put to ensure the doc table array.
      */
-
-    // מה לעשות עם האלוקציה
     cap = maxSize;
     rm_free(buckets);
     buckets = rm_calloc(cap, sizeof(*buckets));
@@ -445,7 +443,7 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
   for (size_t i = 1; i < size; i++) {
     size_t len;
 
-    RSDocumentMetadata *dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
+    RSDocumentMetadata *dmd;
     char *tmpPtr = RedisModule_LoadStringBuffer(rdb, &len);
     if (encver < INDEX_MIN_BINKEYS_VERSION) {
       // Previous versions would encode the NUL byte
@@ -511,14 +509,14 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
 //---------------------------------------------------------------------------------------------
 
 DocIdMap::DocIdMap() {
-  *tm = NewTrieMap();
+  *tm = new TrieMap();
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Get docId from a did-map. Returns 0  if the key is not in the map
 t_docId DocIdMap::Get(const char *s, size_t n) const {
-  void *val = TrieMap_Find(tm, (char *)s, n);
+  void *val = tm->Find((char *)s, n);
   if (val && val != TRIEMAP_NOTFOUND) {
     return *((t_docId *)val);
   }
@@ -540,7 +538,7 @@ void *_docIdMap_replace(void *oldval, void *newval) {
 void DocIdMap::Put(const char *s, size_t n, t_docId docId) {
   t_docId *pd = rm_malloc(sizeof(t_docId));
   *pd = docId;
-  TrieMap_Add(tm, (char *)s, n, pd, _docIdMap_replace);
+  tm->Add((char *)s, n, pd, _docIdMap_replace);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -552,7 +550,7 @@ void DocIdMap::~DocIdMap(DocIdMap *m) {
 //---------------------------------------------------------------------------------------------
 
 int DocIdMap::Delete(const char *s, size_t n) {
-  return TrieMap_Delete(tm, (char *)s, n, rm_free);
+  return tm->Delete((char *)s, n, rm_free);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

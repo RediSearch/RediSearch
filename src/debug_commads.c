@@ -255,7 +255,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     goto end;
   }
 
-  TrieMapIterator *iter = TrieMap_Iterate(tagIndex->values, "", 0);
+  TrieMapIterator *iter = tagIndex->values->Iterate("", 0);
 
   char *tag;
   tm_len_t len;
@@ -263,7 +263,7 @@ DEBUG_COMMAND(DumpTagIndex) {
 
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
+  while (iter->Next(&tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
     IndexReader *reader = new TermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
@@ -432,7 +432,7 @@ static void seekTagIterator(TrieMapIterator *it, size_t offset) {
   InvertedIndex *iv;
 
   for (size_t n = 0; n < offset; n++) {
-    if (!TrieMapIterator_Next(it, &tag, &len, (void **)&iv)) {
+    if (!it->Next(&tag, &len, (void **)&iv)) {
       break;
     }
   }
@@ -496,7 +496,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   }
 
   size_t limit = options.limit ? options.limit : 0;
-  TrieMapIterator *iter = TrieMap_Iterate(idx->values, "", 0);
+  TrieMapIterator *iter = idx->values->Iterate("", 0);
   char *tag;
   tm_len_t len;
   InvertedIndex *iv;
@@ -507,7 +507,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
   seekTagIterator(iter, options.offset);
   size_t nvalues = 0;
-  while (nvalues++ < limit && TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
+  while (nvalues++ < limit && iter->Next(&tag, &len, (void **)&iv)) {
     size_t nsubelem = 8;
     if (!options.dumpIdEntries) {
       nsubelem -= 2;

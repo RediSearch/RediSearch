@@ -101,12 +101,9 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
-  if (sctx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  }
+  RedisSearchCtx sctx(ctx, argv[1], true);
 
-  const DocTable *dt = &sctx->spec->docs;
+  const DocTable *dt = sctx.spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
 
@@ -116,17 +113,13 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       continue;
     }
 
-    Document doc = {0};
-    Document_Init(&doc, argv[i], 0, DEFAULT_LANGUAGE);
-    if (Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
+    Document doc(argv[i], 0, DEFAULT_LANGUAGE);
+    if (doc.LoadAllFields(ctx) == REDISMODULE_ERR) {
       RedisModule_ReplyWithNull(ctx);
     } else {
-      Document_ReplyFields(ctx, &doc);
-      Document_Free(&doc);
+      doc.ReplyFields(ctx);
     }
   }
-
-  SearchCtx_Free(sctx);
 
   return REDISMODULE_OK;
 }
@@ -150,15 +143,13 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  Document doc = {0};
-  Document_Init(&doc, argv[2], 0, DEFAULT_LANGUAGE);
+  Document doc(argv[2], 0, DEFAULT_LANGUAGE);
 
   if (&sctx->spec->docs->GetIdR(argv[2]) == 0 ||
-      Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
+      doc.LoadAllFields(ctx) == REDISMODULE_ERR) {
     RedisModule_ReplyWithNull(ctx);
   } else {
-    Document_ReplyFields(ctx, &doc);
-    Document_Free(&doc);
+    doc.ReplyFields(ctx);
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;

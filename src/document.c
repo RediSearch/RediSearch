@@ -141,7 +141,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
     RSByteOffsets_ReserveFields(aCtx->byteOffsets, numTextIndexable);
   }
 
-  Document_Move(&aCtx->doc, doc);
+  Document::Move(&aCtx->doc, doc);
   return 0;
 }
 
@@ -149,7 +149,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
 /**
  * Creates a new context used for adding documents. Once created, call
- * Document_AddToIndexes on it.
+ * Document::AddToIndexes on it.
  *
  * - client is a blocked client which will be used as the context for this
  *   operation.
@@ -215,7 +215,7 @@ static int replyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 }
 
 static void threadCallback(void *p) {
-  Document_AddToIndexes(p);
+  Document::AddToIndexes(p);
 }
 
 /**
@@ -240,12 +240,12 @@ void AddDocumentCtx::Finish() {
  */
 
 // LCOV_EXCL_START debug
-void Document_Dump(const Document *doc) {
-  printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(doc->docKey, NULL),
-         doc->docId);
-  for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
-           RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
+void Document::Dump() const {
+  printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(docKey, NULL),
+         docId);
+  for (size_t ii = 0; ii < numFields; ++ii) {
+    printf("  [%lu]: %s => %s\n", ii, fields[ii].name,
+           RedisModule_StringPtrLen(fields[ii].text, NULL));
   }
 }
 // LCOV_EXCL_STOP
@@ -263,8 +263,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   // Free the old field data
   size_t oldFieldCount = aCtx->doc.numFields;
 
-  Document_Clear(&aCtx->doc);
-  int rv = Document_LoadSchemaFields(&aCtx->doc, sctx);
+  &aCtx->doc->Clear();
+  int rv = &aCtx->doc->LoadSchemaFields(sctx);
   if (rv != REDISMODULE_OK) {
     aCtx->status.SetError(QUERY_ENODOC, "Could not load existing document");
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
@@ -273,7 +273,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   }
 
   // Keep hold of the new fields.
-  Document_MakeStringsOwner(&aCtx->doc);
+  &aCtx->doc->MakeStringsOwner();
   AddDocumentCtx_SetDocument(aCtx, sctx->spec, &aCtx->doc, oldFieldCount);
   return 0;
 }
@@ -308,7 +308,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 
   // We actually modify (!) the strings in the document, so we always require
   // ownership
-  Document_MakeStringsOwner(&aCtx->doc);
+  &aCtx->doc->MakeStringsOwner();
 
   if (AddDocumentCtx_IsBlockable(aCtx)) {
     aCtx->client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
@@ -330,7 +330,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   if (totalSize >= SELF_EXEC_THRESHOLD && AddDocumentCtx_IsBlockable(aCtx)) {
     ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
   } else {
-    Document_AddToIndexes(aCtx);
+    Document::AddToIndexes(aCtx);
   }
 }
 
@@ -587,7 +587,7 @@ void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
  * unblock the client passed when the context was first created.
  */
 
-int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
+static int Document::AddToIndexes(RSAddDocumentCtx *aCtx) {
   Document *doc = &aCtx->doc;
   int ourRv = REDISMODULE_OK;
 
@@ -638,9 +638,8 @@ cleanup:
  * Returns  REDISMODULE_ERR on failure, OK otherwise
  */
 
-int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
-                            int *result, QueryError *status) {
-
+static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
+                                    int *result, QueryError *status) {
   int rc = REDISMODULE_ERR;
   const RSDocumentMetadata *dmd = &sctx->spec->docs->GetByKeyR(key);
   if (!dmd) {
@@ -770,12 +769,12 @@ done:
 
 //---------------------------------------------------------------------------------------------
 
-DocumentField *Document_GetField(Document *d, const char *fieldName) {
-  if (!d || !fieldName) return NULL;
+DocumentField *Document::GetField(const char *fieldName) {
+  if (!this || !fieldName) return NULL;
 
-  for (int i = 0; i < d->numFields; i++) {
-    if (!strcasecmp(d->fields[i].name, fieldName)) {
-      return &d->fields[i];
+  for (int i = 0; i < numFields; i++) {
+    if (!strcasecmp(fields[i].name, fieldName)) {
+      return &fields[i];
     }
   }
   return NULL;
