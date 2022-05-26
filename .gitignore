@@ -19,12 +19,11 @@
 /venv*/
 /srcutil/lemon
 /src/query_parser/lemon
-.vscode/*
-.idea/*
+/.vscode/*
+/.idea/*
 .project
 .cproject
 VSCODE.DB*
 callgrind.out.*
-/cmake-build-debug/
+/tests/pytests/logs/
 /1/
-
