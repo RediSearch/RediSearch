@@ -709,7 +709,6 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
     return res;
   }
   res->id = MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
-  // if the id contains curly braces, get rid of them now
   if (!res->id) {
     return res;
   }
