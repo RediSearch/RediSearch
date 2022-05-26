@@ -178,14 +178,14 @@ void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flag
     un->opts.fieldMask = qn->opts.fieldMask;
 
     // Append current node to the new union node as a child
-    QueryNode_AddChild(un, qn);
+    un->AddChild(qn);
     *currentNode = un;
   }
 
   QueryNode *exp = NewTokenNodeExpanded(q, str, len, flags);
   exp->opts.fieldMask = qn->opts.fieldMask;
   // Now the current node must be a union node - so we just add a new token node to it
-  QueryNode_AddChild(*currentNode, exp);
+  *currentNode->AddChild(exp);
   // q->numTokens++;
 }
 
@@ -203,12 +203,12 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
 
   QueryNode *ph = NewPhraseNode(exact);
   for (size_t i = 0; i < num; i++) {
-    QueryNode_AddChild(ph, NewTokenNodeExpanded(q, toks[i], strlen(toks[i]), flags));
+    ph->AddChild(NewTokenNodeExpanded(q, toks[i], strlen(toks[i]), flags));
   }
 
   // if we're replacing - just set the expanded phrase instead of the token
   if (replace) {
-    QueryNode_Free(qn);
+    deletet qn;
 
     *ctx->currentNode = ph;
   } else {
@@ -218,11 +218,11 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
       QueryNode *un = NewUnionNode();
 
       // Append current node to the new union node as a child
-      QueryNode_AddChild(un, qn);
+      un->AddChild(qn);
       *currentNode = un;
     }
     // Now the current node must be a union node - so we just add a new token node to it
-    QueryNode_AddChild(*currentNode, ph);
+    *currentNode->AddChild(ph);
   }
 }
 

@@ -17,7 +17,7 @@
 
 IndexIterator::~IndexIterator() {
   if (current) {
-    IndexResult_Free(current);
+    delete current;
   }
 }
 
@@ -793,7 +793,7 @@ NotIterator::~NotIterator() {
   if (childCT) {
     delete childCT;
   }
-  IndexResult_Free(current);
+  deletet current;
 }
 
 // If we have a match - return NOTFOUND. If we don't or we're at the end - return OK
@@ -891,7 +891,7 @@ int NotIterator::ReadUnsorted(RSIndexResult **hit) {
 //---------------------------------------------------------------------------------------------
 
 // Read from a NOT iterator.
-// This is applicable only if the only or leftmost node of a query is a NOT node. 
+// This is applicable only if the only or leftmost node of a query is a NOT node.
 // We simply read until max docId, skipping docIds that exist in the child.
 
 int NotIterator::ReadSorted(RSIndexResult **hit) {
@@ -991,7 +991,7 @@ OptionalIterator::~OptionalIterator() {
   if (childCT) {
     delete childCT;
   }
-  IndexResult_Free(virt);
+  delete virt;
 }
 
 //---------------------------------------------------------------------------------------------

@@ -395,7 +395,6 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   }
 
   if (FieldSpec_IsIndexable(fs)) {
-    ForwardIndexTokenizerCtx tokCtx;
     VarintVectorWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
@@ -403,7 +402,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       curOffsetWriter = &aCtx->offsetsWriter;
     }
 
-    ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
+    ForwardIndexTokenizerCtx tokCtx(aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
 
     uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
     if (FieldSpec_IsNoStem(fs)) {
@@ -417,7 +416,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     Token tok;
     uint32_t newTokPos;
     while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
-      forwardIndexTokenFunc(&tokCtx, &tok);
+      &tokCtx->TokenFunc(&tok);
     }
     uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
 
@@ -509,6 +508,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 
 //---------------------------------------------------------------------------------------------
 
+//@@ make template
 FIELD_BULK_INDEXER(tagIndexer) {
   TagIndex *tidx = bulk->indexDatas[IXFLDPOS_TAG];
   if (!tidx) {
@@ -536,22 +536,21 @@ static PreprocessorFunc preprocessorMap[] = {
 
 //---------------------------------------------------------------------------------------------
 
-int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
-                   const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
-                   QueryError *status) {
+int IndexBulkData::Add(RSAddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField *field,
+                       const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status) {
   int rc = 0;
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES && rc == 0; ++ii) {
     // see which types are supported in the current field...
     if (field->indexAs & INDEXTYPE_FROM_POS(ii)) {
       switch (ii) {
         case IXFLDPOS_TAG:
-          rc = tagIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          rc = tagIndexer(this, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_NUMERIC:
-          rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          rc = numericIndexer(this, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_GEO:
-          rc = geoIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          rc = geoIndexer(this, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;
@@ -567,10 +566,10 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
 
 //---------------------------------------------------------------------------------------------
 
-void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
+void IndexBulkData::Cleanup(RedisSearchCtx *sctx) {
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
-    if (cur->indexKeys[ii]) {
-      RedisModule_CloseKey(cur->indexKeys[ii]);
+    if (indexKeys[ii]) {
+      RedisModule_CloseKey(indexKeys[ii]);
     }
   }
 }

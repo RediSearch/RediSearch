@@ -23,7 +23,7 @@ extern void *TRIEMAP_NOTFOUND;
  * The value pointer is optional, and NULL can be used if you are just
  * interested in the triemap as a set for strings
  */
-// TODO(cpp):: Make Template
+//@@ Make Template
 struct TrieMapNode : Object {
   // the string length of this node. can be 0
   tm_len_t len;

@@ -65,26 +65,23 @@ static void vvwFree(void *p) {
   rm_free(p);
 }
 
-static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
-  idx->idxFlags = idxFlags;
-  idx->maxFreq = 0;
-  idx->totalFreq = 0;
+void ForwardIndex::InitCommon(Document *doc, uint32_t idxFlags_) {
+  idxFlags = idxFlags_;
+  maxFreq = 0;
+  totalFreq = 0;
 
-  if (idx->stemmer && !ResetStemmer(idx->stemmer, SnowballStemmer, doc->language)) {
-    idx->stemmer->Free(idx->stemmer);
-    idx->stemmer = NULL;
+  if (stemmer && !stemmer->ResetStemmer(SnowballStemmer, doc->language)) {
+    delete stemmer;
   }
 
-  if (!idx->stemmer) {
-    idx->stemmer = new Stemmer(SnowballStemmer, doc->language);
+  if (!stemmer) {
+    stemmer = new Stemmer(SnowballStemmer, doc->language);
   }
 }
 
-ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
-  ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
-
-  BlkAlloc_Init(&idx->terms);
-  BlkAlloc_Init(&idx->entries);
+ForwardIndex::ForwardIndex(Document *doc, uint32_t idxFlags_) {
+  BlkAlloc_Init(&terms);
+  BlkAlloc_Init(&entries);
 
   static const KHTableProcs procs = {
       Compare: khtCompare,
@@ -93,16 +90,15 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   };
 
   size_t termCount = estimtateTermCount(doc);
-  idx->hits = rm_calloc(1, sizeof(*idx->hits));
-  idx->stemmer = NULL;
-  idx->totalFreq = 0;
+  hits = rm_calloc(1, sizeof(*hits));
+  stemmer = NULL;
+  totalFreq = 0;
 
-  KHTable_Init(idx->hits, &procs, &idx->entries, termCount);
+  KHTable_Init(hits, &procs, &entries, termCount);
   mempool_options options = { alloc: vvwAlloc, free: vvwFree, initialCap: termCount};
-  idx->vvwPool = mempool_new(&options);
+  vvwPool = mempool_new(&options);
 
-  ForwardIndex_InitCommon(idx, doc, idxFlags);
-  return idx;
+  InitCommon(doc, idxFlags_);
 }
 
 static void clearEntry(void *elem, void *pool) {
@@ -114,65 +110,62 @@ static void clearEntry(void *elem, void *pool) {
   }
 }
 
-void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
-  BlkAlloc_Clear(&idx->terms, NULL, NULL, 0);
-  BlkAlloc_Clear(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
-  KHTable_Clear(idx->hits);
-  if (idx->smap) {
-    SynonymMap_Free(idx->smap);
-    idx->smap = NULL;
+void ForwardIndex::Reset(Document *doc, uint32_t idxFlags_) {
+  BlkAlloc_Clear(&terms, NULL, NULL, 0);
+  BlkAlloc_Clear(&entries, clearEntry, vvwPool, sizeof(khIdxEntry));
+  KHTable_Clear(hits);
+  if (smap) {
+    SynonymMap_Free(smap);
+    smap = NULL;
   }
 
-  ForwardIndex_InitCommon(idx, doc, idxFlags);
+  ForwardIndex_InitCommon(idx, doc, idxFlags_);
 }
 
-static inline int hasOffsets(const ForwardIndex *idx) {
-  return (idx->idxFlags & Index_StoreTermOffsets);
+inline int ForwardIndex::hasOffsets() const {
+  return (idxFlags & Index_StoreTermOffsets);
 }
 
-void ForwardIndexFree(ForwardIndex *idx) {
-  BlkAlloc_FreeAll(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
-  BlkAlloc_FreeAll(&idx->terms, NULL, NULL, 0);
-  KHTable_Free(idx->hits);
-  rm_free(idx->hits);
-  mempool_destroy(idx->vvwPool);
+void ForwardIndex::~ForwardIndex() {
+  BlkAlloc_FreeAll(&entries, clearEntry, vvwPool, sizeof(khIdxEntry));
+  BlkAlloc_FreeAll(&terms, NULL, NULL, 0);
+  KHTable_Free(hits);
+  rm_free(hits);
+  mempool_destroy(vvwPool);
 
-  if (idx->stemmer) {
-    idx->stemmer->Free(idx->stemmer);
+  if (stemmer) {
+    stemmer->Free(stemmer);
   }
 
-  if (idx->smap) {
-    SynonymMap_Free(idx->smap);
+  if (smap) {
+    SynonymMap_Free(smap);
   }
 
-  idx->smap = NULL;
-
-  rm_free(idx);
+  smap = NULL;
 }
 
-static char *copyTempString(ForwardIndex *idx, const char *s, size_t n) {
-  char *dst = BlkAlloc_Alloc(&idx->terms, n + 1, MAX(n + 1, TERM_BLOCK_SIZE));
+char *ForwardIndex::copyTempString(const char *s, size_t n) {
+  char *dst = BlkAlloc_Alloc(&terms, n + 1, MAX(n + 1, TERM_BLOCK_SIZE));
   memcpy(dst, s, n);
   dst[n] = '\0';
   return dst;
 }
 
-static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_t h, int *isNew) {
-  KHTableEntry *bb = KHTable_GetEntry(idx->hits, s, n, h, isNew);
+khIdxEntry *ForwardIndex::makeEntry(const char *s, size_t n, uint32_t h, int *isNew) {
+  KHTableEntry *bb = KHTable_GetEntry(hits, s, n, h, isNew);
   return (khIdxEntry *)bb;
 }
 
 #define TOKOPT_F_STEM 0x01
 #define TOKOPT_F_COPYSTR 0x02
 
-static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
-                                     uint32_t pos, float fieldScore, t_fieldId fieldId,
-                                     int options) {
+void ForwardIndex::HandleToken(const char *tok, size_t tokLen, uint32_t pos,
+                               float fieldScore, t_fieldId fieldId, int options) {
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
-  ForwardIndexEntry *h = NULL;
+  ForwardIndexEntry *h;
   int isNew = 0;
   uint32_t hash = hashKey(tok, tokLen);
-  khIdxEntry *kh = makeEntry(idx, tok, tokLen, hash, &isNew);
+  khIdxEntry *kh = makeEntry(tok, tokLen, hash, &isNew);
   h = &kh->ent;
 
   if (isNew) {
@@ -181,7 +174,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     h->hash = hash;
     h->next = NULL;
     if (options & TOKOPT_F_COPYSTR) {
-      h->term = copyTempString(idx, tok, tokLen);
+      h->term = copyTempString(tok, tokLen);
     } else {
       h->term = tok;
     }
@@ -189,14 +182,13 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     h->len = tokLen;
     h->freq = 0;
 
-    if (hasOffsets(idx)) {
-      h->vw = mempool_get(idx->vvwPool);
+    if (hasOffsets()) {
+      h->vw = mempool_get(vvwPool);
       // printf("Got VVW=%p\n", h->vw);
       VVW_Reset(h->vw);
     } else {
       h->vw = NULL;
     }
-
   } else {
     // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
@@ -209,8 +201,8 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     score *= STEM_TOKEN_FACTOR;
   }
   h->freq += MAX(1, (uint32_t)score);
-  idx->maxFreq = MAX(h->freq, idx->maxFreq);
-  idx->totalFreq += h->freq;
+  maxFreq = MAX(h->freq, maxFreq);
+  totalFreq += h->freq;
   if (h->vw) {
     VVW_Write(h->vw, pos);
   }
@@ -218,17 +210,17 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
   // LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
 }
 
-// void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
-//   e->freq = e->freq / idx->maxFreq;
+// void ForwardIndex::NormalizeFreq(ForwardIndexEntry *e) {
+//   e->freq = e->freq / maxFreq;
 // }
-int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
+static int ForwardIndex::TokenFunc(void *ctx, const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
   int options = 0;
   if (tokInfo->flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
   }
-  ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
+  tokCtx->idx->HandleToken(tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, options);
 
   if (tokCtx->allOffsets) {
@@ -240,7 +232,7 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
     if (tokInfo->flags & Token_CopyStem) {
       stemopts |= TOKOPT_F_COPYSTR;
     }
-    ForwardIndex_HandleToken(tokCtx->idx, tokInfo->stem, tokInfo->stemLen, tokInfo->pos,
+    tokCtx->idx->HandleToken(tokInfo->stem, tokInfo->stemLen, tokInfo->pos,
                              tokCtx->fieldScore, tokCtx->fieldId, stemopts);
   }
 
@@ -251,23 +243,23 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
       size_t synonym_len;
       for (int i = 0; i < array_len(t_data->ids); ++i) {
         synonym_len = SynonymMap_IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
-        ForwardIndex_HandleToken(tokCtx->idx, synonym_buff, synonym_len, tokInfo->pos,
+        tokCtx->idx->HandleToken(synonym_buff, synonym_len, tokInfo->pos,
                                  tokCtx->fieldScore, tokCtx->fieldId, TOKOPT_F_COPYSTR);
       }
     }
   }
 
   if (tokInfo->phoneticsPrimary) {
-    ForwardIndex_HandleToken(tokCtx->idx, tokInfo->phoneticsPrimary,
-                             strlen(tokInfo->phoneticsPrimary), tokInfo->pos, tokCtx->fieldScore,
-                             tokCtx->fieldId, TOKOPT_F_COPYSTR);
+    tokCtx->idx->HandleToken(tokInfo->phoneticsPrimary, strlen(tokInfo->phoneticsPrimary),
+                             tokInfo->pos, tokCtx->fieldScore, tokCtx->fieldId, TOKOPT_F_COPYSTR);
   }
 
   return 0;
 }
 
-ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash) {
-  KHTableEntry *baseEnt = KHTable_GetEntry(i->hits, s, n, hash, NULL);
+// Find an existing entry within the index
+ForwardIndexEntry *ForwardIndex::Find(const char *s, size_t n, uint32_t hash) {
+  KHTableEntry *baseEnt = KHTable_GetEntry(hits, s, n, hash, NULL);
   if (!baseEnt) {
     return NULL;
   } else {
@@ -276,30 +268,30 @@ ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, u
   }
 }
 
-ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i) {
+ForwardIndexIterator ForwardIndex::Iterate() {
   ForwardIndexIterator iter;
-  iter.hits = i->hits;
+  iter.hits = hits;
   iter.curBucketIdx = 0;
   iter.curEnt = NULL;
   // khTable_Dump(iter.hits);
   return iter;
 }
 
-ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter) {
-  KHTable *table = iter->hits;
+ForwardIndexEntry *ForwardIndexIterator::Next() {
+  KHTable *table = hits;
 
-  while (iter->curEnt == NULL && iter->curBucketIdx < table->numBuckets) {
-    iter->curEnt = table->buckets[iter->curBucketIdx++];
+  while (curEnt == NULL && curBucketIdx < table->numBuckets) {
+    curEnt = table->buckets[curBucketIdx++];
   }
 
-  if (iter->curEnt == NULL) {
+  if (curEnt == NULL) {
     return NULL;
   }
 
-  KHTableEntry *ret = iter->curEnt;
-  iter->curEnt = ret->next;
+  KHTableEntry *ret = curEnt;
+  curEnt = ret->next;
   // printf("Yielding entry: %.*s. Next=%p -- (%p)\n", (int)ret->self.ent.len, ret->self.ent.term,
-  //  ret->next, iter->curEnt);
+  //  ret->next, curEnt);
   khIdxEntry *bEnt = (khIdxEntry *)ret;
   return &bEnt->ent;
 }

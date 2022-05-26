@@ -1236,7 +1236,7 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
     // If we deleted stuff from this block, we need to change the number of docs and the data
     // pointer
     numDocs -= frags;
-    Buffer_Free(&buf);
+    delete &buf;
     buf = repair;
     buf.ShrinkToSize();
   }
@@ -1248,7 +1248,7 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
     // from rdb (in case we read a corrunpted rdb from older versions).
     firstId = oldFirstBlock;
   }
-  IndexResult_Free(res);
+  delete res;
   return frags;
 }
 

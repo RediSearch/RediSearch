@@ -65,9 +65,9 @@ struct Document : Object {
 
   void SetPayload(const void *payload, size_t n);
   void MakeStringsOwner();
-  void MakeRefOwner(); // TODO(cpp):: looks like nobody is using this func
+  void MakeRefOwner(); //@@ looks like nobody is using this func
   void Clear();
-  void Dump() const; // TODO(cpp):: looks like nobody is using this func
+  void Dump() const; //@@ looks like nobody is using this func
 
   static void Move(Document *dst, Document *src);
   static int AddToIndexes(RSAddDocumentCtx *aCtx);

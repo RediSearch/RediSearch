@@ -41,28 +41,27 @@ tokens. Words in between the tokens are considered as well, ensuring that every
 fragment is more or less the same size.
  */
 
-typedef struct {
+struct FragmentTerm {
   uint32_t tokPos;
   uint32_t bytePos;
   uint32_t termId;
   uint32_t len;
   float score;
-} FragmentTerm;
+};
 
-typedef struct {
+struct FragmentTermIterator {
   RSByteOffsetIterator *byteIter;
   RSOffsetIterator *offsetIter;
   RSQueryTerm *curMatchRec;
   uint32_t curTokPos;
   uint32_t curByteOffset;
   FragmentTerm tmpTerm;
-} FragmentTermIterator;
 
-int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInfo);
-void FragmentTermIterator_InitOffsets(FragmentTermIterator *iter, RSByteOffsetIterator *bytesIter,
-                                      RSOffsetIterator *offIter);
+  int Next(FragmentTerm **termInfo);
+  void InitOffsets(RSByteOffsetIterator *bytesIter, RSOffsetIterator *offIter);
+};
 
-typedef struct {
+struct TermLoc {
   // Position in current fragment (bytes)
   uint32_t offset;
 
@@ -71,9 +70,9 @@ typedef struct {
 
   // Index into FragmentList::terms
   uint16_t termId;
-} TermLoc;
+};
 
-typedef struct Fragment {
+struct Fragment {
   const char *buf;
   uint32_t len;
 
@@ -95,9 +94,16 @@ typedef struct Fragment {
   // Score calculated from the number of matches
   float score;
   Array termLocs;  // TermLoc
-} Fragment;
 
-typedef struct {
+  size_t GetNumTerms() const;
+
+  int HasTerm(uint32_t termId) const;
+
+  void WriteIovs(const char *openTag, size_t openLen, const char *closeTag,
+                 size_t closeLen, Array *iovs, const char **preamble) const;
+};
+
+struct FragmentList {
   // Array of fragments
   Array frags;
 
@@ -121,70 +127,69 @@ typedef struct {
 
   // Average word size. Used when determining context.
   uint8_t estAvgWordSize;
-} FragmentList;
 
-static inline void FragmentList_Init(FragmentList *fragList, uint16_t maxDistance,
-                                     uint8_t estWordSize) {
-  fragList->doc = NULL;
-  fragList->docLen = 0;
-  fragList->numFrags = 0;
-  fragList->maxDistance = maxDistance;
-  fragList->estAvgWordSize = estWordSize;
-  fragList->sortedFrags = NULL;
-  fragList->scratchFrags = NULL;
-  Array_Init(&fragList->frags);
-}
+  FragmentList(uint16_t maxDistance, uint8_t estWordSize) {
+    doc = NULL;
+    docLen = 0;
+    numFrags = 0;
+    maxDistance = maxDistance;
+    estAvgWordSize = estWordSize;
+    sortedFrags = NULL;
+    scratchFrags = NULL;
+    Array_Init(&frags);
+  }
+  ~FragmentList();
 
-static inline size_t FragmentList_GetNumFrags(const FragmentList *fragList) {
-  return ARRAY_GETSIZE_AS(&fragList->frags, Fragment);
-}
+  size_t GetNumFrags() const {
+    return ARRAY_GETSIZE_AS(&frags, Fragment);
+  }
 
-static const Fragment *FragmentList_GetFragments(const FragmentList *fragList) {
-  return ARRAY_GETARRAY_AS(&fragList->frags, const Fragment *);
-}
+  Fragment *GetFragments() const {
+    return ARRAY_GETARRAY_AS(&frags, const Fragment *);
+  }
+
+  void extractToken(const Token *tokInfo, const FragmentSearchTerm *terms, size_t numTerms);
+
+  Fragment *LastFragment();
+  Fragment *AddFragment();
+  Fragment *AddMatchingTerm(uint32_t termId, uint32_t tokPos, const char *tokBuf, size_t tokLen,
+                            float baseScore);
+  void FragmentizeBuffer(const char *doc_, Stemmer *stemmer, StopWordList *stopwords,
+                         const FragmentSearchTerm *terms, size_t numTerms);
+  void FragmentizeIter(const char *doc_, size_t docLen, FragmentTermIterator *iter, int options);
+
+  void HighlightWholeDocV(const HighlightTags *tags, Array *iovs) const;
+  char *HighlightWholeDocS(const HighlightTags *tags) const;
+
+  void HighlightFragments(const HighlightTags *tags, size_t contextSize, Array *iovBufList,
+                          size_t niovs, int order);
+
+  void FindContext(const Fragment *frag, const char *limitBefore, const char *limitAfter,
+                   size_t contextSize, struct iovec *before, struct iovec *after) const;
+
+  void Sort();
+  void Dump() const;
+};
 
 #define FRAGMENT_TERM(buf_, len_, score_) \
   { .tok = buf_, .len = len_, .score = score_ }
 /**
  * A single term to use for searching. Used when fragmenting a buffer
  */
-typedef struct {
+struct FragmentSearchTerm {
   const char *tok;
   size_t len;
   float score;
-} FragmentSearchTerm;
+};
 
 #define DOCLEN_NULTERM ((size_t)-1)
 
-/**
- * Split a document into a list of fragments.
- * - doc is the document to split
- * - numTerms is the number of terms to search for. The terms themselves are
- *   not searched, but each Fragment needs to have this memory made available.
- *
- * Returns a list of fragments.
- */
-void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Stemmer *stemmer,
-                                    StopWordList *stopwords, const FragmentSearchTerm *terms,
-                                    size_t numTerms);
-
 #define FRAGMENTIZE_TOKLEN_EXACT 0x01
-void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_t docLen,
-                                  FragmentTermIterator *iter, int options);
 
-typedef struct {
+struct HighlightTags {
   const char *openTag;
   const char *closeTag;
-} HighlightTags;
-
-void FragmentList_Free(FragmentList *frags);
-
-/** Highlight matches the entire document, returning a series of IOVs */
-void FragmentList_HighlightWholeDocV(const FragmentList *fragList, const HighlightTags *tags,
-                                     Array *iovs);
-
-/** Highlight matches the entire document, returning it as a freeable NUL-terminated buffer */
-char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const HighlightTags *tags);
+};
 
 /**
  * Return fragments by their score. The highest ranked fragment is returned fist
@@ -201,26 +206,5 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
  * First select the highest scoring elements and then sort them by position
  */
 #define HIGHLIGHT_ORDER_SCOREPOS 0x03
-/**
- * Highlight fragments for each document.
- *
- * - contextSize is the size of the surrounding context, in estimated words,
- * for each returned fragment. The function will use this as a hint.
- *
- * - iovBufList is an array of buffers. Each element corresponds to a fragment,
- * and the fragments are always returned in order.
- *
- * - niovs If niovs is less than the number of fragments, then only the first
- * <niov> fragments are returned.
- *
- * - order is one of the HIGHLIGHT_ORDER_ constants. See their documentation
- * for more details
- *
- */
-void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags *tags,
-                                     size_t contextSize, Array *iovBufList, size_t niovs,
-                                     int order);
-
-void FragmentList_Dump(const FragmentList *fragList);
 
 #endif

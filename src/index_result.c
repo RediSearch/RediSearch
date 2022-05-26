@@ -208,7 +208,7 @@ RSIndexResult::~RSIndexResult() {
     // for deep-copy results we also free the children
     if (isCopy && agg.children) {
       for (int i = 0; i < agg.numChildren; i++) {
-        IndexResult_Free(r->agg.children[i]);
+        delete r->agg.children[i];
       }
     }
     rm_free(r->agg.children);
@@ -231,8 +231,8 @@ RSIndexResult::~RSIndexResult() {
 
 //------------------------------------------------------------------------------`---------------
 
-inline int RSIndexResult_IsAggregate(const RSIndexResult *r) {
-  return (r->type & RS_RESULT_AGGREGATE) != 0;
+inline int RSIndexResult::IsAggregate() const {
+  return (type & RS_RESULT_AGGREGATE) != 0;
 }
 
 #define __absdelta(x, y) (x > y ? x - y : y - x)
@@ -246,8 +246,8 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param num the size of the list
 */
 
-int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
-  if (!RSIndexResult_IsAggregate(r) || r->agg.numChildren <= 1) {
+int RSIndexResult::MinOffsetDelta() const {
+  if (!IsAggregate() || r->agg.numChildren <= 1) {
     return 1;
   }
 
@@ -259,15 +259,15 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   int i = 0;
   while (i < num) {
     // if either
-    while (i < num && !RSIndexResult_HasOffsets(agg->children[i])) {
+    while (i < num && !agg->children[i]->HasOffsets()) {
       i++;
       continue;
     }
     if (i == num) break;
-    v1 = RSIndexResult_IterateOffsets(agg->children[i]);
+    v1 = agg->children[i]->IterateOffsets();
     i++;
 
-    while (i < num && !RSIndexResult_HasOffsets(agg->children[i])) {
+    while (i < num && !agg->children[i]->HasOffsets()) {
       i++;
       continue;
     }
@@ -276,7 +276,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
       dist = dist ? dist : 100;
       break;
     }
-    v2 = RSIndexResult_IterateOffsets(agg->children[i]);
+    v2 = agg->children[i]->IterateOffsets();
 
     uint32_t p1 = v1.Next(v1.ctx, NULL);
     uint32_t p2 = v2.Next(v2.ctx, NULL);

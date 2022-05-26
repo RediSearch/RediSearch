@@ -321,6 +321,7 @@ struct RSIndexResult : public Object {
   // END OF the "magic 4 uints" section
   //-------------------------------------------------------------------------------------------
 
+  //@@ make derived classes
   union {
     RSAggregateResult agg;  // Aggregate record
     RSTermRecord term;      // Term record
@@ -347,17 +348,17 @@ struct RSIndexResult : public Object {
     num.value = value;
   }
 
+  // Free an index result's internal allocations, does not free the result itself
+  ~RSIndexResult();
+
   // Reset state of an existing index hit. This can be used to recycle index hits during reads
   void Reset();
 
   // Debug print a result
   void Print(int depth) const;
 
-  // Free an index result's internal allocations, does not free the result itself
-  void Free();
-
   // Get the minimal delta between the terms in the result
-    int MinOffsetDelta() const;
+  int MinOffsetDelta() const;
 
   size_t GetMatchedTerms(RSQueryTerm **arr, size_t cap) const;
   void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) const;

@@ -14,6 +14,7 @@ static void PhoneticManager_AddPrefix(char** phoneticTerm) {
   *phoneticTerm[0] = PHONETIC_PREFIX;
 }
 
+//@@ Should it be static func of PhoneticManagerCtx?
 void PhoneticManager_ExpandPhonetics(PhoneticManagerCtx* ctx, const char* term, size_t len,
                                      char** primary, char** secondary) {
   // currently ctx is irrelevant we support only one universal algorithm for all 4 languages

@@ -53,17 +53,14 @@ struct Query : Object {
 // TODO: These APIs are helpers for the generated parser. They belong in the
 // bowels of the actual parser, and should probably be a macro!
 
-QueryNode *NewQueryNode(QueryNodeType type);
-QueryNode *NewQueryNodeChildren(QueryNodeType type, QueryNode **children, size_t n);
-
 QueryNode *NewTokenNode(QueryParse *q, const char *s, size_t len);
 QueryNode *NewTokenNodeExpanded(struct QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
 
-#define NewUnionNode() NewQueryNode(QN_UNION)
-#define NewWildcardNode() NewQueryNode(QN_WILDCARD)
-#define NewNotNode(child) NewQueryNodeChildren(QN_NOT, &child, 1)
-#define NewOptionalNode(child) NewQueryNodeChildren(QN_OPTIONAL, &child, 1)
+#define NewUnionNode() new QueryNode(QN_UNION)
+#define NewWildcardNode() new QueryNode(QN_WILDCARD)
+#define NewNotNode(child) new QueryNode(QN_NOT, &child, 1)
+#define NewOptionalNode(child) new QueryNode(QN_OPTIONAL, &child, 1)
 
 QueryNode *NewPrefixNode(QueryParse *q, const char *s, size_t len);
 QueryNode *NewFuzzyNode(QueryParse *q, const char *s, size_t len, int maxDist);

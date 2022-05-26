@@ -48,14 +48,14 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
 
   int rc = 0;
   var offsIter = indexResult->IterateOffsets();
-  FragmentTermIterator fragIter = {NULL};
+  FragmentTermIterator fragIter;
   RSByteOffsetIterator bytesIter;
   if (RSByteOffset_Iterate(byteOffsets, fs->ftId, &bytesIter) != REDISMODULE_OK) {
     goto done;
   }
 
-  FragmentTermIterator_InitOffsets(&fragIter, &bytesIter, &offsIter);
-  FragmentList_FragmentizeIter(fragList, fieldText, fieldLen, &fragIter, options);
+  fragIter.InitOffsets(&bytesIter, &offsIter);
+  fragList->FragmentizeIter(fieldText, fieldLen, &fragIter, options);
   if (fragList->numFrags == 0) {
     goto done;
   }
@@ -171,8 +171,7 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
                                const char *fieldName, const RSValue *returnedField,
                                hlpDocContext *docParams, int options) {
 
-  FragmentList frags;
-  FragmentList_Init(&frags, 8, 6);
+  FragmentList frags(8, 6);
 
   // Start gathering the terms
   HighlightTags tags = fieldInfo->highlightSettings;
@@ -191,7 +190,6 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
     } else {
       // Otherwise, just return the whole field, but without highlighting
     }
-    FragmentList_Free(&frags);
     return NULL;
   }
 
@@ -199,18 +197,17 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
   if (fieldInfo->mode == SummarizeMode_Highlight) {
     // No need to return snippets; just return the entire doc with relevant tags
     // highlighted.
-    char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
-    FragmentList_Free(&frags);
+    char *hlDoc = frags.HighlightWholeDocS(&tags);
     return RS_StringValC(hlDoc);
   }
 
-  size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, FragmentList_GetNumFrags(&frags));
+  size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, &frags->GetNumFrags());
   for (size_t ii = 0; ii < numIovArr; ++ii) {
     Array_Resize(&docParams->iovsArr[ii], 0);
   }
 
-  FragmentList_HighlightFragments(&frags, &tags, fieldInfo->summarizeSettings.contextLen,
-                                  docParams->iovsArr, numIovArr, HIGHLIGHT_ORDER_SCOREPOS);
+  frags.HighlightFragments(&tags, fieldInfo->summarizeSettings.contextLen,
+                           docParams->iovsArr, numIovArr, HIGHLIGHT_ORDER_SCOREPOS);
 
   // Buffer to store concatenated fragments
   Array bufTmp;
@@ -240,7 +237,6 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
   size_t hlLen;
   char *hlText = Array_Steal(&bufTmp, &hlLen);
   Array_Free(&bufTmp);
-  FragmentList_Free(&frags);
   return RS_StringVal(hlText, hlLen);
 }
 

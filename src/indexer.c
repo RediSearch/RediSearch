@@ -106,8 +106,8 @@ static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocum
 
   while (cur && ++counter < 1000 && curIdIdx < MAX_BULK_DOCS) {
 
-    ForwardIndexIterator it = ForwardIndex_Iterate(cur->fwIdx);
-    ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
+    ForwardIndexIterator it = cur->fwIdx->Iterate();
+    ForwardIndexEntry *entry = &it->Next();
 
     while (entry) {
       // Because we don't have the actual document ID at this point, the document
@@ -130,7 +130,7 @@ static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocum
       }
 
       entry->next = NULL;
-      entry = ForwardIndexIterator_Next(&it);
+      entry = it.Next();
     }
 
     // Set the document's text status as indexed. This is not strictly true,
@@ -228,8 +228,8 @@ int DocumentIndexer::writeMergedEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *
 void DocumentIndexer::writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx shound not be NULL");
 
-  ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
-  ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
+  ForwardIndexIterator it = aCtx->fwIdx->Iterate();
+  ForwardIndexEntry *entry = it.Next();
   IndexEncoder encoder = InvertedIndex::GetEncoder(aCtx->specFlags);
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
@@ -247,7 +247,7 @@ void DocumentIndexer::writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ct
       RedisModule_CloseKey(idxKey);
     }
 
-    entry = ForwardIndexIterator_Next(&it);
+    entry = it.Next();
     if (isBlocked && CONCURRENT_CTX_TICK(&concCtx) && ctx->spec == NULL) {
       aCtx->status.SetError(QUERY_ENOINDEX, NULL);
       return;
@@ -351,7 +351,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
 //---------------------------------------------------------------------------------------------
 
-static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+static void IndexBulkData::indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
   IndexBulkData bData[SPEC_MAX_FIELDS] = {{{NULL}}};
   IndexBulkData *activeBulks[SPEC_MAX_FIELDS];
@@ -413,9 +413,6 @@ struct DocumentIndexerConcurrentKey : public ConcurrentKey {
       ctx->spec = NULL;
     }
   }
-
-};
-
 
 //---------------------------------------------------------------------------------------------
 
@@ -506,7 +503,7 @@ void DocumentIndexer::Process(RSAddDocumentCtx *aCtx) {
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
-    indexBulkFields(aCtx, &ctx);
+    IndexBulkData::indexBulkFields(aCtx, &ctx);
   }
 
 cleanup:
@@ -552,7 +549,7 @@ void DocumentIndexer::main() {
 //---------------------------------------------------------------------------------------------
 
 static void *DocumentIndexer::_main(void *self_) {
-  auto self = ((DocumentIndexer *)self_;
+  auto self = (DocumentIndexer *)self_;
   try {
     self->main();
   } catch (Error &x) {
@@ -670,11 +667,11 @@ size_t DocumentIndexer::Incref() {
 
 //---------------------------------------------------------------------------------------------
 
-void DocumentIndexer::Free(DocumentIndexer *indexer) {
-  if (indexer->options & INDEXER_THREADLESS) {
+void DocumentIndexer::Free() {
+  if (options & INDEXER_THREADLESS) {
     delete indexer;
   } else {
-    indexer->Decref();
+    Decref();
   }
 }
 

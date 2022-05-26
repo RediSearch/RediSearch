@@ -51,7 +51,7 @@ struct DocumentIndexer : public Object {
   ~DocumentIndexer();
 
   static DocumentIndexer *Copy(DocumentIndexer *indexer);
-  static void Free(DocumentIndexer *indexer);
+  static void Free();
 
   int Add(RSAddDocumentCtx *aCtx);
 
@@ -101,13 +101,13 @@ struct IndexBulkData {
   void *indexDatas[INDEXFLD_NUM_TYPES];
   FieldType typemask;
   int found;
+
+  int Add(RSAddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField *field,
+          const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
+
+  void Cleanup(RedisSearchCtx *sctx);
+
+  static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 };
-
-// IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status);
-
-int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
-                   const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
-                   QueryError *status);
-void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

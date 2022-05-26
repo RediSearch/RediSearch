@@ -703,7 +703,7 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     Indexer_Free(spec->indexer);
   }
   if (spec->gc) {
-    GCContext_Stop(spec->gc);
+    spec->gc->Stop();
   }
 
   if (spec->terms) {

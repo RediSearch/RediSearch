@@ -72,6 +72,7 @@ struct QueryAttribute {
 // It has a type to resolve which node it is, and a union of all possible nodes.
 
 struct QueryNode {
+  //@@ make derive classes
   /*union {
     QueryPhraseNode pn;
     QueryTokenNode tn;
@@ -87,6 +88,12 @@ struct QueryNode {
     QueryLexRangeNode lxrng;
   };*/
 
+  void ctor(QueryNodeType type_);
+  QueryNode(QueryNodeType type_) { ctor(type_); }
+  QueryNode(QueryNodeType type_, QueryNode **children_, size_t n) {
+    ctor(type_);
+    children = array_ensure_append(children, children_, n, QueryNode *);
+  }
   virtual ~QueryNode();
 
   // The node type, for resolving the union access
@@ -95,10 +102,11 @@ struct QueryNode {
   struct QueryNode **children;
 
   int ApplyAttributes(QueryAttribute *attr, size_t len, QueryError *status);
+  int ApplyAttributes(QueryAttribute *attrs, size_t len, QueryError *status);
 
-  void AddChildren(QueryNode **children, size_t n);
+  void AddChildren(QueryNode **children_, size_t n);
   void AddChild(QueryNode *child);
-  void ClearChildren(int shouldFree);
+  void ClearChildren(bool shouldFree);
 
   size_t NumChildren() const { return children ? array_len(children) : 0; }
   QueryNode *GetChild(int ix) { return NumChildren() > ix ? children[ix] : NULL; }
@@ -107,6 +115,9 @@ struct QueryNode {
   int ForEach(ForEachCallback callback, void *ctx, bool reverse);
 
   void SetFieldMask(t_fieldMask mask);
+
+  sds DumpSds(sds s, const IndexSpec *spec, int depth) const;
+  sds DumpChildren(sds s, const IndexSpec *spec, int depth) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -136,9 +147,9 @@ struct QueryTagNode : QueryNode {
 
 //---------------------------------------------------------------------------------------------
 
-// A token node is a terminal, single term/token node. 
-// An expansion of synonyms is represented by a Union node with several token nodes. 
-// A token can have private metadata written by expanders or tokenizers. 
+// A token node is a terminal, single term/token node.
+// An expansion of synonyms is represented by a Union node with several token nodes.
+// A token can have private metadata written by expanders or tokenizers.
 // Later this gets passed to scoring functions in a Term object. See RSIndexRecord.
 
 // typedef RSToken QueryTokenNode;
