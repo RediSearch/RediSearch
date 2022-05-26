@@ -60,7 +60,7 @@ struct ArgsCursor {
   int tryReadAsDouble(long long *ll, unsigned int flags) {
 
   int ParseArgSpec(ACArgSpec *specs, ACArgSpec **errSpec);
-  int parseSingleSpec(ACArgSpec *spec) {
+  int parseSingleSpec(ACArgSpec *spec);
 
   int Advance();
   int AdvanceBy(size_t by);

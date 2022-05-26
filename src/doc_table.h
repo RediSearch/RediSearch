@@ -73,8 +73,8 @@ struct DocTable : Object {
   DocIdMap dim;
 
 private:
-  static void STRVARS_FROM_RSTRING(RedisModuleString *r) {
-    size_t n;
+  #define STRVARS_FROM_RSTRING(r) { \
+    size_t n;                       \
     const char *s = RedisModule_StringPtrLen(r, &n);
   }
 
