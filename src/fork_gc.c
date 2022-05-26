@@ -1414,7 +1414,9 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   callbacks->onTerm = onTerminateCb;
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
-  // callbacks->renderStatsForInfo = statsForInfoCb;
+  #ifdef FTINFO_FOR_INFO_MODULES
+  callbacks->renderStatsForInfo = statsForInfoCb;
+  #endif
   callbacks->getInterval = getIntervalCb;
   callbacks->kill = killCb;
   callbacks->onDelete = deleteCb;
