@@ -128,12 +128,16 @@ def testSanity(env):
     # test timeout
     env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0 , 0).error() \
+      .contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
+      .contains('Timeout limit was reached')
 
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
-    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0 , 0).error() \
+      .contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
+      .contains('Timeout limit was reached')
 
 def testSanityTags(env):
     env.skipOnCluster()
@@ -194,12 +198,16 @@ def testSanityTags(env):
     # test timeout
     env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0 , 0).error() \
+      .contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0 , 0).error() \
+      .contains('Timeout limit was reached')
 
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
-    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0 , 0).contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0 , 0).error() \
+      .contains('Timeout limit was reached')
+    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0 , 0).error() \
+      .contains('Timeout limit was reached')
 
 def testEscape(env):
   # this test check that `\*` is escaped correctly on contains queries
@@ -320,14 +328,18 @@ def testContainsDebugCommand(env):
 
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'WITHSUFFIXTRIE')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'field').error().contains('Could not find given field in index spec')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'field').error()  \
+    .contains('Could not find given field in index spec')
 
   conn.execute_command('FT.CREATE', 'idx_no', 'SCHEMA', 'text', 'TEXT')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx_no').error().contains('Index does not have suffix trie')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx_no').error()  \
+    .contains('Index does not have suffix trie')
 
   conn.execute_command('FT.CREATE', 'idx_tag', 'SCHEMA', 'tag', 'TAG', 'WITHSUFFIXTRIE')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no').error().contains('Could not find given field in index spec')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no', 'tag_yes').error().contains('wrong number of arguments')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no').error() \
+    .contains('Could not find given field in index spec')
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no', 'tag_yes').error(). \
+    contains('wrong number of arguments')
 
 def testContainsMixedWithSuffix(env):
   env.skipOnCluster()
@@ -338,7 +350,8 @@ def testContainsMixedWithSuffix(env):
   conn.execute_command('HSET', 'doc1', 't1', 'hello', 't2', 'hello')
 
   env.expect('ft.search', 'idx', '@t1:*ell*', 'NOCONTENT').equal([1, 'doc1'])
-  env.expect('ft.search', 'idx', '@t2:*ell*', 'NOCONTENT').error(). contains('Contains query on fields without WITHSUFFIXTRIE support')
+  env.expect('ft.search', 'idx', '@t2:*ell*', 'NOCONTENT').error()  \
+    .contains('Contains query on fields without WITHSUFFIXTRIE support')
 
 def test_params(env):
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
