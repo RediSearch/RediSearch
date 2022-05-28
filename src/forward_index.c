@@ -115,8 +115,7 @@ void ForwardIndex::Reset(Document *doc, uint32_t idxFlags_) {
   BlkAlloc_Clear(&entries, clearEntry, vvwPool, sizeof(khIdxEntry));
   KHTable_Clear(hits);
   if (smap) {
-    SynonymMap_Free(smap);
-    smap = NULL;
+    delete smap;
   }
 
   ForwardIndex_InitCommon(idx, doc, idxFlags_);
@@ -138,7 +137,7 @@ void ForwardIndex::~ForwardIndex() {
   }
 
   if (smap) {
-    SynonymMap_Free(smap);
+    delete smap;
   }
 
   smap = NULL;
@@ -237,12 +236,12 @@ static int ForwardIndex::TokenFunc(void *ctx, const Token *tokInfo) {
   }
 
   if (tokCtx->idx->smap) {
-    TermData *t_data = SynonymMap_GetIdsBySynonym(tokCtx->idx->smap, tokInfo->tok, tokInfo->tokLen);
+    TermData *t_data = tokCtx->idx->smap->GetIdsBySynonym(tokInfo->tok, tokInfo->tokLen);
     if (t_data) {
       char synonym_buff[SYNONYM_BUFF_LEN];
       size_t synonym_len;
       for (int i = 0; i < array_len(t_data->ids); ++i) {
-        synonym_len = SynonymMap_IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
+        synonym_len = SynonymMap::IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
         tokCtx->idx->HandleToken(synonym_buff, synonym_len, tokInfo->pos,
                                  tokCtx->fieldScore, tokCtx->fieldId, TOKOPT_F_COPYSTR);
       }

@@ -40,7 +40,7 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   }
 
   for (int i = 0; i < len; ++i) {
-    valuesAdded += Trie_Insert(t, values[i], 1, 1, NULL);
+    valuesAdded += t->Insert(values[i], 1, 1, NULL);
   }
 
   RedisModule_CloseKey(k);
@@ -89,7 +89,7 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
 
   RedisModule_ReplyWithArray(ctx, t->size);
 
-  TrieIterator *it = Trie_Iterate(t, "", 0, 0, 1);
+  TrieIterator *it = t->Iterate("", 0, 0, 1);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
@@ -97,7 +97,6 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
   }
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);
-  TrieIterator_Free(it);
 
   RedisModule_CloseKey(k);
 

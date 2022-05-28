@@ -74,14 +74,13 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   /* Create an empty value object if the key is currently empty. */
   Trie *tree;
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
-    tree = NewTrie();
     RedisModule_ModuleTypeSetValue(key, TrieType, tree);
   } else {
     tree = RedisModule_ModuleTypeGetValue(key);
   }
 
   /* Insert the new element. */
-  Trie_Insert(tree, val, score, incr, &payload);
+  tree->Insert(val, score, incr, &payload);
 
   RedisModule_ReplyWithLongLong(ctx, tree->size);
   RedisModule_ReplicateVerbatim(ctx);
@@ -270,8 +269,8 @@ parse_error:
     return RedisModule_ReplyWithNull(ctx);
   }
 
-  Vector *res = Trie_Search(tree, s, len, options.numResults, options.maxDistance, 1, options.trim,
-                            options.optimize);
+  Vector *res = tree->Search(s, len, options.numResults, options.maxDistance, 1, options.trim,
+                             options.optimize);
   if (!res) {
     return RedisModule_ReplyWithError(ctx, "Invalid query");
   }
@@ -282,23 +281,20 @@ parse_error:
   RedisModule_ReplyWithArray(ctx, Vector_Size(res) * mul);
 
   for (size_t i = 0; i < Vector_Size(res); i++) {
-    TrieSearchResult *e;
-    Vector_Get(res, i, &e);
+    TrieSearchResult e;
+    Vector_Get(res, i, e);
 
-    RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
+    RedisModule_ReplyWithStringBuffer(ctx, e.str, e.len);
     if (options.withScores) {
-      RedisModule_ReplyWithDouble(ctx, e->score);
+      RedisModule_ReplyWithDouble(ctx, e.score);
     }
     if (options.withPayloads) {
-      if (e->payload)
-        RedisModule_ReplyWithStringBuffer(ctx, e->payload, e->plen);
+      if (e.payload)
+        RedisModule_ReplyWithStringBuffer(ctx, e.payload, e.plen);
       else
         RedisModule_ReplyWithNull(ctx);
     }
-
-    TrieSearchResult_Free(e);
   }
-  Vector_Free(res);
 
   return REDISMODULE_OK;
 }

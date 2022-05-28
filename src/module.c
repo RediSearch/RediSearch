@@ -545,7 +545,7 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   IndexSpec_InitializeSynonym(sp);
 
-  uint32_t id = SynonymMap_AddRedisStr(sp->smap, argv + 2, argc - 2);
+  uint32_t id = sp->smap->AddRedisStr(argv + 2, argc - 2);
 
   RedisModule_ReplyWithLongLong(ctx, id);
 
@@ -562,14 +562,14 @@ int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, 
     return REDISMODULE_OK;
   }
 
-  if (checkIdSanity && (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap))) {
+  if (checkIdSanity && (!sp->smap || id >= sp->smap->GetMaxId())) {
     RedisModule_ReplyWithError(ctx, "given id does not exists");
     return REDISMODULE_OK;
   }
 
   IndexSpec_InitializeSynonym(sp);
 
-  SynonymMap_UpdateRedisStr(sp->smap, synonyms, size, id);
+  sp->smap->UpdateRedisStr(synonyms, size, id);
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
 
@@ -654,7 +654,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   size_t size;
-  TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
+  TermData **terms_data = sp->smap->DumpAllTerms(&size);
 
   RedisModule_ReplyWithArray(ctx, size * 2);
 
@@ -666,8 +666,6 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithLongLong(ctx, t_data->ids[j]);
     }
   }
-
-  rm_free(terms_data);
 
   return REDISMODULE_OK;
 }

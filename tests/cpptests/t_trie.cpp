@@ -9,7 +9,7 @@ typedef std::set<std::string> ElemSet;
 class TrieTest : public ::testing::Test {};
 
 static bool trieInsert(Trie *t, const char *s, size_t n) {
-  return Trie_InsertStringBuffer(t, s, n, 1, 1, NULL);
+  return t->InsertStringBuffer(s, n, 1, 1, NULL);
 }
 static bool trieInsert(Trie *t, const char *s) {
   return trieInsert(t, s, strlen(s));
@@ -41,7 +41,7 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
   }
 
   ElemSet foundElements;
-  TrieNode_IterateRange(t->root, r1Ptr, nr1, true, r2Ptr, nr2, false,
+  t->root->IterateRange(r1Ptr, nr1, true, r2Ptr, nr2, false,
                         [](const rune *u16, size_t nrune, void *ctx) {
                           size_t n;
                           char *s = runesToStr(u16, nrune, &n);

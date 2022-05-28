@@ -136,6 +136,7 @@ struct RSValue : Object {
 
   void MakeReference(RSValue *src);
   void MakeOwnReference(RSValue *src);
+  void MakeRStringOwner();
 
   void MakePersistent();
 
@@ -222,7 +223,6 @@ inline RSValue *RS_ConstStringVal(const char *s, size_t n) {
 RSValue *RS_RedisStringVal(RedisModuleString *str);
 RSValue *RS_OwnRedisStringVal(RedisModuleString *str);
 RSValue *RS_StealRedisStringVal(RedisModuleString *s);
-void RSValue_MakeRStringOwner(RSValue *v);
 
 // Returns true if the value contains a string
 

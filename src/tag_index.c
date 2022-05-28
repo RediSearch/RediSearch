@@ -240,8 +240,8 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
 //---------------------------------------------------------------------------------------------
 
 // Open the tag index in redis
-TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
-                         RedisModuleKey **keyp) {
+static TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
+                                RedisModuleKey **keyp) {
   TagIndex *idx = NULL;
   if (!sctx->spec->keysDict) {
     RedisModuleKey *key_s = NULL;

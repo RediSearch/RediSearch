@@ -305,7 +305,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
                                            size_t len, int maxDist, int prefixMode,
                                            QueryNodeOptions *opts) {
-  TrieIterator *it = Trie_Iterate(terms, str, len, maxDist, prefixMode);
+  TrieIterator *it = terms->Iterate(str, len, maxDist, prefixMode);
   if (!it) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
@@ -354,7 +354,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);
-  TrieIterator_Free(it);
+  delete it;
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
     rm_free(its);
@@ -460,10 +460,8 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     end = strToFoldedRunes(lx->lxrng.end, &nend);
   }
 
-  TrieNode_IterateRange(t->root, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
+  t->root->IterateRange(begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
                         end ? nend : -1, lx->lxrng.includeEnd, rangeIterCb, &ctx);
-  rm_free(begin);
-  rm_free(end);
   if (!ctx.its || ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;

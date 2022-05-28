@@ -18,6 +18,16 @@
 struct TermData {
   char* term;
   uint32_t* ids;
+
+  TermData();
+  TermData(RedisModuleIO* rdb);
+  ~TermData();
+
+  TermData* Copy();
+
+  void RdbSave(RedisModuleIO* rdb);
+  bool IdExists(uint32_t id);
+  void AddId(uint32_t id);
 };
 
 // static const int SynMapKhid = 90;
@@ -32,27 +42,33 @@ struct SynonymMap : Object {
   bool is_read_only;
   struct SynonymMap* read_only_copy;
 
-  SynonymMap(bool is_read_only);
+  void ctor(bool is_read_only_);
+  SynonymMap(bool is_read_only_) { ctor(is_read_only_); }
   SynonymMap(RedisModuleIO* rdb, int encver);
 
   ~SynonymMap();
 
   uint32_t GetMaxId();
 
-  uint32_t AddRedisStr(RedisModuleString** synonyms, size_t size);
-  void UpdateRedisStr(RedisModuleString** synonyms, size_t size, uint32_t id);
   uint32_t Add(const char** synonyms, size_t size);
+  uint32_t AddRedisStr(RedisModuleString** synonyms, size_t size);
   void Update(const char** synonyms, size_t size, uint32_t id);
+  void UpdateRedisStr(RedisModuleString** synonyms, size_t size, uint32_t id);
 
   TermData* GetIdsBySynonym(const char* synonym, size_t len);
   TermData* GetIdsBySynonym(const char *synonym) { return GetIdsBySynonym(synonym, strlen(synonym)); }
+  SynonymMap* GenerateReadOnlyCopy();
+  void CopyEntry(uint64_t key, TermData* t_data);
 
   TermData** DumpAllTerms(size_t* size);
 
   size_t IdToStr(uint32_t id, char* buff, size_t len);
   SynonymMap* GetReadOnlyCopy(SynonymMap* smap);
 
-  void RdbSave(RedisModuleIO* rdb, void* value);
+  static void RdbSave(RedisModuleIO* rdb, void* value);
+
+  static size_t IdToStr(uint32_t id, char* buff, size_t len);
+  static const char** RedisStringArrToArr(RedisModuleString** synonyms, size_t size);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -319,7 +319,7 @@ static void sendHeaderString(ForkGC *gc, void *arg) {
 //---------------------------------------------------------------------------------------------
 
 static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
-  TrieIterator *iter = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
+  TrieIterator *iter = sctx->spec->terms->Iterate("", 0, 0, 1);
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;

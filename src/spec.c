@@ -573,7 +573,7 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
 //---------------------------------------------------------------------------------------------
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
+  int isNew = sp->terms->InsertStringBuffer((char *)term, len, 1, 1, NULL);
   if (isNew) {
     sp->stats.numTerms++;
     sp->stats.termsSize += len;
@@ -660,7 +660,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
     char *ret = NULL;
     t_len len = 0;
     double d = 0;
-    if (!Trie_RandomKey(sp->terms, &ret, &len, &d) || len == 0) {
+    if (!sp->terms->RandomKey(&ret, &len, &d) || len == 0) {
       return NULL;
     }
     samples[i] = ret;
@@ -729,7 +729,7 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
 
   if (spec->smap) {
-    SynonymMap_Free(spec->smap);
+    delete spec->smap;
   }
   if (spec->spcache) {
     IndexSpecCache_Decref(spec->spcache);
@@ -970,7 +970,7 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp) {
   if (!sp->smap) {
-    sp->smap = SynonymMap_New(false);
+    sp->smap = new SynonymMap(false);
     sp->flags |= Index_HasSmap;
   }
 }
@@ -1278,7 +1278,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {
-    sp->smap = SynonymMap_RdbLoad(rdb, encver);
+    sp->smap = new SynonymMap(rdb, encver);
   }
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
