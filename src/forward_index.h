@@ -42,6 +42,28 @@ struct ForwardIndex {
   BlkAlloc entries;
   mempool_t *vvwPool;
 
+  static int TokenFunc(void *ctx, const Token *tokInfo);
+
+  ForwardIndex(Document *doc, uint32_t idxFlags_);
+  ~ForwardIndex();
+
+  void Reset(Document *doc, uint32_t idxFlags_);
+
+  ForwardIndexIterator Iterate();
+
+  ForwardIndexEntry *Find(const char *s, size_t n, uint32_t hash);
+
+  void NormalizeFreq(ForwardIndexEntry *); //@@ nobody is using this func
+
+  void HandleToken(const char *tok, size_t tokLen, uint32_t pos,
+                   float fieldScore, t_fieldId fieldId, int options);
+
+  void InitCommon(Document *doc, uint32_t idxFlags_);
+
+  // private
+  int hasOffsets() const;
+  char *copyTempString(const char *s, size_t n);
+  khIdxEntry *makeEntry(const char *s, size_t n, uint32_t h, int *isNew);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -52,17 +74,12 @@ struct ForwardIndexTokenizerCtx {
   ForwardIndex *idx;
   t_fieldId fieldId;
   float fieldScore;
-};
 
-static inline void ForwardIndexTokenizerCtx_Init(ForwardIndexTokenizerCtx *ctx, ForwardIndex *idx,
-                                                 const char *doc, VarintVectorWriter *vvw,
-                                                 t_fieldId fieldId, float score) {
-  ctx->idx = idx;
-  ctx->fieldId = fieldId;
-  ctx->fieldScore = score;
-  ctx->doc = doc;
-  ctx->allOffsets = vvw;
-}
+  // ctor
+  ForwardIndexTokenizerCtx(ForwardIndex *idx, const char *doc, VarintVectorWriter *vvw,
+                           t_fieldId fieldId, float score) :
+  idx(idx), fieldId(fieldId), fieldScore(score), doc(doc), allOffsets(vvw) {}
+};
 
 //---------------------------------------------------------------------------------------------
 
@@ -70,21 +87,9 @@ struct ForwardIndexIterator {
   KHTable *hits;
   KHTableEntry *curEnt;
   uint32_t curBucketIdx;
+
+  ForwardIndexEntry *Next();
 };
-
-int forwardIndexTokenFunc(void *ctx, const Token *tokInfo);
-void ForwardIndexFree(ForwardIndex *idx);
-
-void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags);
-
-ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags);
-ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i);
-ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
-
-// Find an existing entry within the index
-ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash);
-
-void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

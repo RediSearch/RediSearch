@@ -15,39 +15,39 @@
 
 //---------------------------------------------------------------------------------------------
 
-static Fragment *FragmentList_LastFragment(FragmentList *fragList) {
-  if (!fragList->frags.len) {
+Fragment *FragmentList::LastFragment() {
+  if (!frags.len) {
     return NULL;
   }
-  return (Fragment *)(fragList->frags.data + (fragList->frags.len - sizeof(Fragment)));
+  return (Fragment *)(frags.data + (frags.len - sizeof(Fragment)));
 }
 
 //---------------------------------------------------------------------------------------------
 
-static Fragment *FragmentList_AddFragment(FragmentList *fragList) {
-  Fragment *frag = Array_Add(&fragList->frags, sizeof(Fragment));
+Fragment *FragmentList::AddFragment() {
+  Fragment *frag = Array_Add(&frags, sizeof(Fragment));
   memset(frag, 0, sizeof(*frag));
-  frag->fragPos = fragList->numFrags++;
+  frag->fragPos = numFrags++;
   Array_Init(&frag->termLocs);
   return frag;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static size_t Fragment_GetNumTerms(const Fragment *frag) {
-  return ARRAY_GETSIZE_AS(&frag->termLocs, TermLoc);
+size_t Fragment::GetNumTerms() const {
+  return ARRAY_GETSIZE_AS(&termLocs, TermLoc);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static int Fragment_HasTerm(const Fragment *frag, uint32_t termId) {
-  TermLoc *locs = ARRAY_GETARRAY_AS(&frag->termLocs, TermLoc *);
+int Fragment::HasTerm(uint32_t termId) const {
+  TermLoc *locs = ARRAY_GETARRAY_AS(&termLocs, TermLoc *);
 
   int firstOcurrence = 1;
   // If this is the first time the term appears in the fragment, increment the
   // fragment's score by the term's score. Otherwise, increment it by half
   // the fragment's score. This allows for better 'blended' results.
-  for (size_t ii = 0; ii < Fragment_GetNumTerms(frag); ii++) {
+  for (size_t ii = 0; ii < GetNumTerms(); ii++) {
     if (locs[ii].termId == termId) {
       return 1;
     }
@@ -57,31 +57,29 @@ static int Fragment_HasTerm(const Fragment *frag, uint32_t termId) {
 
 //---------------------------------------------------------------------------------------------
 
-static Fragment *FragmentList_AddMatchingTerm(FragmentList *fragList, uint32_t termId,
-                                              uint32_t tokPos, const char *tokBuf, size_t tokLen,
-                                              float baseScore) {
-
-  Fragment *curFrag = FragmentList_LastFragment(fragList);
-  if (curFrag && tokPos - curFrag->lastMatchPos > fragList->maxDistance) {
+Fragment *FragmentList::AddMatchingTerm(uint32_t termId, uint32_t tokPos, const char *tokBuf,
+                                        size_t tokLen, float baseScore) {
+  Fragment *curFrag = LastFragment();
+  if (curFrag && tokPos - curFrag->lastMatchPos > maxDistance) {
     // There is too much distance between tokens for it to still be relevant.
     curFrag = NULL;
   }
 
   if (curFrag == NULL) {
-    curFrag = FragmentList_AddFragment(fragList);
-    fragList->numToksSinceLastMatch = 0;
+    curFrag = AddFragment();
+    numToksSinceLastMatch = 0;
     curFrag->buf = tokBuf;
   }
 
-  if (!Fragment_HasTerm(curFrag, termId)) {
+  if (!curFrag->HasTerm(termId)) {
     curFrag->score += baseScore;
   }
 
   curFrag->len = (tokBuf - curFrag->buf) + tokLen;
   curFrag->lastMatchPos = tokPos;
   curFrag->numMatches++;
-  curFrag->totalTokens += fragList->numToksSinceLastMatch + 1;
-  fragList->numToksSinceLastMatch = 0;
+  curFrag->totalTokens += numToksSinceLastMatch + 1;
+  numToksSinceLastMatch = 0;
 
   TermLoc *newLoc = Array_Add(&curFrag->termLocs, sizeof(TermLoc));
   newLoc->termId = termId;
@@ -93,9 +91,8 @@ static Fragment *FragmentList_AddMatchingTerm(FragmentList *fragList, uint32_t t
 
 //---------------------------------------------------------------------------------------------
 
-static void extractToken(FragmentList *fragList, const Token *tokInfo,
-                         const FragmentSearchTerm *terms, size_t numTerms) {
-  const FragmentSearchTerm *term = NULL;
+void FragmentList::extractToken(const Token *tokInfo, const FragmentSearchTerm *terms, size_t numTerms) {
+  const FragmentSearchTerm *term;
   uint32_t termId;
 
   // See if this token matches any of our terms.
@@ -113,26 +110,34 @@ static void extractToken(FragmentList *fragList, const Token *tokInfo,
 
   // Don't care about this token
   if (!term) {
-    fragList->numToksSinceLastMatch++;
+    numToksSinceLastMatch++;
     return;
   }
 
-  FragmentList_AddMatchingTerm(fragList, termId, tokInfo->pos, tokInfo->raw, tokInfo->rawLen,
-                               term->score);
+  AddMatchingTerm(termId, tokInfo->pos, tokInfo->raw, tokInfo->rawLen, term->score);
 }
 
 //---------------------------------------------------------------------------------------------
 
-void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Stemmer *stemmer,
-                                    StopWordList *stopwords, const FragmentSearchTerm *terms,
-                                    size_t numTerms) {
-  fragList->doc = doc;
-  fragList->docLen = strlen(doc);
+/**
+ * Split a document into a list of fragments.
+ * - doc is the document to split
+ * - numTerms is the number of terms to search for. The terms themselves are
+ *   not searched, but each Fragment needs to have this memory made available.
+ *
+ * Returns a list of fragments.
+ */
+
+void FragmentList::FragmentizeBuffer(const char *doc_, Stemmer *stemmer,
+                                     StopWordList *stopwords, const FragmentSearchTerm *terms,
+                                     size_t numTerms) {
+  doc = doc_;
+  docLen = strlen(doc_);
   SimpleTokenizer tokenizer(stemmer, stopwords, TOKENIZE_NOMODIFY);
-  tokenizer.Start(tokenizer, (char *)fragList->doc, fragList->docLen, 0);
+  tokenizer.Start(tokenizer, (char *)doc, docLen, 0);
   Token tokInfo;
-  while (tokenizer->Next(tokenizer, &tokInfo)) {
-    extractToken(fragList, &tokInfo, terms, numTerms);
+  while (tokenizer.Next(tokenizer, &tokInfo)) {
+    extractToken(&tokInfo, terms, numTerms);
   }
 }
 
@@ -162,25 +167,23 @@ static void addToIov(const char *s, size_t n, Array *b) {
  *    used as the 'preamble' value for a subsequent call to this function, if the next
  *    fragment being written is after the current one.
  */
-static void Fragment_WriteIovs(const Fragment *curFrag, const char *openTag, size_t openLen,
-                               const char *closeTag, size_t closeLen, Array *iovs,
-                               const char **preamble) {
-
-  const TermLoc *locs = ARRAY_GETARRAY_AS(&curFrag->termLocs, const TermLoc *);
-  size_t nlocs = ARRAY_GETSIZE_AS(&curFrag->termLocs, TermLoc);
+void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeTag,
+                         size_t closeLen, Array *iovs, const char **preamble) const {
+  const TermLoc *locs = ARRAY_GETARRAY_AS(&termLocs, const TermLoc *);
+  size_t nlocs = ARRAY_GETSIZE_AS(&termLocs, TermLoc);
   const char *preamble_s = NULL;
 
   if (!preamble) {
     preamble = &preamble_s;
   }
   if (!*preamble) {
-    *preamble = curFrag->buf;
+    *preamble = buf;
   }
 
   for (size_t ii = 0; ii < nlocs; ++ii) {
     const TermLoc *curLoc = locs + ii;
 
-    size_t preambleLen = (curFrag->buf + curLoc->offset) - *preamble;
+    size_t preambleLen = (buf + curLoc->offset) - *preamble;
 
     // Add any prior text
     if (preambleLen) {
@@ -192,40 +195,40 @@ static void Fragment_WriteIovs(const Fragment *curFrag, const char *openTag, siz
     }
 
     // Add the token itself
-    addToIov(curFrag->buf + curLoc->offset, curLoc->len, iovs);
+    addToIov(buf + curLoc->offset, curLoc->len, iovs);
 
     // Add close tag
     if (closeLen) {
       addToIov(closeTag, closeLen, iovs);
     }
 
-    *preamble = curFrag->buf + curLoc->offset + curLoc->len;
+    *preamble = buf + curLoc->offset + curLoc->len;
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-void FragmentList_HighlightWholeDocV(const FragmentList *fragList, const HighlightTags *tags,
-                                     Array *iovs) {
-  const Fragment *frags = FragmentList_GetFragments(fragList);
+// Highlight matches the entire document, returning a series of IOVs
+void FragmentList::HighlightWholeDocV(const HighlightTags *tags, Array *iovs) const {
+  const Fragment *frags_ = GetFragments();
 
-  if (!fragList->numFrags) {
+  if (!numFrags) {
     // Whole doc, but no matches found
-    addToIov(fragList->doc, fragList->docLen, iovs);
+    addToIov(doc, docLen, iovs);
     return;
   }
 
-  const char *preamble = fragList->doc;
+  const char *preamble = doc;
   size_t openLen = strlen(tags->openTag);
   size_t closeLen = strlen(tags->closeTag);
 
-  for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
-    const Fragment *curFrag = frags + ii;
-    Fragment_WriteIovs(curFrag, tags->openTag, openLen, tags->closeTag, closeLen, iovs, &preamble);
+  for (size_t ii = 0; ii < numFrags; ++ii) {
+    const Fragment *curFrag = frags_ + ii;
+    curFrag->WriteIovs(tags->openTag, openLen, tags->closeTag, closeLen, iovs, &preamble);
   }
 
   // Write the last preamble
-  size_t preambleLen = (fragList->doc + fragList->docLen) - preamble;
+  size_t preambleLen = (doc + docLen) - preamble;
   // size_t preambleLen = strlen(preamble);
   if (preambleLen) {
     addToIov(preamble, preambleLen, iovs);
@@ -234,10 +237,11 @@ void FragmentList_HighlightWholeDocV(const FragmentList *fragList, const Highlig
 
 //---------------------------------------------------------------------------------------------
 
-char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const HighlightTags *tags) {
+// Highlight matches the entire document, returning it as a freeable NUL-terminated buffer
+char *FragmentList::HighlightWholeDocS(const HighlightTags *tags) const {
   Array iovsArr;
   Array_Init(&iovsArr);
-  FragmentList_HighlightWholeDocV(fragList, tags, &iovsArr);
+  HighlightWholeDocV(tags, &iovsArr);
 
   // Calculate the length
   struct iovec *iovs = ARRAY_GETARRAY_AS(&iovsArr, struct iovec *);
@@ -250,7 +254,7 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
   char *docBuf = rm_malloc(docLen + 1);
   RS_LOG_ASSERT(docBuf, "failed malloc of docBuf");
   docBuf[docLen] = '\0';
-  
+
   size_t offset = 0;
   for (size_t ii = 0; ii < niovs; ++ii) {
     memcpy(docBuf + offset, iovs[ii].iov_base, iovs[ii].iov_len);
@@ -273,21 +277,21 @@ static int fragSortCmp(const void *pa, const void *pb) {
 
 //---------------------------------------------------------------------------------------------
 
-static void FragmentList_Sort(FragmentList *fragList) {
-  if (fragList->sortedFrags) {
+void FragmentList::Sort() {
+  if (sortedFrags) {
     return;
   }
 
-  const Fragment *origFrags = FragmentList_GetFragments(fragList);
-  fragList->sortedFrags = rm_malloc(sizeof(*fragList->sortedFrags) * fragList->numFrags);
+  const Fragment *origFrags = GetFragments();
+  sortedFrags = rm_malloc(sizeof(*sortedFrags) * numFrags);
 
-  for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
-    fragList->sortedFrags[ii] = origFrags + ii;
+  for (size_t ii = 0; ii < numFrags; ++ii) {
+    sortedFrags[ii] = origFrags + ii;
   }
 
-  qsort(fragList->sortedFrags, fragList->numFrags, sizeof(fragList->sortedFrags[0]), fragSortCmp);
-  for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
-    ((Fragment *)fragList->sortedFrags[ii])->scoreRank = ii;
+  qsort(sortedFrags, numFrags, sizeof(sortedFrags[0]), fragSortCmp);
+  for (size_t ii = 0; ii < numFrags; ++ii) {
+    ((Fragment *)sortedFrags[ii])->scoreRank = ii;
   }
 }
 
@@ -310,16 +314,14 @@ static int sortByOrder(const void *pa, const void *pb) {
  *   If limitBefore is not specified, it defaults to the beginning of the fragList's doc
  *   If limitAfter is not specified, then the limit ends after the first NUL terminator.
  */
-static void FragmentList_FindContext(const FragmentList *fragList, const Fragment *frag,
-                                     const char *limitBefore, const char *limitAfter,
-                                     size_t contextSize, struct iovec *before,
-                                     struct iovec *after) {
+void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, const char *limitAfter,
+                               size_t contextSize, struct iovec *before, struct iovec *after) const {
 
   if (limitBefore == NULL) {
-    limitBefore = fragList->doc;
+    limitBefore = doc;
   }
   if (limitAfter == NULL) {
-    limitAfter = fragList->doc + fragList->docLen - 1;
+    limitAfter = doc + docLen - 1;
   }
 
   // Subtract the number of context (i.e. non-match) words
@@ -337,7 +339,7 @@ static void FragmentList_FindContext(const FragmentList *fragList, const Fragmen
   contextSize /= 2;
 
   // At some point we need to make a cutoff in terms of *bytes*
-  contextSize *= fragList->estAvgWordSize;
+  contextSize *= estAvgWordSize;
 
   // TODO: If this context flows directly into a neighboring context, signal
   // some way to *merge* them.
@@ -375,26 +377,41 @@ static void FragmentList_FindContext(const FragmentList *fragList, const Fragmen
 
 //---------------------------------------------------------------------------------------------
 
-void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags *tags,
-                                     size_t contextSize, Array *iovArrList, size_t niovs,
-                                     int order) {
+/**
+ * Highlight fragments for each document.
+ *
+ * - contextSize is the size of the surrounding context, in estimated words,
+ * for each returned fragment. The function will use this as a hint.
+ *
+ * - iovBufList is an array of buffers. Each element corresponds to a fragment,
+ * and the fragments are always returned in order.
+ *
+ * - niovs If niovs is less than the number of fragments, then only the first
+ * <niov> fragments are returned.
+ *
+ * - order is one of the HIGHLIGHT_ORDER_ constants. See their documentation
+ * for more details
+ *
+ */
 
-  const Fragment *frags = FragmentList_GetFragments(fragList);
-  niovs = Min(niovs, fragList->numFrags);
+void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextSize, Array *iovArrList,
+                                      size_t niovs, int order) {
+  const Fragment *frags_ = GetFragments();
+  niovs = Min(niovs, numFrags);
 
-  if (!fragList->scratchFrags) {
-    fragList->scratchFrags = rm_malloc(sizeof(*fragList->scratchFrags) * fragList->numFrags);
+  if (!scratchFrags) {
+    scratchFrags = rm_malloc(sizeof(*scratchFrags) * numFrags);
   }
-  const Fragment **indexes = fragList->scratchFrags;
+  const Fragment **indexes = scratchFrags;
 
   if (order == HIGHLIGHT_ORDER_POS) {
     for (size_t ii = 0; ii < niovs; ++ii) {
-      indexes[ii] = frags + ii;
+      indexes[ii] = frags_ + ii;
     }
   } else if (order & HIGHLIGHT_ORDER_SCORE) {
-    FragmentList_Sort(fragList);
+    Sort();
     for (size_t ii = 0; ii < niovs; ++ii) {
-      indexes[ii] = fragList->sortedFrags[ii];
+      indexes[ii] = sortedFrags[ii];
     }
     if (order & HIGHLIGHT_ORDER_POS) {
       qsort(indexes, niovs, sizeof indexes[0], sortByOrder);
@@ -420,24 +437,23 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
     }
 
     struct iovec before, after;
-    FragmentList_FindContext(fragList, curFrag, beforeLimit, afterLimit, contextSize, &before,
-                             &after);
+    FindContext(curFrag, beforeLimit, afterLimit, contextSize, &before, &after);
     addToIov(before.iov_base, before.iov_len, curArr);
-    Fragment_WriteIovs(curFrag, tags->openTag, openLen, tags->closeTag, closeLen, curArr, NULL);
+    curFrag->WriteIovs(tags->openTag, openLen, tags->closeTag, closeLen, curArr, NULL);
     addToIov(after.iov_base, after.iov_len, curArr);
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-void FragmentList_Free(FragmentList *fragList) {
-  Fragment *frags = (Fragment *)FragmentList_GetFragments(fragList);
-  for (size_t ii = 0; ii < fragList->numFrags; ii++) {
-    Array_Free(&frags[ii].termLocs);
+void FragmentList::~FragmentList() {
+  Fragment *frags_ = (Fragment *)GetFragments();
+  for (size_t ii = 0; ii < numFrags; ii++) {
+    Array_Free(&frags_[ii].termLocs);
   }
-  Array_Free(&fragList->frags);
-  rm_free(fragList->sortedFrags);
-  rm_free(fragList->scratchFrags);
+  Array_Free(&frags_);
+  rm_free(sortedFrags);
+  rm_free(scratchFrags);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -452,17 +468,17 @@ void FragmentList_Free(FragmentList *fragList) {
  *    list, then, consume the matches until the maximum distance has been reached,
  *    noting the terms for each.
  */
-void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_t docLen,
-                                  FragmentTermIterator *iter, int options) {
-  fragList->docLen = docLen;
-  fragList->doc = doc;
+void FragmentList::FragmentizeIter(const char *doc_, size_t docLen,
+                                   FragmentTermIterator *iter, int options) {
+  docLen = docLen;
+  doc = doc_;
   FragmentTerm *curTerm;
   size_t lastTokPos = -1;
   size_t lastByteEnd = 0;
 
-  while (FragmentTermIterator_Next(iter, &curTerm)) {
+  while (iter->Next(&curTerm)) {
     if (curTerm == NULL) {
-      fragList->numToksSinceLastMatch++;
+      numToksSinceLastMatch++;
       continue;
     }
 
@@ -482,12 +498,11 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
       len = curTerm->len;
     } else {
       len = 0;
-      for (size_t ii = curTerm->bytePos; ii < fragList->docLen && !istoksep(doc[ii]); ++ii, ++len) {
+      for (size_t ii = curTerm->bytePos; ii < docLen && !istoksep(doc_[ii]); ++ii, ++len) {
       }
     }
 
-    FragmentList_AddMatchingTerm(fragList, curTerm->termId, curTerm->tokPos, doc + curTerm->bytePos,
-                                 len, curTerm->score);
+    AddMatchingTerm(curTerm->termId, curTerm->tokPos, doc_ + curTerm->bytePos, len, curTerm->score);
     lastTokPos = curTerm->tokPos;
     lastByteEnd = curTerm->bytePos + len;
   }
@@ -495,63 +510,62 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
 
 //---------------------------------------------------------------------------------------------
 
-void FragmentTermIterator_InitOffsets(FragmentTermIterator *iter, RSByteOffsetIterator *byteOffsets,
-                                      RSOffsetIterator *offIter) {
-  iter->offsetIter = offIter;
-  iter->byteIter = byteOffsets;
-  iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
+void FragmentTermIterator::InitOffsets(RSByteOffsetIterator *byteOffsets, RSOffsetIterator *offIter) {
+  offsetIter = offIter;
+  byteIter = byteOffsets;
+  curByteOffset = RSByteOffsetIterator_Next(byteIter);
 
   // Advance the offset iterator to the first offset we care about (i.e. that
   // correlates with the first byte offset)
   do {
-    iter->curTokPos = iter->offsetIter->Next(iter->offsetIter->ctx, &iter->curMatchRec);
-  } while (iter->byteIter->curPos > iter->curTokPos);
+    curTokPos = offsetIter->Next(offsetIter->ctx, &curMatchRec);
+  } while (byteIter->curPos > curTokPos);
 }
 
 //---------------------------------------------------------------------------------------------
 
-int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInfo) {
-  if (iter->curMatchRec == NULL || iter->curByteOffset == RSBYTEOFFSET_EOF ||
-      iter->curTokPos == RS_OFFSETVECTOR_EOF) {
+int FragmentTermIterator::Next(FragmentTerm **termInfo) {
+  if (curMatchRec == NULL || curByteOffset == RSBYTEOFFSET_EOF ||
+      curTokPos == RS_OFFSETVECTOR_EOF) {
     return 0;
   }
 
-  if (iter->byteIter->curPos < iter->curTokPos) {
-    iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
+  if (byteIter->curPos < curTokPos) {
+    curByteOffset = RSByteOffsetIterator_Next(byteIter);
     // No matching term at this position.
-    // printf("IterPos=%lu. LastMatchPos=%u\n", iter->byteIter->curPos, iter->curTokPos);
+    // printf("IterPos=%lu. LastMatchPos=%u\n", byteIter->curPos, curTokPos);
     *termInfo = NULL;
     return 1;
   }
 
-  // printf("ByteOffset=%lu. LastMatchPos=%u\n", iter->curByteOffset, iter->curTokPos);
+  // printf("ByteOffset=%lu. LastMatchPos=%u\n", curByteOffset, curTokPos);
 
-  RSQueryTerm *term = iter->curMatchRec;
+  RSQueryTerm *term = curMatchRec;
 
   // printf("Term Pointer: %p\n", term);
-  iter->tmpTerm.score = term->idf;
-  iter->tmpTerm.termId = term->id;
-  iter->tmpTerm.len = term->len;
-  iter->tmpTerm.tokPos = iter->curTokPos;
-  iter->tmpTerm.bytePos = iter->curByteOffset;
-  *termInfo = &iter->tmpTerm;
+  tmpTerm.score = term->idf;
+  tmpTerm.termId = term->id;
+  tmpTerm.len = term->len;
+  tmpTerm.tokPos = curTokPos;
+  tmpTerm.bytePos = curByteOffset;
+  *termInfo = &tmpTerm;
 
-  uint32_t nextPos = iter->offsetIter->Next(iter->offsetIter->ctx, &iter->curMatchRec);
-  if (nextPos != iter->curTokPos) {
-    iter->curByteOffset = RSByteOffsetIterator_Next(iter->byteIter);
+  uint32_t nextPos = offsetIter->Next(offsetIter->ctx, &curMatchRec);
+  if (nextPos != curTokPos) {
+    curByteOffset = RSByteOffsetIterator_Next(byteIter);
   }
-  iter->curTokPos = nextPos;
+  curTokPos = nextPos;
   return 1;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // LCOV_EXCL_START debug
-void FragmentList_Dump(const FragmentList *fragList) {
-  printf("NumFrags: %u\n", fragList->numFrags);
-  for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
-    const Fragment *frag = ARRAY_GETITEM_AS(&fragList->frags, ii, Fragment *);
-    printf("Frag[%lu]: Buf=%p, (pos=%lu), Len=%u\n", ii, frag->buf, frag->buf - fragList->doc,
+void FragmentList::Dump() const {
+  printf("NumFrags: %u\n", numFrags);
+  for (size_t ii = 0; ii < numFrags; ++ii) {
+    const Fragment *frag = ARRAY_GETITEM_AS(&frags, ii, Fragment *);
+    printf("Frag[%lu]: Buf=%p, (pos=%lu), Len=%u\n", ii, frag->buf, frag->buf - doc,
            frag->len);
     printf("  Score: %f, Rank=%u. Total Tokens=%u\n", frag->score, frag->scoreRank,
            frag->totalTokens);

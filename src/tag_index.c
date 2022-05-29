@@ -21,8 +21,8 @@ static uint32_t TagIndex::UniqueId = 0;
 
 // See tag_index.h for documentation
 TagIndex::TagIndex() {
-  idx->values = NewTrieMap();
-  idx->uniqueId = tagUniqueId++;
+  values = new TrieMap();
+  uniqueId = tagUniqueId++;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -94,11 +94,11 @@ char **TagIndex::Preprocess(char sep, TagFieldFlags flags, const DocumentField *
 //---------------------------------------------------------------------------------------------
 
 struct InvertedIndex *TagIndex::OpenIndex(const char *value, size_t len, int create) {
-  InvertedIndex *iv = TrieMap_Find(values, (char *)value, len);
+  InvertedIndex *iv = values->Find((char *)value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
       iv = new InvertedIndex(Index_DocIdsOnly, 1);
-      TrieMap_Add(values, (char *)value, len, iv, NULL);
+      values->Add((char *)value, len, iv, NULL);
     }
   }
   return iv;
@@ -110,7 +110,7 @@ struct InvertedIndex *TagIndex::OpenIndex(const char *value, size_t len, int cre
 size_t TagIndex::Put(const char *value, size_t len, t_docId docId) {
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1);
+  InvertedIndex *iv = OpenIndex(value, len, 1);
   return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec);
 }
 
@@ -186,11 +186,11 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
 //---------------------------------------------------------------------------------------------
 
-void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
-                                          RedisModuleKey *key, RedisModuleString *keyname,
-                                          array_t *iters) {
+void TagIndex::RegisterConcurrentIterators(ConcurrentSearchCtx *conc,
+                                           RedisModuleKey *key, RedisModuleString *keyname,
+                                           array_t *iters) {
   TagConcCtx *tctx = rm_calloc(1, sizeof(*tctx));
-  tctx->uid = idx->uniqueId;
+  tctx->uid = uniqueId;
   tctx->its = (IndexIterator **)iters;
   conc->AddKey(key, REDISMODULE_READ, keyname, TagReader_OnReopen, tctx, concCtxFree);
 }
@@ -200,7 +200,7 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
 // Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
 // Returns NULL if there is no such tag in the index */
 IndexIterator *TagIndex::OpenReader(IndexSpec *sp, const char *value, size_t len, double weight) {
-  InvertedIndex *iv = TrieMap_Find(values, (char *)value, len);
+  InvertedIndex *iv = values->Find((char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
@@ -216,7 +216,7 @@ IndexIterator *TagIndex::OpenReader(IndexSpec *sp, const char *value, size_t len
 #define TAG_INDEX_KEY_FMT "tag:%s/%s"
 
 // Format the key name for a tag index
-RedisModuleString *TagIndex::FormatName(RedisSearchCtx *sctx, const char *field) {
+static RedisModuleString *TagIndex::FormatName(RedisSearchCtx *sctx, const char *field) {
   return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
 }
 
@@ -240,8 +240,8 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
 //---------------------------------------------------------------------------------------------
 
 // Open the tag index in redis
-TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
-                         RedisModuleKey **keyp) {
+static TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
+                                RedisModuleKey **keyp) {
   TagIndex *idx = NULL;
   if (!sctx->spec->keysDict) {
     RedisModuleKey *key_s = NULL;
@@ -277,21 +277,19 @@ TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, 
 
 // Serialize all the tags in the index to the redis client
 void TagIndex::SerializeValues(RedisModuleCtx *ctx) {
-  TrieMapIterator *it = TrieMap_Iterate(values, "", 0);
+  TrieMapIterator *it = values->Iterate("", 0);
 
   char *str;
   tm_len_t slen;
   void *ptr;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   long long count = 0;
-  while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
+  while (it->Next(&str, &slen, &ptr)) {
     ++count;
     RedisModule_ReplyWithStringBuffer(ctx, str, slen);
   }
 
   RedisModule_ReplySetArrayLength(ctx, count);
-
-  TrieMapIterator_Free(it);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -307,7 +305,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     char *s = RedisModule_LoadStringBuffer(rdb, &slen);
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
     RS_LOG_ASSERT(inv, "loading inverted index from rdb failed");
-    TrieMap_Add(values, s, MIN(slen, MAX_TAG_LEN), inv, NULL);
+    values->Add(s, MIN(slen, MAX_TAG_LEN), inv, NULL);
     RedisModule_Free(s);
   }
   return idx;
@@ -318,20 +316,19 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
 void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   TagIndex *idx = value;
   RedisModule_SaveUnsigned(rdb, idx->values->cardinality);
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  TrieMapIterator *it = idx->values->Iterate("", 0);
 
   char *str;
   tm_len_t slen;
   void *ptr;
   size_t count = 0;
-  while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
+  while (it->Next(&str, &slen, &ptr)) {
     count++;
     RedisModule_SaveStringBuffer(rdb, str, slen);
     InvertedIndex *inv = ptr;
     InvertedIndex_RdbSave(rdb, inv);
   }
   RS_LOG_ASSERT(count == idx->values->cardinality, "not all inverted indexes save to rdb");
-  TrieMapIterator_Free(it);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -348,15 +345,14 @@ size_t TagIndex_MemUsage(const void *value) {
   const TagIndex *idx = value;
   size_t sz = sizeof(*idx);
 
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  TrieMapIterator *it = idx->values->Iterate("", 0);
 
   char *str;
   tm_len_t slen;
   void *ptr;
-  while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
+  while (it->Next(&str, &slen, &ptr)) {
     sz += slen + InvertedIndex_MemUsage((InvertedIndex *)ptr);
   }
-  TrieMapIterator_Free(it);
   return sz;
 }
 

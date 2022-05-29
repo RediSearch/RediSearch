@@ -10,7 +10,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Get the sorting key of the result. This will be the sorting key of the last RLookup registry. 
+// Get the sorting key of the result. This will be the sorting key of the last RLookup registry.
 // Returns NULL if there is no sorting key.
 
 const RSValue *AREQ::getSortKey(const SearchResult *r, const PLN_ArrangeStep *astp) {
@@ -361,7 +361,7 @@ void Cursor::runCursor(RedisModuleCtx *outctx, size_t num) {
  */
 
 static void cursorRead(RedisModuleCtx *ctx, CursorId cid, size_t count) {
-  Cursor *cursor = RSCursors->TakeForExecution(cid);
+  Cursor *cursor = RSCursors.TakeForExecution(cid);
   if (cursor == NULL) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;

@@ -131,7 +131,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
   REPLY_KVNUM(n, "sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
 
-  REPLY_KVNUM(n, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  REPLY_KVNUM(n, "key_table_size_mb", sp->docs.dim.tm->MemUsage() / (float)0x100000);
   REPLY_KVNUM(n, "records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   REPLY_KVNUM(n, "bytes_per_record_avg",

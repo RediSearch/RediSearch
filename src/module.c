@@ -101,12 +101,9 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
-  if (sctx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  }
+  RedisSearchCtx sctx(ctx, argv[1], true);
 
-  const DocTable *dt = &sctx->spec->docs;
+  const DocTable *dt = sctx.spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
 
@@ -116,17 +113,13 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       continue;
     }
 
-    Document doc = {0};
-    Document_Init(&doc, argv[i], 0, DEFAULT_LANGUAGE);
-    if (Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
+    Document doc(argv[i], 0, DEFAULT_LANGUAGE);
+    if (doc.LoadAllFields(ctx) == REDISMODULE_ERR) {
       RedisModule_ReplyWithNull(ctx);
     } else {
-      Document_ReplyFields(ctx, &doc);
-      Document_Free(&doc);
+      doc.ReplyFields(ctx);
     }
   }
-
-  SearchCtx_Free(sctx);
 
   return REDISMODULE_OK;
 }
@@ -150,15 +143,13 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  Document doc = {0};
-  Document_Init(&doc, argv[2], 0, DEFAULT_LANGUAGE);
+  Document doc(argv[2], 0, DEFAULT_LANGUAGE);
 
   if (&sctx->spec->docs->GetIdR(argv[2]) == 0 ||
-      Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
+      doc.LoadAllFields(ctx) == REDISMODULE_ERR) {
     RedisModule_ReplyWithNull(ctx);
   } else {
-    Document_ReplyFields(ctx, &doc);
-    Document_Free(&doc);
+    doc.ReplyFields(ctx);
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -554,7 +545,7 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   IndexSpec_InitializeSynonym(sp);
 
-  uint32_t id = SynonymMap_AddRedisStr(sp->smap, argv + 2, argc - 2);
+  uint32_t id = sp->smap->AddRedisStr(argv + 2, argc - 2);
 
   RedisModule_ReplyWithLongLong(ctx, id);
 
@@ -571,14 +562,14 @@ int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, 
     return REDISMODULE_OK;
   }
 
-  if (checkIdSanity && (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap))) {
+  if (checkIdSanity && (!sp->smap || id >= sp->smap->GetMaxId())) {
     RedisModule_ReplyWithError(ctx, "given id does not exists");
     return REDISMODULE_OK;
   }
 
   IndexSpec_InitializeSynonym(sp);
 
-  SynonymMap_UpdateRedisStr(sp->smap, synonyms, size, id);
+  sp->smap->UpdateRedisStr(synonyms, size, id);
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
 
@@ -663,7 +654,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   size_t size;
-  TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
+  TermData **terms_data = sp->smap->DumpAllTerms(&size);
 
   RedisModule_ReplyWithArray(ctx, size * 2);
 
@@ -675,8 +666,6 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithLongLong(ctx, t_data->ids[j]);
     }
   }
-
-  rm_free(terms_data);
 
   return REDISMODULE_OK;
 }

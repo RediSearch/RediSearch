@@ -443,7 +443,7 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
     return REDISMODULE_OK;
   }
 
-  TermData *t_data = SynonymMap_GetIdsBySynonym(spec->smap, token->str, token->len);
+  TermData *t_data = spec->smap->GetIdsBySynonym(token->str, token->len);
 
   if (t_data == NULL) {
     return REDISMODULE_OK;
@@ -451,7 +451,7 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   for (int i = 0; i < array_len(t_data->ids); ++i) {
     char buff[BUFF_LEN];
-    int len = SynonymMap_IdToStr(t_data->ids[i], buff, BUFF_LEN);
+    int len = SynonymMap::IdToStr(t_data->ids[i], buff, BUFF_LEN);
     ctx->ExpandToken(ctx, rm_strdup((const char *)buff), len, 0x0);
   }
   return REDISMODULE_OK;

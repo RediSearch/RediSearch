@@ -24,7 +24,7 @@
 */
 #include <stdio.h>
 /************ Begin %include sections from the grammar ************************/
-   
+
 
 #include <stdlib.h>
 #include <string.h>
@@ -41,7 +41,7 @@ char *strdupcase(const char *s, size_t len) {
   char *dst = ret;
   char *src = dst;
   while (*src) {
-      // unescape 
+      // unescape
       if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
           ++src;
           continue;
@@ -52,18 +52,18 @@ char *strdupcase(const char *s, size_t len) {
 
   }
   *dst = '\0';
-  
+
   return ret;
 }
 
-// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself 
+// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 size_t unescapen(char *s, size_t sz) {
-  
+
   char *dst = s;
   char *src = dst;
   char *end = s + sz;
   while (src < end) {
-      // unescape 
+      // unescape
       if (*src == '\\' && src + 1 < end &&
          (ispunct(*(src+1)) || isspace(*(src+1)))) {
           ++src;
@@ -71,17 +71,17 @@ size_t unescapen(char *s, size_t sz) {
       }
       *dst++ = *src++;
   }
- 
+
   return (size_t)(dst - s);
 }
 
 #define NODENN_BOTH_VALID 0
 #define NODENN_BOTH_INVALID -1
-#define NODENN_ONE_NULL 1 
+#define NODENN_ONE_NULL 1
 // Returns:
 // 0 if a && b
 // -1 if !a && !b
-// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out` 
+// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out`
 static int one_not_null(void *a, void *b, void *out) {
     if (a && b) {
         return NODENN_BOTH_VALID;
@@ -95,7 +95,7 @@ static int one_not_null(void *a, void *b, void *out) {
         return NODENN_ONE_NULL;
     }
 }
-   
+
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols
 ** in a format understandable to "makeheaders".  This section is blank unless
@@ -126,7 +126,7 @@ static int one_not_null(void *a, void *b, void *out) {
 **                       the minor type might be the name of the identifier.
 **                       Each non-terminal can have a different minor type.
 **                       Terminal symbols all have the same minor type, though.
-**                       This macros defines the minor type for terminal 
+**                       This macros defines the minor type for terminal
 **                       symbols.
 **    YYMINORTYPE        is the data type used for all minor types.
 **                       This is typically a union of many types, one of
@@ -177,8 +177,8 @@ typedef union {
 #define YYSTACKDEPTH 100
 #endif
 #define RSQueryParser_ARG_SDECL  QueryParse *ctx ;
-#define RSQueryParser_ARG_PDECL , QueryParse *ctx 
-#define RSQueryParser_ARG_PARAM ,ctx 
+#define RSQueryParser_ARG_PDECL , QueryParse *ctx
+#define RSQueryParser_ARG_PARAM ,ctx
 #define RSQueryParser_ARG_FETCH  QueryParse *ctx =yypParser->ctx ;
 #define RSQueryParser_ARG_STORE yypParser->ctx =ctx ;
 #define RSQueryParser_CTX_SDECL
@@ -215,7 +215,7 @@ typedef union {
 /* Next are the tables used to determine what action to take based on the
 ** current state and lookahead token.  These tables are used to implement
 ** functions that take a state number and lookahead value and return an
-** action integer.  
+** action integer.
 **
 ** Suppose the action integer is N.  Then the action is determined as
 ** follows
@@ -354,9 +354,9 @@ static const YYACTIONTYPE yy_default[] = {
 };
 /********** End of lemon-generated parsing tables *****************************/
 
-/* The next table maps tokens (terminal symbols) into fallback tokens.  
+/* The next table maps tokens (terminal symbols) into fallback tokens.
 ** If a construct like the following:
-** 
+**
 **      %fallback ID X Y Z.
 **
 ** appears in the grammar, then ID becomes a fallback token for X, Y,
@@ -428,10 +428,10 @@ static char *yyTracePrompt = 0;
 #endif /* NDEBUG */
 
 #ifndef NDEBUG
-/* 
+/*
 ** Turn parser tracing on by giving a stream to which to write the trace
 ** and a prompt to preface each trace message.  Tracing is turned off
-** by making either argument NULL 
+** by making either argument NULL
 **
 ** Inputs:
 ** <ul>
@@ -456,7 +456,7 @@ void RSQueryParser_Trace(FILE *TraceFILE, char *zTracePrompt){
 #if defined(YYCOVERAGE) || !defined(NDEBUG)
 /* For tracing shifts, the names of all terminals and nonterminals
 ** are required.  The following table supplies these names */
-static const char *const yyTokenName[] = { 
+static const char *const yyTokenName[] = {
   /*    0 */ "$",
   /*    1 */ "LOWEST",
   /*    2 */ "TILDE",
@@ -593,7 +593,7 @@ static int yyGrowStack(yyParser *p){
 #endif
     p->yystksz = newSize;
   }
-  return pNew==0; 
+  return pNew==0;
 }
 #endif
 
@@ -635,7 +635,7 @@ void RSQueryParser_Init(void *yypRawParser RSQueryParser_CTX_PDECL){
 }
 
 #ifndef RSQueryParser__ENGINEALWAYSONSTACK
-/* 
+/*
 ** This function allocates a new parser.
 ** The only argument is a pointer to a function which works like
 ** malloc.
@@ -662,7 +662,7 @@ void *RSQueryParser_Alloc(void *(*mallocProc)(YYMALLOCARGTYPE) RSQueryParser_CTX
 /* The following function deletes the "minor type" or semantic value
 ** associated with a symbol.  The symbol can be either a terminal
 ** or nonterminal. "yymajor" is the symbol code, and "yypminor" is
-** a pointer to the value to be deleted.  The code used to do the 
+** a pointer to the value to be deleted.  The code used to do the
 ** deletions is derived from the %destructor and/or %token_destructor
 ** directives of the input grammar.
 */
@@ -677,7 +677,7 @@ static void yy_destructor(
     /* Here is inserted the actions which take place when a
     ** terminal or non-terminal is destroyed.  This can happen
     ** when the symbol is popped from the stack during a
-    ** reduce or during error processing or when a parser is 
+    ** reduce or during error processing or when a parser is
     ** being destroyed before it is finished parsing.
     **
     ** Note: during a reduce, the only symbols destroyed are those
@@ -691,7 +691,7 @@ static void yy_destructor(
     case 40: /* modifier */
     case 41: /* term */
 {
- 
+
 }
       break;
     case 27: /* expr */
@@ -701,33 +701,33 @@ static void yy_destructor(
     case 33: /* fuzzy */
     case 34: /* tag_list */
 {
- QueryNode_Free((yypminor->yy35)); 
+ QueryNode_Free((yypminor->yy35));
 }
       break;
     case 28: /* attribute */
 {
- rm_free((char*)(yypminor->yy55).value); 
+ rm_free((char*)(yypminor->yy55).value);
 }
       break;
     case 29: /* attribute_list */
 {
- array_free_ex((yypminor->yy69), rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy69), rm_free((char*)((QueryAttribute*)ptr )->value));
 }
       break;
     case 35: /* geo_filter */
 {
- GeoFilter_Free((yypminor->yy64)); 
+ GeoFilter_Free((yypminor->yy64));
 }
       break;
     case 36: /* modifierlist */
 {
- 
+
     for (size_t i = 0; i < Vector_Size((yypminor->yy78)); i++) {
         char *s;
         Vector_Get((yypminor->yy78), i, &s);
         rm_free(s);
     }
-    Vector_Free((yypminor->yy78)); 
+    Vector_Free((yypminor->yy78));
 
 }
       break;
@@ -776,7 +776,7 @@ void RSQueryParser_Finalize(void *p){
 }
 
 #ifndef RSQueryParser__ENGINEALWAYSONSTACK
-/* 
+/*
 ** Deallocate and destroy a parser.  Destructors are called for
 ** all stack elements before shutting the parser down.
 **
@@ -884,7 +884,7 @@ static YYACTIONTYPE yy_find_shift_action(
 #ifdef YYWILDCARD
       {
         int j = i - iLookAhead + YYWILDCARD;
-        if( 
+        if(
 #if YY_SHIFT_MIN+YYWILDCARD<0
           j>=0 &&
 #endif
@@ -999,7 +999,7 @@ static void yy_shift(
     assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack) );
   }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
   if( yypParser->yytos>yypParser->yystackEnd ){
     yypParser->yytos--;
     yyStackOverflow(yypParser);
@@ -1138,7 +1138,7 @@ static YYACTIONTYPE yy_reduce(
       assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack));
     }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
     if( yypParser->yytos>=yypParser->yystackEnd ){
       yyStackOverflow(yypParser);
       /* The call to yyStackOverflow() above pops the stack until it is
@@ -1172,11 +1172,11 @@ static YYACTIONTYPE yy_reduce(
 /********** Begin reduce actions **********************************************/
         YYMINORTYPE yylhsminor;
       case 0: /* query ::= expr */
-{ 
+{
  /* If the root is a negative node, we intersect it with a wildcard node */
- 
+
     ctx->root = yymsp[0].minor.yy35;
- 
+
 }
         break;
       case 1: /* query ::= */
@@ -1197,14 +1197,14 @@ static YYACTIONTYPE yy_reduce(
     } else if (rv == NODENN_ONE_NULL) {
         // Nothing- `out` is already assigned
     } else {
-        if (yymsp[-1].minor.yy35 && yymsp[-1].minor.yy35->type == QN_PHRASE && yymsp[-1].minor.yy35->pn.exact == 0 && 
+        if (yymsp[-1].minor.yy35 && yymsp[-1].minor.yy35->type == QN_PHRASE && yymsp[-1].minor.yy35->pn.exact == 0 &&
             yymsp[-1].minor.yy35->opts.fieldMask == RS_FIELDMASK_ALL ) {
             yylhsminor.yy35 = yymsp[-1].minor.yy35;
-        } else {     
+        } else {
             yylhsminor.yy35 = NewPhraseNode(0);
-            QueryNode_AddChild(yylhsminor.yy35, yymsp[-1].minor.yy35);
+            yylhsminor.yy35->AddChild(yymsp[-1].minor.yy35);
         }
-        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
+        yylhsminor.yy35->AddChild(yymsp[0].minor.yy35);
     }
 }
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
@@ -1227,16 +1227,16 @@ static YYACTIONTYPE yy_reduce(
             yylhsminor.yy35 = yymsp[-2].minor.yy35;
         } else {
             yylhsminor.yy35 = NewUnionNode();
-            QueryNode_AddChild(yylhsminor.yy35, yymsp[-2].minor.yy35);
+            yylhsminor.yy35->AddChild(yymsp[-2].minor.yy35);
             yylhsminor.yy35->opts.fieldMask |= yymsp[-2].minor.yy35->opts.fieldMask;
         }
 
         // Handle yymsp[0].minor.yy35
-        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
+        yylhsminor.yy35->AddChild(yymsp[0].minor.yy35);
         yylhsminor.yy35->opts.fieldMask |= yymsp[0].minor.yy35->opts.fieldMask;
         QueryNode_SetFieldMask(yylhsminor.yy35, yylhsminor.yy35->opts.fieldMask);
     }
-    
+
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
@@ -1244,7 +1244,7 @@ static YYACTIONTYPE yy_reduce(
 {
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
     if (yymsp[0].minor.yy35) {
-        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
+        yylhsminor.yy35->AddChild(yymsp[0].minor.yy35);
         yylhsminor.yy35->opts.fieldMask |= yymsp[0].minor.yy35->opts.fieldMask;
         QueryNode_SetFieldMask(yymsp[0].minor.yy35, yylhsminor.yy35->opts.fieldMask);
     }
@@ -1259,24 +1259,24 @@ static YYACTIONTYPE yy_reduce(
         if (ctx->sctx->spec) {
             QueryNode_SetFieldMask(yymsp[0].minor.yy35, IndexSpec_GetFieldBit(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
         }
-        yylhsminor.yy35 = yymsp[0].minor.yy35; 
+        yylhsminor.yy35 = yymsp[0].minor.yy35;
     }
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 8: /* expr ::= modifierlist COLON expr */
 {
-    
+
     if (yymsp[0].minor.yy35 == NULL) {
         yylhsminor.yy35 = NULL;
     } else {
         //yymsp[0].minor.yy35->opts.fieldMask = 0;
-        t_fieldMask mask = 0; 
+        t_fieldMask mask = 0;
         if (ctx->sctx->spec) {
             for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy78); i++) {
                 char *p;
                 Vector_Get(yymsp[-2].minor.yy78, i, &p);
-                mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
+                mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p));
                 rm_free(p);
             }
         }
@@ -1294,7 +1294,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 10: /* attribute ::= ATTRIBUTE COLON term */
 {
-    
+
     yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), .vallen = yymsp[0].minor.yy0.len };
 }
   yymsp[-2].minor.yy55 = yylhsminor.yy55;
@@ -1327,7 +1327,7 @@ static YYACTIONTYPE yy_reduce(
 {
 
     if (yymsp[-4].minor.yy35 && yymsp[-1].minor.yy69) {
-        QueryNode_ApplyAttributes(yymsp[-4].minor.yy35, yymsp[-1].minor.yy69, array_len(yymsp[-1].minor.yy69), ctx->status);
+        yymsp[-4].minor.yy35->ApplyAttributes(yymsp[-1].minor.yy69, array_len(yymsp[-1].minor.yy69), ctx->status);
     }
     array_free_ex(yymsp[-1].minor.yy69, rm_free((char*)((QueryAttribute*)ptr )->value));
     yylhsminor.yy35 = yymsp[-4].minor.yy35;
@@ -1346,7 +1346,7 @@ static YYACTIONTYPE yy_reduce(
 {
     yymsp[-2].minor.yy35 = NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
     yymsp[-2].minor.yy35->opts.flags |= QueryNode_Verbatim;
-    
+
 }
         break;
       case 18: /* expr ::= term */
@@ -1375,15 +1375,15 @@ static YYACTIONTYPE yy_reduce(
       case 22: /* termlist ::= term term */
 {
     yylhsminor.yy35 = NewPhraseNode(0);
-    QueryNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
-    QueryNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yylhsminor.yy35->AddChild(NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
+    yylhsminor.yy35->AddChild(NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 23: /* termlist ::= termlist term */
 {
     yylhsminor.yy35 = yymsp[-1].minor.yy35;
-    QueryNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yylhsminor.yy35->AddChild(NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
@@ -1395,7 +1395,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 25: /* expr ::= MINUS expr */
-{ 
+{
     if (yymsp[0].minor.yy35) {
         yymsp[-1].minor.yy35 = NewNotNode(yymsp[0].minor.yy35);
     } else {
@@ -1404,7 +1404,7 @@ static YYACTIONTYPE yy_reduce(
 }
         break;
       case 26: /* expr ::= TILDE expr */
-{ 
+{
     if (yymsp[0].minor.yy35) {
         yymsp[-1].minor.yy35 = NewOptionalNode(yymsp[0].minor.yy35);
     } else {
@@ -1475,11 +1475,11 @@ static YYACTIONTYPE yy_reduce(
         size_t slen = unescapen((char*)s, yymsp[-2].minor.yy0.len);
 
         yylhsminor.yy35 = NewTagNode(s, slen);
-        QueryNode_AddChildren(yylhsminor.yy35, yymsp[0].minor.yy35->children, QueryNode_NumChildren(yymsp[0].minor.yy35));
-        
+        yylhsminor.yy35->AddChildren(yymsp[0].minor.yy35->children, yymsp[0].minor.yy35->NumChildren());
+
         // Set the children count on yymsp[0].minor.yy35 to 0 so they won't get recursively free'd
-        QueryNode_ClearChildren(yymsp[0].minor.yy35, 0);
-        QueryNode_Free(yymsp[0].minor.yy35);
+        yymsp[0].minor.yy35->ClearChildren(false);
+        deletet yymsp[0].minor.yy35;
     }
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
@@ -1487,19 +1487,19 @@ static YYACTIONTYPE yy_reduce(
       case 38: /* tag_list ::= LB term */
 {
     yymsp[-1].minor.yy35 = NewPhraseNode(0);
-    QueryNode_AddChild(yymsp[-1].minor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yymsp[-1].minor.yy35->AddChild(NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
         break;
       case 39: /* tag_list ::= LB prefix */
       case 40: /* tag_list ::= LB termlist */ yytestcase(yyruleno==40);
 {
     yymsp[-1].minor.yy35 = NewPhraseNode(0);
-    QueryNode_AddChild(yymsp[-1].minor.yy35, yymsp[0].minor.yy35);
+    yymsp[-1].minor.yy35->AddChild(yymsp[0].minor.yy35);
 }
         break;
       case 41: /* tag_list ::= tag_list OR term */
 {
-    QueryNode_AddChild(yymsp[-2].minor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yymsp[-2].minor.yy35->AddChild(NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
@@ -1507,7 +1507,7 @@ static YYACTIONTYPE yy_reduce(
       case 42: /* tag_list ::= tag_list OR prefix */
       case 43: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==43);
 {
-    QueryNode_AddChild(yymsp[-2].minor.yy35, yymsp[0].minor.yy35);
+    yymsp[-2].minor.yy35->AddChild(yymsp[0].minor.yy35);
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
@@ -1567,7 +1567,7 @@ static YYACTIONTYPE yy_reduce(
       case 52: /* term ::= TERM */
       case 53: /* term ::= NUMBER */ yytestcase(yyruleno==53);
 {
-    yylhsminor.yy0 = yymsp[0].minor.yy0; 
+    yylhsminor.yy0 = yymsp[0].minor.yy0;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
@@ -1631,7 +1631,7 @@ static void yy_syntax_error(
   RSQueryParser_CTX_FETCH
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
-  
+
     ctx->status->SetErrorFmt(QUERY_ESYNTAX,
         "Syntax error at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
@@ -1750,7 +1750,7 @@ void RSQueryParser_(
 #ifdef YYERRORSYMBOL
       /* A syntax error has occurred.
       ** The response to an error depends upon whether or not the
-      ** grammar defines an error token "ERROR".  
+      ** grammar defines an error token "ERROR".
       **
       ** This is what we do if the grammar does define ERROR:
       **

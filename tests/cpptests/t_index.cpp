@@ -117,10 +117,7 @@ TEST_F(IndexTest, testDistance) {
   } while (rc != RS_OFFSETVECTOR_EOF);
   it.Free(it.ctx);
 
-  IndexResult_Free(tr1);
-  IndexResult_Free(tr2);
-  IndexResult_Free(tr3);
-  IndexResult_Free(res);
+  delete res;
   VVW_Free(vw);
   VVW_Free(vw2);
   VVW_Free(vw3);
@@ -284,7 +281,7 @@ TEST_F(IndexTest, testUnion) {
   irs[1] = NewReadIterator(r2);
 
   IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1);
-  RSIndexResult *h = NULL;
+  RSIndexResult *h;
   int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
@@ -292,7 +289,7 @@ TEST_F(IndexTest, testUnion) {
     ASSERT_EQ(expected[i], h->docId);
     i++;
 
-    RSIndexResult *copy = IndexResult_DeepCopy(h);
+    RSIndexResult *copy = new RSIndexResult(*h);
     ASSERT_TRUE(copy != NULL);
     ASSERT_TRUE(copy != h);
     ASSERT_TRUE(copy->isCopy);
@@ -300,13 +297,10 @@ TEST_F(IndexTest, testUnion) {
     ASSERT_EQ(copy->docId, h->docId);
     ASSERT_EQ(copy->type, h->type);
 
-    IndexResult_Free(copy);
-
     // printf("%d, ", h.docId);
   }
 
   ui->Free(ui);
-  // IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
 }
@@ -589,16 +583,16 @@ TEST_F(IndexTest, testIntersection) {
   int count = 0;
   IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
 
-  RSIndexResult *h = NULL;
+  RSIndexResult *h;
 
   uint32_t topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_Intersection);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_TRUE(RSIndexResult_HasOffsets(h));
+    ASSERT_TRUE(h->IsAggregate());
+    ASSERT_TRUE(h->HasOffsets());
     topFreq = topFreq > h->freq ? topFreq : h->freq;
 
-    RSIndexResult *copy = IndexResult_DeepCopy(h);
+    RSIndexResult *copy = new RSIndexResult(*h);
     ASSERT_TRUE(copy != NULL);
     ASSERT_TRUE(copy != h);
     ASSERT_TRUE(copy->isCopy == 1);
@@ -607,7 +601,6 @@ TEST_F(IndexTest, testIntersection) {
     ASSERT_TRUE(copy->type == RSResultType_Intersection);
     ASSERT_EQ((count * 2 + 2) * 2, h->docId);
     ASSERT_EQ(count * 2 + 2, h->freq);
-    IndexResult_Free(copy);
     ++count;
   }
 
@@ -703,9 +696,9 @@ int tokenFunc(void *ctx, const Token *t) {
 //   Document doc = NewDocument(NULL, 1, 1, "english");
 //   doc.docId = 1;
 //   doc.fields[0] = N
-//   ForwardIndex *idx = NewForwardIndex(doc);
+//   ForwardIndex *idx(doc);
 //   char *txt = strdup("Hello? world...  hello hello ? __WAZZ@UP? שלום");
-//   tokenize(txt, 1, 1, idx, forwardIndexTokenFunc);
+//   tokenize(txt, 1, 1, idx, ForwardIndex::TokenFunc);
 
 //   return 0;
 // }

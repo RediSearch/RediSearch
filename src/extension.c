@@ -23,8 +23,8 @@ static TrieMap *Extensions::scorers_g = NULL;
 
 Extensions::Extensions() {
   if (!queryExpanders_g) {
-    queryExpanders_g = NewTrieMap();
-    scorers_g = NewTrieMap();
+    queryExpanders_g = new TrieMap();
+    scorers_g = new TrieMap();
   }
 }
 
@@ -68,12 +68,12 @@ int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFre
   ctx->sf = func;
 
   /* Make sure that two scorers are never registered under the same name */
-  if (TrieMap_Find(scorers_g, (char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
+  if (scorers_g->Find((char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
     rm_free(ctx);
     return REDISEARCH_ERR;
   }
 
-  TrieMap_Add(scorers_g, (char *)alias, strlen(alias), ctx, NULL);
+  scorers_g->Add((char *)alias, strlen(alias), ctx, NULL);
   return REDISEARCH_OK;
 }
 
@@ -91,11 +91,11 @@ int Ext_RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFre
   ctx->exp = exp;
 
   /* Make sure there are no two query expanders under the same name */
-  if (TrieMap_Find(queryExpanders_g, (char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
+  if (queryExpanders_g->Find((char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
     rm_free(ctx);
     return REDISEARCH_ERR;
   }
-  TrieMap_Add(queryExpanders_g, (char *)alias, strlen(alias), ctx, NULL);
+  queryExpanders_g->Add((char *)alias, strlen(alias), ctx, NULL);
   return REDISEARCH_OK;
 }
 
@@ -148,7 +148,7 @@ static ExtScoringFunction *Extensions::GetScoringFunction(ScoringFunctionArgs *f
   if (!scorers_g) return NULL;
 
   /* lookup the scorer by name (case sensitive) */
-  ExtScoringFunction *p = TrieMap_Find(scorers_g, (char *)name, strlen(name));
+  ExtScoringFunction *p = scorers_g->Find((char *)name, strlen(name));
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
     /* if no ctx was given, we just return the scorer */
     if (fnargs) {
@@ -178,14 +178,14 @@ void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flag
     un->opts.fieldMask = qn->opts.fieldMask;
 
     // Append current node to the new union node as a child
-    QueryNode_AddChild(un, qn);
+    un->AddChild(qn);
     *currentNode = un;
   }
 
   QueryNode *exp = NewTokenNodeExpanded(q, str, len, flags);
   exp->opts.fieldMask = qn->opts.fieldMask;
   // Now the current node must be a union node - so we just add a new token node to it
-  QueryNode_AddChild(*currentNode, exp);
+  *currentNode->AddChild(exp);
   // q->numTokens++;
 }
 
@@ -195,7 +195,7 @@ void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flag
  * into a union node with the original token node and new token node as children. Or if it is
  * already a union node (in consecutive calls), it just adds a new token node as a child to it */
 
-void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTokenFlags flags, 
+void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTokenFlags flags,
                                             int replace, int exact) {
 
   QueryAST *q = qast;
@@ -203,12 +203,12 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
 
   QueryNode *ph = NewPhraseNode(exact);
   for (size_t i = 0; i < num; i++) {
-    QueryNode_AddChild(ph, NewTokenNodeExpanded(q, toks[i], strlen(toks[i]), flags));
+    ph->AddChild(NewTokenNodeExpanded(q, toks[i], strlen(toks[i]), flags));
   }
 
   // if we're replacing - just set the expanded phrase instead of the token
   if (replace) {
-    QueryNode_Free(qn);
+    deletet qn;
 
     *ctx->currentNode = ph;
   } else {
@@ -218,11 +218,11 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
       QueryNode *un = NewUnionNode();
 
       // Append current node to the new union node as a child
-      QueryNode_AddChild(un, qn);
+      un->AddChild(qn);
       *currentNode = un;
     }
     // Now the current node must be a union node - so we just add a new token node to it
-    QueryNode_AddChild(*currentNode, ph);
+    *currentNode->AddChild(ph);
   }
 }
 
@@ -242,7 +242,7 @@ static ExtQueryExpander *Extensions::GetQueryExpander(RSQueryExpander *ctx, cons
 
   if (!queryExpanders_g) return NULL;
 
-  ExtQueryExpander *p = TrieMap_Find(queryExpanders_g, (char *)name, strlen(name));
+  ExtQueryExpander *p = queryExpanders_g->Find((char *)name, strlen(name));
 
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
     ctx->ExpandToken = Ext_ExpandToken;

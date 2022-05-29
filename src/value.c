@@ -264,14 +264,14 @@ void RSValue::MakeRStringOwner() {
 void RSValue::ToString(RSValue *dst) {
   switch (t) {
     case RSValue_String:
-      RSValue_MakeReference(dst, this);
+      dst->MakeReference(this);
       break;
 
     case RSValue_RedisString:
     case RSValue_OwnRstring: {
       size_t sz;
       const char *str = RedisModule_StringPtrLen(rstrval, &sz);
-      RSValue_SetConstString(dst, str, sz);
+      dst->SetConstString(str, sz);
       break;
     }
 
@@ -279,16 +279,16 @@ void RSValue::ToString(RSValue *dst) {
       char tmpbuf[128] = {0};
       RSValue_NumToString(numval, tmpbuf);
       char *buf = rm_strdup(tmpbuf);
-      RSValue_SetString(dst, buf, strlen(buf));
+      dst->SetString(buf, strlen(buf));
       break;
     }
 
     case RSValue_Reference:
-      return RSValue_ToString(dst, ref);
+      return dst->ToString(ref);
 
     case RSValue_Null:
     default:
-      return RSValue_SetConstString(dst, "", 0);
+      return dst->SetConstString("", 0);
   }
 }
 
@@ -767,7 +767,7 @@ void RSValue::Print() const {
  *  - ?: means evrything after is optional
  */
 
-int RSValue::ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
+int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   const char *p = fmt;
@@ -777,7 +777,7 @@ int RSValue::ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
     switch (*p) {
       case 's': {
         char **ptr = va_arg(ap, char **);
-        if (!RSValue_IsString(args[i])) {
+        if (!args[i]->IsString()) {
           goto err;
         }
         *ptr = (char *)RSValue_StringPtrLen(args[i], NULL);

@@ -15,30 +15,28 @@
 #include <limits.h>
 #include "rmalloc.h"
 
-Trie *NewTrie() {
-  Trie *tree = rm_malloc(sizeof(Trie));
+Trie::Trie() {
   rune *rs = strToRunes("", 0);
-  tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0);
-  tree->size = 0;
+  root->ctor(rs, 0, 0, NULL, 0, 0, 0, 0);
+  size = 0;
   rm_free(rs);
-  return tree;
 }
 
-int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload) {
+int Trie::Insert(RedisModuleString *s, double score, int incr, RSPayload *payload) {
   size_t len;
   const char *str = RedisModule_StringPtrLen(s, &len);
-  int ret = Trie_InsertStringBuffer(t, str, len, score, incr, payload);
+  int ret = InsertStringBuffer(str, len, score, incr, payload);
   return ret;
 }
 
 #define RUNE_STATIC_ALLOC_SIZE 127
-typedef struct {
+struct runeBuf {
   int isDynamic;
   union {
     rune s[RUNE_STATIC_ALLOC_SIZE + 1];
     rune *p;
   } u;
-} runeBuf;
+};
 
 static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
   /**
@@ -65,8 +63,7 @@ static inline void runeBufFree(runeBuf *buf) {
   }
 }
 
-int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
-                            RSPayload *payload) {
+int Trie::InsertStringBuffer(const char *s, size_t len, double score, int incr, RSPayload *payload) {
   if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
     return 0;
   }
@@ -75,8 +72,8 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
   int rc;
 
   if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
-    rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
-    t->size += rc;
+    rc = root->Add(runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
+    size += rc;
   } else {
     rc = 0;
   }
@@ -85,26 +82,24 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
   return rc;
 }
 
-int Trie_Delete(Trie *t, const char *s, size_t len) {
-
+// Delete the string from the trie. Return 1 if the node was found and deleted, 0 otherwise
+int Trie::Delete(const char *s, size_t len) {
   rune *runes = strToRunes(s, &len);
   if (!runes || len > TRIE_INITIAL_STRING_LEN) {
     return 0;
   }
-  int rc = TrieNode_Delete(t->root, runes, len);
-  t->size -= rc;
+  int rc = root->Delete(runes, len);
+  size -= rc;
   rm_free(runes);
   return rc;
 }
 
-void TrieSearchResult_Free(TrieSearchResult *e) {
-  if (e->str) {
-    rm_free(e->str);
-    e->str = NULL;
+TrieSearchResult::~TrieSearchResult() {
+  if (str) {
+    deletet str;
   }
-  e->payload = NULL;
-  e->plen = 0;
-  rm_free(e);
+  payload = NULL;
+  plen = 0;
 }
 
 static int cmpEntries(const void *p1, const void *p2, const void *udata) {
@@ -118,7 +113,11 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
   return 0;
 }
 
-TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
+/* Iterate  the trie, using maxDist edit distance, returning a trie iterator that the
+ * caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
+ * Otherwise we return an iterator to all strings within maxDist Levenshtein distance */
+
+TrieIterator *Trie::Iterate(const char *prefix, size_t len, int maxDist, int prefixMode) {
   size_t rlen;
   rune *runes = strToFoldedRunes(prefix, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
@@ -130,13 +129,13 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
   DFAFilter *fc = rm_malloc(sizeof(*fc));
   *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
-  TrieIterator *it = TrieNode_Iterate(t->root, FilterFunc, StackPop, fc);
+  TrieIterator *it = root->Iterate(FilterFunc, StackPop, fc);
   rm_free(runes);
   return it;
 }
 
-Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                    int trim, int optimize) {
+Vector *Trie::Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode,
+                     int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return NULL;
@@ -154,18 +153,17 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
 
   DFAFilter fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
-  TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);
-  // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
+  TrieIterator *it = root->Iterate(FilterFunc, StackPop, &fc);
+  // TrieIterator *it = root->Iterate(NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
   float score;
   RSPayload payload = {.data = NULL, .len = 0};
 
-  TrieSearchResult *pooledEntry = NULL;
+  TrieSearchResult *pooledEntry;
   int dist = maxDist + 1;
-  while (TrieIterator_Next(it, &rstr, &slen, &payload, &score, &dist)) {
+  while (it->Next(&rstr, &slen, &payload, &score, &dist)) {
     if (pooledEntry == NULL) {
-      pooledEntry = rm_malloc(sizeof(TrieSearchResult));
       pooledEntry->str = NULL;
       pooledEntry->payload = NULL;
       pooledEntry->plen = 0;
@@ -219,10 +217,6 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
     // dist = maxDist + 3;
   }
 
-  if (pooledEntry) {
-    TrieSearchResult_Free(pooledEntry);
-  }
-
   // printf("Nodes consumed: %d/%d (%.02f%%)\n", it->nodesConsumed,
   //        it->nodesConsumed + it->nodesSkipped,
   //        100.0 * (float)(it->nodesConsumed) / (float)(it->nodesConsumed +
@@ -255,20 +249,23 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
     for (; i < n; ++i) {
       TrieSearchResult *h;
       Vector_Get(ret, i, &h);
-      TrieSearchResult_Free(h);
+      delete h;
     }
   }
 
   rm_free(runes);
-  TrieIterator_Free(it);
+  delete it;
   DFAFilter_Free(&fc);
   heap_free(pq);
 
   return ret;
 }
 
-int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score) {
-  if (t->size == 0) {
+/* Get a random key from the trie, and put the node's score in the score pointer. Returns 0 if the
+ * trie is empty and we cannot do that */
+
+bool Trie::RandomKey(char **str, t_len *len, double *score) {
+  if (size == 0) {
     return 0;
   }
 
@@ -277,17 +274,16 @@ int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score) {
 
   // TODO: deduce steps from cardinality properly
   TrieNode *n =
-      TrieNode_RandomWalk(t->root, 2 + rand() % 8 + (int)round(logb(1 + t->size)), &rstr, &rlen);
+      root->RandomWalk(2 + rand() % 8 + (int)round(logb(1 + size)), &rstr, &rlen);
   if (!n) {
-    return 0;
+    return false;
   }
   size_t sz;
   *str = runesToStr(rstr, rlen, &sz);
   *len = sz;
-  rm_free(rstr);
 
   *score = n->score;
-  return 1;
+  return true;
 }
 
 /***************************************************************
@@ -305,10 +301,11 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   return TrieType_GenericLoad(rdb, encver > TRIE_ENCVER_NOPAYLOADS);
 }
+
 void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
 
   uint64_t elements = RedisModule_LoadUnsigned(rdb);
-  Trie *tree = NewTrie();
+  Trie *tree;
 
   while (elements--) {
     size_t len;
@@ -320,11 +317,11 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
       // load an extra space for the null terminator
       payload.len--;
     }
-    Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL);
+    tree->InsertStringBuffer(str, len - 1, score, 0, payload.len ? &payload : NULL);
     RedisModule_Free(str);
     if (payload.data != NULL) RedisModule_Free(payload.data);
   }
-  // TrieNode_Print(tree->root, 0, 0);
+  // tree->root->Print(0, 0);
   return tree;
 }
 
@@ -338,13 +335,13 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
   int count = 0;
   if (tree->root) {
-    TrieIterator *it = TrieNode_Iterate(tree->root, NULL, NULL, NULL);
+    TrieIterator *it = tree->root->Iterate(NULL, NULL, NULL);
     rune *rstr;
     t_len len;
     float score;
     RSPayload payload = {.data = NULL, .len = 0};
 
-    while (TrieIterator_Next(it, &rstr, &len, &payload, &score, NULL)) {
+    while (it->Next(&rstr, &len, &payload, &score, NULL)) {
       size_t slen = 0;
       char *s = runesToStr(rstr, len, &slen);
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);
@@ -367,7 +364,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
       RedisModule_Log(ctx, "warning", "Trie: saving %zd nodes actually iterated only %zd nodes",
                       tree->size, count);
     }
-    TrieIterator_Free(it);
+    delete it;
   }
 }
 
@@ -378,11 +375,8 @@ void TrieType_Digest(RedisModuleDigest *digest, void *value) {
 void TrieType_Free(void *value) {
   Trie *tree = value;
   if (tree->root) {
-
-    TrieNode_Free(tree->root);
+    delete tree->root;
   }
-
-  rm_free(tree);
 }
 
 int TrieType_Register(RedisModuleCtx *ctx) {

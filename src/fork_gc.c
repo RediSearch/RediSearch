@@ -319,7 +319,7 @@ static void sendHeaderString(ForkGC *gc, void *arg) {
 //---------------------------------------------------------------------------------------------
 
 static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
-  TrieIterator *iter = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
+  TrieIterator *iter = sctx->spec->terms->Iterate("", 0, 0, 1);
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
@@ -524,11 +524,11 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
 
       tagNumHeader header = {.field = tagFields[i]->name, .uniqueId = tagIdx->uniqueId};
 
-      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
+      TrieMapIterator *iter = tagIdx->values->Iterate("", 0);
       char *ptr;
       tm_len_t len;
       InvertedIndex *value;
-      while (TrieMapIterator_Next(iter, &ptr, &len, (void **)&value)) {
+      while (iter->Next(&ptr, &len, (void **)&value)) {
         header.curPtr = value;
         // send repaired data
         FGC_childRepairInvidx(gc, sctx, value, sendNumericTagHeader, &header, NULL);

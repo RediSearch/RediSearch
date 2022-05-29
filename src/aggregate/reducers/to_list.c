@@ -12,7 +12,7 @@ typedef struct {
 
 static void *tolistNewInstance(Reducer *rbase) {
   tolistCtx *ctx = Reducer_BlkAlloc(rbase, sizeof(*ctx), 100 * sizeof(*ctx));
-  ctx->values = NewTrieMap();
+  ctx->values = new TrieMap();
   ctx->srckey = rbase->srckey;
   return ctx;
 }
@@ -31,8 +31,7 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
     uint64_t hval = v->Hash(0);
     if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
 
-      TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
-                  v->MakePersistent()->IncrRef(), NULL);
+      tlc->values->Add((char *)&hval, sizeof(hval), v->MakePersistent()->IncrRef(), NULL);
     }
   } else {  // For array values we add each distinct element to the list
     uint32_t len = RSValue_ArrayLen(v);
@@ -41,8 +40,7 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
       uint64_t hval = av->Hash(0);
       if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
 
-        TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
-                    av->MakePersistent()->IncrRef(), NULL);
+        tlc->values->Add((char *)&hval, sizeof(hval), av->MakePersistent()->IncrRef(), NULL);
       }
     }
   }
@@ -53,20 +51,19 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   tolistCtx *tlc = ctx;
-  TrieMapIterator *it = TrieMap_Iterate(tlc->values, "", 0);
+  TrieMapIterator *it = tlc->values->Iterate("", 0);
   char *c;
   tm_len_t l;
   void *ptr;
   RSValue **arr = rm_calloc(tlc->values->cardinality, sizeof(RSValue));
   size_t i = 0;
-  while (TrieMapIterator_Next(it, &c, &l, &ptr)) {
+  while (it->Next(&c, &l, &ptr)) {
     if (ptr) {
       arr[i++] = ptr;
     }
   }
 
   RSValue *ret = RSValue::NewArray(arr, i, RSVAL_ARRAY_ALLOC);
-  TrieMapIterator_Free(it);
   return ret;
 }
 

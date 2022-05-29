@@ -145,7 +145,7 @@ struct ArgsCursor {
   }
 
   template <class T, size_t minVal, size_t maxVal, bool isUnsigned>
-  int ArgsCursor::GetInteger(T *p, unsigned int flags) {
+  int GetInteger(T *p, unsigned int flags) {
     if (isUnsigned) {
       flags |= AC_F_GE0;
     }

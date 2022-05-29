@@ -215,7 +215,7 @@ TEST_F(QueryTest, testParser) {
   ASSERT_TRUE(n != NULL);
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_EQ(n->pn.exact, 0);
-  ASSERT_EQ(QueryNode_NumChildren(n), 4);
+  ASSERT_EQ(n->NumChildren(), 4);
   ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
 
   ASSERT_TRUE(n->children[0]->type == QN_UNION);
@@ -226,7 +226,7 @@ TEST_F(QueryTest, testParser) {
 
   ASSERT_TRUE(_n->type == QN_PHRASE);
   ASSERT_TRUE(_n->pn.exact == 1);
-  ASSERT_EQ(QueryNode_NumChildren(_n), 2);
+  ASSERT_EQ(_n->NumChildren(), 2);
   ASSERT_STREQ("another", _n->children[0]->tn.str);
   ASSERT_STREQ("world", _n->children[1]->tn.str);
 
@@ -234,7 +234,7 @@ TEST_F(QueryTest, testParser) {
   ASSERT_TRUE(_n->type == QN_PHRASE);
 
   ASSERT_TRUE(_n->pn.exact == 0);
-  ASSERT_EQ(QueryNode_NumChildren(_n), 2);
+  ASSERT_EQ(_n->NumChildren(), 2);
   ASSERT_STREQ("foo", _n->children[0]->tn.str);
   ASSERT_STREQ("bar", _n->children[1]->tn.str);
 
@@ -242,7 +242,7 @@ TEST_F(QueryTest, testParser) {
   ASSERT_TRUE(_n->type == QN_NOT);
   _n = QueryNode_GetChild(_n, 0);
   ASSERT_TRUE(_n->pn.exact == 0);
-  ASSERT_EQ(2, QueryNode_NumChildren(_n));
+  ASSERT_EQ(2, _n->NumChildren());
   ASSERT_STREQ("baz", _n->children[0]->tn.str);
 
   ASSERT_EQ(_n->children[1]->type, QN_PREFX);
@@ -282,7 +282,7 @@ TEST_F(QueryTest, testGeoQuery) {
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_TRUE((n->opts.fieldMask == RS_FIELDMASK_ALL));
-  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+  ASSERT_EQ(n->NumChildren(), 2);
 
   QueryNode *gn = n->children[1];
   ASSERT_EQ(gn->type, QN_GEO);
@@ -328,7 +328,7 @@ TEST_F(QueryTest, testFieldSpec) {
   ast.print();
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
-  ASSERT_EQ(QueryNode_NumChildren(n), 3);
+  ASSERT_EQ(n->NumChildren(), 3);
   ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
   ASSERT_EQ(n->children[1]->opts.fieldMask, 0x02);
   ASSERT_EQ(n->children[2]->opts.fieldMask, 0x00);
@@ -363,7 +363,7 @@ TEST_F(QueryTest, testAttributes) {
   ASSERT_EQ(1, n->opts.inOrder);
 
   ASSERT_EQ(n->type, QN_PHRASE);
-  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+  ASSERT_EQ(n->NumChildren(), 2);
   ASSERT_EQ(0.5, n->children[0]->opts.weight);
   ASSERT_EQ(0.2, n->children[1]->opts.weight);
   IndexSpec_Free(ctx.spec);
@@ -381,7 +381,7 @@ TEST_F(QueryTest, testTags) {
   ast.print();
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_TAG);
-  ASSERT_EQ(4, QueryNode_NumChildren(n));
+  ASSERT_EQ(4, n->NumChildren());
   ASSERT_EQ(QN_PHRASE, n->children[0]->type);
   ASSERT_STREQ("hello", n->children[0]->children[0]->tn.str);
   ASSERT_STREQ("world", n->children[0]->children[1]->tn.str);

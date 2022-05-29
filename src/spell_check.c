@@ -38,7 +38,7 @@ void RS_Suggestions::Add(char *term, size_t len, double score, int incr) {
 
   if (!incr) {
     if (!isExists) {
-      Trie_InsertStringBuffer(suggestionsTrie, term, len, score, incr, NULL);
+      suggestionsTrie->InsertStringBuffer(term, len, score, incr, NULL);
     }
     return;
   }
@@ -51,7 +51,7 @@ void RS_Suggestions::Add(char *term, size_t len, double score, int incr) {
     incr = 0;
   }
 
-  Trie_InsertStringBuffer(suggestionsTrie, term, len, score, incr, NULL);
+  suggestionsTrie->InsertStringBuffer(term, len, score, incr, NULL);
 }
 
 RS_Suggestions::~RS_Suggestions() {
@@ -101,7 +101,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   float score = 0;
   int dist = 0;
   bool retVal = false;
-  TrieIterator *it = Trie_Iterate(t, term, len, 0, 0);
+  TrieIterator *it = t->Iterate(term, len, 0, 0);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return retVal;
@@ -111,7 +111,6 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   }
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);
-  TrieIterator_Free(it);
   if (outScore) {
     *outScore = score;
   }
@@ -126,7 +125,7 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   int dist = 0;
   size_t suggestionLen;
 
-  TrieIterator *it = Trie_Iterate(t, term, len, (int)scCtx->distance, 0);
+  TrieIterator *it = t->Iterate(term, len, (int)scCtx->distance, 0);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return;
@@ -141,11 +140,10 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   }
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);
-  TrieIterator_Free(it);
 }
 
 RS_Suggestion **RS_Suggestions::GetSuggestions() {
-  TrieIterator *iter = Trie_Iterate(suggestionsTrie, "", 0, 0, 1);
+  TrieIterator *iter = suggestionsTrie->Iterate("", 0, 0, 1);
   RS_Suggestion **ret = array_new(RS_Suggestion *, suggestionsTrie->size);
   rune *rstr = NULL;
   t_len slen = 0;
@@ -158,7 +156,6 @@ RS_Suggestion **RS_Suggestions::GetSuggestions() {
   }
   DFAFilter_Free(iter->ctx);
   rm_free(iter->ctx);
-  TrieIterator_Free(iter);
   return ret;
 }
 

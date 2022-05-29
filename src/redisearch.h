@@ -75,7 +75,7 @@ enum RSDocumentFlags {
  * Flags is not currently used, but should be used in the future to mark documents as deleted, etc.
  */
 
-struct RSDocumentMetadata {
+struct RSDocumentMetadata : Object {
   t_docId id;
 
   // The actual key of the document, not the internal incremental id
@@ -235,7 +235,7 @@ struct RSOffsetIterator {
 
 struct RSOffsetVector {
   RSOffsetVector(char *data = 0, uint32_t len = 0) : data(data), len(len) {}
-  
+
   char *data;
   uint32_t len;
 
@@ -313,7 +313,7 @@ struct RSIndexResult : public Object {
   // The aggregate field mask of all the records in this result
   t_fieldMask fieldMask;
 
-  // For term records only. 
+  // For term records only.
   // This is used as an optimization, allowing the result to be loaded directly into memory.
   uint32_t offsetsSz;
 
@@ -321,6 +321,7 @@ struct RSIndexResult : public Object {
   // END OF the "magic 4 uints" section
   //-------------------------------------------------------------------------------------------
 
+  //@@ make derived classes
   union {
     RSAggregateResult agg;  // Aggregate record
     RSTermRecord term;      // Term record
@@ -347,17 +348,17 @@ struct RSIndexResult : public Object {
     num.value = value;
   }
 
+  // Free an index result's internal allocations, does not free the result itself
+  ~RSIndexResult();
+
   // Reset state of an existing index hit. This can be used to recycle index hits during reads
   void Reset();
 
   // Debug print a result
   void Print(int depth) const;
 
-  // Free an index result's internal allocations, does not free the result itself
-  void Free();
-
   // Get the minimal delta between the terms in the result
-    int MinOffsetDelta() const;
+  int MinOffsetDelta() const;
 
   size_t GetMatchedTerms(RSQueryTerm **arr, size_t cap) const;
   void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) const;

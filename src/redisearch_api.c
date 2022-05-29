@@ -153,9 +153,8 @@ void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable
 RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
   RSLanguage language = lang ? RSLanguage_Find(lang) : DEFAULT_LANGUAGE;
-  Document* ret = rm_calloc(1, sizeof(*ret));
-  Document_Init(ret, docKeyStr, score, language);
-  Document_MakeStringsOwner(ret);
+  Document* ret = new Document(docKeyStr, score, language);
+  ret->MakeStringsOwner();
   RedisModule_FreeString(RSDummyContext, docKeyStr);
   return ret;
 }
@@ -163,8 +162,7 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
 //---------------------------------------------------------------------------------------------
 
 void RediSearch_FreeDocument(RSDoc* doc) {
-  Document_Free(doc);
-  rm_free(doc);
+  delete doc;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -192,14 +190,14 @@ int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
 
 void RediSearch_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
                                  RedisModuleCtx* ctx, unsigned as) {
-  Document_AddField(d, fieldName, value, as);
+  d->AddField(fieldName, value, as);
 }
 
 //---------------------------------------------------------------------------------------------
 
 void RediSearch_DocumentAddFieldString(Document* d, const char* fieldname, const char* s, size_t n,
                                        unsigned as) {
-  Document_AddFieldC(d, fieldname, s, n, as);
+  d->AddFieldC(fieldname, s, n, as);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -207,7 +205,7 @@ void RediSearch_DocumentAddFieldString(Document* d, const char* fieldname, const
 void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double n, unsigned as) {
   char buf[512];
   size_t len = sprintf(buf, "%lf", n);
-  Document_AddFieldC(d, fieldname, buf, len, as);
+  d->AddFieldC(fieldname, buf, len, as);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -264,7 +262,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
 //---------------------------------------------------------------------------------------------
 
 QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
-  QueryNode* ret = NewQueryNode(QN_TOKEN);
+  QueryNode* ret = new QueryNode(QN_TOKEN);
 
   ret->tn = (QueryTokenNode){
       .str = (char*)rm_strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
@@ -278,7 +276,7 @@ QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, cons
 
 QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
                                         int includeMax, int includeMin) {
-  QueryNode* ret = NewQueryNode(QN_NUMERIC);
+  QueryNode* ret = new QueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
   ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
@@ -286,7 +284,7 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
 }
 
 QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  QueryNode* ret = NewQueryNode(QN_PREFX);
+  QueryNode* ret = new QueryNode(QN_PREFX);
   ret->pfx =
       (QueryPrefixNode){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
   if (fieldName) {
@@ -299,7 +297,7 @@ QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, con
 
 QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
                                          const char* end, int includeBegin, int includeEnd) {
-  QueryNode* ret = NewQueryNode(QN_LEXRANGE);
+  QueryNode* ret = new QueryNode(QN_LEXRANGE);
   if (begin) {
     ret->lxrng.begin = begin ? rm_strdup(begin) : NULL;
     ret->lxrng.includeBegin = includeBegin;
@@ -317,7 +315,7 @@ QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, c
 //---------------------------------------------------------------------------------------------
 
 QueryNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
-  QueryNode* ret = NewQueryNode(QN_TAG);
+  QueryNode* ret = new QueryNode(QN_TAG);
   ret->tag.fieldName = rm_strdup(field);
   ret->tag.len = strlen(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
@@ -327,21 +325,21 @@ QueryNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
 //---------------------------------------------------------------------------------------------
 
 QueryNode* RediSearch_CreateIntersectNode(IndexSpec* sp, int exact) {
-  QueryNode* ret = NewQueryNode(QN_PHRASE);
+  QueryNode* ret = new QueryNode(QN_PHRASE);
   ret->pn.exact = exact;
   return ret;
 }
 
 QueryNode* RediSearch_CreateUnionNode(IndexSpec* sp) {
-  return NewQueryNode(QN_UNION);
+  return new QueryNode(QN_UNION);
 }
 
 QueryNode* RediSearch_CreateEmptyNode(IndexSpec* sp) {
-  return NewQueryNode(QN_NULL);
+  return new QueryNode(QN_NULL);
 }
 
 QueryNode* RediSearch_CreateNotNode(IndexSpec* sp) {
-  return NewQueryNode(QN_NOT);
+  return new QueryNode(QN_NOT);
 }
 
 int RediSearch_QueryNodeGetFieldMask(QueryNode* qn) {
@@ -349,19 +347,19 @@ int RediSearch_QueryNodeGetFieldMask(QueryNode* qn) {
 }
 
 void RediSearch_QueryNodeAddChild(QueryNode* parent, QueryNode* child) {
-  QueryNode_AddChild(parent, child);
+  parent->AddChild(child);
 }
 
 void RediSearch_QueryNodeClearChildren(QueryNode* qn) {
-  QueryNode_ClearChildren(qn, 1);
+  qn->ClearChildren(true);
 }
 
 QueryNode* RediSearch_QueryNodeGetChild(const QueryNode* qn, size_t ix) {
-  return QueryNode_GetChild(qn, ix);
+  return qn->GetChild(ix);
 }
 
 size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
-  return QueryNode_NumChildren(qn);
+  return qn->NumChildren();
 }
 
 //---------------------------------------------------------------------------------------------

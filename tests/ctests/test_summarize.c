@@ -58,18 +58,17 @@ int testFragmentize() {
                                       SCORED_TERM("man", 0.7),  SIMPLE_TERM("earth"),
                                       SCORED_TERM("evil", 1.3)};
   size_t nterms = sizeof(terms) / sizeof(terms[0]);
-  FragmentList fragList;
-  FragmentList_Init(&fragList, 8, 6);
+  FragmentList fragList(8, 6);
 
   // Fragmentize
-  FragmentList_FragmentizeBuffer(&fragList, lorem, NULL, DefaultStopWordList(), terms, nterms);
-  size_t nfrags = FragmentList_GetNumFrags(&fragList);
-  const Fragment *allFrags = FragmentList_GetFragments(&fragList);
+  fragList.FragmentizeBuffer(lorem, NULL, DefaultStopWordList(), terms, nterms);
+  size_t nfrags = fragList.GetNumFrags();
+  const Fragment *allFrags = fragList.GetFragments();
   ASSERT(allFrags != NULL);
   ASSERT(nfrags != 0);
 
   HighlightTags tags = {.openTag = "<i>", .closeTag = "</i>"};
-  char *hlRes = FragmentList_HighlightWholeDocS(&fragList, &tags);
+  char *hlRes = fragList.HighlightWholeDocS(&tags);
   ASSERT(strlen(hlRes) > strlen(lorem));
   free(hlRes);
 
@@ -80,8 +79,7 @@ int testFragmentize() {
     Array_Init(&contexts[ii]);
   }
 
-  FragmentList_HighlightFragments(&fragList, &tags, 15, contexts, numFrags,
-                                  HIGHLIGHT_ORDER_SCOREPOS);
+  fragList.HighlightFragments(&tags, 15, contexts, numFrags, HIGHLIGHT_ORDER_SCOREPOS);
 
   // for (size_t ii = 0; ii < numFrags; ++ii) {
   //   struct iovec *iovs = (struct iovec *)Buffer_GetData(&contexts[ii]);
@@ -105,7 +103,6 @@ int testFragmentize() {
   }
 
   free(lorem);
-  FragmentList_Free(&fragList);
   for (size_t ii = 0; ii < numFrags; ++ii) {
     Array_Free(contexts + ii);
   }
