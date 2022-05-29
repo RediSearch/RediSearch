@@ -82,6 +82,8 @@ typedef RSToken QueryTokenNode;
 
 typedef struct {
   RSToken tok;
+  bool prefix;
+  bool suffix;
 } QueryPrefixNode;
 
 typedef struct {

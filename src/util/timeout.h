@@ -1,7 +1,13 @@
 #pragma once
 
 #include <time.h>
+#include "redisearch.h"
 #include "version.h"
+#include "query_error.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*****************************************
  *            Timeout API
@@ -32,18 +38,48 @@ static inline void rs_timersub(struct timespec *a, struct timespec *b, struct ti
   }
 }
 
-static inline int TimedOut(struct timespec timeout, size_t *counter) {
+#define NOT_TIMED_OUT 0
+#define TIMED_OUT 1
+
+typedef struct TimeoutCtx {
+  size_t counter;
+  struct timespec timeout;
+} TimeoutCtx;
+
+typedef int(*TimeoutCb)(TimeoutCtx *);
+
+static inline int TimedOut(struct timespec *timeout) {
+  static struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  if (__builtin_expect(rs_timer_ge(&now, timeout), 0)) {
+    return TIMED_OUT;
+  }
+  return NOT_TIMED_OUT;
+}
+
+// Check if time has been reached (run once every 100 calls) 
+static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter) {
   if (RS_IsMock) return 0;
 
-  if (++(*counter) == 100) {
+  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == 100) {
     *counter = 0;
-    static struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-    if (__builtin_expect(rs_timer_ge(&now, &timeout), 0)) {
-      return 1;
-    }
+    return TimedOut(timeout);
   }
-  return 0;
+  return NOT_TIMED_OUT;
+}
+
+// Check if time has been reached (run once every 100 calls) 
+static inline int TimedOut_WithCtx(TimeoutCtx *ctx) {
+  return TimedOut_WithCounter(&ctx->timeout, &ctx->counter);
+}
+
+// Check if time has been reached
+static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *status) {
+  int rc = TimedOut(timeout);
+  if (status && rc == TIMED_OUT) {
+    QueryError_SetCode(status, QUERY_TIMEDOUT);
+  }
+  return rc; 
 }
 
 static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
@@ -60,3 +96,7 @@ static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
   rs_timeradd(&now, &duration, timeout);
 }
+
+#ifdef __cplusplus
+}
+#endif
