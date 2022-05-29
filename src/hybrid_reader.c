@@ -405,6 +405,8 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   hi->returnedResults = NULL;
   hi->numIterations = 0;
   hi->ignoreScores = hParams.ignoreDocScore;
+  hi->timeoutCb = TimedOut_WithCtx;
+  hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
 
   if (hParams.childIt == NULL) {
     hi->searchMode = VECSIM_STANDARD_KNN;
@@ -423,7 +425,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
     }
     // If user asks explicitly for a policy - use it.
     if (hParams.qParams.searchMode) {
-      hi->searchMode = hParams.qParams.searchMode;
+      hi->searchMode = (VecSimSearchMode)hParams.qParams.searchMode;
     } else {
       // Use a pre-defined heuristics that determines which approach should be faster.
       if (VecSimIndex_PreferAdHocSearch(hParams.index, subset_size, hParams.query.k, true)) {

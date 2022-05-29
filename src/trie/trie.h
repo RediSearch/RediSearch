@@ -230,6 +230,19 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includ
                            const rune *max, int maxlen, bool includeMax, TrieRangeCallback callback,
                            void *ctx);
 
+/**
+ * Iterate all nodes within range.
+ * @param n the node to iterateo
+ * @param str the string to check
+ * @param nstr the length of str
+ * @param prefix is the string prefix
+ * @param suffix is the string suffix
+ * @param callback the callback to invoke
+ * @param ctx data to be passed to the callback
+ */
+void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
+                              TrieRangeCallback callback, void *ctx, struct timespec timeout);
+
 #ifdef __cplusplus
 }
 #endif
