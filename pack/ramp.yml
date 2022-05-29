@@ -1,0 +1,19 @@
+display_name: RediSearch
+author: RedisLabs
+email: meir@redislabs.com
+description: High performance search index on top of redis
+homepage: http://redisearch.io
+license:  Redis Source Available License Agreement
+command_line_args: ""
+min_redis_version: "4.0"
+min_redis_pack_version: "5.0"
+config_command: "FT.CONFIG SET"
+capabilities:
+    - types
+    - no_multi_key
+    - backup_restore
+    - failover_migrate
+    - persistence_aof
+    - persistence_rdb
+    - clustering
+    - replica_of

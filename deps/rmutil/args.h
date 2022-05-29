@@ -8,10 +8,6 @@
 #include <limits.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 enum ACType {
@@ -21,25 +17,102 @@ enum ACType {
   AC_TYPE_SDS
 };
 
+//---------------------------------------------------------------------------------------------
+
+enum ACStatus {
+  AC_OK = 0,      // Not an error
+  AC_ERR_PARSE,   // Couldn't parse as integer or other type
+  AC_ERR_NOARG,   // Missing required argument
+  AC_ERR_ELIMIT,  // Exceeded limitations of this type (i.e. bad value, but parsed OK)
+  AC_ERR_ENOENT   // Argument name not found in list
+};
+
+//---------------------------------------------------------------------------------------------
+
+// These flags can be AND'd with the original type
+#define AC_F_GE1 0x100        // Must be >= 1 (no zero or negative)
+#define AC_F_GE0 0x200        // Must be >= 0 (no negative)
+#define AC_F_NOADVANCE 0x400  // Don't advance cursor position
+#define AC_F_COALESCE 0x800   // Coalesce non-integral input
+
+//---------------------------------------------------------------------------------------------
+
+enum ACArgType {
+  AC_ARGTYPE_STRING,
+  AC_ARGTYPE_RSTRING,
+  AC_ARGTYPE_LLONG,
+  AC_ARGTYPE_ULLONG,
+  AC_ARGTYPE_UINT,
+  AC_ARGTYPE_U32 = AC_ARGTYPE_UINT,
+  AC_ARGTYPE_INT,
+  AC_ARGTYPE_DOUBLE,
+
+  // This means the name is a flag and does not accept any additional arguments.
+  // In this case, the target value is assumed to be an int, and is set to nonzero.
+  AC_ARGTYPE_BOOLFLAG,
+
+  // Uses AC_GetVarArgs, gets a sub-arg list
+  AC_ARGTYPE_SUBARGS,
+
+  // Use AC_GetSlice. Set slicelen in the spec to the expected count.
+  AC_ARGTYPE_SUBARGS_N,
+
+  // Accepts U32 target. Use 'slicelen' as the field to indicate which bit should be set.
+  AC_ARGTYPE_BITFLAG,
+
+  // Like bitflag, except the value is _removed_ from the target. Accepts U32 target
+  AC_ARGTYPE_UNFLAG,
+};
+
+//---------------------------------------------------------------------------------------------
+
+// Helper macro to define bitflag argtype
+#ifdef __cplusplus
+#define AC_MKBITFLAG(name_, target_, bit_) \
+  name: name_, type: AC_ARGTYPE_BITFLAG, target: target_, slicelen: bit_
+
+#define AC_MKUNFLAG(name_, target_, bit_) \
+  name: name_, type: AC_ARGTYPE_UNFLAG, target: target_, slicelen: bit_
+#else
+#define AC_MKBITFLAG(name_, target_, bit_) \
+  .name = name_, .target = target_, .type = AC_ARGTYPE_BITFLAG, .slicelen = bit_
+
+#define AC_MKUNFLAG(name_, target_, bit_) \
+  .name = name_, .target = target_, .type = AC_ARGTYPE_UNFLAG, .slicelen = bit_
+#endif
+
+//---------------------------------------------------------------------------------------------
+
+struct ACArgSpec {
+  const char *name;  // Name of the argument
+  ACArgType type;    // Type of argument
+  void *target;      // [out] Target pointer, e.g. `int*`, `RedisModuleString**`
+  size_t *len;       // [out] Target length pointer. Valid only for strings
+  int intflags;      // AC_F_COALESCE, etc.
+  size_t slicelen;   // When using slice length, set this to the expected slice count
+};
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * The cursor model simply reads through the current argument list, advancing
  * the 'offset' position as required. No tricky declarative syntax, and allows
  * for finer grained error handling.
  */
+
 struct ArgsCursor {
   void **objs;
   int type;
   size_t argc;
   size_t offset;
 
-  #define IsInitialized() (type != AC_TYPE_UNINIT)
-  #define CURRENT() (objs[offset])
-  #define Clear()  // NOOP
-  #define IsAtEnd() (offset >= argc)
-  #define NumRemaining() (argc - offset)
-  #define NumArgs() argc
-  #define StringArg(N) (const char *)(objs[N])
+  bool IsInitialized() const { return type != AC_TYPE_UNINIT; }
+  void *CURRENT() { return objs[offset]; }
+  void Clear() {}
+  bool IsAtEnd() const { return offset >= argc; }
+  size_t NumRemaining() const { return argc - offset; } // @@TODO verify non-negative
+  size_t NumArgs() const { return argc; }
+  const char *StringArg(size_t N) const { return (const char *)(objs[N]); }
 
   // These functions return AC_OK or an error code on error. Note that the
   // output value is not guaranteed to remain untouched in the case of an error
@@ -57,10 +130,10 @@ struct ArgsCursor {
   const char *GetStringNC(size_t *len);
   int GetVarArgs(ArgsCursor *dest);
   int GetSlice(ArgsCursor *dest, size_t n);
-  int tryReadAsDouble(long long *ll, unsigned int flags) {
+  int tryReadAsDouble(long long *ll, unsigned int flags);
 
   int ParseArgSpec(ACArgSpec *specs, ACArgSpec **errSpec);
-  int parseSingleSpec(ACArgSpec *spec) {
+  int parseSingleSpec(ACArgSpec *spec);
 
   int Advance();
   int AdvanceBy(size_t by);
@@ -111,83 +184,7 @@ struct ArgsCursor {
   }
 };
 
-enum ACStatus {
-  AC_OK = 0,      // Not an error
-  AC_ERR_PARSE,   // Couldn't parse as integer or other type
-  AC_ERR_NOARG,   // Missing required argument
-  AC_ERR_ELIMIT,  // Exceeded limitations of this type (i.e. bad value, but parsed OK)
-  AC_ERR_ENOENT   // Argument name not found in list
-};
-
-// These flags can be AND'd with the original type
-#define AC_F_GE1 0x100        // Must be >= 1 (no zero or negative)
-#define AC_F_GE0 0x200        // Must be >= 0 (no negative)
-#define AC_F_NOADVANCE 0x400  // Don't advance cursor position
-#define AC_F_COALESCE 0x800   // Coalesce non-integral input
-
-enum ACArgType {
-  AC_ARGTYPE_STRING,
-  AC_ARGTYPE_RSTRING,
-  AC_ARGTYPE_LLONG,
-  AC_ARGTYPE_ULLONG,
-  AC_ARGTYPE_UINT,
-  AC_ARGTYPE_U32 = AC_ARGTYPE_UINT,
-  AC_ARGTYPE_INT,
-  AC_ARGTYPE_DOUBLE,
-  /**
-   * This means the name is a flag and does not accept any additional arguments.
-   * In this case, the target value is assumed to be an int, and is set to
-   * nonzero
-   */
-  AC_ARGTYPE_BOOLFLAG,
-
-  /**
-   * Uses AC_GetVarArgs, gets a sub-arg list
-   */
-  AC_ARGTYPE_SUBARGS,
-
-  /**
-   * Use AC_GetSlice. Set slicelen in the spec to the expected count.
-   */
-  AC_ARGTYPE_SUBARGS_N,
-
-  /**
-   * Accepts U32 target. Use 'slicelen' as the field to indicate which bit should
-   * be set.
-   */
-  AC_ARGTYPE_BITFLAG,
-
-  /**
-   * Like bitflag, except the value is _removed_ from the target. Accepts U32 target
-   */
-  AC_ARGTYPE_UNFLAG,
-};
-
-/**
- * Helper macro to define bitflag argtype
- */
-#ifdef __cplusplus
-#define AC_MKBITFLAG(name_, target_, bit_) \
-  name: name_, type: AC_ARGTYPE_BITFLAG, target: target_, slicelen: bit_
-
-#define AC_MKUNFLAG(name_, target_, bit_) \
-  name: name_, type: AC_ARGTYPE_UNFLAG, target: target_, slicelen: bit_
-#else
-#define AC_MKBITFLAG(name_, target_, bit_) \
-  .name = name_, .target = target_, .type = AC_ARGTYPE_BITFLAG, .slicelen = bit_
-
-#define AC_MKUNFLAG(name_, target_, bit_) \
-  .name = name_, .target = target_, .type = AC_ARGTYPE_UNFLAG, .slicelen = bit_
-#endif
-
-struct ACArgSpec {
-  const char *name;  // Name of the argument
-  ACArgType type;    // Type of argument
-  void *target;      // [out] Target pointer, e.g. `int*`, `RedisModuleString**`
-  size_t *len;       // [out] Target length pointer. Valid only for strings
-  int intflags;      // AC_F_COALESCE, etc.
-  size_t slicelen;   // When using slice length, set this to the expected slice count
-};
+//---------------------------------------------------------------------------------------------
 
 static inline const char *AC_Strerror(int code) {
   switch (code) {
@@ -206,13 +203,14 @@ static inline const char *AC_Strerror(int code) {
   }
 }
 
-#ifdef __cplusplus
-}
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <vector>
 #include <tuple>
 #include <type_traits>
 #include <array>
+
+//---------------------------------------------------------------------------------------------
 
 class ArgsCursorCXX : public ArgsCursor {
  public:
@@ -244,9 +242,7 @@ class ArgsCursorCXX : public ArgsCursor {
   }
 };
 
-#endif // __cplusplus
-
-///////////////////////////////////////////////////////////////////////////////////////////////
+//---------------------------------------------------------------------------------------------
 
 class Arguments {
   RedisModuleString **argv;
