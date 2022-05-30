@@ -63,10 +63,9 @@ RS_Suggestions::~RS_Suggestions() {
  * Return the score for the given suggestion (number between 0 to 1).
  * In case the suggestion should not be added return -1.
  */
-static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t len,
-                                  t_fieldMask fieldMask) {
+inline double SpellCheckCtx::GetScore(char *suggestion, size_t len, t_fieldMask fieldMask) {
   RedisModuleKey *keyp = NULL;
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(scCtx->sctx, suggestion, len, 0, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, suggestion, len, 0, &keyp);
   double retVal = 0;
   if (!invidx) {
     // can not find inverted index key, score is 0.
@@ -74,10 +73,10 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
   }
   IndexReader *reader = new TermIndexReader(invidx, NULL, fieldMask, NULL, 1);
   IndexIterator *iter = reader->NewReadIterator();
-  RSIndexResult *r;
+  IndexResult *r;
   if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
     // we have at least one result, the suggestion is relevant.
-    if (scCtx->fullScoreInfo) {
+    if (fullScoreInfo) {
       retVal = invidx->numDocs;
     } else {
       retVal = invidx->numDocs;
@@ -86,7 +85,6 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     // fieldMask has filtered all docs, this suggestions should not be returned
     retVal = -1;
   }
-  delete iter;
 
 end:
   if (keyp) {
@@ -106,7 +104,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   if (it == NULL) {
     return retVal;
   }
-  if (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  if (it->Next(&rstr, &slen, NULL, &score, &dist)) {
     retVal = true;
   }
   DFAFilter_Free(it->ctx);
@@ -117,23 +115,23 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   return retVal;
 }
 
-static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char *term, size_t len,
-                                       t_fieldMask fieldMask, RS_Suggestions *s, int incr) {
+inline void SpellCheckCtx::FindSuggestions(Trie *t, const char *term, size_t len, t_fieldMask fieldMask,
+                                           RS_Suggestions *s, int incr) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
   int dist = 0;
   size_t suggestionLen;
 
-  TrieIterator *it = t->Iterate(term, len, (int)scCtx->distance, 0);
+  TrieIterator *it = t->Iterate(term, len, (int)distance, 0);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return;
   }
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (it->Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &suggestionLen);
     double score;
-    if ((score = SpellCheck_GetScore(scCtx, res, suggestionLen, fieldMask)) != -1) {
+    if ((score = GetScore(res, suggestionLen, fieldMask)) != -1) {
       RS_SuggestionsAdd(s, res, suggestionLen, score, incr);
     }
     rm_free(res);
@@ -150,9 +148,9 @@ RS_Suggestion **RS_Suggestions::GetSuggestions() {
   float score = 0;
   int dist = 0;
   size_t termLen;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
+  while (iter->Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
-    ret = array_append(ret, RS_SuggestionCreate(res, termLen, score));
+    ret = array_append(ret, new RS_Suggestion(res, termLen, score));
   }
   DFAFilter_Free(iter->ctx);
   rm_free(iter->ctx);
@@ -194,19 +192,17 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
   array_free_ex(suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
 }
 
-static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, size_t len,
-                                            t_fieldMask fieldMask) {
-
+inline bool SpellCheckCtx::ReplyTermSuggestions(char *term, size_t len, t_fieldMask fieldMask) {
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
-  if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len, NULL)) {
-    if (scCtx->fullScoreInfo) {
+  if (SpellCheck_IsTermExistsInTrie(sctx->spec->terms, term, len, NULL)) {
+    if (fullScoreInfo) {
       // if a full score info is requested we need to send information that
       // we found the term as is on the index
-      RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, 3);
-      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, TERM, strlen(TERM));
-      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, term, len);
-      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, FOUND_TERM_IN_INDEX,
+      RedisModule_ReplyWithArray(sctx->redisCtx, 3);
+      RedisModule_ReplyWithStringBuffer(sctx->redisCtx, TERM, strlen(TERM));
+      RedisModule_ReplyWithStringBuffer(sctx->redisCtx, term, len);
+      RedisModule_ReplyWithStringBuffer(sctx->redisCtx, FOUND_TERM_IN_INDEX,
                                         strlen(FOUND_TERM_IN_INDEX));
       return true;
     } else {
@@ -216,10 +212,10 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   // searching the term on the exclude list, if its there we just return false
   // because there is no need to return suggestions on it.
-  for (int i = 0; i < array_len(scCtx->excludeDict); ++i) {
+  for (int i = 0; i < array_len(>excludeDict); ++i) {
     RedisModuleKey *k = NULL;
     Trie *t =
-        SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->excludeDict[i], REDISMODULE_READ, &k);
+        SpellCheck_OpenDict(sctx->redisCtx, excludeDict[i], REDISMODULE_READ, &k);
     if (t == NULL) {
       continue;
     }
@@ -232,53 +228,51 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   RS_Suggestions *s = new RS_Suggestions();
 
-  SpellCheck_FindSuggestions(scCtx, scCtx->sctx->spec->terms, term, len, fieldMask, s, 1);
+  FindSuggestions(sctx->spec->terms, term, len, fieldMask, s, 1);
 
   // sorting results by score
 
   // searching the term on the include list for more suggestions.
-  for (int i = 0; i < array_len(scCtx->includeDict); ++i) {
+  for (int i = 0; i < array_len(includeDict); ++i) {
     RedisModuleKey *k = NULL;
     Trie *t =
-        SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->includeDict[i], REDISMODULE_READ, &k);
+        SpellCheck_OpenDict(sctx->redisCtx, includeDict[i], REDISMODULE_READ, &k);
     if (t == NULL) {
       continue;
     }
-    SpellCheck_FindSuggestions(scCtx, t, term, len, fieldMask, s, 0);
+    FindSuggestions(t, term, len, fieldMask, s, 0);
     RedisModule_CloseKey(k);
   }
 
-  SpellCheck_SendReplyOnTerm(scCtx->sctx->redisCtx, term, len, s,
-                             (!scCtx->fullScoreInfo) ? scCtx->sctx->spec->docs.size - 1 : 0);
-
-  delete s;
+  SpellCheck_SendReplyOnTerm(sctx->redisCtx, term, len, s,
+                             (!fullScoreInfo) ? sctx->spec->docs.size - 1 : 0);
 
   return true;
 }
 
-static bool SpellCheck_CheckDictExistence(SpellCheckCtx *scCtx, const char *dict) {
+inline bool SpellCheckCtx::CheckDictExistence(const char *dict) {
 #define BUFF_SIZE 1000
   RedisModuleKey *k = NULL;
-  Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ, &k);
+  Trie *t = SpellCheck_OpenDict(sctx->redisCtx, dict, REDISMODULE_READ, &k);
   if (t == NULL) {
     char buff[BUFF_SIZE];
     snprintf(buff, BUFF_SIZE, "Dict does not exist: %s", dict);
-    RedisModule_ReplyWithError(scCtx->sctx->redisCtx, buff);
+    RedisModule_ReplyWithError(sctx->redisCtx, buff);
     return false;
   }
   RedisModule_CloseKey(k);
   return true;
 }
 
-static bool SpellCheck_CheckTermDictsExistance(SpellCheckCtx *scCtx) {
-  for (int i = 0; i < array_len(scCtx->includeDict); ++i) {
-    if (!SpellCheck_CheckDictExistence(scCtx, scCtx->includeDict[i])) {
+inline bool SpellCheckCtx::CheckTermDictsExistance() {
+  for (int i = 0; i < array_len(includeDict); ++i) {
+    if (!CheckDictExistence(includeDict[i])) {
       return false;
     }
   }
 
-  for (int i = 0; i < array_len(scCtx->excludeDict); ++i) {
-    if (!SpellCheck_CheckDictExistence(scCtx, scCtx->excludeDict[i])) {
+  for (int i = 0; i < array_len(excludeDict); ++i) {
+    if (!CheckDictExistence(excludeDict[i])) {
       return false;
     }
   }
@@ -295,8 +289,8 @@ static int forEachCallback(QueryNode *n, QueryNode *orig, void *arg) {
   return 1;
 }
 
-void SpellCheck::Reply(QueryAST *q) {
-  if (!SpellCheck_CheckTermDictsExistance(this)) {
+void SpellCheckCtx::Reply(QueryAST *q) {
+  if (!CheckTermDictsExistance()) {
     return;
   }
 
@@ -307,7 +301,7 @@ void SpellCheck::Reply(QueryAST *q) {
     RedisModule_ReplyWithLongLong(sctx->redisCtx, sctx->spec->docs.size - 1);
   }
 
-  QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
+  q->root->ForEach(forEachCallback, scCtx, 1);
 
   RedisModule_ReplySetArrayLength(sctx->redisCtx, results + (fullScoreInfo ? 1 : 0));
 }

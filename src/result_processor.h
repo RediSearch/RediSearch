@@ -102,9 +102,9 @@ struct SearchResult {
 
   RSDocumentMetadata *dmd;
 
-  // index result should cover what you need for highlighting, but we will add a method to 
+  // index result should cover what you need for highlighting, but we will add a method to
   // duplicate index results to make them thread safe.
-  RSIndexResult *indexResult;
+  IndexResult *indexResult;
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
@@ -153,7 +153,7 @@ struct ResultProcessor : public Object {
   // For debugging purposes
   const char *name;
 
-  // Populates the result pointed to by `res`. The existing data of `res` is not read, 
+  // Populates the result pointed to by `res`. The existing data of `res` is not read,
   // so it is the responsibility of the caller to ensure that there
   // are no refcount leaks in the structure.
   //
@@ -235,7 +235,7 @@ struct Highlighter : public ResultProcessor {
   const FieldList *fields;
   const RLookup *lookup;
 
-  const RSIndexResult *getIndexResult(t_docId docId);
+  const IndexResult *getIndexResult(t_docId docId);
 
   virtual int Next(SearchResult *res);
 };

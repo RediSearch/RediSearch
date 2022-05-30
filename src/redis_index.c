@@ -539,9 +539,8 @@ static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey) {
 
   if (deleteDocuments) {
-
     DocTable *dt = &ctx->spec->docs;
-    DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
+    DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, dmd->CreateKeyString(ctx->redisCtx)));
   }
 
   rune *rstr = NULL;
@@ -556,7 +555,6 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
     RedisModuleString *keyName = ctx->TermKey(res, strlen(res));
     Redis_DropScanHandler(ctx->redisCtx, keyName, ctx);
     RedisModule_FreeString(ctx->redisCtx, keyName);
-    rm_free(res);
   }
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);

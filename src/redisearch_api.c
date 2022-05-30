@@ -106,7 +106,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   }
   if (options & RSFLDOPT_SORTABLE) {
     fs->options |= FieldSpec_Sortable;
-    fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+    fs->sortIdx = sp->sortables->Add(fs->name, fieldTypeToValueType(fs->types));
   }
   if (options & RSFLDOPT_TXTNOSTEM) {
     fs->options |= FieldSpec_NoStemming;
@@ -366,7 +366,7 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
 
 typedef struct RS_ApiIter {
   IndexIterator* internal;
-  RSIndexResult* res;
+  IndexResult* res;
   const RSDocumentMetadata* lastmd;
   ScoringFunctionArgs scargs;
   RSScoringFunction scorer;

@@ -29,7 +29,7 @@ TEST_F(TagIndexTest, testCreate) {
 
   IndexIterator *it = idx.OpenReader(NULL, "hello", 5, 1);
   ASSERT_TRUE(it != NULL);
-  RSIndexResult *r;
+  IndexResult *r;
   t_docId n = 1;
 
   // TimeSample ts;

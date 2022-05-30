@@ -153,7 +153,7 @@ static ExtScoringFunction *Extensions::GetScoringFunction(ScoringFunctionArgs *f
     /* if no ctx was given, we just return the scorer */
     if (fnargs) {
       fnargs->extdata = p->privdata;
-      fnargs->GetSlop = IndexResult_MinOffsetDelta;
+      fnargs->GetSlop = IndexResult::MinOffsetDelta;
     }
     return p;
   }

@@ -71,15 +71,15 @@ TEST_F(IndexTest, testDistance) {
   VVW_Truncate(vw);
   VVW_Truncate(vw2);
 
-  RSIndexResult *tr1 = NewTermRecord(NULL, 1);
+  TermResult *tr1(NULL, 1);
   tr1->docId = 1;
-  tr1->term.offsets = offsetsFromVVW(vw);
+  tr1->offsets = offsetsFromVVW(vw);
 
-  RSIndexResult *tr2 = NewTermRecord(NULL, 1);
+  TermResult *tr2(NULL, 1);
   tr2->docId = 1;
-  tr2->term.offsets = offsetsFromVVW(vw2);
+  tr2->offsets = offsetsFromVVW(vw2);
 
-  RSIndexResult *res = NewIntersectResult(2, 1);
+  IntersectResult *res(2, 1);
   res->AddChild(tr1);
   res->AddChild(tr2);
 
@@ -97,12 +97,12 @@ TEST_F(IndexTest, testDistance) {
   ASSERT_EQ(1, res->IsWithinRange(4, 1));
   ASSERT_EQ(1, res->IsWithinRange(5, 1));
 
-  RSIndexResult *tr3 = NewTermRecord(NULL, 1);
+  TermResult *tr3(NULL, 1);
   tr3->docId = 1;
-  tr3->term.offsets = offsetsFromVVW(vw3);
+  tr3->offsets = offsetsFromVVW(vw3);
   res->AddChild(tr3);
 
-  delta = IndexResult_MinOffsetDelta(res);
+  delta = res->MinOffsetDelta(res);
   ASSERT_EQ(7, delta);
 
   // test merge iteration
@@ -170,7 +170,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   for (int xx = 0; xx < 1; xx++) {
     // printf("si: %d\n", si->len);
     IndexReader *ir = new TermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
-    RSIndexResult *h = NULL;
+    IndexResult *h = NULL;
 
     int n = 0;
     int rc;
@@ -196,10 +196,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     // IndexResult_Free(&h);
     IR_Free(ir);
   }
-
-  // IW_Free(w);
-  // // overriding the regular IW_Free because we already deleted the buffer
-  InvertedIndex_Free(idx);
 }
 
 INSTANTIATE_TEST_CASE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
@@ -238,7 +234,7 @@ InvertedIndex *createIndex(int size, int idStep) {
   return idx;
 }
 
-int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
+int printIntersect(void *ctx, IndexResult *hits, int argc) {
   printf("intersect: %llu\n", (unsigned long long)hits[0].docId);
   return 0;
 }
@@ -248,7 +244,7 @@ TEST_F(IndexTest, testReadIterator) {
 
   IndexReader *r1 = new TermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
-  RSIndexResult *h = NULL;
+  IndexResult *h = NULL;
 
   IndexIterator *it = NewReadIterator(r1);
   int i = 1;
@@ -281,7 +277,7 @@ TEST_F(IndexTest, testUnion) {
   irs[1] = NewReadIterator(r2);
 
   IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1);
-  RSIndexResult *h;
+  IndexResult *h;
   int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
@@ -289,7 +285,7 @@ TEST_F(IndexTest, testUnion) {
     ASSERT_EQ(expected[i], h->docId);
     i++;
 
-    RSIndexResult *copy = new RSIndexResult(*h);
+    IndexResult *copy = new IndexResult(*h);
     ASSERT_TRUE(copy != NULL);
     ASSERT_TRUE(copy != h);
     ASSERT_TRUE(copy->isCopy);
@@ -317,7 +313,7 @@ TEST_F(IndexTest, testWeight) {
   irs[1] = NewReadIterator(r2);
 
   IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8);
-  RSIndexResult *h = NULL;
+  IndexResult *h = NULL;
   int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20};
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
@@ -355,7 +351,7 @@ TEST_F(IndexTest, testNot) {
   irs[1] = NewNotIterator(NewReadIterator(r2), w2->lastId, 1);
 
   IndexIterator *ui = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
-  RSIndexResult *h = NULL;
+  IndexResult *h = NULL;
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
@@ -378,7 +374,7 @@ TEST_F(IndexTest, testPureNot) {
 
   IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5, 1);
 
-  RSIndexResult *h = NULL;
+  IndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
                     20, 22, 23, 25, 26, 28, 29, 31, 32, 33, 34, 35};
   int i = 0;
@@ -405,7 +401,7 @@ TEST_F(IndexTest, DISABLED_testOptional) {
   irs[1] = NewOptionalIterator(NewReadIterator(r2), w2->lastId, 1);
 
   IndexIterator *ui = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
-  RSIndexResult *h = NULL;
+  IndexResult *h = NULL;
 
   int i = 1;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
@@ -441,7 +437,7 @@ TEST_F(IndexTest, testNumericInverted) {
 
   IndexReader *ir = NewNumericReader(NULL, idx, NULL);
   IndexIterator *it = NewReadIterator(ir);
-  RSIndexResult *res;
+  IndexResult *res;
   t_docId i = 1;
   while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
     // printf("%d %f\n", res->docId, res->num.value);
@@ -469,7 +465,7 @@ TEST_F(IndexTest, testNumericVaried) {
 
   IndexReader *ir = NewNumericReader(NULL, idx, NULL);
   IndexIterator *it = NewReadIterator(ir);
-  RSIndexResult *res;
+  IndexResult *res;
 
   for (size_t i = 0; i < numCount; i++) {
     // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
@@ -531,7 +527,7 @@ TEST_F(IndexTest, testNumericEncoding) {
 
   IndexReader *ir = NewNumericReader(NULL, idx, NULL);
   IndexIterator *it = NewReadIterator(ir);
-  RSIndexResult *res;
+  IndexResult *res;
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\nReading [%lu]\n", ii);
@@ -557,7 +553,7 @@ TEST_F(IndexTest, testAbort) {
 
   IndexIterator *it = NewReadIterator(r);
   int n = 0;
-  RSIndexResult *res;
+  IndexResult *res;
   while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
     if (n == 50) {
       it->Abort(it->ctx);
@@ -583,7 +579,7 @@ TEST_F(IndexTest, testIntersection) {
   int count = 0;
   IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
 
-  RSIndexResult *h;
+  IndexResult *h;
 
   uint32_t topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
@@ -592,7 +588,7 @@ TEST_F(IndexTest, testIntersection) {
     ASSERT_TRUE(h->HasOffsets());
     topFreq = topFreq > h->freq ? topFreq : h->freq;
 
-    RSIndexResult *copy = new RSIndexResult(*h);
+    IndexResult *copy = new IndexResult(*h);
     ASSERT_TRUE(copy != NULL);
     ASSERT_TRUE(copy != h);
     ASSERT_TRUE(copy->isCopy == 1);
@@ -1007,75 +1003,69 @@ TEST_F(IndexTest, testDocTable) {
 }
 
 TEST_F(IndexTest, testSortable) {
-  RSSortingTable *tbl = NewSortingTable();
-  RSSortingTable_Add(tbl, "foo", RSValue_String);
-  RSSortingTable_Add(tbl, "bar", RSValue_String);
-  RSSortingTable_Add(tbl, "baz", RSValue_String);
+  RSSortingTable *tbl;
+  tbl->Add("foo", RSValue_String);
+  tbl->Add("bar", RSValue_String);
+  tbl->Add("baz", RSValue_String);
   ASSERT_EQ(3, tbl->len);
 
   ASSERT_STREQ("foo", tbl->fields[0].name);
   ASSERT_EQ(RSValue_String, tbl->fields[0].type);
   ASSERT_STREQ("bar", tbl->fields[1].name);
   ASSERT_STREQ("baz", tbl->fields[2].name);
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(NULL, "FoO"));
+  ASSERT_EQ(0, tbl->GetFieldIdx("foo"));
+  ASSERT_EQ(0, tbl->GetFieldIdx("FoO"));
+  ASSERT_EQ(1, tbl->GetFieldIdx("bar"));
+  ASSERT_EQ(-1, tbl->GetFieldIdx("barbar"));
 
-  ASSERT_EQ(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
-
-  RSSortingVector *v = NewSortingVector(tbl->len);
+  RSSortingVector *v = new RSSortingVector(tbl->len);
   ASSERT_EQ(v->len, tbl->len);
 
   const char *str = "hello";
   const char *masse = "Maße";
   double num = 3.141;
   ASSERT_TRUE(v->values[0]->IsNull());
-  RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR);
+  v->Put(0, str, RS_SORTABLE_STR);
   ASSERT_EQ(v->values[0]->t, RSValue_String);
   ASSERT_EQ(v->values[0]->strval.stype, RSString_RMAlloc);
 
   ASSERT_TRUE(v->values[1]->IsNull());
   ASSERT_TRUE(v->values[2]->IsNull());
-  RSSortingVector_Put(v, 1, &num, RSValue_Number);
+  v->Put(1, &num, RSValue_Number);
   ASSERT_EQ(v->values[1]->t, RS_SORTABLE_NUM);
 
-  RSSortingVector *v2 = NewSortingVector(tbl->len);
-  RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR);
+  RSSortingVector *v2 = new RSSortingVector(tbl->len);
+  v2->Put(0, masse, RS_SORTABLE_STR);
 
   /// test string unicode lowercase normalization
   ASSERT_STREQ("masse", v2->values[0]->strval.str);
 
   double s2 = 4.444;
-  RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM);
+  v2->Put(1, &s2, RS_SORTABLE_NUM);
 
   RSSortingKey sk = {.index = 0, .ascending = 0};
 
   QueryError qerr;
   QueryError_Init(&qerr);
 
-  int rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  int rc = RSSortingVector::Cmp(v, v2, &sk, &qerr);
   ASSERT_LT(0, rc);
   ASSERT_EQ(QUERY_OK, qerr.code);
   sk.ascending = 1;
-  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  rc = RSSortingVector::Cmp(v, v2, &sk, &qerr);
   ASSERT_GT(0, rc);
   ASSERT_EQ(QUERY_OK, qerr.code);
-  rc = RSSortingVector_Cmp(v, v, &sk, &qerr);
+  rc = RSSortingVector::Cmp(v, v, &sk, &qerr);
   ASSERT_EQ(0, rc);
   ASSERT_EQ(QUERY_OK, qerr.code);
 
   sk.index = 1;
 
-  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  rc = RSSortingVector::Cmp(v, v2, &sk, &qerr);
   ASSERT_TRUE(-1 == rc && qerr.code == QUERY_OK);
   sk.ascending = 0;
-  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  rc = RSSortingVector::Cmp(v, v2, &sk, &qerr);
   ASSERT_TRUE(1 == rc && qerr.code == QUERY_OK);
-
-  SortingTable_Free(tbl);
-  SortingVector_Free(v);
-  SortingVector_Free(v2);
 }
 
 TEST_F(IndexTest, testVarintFieldMask) {
@@ -1119,7 +1109,7 @@ TEST_F(IndexTest, testDeltaSplits) {
   ASSERT_EQ(idx->size, 2);
 
   IndexReader *ir = new TermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
-  RSIndexResult *h = NULL;
+  IndexResult *h = NULL;
   ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
   ASSERT_EQ(1, h->docId);
 

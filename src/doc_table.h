@@ -14,18 +14,18 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Retrieves the pointer and length for the document's key.
-inline const char *DMD_KeyPtrLen(const RSDocumentMetadata *dmd, size_t *len) {
+inline const char *RSDocumentMetadata::KeyPtrLen(size_t *len) const {
   if (len) {
-    *len = sdslen(dmd->keyPtr);
+    *len = sdslen(keyPtr);
   }
-  return dmd->keyPtr;
+  return keyPtr;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Convenience function to create a RedisModuleString from the document's key
-inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *dmd, RedisModuleCtx *ctx) {
-  return RedisModule_CreateString(ctx, dmd->keyPtr, sdslen(dmd->keyPtr));
+inline RedisModuleString *RSDocumentMetadata::CreateKeyString(RedisModuleCtx *ctx) const {
+  return RedisModule_CreateString(ctx, keyPtr, sdslen(keyPtr));
 }
 
 //---------------------------------------------------------------------------------------------

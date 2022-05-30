@@ -217,7 +217,7 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
         // Handle C
         A->AddChild(C);
         A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+        A->SetFieldMask(A->opts.fieldMask);
     }
 
 }
@@ -227,7 +227,7 @@ union(A) ::= union(B) OR expr(C). [ORX] {
     if (C) {
         A->AddChild(C);
         A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(C, A->opts.fieldMask);
+        C->SetFieldMask(A->opts.fieldMask);
     }
 }
 
@@ -240,7 +240,7 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
         A = NULL;
     } else {
         if (ctx->sctx->spec) {
-            QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+            C->SetFieldMask(IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
         }
         A = C;
     }
@@ -262,7 +262,7 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
                 rm_free(p);
             }
         }
-        QueryNode_SetFieldMask(C, mask);
+        C->SetFieldMask(mask);
         Vector_Free(B);
         A=C;
     }
@@ -301,7 +301,7 @@ attribute_list(A) ::= . {
 expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
 
     if (B && C) {
-        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+        B->ApplyAttributes(C, array_len(C), ctx->status);
     }
     array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
     A = B;

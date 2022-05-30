@@ -9,25 +9,23 @@
 #include "buffer.h"
 
 /* Create a sorting vector of a given length for a document */
-RSSortingVector *NewSortingVector(int len) {
-  if (len > RS_SORTABLES_MAX) {
-    return NULL;
+RSSortingVector::RSSortingVector(int len_) {
+  if (len_ > RS_SORTABLES_MAX) {
+    return;
   }
-  RSSortingVector *ret = rm_calloc(1, sizeof(RSSortingVector) + len * (sizeof(RSValue)));
-  ret->len = len;
+  len = len_;
   // set all values to NIL
-  for (int i = 0; i < len; i++) {
-    ret->values[i] = RS_NullVal()->IncrRef();
+  for (int i = 0; i < len_; i++) {
+    values[i] = RS_NullVal()->IncrRef();
   }
-  return ret;
 }
 
 /* Internal compare function between members of the sorting vectors, sorted by sk */
-int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk,
-                        QueryError *qerr) {
+static int RSSortingVector::Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk,
+                                QueryError *qerr) {
   RSValue *v1 = self->values[sk->index];
   RSValue *v2 = other->values[sk->index];
-  int rc = RSValue_Cmp(v1, v2, qerr);
+  int rc = RSValue::Cmp(v1, v2, qerr);
   return sk->ascending ? rc : -rc;
 }
 
@@ -62,49 +60,44 @@ char *normalizeStr(const char *str) {
   return lower_buffer;
 }
 
-/* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type) {
+// Put a value in the sorting vector
+void RSSortingVector::Put(int idx, const void *p, int type) {
   if (idx > RS_SORTABLES_MAX) {
     return;
   }
-  if (tbl->values[idx]) {
-    tbl->values[idx]->Decref();
-    tbl->values[idx] = NULL;
+  if (values[idx]) {
+    values[idx]->Decref();
+    values[idx] = NULL;
   }
   switch (type) {
     case RS_SORTABLE_NUM:
-      tbl->values[idx] = RS_NumVal(*(double *)p);
+      values[idx] = RS_NumVal(*(double *)p);
 
       break;
     case RS_SORTABLE_STR: {
       char *ns = normalizeStr((const char *)p);
-      tbl->values[idx] = RS_StringValT(ns, strlen(ns), RSString_RMAlloc);
+      values[idx] = RS_StringValT(ns, strlen(ns), RSString_RMAlloc);
       break;
     }
     case RS_SORTABLE_NIL:
     default:
-      tbl->values[idx] = RS_NullVal();
+      values[idx] = RS_NullVal();
       break;
   }
 }
 
 /* Free a sorting vector */
-void SortingVector_Free(RSSortingVector *v) {
-  for (size_t i = 0; i < v->len; i++) {
-    v->values[i]->Decref();
+RSSortingVector::~RSSortingVector() {
+  for (size_t i = 0; i < len; i++) {
+    values[i]->Decref();
   }
-  rm_free(v);
 }
 
 /* Save a sorting vector to rdb. This is called from the doc table */
-void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
-  if (!v) {
-    RedisModule_SaveUnsigned(rdb, 0);
-    return;
-  }
-  RedisModule_SaveUnsigned(rdb, v->len);
-  for (int i = 0; i < v->len; i++) {
-    RSValue *val = v->values[i];
+void RSSortingVector::RdbSave(RedisModuleIO *rdb) {
+  RedisModule_SaveUnsigned(rdb, len);
+  for (int i = 0; i < len; i++) {
+    RSValue *val = values[i];
     if (!val) {
       RedisModule_SaveUnsigned(rdb, RSValue_Null);
       continue;
@@ -128,13 +121,12 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
 }
 
 /* Load a sorting vector from RDB */
-RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
+RSSortingVector::RSSortingVector(RedisModuleIO *rdb, int encver) {
 
-  int len = (int)RedisModule_LoadUnsigned(rdb);
+  len = (int)RedisModule_LoadUnsigned(rdb);
   if (len > RS_SORTABLES_MAX || len <= 0) {
-    return NULL;
+    return;
   }
-  RSSortingVector *vec = NewSortingVector(len);
   for (int i = 0; i < len; i++) {
     RSValueType t = RedisModule_LoadUnsigned(rdb);
 
@@ -144,65 +136,59 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
         s[len - 1] = '\0';
-        vec->values[i] = RS_StringValT(rm_strdup(s), len - 1, RSString_RMAlloc);
+        values[i] = RS_StringValT(rm_strdup(s), len - 1, RSString_RMAlloc);
         RedisModule_Free(s);
         break;
       }
       case RS_SORTABLE_NUM:
         // load numeric value
-        vec->values[i] = RS_NumVal(RedisModule_LoadDouble(rdb));
+        values[i] = RS_NumVal(RedisModule_LoadDouble(rdb));
         break;
       // for nil we read nothing
       case RS_SORTABLE_NIL:
       default:
-        vec->values[i] = RS_NullVal();
+        values[i] = RS_NullVal();
         break;
     }
   }
-  return vec;
 }
 
-size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
-  if (!v) return 0;
+// Returns the value for a given index. Does not increment the refcount
+inline RSValue *RSSortingVector::Get(size_t index) {
+  if (len <= index) {
+    return NULL;
+  }
+  return values[index];
+}
 
-  size_t sum = v->len * sizeof(RSValue *);
-  for (int i = 0; i < v->len; i++) {
-    if (!v->values[i]) continue;
+size_t RSSortingVector::GetMemorySize() {
+  size_t sum = len * sizeof(RSValue *);
+  for (int i = 0; i < len; i++) {
+    if (!values[i]) continue;
     sum += sizeof(RSValue);
 
-    RSValue *val = v->values[i]->Dereference();
-    if (val && RSValue_IsString(val)) {
+    RSValue *val = values[i]->Dereference();
+    if (val && val->IsString()) {
       size_t sz;
-      RSValue_StringPtrLen(val, &sz);
+      val->StringPtrLen(&sz);
       sum += sz;
     }
   }
   return sum;
 }
 
-/* Create a new sorting table of a given length */
-RSSortingTable *NewSortingTable(void) {
-  RSSortingTable *tbl = rm_calloc(1, sizeof(*tbl));
-  return tbl;
-}
-
-void SortingTable_Free(RSSortingTable *t) {
-  rm_free(t);
-}
-
-int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t) {
-  RS_LOG_ASSERT(tbl->len < RS_SORTABLES_MAX, "sorting table is too large");
-  tbl->fields[tbl->len].name = name;
-  tbl->fields[tbl->len].type = t;
-  return tbl->len++;
+// Adds a field and returns the ID of the newly-inserted field
+int RSSortingTable::Add(const char *name, RSValueType t) {
+  RS_LOG_ASSERT(len < RS_SORTABLES_MAX, "sorting table is too large");
+  fields[len].name = name;
+  fields[len].type = t;
+  return len++;
 }
 
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
-int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
-
-  if (!tbl) return -1;
-  for (int i = 0; i < tbl->len; i++) {
-    if (!strcasecmp(tbl->fields[i].name, field)) {
+int RSSortingTable::GetFieldIdx(const char *field) {
+  for (int i = 0; i < len; i++) {
+    if (!strcasecmp(fields[i].name, field)) {
       return i;
     }
   }

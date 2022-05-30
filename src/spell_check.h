@@ -13,6 +13,7 @@ struct RS_Suggestion : Object {
   size_t len;
 
   RS_Suggestion();
+  RS_Suggestion(char *suggestion, size_t len, double score);
   ~RS_Suggestion();
 
   int Compare(const RS_Suggestion **val) const {
@@ -41,6 +42,13 @@ struct SpellCheckCtx {
   size_t results;
 
   void Reply(QueryAST *q);
+  bool ReplyTermSuggestions(char *term, size_t len, t_fieldMask fieldMask);
+
+  void FindSuggestions(Trie *t, const char *term, size_t len, t_fieldMask fieldMask, RS_Suggestions *s, int incr);
+  double GetScore(char *suggestion, size_t len, t_fieldMask fieldMask);
+
+  bool CheckDictExistence(const char *dict);
+  bool CheckTermDictsExistance();
 };
 
 #endif /* SRC_SPELL_CHECK_H_ */

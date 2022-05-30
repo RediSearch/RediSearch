@@ -2,22 +2,22 @@
 
 RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.
 
-There are two kinds of extension APIs at the moment: 
+There are two kinds of extension APIs at the moment:
 
 1. **Query Expanders**, whose role is to expand query tokens (i.e. stemmers).
 2. **Scoring Functions**, whose role is to rank search results in query time.
 
 ## Registering and loading extensions
 
-Extensions should be compiled into .so files, and loaded into RediSearch on initialization of the module. 
+Extensions should be compiled into .so files, and loaded into RediSearch on initialization of the module.
 
-* Compiling 
+* Compiling
 
-    Extensions should be compiled and linked as dynamic libraries. An example Makefile for an extension [can be found here](https://github.com/RediSearch/RediSearch/blob/master/src/tests/ext-example/Makefile). 
+    Extensions should be compiled and linked as dynamic libraries. An example Makefile for an extension [can be found here](https://github.com/RediSearch/RediSearch/blob/master/src/tests/ext-example/Makefile).
 
     That folder also contains an example extension that is used for testing and can be taken as a skeleton for implementing your own extension.
 
-* Loading 
+* Loading
 
     Loading an extension is done by apending `EXTLOAD {path/to/ext.so}` after the `loadmodule` configuration directive when loading RediSearch. For example:
 
@@ -26,7 +26,7 @@ Extensions should be compiled into .so files, and loaded into RediSearch on init
     $ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so
     ```
 
-    This causes RediSearch to automatically load the extension and register its expanders and scorers. 
+    This causes RediSearch to automatically load the extension and register its expanders and scorers.
 
 
 ## Initializing an extension
@@ -37,7 +37,7 @@ The entry point of an extension is a function with the signature:
 int RS_ExtensionInit(RSExtensionCtx *ctx);
 ```
 
-When loading the extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers. 
+When loading the extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers.
 
 It should return REDISEARCH_ERR on error or REDISEARCH_OK on success.
 
@@ -135,7 +135,7 @@ typedef struct {
   const char *str;
   /* The token length */
   size_t len;
-  
+
   /* 1 if the token is the result of query expansion */
   uint8_t expanded:1;
 
@@ -147,31 +147,31 @@ typedef struct {
 
 ## The scoring function API
 
-A scoring function receives each document being evaluated by the query, for final ranking. 
+A scoring function receives each document being evaluated by the query, for final ranking.
 It has access to all the query terms that brought up the document,and to metadata about the
 document such as its a-priory score, length, etc.
 
 Since the scoring function is evaluated per each document, potentially millions of times, and since
-redis is single threaded - it is important that it works as fast as possible and be heavily optimized. 
+redis is single threaded - it is important that it works as fast as possible and be heavily optimized.
 
 A scoring function is applied to each potential result (per document) and is implemented with the following signature:
 
 ```c
-double MyScoringFunction(RSScoringFunctionCtx *ctx, RSIndexResult *res,
+double MyScoringFunction(RSScoringFunctionCtx *ctx, IndexResult *res,
                                     RSDocumentMetadata *dmd, double minScore);
 ```
 
-RSScoringFunctionCtx is a context that implements some helper methods. 
+RSScoringFunctionCtx is a context that implements some helper methods.
 
-RSIndexResult is the result information - containing the document id, frequency, terms, and offsets. 
+IndexResult is the result information - containing the document id, frequency, terms, and offsets.
 
-RSDocumentMetadata is an object holding global information about the document, such as its a-priory score. 
+RSDocumentMetadata is an object holding global information about the document, such as its a-priory score.
 
 minSocre is the minimal score that will yield a result that will be relevant to the search. It can be used to stop processing mid-way of before we even start.
 
-The return value of the function is double representing the final score of the result. 
-Returning 0 causes the result to be counted, but if there are results with a score greater than 0, they will appear above it. 
-To completely filter out a result and not count it in the totals, the scorer should return the special value `RS_SCORE_FILTEROUT` (which is internally set to negative infinity, or -1/0). 
+The return value of the function is double representing the final score of the result.
+Returning 0 causes the result to be counted, but if there are results with a score greater than 0, they will appear above it.
+To completely filter out a result and not count it in the totals, the scorer should return the special value `RS_SCORE_FILTEROUT` (which is internally set to negative infinity, or -1/0).
 
 ### RSScoringFunctionCtx
 
@@ -179,9 +179,9 @@ This is an object containing the following members:
 
 * **void *privdata**: a pointer to an object set by the extension on initialization time.
 * **RSPayload payload**: A Payload object set either by the query expander or the client.
-* **int GetSlop(RSIndexResult *res)**: A callback method that yields the total minimal distance between the query terms. This can be used to prefer results where the "slop" is smaller and the terms are nearer to each other.
+* **int GetSlop(IndexResult *res)**: A callback method that yields the total minimal distance between the query terms. This can be used to prefer results where the "slop" is smaller and the terms are nearer to each other.
 
-### RSIndexResult
+### IndexResult
 
 This is an object holding the information about the current result in the index, which is an aggregate of all the terms that resulted in the current document being considered a valid result.
 
@@ -189,7 +189,7 @@ See redisearch.h for details
 
 ### RSDocumentMetadata
 
-This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function. 
+This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function.
 
 
 ## Example query expander
@@ -200,7 +200,7 @@ This example query expander expands each token with the term foo:
 #include <redisearch.h> //must be in the include path
 
 void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-    ctx->ExpandToken(ctx, strdup("foo"), strlen("foo"), 0x1337);  
+    ctx->ExpandToken(ctx, strdup("foo"), strlen("foo"), 0x1337);
 }
 ```
 
@@ -211,9 +211,9 @@ This is an actual scoring function, calculating TF-IDF for the document, multipl
 ```c
 #include <redisearch.h> //must be in the include path
 
-double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double TFIDFScorer(RSScoringFunctionCtx *ctx, IndexResult *h, RSDocumentMetadata *dmd,
                    double minScore) {
-  // no need to evaluate documents with score 0 
+  // no need to evaluate documents with score 0
   if (dmd->score == 0) return 0;
 
   // calculate sum(tf-idf) for each term in the result
@@ -222,7 +222,7 @@ double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetada
     // take the term frequency and multiply by the term IDF, add that to the total
     tfidf += (float)h->records[i].freq * (h->records[i].term ? h->records[i].term->idf : 0);
   }
-  // normalize by the maximal frequency of any term in the document   
+  // normalize by the maximal frequency of any term in the document
   tfidf /=  (double)dmd->maxFreq;
 
   // multiply by the document score (between 0 and 1)
@@ -235,7 +235,7 @@ double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetada
 
   // get the slop and divide the result by it, making sure we prefer results with closer terms
   tfidf /= (double)ctx->GetSlop(h);
-  
+
   return tfidf;
 }
 ```

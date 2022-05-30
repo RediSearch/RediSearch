@@ -31,7 +31,7 @@ static const char *getExtensionPath(void) {
 }
 
 /* Calculate sum(TF-IDF)*document score for each result */
-static double myScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+static double myScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
                        const RSDocumentMetadata *dmd, double minScore) {
   return 3.141;
 }

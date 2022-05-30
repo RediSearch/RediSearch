@@ -91,7 +91,7 @@ TEST_F(RangeTest, testRangeIterator) {
     IndexIterator *it = createNumericIterator(NULL, t, flt);
 
     int xcount = 0;
-    RSIndexResult *res;
+    IndexResult *res;
 
     while (IITER_HAS_NEXT(it)) {
 
@@ -163,7 +163,7 @@ TEST_F(RangeTest, testRangeIterator) {
 //   // ASSERT_EQUAL(it->Len(it->ctx), N);
 //   count = 0;
 
-//   RSIndexResult *res = NULL;
+//   IndexResult *res = NULL;
 
 //   it->Free(it);
 

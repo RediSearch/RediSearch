@@ -318,7 +318,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
+  while (it->Next(&rstr, &slen, NULL, &score, &dist) &&
          (itsSz < maxExpansions || maxExpansions == -1)) {
 
     // Create a token for the reader
@@ -354,7 +354,6 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);
-  delete it;
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
     rm_free(its);

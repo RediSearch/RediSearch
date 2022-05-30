@@ -541,20 +541,6 @@ TrieMapIterator *TrieMap::Iterate(const char *prefix, tm_len_t len) {
 
   return it;
 }
-#define TRIE_INITIAL_STRING_LEN 255
-
-struct TrieMapRangeCtx {
-  char *buf;
-  TrieMapRangeCallback *callback;
-  void *cbctx;
-  bool includeMin;
-  bool includeMax;
-};
-
-struct TrieMaprsbHelper {
-  const char *r;
-  int n;
-};
 
 static int nodecmp(const char *sa, size_t na, const char *sb, size_t nb) {
   size_t minlen = MIN(na, nb);

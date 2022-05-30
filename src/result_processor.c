@@ -87,7 +87,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     return RS_RESULT_EOF;
   }
 
-  RSIndexResult *r;
+  IndexResult *r;
   RSDocumentMetadata *dmd;
   int rc;
 

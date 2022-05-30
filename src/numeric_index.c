@@ -114,12 +114,12 @@ double NumericRange::Split(NumericRangeNode **lp, NumericRangeNode **rp) {
   *rp = new NumericRangeNode(entries.numDocs / 2 + 1, split, maxVal,
                              MIN(NR_MAXRANGE_CARD, 1 + splitCard * NR_EXPONENT));
 
-  RSIndexResult *res = NULL;
+  NumericResult res = NULL;
   NumericIndexReader ir(&entries);
-  while (INDEXREAD_OK == ir.Read(&res)) {
-    auto range = res->num.value < split ? (*lp)->range : (*rp)->range;
+  while (INDEXREAD_OK == ir.Read(res)) {
+    auto range = res.value < split ? (*lp)->range : (*rp)->range;
     if (range) {
-      range->Add(res->docId, res->num.value, 1);
+      range->Add(res.docId, res.value, 1);
     }
   }
 
@@ -132,7 +132,7 @@ double NumericRange::Split(NumericRangeNode **lp, NumericRangeNode **rp) {
 
 //---------------------------------------------------------------------------------------------
 
-NumericRange::NumericRange(double min, double max, size_t splitCard) : 
+NumericRange::NumericRange(double min, double max, size_t splitCard) :
   minVal(min), maxVal(max), unique_sum(0), card(0), splitCard(splitCard),
   values(array_new(CardinalityValue, 1)),
   entries(Index_StoreNumeric, 1) {
@@ -648,12 +648,12 @@ static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->IsLeaf() && n->range) {
     NumericRange *rng = n->range;
-    RSIndexResult *res = NULL;
+    NumericResult res = NULL;
     NumericIndexReader ir(rng->entries);
 
-    while (INDEXREAD_OK == ir.Read(&res)) {
-      RedisModule_SaveUnsigned(rctx->rdb, res->docId);
-      RedisModule_SaveDouble(rctx->rdb, res->num.value);
+    while (INDEXREAD_OK == ir.Read(res)) {
+      RedisModule_SaveUnsigned(rctx->rdb, res.docId);
+      RedisModule_SaveDouble(rctx->rdb, res.value);
     }
   }
 }

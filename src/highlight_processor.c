@@ -19,7 +19,7 @@ struct hlpDocContext {
   const RSByteOffsets *byteOffsets;
 
   // Index result, which contains the term offsets (word-wise)
-  const RSIndexResult *indexResult;
+  const IndexResult *indexResult;
 
   // Array used for in/out when writing fields. Optimization cache
   Array *iovsArr;
@@ -38,7 +38,7 @@ struct hlpDocContext {
  * Returns true if the fragmentation succeeded, false otherwise.
  */
 static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText,
-                              size_t fieldLen, const RSIndexResult *indexResult,
+                              size_t fieldLen, const IndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
                               int options) {
   const FieldSpec *fs = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
@@ -273,12 +273,9 @@ static void Highlighter::processField(hlpDocContext *docParams, ReturnedField *s
 
 //---------------------------------------------------------------------------------------------
 
-const RSIndexResult *Highlighter::getIndexResult(t_docId docId) {
-  IndexIterator *it = QITR_GetRootFilter(rp->parent);
-  RSIndexResult *ir = NULL;
-  if (!it) {
-    return NULL;
-  }
+const IndexResult *Highlighter::getIndexResult(t_docId docId) {
+  IndexIterator *it = QITR_GetRootFilter(parent);
+  IndexResult *ir;
   it->Rewind();
   if (INDEXREAD_OK != it->SkipTo(docId, &ir)) {
     return NULL;
@@ -296,7 +293,7 @@ int Highlighter::Next(SearchResult *r) {
 
   // Get the index result for the current document from the root iterator.
   // The current result should not contain an index result
-  const RSIndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(rbase, r->docId);
+  const IndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(rbase, r->docId);
 
   // we can't work withot the inex result, just return QUEUED
   if (!ir) {

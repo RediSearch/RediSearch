@@ -3,10 +3,6 @@
 #include "redismodule.h"
 #include "value.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* Sortables - embedded sorting fields. When creating a schema we can specify fields that will be
  * sortable.
  * A sortable field means that its data will get copied into an inline table inside the index. right
@@ -23,76 +19,48 @@ extern "C" {
 // nil value means the value is empty
 #define RS_SORTABLE_NIL 4
 
-/* RSSortingVector is a vector of sortable values. All documents in a schema where sortable fields
- * are defined will have such a vector. */
-typedef struct RSSortingVector {
-  unsigned int len : 8;
-  RSValue *values[];
-} RSSortingVector;
-
-#pragma pack()
-
-/* RSSortingTable defines the length and names of the fields in a sorting vector. It is saved as
- * part of the spec */
-typedef struct {
-  uint8_t len;
-  struct sortField {
-    const char *name;
-    RSValueType type;
-  } fields[RS_SORTABLES_MAX];
-} RSSortingTable;
-
 /* RSSortingKey describes the sorting of a query and is parsed from the redis command arguments */
-typedef struct {
+struct RSSortingKey {
   /* The field index we are sorting by */
   int index : 8;
 
   /* ASC/DESC flag */
   int ascending;
-} RSSortingKey;
+};
 
-/* Create a sorting table. */
-RSSortingTable *NewSortingTable();
 
-/* Free a sorting table */
-void SortingTable_Free(RSSortingTable *t);
+/* RSSortingVector is a vector of sortable values. All documents in a schema where sortable fields
+ * are defined will have such a vector. */
+struct RSSortingVector {
+  unsigned int len : 8;
+  RSValue *values[];
 
-/** Adds a field and returns the ID of the newly-inserted field */
-int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t);
+  RSSortingVector(int len_);
+  RSSortingVector(RedisModuleIO *rdb, int encver);
+  ~RSSortingVector();
 
-/* Get the field index by name from the sorting table. Returns -1 if the field was not found */
-int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field);
+  void Put(int idx, const void *p, int type);
+  RSValue *RSSortingVector::Get(size_t index);
+  size_t GetMemorySize();
 
-/* Internal compare function between members of the sorting vectors, sorted by sk */
-int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk,
-                        QueryError *qerr);
+  static int Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk, QueryError *qerr);
 
-/* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type);
+  void RdbSave(RedisModuleIO *rdb);
+};
 
-/* Returns the value for a given index. Does not increment the refcount */
-static inline RSValue *RSSortingVector_Get(RSSortingVector *v, size_t index) {
-  if (v->len <= index) {
-    return NULL;
-  }
-  return v->values[index];
-}
+#pragma pack()
 
-size_t RSSortingVector_GetMemorySize(RSSortingVector *v);
+/* RSSortingTable defines the length and names of the fields in a sorting vector. It is saved as
+ * part of the spec */
+struct RSSortingTable {
+  uint8_t len;
+  struct sortField {
+    const char *name;
+    RSValueType type;
+  } fields[RS_SORTABLES_MAX];
 
-/* Create a sorting vector of a given length for a document */
-RSSortingVector *NewSortingVector(int len);
+  int Add(const char *name, RSValueType t);
+  int GetFieldIdx(const char *field);
+};
 
-/* Free a sorting vector */
-void SortingVector_Free(RSSortingVector *v);
-
-/* Save a document's sorting vector into an rdb dump */
-void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v);
-
-/* Load a sorting vector from RDB */
-RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver);
-
-#ifdef __cplusplus
-}
-#endif
 #endif

@@ -14,11 +14,11 @@ struct IdListIterator : public IndexIterator {
   IdListIterator(t_docId *ids, t_offset num, double weight);
   ~IdListIterator();
 
-  virtual RSIndexResult *GetCurrent();
+  virtual IndexResult *GetCurrent();
   virtual size_t NumEstimated();
   virtual IndexCriteriaTester *GetCriteriaTester();
-  virtual int Read(RSIndexResult **e);
-  virtual int SkipTo(t_docId docId, RSIndexResult **hit);
+  virtual int Read(IndexResult **e);
+  virtual int SkipTo(t_docId docId, IndexResult **hit);
   virtual t_docId LastDocId();
   virtual int HasNext();
   virtual size_t Len();
@@ -27,7 +27,7 @@ struct IdListIterator : public IndexIterator {
 
   void setEof(int value) { isValid = !value; }
   int isEof() const { return !isValid; }
-  
+
   static int cmp_docids(const t_docId *d1, const t_docId *d2);
 };
 
@@ -65,7 +65,7 @@ size_t IdListIterator::NumEstimated() {
 
 // Read the next entry from the iterator, into hit *e.
 // Returns INDEXREAD_EOF if at the end */
-int IdListIterator::Read(RSIndexResult **r) {
+int IdListIterator::Read(IndexResult **r) {
   if (isEof() || offset >= size) {
     setEof(1);
     return INDEXREAD_EOF;
@@ -84,7 +84,7 @@ void IdListIterator::Abort() {
 }
 
 // Skip to a docid, potentially reading the entry into hit, if the docId matches
-int IdListIterator::SkipTo(t_docId docId, RSIndexResult **r) {
+int IdListIterator::SkipTo(t_docId docId, IndexResult **r) {
   if (isEof() || offset >= size) {
     return INDEXREAD_EOF;
   }

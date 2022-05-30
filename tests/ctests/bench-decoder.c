@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
     IndexIterator *it = NewReadIterator(r);
     TimeSample ts;
     TimeSampler_Start(&ts);
-    RSIndexResult *res;
+    IndexResult *res;
     while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
       TimeSampler_Tick(&ts);
     }

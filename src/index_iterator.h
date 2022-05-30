@@ -16,7 +16,7 @@ enum class IndexIteratorMode {
   Sorted = 0,
   Unsorted = 1
 };
-  
+
 // #define MODE_SORTED 0
 // #define MODE_UNSORTED 1
 
@@ -57,7 +57,7 @@ public:
   t_docId minId;
 
   // Cached value - used if Current() is not set
-  RSIndexResult *current;
+  IndexResult *current;
 
   IndexIteratorMode mode;
 
@@ -66,7 +66,7 @@ public:
 
   //-------------------------------------------------------------------------------------------
 
-  virtual RSIndexResult *GetCurrent() { return NULL; }
+  virtual IndexResult *GetCurrent() { return NULL; }
 
   virtual size_t NumEstimated();
 
@@ -74,10 +74,10 @@ public:
 
   // Read the next entry from the iterator, into hit *e
   // Returns INDEXREAD_EOF if at the end
-  virtual int Read(RSIndexResult **e);
+  virtual int Read(IndexResult **e);
 
   // Skip to a docid, potentially reading the entry into hit, if the docId matches
-  virtual int SkipTo(t_docId docId, RSIndexResult **hit);
+  virtual int SkipTo(t_docId docId, IndexResult **hit);
 
   // the last docId read
   virtual t_docId LastDocId();

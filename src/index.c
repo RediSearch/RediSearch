@@ -185,8 +185,8 @@ size_t UnionIterator::NumEstimated() {
 
 //---------------------------------------------------------------------------------------------
 
-int UnionIterator::ReadUnsorted(RSIndexResult **hit) {
-  RSIndexResult *res = NULL;
+int UnionIterator::ReadUnsorted(IndexResult **hit) {
+  IndexResult *res = NULL;
   while (currIt < num) {
     int rc = origits[currIt]->Read(&res);
     if (rc == INDEXREAD_OK) {
@@ -200,7 +200,7 @@ int UnionIterator::ReadUnsorted(RSIndexResult **hit) {
 
 //---------------------------------------------------------------------------------------------
 
-int UnionIterator::ReadSorted(RSIndexResult **hit) {
+int UnionIterator::ReadSorted(IndexResult **hit) {
   // nothing to do
   if (num == 0 || !IITER_HAS_NEXT(this)) {
     IITER_SET_EOF(this);
@@ -220,7 +220,7 @@ int UnionIterator::ReadSorted(RSIndexResult **hit) {
 
     for (unsigned i = 0; i < nits; i++) {
       IndexIterator *it = its[i];
-      RSIndexResult *res = IITER_CURRENT_RECORD(it);
+      IndexResult *res = IITER_CURRENT_RECORD(it);
       rc = INDEXREAD_OK;
       // if this hit is behind the min id - read the next entry
       // printf("docIds[%d]: %d, minDocId: %d\n", i, docIds[i], minDocId);
@@ -275,7 +275,7 @@ Skip to the given docId, or one place after it
 @return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF if at EOF
 */
 
-int UnionIterator::SkipTo(t_docId docId, RSIndexResult **hit) {
+int UnionIterator::SkipTo(t_docId docId, IndexResult **hit) {
   RS_LOG_ASSERT(mode != Mode::Sorted, "union iterator mode is not MODE_SORTED");
 
   // printf("UI %p skipto %d\n", this, docId);
@@ -297,8 +297,8 @@ int UnionIterator::SkipTo(t_docId docId, RSIndexResult **hit) {
   const int quickExit = quickExit;
   t_docId minDocId1 = UINT32_MAX;
   IndexIterator *it;
-  RSIndexResult *res;
-  RSIndexResult *minResult = NULL;
+  IndexResult *res;
+  IndexResult *minResult = NULL;
   // skip all iterators to docId
   unsigned xnum = num;
   for (unsigned i = 0; i < xnum; i++) {
@@ -526,7 +526,7 @@ IntersectIterator::IntersectIterator(IndexIterator **its_, size_t num_, DocTable
   nexpected = UINT32_MAX;
 
   isValid = 1;
-  current = NewIntersectResult(num, weight);
+  current = new IntersectResult(num, weight);
   its = its_;
   num = num_;
 
@@ -535,7 +535,7 @@ IntersectIterator::IntersectIterator(IndexIterator **its_, size_t num_, DocTable
 
 //---------------------------------------------------------------------------------------------
 
-int IntersectIterator::SkipTo(t_docId docId, RSIndexResult **hit) {
+int IntersectIterator::SkipTo(t_docId docId, IndexResult **hit) {
   // A seek with docId 0 is equivalent to a read
   if (docId == 0) {
     return ReadSorted(hit);
@@ -551,7 +551,7 @@ int IntersectIterator::SkipTo(t_docId docId, RSIndexResult **hit) {
 
     if (!it || !IITER_HAS_NEXT(it)) return INDEXREAD_EOF;
 
-    RSIndexResult *res = IITER_CURRENT_RECORD(it);
+    IndexResult *res = IITER_CURRENT_RECORD(it);
     rc = INDEXREAD_OK;
 
     // only read if we are not already at the seek to position
@@ -604,9 +604,9 @@ int IntersectIterator::SkipTo(t_docId docId, RSIndexResult **hit) {
 
 //---------------------------------------------------------------------------------------------
 
-int IntersectIterator::ReadUnsorted(RSIndexResult **hit) {
+int IntersectIterator::ReadUnsorted(IndexResult **hit) {
   int rc = INDEXREAD_OK;
-  RSIndexResult *res = NULL;
+  IndexResult *res = NULL;
   while (1) {
     rc = bestIt->Read(&res);
     if (rc == INDEXREAD_EOF) {
@@ -679,7 +679,7 @@ size_t IntersectIterator::NumEstimated() {
   return nexpected;
 }
 
-int IntersectIterator::ReadSorted(RSIndexResult **hit) {
+int IntersectIterator::ReadSorted(IndexResult **hit) {
   if (num == 0) return INDEXREAD_EOF;
 
   int nh = 0;
@@ -694,7 +694,7 @@ int IntersectIterator::ReadSorted(RSIndexResult **hit) {
 
       if (!it) goto eof;
 
-      RSIndexResult *h = IITER_CURRENT_RECORD(it);
+      IndexResult *h = IITER_CURRENT_RECORD(it);
       // skip to the next
       int rc = INDEXREAD_OK;
       if (docIds[i] != lastDocId || lastDocId == 0) {
@@ -798,7 +798,7 @@ NotIterator::~NotIterator() {
 
 // If we have a match - return NOTFOUND. If we don't or we're at the end - return OK
 
-int NotIterator::SkipTo(t_docId docId, RSIndexResult **hit) {
+int NotIterator::SkipTo(t_docId docId, IndexResult **hit) {
   // do not skip beyond max doc id
   if (docId > maxDocId) {
     return INDEXREAD_EOF;
@@ -875,7 +875,7 @@ size_t NotIterator::NumEstimated() {
   return maxDocId;
 }
 
-int NotIterator::ReadUnsorted(RSIndexResult **hit) {
+int NotIterator::ReadUnsorted(IndexResult **hit) {
   while (lastDocId > maxDocId) {
     if (!childCT->Test(lastDocId)) {
       current->docId = lastDocId;
@@ -894,10 +894,10 @@ int NotIterator::ReadUnsorted(RSIndexResult **hit) {
 // This is applicable only if the only or leftmost node of a query is a NOT node.
 // We simply read until max docId, skipping docIds that exist in the child.
 
-int NotIterator::ReadSorted(RSIndexResult **hit) {
+int NotIterator::ReadSorted(IndexResult **hit) {
   if (lastDocId > maxDocId) return INDEXREAD_EOF;
 
-  RSIndexResult *cr = NULL;
+  IndexResult *cr = NULL;
   // if we have a child, get the latest result from the child
   if (child) {
     cr = IITER_CURRENT_RECORD(child);
@@ -996,7 +996,7 @@ OptionalIterator::~OptionalIterator() {
 
 //---------------------------------------------------------------------------------------------
 
-int OptionalIterator::SkipTo(t_docId docId, RSIndexResult **hit) {
+int OptionalIterator::SkipTo(t_docId docId, IndexResult **hit) {
   //  printf("OI_SkipTo => %llu!. NextReal: %llu. Max: %llu. Last: %llu\n", docId, nextRealId,
   //  maxDocId, lastDocId);
 
@@ -1034,7 +1034,7 @@ int OptionalIterator::SkipTo(t_docId docId, RSIndexResult **hit) {
 
   if (found) {
     // Has a real hit
-    RSIndexResult *r = current;
+    IndexResult *r = current;
   } else {
     virt->docId = docId;
     current = virt;
@@ -1056,7 +1056,7 @@ size_t OptionalIterator::NumEstimated() {
 
 //---------------------------------------------------------------------------------------------
 
-int OptionalIterator::ReadUnsorted(RSIndexResult **hit) {
+int OptionalIterator::ReadUnsorted(IndexResult **hit) {
   if (lastDocId >= maxDocId) return INDEXREAD_EOF;
   lastDocId++;
   current = virt;
@@ -1075,7 +1075,7 @@ int OptionalIterator::ReadUnsorted(RSIndexResult **hit) {
 // Read has no meaning in the sense of an OPTIONAL iterator, so we just read the next record from
 // our child
 
-int OptionalIterator::ReadSorted(RSIndexResult **hit) {
+int OptionalIterator::ReadSorted(IndexResult **hit) {
   if (lastDocId >= maxDocId) {
     return INDEXREAD_EOF;
   }
@@ -1168,7 +1168,7 @@ OptionalIterator::OptionalIterator(IndexIterator *it, t_docId maxDocId_, double 
 
 // Read reads the next consecutive id, unless we're at the end
 
-int WildcardIterator::Read(RSIndexResult **hit) {
+int WildcardIterator::Read(IndexResult **hit) {
   if (current > topId) {
     return INDEXREAD_EOF;
   }
@@ -1181,7 +1181,7 @@ int WildcardIterator::Read(RSIndexResult **hit) {
 
 // Skipto for wildcard iterator - always succeeds, but this should normally not happen as it has no meaning
 
-int WildcardIterator::SkipTo(t_docId docId, RSIndexResult **hit) {
+int WildcardIterator::SkipTo(t_docId docId, IndexResult **hit) {
   // printf("WI_Skipto %d\n", docId);
   if (currentId > topId) return INDEXREAD_EOF;
 

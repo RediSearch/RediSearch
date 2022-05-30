@@ -324,7 +324,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   t_len slen = 0;
   float score = 0;
   int dist = 0;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
+  while (iter->Next(&rstr, &slen, NULL, &score, &dist)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
     RedisModuleKey *idxKey = NULL;
@@ -340,7 +340,6 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   }
   DFAFilter_Free(iter->ctx);
   rm_free(iter->ctx);
-  TrieIterator_Free(iter);
 
   // we are done with terms
   FGC_sendTerminator(gc);
@@ -363,7 +362,7 @@ typedef union {
 
 //---------------------------------------------------------------------------------------------
 
-static void countDeleted(const RSIndexResult *r, const IndexBlock *blk, void *arg) {
+static void countDeleted(const IndexResult *r, const IndexBlock *blk, void *arg) {
   numCbCtx *ctx = arg;
   khash_t(cardvals) *ht = NULL;
   if (blk == ctx->lastblk) {

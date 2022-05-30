@@ -34,7 +34,7 @@ size_t AREQ::serializeResult(RedisModuleCtx *outctx, const SearchResult *r, cons
 
   if (dmd && (options & QEXEC_F_IS_SEARCH)) {
     size_t n;
-    const char *s = DMD_KeyPtrLen(dmd, &n);
+    const char *s = dmd->KeyPtrLen(&n);
     RedisModule_ReplyWithStringBuffer(outctx, s, n);
     count++;
   }

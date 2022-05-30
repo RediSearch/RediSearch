@@ -45,15 +45,15 @@ public:
   size_t RemoveExhausted(size_t badix);
   t_docId LastDocId() const;
 
-  int (UnionIterator::*_Read)(RSIndexResult **hit);
+  int (UnionIterator::*_Read)(IndexResult **hit);
 
-  virtual int Read(RSIndexResult **hit) { return (this->*_Read)(hit); }
-  int ReadSorted(RSIndexResult **hit);
-  int ReadUnsorted(RSIndexResult **hit);
+  virtual int Read(IndexResult **hit) { return (this->*_Read)(hit); }
+  int ReadSorted(IndexResult **hit);
+  int ReadUnsorted(IndexResult **hit);
 
   virtual void Abort();
   virtual void Rewind();
-  virtual int SkipTo(t_docId docId, RSIndexResult **hit);
+  virtual int SkipTo(t_docId docId, IndexResult **hit);
   virtual size_t NumEstimated();
   virtual IndexCriteriaTester *GetCriteriaTester();
   virtual size_t Len();
@@ -104,17 +104,17 @@ public:
   double weight;
   size_t nexpected;
 
-  int (IntersectIterator::*_Read)(RSIndexResult **hit);
+  int (IntersectIterator::*_Read)(IndexResult **hit);
 
-  virtual int Read(RSIndexResult **hit) { return (this->*_Read)(hit); }
-  int ReadSorted(RSIndexResult **hit);
-  int ReadUnsorted(RSIndexResult **hit);
+  virtual int Read(IndexResult **hit) { return (this->*_Read)(hit); }
+  int ReadSorted(IndexResult **hit);
+  int ReadUnsorted(IndexResult **hit);
 
   void SortChildren();
   t_docId LastDocId();
 
   virtual IndexCriteriaTester *GetCriteriaTester();
-  virtual int SkipTo(t_docId docId, RSIndexResult **hit);
+  virtual int SkipTo(t_docId docId, IndexResult **hit);
   virtual void Abort();
   virtual void Rewind();
   virtual size_t NumEstimated();
@@ -152,15 +152,15 @@ public:
   size_t len;
   double weight;
 
-  int (NotIterator::*_Read)(RSIndexResult **hit);
+  int (NotIterator::*_Read)(IndexResult **hit);
 
-  virtual int Read(RSIndexResult **hit) { return (this->*_Read)(hit); }
-  int ReadSorted(RSIndexResult **hit);
-  int ReadUnsorted(RSIndexResult **hit);
+  virtual int Read(IndexResult **hit) { return (this->*_Read)(hit); }
+  int ReadSorted(IndexResult **hit);
+  int ReadUnsorted(IndexResult **hit);
 
   virtual void Abort();
   virtual void Rewind();
-  virtual int SkipTo(t_docId docId, RSIndexResult **hit);
+  virtual int SkipTo(t_docId docId, IndexResult **hit);
   virtual size_t NumEstimated();
   virtual IndexCriteriaTester *GetCriteriaTester();
   virtual size_t Len();
@@ -195,20 +195,20 @@ public:
 
   IndexIterator *child;
   IndexCriteriaTester *childCT;
-  RSIndexResult *virt;
+  IndexResult *virt;
   t_fieldMask fieldMask;
   t_docId lastDocId;
   t_docId maxDocId;
   t_docId nextRealId;
   double weight;
 
-  int (OptionalIterator::*_Read)(RSIndexResult **hit);
+  int (OptionalIterator::*_Read)(IndexResult **hit);
 
-  virtual int Read(RSIndexResult **hit) { return (this->*_Read)(hit); }
-  int ReadSorted(RSIndexResult **hit);
-  int ReadUnsorted(RSIndexResult **hit);
+  virtual int Read(IndexResult **hit) { return (this->*_Read)(hit); }
+  int ReadSorted(IndexResult **hit);
+  int ReadUnsorted(IndexResult **hit);
 
-  virtual int SkipTo(t_docId docId, RSIndexResult **hit);
+  virtual int SkipTo(t_docId docId, IndexResult **hit);
   virtual IndexCriteriaTester *GetCriteriaTester();
   virtual size_t NumEstimated();
   virtual int HasNext();
@@ -228,8 +228,8 @@ typedef OptionalIterator OptionalMatchContext;
 
 // Wildcard iterator, matchin ALL documents in the index. This is used for one thing only -
 // purely negative queries.
-// If the root of the query is a negative expression, we cannot process it without a positive expression. 
-// So we create a wildcard iterator that basically just iterates all the incremental document ids, 
+// If the root of the query is a negative expression, we cannot process it without a positive expression.
+// So we create a wildcard iterator that basically just iterates all the incremental document ids,
 // and matches every skip within its range.
 
 class WildcardIterator : public IndexIterator {
@@ -238,8 +238,8 @@ class WildcardIterator : public IndexIterator {
   t_docId topId;
   t_docId currentId;
 
-  int Read(RSIndexResult **hit);
-  int SkipTo(t_docId docId, RSIndexResult **hit);
+  int Read(IndexResult **hit);
+  int SkipTo(t_docId docId, IndexResult **hit);
   void Abort();
   int HasNext();
   size_t Len();
@@ -257,11 +257,11 @@ typedef WildcardIterator WildcardIteratorCtx;
 
 class EOFIterator : public IndexIterator {
 public:
-  virtual RSIndexResult *GetCurrent() {}
+  virtual IndexResult *GetCurrent() {}
   virtual size_t NumEstimated() { return 0; }
   virtual IndexCriteriaTester *GetCriteriaTester() { return NULL; }
-  virtual int Read(RSIndexResult **e) { return INDEXREAD_EOF; }
-  virtual int SkipTo(t_docId docId, RSIndexResult **hit) { return INDEXREAD_EOF; }
+  virtual int Read(IndexResult **e) { return INDEXREAD_EOF; }
+  virtual int SkipTo(t_docId docId, IndexResult **hit) { return INDEXREAD_EOF; }
   virtual t_docId LastDocId() { return 0; }
   virtual int HasNext() { return 0; }
   virtual size_t Len() { return 0; }
@@ -277,7 +277,7 @@ typedef EOFIterator EmptyIterator;
 
 // Load document metadata for an index hit, marking it as having metadata.
 // Currently has no effect due to performance issues
-int IndexResult_LoadMetadata(RSIndexResult *h, DocTable *dt);
+int IndexResult_LoadMetadata(IndexResult *h, DocTable *dt);
 
 // Create a new IdListIterator from a pre populated list of document ids of size num. The doc ids
 // are sorted in this function, so there is no need to sort them. They are automatically freed in

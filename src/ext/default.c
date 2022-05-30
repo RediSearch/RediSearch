@@ -56,7 +56,7 @@ static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **
 }
 
 // recursively calculate tf-idf
-static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd,
+static double tfidfRecursive(const IndexResult *r, const RSDocumentMetadata *dmd,
                              RSScoreExplain *scrExp) {
   if (r->type == RSResultType_Term) {
     double idf = r->term.term ? r->term.term->idf : 0;
@@ -87,7 +87,7 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
 }
 
 /* internal common tf-idf function, where just the normalization method changes */
-static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const IndexResult *h,
                                    const RSDocumentMetadata *dmd, double minScore, int normMode) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   if (dmd->score == 0) {
@@ -116,14 +116,14 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
 
 /* Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
  * in this document*/
-static double TFIDFScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+static double TFIDFScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
                           const RSDocumentMetadata *dmd, double minScore) {
   return tfIdfInternal(ctx, h, dmd, minScore, NORM_MAXFREQ);
 }
 
 /* Identical scorer to TFIDFScorer, only the normalization is by total weighted frequency in the doc
  */
-static double TFIDFNormDocLenScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+static double TFIDFNormDocLenScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
                                     const RSDocumentMetadata *dmd, double minScore) {
 
   return tfIdfInternal(ctx, h, dmd, minScore, NORM_DOCLEN);
@@ -138,7 +138,7 @@ static double TFIDFNormDocLenScorer(const ScoringFunctionArgs *ctx, const RSInde
  ******************************************************************************************/
 
 /* recursively calculate score for each token, summing up sub tokens */
-static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+static double bm25Recursive(const ScoringFunctionArgs *ctx, const IndexResult *r,
                             const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) {
   static const float b = 0.5;
   static const float k1 = 1.2;
@@ -181,7 +181,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
 }
 
 /* BM25 scoring function */
-static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+static double BM25Scorer(const ScoringFunctionArgs *ctx, const IndexResult *r,
                          const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   double bm25res = bm25Recursive(ctx, r, dmd, scrExp);
@@ -207,7 +207,7 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
  * Raw document-score scorer. Just returns the document score
  *
  ******************************************************************************************/
-static double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+static double DocScoreScorer(const ScoringFunctionArgs *ctx, const IndexResult *r,
                              const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   EXPLAIN(scrExp, "Document's score is %.2f", dmd->score);
@@ -219,7 +219,7 @@ static double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult
  * DISMAX-style scorer
  *
  ******************************************************************************************/
-static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+static double dismaxRecursive(const ScoringFunctionArgs *ctx, const IndexResult *r,
                               RSScoreExplain *scrExp) {
   // for terms - we return the term frequency
   double ret = 0;
@@ -267,7 +267,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
   return r->weight * ret;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
-static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+static double DisMaxScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
                            const RSDocumentMetadata *dmd, double minScore) {
   // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
@@ -286,7 +286,7 @@ static const unsigned char bitsinbyte[256] = {
 
 /* HAMMING - Scorer using Hamming distance between the query payload and the document payload. Only
  * works if both have the payloads the same length */
-static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
                                     const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   // the strings must be of the same length > 0
@@ -310,16 +310,16 @@ static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSInde
   return result;
 }
 
-typedef struct {
+struct defaultExpanderCtx {
   int isCn;
   union {
-    struct {
+    struct cn {
       SimpleTokenizer *tokenizer;
       Vector *tokList;
-    } cn;
+    };
     struct sb_stemmer *latin;
   } data;
-} defaultExpanderCtx;
+};
 
 static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
   defaultExpanderCtx *dd = ctx->privdata;

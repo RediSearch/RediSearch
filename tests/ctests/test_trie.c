@@ -127,7 +127,7 @@ int testPayload() {
   int matches = 0;
   int dist = 0;
 
-  while (TrieIterator_Next(it, &s, &len, &payload, &score, &dist)) {
+  while (it->Next(&s, &len, &payload, &score, &dist)) {
     ASSERT(score == 1);
     ASSERT(len > 0);
     ASSERT(payload.len == 2);
@@ -288,7 +288,7 @@ int testDFAFilter() {
     int dist = 0;
 
     clock_gettime(CLOCK_REALTIME, &start_time);
-    while (TrieIterator_Next(it, &s, &len, NULL, &score, &dist)) {
+    while (it->Next(&s, &len, NULL, &score, &dist)) {
       ASSERT(score > 0);
       ASSERT(dist <= 2 && dist >= 0)
       ASSERT(len > 0);
@@ -319,7 +319,7 @@ int testDFAFilter() {
     int matches = 0;
     int dist = 0;
 
-    while (TrieIterator_Next(it, &s, &len, NULL, &score, &dist)) {
+    while (it->Next(&s, &len, NULL, &score, &dist)) {
       ASSERT(score > 0);
       ASSERT(dist <= 1 && dist >= 0)
       ASSERT(len > 0);
@@ -331,7 +331,6 @@ int testDFAFilter() {
     ASSERT(matches > 0);
 
     DFAFilter_Free(&fc);
-    delete it;
     free(runes);
   }
 

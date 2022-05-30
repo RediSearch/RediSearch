@@ -12,9 +12,25 @@ typedef uint16_t tm_len_t;
 #define TM_NODE_DELETED 0x01
 #define TM_NODE_TERMINAL 0x02
 #define TM_NODE_SORTED 0x04
+#define TRIE_INITIAL_STRING_LEN 255
 
 // This special pointer is returned when TrieMap::Find cannot find anything */
 extern void *TRIEMAP_NOTFOUND;
+typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
+typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
+
+struct TrieMapRangeCtx {
+  char *buf;
+  TrieMapRangeCallback *callback;
+  void *cbctx;
+  bool includeMin;
+  bool includeMax;
+};
+
+struct TrieMaprsbHelper {
+  const char *r;
+  int n;
+};
 
 #pragma pack(1)
 
@@ -38,7 +54,7 @@ struct TrieMapNode : Object {
   char str[];
 
   TrieMapNode(char *str_, tm_len_t offset, tm_len_t len_, tm_len_t numChildren,
-              void *value, int terminal)
+              void *value, int terminal);
 
   int Add(char *str_, tm_len_t len_, void *value, TrieMapReplaceFunc cb);
   void *Find(char *str_, tm_len_t len_);
@@ -52,11 +68,16 @@ struct TrieMapNode : Object {
 
   // Get a pointer to the children array of a node. This is not an actual member
   // of the node for memory saving reasons
-  #define children() \
-    ((TrieMapNode **)((void *)this + sizeof(TrieMapNode) + (len + 1) + numChildren))
-  #define childKey(c) (char *)((char *)this + sizeof(TrieMapNode) + len + 1 + c)
-  #define isTerminal() (flags & TM_NODE_TERMINAL)
-  #define isDeleted() (flags & TM_NODE_DELETED)
+  TrieMapNode **children() {
+    return ((void *)this + sizeof(TrieMapNode) + (len + 1) + numChildren);
+  }
+
+  char *childKey(tm_len_t c) {
+    return (char *)this + sizeof(TrieMapNode) + len + 1 + c;
+  }
+
+  bool isTerminal() { return flags & TM_NODE_TERMINAL; }
+  bool isDeleted() { return flags & TM_NODE_DELETED;}
 
   TrieMapNode *MergeWithSingleChild();
   void AddChild(char *str_, tm_len_t offset, tm_len_t len_, void *value);
@@ -72,7 +93,38 @@ struct TrieMapNode : Object {
   static int ComparePrefix(const void *h, const void *e);
 };
 
+/**************  Iterator API  - not ported from the textual trie yet
+ * ***********/
+/* trie iterator stack node. for internal use only */
+struct __tmi_stackNode {
+  int state;
+  TrieMapNode *n;
+  tm_len_t stringOffset;
+  tm_len_t childOffset;
+};
+
 #pragma pack()
+
+struct TrieMapIterator : Object {
+  char *buf;
+  tm_len_t bufLen;
+  tm_len_t bufOffset;
+
+  __tmi_stackNode *stack;
+  tm_len_t stackOffset;
+  tm_len_t stackCap;
+
+  const char *prefix;
+  tm_len_t prefixLen;
+  int inSuffix;
+
+  void Push(TrieMapNode *node);
+  void Pop();
+  void Free();
+  int Next(char **ptr, tm_len_t *len, void **value);
+  /* the current top of the iterator stack */
+  __tmi_stackNode *current() { return &stack[stackOffset - 1]; }
+};
 
 struct TrieMap : Object {
   TrieMapNode *root;
@@ -93,40 +145,5 @@ struct TrieMap : Object {
                     TrieMapRangeCallback callback, void *ctx);
   TrieMapIterator *Iterate(const char *prefix, tm_len_t prefixLen);
 };
-
-typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
-
-/**************  Iterator API  - not ported from the textual trie yet
- * ***********/
-/* trie iterator stack node. for internal use only */
-struct __tmi_stackNode {
-  int state;
-  TrieMapNode *n;
-  tm_len_t stringOffset;
-  tm_len_t childOffset;
-};
-
-struct TrieMapIterator : Object {
-  char *buf;
-  tm_len_t bufLen;
-  tm_len_t bufOffset;
-
-  __tmi_stackNode *stack;
-  tm_len_t stackOffset;
-  tm_len_t stackCap;
-
-  const char *prefix;
-  tm_len_t prefixLen;
-  int inSuffix;
-
-  void Push(TrieMapNode *node);
-  void Pop();
-  void Free();
-  int Next(char **ptr, tm_len_t *len, void **value);
-  /* the current top of the iterator stack */
-  #define current() &stack[stackOffset - 1]
-};
-
-typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
 #endif

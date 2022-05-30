@@ -98,7 +98,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
   if (!sp->sortables) return -1;
-  return RSSortingTable_GetFieldIdx(sp->sortables, name);
+  return sp->sortables->GetFieldIdx(name);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -458,7 +458,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
         goto reset;
       }
 
-      fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+      fs->sortIdx = sp->sortables->Add(fs->name, fieldTypeToValueType(fs->types));
     } else {
       fs->sortIdx = -1;
     }
@@ -720,8 +720,7 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
 
   rm_free(spec->name);
   if (spec->sortables) {
-    SortingTable_Free(spec->sortables);
-    spec->sortables = NULL;
+    delete spec->sortables;
   }
   if (spec->stopwords) {
     StopWordList_Unref(spec->stopwords);
@@ -1010,7 +1009,7 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
 IndexSpec *NewIndexSpec(const char *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
-  sp->sortables = NewSortingTable();
+  sp->sortables = new RSSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
   sp->docs = new DocTable(100);
@@ -1223,7 +1222,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  sp->sortables = NewSortingTable();
+  sp->sortables = new RSSortingTable();
   sp->terms = NULL;
   sp->docs = new DocTable(1000);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);

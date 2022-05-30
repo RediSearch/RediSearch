@@ -34,7 +34,7 @@
 
 static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   auto iter = reader->NewReadIterator();
-  RSIndexResult *r;
+  IndexResult *r;
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while (iter->Read(&r) != INDEXREAD_EOF) {
@@ -74,14 +74,13 @@ DEBUG_COMMAND(DumpTerms) {
   RedisModule_ReplyWithArray(ctx, sctx->spec->terms->size);
 
   TrieIterator *it = sctx->spec->terms->Iterate("", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (it->Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);
-  delete it;
 
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
