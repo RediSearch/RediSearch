@@ -8,234 +8,118 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-
-// Allocate a new aggregate result of a given type with a given capacity
-RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
-  RSIndexResult *res = rm_new(RSIndexResult);
-
-  *res = (RSIndexResult){
-      .type: t,
-      .docId: 0,
-      .freq: 0,
-      .fieldMask: 0,
-      .isCopy: 0,
-      .weight: weight,
-      .agg: (RSAggregateResult){.numChildren: 0,
-                                .childrenCap: cap,
-                                .typeMask: 0x0000,
-                                .children: rm_calloc(cap, sizeof(RSIndexResult *))}};
-  return res;
-}
-
-// Allocate a new intersection result with a given capacity
-RSIndexResult *NewIntersectResult(size_t cap, double weight) {
-  return new AggregateResult(RSResultType_Intersection, cap, weight);
-}
-
-// Allocate a new union result with a given capacity
-RSIndexResult *NewUnionResult(size_t cap, double weight) {
-  return new AggregateResult(RSResultType_Union, cap, weight);
-}
-
-// Allocate a new token record result for a given term
-RSIndexResult *NewTermRecord(RSQueryTerm *term, double weight) {
-  RSIndexResult *res = rm_new(RSIndexResult);
-
-  *res = (RSIndexResult){.type: RSResultType_Term,
-                         .docId: 0,
-                         .fieldMask: 0,
-                         .isCopy: 0,
-                         .freq: 0,
-                         .weight: weight,
-                         .term = (RSTermRecord){
-                             .term: term,
-                             .offsets: (RSOffsetVector){},
-                         }};
-  return res;
-}
-
-RSIndexResult *NewNumericResult() {
-  RSIndexResult *res = rm_new(RSIndexResult);
-
-  *res = (RSIndexResult){.type = RSResultType_Numeric,
-                         .docId = 0,
-                         .isCopy = 0,
-                         .fieldMask = RS_FIELDMASK_ALL,
-                         .freq = 1,
-                         .weight = 1,
-                         .num = (RSNumericRecord){.value = 0}};
-  return res;
-}
-
-RSIndexResult *NewVirtualResult(double weight) {
-  RSIndexResult *res = rm_new(RSIndexResult);
-
-  *res = (RSIndexResult){
-      .type = RSResultType_Virtual,
-      .docId = 0,
-      .fieldMask = 0,
-      .freq = 0,
-      .weight = weight,
-      .isCopy = 0,
-  };
-  return res;
-}
-
-#endif // 0
-
-//---------------------------------------------------------------------------------------------
-
-RSIndexResult::RSIndexResult(const RSIndexResult &src) {
+AggregateResult::AggregateResult(const AggregateResult &src) {
   *this = src;
-  isCopy = 1;
-
-  switch (src.type) {
-    // copy aggregate types
-    case RSResultType_Intersection:
-    case RSResultType_Union:
-      // allocate a new child pointer array
-      agg.children = rm_malloc(src.agg.numChildren * sizeof(RSIndexResult *));
-      agg.childrenCap = agg.numChildren;
-      // deep copy recursively all children
-      for (int i = 0; i < src.agg.numChildren; i++) {
-        agg.children[i] = new RSIndexResult(*src.agg.children[i]);
-      }
-      break;
-
-    // copy term results
-    case RSResultType_Term:
-      // copy the offset vectors
-      if (src.term.offsets.data) {
-        term.offsets.data = rm_malloc(term.offsets.len);
-        memcpy(term.offsets.data, src.term.offsets.data, term.offsets.len);
-      }
-      break;
-
-    // the rest have no dynamic stuff, we can just copy the base result
-    default:
-      break;
+  isCopy = true;
+  // allocate a new child pointer array
+  children = rm_malloc(src.numChildren * sizeof(AggregateResult *));
+  childrenCap = numChildren;
+  // deep copy recursively all children
+  for (int i = 0; i < src.numChildren; i++) {
+    children[i] = new IndexResult(*src.children[i]);
   }
 }
 
-//---------------------------------------------------------------------------------------------
+AggregateResult::~AggregateResult() {
+  // for deep-copy results we also free the children
+  if (isCopy && children) {
+    for (int i = 0; i < numChildren; i++) {
+      delete children[i];
+    }
+  }
+  delete children;
+}
 
-void RSIndexResult::Print(int depth) const {
+void AggregateResult::Print(int depth) const {
   for (int i = 0; i < depth; i++) printf("  ");
-
-  if (type == RSResultType_Term) {
-    printf("Term{%llu: %s},\n", (unsigned long long)docId,
-           term.term ? term.term->str : "nil");
-    return;
-  }
-  if (type == RSResultType_Virtual) {
-    printf("Virtual{%llu},\n", (unsigned long long)docId);
-    return;
-  }
-  if (type == RSResultType_Numeric) {
-    printf("Numeric{%llu:%f},\n", (unsigned long long)docId, num.value);
-    return;
-  }
   printf("%s => %llu{ \n", type == RSResultType_Intersection ? "Inter" : "Union",
          (unsigned long long)docId);
 
-  for (int i = 0; i < agg.numChildren; i++) {
-    agg.children[i]->Print(depth + 1);
-  }
-
+  for (int i = 0; i < numChildren; i++) children[i]->Print(depth + 1);
   for (int i = 0; i < depth; i++) printf("  ");
-
   printf("},\n");
-
-  // printf("docId: %d, finalScore: %f, flags %x. Terms:\n", docId, finalScore, fieldMask);
-
-  // for (int i = 0; i < numRecords; i++) {
-  //   printf("\t%s, %d tf %d, flags %x\n", records[i].term->str, records[i].docId,
-  //          records[i].freq, records[i].fieldMask);
-  // }
-  // printf("----------\n");
 }
 
-//---------------------------------------------------------------------------------------------
-
-RSQueryTerm::RSQueryTerm(RSToken *tok, int id) : id(id), idf(1.0), flags(tok->flags),
-  str(tok->str ? rm_strndup(tok->str, tok->len) : NULL), len(tok->len) {
+bool AggregateResult::HasOffsets() const {
+  return typeMask != RSResultType_Virtual && typeMask != RSResultType_Numeric;
 }
 
-//---------------------------------------------------------------------------------------------
-
-RSQueryTerm::~RSQueryTerm() {
-  if (str) rm_free(str);
+void AggregateResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) {
+  if (len == cap) return;
+  for (int i = 0; i < numChildren; i++) {
+    children[i]->GetMatchedTerms(arr, cap, len);
+  }
 }
 
-//---------------------------------------------------------------------------------------------
-
-void RSIndexResult::Reset() {
+// Reset aggregate result's child vector
+void AggregateResult::Reset() {
   docId = 0;
-  fieldMask = 0;
-  freq = 0;
-
-  if (type == RSResultType_Intersection || type == RSResultType_Union) {
-    agg.numChildren = 0;
-  }
+  numChildren = 0;
+  typeMask = (RSResultType) 0;
 }
 
-//---------------------------------------------------------------------------------------------
-
-int RSIndexResult::HasOffsets() const {
-  switch (type) {
-    case RSResultType_Term:
-      return term.offsets.len > 0;
-
-    case RSResultType_Intersection:
-    case RSResultType_Union:
-      // the intersection and union aggregates can have offsets if they are not purely made of
-      // virtual results
-      return agg.typeMask != RSResultType_Virtual && agg.typeMask != RSResultType_Numeric;
-
-    // a virtual result doesn't have offsets!
-    case RSResultType_Virtual:
-    case RSResultType_Numeric:
-    default:
-      return 0;
+// Append a child to an aggregate result
+void AggregateResult::AddChild(IndexResult *child) {
+  // Increase capacity if needed
+  if (numChildren >= childrenCap) {
+    childrenCap = childrenCap ? childrenCap * 2 : 1;
+    children = (__typeof__(children)) rm_realloc(children, childrenCap * sizeof(IndexResult *));
   }
+  children[numChildren++] = child;
+
+  typeMask |= child->type;
+  freq += child->freq;
+  docId = child->docId;
+  fieldMask |= child->fieldMask;
 }
 
-//---------------------------------------------------------------------------------------------
 
-RSIndexResult::~RSIndexResult() {
-  if (type == RSResultType_Intersection || type == RSResultType_Union) {
-    // for deep-copy results we also free the children
-    if (isCopy && agg.children) {
-      for (int i = 0; i < agg.numChildren; i++) {
-        delete r->agg.children[i];
-      }
-    }
-    rm_free(r->agg.children);
-    r->agg.children = NULL;
-  } else if (r->type == RSResultType_Term) {
-    if (r->isCopy) {
-      rm_free(r->term.offsets.data);
+/** Test the result offset vectors to see if they fall within a max "slop" or distance between the
+ * terms. That is the total number of non matched offsets between the terms is no bigger than
+ * maxSlop.
+ * e.g. for an exact match, the slop allowed is 0.
+ */
 
-    } else {  // non copy result...
+bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
+  // check if calculation is even relevant here...
+  if (numChildren <= 1) {
+    return true;
+  }
 
-      // we only free up terms for non copy results
-      if (r->term.term != NULL) {
-        delete r->term.term;
-      }
+  int num = numChildren;
+
+  // Fill a list of iterators and the last read positions
+  RSOffsetIterator iters[num];
+  uint32_t positions[num];
+  int n = 0;
+  for (int i = 0; i < num; i++) {
+    // collect only iterators for nodes that can have offsets
+    auto &child = *children[i];
+    if (child.HasOffsets()) {
+      iters[n] = child.IterateOffsets();
+      positions[n] = 0;
+      n++;
     }
   }
 
-  rm_free(r);
+  // No applicable offset children - just return true
+  if (n == 0) {
+    return true;
+  }
+
+  int rc;
+  // cal the relevant algorithm based on ordered/unordered condition
+  if (inOrder)
+    rc = withinRangeInOrder(iters, positions, n, maxSlop);
+  else
+    rc = withinRangeUnordered(iters, positions, n, maxSlop);
+  // printf("slop result for %d: %d\n", ir->docId, rc);
+  for (int i = 0; i < n; i++) {
+    delete iters[i];
+  }
+
+  return !!rc;
 }
-
-//------------------------------------------------------------------------------`---------------
-
-inline int RSIndexResult::IsAggregate() const {
-  return (type & RS_RESULT_AGGREGATE) != 0;
-}
-
-#define __absdelta(x, y) (x > y ? x - y : y - x)
 
 //------------------------------------------------------------------------------`---------------
 
@@ -246,28 +130,27 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param num the size of the list
 */
 
-int RSIndexResult::MinOffsetDelta() const {
-  if (!IsAggregate() || r->agg.numChildren <= 1) {
+int AggregateResult::MinOffsetDelta() const {
+  if (numChildren <= 1) {
     return 1;
   }
 
-  const RSAggregateResult *agg = &r->agg;
   int dist = 0;
-  int num = agg->numChildren;
+  int num = numChildren;
 
   RSOffsetIterator v1, v2;
   int i = 0;
   while (i < num) {
     // if either
-    while (i < num && !agg->children[i]->HasOffsets()) {
+    while (i < num && !children[i]->HasOffsets()) {
       i++;
       continue;
     }
     if (i == num) break;
-    v1 = agg->children[i]->IterateOffsets();
+    v1 = children[i]->IterateOffsets();
     i++;
 
-    while (i < num && !agg->children[i]->HasOffsets()) {
+    while (i < num && !children[i]->HasOffsets()) {
       i++;
       continue;
     }
@@ -276,7 +159,7 @@ int RSIndexResult::MinOffsetDelta() const {
       dist = dist ? dist : 100;
       break;
     }
-    v2 = agg->children[i]->IterateOffsets();
+    v2 = children[i]->IterateOffsets();
 
     uint32_t p1 = v1.Next(v1.ctx, NULL);
     uint32_t p2 = v2.Next(v2.ctx, NULL);
@@ -297,36 +180,96 @@ int RSIndexResult::MinOffsetDelta() const {
   }
 
   // we return 1 if ditance could not be calculate, to avoid division by zero
-  return dist ? sqrt(dist) : agg->numChildren - 1;
+  return dist ? sqrt(dist) : numChildren - 1;
 }
 
 //---------------------------------------------------------------------------------------------
 
-void IndexResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) const {
-  if (len == cap) return;
+TermResult::TermResult(const TermResult &src) {
+  *this = src;
+  isCopy = true;
 
-  switch (type) {
-    case RSResultType_Intersection:
-    case RSResultType_Union:
-      for (int i = 0; i < agg.numChildren; i++) {
-        agg.children[i]->GetMatchedTerms(arr, cap, len);
-      }
-      break;
-
-    case RSResultType_Term:
-      if (term.term) {
-        const char *s = term.term->str;
-        // make sure we have a term string and it's not an expansion
-        if (s) {
-          arr[len++] = term.term;
-        }
-
-        // fprintf(stderr, "Term! %zd\n", *len);
-      }
-    default:
-      return;
+  // copy the offset vectors
+  if (src.offsets.data) {
+    offsets.data = rm_malloc(offsets.len);
+    memcpy(offsets.data, src.offsets.data, offsets.len);
   }
 }
+
+TermResult::~TermResult() {
+  if (isCopy) {
+    rm_free(offsets.data);
+  } else {  // non copy result...
+    // we only free up terms for non copy results
+    if (term != NULL) {
+      delete term;
+    }
+  }
+}
+
+void TermResult::Print(int depth) const {
+  for (int i = 0; i < depth; i++) printf("  ");
+
+  printf("Term{%llu: %s},\n", (unsigned long long)docId,
+         term ? term->str : "nil");
+}
+
+bool TermResult::HasOffsets() const {
+  return offsets.len > 0;
+}
+
+void TermResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) {
+  if (len == cap) return;
+  if (term) {
+    const char *s = term->str;
+    // make sure we have a term string and it's not an expansion
+    if (s) {
+      arr[len++] = term;
+    }
+  }
+}
+
+//---------------------------------------------------------------------------------------------
+
+void NumericResult::Print(int depth) const {
+  for (int i = 0; i < depth; i++) printf("  ");
+  printf("Numeric{%llu:%f},\n", (unsigned long long)docId, value);
+}
+
+//---------------------------------------------------------------------------------------------
+
+void VirtualResult::Print(int depth) const {
+  for (int i = 0; i < depth; i++) printf("  ");
+  printf("Virtual{%llu},\n", (unsigned long long)docId);
+}
+
+//---------------------------------------------------------------------------------------------
+
+RSQueryTerm::RSQueryTerm(RSToken *tok, int id) : id(id), idf(1.0), flags(tok->flags),
+  str(tok->str ? rm_strndup(tok->str, tok->len) : NULL), len(tok->len) {
+}
+
+//---------------------------------------------------------------------------------------------
+
+RSQueryTerm::~RSQueryTerm() {
+  if (str) rm_free(str);
+}
+
+//---------------------------------------------------------------------------------------------
+
+void IndexResult::Reset() {
+  docId = 0;
+  fieldMask = 0;
+  freq = 0;
+
+  if (type == RSResultType_Intersection || type == RSResultType_Union) {
+    numChildren = 0;
+  }
+}
+
+//------------------------------------------------------------------------------`---------------
+
+#define __absdelta(x, y) (x > y ? x - y : y - x)
 
 //---------------------------------------------------------------------------------------------
 
@@ -341,7 +284,7 @@ size_t IndexResult::GetMatchedTerms(RSQueryTerm **arr, size_t cap) {
 
 //---------------------------------------------------------------------------------------------
 
-bool __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num,
+bool IndexResult::withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num,
                                      int maxSlop) {
   while (1) {
     // we start from the beginning, and a span of 0
@@ -416,7 +359,7 @@ static inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
 
 /* Check the index result for maximal slop, in an unordered fashion.
  * The algorithm is simple - we find the first offsets min and max such that max-min<=maxSlop */
-bool __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num,
+bool IndexResult::withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num,
                                        int maxSlop) {
   for (int i = 0; i < num; i++) {
     positions[i] = iters[i].Next(iters[i].ctx, NULL);
@@ -455,55 +398,6 @@ bool __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *posit
   }
 
   return false;
-}
-
-//---------------------------------------------------------------------------------------------
-
-/** Test the result offset vectors to see if they fall within a max "slop" or distance between the
- * terms. That is the total number of non matched offsets between the terms is no bigger than
- * maxSlop.
- * e.g. for an exact match, the slop allowed is 0.
- */
-
-bool IndexResult::IsWithinRange(int maxSlop, bool inOrder) const {
-  // check if calculation is even relevant here...
-  if ((type & (RSResultType_Term | RSResultType_Virtual | RSResultType_Numeric)) || agg.numChildren <= 1) {
-    return true;
-  }
-
-  RSAggregateResult *r = &agg;
-  int num = numChildren;
-
-  // Fill a list of iterators and the last read positions
-  RSOffsetIterator iters[num];
-  uint32_t positions[num];
-  int n = 0;
-  for (int i = 0; i < num; i++) {
-    // collect only iterators for nodes that can have offsets
-    auto &child = *children[i];
-    if (child.HasOffsets()) {
-      iters[n] = child.IterateOffsets();
-      positions[n] = 0;
-      n++;
-    }
-  }
-
-  // No applicable offset children - just return true
-  if (n == 0) {
-    return true;
-  }
-
-  int rc;
-  // cal the relevant algorithm based on ordered/unordered condition
-  if (inOrder)
-    rc = __indexResult_withinRangeInOrder(iters, positions, n, maxSlop);
-  else
-    rc = __indexResult_withinRangeUnordered(iters, positions, n, maxSlop);
-  // printf("slop result for %d: %d\n", ir->docId, rc);
-  for (int i = 0; i < n; i++) {
-    delete iters[i];
-  }
-  return !!rc;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

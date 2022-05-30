@@ -101,6 +101,10 @@ struct RSDocumentMetadata : Object {
   struct RSByteOffsets *byteOffsets;
   DLLIST2_node llnode;
   uint32_t ref_count;
+
+  const char *KeyPtrLen(size_t *len) const;
+
+  RedisModuleString *CreateKeyString(RedisModuleCtx *ctx) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -244,31 +248,6 @@ struct RSOffsetVector {
 
 //---------------------------------------------------------------------------------------------
 
-// RSIndexRecord represents a single record of a document inside a term in the inverted index
-
-struct RSTermRecord {
-  // The term that brought up this record
-  RSQueryTerm *term;
-
-  // The encoded offsets in which the term appeared in the document
-  RSOffsetVector offsets;
-};
-
-//---------------------------------------------------------------------------------------------
-
-// A virtual record represents a record that doesn't have a term or an aggregate, like numeric records
-struct RSVirtualRecord {
-  char dummy;
-};
-
-//---------------------------------------------------------------------------------------------
-
-struct RSNumericRecord {
-  double value;
-};
-
-//---------------------------------------------------------------------------------------------
-
 enum RSResultType {
   RSResultType_Union = 0x1,
   RSResultType_Intersection = 0x2,
@@ -281,23 +260,9 @@ enum RSResultType {
 
 //---------------------------------------------------------------------------------------------
 
-struct RSAggregateResult {
-  // number of child records
-  int numChildren;
-  // capacity of the records array. Has no use for extensions
-  int childrenCap;
-  // array of recods
-  struct RSIndexResult **children;
-
-  // A map of the aggregate type of the underlying results
-  uint32_t typeMask;
-};
-
-//---------------------------------------------------------------------------------------------
-
 #pragma pack(16)
 
-struct RSIndexResult : public Object {
+struct IndexResult : public Object {
   //-------------------------------------------------------------------------------------------
   // IMPORTANT: The order of the following 4 variables must remain the same, and all
   // their type aliases must remain uint32_t. The record is decoded by casting it
@@ -321,59 +286,53 @@ struct RSIndexResult : public Object {
   // END OF the "magic 4 uints" section
   //-------------------------------------------------------------------------------------------
 
-  //@@ make derived classes
-  union {
-    RSAggregateResult agg;  // Aggregate record
-    RSTermRecord term;      // Term record
-    RSVirtualRecord virt;   // virtual record with no values
-    RSNumericRecord num;    // numeric record with float value
-  };
-
   RSResultType type;
 
   // we mark copied results so we can treat them a bit differently on deletion, and pool them if we want
-  int isCopy;
+  bool isCopy;
 
   // Relative weight for scoring calculations. This is derived from the result's iterator weight
   double weight;
 
   //-------------------------------------------------------------------------------------------
 
-  RSIndexResult() {}
+  IndexResult() {}
 
-  // Create deep copy of results that is totall thread safe. Very slow so use with caution.
-  RSIndexResult(const RSIndexResult &res);
-
-  RSIndexResult(t_docId docId, double value) : docId(docId), type(RSResultType_Numeric) {
-    num.value = value;
+  IndexResult(RSResultType type, t_docId docId, t_fieldMask fieldMask, uint32_t freq, double weight) :
+    type(type), docId(docId), fieldMask(fieldMask), freq(freq), weight(weight) {
+    isCopy = false;
   }
 
-  // Free an index result's internal allocations, does not free the result itself
-  ~RSIndexResult();
+  // Create deep copy of results that is totall thread safe. Very slow so use with caution.
+  virtual IndexResult(const IndexResult &src) {
+    *this = src;
+    isCopy = true;
+  }
 
   // Reset state of an existing index hit. This can be used to recycle index hits during reads
   void Reset();
 
   // Debug print a result
-  void Print(int depth) const;
+  virtual void Print(int depth) const;
 
   // Get the minimal delta between the terms in the result
-  int MinOffsetDelta() const;
+  virtual int MinOffsetDelta() const { return 1; };
 
-  size_t GetMatchedTerms(RSQueryTerm **arr, size_t cap) const;
-  void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) const;
+  size_t GetMatchedTerms(RSQueryTerm **arr, size_t cap);
+  virtual void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) { return; }
 
   // Return 1 if the the result is within a given slop range, inOrder determines whether the tokens
   // need to be ordered as in the query or not
-  bool IsWithinRange(int maxSlop, bool inOrder) const;
+  virtual bool IsWithinRange(int maxSlop, bool inOrder) const { return true; }
 
-  bool HasOffsets() const;
-  bool IsAggregate() const;
+  virtual bool HasOffsets() const { return false; };
+
+  bool withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num, int maxSlop);
+  bool withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num, int maxSlop);
 
   // Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed
   RSOffsetIterator::Proxy IterateOffsets() const;
 };
-
 #pragma pack()
 
 //---------------------------------------------------------------------------------------------
@@ -411,14 +370,14 @@ struct ScoringFunctionArgs {
 
   // The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
   // that can be used to factor the result score.
-  int (*GetSlop)(const RSIndexResult *res);
+  int (*GetSlop)(const IndexResult *res);
 };
 
 //---------------------------------------------------------------------------------------------
 
 // RSScoringFunction is a callback type for query custom scoring function modules
 
-typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const RSIndexResult *res,
+typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const IndexResult *res,
                                     const RSDocumentMetadata *dmd, double minScore);
 
 // The extension registeration context, containing the callbacks avaliable to the extension for

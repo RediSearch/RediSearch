@@ -120,7 +120,7 @@ void IndexReader::OnReopen(RedisModuleKey *k) {
     lastId = CurrentBlock().firstId;
 
     // seek to the previous last id
-    RSIndexResult *dummy = NULL;
+    IndexResult *dummy = NULL;
     SkipTo(lastId, &dummy);
   }
 }
@@ -135,7 +135,7 @@ void IndexReader::OnReopen(RedisModuleKey *k) {
  *
  ******************************************************************************/
 
-#define ENCODER(f) static size_t f(BufferWriter *bw, uint32_t delta, RSIndexResult *res)
+#define ENCODER(f) static size_t f(BufferWriter *bw, uint32_t delta, IndexResult *res)
 
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 ENCODER(encodeFull) {
@@ -422,7 +422,7 @@ IndexEncoder InvertedIndex::GetEncoder(IndexFlags flags) {
 
 // Write a forward-index entry to an index writer
 
-size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, const RSIndexResult &entry) {
+size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, const IndexResult &entry) {
   // do not allow the same document to be written to the same index twice.
   // this can happen with duplicate tags for example
   if (lastId && lastId == docId) return 0;
@@ -458,23 +458,6 @@ size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, con
 
 //---------------------------------------------------------------------------------------------
 
-struct ForwardIndexEntryResult : RSIndexResult {
-  ForwardIndexEntryResult(const ForwardIndexEntry &ent) {
-    type = RSResultType_Term;
-    docId = ent.docId;
-    offsetsSz = ent.vw ? ent.vw->GetByteLength() : 0;
-    freq = ent.freq;
-    fieldMask = ent.fieldMask;
-    term.term = NULL;
-    if (ent.vw) {
-      term.offsets.data = ent.vw->GetByteData();
-      term.offsets.len = ent.vw->GetByteLength();
-    }
-  }
-};
-
-//---------------------------------------------------------------------------------------------
-
 // Write a forward-index entry to the index
 size_t InvertedIndex::WriteForwardIndexEntry(IndexEncoder encoder, const ForwardIndexEntry &ent) {
   return WriteEntryGeneric(encoder, ent.docId, ForwardIndexEntryResult(ent));
@@ -482,7 +465,7 @@ size_t InvertedIndex::WriteForwardIndexEntry(IndexEncoder encoder, const Forward
 
 // Write a numeric entry to the index
 size_t InvertedIndex::WriteNumericEntry(t_docId docId, double value) {
-  return WriteEntryGeneric(encodeNumeric, docId, RSIndexResult{docId, value});
+  return WriteEntryGeneric(encodeNumeric, docId, IndexResult{docId, value});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -510,13 +493,13 @@ void IndexReader::AdvanceBlock() {
  */
 
 #define DECODER(name) \
-  int IndexDecoder::name(BufferReader *br, RSIndexResult *res)
+  int IndexDecoder::name(BufferReader *br, IndexResult *res)
 
 // Skipper implements SkipTo. It is an optimized version of DECODER which reads
 // the document ID first, and skips ahead if the result does not match the expected one.
 
 #define SKIPPER(name) \
-  int IndexDecoder::name(BufferReader *br, IndexReader *ir, t_docId expid, RSIndexResult *res)
+  int IndexDecoder::name(BufferReader *br, IndexReader *ir, t_docId expid, IndexResult *res)
 
 #define CHECK_FLAGS(res) return ((res->fieldMask & mask) != 0)
 
@@ -903,7 +886,7 @@ size_t IndexReader::NumEstimated() const {
 
 //---------------------------------------------------------------------------------------------
 
-int IndexReader::Read(RSIndexResult **e) {
+int IndexReader::Read(IndexResult **e) {
   if (atEnd) {
     goto eof;
   }
@@ -981,7 +964,7 @@ new_block:
 
 //---------------------------------------------------------------------------------------------
 
-int IndexReader::SkipTo(t_docId docId, RSIndexResult **hit) {
+int IndexReader::SkipTo(t_docId docId, IndexResult **hit) {
   if (!docId) {
     return Read(hit);
   }
@@ -1072,7 +1055,7 @@ size_t IndexReader::NumDocs() const {
 //---------------------------------------------------------------------------------------------
 
 IndexReader::IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
-    RSIndexResult *record, double weight) : IndexIterator(this), sp(sp), idx(idx), decoder(decoder),
+    IndexResult *record, double weight) : IndexIterator(this), sp(sp), idx(idx), decoder(decoder),
     record(record), weight(weight) {
   gcMarker = idx->gcMarker;
   lastId = CurrentBlock().firstId;
@@ -1159,7 +1142,7 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
   BufferReader br(&buf);
   BufferWriter bw(&repair);
 
-  RSIndexResult *res;
+  IndexResult *res;
   if (flags == Index_StoreNumeric)
     res = new NumericResult();
   else

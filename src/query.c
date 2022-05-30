@@ -286,7 +286,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   // we can just use the optimized score index
   int isSingleWord = q->numTokens == 1 && q->opts->fieldmask == RS_FIELDMASK_ALL;
 
-  RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
+  RSQueryTerm *term = new QueryTerm(&qn->tn, q->tokenId++);
 
   // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
 
@@ -332,7 +332,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
       RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
     }
 
-    RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
+    RSQueryTerm *term = new QueryTerm(&tok, q->tokenId++);
 
     // Open an index reader
     IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
@@ -407,7 +407,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   RSToken tok = {0};
   tok.str = (char *)r;
   tok.len = n;
-  RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
+  RSQueryTerm *term = new QueryTerm(&tok, ctx->q->tokenId++);
   IndexReader *ir = new TermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, ctx->weight);
   if (!ir) {
     Term_Free(term);
@@ -424,7 +424,7 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
   QueryEvalCtx *q = ctx->q;
   RSToken tok = {0};
   tok.str = runesToStr(r, n, &tok.len);
-  RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
+  RSQueryTerm *term = new QueryTerm(&tok, ctx->q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
   rm_free(tok.str);

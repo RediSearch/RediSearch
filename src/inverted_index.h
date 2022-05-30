@@ -38,7 +38,7 @@ struct IndexBlock {
 //---------------------------------------------------------------------------------------------
 
 // Called when an entry is removed
-typedef void (*RepairCallback)(const RSIndexResult *res, void *arg);
+typedef void (*RepairCallback)(const IndexResult *res, void *arg);
 
 //---------------------------------------------------------------------------------------------
 
@@ -48,7 +48,7 @@ struct IndexRepairParams {
   size_t limit;          // in: how many index blocks to scan at once
 
   // in: Callback to invoke when a document is collected
-  void (*RepairCallback)(const RSIndexResult *, const IndexBlock *, void *);
+  void (*RepairCallback)(const IndexResult *, const IndexBlock *, void *);
   // argument to pass to callback
   void *arg;
 };
@@ -57,13 +57,13 @@ struct IndexRepairParams {
 
 // An index encoder is a callback that writes records to the index.
 // It accepts a pre-calculated delta for encoding.
-typedef size_t (*IndexEncoder)(BufferWriter *bw, uint32_t delta, const RSIndexResult *record);
+typedef size_t (*IndexEncoder)(BufferWriter *bw, uint32_t delta, const IndexResult *record);
 
 //---------------------------------------------------------------------------------------------
 
 struct IndexDecoder {
   // This context is passed to the decoder callback, and can contain either a pointer or integer.
-  // It is intended to relay along any kind of additional configuration information to help the 
+  // It is intended to relay along any kind of additional configuration information to help the
   // decoder determine whether to filter the entry.
 
   union {
@@ -82,22 +82,22 @@ struct IndexDecoder {
   // (2) Advancing the reader's position to the next record
   // (3) Filtering the record based on any relevant information (can be passed through `ctx`)
   // (4) Populating `res` with the information from the record.
-  
+
   // If the record should not be processed, it should not be populated and 0 should be returned.
   // Otherwise, the function should return 1.
 
-  int (IndexDecoder::*decoder)(BufferReader *br, RSIndexResult *res);
+  int (IndexDecoder::*decoder)(BufferReader *br, IndexResult *res);
 
-  // Custom implementation of a seeking function. Seek to the specific ID within the index, 
+  // Custom implementation of a seeking function. Seek to the specific ID within the index,
   // or at one position after it.
-  // The implementation of this function is optional. 
+  // The implementation of this function is optional.
   // If this is not used, then the decoder() implementation will be used instead.
 
   int (IndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
-    t_docId to, RSIndexResult *res);
+    t_docId to, IndexResult *res);
 
 #define DECODER(name) \
-  int name(BufferReader *br, RSIndexResult *res)
+  int name(BufferReader *br, IndexResult *res)
 
   DECODER(readFreqsFlags);
   DECODER(readFreqsFlagsWide);
@@ -115,7 +115,7 @@ struct IndexDecoder {
 #undef DECODER
 
 #define SKIPPER(name) \
-  int name(BufferReader *br, IndexReader *ir, t_docId expid, RSIndexResult *res)
+  int name(BufferReader *br, IndexReader *ir, t_docId expid, IndexResult *res)
 
   SKIPPER(seekFreqOffsetsFlags);
 #undef SKIPPER
@@ -140,11 +140,11 @@ struct InvertedIndex : Object {
   // Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
   size_t WriteForwardIndexEntry(IndexEncoder encoder, const ForwardIndexEntry &ent);
 
-  // Write a numeric index entry to the index. it includes only a float value and docId. 
+  // Write a numeric index entry to the index. it includes only a float value and docId.
   // Returns the number of bytes written.
   size_t WriteNumericEntry(t_docId docId, double value);
 
-  size_t WriteEntryGeneric(IndexEncoder encoder, t_docId docId, const RSIndexResult &entry);
+  size_t WriteEntryGeneric(IndexEncoder encoder, t_docId docId, const IndexResult &entry);
 
   // Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
   static IndexEncoder GetEncoder(IndexFlags flags);
@@ -182,7 +182,7 @@ struct IndexReader : public IndexIterator {
   size_t len;
 
   // The record we are decoding into
-  RSIndexResult *record;
+  IndexResult *record;
 
   int atEnd;
 
@@ -199,7 +199,7 @@ struct IndexReader : public IndexIterator {
 
   //-------------------------------------------------------------------------------------------
 
-  IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder, RSIndexResult *record,
+  IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder, IndexResult *record,
     double weight);
 
   // free an index reader
@@ -210,10 +210,10 @@ struct IndexReader : public IndexIterator {
   void OnReopen(RedisModuleKey *k);
 
   // Read an entry from an inverted index
-  int GenericRead(RSIndexResult *res);
+  int GenericRead(IndexResult *res);
 
-  // Read an entry from an inverted index into RSIndexResult
-  int Read(RSIndexResult **e);
+  // Read an entry from an inverted index into IndexResult
+  int Read(IndexResult **e);
 
   // Move to the next entry in an inverted index, without reading the whole entry
   int Next();
@@ -228,13 +228,13 @@ struct IndexReader : public IndexIterator {
   //  - INDEXREAD_NOTFOUND if the reader is at the next position
   //  - INDEXREAD_EOF if the ID is out of the upper range
 
-  int SkipTo(t_docId docId, RSIndexResult **hit);
+  int SkipTo(t_docId docId, IndexResult **hit);
   int SkipToBlock(t_docId docId);
 
   void Abort();
   void Rewind();
 
-  RSIndexResult *Current(void *ctx);
+  IndexResult *Current(void *ctx);
 
   // The number of docs in an inverted index entry
   size_t NumDocs() const;

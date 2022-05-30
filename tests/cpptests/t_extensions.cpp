@@ -146,7 +146,7 @@ TEST_F(ExtTest, testQueryExpander) {
   ASSERT_STREQ("world", n->children[1]->children[0]->tn.str);
   ASSERT_STREQ("foo", n->children[1]->children[1]->tn.str);
 
-  RSQueryTerm *qtr = NewQueryTerm(&n->children[1]->children[1]->tn, 1);
+  RSQueryTerm *qtr = new QueryTerm(&n->children[1]->children[1]->tn, 1);
   ASSERT_STREQ(qtr->str, n->children[1]->children[1]->tn.str);
   ASSERT_EQ(0x00FF, qtr->flags);
 

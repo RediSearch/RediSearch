@@ -116,7 +116,7 @@ TEST_F(RangeTest, testRangeIterator) {
       ASSERT_EQ(res->type, RSResultType_Numeric);
       // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
       ASSERT_TRUE(!res->HasOffsets());
-      ASSERT_TRUE(!res->IsAggregate());
+      // ASSERT_TRUE(!res->IsAggregate());
       ASSERT_TRUE(res->docId > 0);
       ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);
 
