@@ -73,12 +73,12 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   return valuesDeleted;
 }
 
-int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
+bool Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
   RedisModuleKey *k = NULL;
   Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ, &k);
   if (t == NULL) {
     *err = "could not open dict key";
-    return -1;
+    return false;
   }
 
   rune *rstr = NULL;
@@ -90,7 +90,7 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
   RedisModule_ReplyWithArray(ctx, t->size);
 
   TrieIterator *it = t->Iterate("", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (it->Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
@@ -100,7 +100,7 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
 
   RedisModule_CloseKey(k);
 
-  return 1;
+  return true;
 }
 
 int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -113,8 +113,8 @@ int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
   char *error;
-  int retVal = Dictionary_Dump(ctx, dictName, &error);
-  if (retVal < 0) {
+  bool retVal = Dictionary_Dump(ctx, dictName, &error);
+  if (!retVal) {
     RedisModule_ReplyWithError(ctx, error);
   }
 

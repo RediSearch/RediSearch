@@ -171,7 +171,7 @@ int DocTable::SetSortingVector(t_docId docId, RSSortingVector *v) {
   /* Null vector means remove the current vector if it exists */
   /*if (!v) {
     if (dmd->sortVector) {
-      SortingVector_Free(dmd->sortVector);
+      delete dmd->sortVector;
     }
     dmd->sortVector = NULL;
     dmd->flags &= ~Document_HasSortVector;
@@ -183,7 +183,7 @@ int DocTable::SetSortingVector(t_docId docId, RSSortingVector *v) {
   /* Set th new vector and the flags accordingly */
   dmd->sortVector = v;
   dmd->flags |= Document_HasSortVector;
-  sortablesSize += RSSortingVector_GetMemorySize(v);
+  sortablesSize += v->GetMemorySize();
 
   return 1;
 }
@@ -296,7 +296,7 @@ void DMD_Free(RSDocumentMetadata *md) {
     md->payload = NULL;
   }
   if (md->sortVector) {
-    SortingVector_Free(md->sortVector);
+    delete md->sortVector;
     md->sortVector = NULL;
     md->flags &= ~Document_HasSortVector;
   }
@@ -399,7 +399,7 @@ void DocTable::RdbSave(RedisModuleIO *rdb) {
       }
 
       if (dmd->flags & Document_HasSortVector) {
-        SortingVector_RdbSave(rdb, dmd->sortVector);
+        dmd->sortVector->RdbSave(rdb);
       }
 
       if (dmd->flags & Document_HasOffsetVector) {
@@ -485,8 +485,8 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
     }
     dmd->sortVector = NULL;
     if (dmd->flags & Document_HasSortVector) {
-      dmd->sortVector = SortingVector_RdbLoad(rdb, encver);
-      sortablesSize += RSSortingVector_GetMemorySize(dmd->sortVector);
+      dmd->sortVector = new RSSortingVector(rdb, encver);
+      sortablesSize += dmd->sortVector->GetMemorySize();
     }
 
     if (dmd->flags & Document_HasOffsetVector) {

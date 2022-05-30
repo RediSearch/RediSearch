@@ -8,7 +8,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// We have two types of offset vector iterators - for terms and for aggregates. 
+// We have two types of offset vector iterators - for terms and for aggregates.
 // For terms we simply yield the encoded offsets one by one.
 // For aggregates, we merge them on the fly in order.
 // They are both encapsulated in an abstract iterator interface called RSOffsetIterator, with
@@ -22,7 +22,7 @@ public:
 };
 
 // A raw offset vector iterator
-struct RSOffsetVectorIterator : public RSOffsetIterator, 
+struct RSOffsetVectorIterator : public RSOffsetIterator,
                                 public PoolObject<RSOffsetVectorIteratorPool> {
   Buffer buf;
   BufferReader br;
@@ -180,7 +180,7 @@ RSOffsetEmptyIterator offset_empty_iterator;
 
 //---------------------------------------------------------------------------------------------
 
-RSOffsetIterator::Proxy::~Proxy() { 
+RSOffsetIterator::Proxy::~Proxy() {
   if (it != &offset_empty_iterator) {
     delete it;
   }
@@ -189,7 +189,7 @@ RSOffsetIterator::Proxy::~Proxy() {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Create the appropriate iterator from a result based on its type
-RSOffsetIterator::Proxy RSIndexResult::IterateOffsets() const {
+RSOffsetIterator::Proxy IndexResult::IterateOffsets() const {
   switch (type) {
   case RSResultType_Term:
     return term.offsets.Iterate(term.term);

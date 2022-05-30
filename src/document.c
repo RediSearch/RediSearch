@@ -124,7 +124,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
   }
 
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
-    aCtx->sv = NewSortingVector(sp->sortables->len);
+    aCtx->sv = new RSSortingVector(sp->sortables->len);
   }
 
   int empty = (aCtx->sv == NULL) && !hasTextFields && !hasOtherFields;
@@ -391,7 +391,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t fl;
   const char *c = RedisModule_StringPtrLen(field->text, &fl);
   if (FieldSpec_IsSortable(fs)) {
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
+    aCtx->sv->Put(fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
 
   if (FieldSpec_IsIndexable(fs)) {
@@ -438,7 +438,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 
   // If this is a sortable numeric value - copy the value to the sorting vector
   if (FieldSpec_IsSortable(fs)) {
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM);
+    aCtx->sv->Put(fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM);
   }
   return 0;
 }
@@ -501,7 +501,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
   if (FieldSpec_IsSortable(fs)) {
     size_t fl;
     const char *c = RedisModule_StringPtrLen(field->text, &fl);
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
+    aCtx->sv->Put(fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
   return 0;
 }
@@ -735,7 +735,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       if (idx < 0) continue;
 
       if (!md->sortVector) {
-        md->sortVector = NewSortingVector(sctx->spec->sortables->len);
+        md->sortVector = new RSSortingVector(sctx->spec->sortables->len);
       }
 
       RS_LOG_ASSERT((fs->options & FieldSpec_Dynamic) == 0, "Dynamic field cannot use PARTIAL");
@@ -743,7 +743,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
-          RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
+          md->sortVector->Put(idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
                               RS_SORTABLE_STR);
           break;
         case INDEXFLD_T_NUMERIC: {
@@ -751,7 +751,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
           if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
             BAIL("Could not parse numeric index value");
           }
-          RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM);
+          md->sortVector->Put(idx, &numval, RS_SORTABLE_NUM);
           break;
         }
         default:
