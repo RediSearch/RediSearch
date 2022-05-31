@@ -408,13 +408,13 @@ def test_SkipFieldWithNoMatch(env):
 
 
 def testOverMaxResults():
-  env = Env(moduleArgs='MAXSEARCHRESULTS 10')
+  env = Env(moduleArgs='MAXSEARCHRESULTS 20')
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-  for i in range(20):
+  for i in range(30):
     conn.execute_command('HSET', i, 't', i)
 
-  res = [20, '5', ['t', '5'], '6', ['t', '6'], '7', ['t', '7'], '8', ['t', '8'], '9', ['t', '9']]
-  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '5', '10').equal(res)
+  res = [30, '15', ['t', '15'], '16', ['t', '16'], '17', ['t', '17'], '18', ['t', '18'], '19', ['t', '19']]
+  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '15', '10').equal(res)
