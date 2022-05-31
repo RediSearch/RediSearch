@@ -107,6 +107,36 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
+  // Module version
+  RedisModule_InfoAddSection(ctx, "version");
+  char rs_version[50];
+  sprintf(rs_version, "%d.%d.%d", redisVersion.majorVersion, redisVersion.minorVersion, redisVersion.patchVersion);
+  RedisModule_InfoAddFieldCString(ctx, "RedisSearch_version", rs_version);
+
+  // Numer of indexes
+  RedisModule_InfoAddSection(ctx, "index");
+  RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
+
+  // Fields statistics
+  FieldsGlobalStats_AddToInfo(ctx);
+
+  // Run time configuration
+  RSConfig_AddToInfo(ctx);
+
+  #ifdef FTINFO_FOR_INFO_MODULES
+  // FT.INFO for some of the indexes
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  int count = 5;
+  while (count-- && (entry = dictNext(iter))) {
+    IndexSpec *spec = dictGetVal(entry);
+    IndexSpec_AddToInfo(ctx, spec);
+  }
+  dictReleaseIterator(iter);
+  #endif
+}
+
 static inline const char* RS_GetExtraVersion() {
 #ifdef GIT_VERSPEC
   return GIT_VERSPEC;
@@ -191,6 +221,11 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Register the default hard coded extension
   if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
     DO_LOG("warning", "Could not register default extension");
+    return REDISMODULE_ERR;
+  }
+
+  // Register to Info function
+  if (RedisModule_RegisterInfoFunc && RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
