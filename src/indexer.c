@@ -6,7 +6,9 @@
 #include "vector_index.h"
 #include "index.h"
 #include "redis_index.h"
+#include "suffix.h"
 #include "rmutil/rm_assert.h"
+#include "phonetic_manager.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -231,6 +233,13 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
         invidx->fieldMask |= entry->fieldMask;
       }
     }
+    
+    if (spec->suffixMask & entry->fieldMask && entry->term[0] != STEM_PREFIX
+                                            && entry->term[0] != PHONETIC_PREFIX
+                                            && entry->term[0] != SYNONYM_PREFIX_CHAR) {
+      addSuffixTrie(spec->suffix, entry->term, entry->len);
+    }
+
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }

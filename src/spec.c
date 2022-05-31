@@ -15,6 +15,7 @@
 #include "tag_index.h"
 #include "redis_index.h"
 #include "indexer.h"
+#include "suffix.h"
 #include "alias.h"
 #include "module.h"
 #include "aggregate/expr/expression.h"
@@ -340,7 +341,8 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       }
       fs->options |= FieldSpec_Phonetics;
       continue;
-
+    } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+      fs->options |= FieldSpec_WithSuffixTrie;
     } else {
       break;
     }
@@ -690,6 +692,8 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
         fs->tagOpts.tagSep = *sep;
       } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
         fs->tagOpts.tagFlags |= TagField_CaseSensitive;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+        fs->options |= FieldSpec_WithSuffixTrie;
       } else {
         break;
       }
@@ -844,6 +848,13 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
+    }
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_HasSuffixTrie(fs)) {
+      sp->suffixMask |= FIELD_BIT(fs);
+      if (!sp->suffix) {
+        sp->flags |= Index_HasSuffixTrie;
+        sp->suffix = NewTrie(suffixTrie_freeCallback);
+      }
     }
     fs = NULL;
   }
@@ -1175,6 +1186,10 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     SortingTable_Free(spec->sortables);
     spec->sortables = NULL;
   }
+  // Free suffix trie
+  if (spec->suffix) {
+    TrieType_Free(spec->suffix);
+  }
   // Free spec struct
   rm_free(spec);
 }
@@ -1452,6 +1467,8 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie(NULL);
+  sp->suffix = NULL;
+  sp->suffixMask = (t_fieldMask)0;
   sp->keysDict = NULL;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
@@ -2093,6 +2110,14 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     if (FieldSpec_IsSortable(fs)) {
       RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
     }
+    if (FieldSpec_HasSuffixTrie(fs)) {
+      sp->flags |= Index_HasSuffixTrie;
+      sp->suffixMask |= FIELD_BIT(fs);
+      if (!sp->suffix) {
+        sp->suffix = NewTrie(suffixTrie_freeCallback);
+      }
+    }
+
   }
 
   //    IndexStats_RdbLoad(rdb, &sp->stats);
@@ -2109,7 +2134,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   //  if (encver >= 3) {
   //    sp->terms = TrieType_GenericLoad(rdb, 0);
   //  } else {
-  //    sp->terms = NewTrie();
+  //    sp->terms = NewTrie(NULL);
   //  }
 
   if (sp->flags & Index_HasCustomStopwords) {

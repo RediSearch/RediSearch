@@ -17,6 +17,7 @@
 #include <float.h>
 #include "module.h"
 #include "rmutil/rm_assert.h"
+#include "suffix.h"
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -781,6 +782,9 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
     }
     Trie_Delete(sctx->spec->terms, term, len);
     RedisModule_FreeString(sctx->redisCtx, termKey);
+    if (sctx->spec->suffix) {
+      deleteSuffixTrie(sctx->spec->suffix, term, len);
+    }
   }
 
 cleanup:
@@ -1068,6 +1072,10 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     if (idx->numDocs == 0) {
       // printf("Delete GC %s %p\n", tagVal, TrieMap_Find(tagIdx->values, tagVal, tagValLen));
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
+
+      if (tagIdx->suffix) {
+        deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);
+      }
     }
 
   loop_cleanup:

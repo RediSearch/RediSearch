@@ -5,16 +5,26 @@ categories:
     labels:
       - 'feature'
       - 'enhancement'
+      - 'c:feature'
+      - 'c:enhancement'
   - title: 'Bug Fixes'
     labels:
       - 'fix'
       - 'bugfix'
       - 'bug'
+      - 'c:bug'
+  - title: 'Breaking Changes'
+    labels:
+      - 'pr:break'
+  - title: 'Documentation'
+    labels:
+      - 'x:docs'
   - title: 'Maintenance'
     label: 'chore'
 change-template: '- $TITLE (#$NUMBER)'
 exclude-labels:
   - 'skip-changelog'
+  - 'x:build'
 template: |
   ## Changes
 
