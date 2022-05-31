@@ -37,7 +37,7 @@ void SearchResult::Clear() {
 
   rowdata.Wipe();
   if (dmd) {
-    DMD_Decref(dmd);
+    dmd->Decref();
     dmd = NULL;
   }
 }
@@ -117,7 +117,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   res->score = 0;
   res->dmd = dmd;
   res->rowdata.sv = dmd->sortVector;
-  DMD_Incref(dmd);
+  dmd->Incref();
   return RS_RESULT_OK;
 }
 

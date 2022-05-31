@@ -102,9 +102,14 @@ struct RSDocumentMetadata : Object {
   DLLIST2_node llnode;
   uint32_t ref_count;
 
+  ~RSDocumentMetadata();
+
   const char *KeyPtrLen(size_t *len) const;
 
   RedisModuleString *CreateKeyString(RedisModuleCtx *ctx) const;
+
+  void Decref();
+  void Incref() { ++ref_count; }
 };
 
 //---------------------------------------------------------------------------------------------

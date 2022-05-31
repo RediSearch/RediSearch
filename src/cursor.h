@@ -19,7 +19,7 @@ struct CursorSpecInfo : public Object {
   size_t cap;    // Maximum number of cursors for the spec
   size_t used;   // Number of cursors currently open
 
-  CursorSpecInfo(const char *keyname, size_t capacity);
+  CursorSpecInfo(const char *k, size_t capacity);
   ~CursorSpecInfo();
 };
 
@@ -32,7 +32,7 @@ struct Cursor : public Object {
   CursorSpecInfo *specInfo;
 
   // Parent - used for deletion, etc
-  struct CursorList *parent;
+  CursorList *parent;
 
   // Execution state. Opaque to the cursor - managed by consumer
   struct AREQ *execState;
@@ -49,10 +49,10 @@ struct Cursor : public Object {
   // Position within idle list
   int pos;
 
-  Cursor(CursorList &parent, CursorSpecInfo *spec);
+  Cursor(CursorList *cl, CursorSpecInfo *info, uint32_t interval);
   ~Cursor();
 
-  void Free();
+  int Free();
 
   bool IsIdle() const { return pos != -1; }
 
@@ -103,6 +103,7 @@ struct CursorList : public Object {
 
   void Add(const char *keyname, size_t capacity);
   void Remove(const char *keyname);
+  void IncrCounter();
   CursorSpecInfo *Find(const char *keyName, size_t *index) const;
 
   Cursor *Reserve(const char *keyname, unsigned timeout, struct QueryError *status);
@@ -111,7 +112,7 @@ struct CursorList : public Object {
 
   int Purge(CursorId cid);
   void Purge(const char *keyname);
-  void Free(Cursor *cursor);
+  void Free(Cursor *cursor, khiter_t khi);
 
   void ForEach(std::function<void(CursorList&, Cursor&, void *)> f, void *arg);
 

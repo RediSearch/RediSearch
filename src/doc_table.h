@@ -72,24 +72,18 @@ struct DocTable : Object {
   DMDChain *buckets;
   DocIdMap dim;
 
-private:
-  #define STRVARS_FROM_RSTRING(r) { \
-    size_t n;                       \
-    const char *s = RedisModule_StringPtrLen(r, &n);
-  }
-
 protected:
   void ctor(size_t cap, size_t max_size);
 
-  void Set(t_docId docId, RSDocumentMetadata *dmd)
+  void Set(t_docId docId, RSDocumentMetadata *dmd);
 
-  void DmdUnchain(RSDocumentMetadata *md)
+  void DmdUnchain(RSDocumentMetadata *md);
 
   int ValidateDocId(t_docId docId) const;
 
   uint32_t GetBucket(t_docId docId) const;
 
-public;
+public:
   DocTable(size_t cap, size_t max_size) { ctor(cap, max_size); }
   DocTable(size_t cap) { ctor(cap, RSGlobalConfig.maxDocTableSize); }
   ~DocTable();
@@ -107,7 +101,7 @@ public;
 
   int SetPayload(t_docId docId, const char *data, size_t len);
 
-  int Exists(t_docId docId) const;
+  bool Exists(t_docId docId) const;
 
   int SetSortingVector(t_docId docId, RSSortingVector *v);
 
@@ -117,19 +111,22 @@ public;
 
   t_docId GetId(const char *s, size_t n) const;
   t_docId GetIdR(RedisModuleString *r) const {
-    STRVARS_FROM_RSTRING(r);
+    size_t n;
+    const char *s = RedisModule_StringPtrLen(r, &n);
     return GetId(s, n);
   }
 
-  int Delete(const char *key, size_t n);
-  int DeleteR(RedisModuleString *r) {
-    STRVARS_FROM_RSTRING(r);
+  bool Delete(const char *key, size_t n);
+  bool DeleteR(RedisModuleString *r) {
+    size_t n;
+    const char *s = RedisModule_StringPtrLen(r, &n);
     return Delete(s, n);
   }
 
   RSDocumentMetadata *Pop(const char *s, size_t n);
   RSDocumentMetadata *PopR(RedisModuleString *r) {
-    STRVARS_FROM_RSTRING(r);
+    size_t n;
+    const char *s = RedisModule_StringPtrLen(r, &n);
     return Pop(s, n);
   }
 
@@ -147,10 +144,8 @@ public;
 
 //---------------------------------------------------------------------------------------------
 
-/* increasing the ref count of the given dmd */
-#define DMD_Incref(md) \
-  if (md) ++md->ref_count;
-
+//@@ What is the type of code (?)
+// I want to move it into RSDocumentMetadata struct.
 #define DOCTABLE_FOREACH(dt, code)                                           \
   for (size_t i = 1; i < dt->cap; ++i) {                                     \
     DMDChain *chain = &dt->buckets[i];                                       \
@@ -162,15 +157,5 @@ public;
       code;                                                                  \
     }                                                                        \
   }
-
-// don't use this function directly. Use DMD_Decref.
-void DMD_Free(RSDocumentMetadata *);
-
-// Decrement the refcount of the DMD object, freeing it if we're the last reference
-static inline void DMD_Decref(RSDocumentMetadata *dmd) {
-  if (dmd && !--dmd->ref_count) {
-    DMD_Free(dmd);
-  }
-}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

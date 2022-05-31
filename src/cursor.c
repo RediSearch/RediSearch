@@ -10,13 +10,13 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-Cursor::Cursor(CursorList *cl, CursorSpecInfo *info_, uint32_t interval) {
+Cursor::Cursor(CursorList *cl, CursorSpecInfo *info, uint32_t interval) {
   parent = cl;
-  info = info_;
+  specInfo = info;
   id = CursorList::GenerateId();
   pos = -1;
   timeoutIntervalMs = interval;
-  nextIdleTimeoutNs = 0;
+  nextTimeoutNs = 0;
   execState = NULL;
 }
 
@@ -25,7 +25,7 @@ Cursor::Cursor(CursorList *cl, CursorSpecInfo *info_, uint32_t interval) {
 // Doesn't lock - simply deallocates and decrements
 
 Cursor::~Cursor() {
-  info->used--;
+  specInfo->used--;
   if (execState) {
     delete execState;
   }
@@ -35,6 +35,14 @@ Cursor::~Cursor() {
 
 int Cursor::Free() {
   return parent->Purge(id);
+}
+
+//---------------------------------------------------------------------------------------------
+
+static uint64_t curTimeNs() {
+  struct timespec tv;
+  clock_gettime(CLOCK_MONOTONIC, &tv);
+  return tv.tv_nsec + (tv.tv_sec * 1000000000);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -85,14 +93,6 @@ CursorList *RSCursors;
 
 //---------------------------------------------------------------------------------------------
 
-static uint64_t curTimeNs() {
-  struct timespec tv;
-  clock_gettime(CLOCK_MONOTONIC, &tv);
-  return tv.tv_nsec + (tv.tv_sec * 1000000000);
-}
-
-//---------------------------------------------------------------------------------------------
-
 CursorList::CursorList() {
   cursorCount = 0;
   counter = 0;
@@ -136,7 +136,7 @@ void CursorList::Free(Cursor *cur, khiter_t khi) {
 
 void CursorList::ForEach(std::function<void(CursorList&, Cursor&, void *)> f, void *arg) {
   for (size_t i = 0; i < ARRAY_GETSIZE_AS(&idle, Cursor *); ++i) {
-    Cursor *cur = *ARRAY_GETITEM_AS(&idle, ii, Cursor **);
+    Cursor *cur = *ARRAY_GETITEM_AS(&idle, i, Cursor **);
     Cursor *oldCur = NULL;
 
     // The cursor `cur` might have been changed in the callback, if it has been
@@ -190,7 +190,7 @@ int CursorList::GCInternal(bool force) {
       cl.Free(&cur, kh_get(cursors, cl.lookup, cur.id));
       data->numCollected++;
     }
-  }
+  };
   ForEach(cb, &gc_data);
   return gc_data.numCollected;
 }
@@ -225,7 +225,7 @@ void CursorList::Remove(const char *keyname) {
   if (info) {
     infos[index] = infos[cursorCount - 1];
     infos = rm_realloc(infos, sizeof(*infos) * --cursorCount);
-    delete info
+    delete info;
   }
 }
 
@@ -240,10 +240,10 @@ void CursorList::IncrCounter() {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Cursor ID is a 64 bit opaque integer. The upper 32 bits consist of the PID of the process 
- * which generated the cursor, and the lower 32 bits consist of the counter at the time at 
+ * Cursor ID is a 64 bit opaque integer. The upper 32 bits consist of the PID of the process
+ * which generated the cursor, and the lower 32 bits consist of the counter at the time at
  * which it was generated.
- * This doesn't make it particularly "secure" but it does prevent accidental collisions from 
+ * This doesn't make it particularly "secure" but it does prevent accidental collisions from
  * both a stuck client and a crashed server.
  */
 CursorId CursorList::GenerateId() {
@@ -280,11 +280,11 @@ Cursor *CursorList::Reserve(const char *lookupName, unsigned interval, QueryErro
     }
   }
 
-  cur = new Cursor(*this, spec, inteval)
-  cl->lookup.emplace(cur->id, cur);
+  cur = new Cursor(*this, spec, interval);
+  lookup.emplace(cur->id, cur);
   // int dummy;
-  // khiter_t iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
-  // kh_value(cl->lookup, iter) = cur;
+  // khiter_t iter = kh_put(cursors, lookup, cur->id, &dummy);
+  // kh_value(lookup, iter) = cur;
 
 done:
   if (cur) {
@@ -390,7 +390,7 @@ void CursorList::Purge(const char *lookupName) {
 
     cur.RemoveFromIdle();
     cl.Free(&cur, kh_get(cursors, cl.lookup, cur.id));
-  }
+  };
 
   ForEach(cl, cb, info);
 }
@@ -404,9 +404,9 @@ CursorList::~CursorList() {
     if (!kh_exist(lookup, i)) {
       continue;
     }
-    Cursor *cur = kh_val(cl->lookup, ii);
+    Cursor *cur = kh_val(lookup, i);
     fprintf(stderr, "[redisearch] leaked cursor at %p\n", cur);
-    Free(cur, ii);
+    Free(cur, i);
   }
   kh_destroy(cursors, lookup);
 
@@ -422,7 +422,7 @@ CursorList::~CursorList() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-CursorSpecInfo::CursorSpecInfo(const char *keyname, size_t capacity) {
+CursorSpecInfo::CursorSpecInfo(const char *k, size_t capacity) {
   keyName = rm_strdup(k);
   used = 0;
   cap = capacity;

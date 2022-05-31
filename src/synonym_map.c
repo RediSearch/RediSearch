@@ -16,8 +16,8 @@ static const uint64_t calculate_hash(const char* str, size_t len) {
 
 //---------------------------------------------------------------------------------------------
 
-TermData::TermData(char* term) {
-  term = term;
+TermData::TermData(char* t) {
+  term = t;
   ids = array_new(uint32_t, INITIAL_CAPACITY);
 }
 
@@ -315,7 +315,7 @@ SynonymMap* SynonymMap::GetReadOnlyCopy() {
 
 void SynonymMap_RdbSaveEntry(RedisModuleIO* rdb, uint64_t key, TermData* t_data) {
   RedisModule_SaveUnsigned(rdb, key);
-  TermData_RdbSave(rdb, t_data);
+  t_data->RdbSave(rdb);
 }
 
 //---------------------------------------------------------------------------------------------

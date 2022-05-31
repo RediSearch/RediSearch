@@ -19,7 +19,7 @@ struct TermData {
   char* term;
   uint32_t* ids;
 
-  TermData();
+  TermData(char* t);
   TermData(RedisModuleIO* rdb);
   ~TermData();
 
@@ -62,8 +62,7 @@ struct SynonymMap : Object {
 
   TermData** DumpAllTerms(size_t* size);
 
-  size_t IdToStr(uint32_t id, char* buff, size_t len);
-  SynonymMap* GetReadOnlyCopy(SynonymMap* smap);
+  SynonymMap* GetReadOnlyCopy();
 
   static void RdbSave(RedisModuleIO* rdb, void* value);
 

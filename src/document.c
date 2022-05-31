@@ -343,10 +343,10 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 
 ~RSAddDocumentCtx::RSAddDocumentCtx() {
   // Free preprocessed data; this is the only reliable place to do it
-  for (size_t ii = 0; ii < doc.numFields; ++ii) {
-    if (FIELD_IS_VALID(this, ii) && FIELD_IS(fspecs + ii, INDEXFLD_T_TAG) &&
-        !!fdatas[ii].tags) {
-      fdatas[ii].tags.Clear();
+  for (size_t i = 0; i < doc.numFields; ++i) {
+    if (FIELD_IS_VALID(this, i) && FIELD_IS(fspecs + i, INDEXFLD_T_TAG) &&
+        !!fdatas[i].tags) {
+      fdatas[i].tags.Clear();
     }
   }
 
@@ -355,7 +355,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   delete tokenizer;
 
   if (oldMd) {
-    DMD_Decref(oldMd);
+    oldMd->Decref();
     oldMd = NULL;
   }
 

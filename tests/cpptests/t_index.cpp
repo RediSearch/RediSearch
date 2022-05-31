@@ -962,7 +962,7 @@ TEST_F(IndexTest, testDocTable) {
     ASSERT_EQ((int)score, i);
 
     RSDocumentMetadata *dmd = &dt->Get(i + 1);
-    DMD_Incref(dmd);
+    dmd->Incref();
     ASSERT_TRUE(dmd != NULL);
     ASSERT_TRUE(dmd->flags & Document_HasPayload);
     ASSERT_STREQ(dmd->keyPtr, buf);
@@ -979,7 +979,7 @@ TEST_F(IndexTest, testDocTable) {
     int rc = &dt->Delete(dmd->keyPtr, sdslen(dmd->keyPtr));
     ASSERT_EQ(1, rc);
     ASSERT_TRUE((int)(dmd->flags & Document_Deleted));
-    DMD_Decref(dmd);
+    dmd->Decref();
     dmd = &dt->Get(i + 1);
     ASSERT_TRUE(!dmd);
   }

@@ -29,7 +29,7 @@ void DocTable::ctor(size_t cap, size_t max_size) {
 //---------------------------------------------------------------------------------------------
 
 inline uint32_t DocTable::GetBucket(t_docId docId) const {
-  return docId < axSize ? docId : docId % maxSize;
+  return docId < maxSize ? docId : docId % maxSize;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -61,25 +61,25 @@ RSDocumentMetadata *DocTable::Get(t_docId docId) const {
 
 //---------------------------------------------------------------------------------------------
 
-int DocTable::Exists(t_docId docId) const {
+bool DocTable::Exists(t_docId docId) const {
   if (!docId || docId > maxDocId) {
-    return 0;
+    return false;
   }
   uint32_t ix = GetBucket(docId);
   if (ix >= cap) {
-    return 0;
+    return false;
   }
   const DMDChain *chain = buckets + ix;
   if (chain == NULL) {
-    return 0;
+    return false;
   }
   DLLIST2_FOREACH(it, &chain->lroot) {
     const RSDocumentMetadata *md = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
     if (md->id == docId && !(md->flags & Document_Deleted)) {
-      return 1;
+      return true;
     }
   }
-  return 0;
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -114,7 +114,7 @@ inline void DocTable::Set(t_docId docId, RSDocumentMetadata *dmd) {
   }
 
   DMDChain *chain = &buckets[bucket];
-  DMD_Incref(dmd);
+  dmd->Incref();
 
   // Adding the dmd to the chain
   dllist2_append(&chain->lroot, &dmd->llnode);
@@ -124,7 +124,7 @@ inline void DocTable::Set(t_docId docId, RSDocumentMetadata *dmd) {
 
 // Get the docId of a key if it exists in the table, or 0 if it doesnt
 t_docId DocTable::GetId(const char *s, size_t n) const {
-  return &dim->Get(s, n);
+  return dim.Get(s, n);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -214,7 +214,7 @@ int DocTable::SetByteOffsets(t_docId docId, RSByteOffsets *v) {
 t_docId DocTable::Put(const char *s, size_t n, double score, u_char flags,
                       const char *payload, size_t payloadSize) {
 
-  t_docId xid = &dim->Get(s, n);
+  t_docId xid = dim.Get(s, n);
   // if the document is already in the index, return 0
   if (xid) {
     return 0;
@@ -247,7 +247,7 @@ t_docId DocTable::Put(const char *s, size_t n, double score, u_char flags,
   Set(docId, dmd);
   ++size;
   memsize += sizeof(RSDocumentMetadata) + sdsAllocSize(keyPtr);
-  &dim->Put(s, n, docId);
+  dim.Put(s, n, docId);
   return docId;
 }
 
@@ -288,30 +288,36 @@ inline float DocTable::GetScore(t_docId docId) {
 
 //---------------------------------------------------------------------------------------------
 
-void DMD_Free(RSDocumentMetadata *md) {
-  if (md->payload) {
-    rm_free(md->payload->data);
-    rm_free(md->payload);
-    md->flags &= ~Document_HasPayload;
-    md->payload = NULL;
+RSDocumentMetadata::~RSDocumentMetadata() {
+  if (payload) {
+    rm_free(payload->data);
+    rm_free(payload);
+    flags &= ~Document_HasPayload;
+    payload = NULL;
   }
-  if (md->sortVector) {
-    delete md->sortVector;
-    md->sortVector = NULL;
-    md->flags &= ~Document_HasSortVector;
+  if (sortVector) {
+    delete sortVector;
+    sortVector = NULL;
+    flags &= ~Document_HasSortVector;
   }
-  if (md->byteOffsets) {
-    RSByteOffsets_Free(md->byteOffsets);
-    md->byteOffsets = NULL;
-    md->flags &= ~Document_HasOffsetVector;
+  if (byteOffsets) {
+    delete byteOffsets;
+    byteOffsets = NULL;
+    flags &= ~Document_HasOffsetVector;
   }
-  sdsfree(md->keyPtr);
-  rm_free(md);
+  sdsfree(keyPtr);
+}
+
+// Decrement the refcount of the DMD object, freeing it if we're the last reference
+inline void RSDocumentMetadata::Decref() {
+  if (!--ref_count) {
+    delete this;
+  }
 }
 
 //---------------------------------------------------------------------------------------------
 
-void DocTable::~DocTable() {
+DocTable::~DocTable() {
   for (int i = 0; i < cap; ++i) {
     DMDChain *chain = &buckets[i];
     if (DLLIST2_IS_EMPTY(&chain->lroot)) {
@@ -321,7 +327,6 @@ void DocTable::~DocTable() {
     while (nn) {
       RSDocumentMetadata *md = DLLIST2_ITEM(nn, RSDocumentMetadata, llnode);
       nn = nn->next;
-      DMD_Free(md);
     }
   }
 }
@@ -336,19 +341,19 @@ void DocTable::DmdUnchain(RSDocumentMetadata *md) {
 
 //---------------------------------------------------------------------------------------------
 
-int DocTable::Delete(const char *s, size_t n) {
+bool DocTable::Delete(const char *s, size_t n) {
   RSDocumentMetadata *md = Pop(s, n);
   if (md) {
-    DMD_Decref(md);
-    return 1;
+    md->Decref();
+    return true;
   }
-  return 0;
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
 
 RSDocumentMetadata *DocTable::Pop(const char *s, size_t n) {
-  t_docId docId = &dim->Get(s, n);
+  t_docId docId = dim.Get(s, n);
 
   if (docId && docId <= maxDocId) {
 
@@ -360,7 +365,7 @@ RSDocumentMetadata *DocTable::Pop(const char *s, size_t n) {
     md->flags |= Document_Deleted;
 
     DmdUnchain(md);
-    &dim->Delete(s, n);
+    dim.Delete(s, n);
     --size;
 
     return md;
@@ -404,7 +409,7 @@ void DocTable::RdbSave(RedisModuleIO *rdb) {
 
       if (dmd->flags & Document_HasOffsetVector) {
         Buffer tmp(16);
-        RSByteOffsets_Serialize(dmd->byteOffsets, &tmp);
+        dmd->byteOffsets->Serialize(&tmp);
         RedisModule_SaveStringBuffer(rdb, tmp.data, tmp.offset);
       }
       ++elements_written;
@@ -496,9 +501,9 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
 
     if (dmd->flags & Document_Deleted) {
       ++deletedElements;
-      DMD_Free(dmd);
+      delete dmd;
     } else {
-      &dim->Put(dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
+      dim.Put(dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
       Set(dmd->id, dmd);
       memsize += sizeof(RSDocumentMetadata) + len;
     }
@@ -543,8 +548,8 @@ void DocIdMap::Put(const char *s, size_t n, t_docId docId) {
 
 //---------------------------------------------------------------------------------------------
 
-void DocIdMap::~DocIdMap(DocIdMap *m) {
-  TrieMap_Free(tm, rm_free);
+DocIdMap::~DocIdMap() {
+  delete tm;
 }
 
 //---------------------------------------------------------------------------------------------
