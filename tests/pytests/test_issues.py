@@ -418,3 +418,4 @@ def testOverMaxResults():
 
   res = [30, '15', ['t', '15'], '16', ['t', '16'], '17', ['t', '17'], '18', ['t', '18'], '19', ['t', '19']]
   env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '15', '10').equal(res)
+  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '25', '10').equal('OFFSET exceeds maximum of 20')
