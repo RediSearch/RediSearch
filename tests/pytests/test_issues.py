@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from common import *
+from RLTest import Env
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
@@ -404,3 +405,16 @@ def test_SkipFieldWithNoMatch(env):
   env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
   env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+
+
+def testOverMaxResults():
+  env = Env(moduleArgs='MAXSEARCHRESULTS 10')
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  for i in range(20):
+    conn.execute_command('HSET', i, 't', i)
+
+  res = [20, '5', ['t', '5'], '6', ['t', '6'], '7', ['t', '7'], '8', ['t', '8'], '9', ['t', '9']]
+  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '5', '10').equal(res)
