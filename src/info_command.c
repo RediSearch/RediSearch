@@ -168,6 +168,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       char buf[2];
       sprintf(buf, "%c", fs->tagOpts.tagSep);
       REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
+      if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
+        RedisModule_ReplyWithSimpleString(ctx, SPEC_TAG_CASE_SENSITIVE_STR);
+        ++nn;
+      }
     }
     if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
@@ -179,6 +183,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     if (!FieldSpec_IsIndexable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOINDEX_STR);
+      ++nn;
+    }
+    if (FieldSpec_HasSuffixTrie(fs)) {
+      RedisModule_ReplyWithSimpleString(ctx, SPEC_WITHSUFFIXTRIE_STR);
       ++nn;
     }
     RedisModule_ReplySetArrayLength(ctx, nn);

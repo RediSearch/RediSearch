@@ -1,6 +1,7 @@
 #pragma once
 
 #include <time.h>
+#include "redisearch.h"
 #include "version.h"
 #include "query_error.h"
 
@@ -60,7 +61,7 @@ static inline int TimedOut(struct timespec *timeout) {
 static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter) {
   if (RS_IsMock) return 0;
 
-  if (++(*counter) == 100) {
+  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == 100) {
     *counter = 0;
     return TimedOut(timeout);
   }
