@@ -161,10 +161,9 @@ inline RSValue *RSValue::IncrRef() {
 
 inline void RSValue::Decref() {
   if (!--refcount) {
-    RSValue_Free(this);
+    delete this;
   }
 }
-
 
 static RSValue RS_StaticValue(RSValueType t) {
 #ifdef __cplusplus
@@ -347,11 +346,7 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int typed);
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 
-#ifdef __cplusplus
 #define RSVALUE_STATICALLOC_INIT(T) RSValue(T)
-#else
-#define RSVALUE_STATICALLOC_INIT(T) { .t = T }
-#endif
 
 //---------------------------------------------------------------------------------------------
 

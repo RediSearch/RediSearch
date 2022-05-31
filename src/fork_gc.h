@@ -27,6 +27,99 @@ enum FGCType {
   FGC_TYPE_NOKEYSPACE
 };
 
+enum FGCError {
+  // Terms have been collected
+  FGC_COLLECTED,
+  // No more terms remain
+  FGC_DONE,
+  // Pipe error, child probably crashed
+  FGC_CHILD_ERROR,
+  // Error on the parent
+  FGC_PARENT_ERROR
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct MSG_IndexInfo {
+  // Number of blocks prior to repair
+  uint32_t nblocksOrig;
+  // Number of blocks repaired
+  uint32_t nblocksRepaired;
+  // Number of bytes cleaned in inverted index
+  uint64_t nbytesCollected;
+  // Number of document records removed
+  uint64_t ndocsCollected;
+
+  // Specific information about the _last_ index block
+  size_t lastblkDocsRemoved;
+  size_t lastblkBytesCollected;
+  size_t lastblkNumDocs;
+};
+
+// Structure sent describing an index block
+struct MSG_RepairedBlock {
+  IndexBlock blk;
+  int64_t oldix;  // Old position of the block
+  int64_t newix;  // New position of the block
+  // the actual content of the block follows...
+};
+
+struct MSG_DeletedBlock {
+  void *ptr;       // Address of the buffer to free
+  uint32_t oldix;  // Old index of deleted block
+  uint32_t _pad;   // Uninitialized reads, otherwise
+};
+
+//---------------------------------------------------------------------------------------------
+
+KHASH_MAP_INIT_INT64(cardvals, size_t)
+
+struct numCbCtx {
+  const IndexBlock *lastblk;
+  khash_t(cardvals) * delLast;
+  khash_t(cardvals) * delRest;
+};
+
+typedef union {
+  uint64_t u64;
+  double d48;
+} numUnion;
+
+//---------------------------------------------------------------------------------------------
+
+struct tagNumHeader {
+  const char *field;
+  const void *curPtr;
+  uint64_t uniqueId;
+  int sentFieldName;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct InvIdxBuffers {
+  MSG_DeletedBlock *delBlocks;
+  size_t numDelBlocks;
+
+  MSG_RepairedBlock *changedBlocks;
+
+  IndexBlock *newBlocklist;
+  size_t newBlocklistSize;
+  int lastBlockIgnored;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct NumGcInfo {
+  // Node in the tree that was GC'd
+  NumericRangeNode *node;
+  CardinalityValue *lastBlockDeleted;
+  CardinalityValue *restBlockDeleted;
+  size_t nlastBlockDel;
+  size_t nrestBlockDel;
+  InvIdxBuffers idxbufs;
+  MSG_IndexInfo info;
+};
+
 //---------------------------------------------------------------------------------------------
 
 // Internal definition of the garbage collector context (each index has one)
@@ -54,7 +147,7 @@ struct ForkGC : public Object, public GCAPI {
   // flag for rdb loading. Set to 1 initially, but unce it's set to 0 we don't need to check anymore
   int rdbPossiblyLoading;
   // Whether the gc has been requested for deletion
-  volatile int deleting;
+  volatile bool deleting;
   int pipefd[2];
   volatile uint32_t pauseState;
   volatile uint32_t execState;
@@ -62,7 +155,7 @@ struct ForkGC : public Object, public GCAPI {
   struct timespec retryInterval;
   volatile size_t deletedDocsFromLastRun;
 
-  virtual int PeriodicCallback(RedisModuleCtx* ctx);
+  virtual bool PeriodicCallback(RedisModuleCtx* ctx);
   virtual void RenderStats(RedisModuleCtx* ctx);
   virtual void OnDelete();
   virtual void OnTerm();
@@ -70,9 +163,9 @@ struct ForkGC : public Object, public GCAPI {
   virtual struct timespec GetInterval();
   virtual RedisModuleCtx *GetRedisCtx() { return ctx; }
 
-  // Indicate that the gc should wait immediately prior to forking. 
+  // Indicate that the gc should wait immediately prior to forking.
   // This is in order to perform some commands which may not be visible by the fork gc engine.
-  // This function will return before the fork is performed. 
+  // This function will return before the fork is performed.
   // You must call WaitAtApply or WaitClear to allow the GC to resume functioning.
   void WaitAtFork();
 
@@ -82,6 +175,47 @@ struct ForkGC : public Object, public GCAPI {
 
   // Don't perform diagnostic waits
   void WaitClear();
+
+private:
+  void unlock(RedisModuleCtx *ctx);
+  RedisSearchCtx *getSctx(RedisModuleCtx *ctx);
+  void updateStats(RedisSearchCtx *sctx, size_t recordsRemoved, size_t bytesCollected);
+  void sendFixed(const void *buff, size_t len);
+  void sendVar(const void v) { sendFixed(&v, sizeof v); }
+  void sendBuffer(const void *buff, size_t len);
+  void sendTerminator();
+
+  int recvFixed(void *buf, size_t len); //@@ __attribute__ (?)
+  int tryRecvFixed(void *obj, size_t len); //@@ Why do we need it for?
+  int recvBuffer(void **buf, size_t *len);
+  int tryRecvBuffer(void **buf, size_t *len); //@@ looks like nobody was using it
+  int recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info);
+
+  bool childRepairInvidx(RedisSearchCtx *sctx, InvertedIndex *idx, void (*headerCallback)(ForkGC *, void *),
+                         void *hdrarg, IndexRepairParams *params);
+  void sendHeaderString(void *arg);
+  void sendNumericTagHeader(void *arg);
+
+  void childScanIndexes();
+  void childCollectTerms(RedisSearchCtx *sctx);
+  void childCollectNumeric(RedisSearchCtx *sctx);
+  void childCollectTags(RedisSearchCtx *sctx);
+
+  int parentHandleFromChild();
+  FGCError parentHandleTerms(RedisModuleCtx *rctx);
+  FGCError parentHandleNumeric(RedisModuleCtx *rctx);
+  FGCError parentHandleTags(RedisModuleCtx *rctx);
+  FGCError recvNumericTagHeader(char **fieldName, size_t *fieldNameLen, uint64_t *id);
+  FGCError recvNumIdx(NumGcInfo *ninfo);
+
+  static bool haveRedisFork();
+
+  void sendKht(const khash_t(cardvals) *kh);
+  void checkLastBlock(InvIdxBuffers *idxData, MSG_IndexInfo *info, InvertedIndex *idx);
+  void applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, InvertedIndex *idx);
+  void applyNumIdx(RedisSearchCtx *sctx, NumGcInfo *ninfo);
+
+  int recvCardvals(CardinalityValue **tgt, size_t *len);
 };
 
 //---------------------------------------------------------------------------------------------

@@ -64,11 +64,8 @@ size_t RSValue::NumToString(double dd, char *buf) {
 
 //---------------------------------------------------------------------------------------------
 
-RSValue::RSValue(RSValueType t) {
+RSValue::RSValue(RSValueType t) : t(t), refcount(1), allocated(1) {
   // RSValue *v = mempool_get(getPoolInfo()->values);
-  t = t;
-  refcount = 1;
-  allocated = 1;
 }
 
 //---------------------------------------------------------------------------------------------

@@ -84,7 +84,7 @@ TEST_F(FGCTest, testRemoveLastBlock) {
    * To properly test this; we must ensure that the gc is forked AFTER
    * the deletion, but BEFORE the addition.
    */
-  FGC_WaitAtFork(fgc);
+  fgc->WaitAtFork();
   auto rv = RS::deleteDocument(ctx, sp, "doc1");
   ASSERT_TRUE(rv);
 
@@ -92,11 +92,11 @@ TEST_F(FGCTest, testRemoveLastBlock) {
    * This function allows the GC to perform fork(2), but makes it wait
    * before it begins receiving results.
    */
-  FGC_WaitAtApply(fgc);
+  fgc->WaitAtApply();
   ASSERT_TRUE(RS::addDocument(ctx, sp, "doc2", "f1", "hello"));
 
   /** This function allows the gc to receive the results */
-  FGC_WaitClear(fgc);
+  fgc->WaitClear();
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
 }
@@ -141,7 +141,7 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   std::string toDel(buf);
   RS::addDocument(ctx, sp, buf, "f1", "hello");
 
-  FGC_WaitAtFork(fgc);
+  fgc->WaitAtFork();
 
   ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
   ASSERT_TRUE(RS::deleteDocument(ctx, sp, "doc0"));
@@ -151,12 +151,12 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
     sprintf(buf, "doc%u", i);
     ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
   }
-  FGC_WaitAtApply(fgc);
+  fgc->WaitAtApply();
 
   // Add a document -- this one is to keep
   sprintf(buf, "doc%u", curId);
   RS::addDocument(ctx, sp, buf, "f1", "hello");
-  FGC_WaitClear(fgc);
+  fgc->WaitClear();
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
@@ -184,15 +184,15 @@ TEST_F(FGCTest, testRepairLastBlock) {
   std::string toDel(buf);
   RS::addDocument(ctx, sp, buf, "f1", "hello");
 
-  FGC_WaitAtFork(fgc);
+  fgc->WaitAtFork();
 
   ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
-  FGC_WaitAtApply(fgc);
+  fgc->WaitAtApply();
 
   // Add a document -- this one is to keep
   sprintf(buf, "doc%u", curId);
   RS::addDocument(ctx, sp, buf, "f1", "hello");
-  FGC_WaitClear(fgc);
+  fgc->WaitClear();
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
@@ -221,19 +221,19 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
    * In this case, we want to keep `curId`, but we want to delete a 'middle' entry
    * while appending documents to it..
    **/
-  FGC_WaitAtFork(fgc);
+  fgc->WaitAtFork();
 
   while (curId > 100) {
     sprintf(buf, "doc%u", --curId);
     ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
   }
 
-  FGC_WaitAtApply(fgc);
+  fgc->WaitAtApply();
 
   sprintf(buf, "doc%u", next_id);
   ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
 
-  FGC_WaitClear(fgc);
+  fgc->WaitClear();
   ASSERT_EQ(2, iv->size);
 }
 
@@ -258,13 +258,13 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   unsigned lastMidId = curId - 1;
   ASSERT_EQ(3, iv->size);
 
-  FGC_WaitAtFork(fgc);
+  fgc->WaitAtFork();
 
   for (size_t ii = firstMidId; ii < lastMidId + 1; ++ii) {
     RS::deleteDocument(ctx, sp, numToDocid(ii).c_str());
   }
 
-  FGC_WaitAtApply(fgc);
+  fgc->WaitAtApply();
   // Add a new document
   unsigned newLastBlockId = curId + 1;
   while (iv->size < 4) {
@@ -276,7 +276,7 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   // info. We do -2 and not -1 because we have one new document in the
   // fourth block (as a sentinel)
   const char *pp = iv->blocks[iv->size - 2].buf.data;
-  FGC_WaitClear(fgc);
+  fgc->WaitClear();
 
   ASSERT_EQ(3, iv->size);
 
