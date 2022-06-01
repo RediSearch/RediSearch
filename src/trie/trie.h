@@ -23,14 +23,31 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED_LEX 2
 
 #pragma pack(1)
-struct TriePayload {
+struct TriePayload : Object {
   uint32_t len;  // 4G payload is more than enough!!!!
   char data[];   // this means the data will not take an extra pointer.
+
+  TriePayload(const char *payload, uint32_t plen);
 };
 #pragma pack()
 
 /* The byte size of a TriePayload, based on its internal data length */
 size_t __triePayload_Sizeof(uint32_t len);
+
+typedef void(TrieRangeCallback)(const rune *, size_t, void *);
+
+struct RangeCtx {
+  rune *buf;
+  TrieRangeCallback *callback;
+  void *cbctx;
+  bool includeMin;
+  bool includeMax;
+};
+
+enum TrieAddOp {
+  ADD_REPLACE,
+  ADD_INCR,
+};
 
 #pragma pack(1)
 /* TrieNode represents a single node in a trie. The actual size of it is bigger,
@@ -63,14 +80,6 @@ struct TrieNode : public Object {
   rune str[];
   // ... now come the children, to be accessed with children()
 
-  struct RangeCtx {
-    rune *buf;
-    TrieRangeCallback *callback;
-    void *cbctx;
-    bool includeMin;
-    bool includeMax;
-  };
-
   TrieNode(rune *str_, t_len offset, t_len len_, const char *payload, size_t plen,
            t_len numChildren_, float score_, bool terminal);
   ~TrieNode();
@@ -100,16 +109,14 @@ struct TrieNode : public Object {
 
   static int Cmp(const void *p1, const void *p2);
 
-
   /* Get a pointer to the children array of a node. This is not an actual member
   * of the node for
   * memory saving reasons */
-  #define children() ((TrieNode **)((void *)this + sizeof(TrieNode) + (len + 1) * sizeof(rune)))
+  TrieNode **getChildren() { return ((void *)this + sizeof(TrieNode) + (len + 1) * sizeof(rune)); }
 
-  #define isTerminal() (flags & TRIENODE_TERMINAL)
+  bool isTerminal() { return flags & TRIENODE_TERMINAL; }
 
-  #define isDeleted() (flags & TRIENODE_DELETED)
-
+  bool isDeleted() { return flags & TRIENODE_DELETED; }
 };
 #pragma pack()
 
@@ -117,11 +124,6 @@ struct TrieNode : public Object {
 /* The byte size of a node, based on its internal string length and number of
  * children */
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
-
-enum TrieAddOp {
-  ADD_REPLACE,
-  ADD_INCR,
-};
 
 /* trie iterator stack node. for internal use only */
 struct stackNode {
@@ -170,7 +172,7 @@ struct TrieIterator : public Object {
   #define current() &stack[stackOffset - 1]
 
   int step(void *matchCtx);
-  int Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx);
+  bool Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx);
 };
 
 /* Stop the iteration */
@@ -179,9 +181,6 @@ struct TrieIterator : public Object {
 #define __STEP_CONT 1
 /* We found a match, return the state to the user but continue afterwards */
 #define __STEP_MATCH 3
-
-
-typedef void(TrieRangeCallback)(const rune *, size_t, void *);
 
 #ifdef __cplusplus
 }

@@ -18,11 +18,11 @@ int FieldList::parseFieldList(ArgsCursor *ac, Array *fieldPtrs) {
     return -1;
   }
 
-  while (!&fieldArgs->IsAtEnd()) {
+  while (!fieldArgs.IsAtEnd()) {
     const char *name = &fieldArgs->GetStringNC(NULL);
     ReturnedField *fieldInfo = GetCreateField(name);
     size_t ix = fieldInfo - fields;
-    Array_Write(fieldPtrs, &ix, sizeof(size_t));
+    fieldPtrs.Write(&ix, sizeof(size_t));
   }
 
   return 0;
@@ -72,9 +72,7 @@ int FieldList::parseArgs(ArgsCursor *ac, bool isHighlight) {
   int rc = REDISMODULE_OK;
 
   ReturnedField defOpts;
-
   Array fieldPtrs;
-  Array_Init(&fieldPtrs);
 
   if (ac->AdvanceIfMatch("FIELDS")) {
     if (parseFieldList(ac, fields, &fieldPtrs) != 0) {
@@ -126,7 +124,6 @@ int FieldList::parseArgs(ArgsCursor *ac, bool isHighlight) {
   }
 
 done:
-  Array_Free(&fieldPtrs);
   return rc;
 }
 

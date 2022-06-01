@@ -80,7 +80,7 @@ void Cursor::RemoveFromIdle() {
     ll[last->pos] = last;
   }
 
-  Array_Resize(idle, sizeof(Cursor *) * (n - 1));
+  idle->Resize(sizeof(Cursor *) * (n - 1));
   if (nextTimeoutNs == parent->nextIdleTimeoutNs) {
     parent->nextIdleTimeoutNs = 0;
   }
@@ -100,7 +100,7 @@ CursorList::CursorList() {
   nextIdleTimeoutNs = 0;
 
   lookup = kh_init(cursors);
-  Array_Init(&idle);
+  idle = new Array();
   infos = NULL;
 
   srand48(getpid());
@@ -417,7 +417,7 @@ CursorList::~CursorList() {
     rm_free(infos);
   }
 
-  Array_Free(&idle);
+  delete idle;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

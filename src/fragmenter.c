@@ -25,7 +25,7 @@ Fragment *FragmentList::LastFragment() {
 //---------------------------------------------------------------------------------------------
 
 Fragment *FragmentList::AddFragment() {
-  Fragment *frag = Array_Add(&frags, sizeof(Fragment));
+  Fragment *frag = frags.Add(sizeof(Fragment));
   memset(frag, 0, sizeof(*frag));
   frag->fragPos = numFrags++;
   Array_Init(&frag->termLocs);
@@ -81,7 +81,7 @@ Fragment *FragmentList::AddMatchingTerm(uint32_t termId, uint32_t tokPos, const 
   curFrag->totalTokens += numToksSinceLastMatch + 1;
   numToksSinceLastMatch = 0;
 
-  TermLoc *newLoc = Array_Add(&curFrag->termLocs, sizeof(TermLoc));
+  TermLoc *newLoc = &curFrag->termLocs->Add(sizeof(TermLoc));
   newLoc->termId = termId;
   newLoc->offset = tokBuf - curFrag->buf;
   newLoc->len = tokLen;
@@ -147,7 +147,7 @@ static void addToIov(const char *s, size_t n, Array *b) {
   if (n == 0 || s == NULL) {
     return;
   }
-  struct iovec *iov = Array_Add(b, sizeof(*iov));
+  struct iovec *iov = b->Add(sizeof(*iov));
   RS_LOG_ASSERT(iov, "failed to create iov");
   iov->iov_base = (void *)s;
   iov->iov_len = n;
@@ -261,7 +261,7 @@ char *FragmentList::HighlightWholeDocS(const HighlightTags *tags) const {
     offset += iovs[ii].iov_len;
   }
 
-  Array_Free(&iovsArr);
+  delete &iovsArr;
   return docBuf;
 }
 
@@ -449,9 +449,9 @@ void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextS
 void FragmentList::~FragmentList() {
   Fragment *frags_ = (Fragment *)GetFragments();
   for (size_t ii = 0; ii < numFrags; ii++) {
-    Array_Free(&frags_[ii].termLocs);
+    delete &frags_[ii].termLocs;
   }
-  Array_Free(&frags_);
+  delete &frags_;
   rm_free(sortedFrags);
   rm_free(scratchFrags);
 }

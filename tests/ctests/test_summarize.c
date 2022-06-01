@@ -75,8 +75,9 @@ int testFragmentize() {
   static const size_t numFrags = 3;
   Array contexts[numFrags];
   memset(&contexts, 0, sizeof contexts[0] * numFrags);
-  for (size_t ii = 0; ii < numFrags; ++ii) {
-    Array_Init(&contexts[ii]);
+  for (size_t i = 0; i < numFrags; ++i) {
+    delete contexts[i];
+    contexts[i] = new Array();
   }
 
   fragList.HighlightFragments(&tags, 15, contexts, numFrags, HIGHLIGHT_ORDER_SCOREPOS);
@@ -103,8 +104,8 @@ int testFragmentize() {
   }
 
   free(lorem);
-  for (size_t ii = 0; ii < numFrags; ++ii) {
-    Array_Free(contexts + ii);
+  for (size_t i = 0; i < numFrags; ++i) {
+    delete (contexts + i);
   }
   return 0;
 }

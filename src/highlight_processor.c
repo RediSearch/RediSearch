@@ -146,12 +146,11 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   headLen += estWordSize;  // Because we trim off a word when finding the toksep
   headLen = Min(headLen, *docLen);
 
-  Array bufTmp;
-  Array_InitEx(&bufTmp, ArrayAlloc_RM);
+  Array bufTmp = new Array(ArrayAlloc_RM);
 
-  Array_Write(&bufTmp, docStr, headLen);
+  bufTmp.Write(docStr, headLen);
   headLen = stripDuplicateSpaces(bufTmp.data, headLen);
-  Array_Resize(&bufTmp, headLen);
+  bufTmp.Resize(headLen);
 
   while (bufTmp.len > 1) {
     if (istoksep(bufTmp.data[bufTmp.len - 1])) {
@@ -161,7 +160,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   }
 
   bufTmp.len = trimTrailingSpaces(bufTmp.data, bufTmp.len);
-  char *ret = Array_Steal(&bufTmp, docLen);
+  char *ret = bufTmp.Steal(docLen);
   return ret;
 }
 
@@ -202,41 +201,39 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
   }
 
   size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, &frags->GetNumFrags());
-  for (size_t ii = 0; ii < numIovArr; ++ii) {
-    Array_Resize(&docParams->iovsArr[ii], 0);
+  for (size_t i = 0; i < numIovArr; ++i) {
+    docParams->iovsArr[i].Resize(0);
   }
 
   frags.HighlightFragments(&tags, fieldInfo->summarizeSettings.contextLen,
                            docParams->iovsArr, numIovArr, HIGHLIGHT_ORDER_SCOREPOS);
 
   // Buffer to store concatenated fragments
-  Array bufTmp;
-  Array_InitEx(&bufTmp, ArrayAlloc_RM);
+  Array bufTmp = new Array(ArrayAlloc_RM);
 
-  for (size_t ii = 0; ii < numIovArr; ++ii) {
-    Array *curIovs = docParams->iovsArr + ii;
-    struct iovec *iovs = ARRAY_GETARRAY_AS(curIovs, struct iovec *);
-    size_t numIovs = ARRAY_GETSIZE_AS(curIovs, struct iovec);
+  for (size_t i = 0; i < numIovArr; ++i) {
+    Array *curIovs = docParams->iovsArr + i;
+    struct iovec *iovs = curIovs->ARRAY_GETARRAY_AS(struct iovec *);
+    size_t numIovs = curIovs->ARRAY_GETSIZE_AS(struct iovec);
     size_t lastSize = bufTmp.len;
 
-    for (size_t jj = 0; jj < numIovs; ++jj) {
-      Array_Write(&bufTmp, iovs[jj].iov_base, iovs[jj].iov_len);
+    for (size_t j = 0; j < numIovs; ++j) {
+      bufTmp.Write(iovs[j].iov_base, iovs[j].iov_len);
     }
 
     // Duplicate spaces for the current snippet are eliminated here. We shouldn't
     // move it to the end because the delimiter itself may contain a special kind
     // of whitespace.
     size_t newSize = stripDuplicateSpaces(bufTmp.data + lastSize, bufTmp.len - lastSize);
-    Array_Resize(&bufTmp, lastSize + newSize);
-    Array_Write(&bufTmp, fieldInfo->summarizeSettings.separator,
-                strlen(fieldInfo->summarizeSettings.separator));
+    bufTmp.Resize(lastSize + newSize);
+    bufTmp.Write(fieldInfo->summarizeSettings.separator,
+                 strlen(fieldInfo->summarizeSettings.separator));
   }
 
   // Set the string value to the contents of the array. It might be nice if we didn't
   // need to strndup it.
   size_t hlLen;
-  char *hlText = Array_Steal(&bufTmp, &hlLen);
-  Array_Free(&bufTmp);
+  char *hlText = bufTmp.Steal(&hlLen);
   return RS_StringVal(hlText, hlLen);
 }
 
@@ -312,8 +309,8 @@ int Highlighter::Next(SearchResult *r) {
                              row: &r->rowdata};
 
   if (fields->numFields) {
-    for (size_t ii = 0; ii < fields->numFields; ++ii) {
-      const ReturnedField *ff = &fields->fields[ii];
+    for (size_t i = 0; i < fields->numFields; ++i) {
+      const ReturnedField *ff = &fields->fields[i];
       if (ff->mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
         // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
         continue;
@@ -336,8 +333,8 @@ int Highlighter::Next(SearchResult *r) {
       processField(&docParams, &spec);
     }
   }
-  for (size_t ii = 0; ii < numIovsArr; ++ii) {
-    Array_Free(&docParams.iovsArr[ii]);
+  for (size_t i = 0; i < numIovsArr; ++i) {
+    delete &docParams.iovsArr[i];
   }
   rm_free(docParams.iovsArr);
   return RS_RESULT_OK;
