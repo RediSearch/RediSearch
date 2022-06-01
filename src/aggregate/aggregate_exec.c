@@ -235,7 +235,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     size_t resultFactor = getResultsFactor(req);
     
     size_t reqResults;
-    if (reqLimit + reqOffset < RSGlobalConfig.maxSearchResults) {
+    if (reqLimit + reqOffset <= RSGlobalConfig.maxSearchResults) {
     	reqResults = req->qiter.totalResults > reqOffset ?
                    req->qiter.totalResults - reqOffset : 0;
     } else {
