@@ -16,14 +16,21 @@ RSValueType fieldTypeToValueType(FieldType ft) {
   }
 }
 
-void FieldSpec_Cleanup(FieldSpec* fs) {
-  if (fs->name) {
-    rm_free(fs->name);
-    fs->name = NULL;
-  }
+//---------------------------------------------------------------------------------------------
+
+void FieldSpec::Cleanup() {
+  delete name;
 }
 
-void FieldSpec_SetSortable(FieldSpec* fs) {
-  RS_LOG_ASSERT(!(fs->options & FieldSpec_Dynamic), "dynamic fields cannot be sortable");
-  fs->options |= FieldSpec_Sortable;
+void FieldSpec::SetSortable() {
+  RS_LOG_ASSERT(!(options & FieldSpec_Dynamic), "dynamic fields cannot be sortable");
+  options |= FieldSpec_Sortable;
+}
+
+void FieldSpec::Initialize(FieldType types) {
+  types |= types;
+  if (IsFieldType(INDEXFLD_T_TAG)) {
+    tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+    tagSep = TAG_FIELD_DEFAULT_SEP;
+  }
 }

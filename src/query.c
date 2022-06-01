@@ -566,7 +566,7 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *n
 
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
+  if (!fs || !fs->IsFieldType(INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
 
@@ -580,7 +580,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNod
 
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->gf->property, strlen(node->gf->property));
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
+  if (!fs || !fs->IsFieldType(INDEXFLD_T_GEO)) {
     return NULL;
   }
 

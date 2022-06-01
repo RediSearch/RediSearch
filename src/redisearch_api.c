@@ -81,19 +81,19 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
       return RSFIELD_INVALID;
     }
     fs->ftId = txtId;
-    FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
+    fs->Initialize(INDEXFLD_T_FULLTEXT);
   }
 
   if (types & RSFLDTYPE_NUMERIC) {
     numTypes++;
-    FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
+    fs->Initialize(INDEXFLD_T_NUMERIC);
   }
   if (types & RSFLDTYPE_GEO) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
+    fs->Initialize(INDEXFLD_T_GEO);
     numTypes++;
   }
   if (types & RSFLDTYPE_TAG) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
+    fs->Initialize(INDEXFLD_T_TAG);
     numTypes++;
   }
 
@@ -124,7 +124,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
 
 void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
   FieldSpec* fs = sp->fields + id;
-  RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_FULLTEXT), "types should be INDEXFLD_T_FULLTEXT");
+  RS_LOG_ASSERT(fs->IsFieldType(INDEXFLD_T_FULLTEXT), "types should be INDEXFLD_T_FULLTEXT");
   fs->ftWeight = w;
 }
 
@@ -132,7 +132,7 @@ void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
 
 void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
   FieldSpec* fs = sp->fields + id;
-  RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
+  RS_LOG_ASSERT(fs->IsFieldType(INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   fs->tagSep = sep;
 }
 
@@ -140,7 +140,7 @@ void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
 
 void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable) {
   FieldSpec* fs = sp->fields + id;
-  RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
+  RS_LOG_ASSERT(fs->IsFieldType(INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   if (enable) {
     fs->tagFlags |= TagField_CaseSensitive;
   } else {

@@ -295,8 +295,6 @@ int IndexSpec_CreateTextId(const IndexSpec *sp);
 // Add fields to a redis schema
 int IndexSpec_AddFields(IndexSpec *sp, ArgsCursor *ac, QueryError *status);
 
-void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
-
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
 //---------------------------------------------------------------------------------------------

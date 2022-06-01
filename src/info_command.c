@@ -78,7 +78,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithSimpleString(ctx, "types");
       RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
-        if (FIELD_IS(fs, INDEXTYPE_FROM_POS(jj))) {
+        if (fs->IsFieldType(INDEXTYPE_FROM_POS(jj))) {
           ntypes++;
           RedisModule_ReplyWithSimpleString(ctx, SpecTypeNames[jj]);
         }
@@ -88,24 +88,24 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       REPLY_KVSTR(nn, "type", SpecTypeNames[INDEXTYPE_TO_POS(fs->types)]);
     }
 
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+    if (fs->IsFieldType(INDEXFLD_T_FULLTEXT)) {
       REPLY_KVNUM(nn, SPEC_WEIGHT_STR, fs->ftWeight);
     }
 
-    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+    if (fs->IsFieldType(INDEXFLD_T_TAG)) {
       char buf[2];
       sprintf(buf, "%c", fs->tagSep);
       REPLY_KVSTR(nn, SPEC_SEPARATOR_STR, buf);
     }
-    if (FieldSpec_IsSortable(fs)) {
+    if (fs->IsSortable()) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
       ++nn;
     }
-    if (FieldSpec_IsNoStem(fs)) {
+    if (fs->IsNoStem()) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOSTEM_STR);
       ++nn;
     }
-    if (!FieldSpec_IsIndexable(fs)) {
+    if (!fs->IsIndexable()) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOINDEX_STR);
       ++nn;
     }

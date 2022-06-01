@@ -66,7 +66,7 @@ const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name,
 
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   const FieldSpec *sp = IndexSpec_GetField(spec, name, len);
-  if (!sp || !FIELD_IS(sp, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(sp)) return 0;
+  if (!sp || !sp->IsFieldType(INDEXFLD_T_FULLTEXT) || !sp->IsIndexable()) return 0;
 
   return FIELD_BIT(sp);
 }
@@ -86,7 +86,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     if (fm & ((t_fieldMask)1 << ii)) {
       const FieldSpec *fs = sp->fields + ii;
-      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsPhonetics(fs))) {
+      if (fs->IsFieldType(INDEXFLD_T_FULLTEXT) && (fs->IsPhonetics())) {
         return 1;
       }
     }
@@ -116,8 +116,8 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 
 const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
-        FieldSpec_IsIndexable(&sp->fields[i])) {
+    if (FIELD_BIT(&sp->fields[i]) == id && sp->fields[i].IsFieldType(INDEXFLD_T_FULLTEXT) &&
+        sp->fields[i].IsIndexable()) {
       return sp->fields[i].name;
     }
   }
@@ -154,7 +154,7 @@ FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
 #define FIELDS_ARRAY_CAP 2
   FieldSpec **fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
   for (int i = 0; i < spec->numFields; ++i) {
-    if (FIELD_IS(spec->fields + i, type)) {
+    if ((spec->fields + i)->IsFieldType(type)) {
       fields = array_append(fields, &(spec->fields[i]));
     }
   }
@@ -312,35 +312,25 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
 
 //---------------------------------------------------------------------------------------------
 
-void FieldSpec_Initialize(FieldSpec *sp, FieldType types) {
-  sp->types |= types;
-  if (FIELD_IS(sp, INDEXFLD_T_TAG)) {
-    sp->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-    sp->tagSep = TAG_FIELD_DEFAULT_SEP;
-  }
-}
-
-//---------------------------------------------------------------------------------------------
-
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
+static bool parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
   if (ac->IsAtEnd()) {
     status->SetErrorFmt(QUERY_EPARSEARGS, "Field `%s` does not have a type", sp->name);
-    return 0;
+    return false;
   }
 
   if (ac->AdvanceIfMatch(SPEC_TEXT_STR)) {
-    FieldSpec_Initialize(sp, INDEXFLD_T_FULLTEXT);
+    sp->Initialize(INDEXFLD_T_FULLTEXT);
     if (!parseTextField(sp, ac, status)) {
       goto error;
     }
   } else if (ac->AdvanceIfMatch(NUMERIC_STR)) {
-    FieldSpec_Initialize(sp, INDEXFLD_T_NUMERIC);
+    sp->Initialize(INDEXFLD_T_NUMERIC);
   } else if (ac->AdvanceIfMatch(GEO_STR)) {  // geo field
-    FieldSpec_Initialize(sp, INDEXFLD_T_GEO);
+    sp->Initialize(INDEXFLD_T_GEO);
   } else if (ac->AdvanceIfMatch(SPEC_TAG_STR)) {  // tag field
-    FieldSpec_Initialize(sp, INDEXFLD_T_TAG);
+    sp->Initialize(INDEXFLD_T_TAG);
     if (ac->AdvanceIfMatch(SPEC_SEPARATOR_STR)) {
       if (ac->IsAtEnd()) {
         status->SetError(QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");
@@ -361,7 +351,7 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
 
   while (!ac->IsAtEnd()) {
     if (ac->AdvanceIfMatch(SPEC_SORTABLE_STR)) {
-      FieldSpec_SetSortable(sp);
+      sp->SetSortable();
       continue;
     } else if (ac->AdvanceIfMatch(SPEC_NOINDEX_STR)) {
       sp->options |= FieldSpec_NotIndexable;
@@ -370,15 +360,15 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
       break;
     }
   }
-  return 1;
+  return true;
 
 error:
   if (!status->HasError()) {
     status->SetErrorFmt(QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
                            sp->name);
   }
-  FieldSpec_Cleanup(sp);
-  return 0;
+  sp->Cleanup();
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -387,7 +377,7 @@ int IndexSpec_CreateTextId(const IndexSpec *sp) {
   int maxId = -1;
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     const FieldSpec *fs = sp->fields + ii;
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+    if (fs->IsFieldType(INDEXFLD_T_FULLTEXT)) {
       if (fs->ftId == (t_fieldId)-1) {
         // ignore
         continue;
@@ -429,7 +419,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       goto reset;
     }
 
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
+    if (fs->IsFieldType(INDEXFLD_T_FULLTEXT) && fs->IsIndexable()) {
       int textId = IndexSpec_CreateTextId(sp);
       if (textId < 0) {
         status->SetError(QUERY_ELIMIT, "Too many TEXT fields in schema");
@@ -452,7 +442,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       fs->ftId = textId;
     }
 
-    if (FieldSpec_IsSortable(fs)) {
+    if (fs->IsSortable()) {
       if (fs->options & FieldSpec_Dynamic) {
         status->SetError(QUERY_EBADOPTION, "Cannot set dynamic field to sortable");
         goto reset;
@@ -462,7 +452,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     } else {
       fs->sortIdx = -1;
     }
-    if (FieldSpec_IsPhonetics(fs)) {
+    if (fs->IsPhonetics()) {
       sp->flags |= Index_HasPhonetic;
     }
     fs = NULL;
@@ -476,10 +466,10 @@ reset:
     // if we have a field spec it means that we increased the number of fields, so we need to
     // decreas it.
     --sp->numFields;
-    FieldSpec_Cleanup(fs);
+    fs->Cleanup();
   }
-  for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
-    FieldSpec_Cleanup(&sp->fields[ii]);
+  for (size_t i = prevNumFields; i < sp->numFields; ++i) {
+    &sp->fields[i]->Cleanup();
   }
 
   sp->numFields = prevNumFields;
@@ -1132,11 +1122,11 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveUnsigned(rdb, f->options);
   RedisModule_SaveSigned(rdb, f->sortIdx);
   // Save text specific options
-  if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
+  if (f->IsFieldType(INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->ftId);
     RedisModule_SaveDouble(rdb, f->ftWeight);
   }
-  if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
+  if (f->IsFieldType(INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->tagFlags);
     RedisModule_SaveStringBuffer(rdb, &f->tagSep, 1);
   }
@@ -1168,12 +1158,12 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 
   // Load text specific options
-  if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
+  if (f->IsFieldType(INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
     f->ftId = RedisModule_LoadUnsigned(rdb);
     f->ftWeight = RedisModule_LoadDouble(rdb);
   }
   // Load tag specific options
-  if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
+  if (f->IsFieldType(INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
     f->tagFlags = RedisModule_LoadUnsigned(rdb);
     // Load the separator
     size_t l;
@@ -1244,7 +1234,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     FieldSpec *fs = sp->fields + i;
     FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
     sp->fields[i].index = i;
-    if (FieldSpec_IsSortable(fs)) {
+    if (fs->IsSortable()) {
       RS_LOG_ASSERT(fs->sortIdx < RS_SORTABLES_MAX, "sorting index is too large");
       sp->sortables->fields[fs->sortIdx].name = fs->name;
       sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->types);

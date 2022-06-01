@@ -71,7 +71,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
     dedupe[fs->index] = 1;
 
-    if (FieldSpec_IsSortable(fs)) {
+    if (fs->IsSortable()) {
       // mark sortable fields to be updated in the state flags
       aCtx->stateFlags |= ACTX_F_SORTABLES;
     }
@@ -88,7 +88,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
       }
     }
 
-    if (FieldSpec_IsIndexable(fs)) {
+    if (fs->IsIndexable()) {
       if (f->indexAs & INDEXFLD_T_FULLTEXT) {
         numTextIndexable++;
         hasTextFields = 1;
@@ -344,7 +344,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 ~RSAddDocumentCtx::RSAddDocumentCtx() {
   // Free preprocessed data; this is the only reliable place to do it
   for (size_t i = 0; i < doc.numFields; ++i) {
-    if (FIELD_IS_VALID(this, i) && FIELD_IS(fspecs + i, INDEXFLD_T_TAG) &&
+    if (FIELD_IS_VALID(this, i) && (fspecs + i)->IsFieldType(INDEXFLD_T_TAG) &&
         !!fdatas[i].tags) {
       fdatas[i].tags.Clear();
     }
@@ -390,11 +390,11 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t fl;
   const char *c = RedisModule_StringPtrLen(field->text, &fl);
-  if (FieldSpec_IsSortable(fs)) {
+  if (fs->IsSortable()) {
     aCtx->sv->Put(fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
 
-  if (FieldSpec_IsIndexable(fs)) {
+  if (fs->IsIndexable()) {
     VarintVectorWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
@@ -405,10 +405,10 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     ForwardIndexTokenizerCtx tokCtx(aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
 
     uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
-    if (FieldSpec_IsNoStem(fs)) {
+    if (fs->IsNoStem()) {
       options |= TOKENIZE_NOSTEM;
     }
-    if (FieldSpec_IsPhonetics(fs)) {
+    if (fs->IsPhonetics()) {
       options |= TOKENIZE_PHONETICS;
     }
     aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
@@ -437,7 +437,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   }
 
   // If this is a sortable numeric value - copy the value to the sorting vector
-  if (FieldSpec_IsSortable(fs)) {
+  if (fs->IsSortable()) {
     aCtx->sv->Put(fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM);
   }
   return 0;
@@ -498,7 +498,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
   if (!fdata->tags) {
     return 0;
   }
-  if (FieldSpec_IsSortable(fs)) {
+  if (fs->IsSortable()) {
     size_t fl;
     const char *c = RedisModule_StringPtrLen(field->text, &fl);
     aCtx->sv->Put(fs->sortIdx, (void *)c, RS_SORTABLE_STR);
@@ -721,7 +721,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
       const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
-      if (fs == NULL || !FieldSpec_IsSortable(fs)) {
+      if (fs == NULL || !fs->IsSortable()) {
         continue;
       }
 

@@ -261,7 +261,7 @@ static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
   IndexSpec *sp = sctx->spec;
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     const FieldSpec *fs = sp->fields + ii;
-    if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
+    if (!fs->IsFieldType(INDEXFLD_T_GEO)) {
       continue;
     }
     // Open the key:
@@ -366,7 +366,7 @@ static void IndexBulkData::indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCt
     for (size_t ii = 0; ii < doc->numFields; ++ii) {
       const FieldSpec *fs = cur->fspecs + ii;
       FieldIndexerData *fdata = cur->fdatas + ii;
-      if (fs->name == NULL || fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
+      if (fs->name == NULL || fs->types == INDEXFLD_T_FULLTEXT || !fs->IsIndexable()) {
         continue;
       }
       IndexBulkData *bulk = &bData[fs->index];

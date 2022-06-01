@@ -486,7 +486,7 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
           continue;
         }
         const FieldSpec *fs = ctx->handle->spec->fields + ii;
-        if (FieldSpec_IsPhonetics(fs)) {
+        if (fs->IsPhonetics()) {
           isValid = 1;
         }
       }

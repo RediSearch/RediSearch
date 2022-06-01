@@ -98,16 +98,18 @@ struct FieldSpec {
 
   void SetSortable();
   void Cleanup();
+  void Initialize(FieldType types);
 
   bool IsSortable() const { return options & FieldSpec_Sortable; }
   bool IsNoStem() const { return options & FieldSpec_NoStemming; }
   bool IsPhonetics() const { return options & FieldSpec_Phonetics; }
   bool IsIndexable() const { return 0 == (options & FieldSpec_NotIndexable); }
+
+  bool IsFieldType(FieldType t) { return types & t; }
 };
 
 //---------------------------------------------------------------------------------------------
 
-#define FIELD_IS(f, t) (((f)->types) & (t))
 #define FIELD_CHKIDX(fmask, ix) ((fmask) & (ix))
 
 #define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);

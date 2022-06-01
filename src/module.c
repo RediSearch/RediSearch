@@ -319,7 +319,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   for (size_t i = 0; i < sp->numFields; ++i) {
     FieldSpec *fs = sp->fields + i;
-    if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
+    if (!fs->IsFieldType(INDEXFLD_T_GEO)) {
       continue;
     }
     GeoIndex gi(&sctx, fs);
@@ -379,7 +379,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithError(ctx, "No such field");
     goto cleanup;
   }
-  if (!FIELD_IS(sp, INDEXFLD_T_TAG)) {
+  if (!sp->IsFieldType(INDEXFLD_T_TAG)) {
     RedisModule_ReplyWithError(ctx, "Not a tag field");
     goto cleanup;
   }
