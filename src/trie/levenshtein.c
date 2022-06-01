@@ -20,13 +20,13 @@ sparseVector *SparseAutomaton_Start(SparseAutomaton *a) {
     vals[i] = i;
   }
 
-  return newSparseVector(vals, a->max + 1);
+  return new sparseVector(vals, a->max + 1);
 }
 
 // Step returns the next state of the automaton given a previous state and a
 // character to check
 sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, rune c) {
-  sparseVector *newVec = newSparseVectorCap(state->len);
+  sparseVector *newVec = new sparseVector(state->len);
 
   if (state->len) {
     sparseVectorEntry e = state->entries[0];

@@ -3,30 +3,27 @@
 
 #include <stdlib.h>
 
-typedef struct { 
-    int idx, val; 
-} sparseVectorEntry;
+struct sparseVectorEntry {
+    int idx, val;
+};
 
 // sparseVector is a crude implementation of a sparse vector for our needs
-typedef struct {
+struct sparseVector {
     size_t len;
     size_t cap;
     sparseVectorEntry entries[];
-} sparseVector;
 
-size_t __sv_sizeof(size_t cap);
+    sparseVector(size_t cap_);
+    sparseVector(int *values, int len_);
 
-sparseVector *__sv_resize(sparseVector *v, size_t cap);
-sparseVector *newSparseVectorCap(size_t cap);
+    void resize(size_t cap_);
+    static size_t sizeof(size_t cap_);
+};
 
 // append appends another sparse vector entry with the given index and value.
 // NOTE: We do not check
 // that an entry with the same index is present in the vector
+//@@ What sould we do with double pointer (?)
 void sparseVector_append(sparseVector **v, int index, int value);
 
-// newSparseVector creates a new sparse vector with the initial values of the
-// dense int slice given to it
-sparseVector *newSparseVector(int *values, int len);
-
-void sparseVector_free(sparseVector *v);
 #endif
