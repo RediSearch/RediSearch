@@ -19,16 +19,16 @@ static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata
 }
 
 // To use in the future, if we will need to sort results by id.
-static int cmpVecSimResById(const void *p1, const void *p2, const void *udata) {
-  const RSIndexResult *e1 = p1, *e2 = p2;
+// static int cmpVecSimResById(const void *p1, const void *p2, const void *udata) {
+//   const RSIndexResult *e1 = p1, *e2 = p2;
 
-  if (e1->docId > e2->docId) {
-    return 1;
-  } else if (e1->docId < e2->docId) {
-    return -1;
-  }
-  return 0;
-}
+//   if (e1->docId > e2->docId) {
+//     return 1;
+//   } else if (e1->docId < e2->docId) {
+//     return -1;
+//   }
+//   return 0;
+// }
 
 // Simulate the logic of "SkipTo", but it is limited to the results in a specific batch.
 static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
