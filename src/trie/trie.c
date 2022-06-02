@@ -929,7 +929,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
-      .timeout = *timeout,
+      .timeout = timeout ? *timeout : (struct timespec){0},
       .timeoutCounter = 0,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
