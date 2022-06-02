@@ -917,7 +917,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
 
 // Contains iteration.
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
-                              TrieRangeCallback callback, void *ctx, struct timespec timeout) {
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout) {
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     if (TrieNode_Find(n, (rune *)str, nstr) != 0) {
@@ -929,7 +929,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
-      .timeout = timeout,
+      .timeout = *timeout,
       .timeoutCounter = 0,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
