@@ -240,7 +240,7 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
         A = NULL;
     } else {
         if (ctx->sctx->spec) {
-            C->SetFieldMask(IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+            C->SetFieldMask(ctx->sctx->spec->GetFieldBit(B.s, B.len));
         }
         A = C;
     }
@@ -255,15 +255,15 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
         //C->opts.fieldMask = 0;
         t_fieldMask mask = 0;
         if (ctx->sctx->spec) {
-            for (int i = 0; i < Vector_Size(B); i++) {
+            for (int i = 0; i < B->Size(); i++) {
                 char *p;
-                Vector_Get(B, i, &p);
-                mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p));
+                B->Get(i, &p);
+                mask |= ctx->sctx->spec->GetFieldBit(p, strlen(p));
                 rm_free(p);
             }
         }
         C->SetFieldMask(mask);
-        Vector_Free(B);
+        delete B;
         A=C;
     }
 }
@@ -435,14 +435,14 @@ modifier(A) ::= MODIFIER(B) . {
 modifierlist(A) ::= modifier(B) OR term(C). {
     A = NewVector(char *, 2);
     char *s = strdupcase(B.s, B.len);
-    Vector_Push(A, s);
+    A->Push(s);
     s = strdupcase(C.s, C.len);
-    Vector_Push(A, s);
+    A->Push(s);
 }
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
     char *s = strdupcase(C.s, C.len);
-    Vector_Push(B, s);
+    B->Push(s);
     A = B;
 }
 

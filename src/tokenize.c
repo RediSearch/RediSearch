@@ -130,7 +130,7 @@ uint32_t SimpleTokenizer::Next(Token *t) {
         rm_free(t->phoneticsPrimary);
         t->phoneticsPrimary = NULL;
       }
-      PhoneticManager_ExpandPhonetics(NULL, tok, normLen, &t->phoneticsPrimary, NULL);
+      PhoneticManagerCtx::ExpandPhonetics(tok, normLen, &t->phoneticsPrimary, NULL);
     }
 
     return lastOffset;

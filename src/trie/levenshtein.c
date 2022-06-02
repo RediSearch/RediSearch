@@ -106,10 +106,10 @@ int __sv_equals(sparseVector *sv1, sparseVector *sv2) {
 }
 
 dfaNode *__dfn_getCache(Vector *cache, sparseVector *v) {
-  size_t n = Vector_Size(cache);
+  size_t n = cache->Size();
   for (int i = 0; i < n; i++) {
     dfaNode *dfn;
-    Vector_Get(cache, i, &dfn);
+    cache->Get(i, &dfn);
 
     if (__sv_equals(v, dfn->v)) {
       return dfn;
@@ -119,7 +119,7 @@ dfaNode *__dfn_getCache(Vector *cache, sparseVector *v) {
 }
 
 void __dfn_putCache(Vector *cache, dfaNode *dfn) {
-  Vector_Push(cache, dfn);
+  cache->Push(dfn);
 }
 
 inline dfaNode *__dfn_getEdge(dfaNode *n, rune r) {
@@ -201,23 +201,23 @@ DFAFilter NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
   ret.distStack = NewVector(int, 8);
   ret.a = a;
   ret.prefixMode = prefixMode;
-  Vector_Push(ret.stack, dr);
-  Vector_Push(ret.distStack, (maxDist + 1));
+  ret.stack->Push(dr);
+  ret.distStack->Push(maxDist + 1);
 
   return ret;
 }
 
 void DFAFilter_Free(DFAFilter *fc) {
-  for (int i = 0; i < Vector_Size(fc->cache); i++) {
+  for (int i = 0; i < fc->cache->Size(); i++) {
     dfaNode *dn;
-    Vector_Get(fc->cache, i, &dn);
+    fc->cache->Get(i, &dn);
 
     if (dn) __dfaNode_free(dn);
   }
 
-  Vector_Free(fc->cache);
-  Vector_Free(fc->stack);
-  Vector_Free(fc->distStack);
+  delete fc->cache;
+  delete fc->stack;
+  delete fc->distStack;
 }
 
 FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
@@ -225,14 +225,14 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
   dfaNode *dn;
   int minDist;
 
-  Vector_Get(fc->stack, Vector_Size(fc->stack) - 1, &dn);
-  Vector_Get(fc->distStack, Vector_Size(fc->distStack) - 1, &minDist);
+  fc->stack->Get(fc->stack->Size() - 1, &dn);
+  fc->distStack->Get(fc->distStack->Size() - 1, &minDist);
 
   // a null node means we're in prefix mode, and we're done matching our prefix
   if (dn == NULL) {
     *matched = 1;
-    Vector_Push(fc->stack, NULL);
-    Vector_Push(fc->distStack, minDist);
+    fc->stack->Push(NULL);
+    fc->distStack->Push(minDist);
     return F_CONTINUE;
   }
 
@@ -263,12 +263,12 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
       }
       //    if (fc->prefixMode) next = NULL;
     }
-    Vector_Push(fc->stack, next);
-    Vector_Push(fc->distStack, MIN(next->distance, minDist));
+    fc->stack->Push(next);
+    fc->distStack->Push(MIN(next->distance, minDist));
     return F_CONTINUE;
   } else if (fc->prefixMode && *matched) {
-    Vector_Push(fc->stack, NULL);
-    Vector_Push(fc->distStack, minDist);
+    fc->stack->Push(NULL);
+    fc->distStack->Push(minDist);
     return F_CONTINUE;
   }
 
@@ -279,7 +279,7 @@ void StackPop(void *ctx, int numLevels) {
   DFAFilter *fc = ctx;
 
   for (int i = 0; i < numLevels; i++) {
-    Vector_Pop(fc->stack, NULL);
-    Vector_Pop(fc->distStack, NULL);
+    fc->stack->Pop(NULL);
+    fc->distStack->Pop(NULL);
   }
 }

@@ -565,7 +565,7 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *node) {
 
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
+      q->sctx->spec->GetField(node->nf->fieldName, strlen(node->nf->fieldName));
   if (!fs || !fs->IsFieldType(INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
@@ -579,7 +579,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNod
                                               double weight) {
 
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->gf->property, strlen(node->gf->property));
+      q->sctx->spec->GetField(node->gf->property, strlen(node->gf->property));
   if (!fs || !fs->IsFieldType(INDEXFLD_T_GEO)) {
     return NULL;
   }
@@ -761,11 +761,11 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   QueryTagNode *node = &qn->tag;
   RedisModuleKey *k = NULL;
   const FieldSpec *fs =
-      IndexSpec_GetFieldCase(q->sctx->spec, node->fieldName, strlen(node->fieldName));
+      q->sctx->spec->GetFieldCase(node->fieldName, strlen(node->fieldName));
   if (!fs) {
     return NULL;
   }
-  RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs, INDEXFLD_T_TAG);
+  RedisModuleString *kstr = q->sctx->spec->GetFormattedKey(fs, INDEXFLD_T_TAG);
   TagIndex *idx = q->sctxOpen(kstr, 0, &k);
 
   IndexIterator **total_its = NULL;
@@ -1068,7 +1068,7 @@ sds QueryNode::DumpSds(sds s, const IndexSpec *spec, int depth) const {
       while (fm) {
         t_fieldMask bit = (fm & 1) << i;
         if (bit) {
-          const char *f = GetFieldNameByBit(spec, bit);
+          const char *f = spec->GetFieldNameByBit(bit);
           s = sdscatprintf(s, "%s%s", n ? "|" : "", f ? f : "n/a");
           n++;
         }

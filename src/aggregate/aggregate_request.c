@@ -774,7 +774,7 @@ int AREQ::ApplyContext(QueryError *status) {
     opts.fieldmask = 0;
     for (size_t ii = 0; ii < opts.legacy.ninfields; ++ii) {
       const char *s = opts.legacy.infields[ii];
-      t_fieldMask bit = IndexSpec_GetFieldBit(index, s, strlen(s));
+      t_fieldMask bit = index->GetFieldBit(s, strlen(s));
       opts.fieldmask |= bit;
     }
   }
@@ -965,7 +965,7 @@ ResultProcessor *AREQ::getScorerRP() {
   }
   ExtScoringFunction *fns = Extensions::GetScoringFunction(&scargs, scorer);
   RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
-  IndexSpec_GetStats(sctx->spec, &scargs.indexStats);
+  sctx->spec->GetStats(&scargs.indexStats);
   scargs.qdata = ast->udata;
   scargs.qdatalen = ast->udatalen;
   ResultProcessor *rp = new RPScorer(fns, &scargs);
@@ -1007,8 +1007,8 @@ void AREQ::buildImplicitPipeline(QueryError *status) {
   qiter->sctx = &*sctx;
   qiter->err = status;
 
-  IndexSpecCache *cache = IndexSpec_GetSpecCache(sctx->spec);
-  RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
+  IndexSpecCache *cache = sctx->spec->GetSpecCache();
+  RS_LOG_ASSERT(cache, "IndexSpec::GetSpecCache failed")
 
   RLookup *first = ap.GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
   first->Reset(cache);

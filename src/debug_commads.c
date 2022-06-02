@@ -50,11 +50,11 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  const FieldSpec *fieldSpec = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
+  const FieldSpec *fieldSpec = spec->GetField(fieldName, strlen(fieldName));
   if (!fieldSpec) {
     return NULL;
   }
-  return IndexSpec_GetFormattedKey(spec, fieldSpec, t);
+  return spec->GetFormattedKey(fieldSpec, t);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -330,7 +330,7 @@ DEBUG_COMMAND(DumpPhoneticHash) {
   char *primary = NULL;
   char *secondary = NULL;
 
-  PhoneticManager_ExpandPhonetics(NULL, term_c, len, &primary, &secondary);
+  PhoneticManagerCtx::ExpandPhonetics(term_c, len, &primary, &secondary);
 
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
@@ -364,7 +364,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
@@ -381,7 +381,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
@@ -578,7 +578,7 @@ static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx)
     RedisModule_ReplyWithSimpleString(sctx->redisCtx, "index");
     RedisModule_ReplyWithLongLong(sctx->redisCtx, ii);
     RedisModule_ReplyWithSimpleString(sctx->redisCtx, "field");
-    const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
+    const FieldSpec *fs = sctx->spec->GetFieldBySortingIndex(ii);
     RedisModule_ReplyWithSimpleString(sctx->redisCtx, fs ? fs->name : "!!!???");
     RedisModule_ReplyWithSimpleString(sctx->redisCtx, "value");
     RSValue_SendReply(sctx->redisCtx, sv->values[ii], 0);

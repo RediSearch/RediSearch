@@ -1,5 +1,4 @@
-#ifndef __HEAP_H__
-#define __HEAP_H__
+#pragma once
 
 #include "vector.h"
 
@@ -34,5 +33,3 @@ void Heap_Push(Vector *v, size_t first, size_t last, int (*cmp)(void *, void *))
  * are added and removed from it using push_heap and pop_heap, respectively.
  */
 void Heap_Pop(Vector *v, size_t first, size_t last, int (*cmp)(void *, void *));
-
-#endif //__HEAP_H__

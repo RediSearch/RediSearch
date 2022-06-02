@@ -280,9 +280,9 @@ parse_error:
   mul = options.withPayloads ? mul + 1 : mul;
   RedisModule_ReplyWithArray(ctx, Vector_Size(res) * mul);
 
-  for (size_t i = 0; i < Vector_Size(res); i++) {
+  for (size_t i = 0; i < res->Size(); i++) {
     TrieSearchResult e;
-    Vector_Get(res, i, e);
+    res->Get(i, e);
 
     RedisModule_ReplyWithStringBuffer(ctx, e.str, e.len);
     if (options.withScores) {

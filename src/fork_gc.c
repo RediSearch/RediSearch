@@ -384,11 +384,11 @@ void ForkGC::sendKht(const khash_t(cardvals) *kh) {
 
 void ForkGC::childCollectNumeric(RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
-  FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC);
+  FieldSpec **numericFields = sctx->spec->getFieldsByType(INDEXFLD_T_NUMERIC);
 
   for (int i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName =
-        IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
+        sctx->spec->GetFormattedKey(numericFields[i], INDEXFLD_T_NUMERIC);
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     NumericRangeTreeIterator gcIterator(rt);
@@ -440,11 +440,11 @@ void ForkGC::childCollectNumeric(RedisSearchCtx *sctx) {
 
 void ForkGC::childCollectTags(RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
-  FieldSpec **tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
+  FieldSpec **tagFields = sctx->spec->getFieldsByType(INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
       RedisModuleString *keyName =
-          IndexSpec_GetFormattedKey(sctx->spec, tagFields[i], INDEXFLD_T_TAG);
+          sctx->spec->GetFormattedKey(tagFields[i], INDEXFLD_T_TAG);
       TagIndex *tagIdx = TagIndex::Open(sctx, keyName, false, &idxKey);
       if (!tagIdx) {
         continue;
@@ -891,7 +891,7 @@ FGCError ForkGC::parentHandleNumeric(RedisModuleCtx *rctx) {
       goto loop_cleanup;
     }
     RedisModuleString *keyName =
-        IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
+        sctx->spec->GetFormattedKeyByName(fieldName, INDEXFLD_T_NUMERIC);
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {
@@ -975,7 +975,7 @@ FGCError ForkGC::parentHandleTags(RedisModuleCtx *rctx) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
     }
-    keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
+    keyName = sctx->spec->GetFormattedKeyByName(fieldName, INDEXFLD_T_TAG);
     tagIdx = TagIndex::Open(sctx, keyName, false, &idxKey);
 
     if (tagIdx->uniqueId != tagUniqueId) {

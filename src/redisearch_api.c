@@ -35,8 +35,8 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   if (!options) {
     options = &opts_s;
   }
-  IndexSpec* spec = NewIndexSpec(name);
-  IndexSpec_MakeKeyless(spec);
+  IndexSpec* spec = new IndexSpec(name);
+  spec->MakeKeyless();
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   if (!spec->indexer) {
     spec->indexer = NewIndexer(spec);
@@ -50,7 +50,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
     spec->docs.maxSize = DOCID_MAX;
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
-    IndexSpec_StartGCFromSpec(spec, GC_DEFAULT_HZ, options->gcPolicy);
+    spec->StartGCFromSpec(GC_DEFAULT_HZ, options->gcPolicy);
   }
   return spec;
 }
@@ -60,7 +60,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
 void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
   dict* d = sp->keysDict;
-  IndexSpec_FreeSync(sp);
+  sp->FreeSync();
   RWLOCK_RELEASE();
 }
 
@@ -70,12 +70,12 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
   RWLOCK_ACQUIRE_WRITE();
 
-  FieldSpec* fs = IndexSpec_CreateField(sp, name);
+  FieldSpec* fs = sp->CreateField(name);
   int numTypes = 0;
 
   if (types & RSFLDTYPE_FULLTEXT) {
     numTypes++;
-    int txtId = IndexSpec_CreateTextId(sp);
+    int txtId = sp->CreateTextId();
     if (txtId < 0) {
       RWLOCK_RELEASE();
       return RSFIELD_INVALID;
@@ -267,7 +267,7 @@ QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, cons
   ret->tn = (QueryTokenNode){
       .str = (char*)rm_strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
   if (fieldName) {
-    ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
+    ret->opts.fieldMask = sp->GetFieldBit(fieldName, strlen(fieldName));
   }
   return ret;
 }
@@ -279,7 +279,7 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
   QueryNode* ret = new QueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
   ret->nn.nf->fieldName = rm_strdup(field);
-  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+  ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
   return ret;
 }
 
@@ -288,7 +288,7 @@ QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, con
   ret->pfx =
       (QueryPrefixNode){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
   if (fieldName) {
-    ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
+    ret->opts.fieldMask = sp->GetFieldBit(fieldName, strlen(fieldName));
   }
   return ret;
 }
@@ -307,7 +307,7 @@ QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, c
     ret->lxrng.includeEnd = includeEnd;
   }
   if (fieldName) {
-    ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
+    ret->opts.fieldMask = sp->GetFieldBit(fieldName, strlen(fieldName));
   }
   return ret;
 }
@@ -318,7 +318,7 @@ QueryNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryNode* ret = new QueryNode(QN_TAG);
   ret->tag.fieldName = rm_strdup(field);
   ret->tag.len = strlen(field);
-  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+  ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
   return ret;
 }
 
@@ -421,7 +421,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     goto end;
   }
 
-  IndexSpec_GetStats(sp, &it->scargs.indexStats);
+  sp->GetStats(&it->scargs.indexStats);
   ExtScoringFunction* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;

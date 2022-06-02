@@ -56,7 +56,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
-    const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
+    const FieldSpec *fs = sp->GetField(f->name, strlen(f->name));
     if (!fs || !f->text) {
       aCtx->fspecs[i].name = NULL;
       aCtx->fspecs[i].types = 0;
@@ -448,7 +448,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 FIELD_BULK_INDEXER(numericIndexer) {
   NumericRangeTree *rt = bulk->indexDatas[INDEXTYPE_TO_POS(INDEXFLD_T_NUMERIC)];
   if (!rt) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
+    RedisModuleString *keyName = ctx->spec->GetFormattedKey(fs, INDEXFLD_T_NUMERIC);
     rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
         OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
     if (!rt) {
@@ -512,7 +512,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 FIELD_BULK_INDEXER(tagIndexer) {
   TagIndex *tidx = bulk->indexDatas[IXFLDPOS_TAG];
   if (!tidx) {
-    RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
+    RedisModuleString *kname = ctx->spec->GetFormattedKey(fs, INDEXFLD_T_TAG);
     tidx = bulk->indexDatas[IXFLDPOS_TAG] = TagIndex::Open(ctx, kname, 1, &bulk->indexKeys[IXFLDPOS_TAG]);
     if (!tidx) {
       status->SetError(QUERY_EGENERIC, "Could not open tag index for indexing");
@@ -657,7 +657,7 @@ static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key
     }
 
     RLookupRow row = {0};
-    IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
+    IndexSpecCache *spcache = sctx->spec->GetSpecCache();
     RLookup lookup_s(spcache);
     if (e.GetLookupKeys(&lookup_s, status) == EXPR_EVAL_ERR) {
       goto done;
@@ -720,7 +720,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
+      const FieldSpec *fs = sctx->spec->GetField(f->name, strlen(f->name));
       if (fs == NULL || !fs->IsSortable()) {
         continue;
       }
@@ -731,7 +731,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       dedupes[fs->index] = 1;
 
-      int idx = IndexSpec_GetFieldSortingIndex(sctx->spec, f->name, strlen(f->name));
+      int idx = sctx->spec->GetFieldSortingIndex(f->name, strlen(f->name));
       if (idx < 0) continue;
 
       if (!md->sortVector) {

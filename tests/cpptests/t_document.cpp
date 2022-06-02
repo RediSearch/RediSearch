@@ -65,7 +65,7 @@ TEST_F(DocumentTest, testLoadSchema) {
   // Create a database
   QueryError status = {};
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "SCHEMA", "t1", "TEXT", "t2", "TEXT");
-  auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &status);
+  auto spec = new IndexSpec(ctx, args, args.size(), &status);
   ASSERT_FALSE(spec == NULL);
 
   RMCK::RString docKey("doc1");
@@ -96,5 +96,5 @@ TEST_F(DocumentTest, testLoadSchema) {
   ASSERT_EQ(0, RedisModule_StringCompare(RMCK::RString("foobar"), f->text));
 
   ASSERT_EQ(DOCUMENT_F_OWNSTRINGS, d.flags);
-  IndexSpec_FreeWithKey(spec, ctx);
+  spec->FreeWithKey(ctx);
 }

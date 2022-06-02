@@ -38,7 +38,7 @@ StopWordList *EmptyStopWordList() {
 
 bool StopWordList::Contains(const char *term, size_t len) const {
   if (!term) {
-    return 0;
+    return false;
   }
 
   return m->Find((char *)term, len) != TRIEMAP_NOTFOUND;

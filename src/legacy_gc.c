@@ -72,7 +72,7 @@ size_t GarbageCollector::CollectRandomTerm(RedisModuleCtx *ctx, int *status) {
   }
   // Select a weighted random term
   TimeSample ts;
-  char *term = IndexSpec_GetRandomTerm(sctx->spec, 20);
+  char *term = sctx->spec->GetRandomTerm(20);
   // if the index is empty we won't get anything here
   if (!term) {
     goto end;
@@ -171,7 +171,7 @@ void GarbageCollector::FreeNumericGCArray() {
 
 static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) {
   FieldSpec **tagFields = NULL;
-  tagFields = getFieldsByType(spec, type);
+  tagFields = spec->getFieldsByType(type);
   if (array_len(tagFields) == 0) {
     array_free(tagFields);
     return NULL;
@@ -180,7 +180,7 @@ static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) 
   // choose random tag field
   int randomIndex = rand() % array_len(tagFields);
 
-  RedisModuleString *ret = IndexSpec_GetFormattedKey(spec, tagFields[randomIndex], type);
+  RedisModuleString *ret = spec->GetFormattedKey(tagFields[randomIndex], type);
   array_free(tagFields);
   return ret;
 }
@@ -275,7 +275,7 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
   }
   IndexSpec *spec = sctx->spec;
   // find all the numeric fields
-  numericFields = getFieldsByType(spec, INDEXFLD_T_NUMERIC);
+  numericFields = spec->getFieldsByType(INDEXFLD_T_NUMERIC);
 
   if (array_len(numericFields) == 0) {
     goto end;
@@ -287,7 +287,7 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
                   "it is not possible to remove fields");
     FreeNumericGCArray();
     for (int i = 0; i < array_len(numericFields); ++i) {
-      RedisModuleString *keyName = IndexSpec_GetFormattedKey(spec, numericFields[i], INDEXFLD_T_NUMERIC);
+      RedisModuleString *keyName = spec->GetFormattedKey(numericFields[i], INDEXFLD_T_NUMERIC);
       NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
       // if we could not open the numeric field we probably have a
       // corruption in our data, better to know it now.
@@ -302,7 +302,7 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
   NumericFieldGC *num_gc = numericGC[randomIndex];
 
   // open the relevent numeric index to check that our pointer is valid
-  RedisModuleString *keyName = IndexSpec_GetFormattedKey(spec, numericFields[randomIndex], INDEXFLD_T_NUMERIC);
+  RedisModuleString *keyName = spec->GetFormattedKey(numericFields[randomIndex], INDEXFLD_T_NUMERIC);
   NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
   if (idxKey) RedisModule_CloseKey(idxKey);
 

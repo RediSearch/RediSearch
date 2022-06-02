@@ -722,12 +722,12 @@ static void yy_destructor(
     case 36: /* modifierlist */
 {
 
-    for (size_t i = 0; i < Vector_Size((yypminor->yy78)); i++) {
+    for (size_t i = 0; i < yypminor->yy78->Size(); i++) {
         char *s;
-        Vector_Get((yypminor->yy78), i, &s);
+        yypminor->yy78->Get(i, &s);
         rm_free(s);
     }
-    Vector_Free((yypminor->yy78));
+    delete yypminor->yy78;
 
 }
       break;
@@ -1257,7 +1257,7 @@ static YYACTIONTYPE yy_reduce(
         yylhsminor.yy35 = NULL;
     } else {
         if (ctx->sctx->spec) {
-            QueryNode_SetFieldMask(yymsp[0].minor.yy35, IndexSpec_GetFieldBit(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
+            QueryNode_SetFieldMask(yymsp[0].minor.yy35, ctx->sctx->spec->GetFieldBit(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
         }
         yylhsminor.yy35 = yymsp[0].minor.yy35;
     }
@@ -1273,15 +1273,15 @@ static YYACTIONTYPE yy_reduce(
         //yymsp[0].minor.yy35->opts.fieldMask = 0;
         t_fieldMask mask = 0;
         if (ctx->sctx->spec) {
-            for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy78); i++) {
+            for (int i = 0; i < yymsp[-2].minor.yy78->Size(); i++) {
                 char *p;
-                Vector_Get(yymsp[-2].minor.yy78, i, &p);
-                mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p));
+                yymsp[-2].minor.yy78->Get(i, &p);
+                mask |= ctx->sctx->spec->GetFieldBit(p, strlen(p));
                 rm_free(p);
             }
         }
         QueryNode_SetFieldMask(yymsp[0].minor.yy35, mask);
-        Vector_Free(yymsp[-2].minor.yy78);
+        delete yymsp[-2].minor.yy78;
         yylhsminor.yy35=yymsp[0].minor.yy35;
     }
 }
@@ -1451,16 +1451,16 @@ static YYACTIONTYPE yy_reduce(
 {
     yylhsminor.yy78 = NewVector(char *, 2);
     char *s = strdupcase(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    Vector_Push(yylhsminor.yy78, s);
+    yylhsminor.yy78->Push(s);
     s = strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    Vector_Push(yylhsminor.yy78, s);
+    yylhsminor.yy78->Push(s);
 }
   yymsp[-2].minor.yy78 = yylhsminor.yy78;
         break;
       case 36: /* modifierlist ::= modifierlist OR term */
 {
     char *s = strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    Vector_Push(yymsp[-2].minor.yy78, s);
+    yymsp[-2].minor.yy78->Push(s);
     yylhsminor.yy78 = yymsp[-2].minor.yy78;
 }
   yymsp[-2].minor.yy78 = yylhsminor.yy78;

@@ -66,7 +66,7 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
     ASSERT_TRUE(v != NULL);
     ASSERT_EQ(RSValue_Number, v->t);
     ASSERT_EQ(count, v->numval);
-    SearchResult_Clear(&r);
+    r.Clear();
   }
 
   ASSERT_EQ(NUM_RESULTS, count);

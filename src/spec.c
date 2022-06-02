@@ -26,13 +26,12 @@ static uint64_t spec_unique_ids = 1;
 
 //---------------------------------------------------------------------------------------------
 
-static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len,
-                                       int useCase) {
-  for (size_t i = 0; i < spec->numFields; i++) {
-    if (len != strlen(spec->fields[i].name)) {
+const FieldSpec *FieldSpec::getFieldCommon(const char *name, size_t len, int useCase) const {
+  for (size_t i = 0; i < numFields; i++) {
+    if (len != strlen(fields[i].name)) {
       continue;
     }
-    const FieldSpec *fs = spec->fields + i;
+    const FieldSpec *fs = fields + i;
     if (useCase) {
       if (!strncmp(fs->name, name, len)) {
         return fs;
@@ -52,20 +51,24 @@ static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, 
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len) {
-  return getFieldCommon(spec, name, len, 0);
+const FieldSpec *IndexSpec::GetField(const char *name, size_t len) const {
+  return getFieldCommon(name, len, 0);
 };
 
 //---------------------------------------------------------------------------------------------
 
-const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name, size_t n) {
-  return getFieldCommon(spec, name, n, 1);
+// Case-sensitive version of GetField()
+const FieldSpec *IndexSpec::GetFieldCase(const char *name, size_t n) const {
+  return getFieldCommon(name, n, 1);
 }
 
 //---------------------------------------------------------------------------------------------
 
-t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
-  const FieldSpec *sp = IndexSpec_GetField(spec, name, len);
+// Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
+// text field
+
+t_fieldMask IndexSpec::GetFieldBit(const char *name, size_t len) {
+  const FieldSpec *sp = GetField(name, len);
   if (!sp || !sp->IsFieldType(INDEXFLD_T_FULLTEXT) || !sp->IsIndexable()) return 0;
 
   return FIELD_BIT(sp);
@@ -73,40 +76,48 @@ t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len)
 
 //---------------------------------------------------------------------------------------------
 
-int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
-  if (!(sp->flags & Index_HasPhonetic)) {
-    return 0;
+// Check if phonetic matching is enabled on any field within the fieldmask.
+// Returns true if any field has phonetics, and false if none of the fields require it.
+
+bool IndexSpec::CheckPhoneticEnabled(t_fieldMask fm) const {
+  if (!(flags & Index_HasPhonetic)) {
+    return false;
   }
 
   if (fm == 0 || fm == (t_fieldMask)-1) {
     // No fields -- implicit phonetic match!
-    return 1;
+    return true;
   }
 
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+  for (size_t ii = 0; ii < numFields; ++ii) {
     if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec *fs = sp->fields + ii;
+      const FieldSpec *fs = fields + ii;
       if (fs->IsFieldType(INDEXFLD_T_FULLTEXT) && (fs->IsPhonetics())) {
-        return 1;
+        return true;
       }
     }
   }
-  return 0;
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
 
-int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
-  if (!sp->sortables) return -1;
-  return sp->sortables->GetFieldIdx(name);
+// Get a sortable field's sort table index by its name. return -1 if the field was not found or is
+// not sortable.
+
+int IndexSpec::GetFieldSortingIndex(const char *name, size_t len) {
+  if (!sortables) return -1;
+  return sortables->GetFieldIdx(name);
 }
 
 //---------------------------------------------------------------------------------------------
 
-const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx) {
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    if (sp->fields[ii].options & FieldSpec_Sortable && sp->fields[ii].sortIdx == idx) {
-      return sp->fields + ii;
+// Get the field spec from the sortable index
+
+const FieldSpec *IndexSpec::GetFieldBySortingIndex(uint16_t idx) const {
+  for (size_t ii = 0; ii < numFields; ++ii) {
+    if (fields[ii].options & FieldSpec_Sortable && fields[ii].sortIdx == idx) {
+      return fields + ii;
     }
   }
   return NULL;
@@ -114,11 +125,11 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 
 //---------------------------------------------------------------------------------------------
 
-const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
-  for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && sp->fields[i].IsFieldType(INDEXFLD_T_FULLTEXT) &&
-        sp->fields[i].IsIndexable()) {
-      return sp->fields[i].name;
+const char *IndexSpec::GetFieldNameByBit(t_fieldMask id) const {
+  for (int i = 0; i < numFields; i++) {
+    if (FIELD_BIT(&fields[i]) == id && fields[i].IsFieldType(INDEXFLD_T_FULLTEXT) &&
+        fields[i].IsIndexable()) {
+      return fields[i].name;
     }
   }
   return NULL;
@@ -135,30 +146,28 @@ const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
 */
 
-IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                    RedisModuleString **argv, int argc, QueryError *status) {
+void IndexSpec::ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
+                               RedisModuleString **argv, int argc, QueryError *status) {
 
   const char *args[argc];
   for (int i = 0; i < argc; i++) {
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
 
-  IndexSpec *ret = IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
-
-  return ret;
+  Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
 }
 
 //---------------------------------------------------------------------------------------------
 
-FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
+FieldSpec **IndexSpec::getFieldsByType(FieldType type) {
 #define FIELDS_ARRAY_CAP 2
-  FieldSpec **fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
-  for (int i = 0; i < spec->numFields; ++i) {
-    if ((spec->fields + i)->IsFieldType(type)) {
-      fields = array_append(fields, &(spec->fields[i]));
+  FieldSpec **fields_ = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
+  for (int i = 0; i < numFields; ++i) {
+    if ((fields + i)->IsFieldType(type)) {
+      fields_ = array_append(fields_, &fields[i]);
     }
   }
-  return fields;
+  return fields_;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -181,12 +190,9 @@ int isRdbLoading(RedisModuleCtx *ctx) {
 
 //---------------------------------------------------------------------------------------------
 
-IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                               QueryError *status) {
-  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
-  if (sp == NULL) {
-    return NULL;
-  }
+IndexSpec::IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                     QueryError *status) {
+  ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
 
   RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
   RedisModuleKey *k = RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE);
@@ -199,31 +205,30 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     } else {
       status->SetCode(QUERY_EINDEXEXISTS);
     }
-    IndexSpec_Free(sp);
+    delete this;
     if (k) {
       RedisModule_CloseKey(k);
     }
     return NULL;
   }
 
-  sp->uniqueId = spec_unique_ids++;
+  uniqueId = spec_unique_ids++;
   // Start the garbage collector
-  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+  StartGC(ctx, GC_DEFAULT_HZ);
 
-  RSCursors->AddSpec(sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  RSCursors->AddSpec(name, RSCURSORS_DEFAULT_CAPACITY);
 
   // set the value in redis
   RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
-  if (sp->flags & Index_Temporary) {
-    RedisModule_SetExpire(k, sp->timeout * 1000);
+  if (flags & Index_Temporary) {
+    RedisModule_SetExpire(k, timeout * 1000);
   }
   // Create the indexer
-  sp->indexer = new Indexer(sp);
+  indexer = new Indexer(this);
   if (IndexSpec_OnCreate) {
-    IndexSpec_OnCreate(sp);
+    IndexSpec_OnCreate(this);
   }
   RedisModule_CloseKey(k);
-  return sp;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -373,10 +378,12 @@ error:
 
 //---------------------------------------------------------------------------------------------
 
-int IndexSpec_CreateTextId(const IndexSpec *sp) {
+// Gets the next text id from the index. This does not currently modify the index
+
+int IndexSpec::CreateTextId() const {
   int maxId = -1;
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    const FieldSpec *fs = sp->fields + ii;
+  for (size_t ii = 0; ii < numFields; ++ii) {
+    const FieldSpec *fs = fields + ii;
     if (fs->IsFieldType(INDEXFLD_T_FULLTEXT)) {
       if (fs->ftId == (t_fieldId)-1) {
         // ignore
@@ -392,35 +399,37 @@ int IndexSpec_CreateTextId(const IndexSpec *sp) {
   return maxId + 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
  */
-static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError *status,
-                                       int isNew) {
-  if (sp->spcache) {
-    IndexSpecCache_Decref(sp->spcache);
-    sp->spcache = NULL;
+
+bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew) {
+  if (spcache) {
+    IndexSpecCache_Decref(spcache);
+    spcache = NULL;
   }
-  const size_t prevNumFields = sp->numFields;
-  const size_t prevSortLen = sp->sortables->len;
+  const size_t prevNumFields = numFields;
+  const size_t prevSortLen = sortables->len;
   FieldSpec *fs = NULL;
 
   while (!ac->IsAtEnd()) {
     size_t nfieldName = 0;
     const char *fieldName = ac->GetStringNC(&nfieldName);
-    if (IndexSpec_GetField(sp, fieldName, nfieldName)) {
+    if (GetField(fieldName, nfieldName)) {
       status->SetError(QUERY_EINVAL, "Duplicate field in schema");
       goto reset;
     }
 
-    fs = IndexSpec_CreateField(sp, fieldName);
+    fs = CreateField(fieldName);
 
     if (!parseFieldSpec(ac, fs, status)) {
       goto reset;
     }
 
     if (fs->IsFieldType(INDEXFLD_T_FULLTEXT) && fs->IsIndexable()) {
-      int textId = IndexSpec_CreateTextId(sp);
+      int textId = sp->CreateTextId();
       if (textId < 0) {
         status->SetError(QUERY_ELIMIT, "Too many TEXT fields in schema");
         goto reset;
@@ -428,10 +437,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
 
       // If we need to store field flags and we have over 32 fields, we need to switch to wide
       // schema encoding
-      if (textId >= SPEC_WIDEFIELD_THRESHOLD && (sp->flags & Index_StoreFieldFlags)) {
+      if (textId >= SPEC_WIDEFIELD_THRESHOLD && (flags & Index_StoreFieldFlags)) {
         if (isNew) {
-          sp->flags |= Index_WideSchema;
-        } else if ((sp->flags & Index_WideSchema) == 0) {
+          flags |= Index_WideSchema;
+        } else if ((flags & Index_WideSchema) == 0) {
 
               status->SetError(QUERY_ELIMIT,
               "Cannot add more fields. Declare index with wide fields to allow adding "
@@ -448,16 +457,16 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
         goto reset;
       }
 
-      fs->sortIdx = sp->sortables->Add(fs->name, fieldTypeToValueType(fs->types));
+      fs->sortIdx = sortables->Add(fs->name, fieldTypeToValueType(fs->types));
     } else {
       fs->sortIdx = -1;
     }
     if (fs->IsPhonetics()) {
-      sp->flags |= Index_HasPhonetic;
+      flags |= Index_HasPhonetic;
     }
     fs = NULL;
   }
-  return 1;
+  return true;
 
 reset:
   // If the current field spec exists, but was not added (i.e. we got an error)
@@ -465,42 +474,45 @@ reset:
   if (fs) {
     // if we have a field spec it means that we increased the number of fields, so we need to
     // decreas it.
-    --sp->numFields;
+    --numFields;
     fs->Cleanup();
   }
-  for (size_t i = prevNumFields; i < sp->numFields; ++i) {
-    &sp->fields[i]->Cleanup();
+  for (size_t i = prevNumFields; i < numFields; ++i) {
+    &fields[i]->Cleanup();
   }
 
-  sp->numFields = prevNumFields;
-  sp->sortables->len = prevSortLen;
-  return 0;
+  numFields = prevNumFields;
+  sortables->len = prevSortLen;
+  return false;
 }
 
-int IndexSpec_AddFields(IndexSpec *sp, ArgsCursor *ac, QueryError *status) {
-  return IndexSpec_AddFieldsInternal(sp, ac, status, 0);
+// Add fields to a redis schema
+bool IndexSpec::AddFields(ArgsCursor *ac, QueryError *status) {
+  return AddFieldsInternal(ac, status, 0);
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
-  IndexSpec *spec = NewIndexSpec(name);
+void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError *status) {
+  ctor(name);
 
-  ArgsCursor ac = {0};
-  ArgsCursor acStopwords = {0};
+  ArgsCursor ac;
+  ArgsCursor acStopwords;
 
-  &ac->InitCString(argv, argc);
+  ac.InitCString(argv, argc);
   long long timeout = -1;
   int dummy;
 
   ACArgSpec argopts[] = {
-      {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
+      {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &flags,
                    Index_StoreTermOffsets | Index_StoreByteOffsets)},
-      {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
-      {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
-      {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
-      {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
+      {AC_MKUNFLAG(SPEC_NOHL_STR, &flags, Index_StoreByteOffsets)},
+      {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &flags, Index_StoreFieldFlags)},
+      {AC_MKUNFLAG(SPEC_NOFREQS_STR, &flags, Index_StoreFreqs)},
+      {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &flags, Index_WideSchema)},
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
       {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
@@ -508,89 +520,89 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {.name = NULL}};
 
   ACArgSpec *errarg = NULL;
-  int rc = &ac->ParseArgSpec(argopts, &errarg);
+  int rc = ac.ParseArgSpec(argopts, &errarg);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
-      goto failure;
+      throw Error("");
     }
   }
 
   if (timeout != -1) {
-    spec->flags |= Index_Temporary;
+    flags |= Index_Temporary;
   }
-  spec->timeout = timeout;
+  timeout = timeout;
 
-  if (&acStopwords->IsInitialized()) {
-    if (spec->stopwords) {
-      StopWordList_Unref(spec->stopwords);
+  if (acStopwords.IsInitialized()) {
+    if (stopwords) {
+      StopWordList_Unref(stopwords);
     }
-    spec->stopwords = new StopWordList((const char **)acStopwords.objs, acStopwords.argc);
-    spec->flags |= Index_HasCustomStopwords;
+    stopwords = new StopWordList((const char **)acStopwords.objs, acStopwords.argc);
+    flags |= Index_HasCustomStopwords;
   }
 
-  if (!&ac->AdvanceIfMatch(SPEC_SCHEMA_STR)) {
-    if (&ac->NumRemaining()) {
-      const char *badarg = &ac->GetStringNC(NULL);
+  if (!ac.AdvanceIfMatch(SPEC_SCHEMA_STR)) {
+    if (ac.NumRemaining()) {
+      const char *badarg = ac.GetStringNC(NULL);
       status->SetErrorFmt(QUERY_EPARSEARGS, "Unknown argument `%s`", badarg);
     } else {
       status->SetError(QUERY_EPARSEARGS, "No schema found");
     }
-    goto failure;
+    throw Error("");
   }
 
-  if (!IndexSpec_AddFieldsInternal(spec, &ac, status, 1)) {
-    goto failure;
+  if (!AddFieldsInternal(&ac, status, 1)) {
+    throw Error("");
   }
-  return spec;
-
-failure:  // on failure free the spec fields array and return an error
-
-  IndexSpec_Free(spec);
-  return NULL;
 }
 
 //---------------------------------------------------------------------------------------------
 
-/* Initialize some index stats that might be useful for scoring functions */
-void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
-  stats->numDocs = sp->stats.numDocuments;
-  stats->numTerms = sp->stats.numTerms;
-  stats->avgDocLen =
-      stats->numDocs ? (double)sp->stats.numRecords / (double)sp->stats.numDocuments : 0;
+// Initialize some index stats that might be useful for scoring functions
+
+void IndexSpec::GetStats(RSIndexStats *stats_) {
+  stats_->numDocs = stats.numDocuments;
+  stats_->numTerms = stats.numTerms;
+  stats_->avgDocLen =
+      stats_->numDocs ? (double)stats.numRecords / (double)stats.numDocuments : 0;
 }
 
 //---------------------------------------------------------------------------------------------
 
-int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  int isNew = sp->terms->InsertStringBuffer((char *)term, len, 1, 1, NULL);
+int IndexSpec::AddTerm(const char *term, size_t len) {
+  int isNew = terms->InsertStringBuffer((char *)term, len, 1, 1, NULL);
   if (isNew) {
-    sp->stats.numTerms++;
-    sp->stats.termsSize += len;
+    stats.numTerms++;
+    stats.termsSize += len;
   }
   return isNew;
 }
 
 //---------------------------------------------------------------------------------------------
 
-IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
-  if (!spec->spcache) {
-    ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
+// Retrieves the current spec cache from the index, incrementing its
+// reference count by 1. Use IndexSpecCache_Decref to free
+
+IndexSpecCache *IndexSpec::GetSpecCache() const {
+  if (!spcache) {
+    ((IndexSpec *)this)->spcache = BuildSpecCache();
   }
 
-  spec->spcache->refcount++;
-  return spec->spcache;
+  spcache->refcount++;
+  return spcache;
 }
 
 //---------------------------------------------------------------------------------------------
 
-IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
+// Create a new copy of the spec cache from the current index spec
+
+IndexSpecCache *IndexSpec::BuildSpecCache() const {
   IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
-  ret->nfields = spec->numFields;
+  ret->nfields = numFields;
   ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
   ret->refcount = 1;
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    ret->fields[ii] = spec->fields[ii];
+  for (size_t ii = 0; ii < numFields; ++ii) {
+    ret->fields[ii] = fields[ii];
     ret->fields[ii].name = rm_strdup(ret->fields[ii].name);
   }
   return ret;
@@ -598,15 +610,18 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpecCache_Decref(IndexSpecCache *c) {
-  if (--c->refcount) {
+// Decrement the reference count of the spec cache. Should be matched
+// with a previous call of GetSpecCache()
+
+void IndexSpecCache::Decref() {
+  if (--refcount) {
     return;
   }
-  for (size_t ii = 0; ii < c->nfields; ++ii) {
-    rm_free(c->fields[ii].name);
+  for (size_t ii = 0; ii < nfields; ++ii) {
+    rm_free(fields[ii].name);
   }
-  rm_free(c->fields);
-  rm_free(c);
+  rm_free(fields);
+  rm_free(this);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -637,10 +652,10 @@ size_t weightedRandom(double weights[], size_t len) {
 /* Get a random term from the index spec using weighted random. Weighted random is done by
  * sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
  * should be enough. Returns NULL if the index is empty */
-char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
+char *IndexSpec::GetRandomTerm(size_t sampleSize) {
 
-  if (sampleSize > sp->terms->size) {
-    sampleSize = sp->terms->size;
+  if (sampleSize > terms->size) {
+    sampleSize = terms->size;
   }
   if (!sampleSize) return NULL;
 
@@ -650,7 +665,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
     char *ret = NULL;
     t_len len = 0;
     double d = 0;
-    if (!sp->terms->RandomKey(&ret, &len, &d) || len == 0) {
+    if (!terms->RandomKey(&ret, &len, &d) || len == 0) {
       return NULL;
     }
     samples[i] = ret;
@@ -669,8 +684,10 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
-  RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
+// Delete the redis key from Redis
+
+void IndexSpec::FreeWithKey(RedisModuleCtx *ctx) {
+  RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
   RedisModuleKey *kk = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
   RedisModule_FreeString(ctx, s);
   if (kk == NULL || RedisModule_KeyType(kk) != REDISMODULE_KEYTYPE_MODULE ||
@@ -678,90 +695,91 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
     if (kk != NULL) {
       RedisModule_CloseKey(kk);
     }
-    IndexSpec_Free(sp);
+    delete this;
     return;
   }
-  RS_LOG_ASSERT(RedisModule_ModuleTypeGetValue(kk) == sp, "IndexSpecs should be identical");
+  RS_LOG_ASSERT(RedisModule_ModuleTypeGetValue(kk) == this, "IndexSpecs should be identical");
   RedisModule_DeleteKey(kk);
   RedisModule_CloseKey(kk);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_FreeInternals(IndexSpec *spec) {
-  if (spec->indexer) {
-    Indexer_Free(spec->indexer);
+void IndexSpec::FreeInternals() {
+  if (indexer) {
+    delete indexer;
   }
-  if (spec->gc) {
-    spec->gc->Stop();
+  if (gc) {
+    gc->Stop();
   }
 
-  if (spec->terms) {
-    TrieType_Free(spec->terms);
+  if (terms) {
+    TrieType_Free(terms);
   }
-  delete (&spec->docs);
+  delete docs;
 
-  if (spec->uniqueId) {
+  if (uniqueId) {
     // If uniqueid is 0, it means the index was not initialized
     // and is being freed now during an error.
-    RSCursors->PurgeWithName(spec->name);
-    RSCursors->RemoveSpec(spec->name);
+    RSCursors->PurgeWithName(name);
+    RSCursors->RemoveSpec(name);
   }
 
-  rm_free(spec->name);
-  if (spec->sortables) {
-    delete spec->sortables;
+  rm_free(name);
+  if (sortables) {
+    delete sortables;
   }
-  if (spec->stopwords) {
-    StopWordList_Unref(spec->stopwords);
-    spec->stopwords = NULL;
-  }
-
-  if (spec->smap) {
-    delete spec->smap;
-  }
-  if (spec->spcache) {
-    IndexSpecCache_Decref(spec->spcache);
-    spec->spcache = NULL;
+  if (stopwords) {
+    StopWordList_Unref(stopwords);
+    stopwords = NULL;
   }
 
-  if (spec->indexStrs) {
-    for (size_t ii = 0; ii < spec->numFields; ++ii) {
-      IndexSpecFmtStrings *fmts = spec->indexStrs + ii;
+  if (smap) {
+    delete smap;
+  }
+  if (spcache) {
+    spcache->Decref();
+    spcache = NULL;
+  }
+
+  if (indexStrs) {
+    for (size_t ii = 0; ii < numFields; ++ii) {
+      IndexSpecFmtStrings *fmts = indexStrs + ii;
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
         if (fmts->types[jj]) {
           RedisModule_FreeString(RSDummyContext, fmts->types[jj]);
         }
       }
     }
-    rm_free(spec->indexStrs);
+    rm_free(indexStrs);
   }
-  if (spec->fields != NULL) {
-    for (size_t i = 0; i < spec->numFields; i++) {
-      rm_free(spec->fields[i].name);
+  if (fields != NULL) {
+    for (size_t i = 0; i < numFields; i++) {
+      rm_free(fields[i].name);
     }
-    rm_free(spec->fields);
-  }
-  IndexSpec_ClearAliases(spec);
-
-  if (spec->keysDict) {
-    dictRelease(spec->keysDict);
+    rm_free(fields);
   }
 
-  rm_free(spec);
+  ClearAliases();
+
+  if (keysDict) {
+    dictRelease(keysDict);
+  }
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_FreeAsync(void *data) {
-  IndexSpec *spec = data;
+// Free the index synchronously. Any keys associated with the index (but not the
+// documents themselves) are freed before this function returns.
+
+void IndexSpec::FreeAsync() {
   RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, this);
   RedisModule_AutoMemory(threadCtx);
   RedisModule_ThreadSafeContextLock(threadCtx);
 
   Redis_DropIndex(&sctx, true, false);
-  IndexSpec_FreeInternals(spec);
+  FreeInternals();
 
   RedisModule_ThreadSafeContextUnlock(threadCtx);
   RedisModule_FreeThreadSafeContext(threadCtx);
@@ -771,44 +789,43 @@ static void IndexSpec_FreeAsync(void *data) {
 
 static struct thpool_ *cleanPool = NULL;
 
-void IndexSpec_Free(void *ctx) {
+// Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
+// and should be on the request's stack.
 
-  IndexSpec *spec = ctx;
-
-  if (spec->flags & Index_Temporary) {
+IndexSpec::~IndexSpec() {
+  if (flags & Index_Temporary) {
     if (!cleanPool) {
       cleanPool = thpool_init(1);
     }
-    thpool_add_work(cleanPool, IndexSpec_FreeAsync, ctx);
+    thpool_add_work(cleanPool, IndexSpec::FreeAsync, ctx);
     return;
   }
 
-  IndexSpec_FreeInternals(spec);
+  FreeInternals();
 }
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec_FreeSync(IndexSpec *spec) {
+void IndexSpec::FreeSync() {
   //  todo:
-  //  mark I think we only need IndexSpec_FreeInternals, this is called only from the
+  //  mark I think we only need FreeInternals, this is called only from the
   //  LLAPI and there is no need to drop keys cause its out of the key space.
   //  Let me know what you think
 
   //   Need a context for this:
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, this);
   RedisModule_AutoMemory(ctx);
-  if (!IndexSpec_IsKeyless(spec)) {
+  if (!IsKeyless()) {
     Redis_DropIndex(&sctx, 0, 1);
   }
-  IndexSpec_FreeInternals(spec);
+  FreeInternals();
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
 //---------------------------------------------------------------------------------------------
 
-IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
-  IndexSpec *ret = NULL;
+void IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   int modeflags = REDISMODULE_READ | REDISMODULE_WRITE;
 
   if (options->flags & INDEXSPEC_LOAD_WRITEABLE) {
@@ -841,12 +858,12 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     if ((options->flags & INDEXSPEC_LOAD_NOALIAS) || ixname == NULL) {
       goto done;  // doesn't exist.
     }
-    IndexSpec *aliasTarget = ret = IndexAlias_Get(ixname);
+    IndexSpec *aliasTarget = this = IndexAlias_Get(ixname);
     if (aliasTarget && (options->flags & INDEXSPEC_LOAD_KEYLESS) == 0) {
       if (isKeynameOwner) {
         RedisModule_FreeString(ctx, formatted);
       }
-      formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ret->name);
+      formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
       isKeynameOwner = 1;
       options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
     }
@@ -854,19 +871,19 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     if (RedisModule_ModuleTypeGetType(options->keyp) != IndexSpecType) {
       goto done;
     }
-    ret = RedisModule_ModuleTypeGetValue(options->keyp);
+    this = RedisModule_ModuleTypeGetValue(options->keyp);
   }
 
-  if (!ret) {
+  if (!this) {
     goto done;
   }
-  if (ret->flags & Index_Temporary) {
-    mstime_t exp = ret->timeout * 1000;
+  if (flags & Index_Temporary) {
+    mstime_t exp = timeout * 1000;
     if (modeflags & REDISMODULE_WRITE) {
       RedisModule_SetExpire(options->keyp, exp);
     } else {
       RedisModuleKey *temp = RedisModule_OpenKey(ctx, formatted, REDISMODULE_WRITE);
-      RedisModule_SetExpire(temp, ret->timeout * 1000);
+      RedisModule_SetExpire(temp, timeout * 1000);
       RedisModule_CloseKey(temp);
     }
   }
@@ -879,30 +896,30 @@ done:
     RedisModule_CloseKey(options->keyp);
     options->keyp = NULL;
   }
-  return ret;
 }
 
 //---------------------------------------------------------------------------------------------
 
 /* Load the spec from the saved version */
-IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
+void IndexSpec::Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
   IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
                             .name = {.cstring = name}};
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
-  return IndexSpec_LoadEx(ctx, &lopts);
+  LoadEx(ctx, &lopts);
 }
 
 //---------------------------------------------------------------------------------------------
 
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
-                                             FieldType forType) {
-  if (!sp->indexStrs) {
-    sp->indexStrs = rm_calloc(SPEC_MAX_FIELDS, sizeof(*sp->indexStrs));
+// Returns a string suitable for indexes. This saves on string creation/destruction
+
+RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec *fs, FieldType forType) {
+  if (!indexStrs) {
+    indexStrs = rm_calloc(SPEC_MAX_FIELDS, sizeof(*indexStrs));
   }
 
   size_t typeix = INDEXTYPE_TO_POS(forType);
 
-  RedisModuleString *ret = sp->indexStrs[fs->index].types[typeix];
+  RedisModuleString *ret = indexStrs[fs->index].types[typeix];
   if (!ret) {
     RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
     switch (forType) {
@@ -913,7 +930,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         ret = TagIndex::FormatName(&sctx, fs->name);
         break;
       case INDEXFLD_T_GEO:
-        ret = RedisModule_CreateStringPrintf(RSDummyContext, GEOINDEX_KEY_FMT, sp->name, fs->name);
+        ret = RedisModule_CreateStringPrintf(RSDummyContext, GEOINDEX_KEY_FMT, name, fs->name);
         break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:
@@ -925,31 +942,33 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
   if (!ret) {
     return NULL;
   }
-  sp->indexStrs[fs->index].types[typeix] = ret;
+  indexStrs[fs->index].types[typeix] = ret;
   return ret;
 }
 
 //---------------------------------------------------------------------------------------------
 
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
-                                                   FieldType forType) {
-  const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s));
+RedisModuleString *IndexSpec::GetFormattedKeyByName(const char *s, FieldType forType) {
+  const FieldSpec *fs = GetField(s, strlen(s));
   if (!fs) {
     return NULL;
   }
-  return IndexSpec_GetFormattedKey(sp, fs, forType);
+  return GetFormattedKey(fs, forType);
 }
 
 //---------------------------------------------------------------------------------------------
 
-t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {
+// Parse the field mask passed to a query, map field names to a bit mask passed down to the
+// execution engine, detailing which fields the query works on. See FT.SEARCH for API details
+
+t_fieldMask IndexSpec::ParseFieldMask(RedisModuleString **argv, int argc) {
   t_fieldMask ret = 0;
 
   for (int i = 0; i < argc; i++) {
     size_t len;
     const char *p = RedisModule_StringPtrLen(argv[i], &len);
 
-    ret |= IndexSpec_GetFieldBit(sp, p, len);
+    ret |= GetFieldBit(p, len);
   }
 
   return ret;
@@ -957,70 +976,71 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec_InitializeSynonym(IndexSpec *sp) {
-  if (!sp->smap) {
-    sp->smap = new SynonymMap(false);
-    sp->flags |= Index_HasSmap;
+void IndexSpec::InitializeSynonym() {
+  if (!smap) {
+    smap = new SynonymMap(false);
+    flags |= Index_HasSmap;
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len) {
+// Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
+// list, and return 0
+
+bool IndexSpec::ParseStopWords(RedisModuleString **strs, size_t len) {
   // if the index already has custom stopwords, let us free them first
-  if (sp->stopwords) {
-    StopWordList_Unref(sp->stopwords);
-    sp->stopwords = NULL;
+  if (stopwords) {
+    StopWordList_Unref(stopwords);
+    stopwords = NULL;
   }
 
-  sp->stopwords = NewStopWordList(strs, len);
+  stopwords = NewStopWordList(strs, len);
   // on failure we revert to the default stopwords list
-  if (sp->stopwords == NULL) {
-    sp->stopwords = DefaultStopWordList();
-    sp->flags &= ~Index_HasCustomStopwords;
-    return 0;
+  if (stopwords == NULL) {
+    stopwords = DefaultStopWordList();
+    flags &= ~Index_HasCustomStopwords;
+    return false;
   } else {
-    sp->flags |= Index_HasCustomStopwords;
+    flags |= Index_HasCustomStopwords;
   }
-  return 1;
+  return true;
 }
 
 //---------------------------------------------------------------------------------------------
 
-int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
-  if (!sp->stopwords) {
-    return 0;
+bool IndexSpec::IsStopWord(const char *term, size_t len) {
+  if (!stopwords) {
+    return false;
   }
-  return StopWordList_Contains(sp->stopwords, term, len);
+  return stopwords->Contains(term, len);
 }
 
 //---------------------------------------------------------------------------------------------
 
-IndexSpec *NewIndexSpec(const char *name) {
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
-  sp->sortables = new RSSortingTable();
-  sp->flags = INDEX_DEFAULT_FLAGS;
-  sp->name = rm_strdup(name);
-  sp->docs = new DocTable(100);
-  sp->stopwords = DefaultStopWordList();
-  sp->terms = NewTrie();
-  sp->keysDict = NULL;
-  sp->minPrefix = RSGlobalConfig.minTermPrefix;
-  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
-  sp->getValue = NULL;
-  sp->getValueCtx = NULL;
-  memset(&sp->stats, 0, sizeof(sp->stats));
-  return sp;
+void IndexSpec::ctor(const char *name) {
+  fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
+  sortables = new RSSortingTable();
+  flags = INDEX_DEFAULT_FLAGS;
+  name = rm_strdup(name);
+  docs = new DocTable(100);
+  stopwords = DefaultStopWordList();
+  terms = NewTrie();
+  keysDict = NULL;
+  minPrefix = RSGlobalConfig.minTermPrefix;
+  maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
+  getValue = NULL;
+  getValueCtx = NULL;
+  memset(&stats, 0, sizeof(stats));
 }
 
 //---------------------------------------------------------------------------------------------
 
-FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name) {
-  sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
-  FieldSpec *fs = sp->fields + sp->numFields;
+FieldSpec *IndexSpec::CreateField(const char *name) {
+  fields = rm_realloc(fields, sizeof(*fields) * (numFields + 1));
+  FieldSpec *fs = fields + numFields;
   memset(fs, 0, sizeof(*fs));
-  fs->index = sp->numFields++;
+  fs->index = numFields++;
   fs->name = rm_strdup(name);
   fs->ftId = (t_fieldId)-1;
   fs->ftWeight = 1.0;
@@ -1044,34 +1064,36 @@ static void valFreeCb(void *unused, void *p) {
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec_MakeKeyless(IndexSpec *sp) {
+// Indicate the index spec should use an internal dictionary, rather than the Redis keyspace
+
+void IndexSpec::MakeKeyless() {
   // Initialize only once:
   if (!invidxDictType.valDestructor) {
     invidxDictType = dictTypeHeapRedisStrings;
     invidxDictType.valDestructor = valFreeCb;
   }
-  sp->keysDict = dictCreate(&invidxDictType, NULL);
+  keysDict = dictCreate(&invidxDictType, NULL);
 }
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy) {
-  sp->gc = GCContext_CreateGCFromSpec(sp, initialHZ, sp->uniqueId, gcPolicy);
-  GCContext_Start(sp->gc);
+void IndexSpec::StartGCFromSpec(float initialHZ, uint32_t gcPolicy) {
+  gc = new GC(this, initialHZ, uniqueId, gcPolicy);
+  gc->Start();
 }
 
 //---------------------------------------------------------------------------------------------
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
-void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
-  RS_LOG_ASSERT(!sp->gc, "GC already exists");
+void IndexSpec::StartGC(RedisModuleCtx *ctx, float initialHZ) {
+  RS_LOG_ASSERT(!gc, "GC already exists");
   // we will not create a gc thread on temporary index
-  if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
-    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
-    sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
-    GCContext_Start(sp->gc);
-    RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
+  if (RSGlobalConfig.enableGC && !(flags & Index_Temporary)) {
+    RedisModuleString *keyName = RedisModule_CreateString(ctx, name, strlen(name));
+    gc = new GC(keyName, initialHZ, uniqueId);
+    gc->Start();
+    RedisModule_Log(ctx, "verbose", "Starting GC for index %s", name);
   }
 }
 
@@ -1260,7 +1282,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   sp->uniqueId = spec_unique_ids++;
 
-  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+  sp->StartGC(ctx, GC_DEFAULT_HZ);
   RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
   RSCursors->AddSpec(sp->name, RSCURSORS_DEFAULT_CAPACITY);
   RedisModule_FreeString(ctx, specKey);
@@ -1308,7 +1330,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   }
 
   IndexStats_RdbSave(rdb, &sp->stats);
-  &sp->docs->RdbSave(rdb);
+  sp->docs.RdbSave(rdb);
   // save trie of terms
   TrieType_GenericSave(rdb, sp->terms, 0);
 
@@ -1353,6 +1375,24 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   }
 
   return REDISMODULE_OK;
+}
+
+//---------------------------------------------------------------------------------------------
+
+void IndexSpec::ClearAliases() {
+  if (!aliases) {
+    return;
+  }
+  for (size_t i = 0; i < array_len(aliases); ++i) {
+    char **pp = &aliases[i];
+    QueryError e;
+    int rc = IndexAlias::Del(*pp, this, INDEXALIAS_NO_BACKREF, &e);
+    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
+    rm_free(*pp);
+    // set to NULL so IndexAlias_Del skips over this
+    *pp = NULL;
+  }
+  array_free(aliases);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

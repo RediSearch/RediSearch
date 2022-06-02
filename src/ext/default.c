@@ -342,7 +342,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
   Token tTok = {0};
   while (tokenizer->Next(tokenizer, &tTok)) {
     char *s = rm_strndup(tTok.tok, tTok.tokLen);
-    Vector_Push(tokVec, s);
+    tokVec->Push(s);
   }
 
   ctx->ExpandTokenWithPhrase(ctx, (const char **)tokVec->data, tokVec->top, token->flags, 1, 0);
@@ -407,8 +407,8 @@ void StemmerExpanderFree(void *p) {
   }
   defaultExpanderCtx *dd = p;
   if (dd->isCn) {
-    dd->data.cn.tokenizer->Free(dd->data.cn.tokenizer);
-    Vector_Free(dd->data.cn.tokList);
+    delete dd->data.cn.tokenizer;
+    delete dd->data.cn.tokList;
   } else if (dd->data.latin) {
     sb_stemmer_delete(dd->data.latin);
   }
@@ -423,7 +423,7 @@ void StemmerExpanderFree(void *p) {
 int PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   char *primary = NULL;
 
-  PhoneticManager_ExpandPhonetics(NULL, token->str, token->len, &primary, NULL);
+  PhoneticManagerCtx::ExpandPhonetics(token->str, token->len, &primary, NULL);
 
   if (primary) {
     ctx->ExpandToken(ctx, primary, strlen(primary), 0x0);
@@ -469,7 +469,7 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   if (phonetic == PHONETIC_DEFAULT) {
     // Eliminate the phonetic expansion if we know that none of the fields
     // actually use phonetic matching
-    if (IndexSpec_CheckPhoneticEnabled(ctx->handle->spec, (*ctx->currentNode)->opts.fieldMask)) {
+    if (ctx->handle->spec->CheckPhoneticEnabled((*ctx->currentNode)->opts.fieldMask)) {
       phonetic = PHONETIC_ENABLED;
     }
   } else if (phonetic == PHONETIC_ENABLED || phonetic == PHONETIC_DESABLED) {

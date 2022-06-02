@@ -1,82 +1,117 @@
-#ifndef __VECTOR_H__
-#define __VECTOR_H__
+#pragma once
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 /*
  * Generic resizable vector that can be used if you just want to store stuff
  * temporarily.
  * Works like C++ std::vector with an underlying resizable buffer
  */
-typedef struct {
-  char *data;
+template<class T>
+struct Vector : public Object {
+  T *data;
   size_t elemSize;
   size_t cap;
   size_t top;
 
-} Vector;
+  /* Create a new vector with element size. This should generally be used
+  * internall by the NewVector macro */
+  Vector(size_t elemSize, size_t cap) {
+    data = rm_calloc(cap_, T);
+    top = 0;
+    // elemSize = elemSize;
+    cap = cap_;
+  }
 
-/* Create a new vector with element size. This should generally be used
- * internall by the NewVector macro */
-Vector *__newVectorSize(size_t elemSize, size_t cap);
+  /* free the vector and the underlying data. Does not release its elements if
+  * they are pointers*/
+  ~Vector() {
+    rm_free(data);
+  }
 
-// Put a pointer in the vector. To be used internall by the library
-int __vector_PutPtr(Vector *v, size_t pos, void *elem);
+  /*
+  * get the element at index pos. The value is copied in to ptr. If pos is outside
+  * the vector capacity, we return 0
+  * otherwise 1
+  */
+  bool Get(size_t pos, T *ptr) {
+    // return 0 if pos is out of bounds
+    if (pos >= top) {
+      return false;
+    }
 
-/*
- * Create a new vector for a given type and a given capacity.
- * e.g. NewVector(int, 0) - empty vector of ints
- */
-#define NewVector(type, cap) __newVectorSize(sizeof(type), cap)
+  /* Get the element at the end of the vector, decreasing the size by one */
+  virtual bool Pop(void *ptr) {
+    if (top > 0) {
+      if (ptr != NULL) {
+        Get(top - 1, ptr);
+      }
+      top--;
+      return true;
+    }
+    return false;
+  }
 
-/*
- * get the element at index pos. The value is copied in to ptr. If pos is outside
- * the vector capacity, we return 0
- * otherwise 1
- */
-int Vector_Get(Vector *v, size_t pos, void *ptr);
+    memcpy(ptr, data + (pos * elemSize), elemSize);
+    return true;
+  }
 
-/* Get the element at the end of the vector, decreasing the size by one */
-int Vector_Pop(Vector *v, void *ptr);
+  /*
+  * Put an element at pos.
+  * Note: If pos is outside the vector capacity, we resize it accordingly
+  */
+  int Put(size_t pos, T *elem) { //@@ might break current behaviour: v[n] with n>cap
+    // resize if pos is out of bounds
+    if (pos >= cap) {
+      Resize(pos + 1);
+    }
 
-//#define Vector_Getx(v, pos, ptr) pos < v->cap ? 1 : 0; *ptr =
-//*(typeof(ptr))(v->data + v->elemSize*pos)
+    if (elem) {
+      memcpy(data + pos * elemSize, elem, elemSize);
+    } else {
+      memset(data + pos * elemSize, 0, elemSize);
+    }
+    // move the end offset to pos if we grew
+    if (pos >= top) {
+      top = pos + 1;
+    }
+    return 1;
+  }
 
-/*
- * Put an element at pos.
- * Note: If pos is outside the vector capacity, we resize it accordingly
- */
-#define Vector_Put(v, pos, elem) __vector_PutPtr(v, pos, elem ? &(typeof(elem)){elem} : NULL)
+  /* Push an element at the end of v, resizing it if needed. This macro wraps
+  * PushPtr */
+  virtual int Push(T *elem) {
+    if (top == cap) {
+      Resize(cap ? cap * 2 : 1);
+    }
 
-/* Push an element at the end of v, resizing it if needed. This macro wraps
- * __vector_PushPtr */
-#define Vector_Push(v, elem) __vector_PushPtr(v, elem ? &(typeof(elem)){elem} : NULL)
+    Put(top, elem);
+    return top;
+  }
 
-int __vector_PushPtr(Vector *v, void *elem);
+  size_t Resize(size_t newcap) {
+    size_t oldcap = cap;
+    cap = newcap;
 
-/* resize capacity of v */
-int Vector_Resize(Vector *v, size_t newcap);
+    data = rm_realloc(data, cap * elemSize);
 
-/* return the used size of the vector, regardless of capacity */
-int Vector_Size(Vector *v);
+    // If we grew:
+    // put all zeros at the newly realloc'd part of the vector
+    if (newcap > oldcap) {
+      size_t offset = oldcap * elemSize;
+      memset(data + offset, 0, cap * elemSize - offset);
+    }
 
-/* return the actual capacity */
-int Vector_Cap(Vector *v);
+    return cap;
+  }
 
-/* free the vector and the underlying data. Does not release its elements if
- * they are pointers*/
-void Vector_Free(Vector *v);
+  size_t Cap() const { return cap; }
+  size_t Size() const { return top; }
+};
 
 /* free the vector and the underlying data. Calls freeCB() for each non null element */
+//@@ how should I change it
+//@@ Also there is no implemetation for this
 void Vector_FreeEx(Vector *v, void (*freeCB)(void *));
-
-int __vecotr_PutPtr(Vector *v, size_t pos, void *elem);
-
-#ifdef __cplusplus
-}
-#endif
-#endif

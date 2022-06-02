@@ -182,7 +182,7 @@ RedisModuleString *RedisSearchCtx::ScoreIndexKeyName(const char *term, size_t le
 RedisSearchCtx::ctor(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   redisCtx = ctx;
   IndexLoadOptions loadOpts = {name: {cstring: indexName}};
-  spec = IndexSpec_LoadEx(ctx, &loadOpts);
+  spec = new IndexSpec(ctx, &loadOpts);
   key_ = loadOpts.keyp;
   if (!spec) {
     throw Error("Index %s does not exist", indexName);
@@ -312,7 +312,7 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
       char *term = kstr + offset;
       *tlen = len - offset;
       // printf("Found index %s and term %sm len %zd\n", idx, term, *tlen);
-      IndexSpec *sp = IndexSpec_Load(ctx->redisCtx, idx, 1);
+      IndexSpec *sp = new IndexSpec(ctx->redisCtx, idx, 1);
       // printf("Spec: %p\n", sp);
 
       if (sp == NULL) {
@@ -563,13 +563,13 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
   for (size_t i = 0; i < ctx->spec->numFields; i++) {
     const FieldSpec *fs = ctx->spec->fields + i;
     if (fs->IsFieldType(INDEXFLD_T_NUMERIC)) {
-      Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC));
+      Redis_DeleteKey(ctx->redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_NUMERIC));
     }
     if (fs->IsFieldType(INDEXFLD_T_TAG)) {
-      Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG));
+      Redis_DeleteKey(ctx->redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_TAG));
     }
     if (fs->IsFieldType(INDEXFLD_T_GEO)) {
-      Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO));
+      Redis_DeleteKey(ctx->redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_GEO));
     }
   }
 

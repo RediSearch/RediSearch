@@ -83,7 +83,7 @@ TEST_F(QueryTest, testParser) {
                                "body",    "text",  "weight", "2.0",    "bar",
                                "numeric", "loc",   "geo",    "tags",   "tag"};
   QueryError err = {QueryErrorCode(0)};
-  ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  ctx.spec = new IndexSpec("idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT_FALSE(err.HasError()) << err.GetError();
 
   // test some valid queries
@@ -248,7 +248,7 @@ TEST_F(QueryTest, testParser) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.str);
   QAST_Destroy(&ast);
-  IndexSpec_Free(ctx.spec);
+  delete ctx.spec;
 }
 
 TEST_F(QueryTest, testPureNegative) {
@@ -256,7 +256,7 @@ TEST_F(QueryTest, testPureNegative) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QueryErrorCode(0)};
-  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *spec = new IndexSpec("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
   for (size_t i = 0; qs[i] != NULL; i++) {
     QASTCXX ast;
@@ -267,13 +267,13 @@ TEST_F(QueryTest, testPureNegative) {
     ASSERT_EQ(n->type, QN_NOT);
     ASSERT_TRUE(QueryNode_GetChild(n, 0) != NULL);
   }
-  IndexSpec_Free(ctx.spec);
+  delete ctx.spec;
 }
 
 TEST_F(QueryTest, testGeoQuery) {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   QueryError err = {QueryErrorCode(0)};
-  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *spec = new IndexSpec("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
   const char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
   QASTCXX ast;
@@ -291,14 +291,14 @@ TEST_F(QueryTest, testGeoQuery) {
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
-  IndexSpec_Free(ctx.spec);
+  delete ctx.spec;
 }
 
 TEST_F(QueryTest, testFieldSpec) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QUERY_OK};
-  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *spec = new IndexSpec("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
   const char *qt = "@title:hello world";
   QASTCXX ast(ctx);
@@ -343,13 +343,13 @@ TEST_F(QueryTest, testFieldSpec) {
   ASSERT_EQ(n->nn.nf->max, 500.0);
   ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
   ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
-  IndexSpec_Free(ctx.spec);
+  delete ctx.spec;
 }
 
 TEST_F(QueryTest, testAttributes) {
   static const char *args[] = {"SCHEMA", "title", "text", "body", "text"};
   QueryError err = {QUERY_OK};
-  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *spec = new IndexSpec("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
 
   const char *qt =
@@ -366,13 +366,13 @@ TEST_F(QueryTest, testAttributes) {
   ASSERT_EQ(n->NumChildren(), 2);
   ASSERT_EQ(0.5, n->children[0]->opts.weight);
   ASSERT_EQ(0.2, n->children[1]->opts.weight);
-  IndexSpec_Free(ctx.spec);
+  delete ctx.spec;
 }
 
 TEST_F(QueryTest, testTags) {
   static const char *args[] = {"SCHEMA", "title", "text", "tags", "tag", "separator", ";"};
   QueryError err = {QUERY_OK};
-  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *spec = new IndexSpec("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
 
   const char *qt = "@tags:{hello world  |foo| שלום|  lorem\\ ipsum    }";
@@ -394,5 +394,5 @@ TEST_F(QueryTest, testTags) {
 
   ASSERT_EQ(QN_TOKEN, n->children[3]->type);
   ASSERT_STREQ("lorem ipsum", n->children[3]->tn.str);
-  IndexSpec_Free(ctx.spec);
+  delete ctx.spec;
 }

@@ -173,7 +173,7 @@ int DocumentIndexer::writeMergedEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *
       ForwardIndexEntry *fwent = merged->head;
 
       // Add the term to the prefix trie. This only needs to be done once per term
-      IndexSpec_AddTerm(ctx->spec, fwent->term, fwent->len);
+      ctx->spec->AddTerm(fwent->term, fwent->len);
 
       RedisModuleKey *idxKey = NULL;
       InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &idxKey);
@@ -235,7 +235,7 @@ void DocumentIndexer::writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ct
 
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
-    IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
+    ctx->spec->AddTerm(entry->term, entry->len);
 
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
@@ -265,7 +265,7 @@ static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
       continue;
     }
     // Open the key:
-    RedisModuleString *fmtkey = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_GEO);
+    RedisModuleString *fmtkey = sp->GetFormattedKey(fs, INDEXFLD_T_GEO);
     GeoIndex gi{sctx, fs};
     gi.RemoveEntries(did);
   }

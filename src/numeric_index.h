@@ -137,7 +137,7 @@ struct NumericRangeTree : public Object {
 
   // Recursively find all the leaves under tree's root, that correspond to a given min-max range.
   // Returns a vector with range node pointers.
-  Vector *Find(double min, double max);
+  Vector<int> *Find(double min, double max);
 };
 
 //---------------------------------------------------------------------------------------------

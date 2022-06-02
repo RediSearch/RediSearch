@@ -9,9 +9,8 @@
 struct PhoneticManagerCtx {
   char* algorithm;
   //RSLanguage language; // not currently used
-};
 
-void PhoneticManager_ExpandPhonetics(PhoneticManagerCtx* ctx, const char* term, size_t len,
-                                     char** primary, char** secondary);
+  static void ExpandPhonetics(const char* term, size_t len, char** primary, char** secondary);
+};
 
 #endif /* SRC_PHONETIC_MANAGER_H_ */

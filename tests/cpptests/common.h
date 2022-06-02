@@ -37,7 +37,7 @@ template <typename... Ts>
 IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
   RMCK::ArgvList argv("FT.CREATE", name, args...);
   QueryError err{QueryErrorCode(0)};
-  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argv.size(), &err);
+  IndexSpec *sp = new IndexSpec(ctx, argv, argv.size(), &err);
   if (!sp) {
     abort();
   }

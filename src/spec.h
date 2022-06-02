@@ -161,6 +161,29 @@ struct IndexSpecFmtStrings {
 
 //---------------------------------------------------------------------------------------------
 
+struct RSIndexStats {
+  size_t numDocs;
+  size_t numTerms;
+  double avgDocLen;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct IndexLoadOptions {
+  union {
+    const char *cstring;
+    RedisModuleString *rstring;
+  } name;
+  uint32_t flags;
+
+  // key pointer. you should close this when done with the index
+  RedisModuleKey *keyp;
+  // name of alias lookup key to use
+  const char *alookup;
+};
+
+//---------------------------------------------------------------------------------------------
+
 struct IndexSpec {
   char *name;
   FieldSpec *fields;
@@ -194,6 +217,80 @@ struct IndexSpec {
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
   struct DocumentIndexer *indexer;
+
+  void ctor(const char *name);
+  void Load(RedisModuleCtx *ctx, const char *name, int openWrite);
+  void LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+  void Parse(name, argv, argc, status);
+  void ParseRedisArgs(ctx, name, argv, argc, status);
+
+  IndexSpec(const char *name) {
+    ctor(name);
+  }
+  IndexSpec(RedisModuleCtx *ctx, const char *name, int openWrite) {
+    Load(ctx, name, openWrite);
+  }
+  IndexSpec(RedisModuleCtx *ctx, IndexLoadOptions *options) {
+    LoadEx(ctx, options);
+  }
+  IndexSpec(const char *name, const char **argv, int argc, QueryError *status) {
+    Parse(name, argv, argc, status);
+  }
+  IndexSpec(RedisModuleCtx *ctx, RedisModuleString *name, RedisModuleString **argv,
+            int argc, QueryError *status) {
+    ParseRedisArgs(ctx, name, argv, argc, status);
+  }
+  IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                               QueryError *status);
+
+  void FreeInternals();
+  void FreeAsync();
+  void FreeSync();
+  void FreeWithKey(RedisModuleCtx *ctx);
+
+  ~IndexSpec();
+
+  IndexSpecCache *GetSpecCache() const;
+  IndexSpecCache *BuildSpecCache() const;
+
+  FieldSpec *CreateField(const char *name);
+
+  const FieldSpec *GetField(const char *name, size_t len) const;
+  const FieldSpec *GetFieldCase(const char *name, size_t n) const;
+  const FieldSpec *GetFieldBySortingIndex(uint16_t idx) const;
+  const char *GetFieldNameByBit(t_fieldMask id) const;
+  int GetFieldSortingIndex(const char *name, size_t len);
+  t_fieldMask GetFieldBit(const char *name, size_t len);
+  void GetStats(RSIndexStats *stats_);
+
+  void StartGCFromSpec(float initialHZ, uint32_t gcPolicy);
+  void StartGC(RedisModuleCtx *ctx, float initialHZ);
+
+  const FieldSpec *getFieldCommon(const char *name, size_t len, int useCase) const;
+  FieldSpec **getFieldsByType(FieldType type);
+
+  bool CheckPhoneticEnabled(t_fieldMask fm) const;
+
+  void MakeKeyless();
+  int CreateTextId() const;
+  bool IsKeyless() { return keysDict != NULL; }
+
+  int AddTerm(const char *term, size_t len);
+  char *GetRandomTerm(size_t sampleSize);
+
+  bool AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew);
+  bool AddFields(ArgsCursor *ac, QueryError *status);
+
+  int ParseStopWords(RedisModuleString **strs, size_t len);
+  bool IsStopWord(const char *term, size_t len);
+
+  void ClearAliases();
+  void InitializeSynonym();
+
+  RedisModuleString *GetFormattedKey(const FieldSpec *fs, FieldType forType);
+  RedisModuleString *GetFormattedKeyByName(const char *s, FieldType forType);
+
+  t_fieldMask ParseFieldMask(RedisModuleString **argv, int argc); //@@ nobody is using it
 };
 
 //---------------------------------------------------------------------------------------------
@@ -223,79 +320,13 @@ struct IndexSpecCache {
   FieldSpec *fields;
   size_t nfields;
   size_t refcount;
+
+  void Decref();
 };
 
 //---------------------------------------------------------------------------------------------
 
-// Retrieves the current spec cache from the index, incrementing its
-// reference count by 1. Use IndexSpecCache_Decref to free
-IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
-
-// Decrement the reference count of the spec cache. Should be matched
-// with a previous call of GetSpecCache()
-void IndexSpecCache_Decref(IndexSpecCache *cache);
-
-// Create a new copy of the spec cache from the current index spec
-IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
-
-// Get a field spec by field name. Case insensitive!
-// Return the field spec if found, NULL if not
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len);
-
-// Case-sensitive version of GetField()
-const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name, size_t n);
-
-const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
-
-// Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
-// text field
-t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
-
-// Check if phonetic matching is enabled on any field within the fieldmask.
-// Returns true if any field has phonetics, and false if none of the fields require it.
-int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
-
-// Get a sortable field's sort table index by its name. return -1 if the field was not found or is
-// not sortable.
-int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
-
-// Get the field spec from the sortable index
-const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx);
-
-// Initialize some index stats that might be useful for scoring functions
-void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
-
-IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                    RedisModuleString **argv, int argc, QueryError *status);
-
-FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
-
-// Create a new index spec from redis arguments, set it in a redis key and start its GC.
-// If an error occurred - we set an error string in err and return NULL.
-IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                               QueryError *status);
-
-// Start the garbage collection loop on the index spec
-void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
-void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy);
-
-// Same as above but with ordinary strings, to allow unit testing
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
-FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name);
-
-// Indicate the index spec should use an internal dictionary, rather than the Redis keyspace
-void IndexSpec_MakeKeyless(IndexSpec *sp);
-
-#define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
-
-// Gets the next text id from the index. This does not currently modify the index
-int IndexSpec_CreateTextId(const IndexSpec *sp);
-
-// Add fields to a redis schema
-int IndexSpec_AddFields(IndexSpec *sp, ArgsCursor *ac, QueryError *status);
-
-IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
 //---------------------------------------------------------------------------------------------
 
@@ -315,68 +346,16 @@ IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
 //---------------------------------------------------------------------------------------------
 
-struct IndexLoadOptions {
-  union {
-    const char *cstring;
-    RedisModuleString *rstring;
-  } name;
-  uint32_t flags;
-
-  // key pointer. you should close this when done with the index
-  RedisModuleKey *keyp;
-  // name of alias lookup key to use
-  const char *alookup;
-};
-
-//---------------------------------------------------------------------------------------------
-
 // Find and load the index using the specified parameters.
 // @return the index spec, or NULL if the index does not exist
-IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+IndexSpec *new IndexSpec(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 // Global hook called when an index spec is created
 extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);
 
-int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
+// int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs); //@@ no one is using this
 
-// Get a random term from the index spec using weighted random. Weighted random is done by sampling
-// N terms from the index and then doing weighted random on them.
-// A sample size of 10-20 should be enough.
-char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
-
-// Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
-// and should be on the request's stack.
-void IndexSpec_Free(void *spec);
-
-// Free the index synchronously. Any keys associated with the index (but not the
-// documents themselves) are freed before this function returns.
-void IndexSpec_FreeSync(IndexSpec *spec);
-
-// Delete the redis key from Redis
-void IndexSpec_FreeWithKey(IndexSpec *spec, RedisModuleCtx *ctx);
-
-// Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
-// list, and return 0
-int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len);
-
-// Return 1 if a term is a stopword for the specific index
-int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
-
-// Returns a string suitable for indexes. This saves on string creation/destruction
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
-
-IndexSpec *NewIndexSpec(const char *name);
-int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
-
-void IndexSpec_ClearAliases(IndexSpec *sp);
 // void IndexSpec_Free(void *value);
-
-// Parse the field mask passed to a query, map field names to a bit mask passed down to the
-// execution engine, detailing which fields the query works on. See FT.SEARCH for API details
-t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
-
-void IndexSpec_InitializeSynonym(IndexSpec *sp);
 
 //---------------------------------------------------------------------------------------------
 

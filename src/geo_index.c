@@ -10,7 +10,7 @@
 // Add a docId to a geoindex key. Right now we just use redis' own GEOADD
 
 int GeoIndex::AddStrings(t_docId docId, const char *slon, const char *slat) {
-  RedisModuleString *ks = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO);
+  RedisModuleString *ks = ctx->spec->GetFormattedKey(fs, INDEXFLD_T_GEO);
   RedisModuleCtx *rctx = ctx->redisCtx;
 
   // GEOADD key longitude latitude member
@@ -37,7 +37,7 @@ void GeoIndex::RemoveEntries(t_docId docId) {
 //---------------------------------------------------------------------------------------------
 
 void GeoIndex::RemoveEntries(IndexSpec *sp, t_docId docId) {
-  RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_GEO);
+  RedisModuleString *ks = sp->GetFormattedKey(fs, INDEXFLD_T_GEO);
   RedisModuleCtx *rctx = ctx->redisCtx;
   RedisModuleCallReply *rep = RedisModule_Call(rctx, "ZREM", "sl", ks, docId);
 
@@ -105,7 +105,7 @@ GeoFilter::~GeoFilter() {
 t_docId *GeoIndex::RangeLoad(const GeoFilter &gf, size_t &num) const {
   num = 0;
   t_docId *docIds = NULL;
-  RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO);
+  RedisModuleString *s = ctx->spec->GetFormattedKey(fs, INDEXFLD_T_GEO);
   RS_LOG_ASSERT(s, "failed to retrive key");
   // GEORADIUS key longitude latitude radius m|km|ft|mi
   RedisModuleCtx *rctx = ctx->redisCtx;

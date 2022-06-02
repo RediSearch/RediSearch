@@ -196,7 +196,7 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
     // number of results (it's been increased by the upstream processor)
     if (res->score == RS_SCORE_FILTEROUT) {
       base->parent->totalResults--;
-      SearchResult_Clear(res);
+      res->Clear();
       // continue and loop to the next result, since this is excluded by the
       // scorer.
       continue;
@@ -379,11 +379,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
       h->indexResult = NULL;
       self->pooledResult = mmh_pop_min(self->pq);
       mmh_insert(self->pq, h);
-      SearchResult_Clear(self->pooledResult);
+      self->pooledResult->Clear();
     } else {
       // The current should not enter the pool, so just leave it as is
       self->pooledResult = h;
-      SearchResult_Clear(self->pooledResult);
+      self->pooledResult->Clear();
     }
   }
   return RESULT_QUEUED;
@@ -541,7 +541,7 @@ static int rppagerNext(ResultProcessor *base, SearchResult *r) {
       return rc;
     }
     self->count++;
-    SearchResult_Clear(r);
+    r->Clear();
   }
 
   // If we've reached LIMIT:

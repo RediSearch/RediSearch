@@ -706,7 +706,7 @@ TEST_F(IndexTest, testIndexSpec) {
                         "2.0",       foo,      "text",  "sortable", bar,      "numeric",
                         "sortable",  name,     "text",  "nostem"};
   QueryError err = {QUERY_OK};
-  IndexSpec *s = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *s = new IndexSpec("idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT_FALSE(err.HasError()) << err.GetError();
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 5);
@@ -716,11 +716,11 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(s->flags & Index_StoreTermOffsets);
   ASSERT_TRUE(s->flags & Index_HasCustomStopwords);
 
-  ASSERT_TRUE(IndexSpec_IsStopWord(s, "hello", 5));
-  ASSERT_TRUE(IndexSpec_IsStopWord(s, "world", 5));
-  ASSERT_TRUE(!IndexSpec_IsStopWord(s, "werld", 5));
+  ASSERT_TRUE(S->IsStopWord("hello", 5));
+  ASSERT_TRUE(S->IsStopWord("world", 5));
+  ASSERT_TRUE(!S->IsStopWord("werld", 5));
 
-  const FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
+  const FieldSpec *f = s->GetField(body, strlen(body));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(f->name, body);
@@ -729,7 +729,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
 
-  f = IndexSpec_GetField(s, title, strlen(title));
+  f = s->GetField(title, strlen(title));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, title) == 0);
@@ -738,7 +738,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  f = IndexSpec_GetField(s, foo, strlen(foo));
+  f = s->GetField(foo, strlen(foo));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, foo) == 0);
@@ -747,16 +747,16 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
-  f = IndexSpec_GetField(s, bar, strlen(bar));
+  f = s->GetField(bar, strlen(bar));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_NUMERIC));
 
   ASSERT_TRUE(strcmp(f->name, bar) == 0);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 1);
-  ASSERT_TRUE(IndexSpec_GetField(s, "fooz", 4) == NULL);
+  ASSERT_TRUE(s->GetField("fooz", 4) == NULL);
 
-  f = IndexSpec_GetField(s, name, strlen(name));
+  f = s->GetField(name, strlen(name));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, name) == 0);
@@ -767,36 +767,36 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(s->sortables != NULL);
   ASSERT_TRUE(s->sortables->len == 2);
-  int rc = IndexSpec_GetFieldSortingIndex(s, foo, strlen(foo));
+  int rc = s->GetFieldSortingIndex(foo, strlen(foo));
   ASSERT_EQ(0, rc);
-  rc = IndexSpec_GetFieldSortingIndex(s, bar, strlen(bar));
+  rc = S->GetFieldSortingIndex(bar, strlen(bar));
   ASSERT_EQ(1, rc);
-  rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
+  rc = S->GetFieldSortingIndex(title, strlen(title));
   ASSERT_EQ(-1, rc);
 
-  IndexSpec_Free(s);
+  delete s;
 
   err.ClearError();
   const char *args2[] = {
       "NOOFFSETS", "NOFIELDS", "SCHEMA", title, "text",
   };
-  s = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
+  s = new IndexSpec("idx", args2, sizeof(args2) / sizeof(const char *), &err);
   ASSERT_FALSE(err.HasError()) << err.GetError();
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 1);
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
-  IndexSpec_Free(s);
+  delete s;
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
   err.ClearError();
-  s = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
+  s = new IndexSpec("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
   ASSERT_FALSE(err.HasError()) << err.GetError();
   ASSERT_TRUE(s);
   ASSERT_TRUE((s->fields + 1)->IsNoStem());
-  IndexSpec_Free(s);
+  delete s;
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
@@ -839,11 +839,11 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError err = {QUERY_OK};
-  IndexSpec *s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  IndexSpec *s = new IndexSpec("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_FALSE(err.HasError()) << err.GetError();
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
-  IndexSpec_Free(s);
+  delete s;
   freeSchemaArgs(args);
 
   // test too big a schema
@@ -851,7 +851,7 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   err.ClearError();
-  s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  s = new IndexSpec("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(err.HasError());
   ASSERT_STREQ("Too many TEXT fields in schema", err.GetError());

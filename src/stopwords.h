@@ -28,7 +28,7 @@ struct StopWordList {
   ~StopWordList();
 
   // Check if a stopword list contains a term. The term must be already lowercased
-  int Contains(const char *term, size_t len) const;
+  bool Contains(const char *term, size_t len) const;
 
   // Save a stopword list to RDB
   void RdbSave(RedisModuleIO *rdb) const;

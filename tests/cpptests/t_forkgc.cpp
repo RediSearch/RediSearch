@@ -105,7 +105,7 @@ static InvertedIndex *getTagInvidx(RedisModuleCtx *ctx, IndexSpec *sp, const cha
                                    const char *value) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisModuleKey *keyp = NULL;
-  RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sp, "f1", INDEXFLD_T_TAG);
+  RedisModuleString *fmtkey = sp->GetFormattedKeyByName("f1", INDEXFLD_T_TAG);
   auto tix = sctx.Open(fmtkey, 1, &keyp);
   auto iv = tix->OpenIndex("hello", strlen("hello"), 1);
   return iv;

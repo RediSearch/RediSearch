@@ -1,5 +1,4 @@
-#ifndef __PRIORITY_QUEUE_H__
-#define __PRIORITY_QUEUE_H__
+#pragma once
 
 #include "vector.h"
 
@@ -10,46 +9,35 @@
  * Priority queues are implemented as Vectors. Elements are popped from the "back" of Vector, which is known as the top
  * of the priority queue.
  */
-typedef struct {
-    Vector *v;
 
-    int (*cmp)(void *, void *);
-} PriorityQueue;
+template<typename T, typename Compare = std::less<T>>
+struct PriorityQueue : public Vector {
+  PriorityQueue(size_t cap) : Vector(cap) {}
 
-/* Construct priority queue
- * Constructs a priority_queue container adaptor object.
- */
-PriorityQueue *__newPriorityQueueSize(size_t elemSize, size_t cap, int (*cmp)(void *, void *));
+  /* Access top element
+  * Copy the top element in the priority_queue to ptr.
+  * The top element is the element that compares higher in the priority_queue.
+  */
+  int Top(T *ptr) {
+    return Get(0, ptr);
+  }
 
-#define NewPriorityQueue(type, cap, cmp) __newPriorityQueueSize(sizeof(type), cap, cmp)
+  size_t Push(T *elem) {
+    size_t top = Push(elem);
+    Heap_Push(this, 0, top, pq->cmp);
+    return top;
+  }
 
-/* Return size
- * Returns the number of elements in the priority_queue.
- */
-size_t Priority_Queue_Size(PriorityQueue *pq);
-
-/* Access top element
- * Copy the top element in the priority_queue to ptr.
- * The top element is the element that compares higher in the priority_queue.
- */
-int Priority_Queue_Top(PriorityQueue *pq, void *ptr);
-
-/* Insert element
- * Inserts a new element in the priority_queue.
- */
-size_t __priority_Queue_PushPtr(PriorityQueue *pq, void *elem);
-
-#define Priority_Queue_Push(pq, elem) __priority_Queue_PushPtr(pq, &(typeof(elem)){elem})
-
-/* Remove top element
- * Removes the element on top of the priority_queue, effectively reducing its size by one. The element removed is the
- * one with the highest value.
- * The value of this element can be retrieved before being popped by calling Priority_Queue_Top.
- */
-void Priority_Queue_Pop(PriorityQueue *pq);
-
-/* free the priority queue and the underlying data. Does not release its elements if
- * they are pointers */
-void Priority_Queue_Free(PriorityQueue *pq);
-
-#endif //__PRIORITY_QUEUE_H__
+  /* Remove top element
+  * Removes the element on top of the priority_queue, effectively reducing its size by one. The element removed is the
+  * one with the highest value.
+  * The value of this element can be retrieved before being popped by calling Priority_Queue_Top.
+  */
+  void Pop()  {
+    if (top == 0) {
+      return;
+    }
+    Heap_Pop(this, 0, top, cmp);
+    top--;
+  }
+};

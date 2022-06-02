@@ -227,7 +227,7 @@ Vector *Trie::Search(const char *s, size_t len, size_t num, int maxDist, int pre
   Vector *ret = NewVector(TrieSearchResult *, n);
   for (int i = 0; i < n; ++i) {
     TrieSearchResult *h = heap_poll(pq);
-    Vector_Put(ret, n - i - 1, h);
+    ret->Put(n - i - 1, h);
   }
 
   // trim the results to remove irrelevant results
@@ -236,7 +236,7 @@ Vector *Trie::Search(const char *s, size_t len, size_t num, int maxDist, int pre
     int i;
     for (i = 0; i < n; ++i) {
       TrieSearchResult *h;
-      Vector_Get(ret, i, &h);
+      ret->Get(i, &h);
 
       if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
         // TODO: Fix trimming the vector
@@ -248,7 +248,7 @@ Vector *Trie::Search(const char *s, size_t len, size_t num, int maxDist, int pre
 
     for (; i < n; ++i) {
       TrieSearchResult *h;
-      Vector_Get(ret, i, &h);
+      ret->Get(i, &h);
       delete h;
     }
   }

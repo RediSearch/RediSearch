@@ -41,7 +41,7 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
                               size_t fieldLen, const IndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
                               int options) {
-  const FieldSpec *fs = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
+  const FieldSpec *fs = spec->GetField(fieldName, strlen(fieldName));
   if (!fs || !fs->IsFieldType(INDEXFLD_T_FULLTEXT)) {
     return 0;
   }

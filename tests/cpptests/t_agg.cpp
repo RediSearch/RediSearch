@@ -21,7 +21,7 @@ TEST_F(AggTest, testBasic) {
 
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
                       "sortable", "t3", "TEXT");
-  auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
+  auto spec = new IndexSpec(ctx, args, args.size(), &qerr);
   ASSERT_TRUE(spec);
 
   // Try to create a document...
@@ -69,14 +69,14 @@ TEST_F(AggTest, testBasic) {
     //     std::cerr << std::endl;
     //   }
     // }
-    SearchResult_Clear(&res);
+    res.Clear();
   }
   ASSERT_EQ(RS_RESULT_EOF, rv);
   ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&res);
   AREQ_Free(rr);
-  IndexSpec_FreeWithKey(spec, ctx);
+  spec->FreeWithKey(ctx);
   args.clear();
   aggArgs.clear();
   RedisModule_FreeThreadSafeContext(ctx);
@@ -162,7 +162,7 @@ TEST_F(AggTest, testGroupBy) {
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
     // RLookupRow_Dump(&res.rowdata);
-    SearchResult_Clear(&res);
+    res.Clear(&res);
   }
   SearchResult_Destroy(&res);
   gp->Free(gp);
@@ -224,7 +224,7 @@ TEST_F(AggTest, testGroupSplit) {
       }
     }
     ASSERT_TRUE(foundValue);
-    SearchResult_Clear(&res);
+    res.Clear();
   }
   SearchResult_Destroy(&res);
   gp->Free(gp);

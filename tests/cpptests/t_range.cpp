@@ -22,15 +22,15 @@ unsigned prng() {
 class RangeTest : public ::testing::Test {};
 
 TEST_F(RangeTest, testRangeTree) {
-  NumericRangeTree *t = NewNumericRangeTree();
+  NumericRangeTree t;
   ASSERT_TRUE(t != NULL);
 
   for (size_t i = 0; i < 50000; i++) {
 
-    NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000));
+    t.Add(i + 1, (double)(1 + prng() % 5000));
   }
-  ASSERT_EQ(t->numRanges, 16);
-  ASSERT_EQ(t->numEntries, 50000);
+  ASSERT_EQ(t.numRanges, 16);
+  ASSERT_EQ(t.numEntries, 50000);
 
   struct {
     double min;
@@ -39,24 +39,22 @@ TEST_F(RangeTest, testRangeTree) {
 
   for (int r = 0; rngs[r].min || rngs[r].max; r++) {
 
-    Vector *v = NumericRangeTree_Find(t, rngs[r].min, rngs[r].max);
-    ASSERT_TRUE(Vector_Size(v) > 0);
+    Vector *v = t->Find(rngs[r].min, rngs[r].max);
+    ASSERT_TRUE(v->Size() > 0);
     // printf("Got %d ranges for %f..%f...\n", Vector_Size(v), rngs[r].min, rngs[r].max);
     for (int i = 0; i < Vector_Size(v); i++) {
       NumericRange *l;
-      Vector_Get(v, i, &l);
+      v->Get(i, &l);
       ASSERT_TRUE(l);
       // printf("%f...%f\n", l->minVal, l->maxVal);
       ASSERT_FALSE(l->minVal > rngs[r].max);
       ASSERT_FALSE(l->maxVal < rngs[r].min);
     }
-    Vector_Free(v);
   }
-  NumericRangeTree_Free(t);
 }
 
 TEST_F(RangeTest, testRangeIterator) {
-  NumericRangeTree *t = NewNumericRangeTree();
+  NumericRangeTree t;
   ASSERT_TRUE(t != NULL);
 
   const size_t N = 100000;
@@ -69,19 +67,19 @@ TEST_F(RangeTest, testRangeIterator) {
     double value = (double)(1 + prng() % (N / 5));
     lookup[docId] = value;
     // printf("Adding %d > %f\n", docId, value);
-    NumericRangeTree_Add(t, docId, value);
+    t.Add(docId, value);
   }
 
   for (size_t i = 0; i < 5; i++) {
     double min = (double)(1 + prng() % (N / 5));
     double max = (double)(1 + prng() % (N / 5));
     memset(&matched[0], 0, sizeof(uint8_t) * (N + 1));
-    NumericFilter *flt = NewNumericFilter(std::min(min, max), std::max(min, max), 1, 1);
+    NumericFilter *flt = new NumericFilter(std::min(min, max), std::max(min, max), 1, 1);
 
     // count the number of elements in the range
     size_t count = 0;
     for (size_t i = 1; i <= N; i++) {
-      if (NumericFilter_Match(flt, lookup[i])) {
+      if (flt->Match(lookup[i])) {
         matched[i] = 1;
         count++;
       }
@@ -102,7 +100,7 @@ TEST_F(RangeTest, testRangeIterator) {
 
       ASSERT_EQ(matched[res->docId], 1);
       if (res->type == RSResultType_Union) {
-        res = res->agg.children[0];
+        res = res->children[0];
       }
 
       matched[res->docId] = (uint8_t)2;
@@ -111,7 +109,7 @@ TEST_F(RangeTest, testRangeIterator) {
 
       ASSERT_EQ(res->num.value, lookup[res->docId]);
 
-      ASSERT_TRUE(NumericFilter_Match(flt, lookup[res->docId]));
+      ASSERT_TRUE(flt->Match(lookup[res->docId]));
 
       ASSERT_EQ(res->type, RSResultType_Numeric);
       // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
@@ -130,17 +128,14 @@ TEST_F(RangeTest, testRangeIterator) {
 
     // printf("The iterator returned %d elements\n", xcount);
     ASSERT_EQ(xcount, count);
-    it->Free(it);
-    NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, 14);
-  ASSERT_EQ(t->numEntries, N);
-  NumericRangeTree_Free(t);
+  ASSERT_EQ(t.numRanges, 14);
+  ASSERT_EQ(t.numEntries, N);
 }
 
 // int benchmarkNumericRangeTree() {
-//   NumericRangeTree *t = NewNumericRangeTree();
+//   NumericRangeTree *t;
 //   int count = 1;
 //   for (int i = 0; i < 100000; i++) {
 

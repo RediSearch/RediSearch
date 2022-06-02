@@ -229,7 +229,7 @@ void NumericRangeNode::AddChildren(Vector *v, double min, double max) {
 
     // if range is completely contained in the search, add it and not inspect any downwards
     if (range->Contained(min, max)) {
-      Vector_Push(v, range);
+      v->Push(range);
       return;
     }
     // No overlap at all - no need to do anything
@@ -243,7 +243,7 @@ void NumericRangeNode::AddChildren(Vector *v, double min, double max) {
     if (left) left->AddChildren(v, min, max);
     if (right) right->AddChildren(v, min, max);
   } else if (range && range->Overlaps(min, max)) {
-    Vector_Push(v, range);
+    v->Push(range);
   }
 }
 
@@ -257,7 +257,7 @@ Vector *NumericRangeNode::FindRange(double min, double max) {
   // printf("Found %zd ranges for %f...%f\n", leaves->top, min, max);
   // for (int i = 0; i < leaves->top; i++) {
   //   NumericRange *rng;
-  //   Vector_Get(leaves, i, &rng);
+  //   leaves->Get(i, &rng);
   //   printf("%f...%f (%f). %d card, %d splitCard\n", rng->minVal, rng->maxVal,
   //          rng->maxVal - rng->minVal, rng->entries.numDocs, rng->splitCard);
   // }
@@ -377,20 +377,20 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
                                      const NumericFilter *f) {
   Vector *v = t->Find(f->min, f->max);
-  if (!v || Vector_Size(v) == 0) {
+  if (!v || v->Size() == 0) {
     if (v) {
-      Vector_Free(v);
+      delete v;
     }
     return NULL;
   }
 
-  int n = Vector_Size(v);
+  int n = v->Size();
   // if we only selected one range - we can just iterate it without union or anything
   if (n == 1) {
     NumericRange *rng;
-    Vector_Get(v, 0, &rng);
+    v->Get(0, &rng);
     IndexIterator *it = NewNumericRangeIterator(sp, rng, f);
-    Vector_Free(v);
+    delet v;
     return it;
   }
 
@@ -400,14 +400,14 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
 
   for (size_t i = 0; i < n; i++) {
     NumericRange *rng;
-    Vector_Get(v, i, &rng);
+    v->Get(i, &rng);
     if (!rng) {
       continue;
     }
 
     its[i] = NewNumericRangeIterator(sp, rng, f);
   }
-  Vector_Free(v);
+  delete v;
 
   IndexIterator *it = new UnionIterator(its, n, NULL, 1, 1);
 
@@ -440,7 +440,7 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
 
 struct IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx) {
-  RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, INDEXFLD_T_NUMERIC);
+  RedisModuleString *s = ctx->spec->GetFormattedKeyByName(flt->fieldName, INDEXFLD_T_NUMERIC);
   if (!s) {
     return NULL;
   }
@@ -627,11 +627,11 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   // sort the entries by doc id, as they were not saved in this order
   qsort(entries, numEntries, sizeof(NumericRangeEntry), cmpdocId);
-  NumericRangeTree *t = NewNumericRangeTree();
+  NumericRangeTree *t;
 
   // now push them in order into the tree
   for (size_t i = 0; i < numEntries; i++) {
-    NumericRangeTree_Add(t, entries[i].docId, entries[i].value);
+    t->Add(entries[i].docId, entries[i].value);
   }
   array_free(entries);
   return t;
@@ -679,7 +679,7 @@ void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {
 
 void NumericIndexType_Free(void *value) {
   NumericRangeTree *t = value;
-  NumericRangeTree_Free(t);
+  delete t;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
