@@ -93,7 +93,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       return RS_RESULT_TIMEDOUT;
     case INDEXREAD_NOTFOUND:
       continue;
-    default: 
+    default: // INDEXREAD_OK
       if (!r)
         continue;
     }
