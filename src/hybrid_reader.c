@@ -156,7 +156,7 @@ void computeDistances(HybridIterator *hr) {
     }
     double dist = VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, qvector);
     // If this id is not in the vector index (since it was deleted), dist will return as NaN.
-    if (isnanl(dist)) {
+    if (isnan(dist)) {
       continue;
     }
     if (heap_count(hr->topResults) < hr->query.k || dist < upper_bound) {

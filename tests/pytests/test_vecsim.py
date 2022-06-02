@@ -1359,53 +1359,37 @@ def test_rdb_memory_limit():
 
 def test_timeout_reached():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
-    vecsim_algorithms_and_sizes = {'FLAT':80000, 'HNSW':10000}
+    vecsim_algorithms_and_sizes = [('FLAT', 80000), ('HNSW', 10000)]
+    hybrid_modes = ['BATCHES', 'ADHOC_BF']
     dim = 10
 
-    for algo, n_vec in vecsim_algorithms_and_sizes.items():
+    for algo, n_vec in vecsim_algorithms_and_sizes:
         # succeed to create indexes with no limits
         query_vec = load_vectors_to_redis(env, n_vec, 0, dim)
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, '8', 'TYPE', 'FLOAT32',
                    'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(env, 'idx')
+
+        # STANDART KNN
         # run query with no timeout. should succeed.
-        env.assertEqual([n_vec], conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'LIMIT', 0, 0,
-                                                      'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
-                                                      'TIMEOUT', 0))
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'LIMIT', 0, 0,
+                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                   'TIMEOUT', 0).equal([n_vec])
         # run query with 1 milisecond timeout. should fail.
-        env.assertEqual([0], conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'LIMIT', 0, 0,
-                                                  'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
-                                                  'TIMEOUT', 1))
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'LIMIT', 0, 0,
+                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                   'TIMEOUT', 1).equal([0])
+
+        # HYBRID MODES
+        for mode in hybrid_modes:
+            env.expect('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'LIMIT', 0, 0,
+                       'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+                       'TIMEOUT', 0).equal([n_vec])
+
+            env.expect('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'LIMIT', 0, 0,
+                       'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+                       'TIMEOUT', 1).equal([0])
+
         conn.flushall()
-
-def test_timeout_reached_hybrid_modes():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
-    conn = getConnectionByEnv(env)
-
-    n_vec = 80000
-    dim = 10
-    hybrid_modes = ['BATCHES', 'ADHOC_BF']
-
-    query_vec = load_vectors_to_redis(env, n_vec, 0, dim)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32',
-               'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
-    waitForIndex(env, 'idx')
-
-    # STANDART KNN
-    env.assertEqual([n_vec], conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'LIMIT', 0, 0,
-                                                  'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
-                                                  'TIMEOUT', 0))
-    env.assertEqual([0], conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'LIMIT', 0, 0,
-                                              'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
-                                              'TIMEOUT', 1))
-    # HYBRID MODES
-    for mode in hybrid_modes:
-        env.assertEqual([n_vec], conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hm]', 'LIMIT', 0, 0,
-                                                      'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hm', mode, 'TIMEOUT', 0))
-
-        env.assertEqual([0], conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hm]', 'LIMIT', 0, 0,
-                                                  'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hm', mode, 'TIMEOUT', 1))
