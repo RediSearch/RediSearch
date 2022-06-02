@@ -348,7 +348,6 @@ static void HR_Rewind(void *ctx) {
   hr->resultsPrepared = false;
   hr->numIterations = 0;
   VecSimQueryResult_Free(hr->list);
-  hr->list.results = NULL;
   if (hr->iter) {
     VecSimQueryResult_IteratorFree(hr->iter);
     hr->iter = NULL;
