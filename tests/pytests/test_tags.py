@@ -364,3 +364,16 @@ def testEmptyTagLeak(env):
         pl.execute()
     forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+
+@unstable
+def testTagWithBrackets(env):
+    env.skipOnCluster()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 't', 'AS', 'tt', 'TEXT')
+    conn.execute_command('HSET', 'doc1', 't', 'foo')
+    
+    env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([1, 'doc1', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx', '@t:{(foo)}').equal([1, 'doc1', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx', '@tt:foo').equal([1, 'doc1', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx', '@tt:(foo)').equal([1, 'doc1', ['t', 'foo']])
