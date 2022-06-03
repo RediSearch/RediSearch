@@ -67,7 +67,7 @@ enum RSStringType {
 
 // Variant value union
 
-struct RSValue : Object {
+struct RSValue : public Object {
   union {
     double numval; // numeric value
 
@@ -93,16 +93,15 @@ struct RSValue : Object {
     struct RSValue *ref; // reference to another value
   };
 
-  RSValue(RSValueType t);
+  RSValue(RSValueType t = RSValue_Undef, uint32_t refcount = 0, uint8_t allocated = 0) :
+    ref(NULL), t(t), refcount(refcount), allocated(allocated) {
+  }
+
   ~RSValue();
 
   RSValueType t : 8;
   uint32_t refcount : 23;
   uint8_t allocated : 1;
-
-  RSValue(RSValueType t_ = RSValue_Undef, uint32_t refcount = 0, uint8_t allocated = 0) :
-    ref(NULL), t(t_), refcount(refcount), allocated(allocated) {
-  }
 
   static RSValue *NewArray(RSValue **vals, size_t n, int options);
 
@@ -128,7 +127,7 @@ struct RSValue : Object {
   const char *StringPtrLen(size_t *lenp = NULL) const;
   const char *ConvertStringPtrLen(size_t *lenp, char *buf, size_t buflen) const;
 
-  int ToNumber(double *d) const;
+  bool ToNumber(double *d) const;
 
   const char *TypeName(RSValueType t);
 
@@ -143,11 +142,14 @@ struct RSValue : Object {
   RSValue *ArrayItem(uint32_t index) const;
   uint32_t ArrayLen() const;
 
+  int SendReply(RedisModuleCtx *ctx, bool typed) const;
+
   // Compare 2 values for sorting
   static int Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
+  static int CmpNC(const RSValue *v1, const RSValue *v2);
 
-  // Return 1 if the two values are equal
-  static int Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
+  // Return true if the two values are equal
+  static bool Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
 };
 
 #pragma pack()
@@ -188,14 +190,6 @@ inline void RSValue::MakeReference(RSValue *src) {
 inline void RSValue::MakeOwnReference(RSValue *src) {
   MakeReference(src);
   src->Decref();
-}
-
-// Return the value itself or its referred value
-inline const RSValue *RSValue::Dereference() const {
-  RSValue *v = this;
-  for (; v && v->t == RSValue_Reference; v = v->ref)
-    ;
-  return (RSValue *)v;
 }
 
 RSValue *RS_StringVal(char *str, uint32_t len);
@@ -341,19 +335,16 @@ inline uint32_t RSValue::ArrayLen() const {
   return arrval.len;
 }
 
-// Based on the value type, serialize the value into redis client response
-int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int typed);
-
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 
-#define RSVALUE_STATICALLOC_INIT(T) RSValue(T)
+size_t RSValue_NumToString(double dd, char *buf);
 
 //---------------------------------------------------------------------------------------------
 
 // Static value pointers. These don't ever get decremented
 
-static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
-static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
+static RSValue __attribute__((unused)) RS_StaticNull = new RSValue(RSValue_Null);
+static RSValue __attribute__((unused)) RS_StaticUndef = new RSValue(RSValue_Undef);
 
 // Maximum number of static/cached numeric values. Integral numbers in this range
 // can benefit by having 'static' values assigned to them, eliminating the need

@@ -36,7 +36,7 @@ static int sumAdd(Reducer *baseparent, void *instance, const RLookupRow *row) {
     ctr->total += v->numval;
   } else {  // try to convert value to number
     double d = 0;
-    if (RSValue_ToNumber(v, &d)) {
+    if (v->ToNumber(&d)) {
       ctr->total += d;
     }
   }

@@ -42,7 +42,7 @@ static int minmaxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   minmaxCtx *m = ctx;
   double val;
   RSValue *v = RLookup_GetItem(m->srckey, srcrow);
-  if (!RSValue_ToNumber(v, &val)) {
+  if (!v->ToNumber(&val)) {
     return 1;
   }
 

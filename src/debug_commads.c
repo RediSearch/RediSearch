@@ -581,7 +581,7 @@ static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx)
     const FieldSpec *fs = sctx->spec->GetFieldBySortingIndex(ii);
     RedisModule_ReplyWithSimpleString(sctx->redisCtx, fs ? fs->name : "!!!???");
     RedisModule_ReplyWithSimpleString(sctx->redisCtx, "value");
-    RSValue_SendReply(sctx->redisCtx, sv->values[ii], 0);
+    sv->values[ii]->SendReply(sctx->redisCtx, false);
     nelem++;
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, nelem);

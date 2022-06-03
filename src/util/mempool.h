@@ -50,7 +50,7 @@ protected:
   // stateless allocation function for the pool
   virtual void *alloc();
 
-// free function for the pool
+  // free function for the pool
   virtual void _free(void *);
 
   static int mempoolDisable_g;

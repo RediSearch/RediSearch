@@ -177,7 +177,7 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
 
   // First actually generate the fragments
   size_t docLen;
-  const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
+  const char *docStr = returnedField->StringPtrLen(&docLen);
   if (docParams->byteOffsets == NULL ||
       !fragmentizeOffsets(spec, fieldName, docStr, docLen, docParams->indexResult,
                           docParams->byteOffsets, &frags, options)) {

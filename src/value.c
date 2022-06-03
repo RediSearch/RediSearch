@@ -19,10 +19,10 @@ struct mempoolThreadPool {
 static void mempoolThreadPoolDtor(void *p) {
   mempoolThreadPool *tp = p;
   if (tp->values) {
-    mempool_destroy(tp->values);
+    delete (tp->values);
   }
   if (tp->fieldmaps) {
-    mempool_destroy(tp->fieldmaps);
+    delete (tp->fieldmaps);
   }
   rm_free(tp);
 }
@@ -53,7 +53,8 @@ static inline mempoolThreadPool *getPoolInfo() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-size_t RSValue::NumToString(double dd, char *buf) {
+// Variant Values - will be used in documents as well
+size_t RSValue_NumToString(double dd, char *buf) {
   long long ll = dd;
   if (ll == dd) {
     return sprintf(buf, "%lld", ll);
@@ -64,8 +65,19 @@ size_t RSValue::NumToString(double dd, char *buf) {
 
 //---------------------------------------------------------------------------------------------
 
-RSValue::RSValue(RSValueType t) : t(t), refcount(1), allocated(1) {
-  // RSValue *v = mempool_get(getPoolInfo()->values);
+// RSValue::RSValue(RSValueType t) : t(t), refcount(1), allocated(1) {
+//   // RSValue *v = mempool_get(getPoolInfo()->values);
+// }
+
+//---------------------------------------------------------------------------------------------
+
+// Return the value itself or its referred value
+//@@ Can we make it void?
+inline const RSValue *RSValue::Dereference() const {
+  RSValue *v = this;
+  for (; v && v->t == RSValue_Reference; v = v->ref)
+    ;
+  return (RSValue *)v;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -126,7 +138,7 @@ void RSValue::Clear() {
 // the actual value object.
 
 RSValue::~RSValue() {
-  v->Clear();
+  Clear();
   // if (allocated) {
   //   mempool_release(getPoolInfo()->values, v);
   // }
@@ -141,7 +153,7 @@ void RSValue::SetNumber(double n) {
 
 //---------------------------------------------------------------------------------------------
 
-void RSValue:::SetString(char *str, size_t len) {
+void RSValue::SetString(char *str, size_t len) {
   t = RSValue_String;
   strval.len = len;
   strval.str = str;
@@ -155,7 +167,7 @@ RSValue *RS_NewCopiedString(const char *s, size_t n) {
   char *cp = rm_malloc(n + 1);
   cp[n] = 0;
   memcpy(cp, s, n);
-  RSValue_SetString(v, cp, n);
+  v->SetString(cp, n);
   return v;
 }
 
@@ -291,7 +303,7 @@ void RSValue::ToString(RSValue *dst) {
 
 //---------------------------------------------------------------------------------------------
 
-RSValue *RSValue::ParseNumber(const char *p, size_t l) {
+RSValue *RSValue_ParseNumber(const char *p, size_t l) {
   char *e;
   errno = 0;
   double d = strtod(p, &e);
@@ -309,34 +321,34 @@ RSValue *RSValue::ParseNumber(const char *p, size_t l) {
 // Return 1 if the value is a number or a numeric string and can be converted, or 0 if not.
 // If possible, we put the actual value into the double pointer
 
-int RSValue::ToNumber(double *d) const {
-  if (IsNull(v)) return 0;
-  v = v->Dereference();
+bool RSValue::ToNumber(double *d) const {
+  if (IsNull()) return false;
+  this = Dereference();
 
   const char *p = NULL;
   size_t l = 0;
-  switch (v->t) {
+  switch (t) {
     // for numerics - just set the value and return
     case RSValue_Number:
-      *d = v->numval;
-      return 1;
+      *d = numval;
+      return true;
 
     case RSValue_String:
       // C strings - take the ptr and len
-      p = v->strval.str;
-      l = v->strval.len;
+      p = strval.str;
+      l = strval.len;
       break;
     case RSValue_RedisString:
     case RSValue_OwnRstring:
       // Redis strings - take the number and len
-      p = RedisModule_StringPtrLen(v->rstrval, &l);
+      p = RedisModule_StringPtrLen(rstrval, &l);
       break;
 
     case RSValue_Null:
     case RSValue_Array:
     case RSValue_Undef:
     default:
-      return 0;
+      return false;
   }
   // If we have a string - try to parse it
   if (p) {
@@ -345,13 +357,13 @@ int RSValue::ToNumber(double *d) const {
     *d = strtod(p, &e);
     if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
         *e != '\0') {
-      return 0;
+      return false;
     }
 
-    return 1;
+    return true;
   }
 
-  return 0;
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -408,8 +420,8 @@ const char *RSValue::StringPtrLen(size_t *lenp) const {
 const char *RSValue::ConvertStringPtrLen(size_t *lenp, char *buf, size_t buflen) const {
   auto value = Dereference();
 
-  if (RSValue_IsString(value)) {
-    return RSValue_StringPtrLen(value, lenp);
+  if (value->IsString()) {
+    return value->StringPtrLen(lenp);
   } else if (value->t == RSValue_Number) {
     size_t n = snprintf(buf, buflen, "%f", value->numval);
     if (n >= buflen) {
@@ -557,23 +569,23 @@ static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
 
 //---------------------------------------------------------------------------------------------
 
-static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
+static inline bool convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
   double d;
-  if (!RSValue_ToNumber(v, &d)) {
-    if (!qerr) return 0;
+  if (!v->ToNumber(&d)) {
+    if (!qerr) return false;
 
-    const char *s = RSValue_StringPtrLen(v, NULL);
+    const char *s = v->StringPtrLen(NULL);
     qerr->SetErrorFmt(QUERY_ENOTNUMERIC, "Error converting string '%s' to number", s);
-    return 0;
+    return false;
   }
 
-  RSValue_SetNumber(vn, d);
-  return 1;
+  vn->SetNumber(d);
+  return true;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
+static int RSValue::CmpNC(const RSValue *v1, const RSValue *v2) {
   switch (v1->t) {
     case RSValue_Number:
       return cmp_numbers(v1, v2);
@@ -596,13 +608,13 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
 
 //---------------------------------------------------------------------------------------------
 
-int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
+static int RSValue::Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
   v1 = v1->Dereference();
   v2 = v2->Dereference();
 
   if (v1->t == v2->t) {
-    return RSValue_CmpNC(v1, v2);
+    return CmpNC(v1, v2);
   }
 
   // if one of the values is null, the other wins
@@ -641,24 +653,24 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   char buf1[100], buf2[100];
 
   size_t l1, l2;
-  const char *s1 = RSValue_ConvertStringPtrLen(v1, &l1, buf1, sizeof(buf1));
-  const char *s2 = RSValue_ConvertStringPtrLen(v2, &l2, buf2, sizeof(buf2));
+  const char *s1 = v1->ConvertStringPtrLen(&l1, buf1, sizeof(buf1));
+  const char *s2 = v2->ConvertStringPtrLen(&l2, buf2, sizeof(buf2));
   return cmp_strings(s1, s2, l1, l2);
 }
 
 //---------------------------------------------------------------------------------------------
 
-int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
+static bool RSValue::Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
   v1 = v1->Dereference();
   v2 = v2->Dereference();
 
   if (v1->t == v2->t) {
-    return RSValue_CmpNC(v1, v2) == 0;
+    return CmpNC(v1, v2) == 0;
   }
 
   if (v1->t == RSValue_Null || v2->t == RSValue_Null) {
-    return 0;
+    return false;
   }
 
   // if either of the arguments is a number, convert the other one to a number
@@ -675,8 +687,8 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   char buf1[100], buf2[100];
 
   size_t l1, l2;
-  const char *s1 = RSValue_ConvertStringPtrLen(v1, &l1, buf1, sizeof(buf1));
-  const char *s2 = RSValue_ConvertStringPtrLen(v2, &l2, buf2, sizeof(buf2));
+  const char *s1 = v1->ConvertStringPtrLen(&l1, buf1, sizeof(buf1));
+  const char *s2 = v2->ConvertStringPtrLen(&l2, buf2, sizeof(buf2));
   return cmp_strings(s1, s2, l1, l2) == 0;
 }
 
@@ -684,7 +696,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
 
 // Based on the value type, serialize the value into redis client response
 
-int RSValue::SendReply(RedisModuleCtx *ctx, int isTyped) const {
+int RSValue::SendReply(RedisModuleCtx *ctx, bool isTyped) const {
   const RSValue *v = Dereference();
 
   switch (v->t) {
@@ -708,7 +720,7 @@ int RSValue::SendReply(RedisModuleCtx *ctx, int isTyped) const {
     case RSValue_Array:
       RedisModule_ReplyWithArray(ctx, v->arrval.len);
       for (uint32_t i = 0; i < v->arrval.len; i++) {
-        RSValue_SendReply(ctx, v->arrval.vals[i], isTyped);
+        v->arrval.vals[i]->SendReply(ctx, isTyped);
       }
       return REDISMODULE_OK;
     default:
@@ -743,13 +755,13 @@ void RSValue::Print() const {
     case RSValue_Array:
       fprintf(fp, "[");
       for (uint32_t i = 0; i < arrval.len; i++) {
-        RSValue_Print(arrval.vals[i]);
+        arrval.vals[i]->Print();
         printf(", ");
       }
       fprintf(fp, "]");
       break;
     case RSValue_Reference:
-      RSValue_Print(ref);
+      ref->Print();
       break;
   }
 }
@@ -777,13 +789,13 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
         if (!args[i]->IsString()) {
           goto err;
         }
-        *ptr = (char *)RSValue_StringPtrLen(args[i], NULL);
+        *ptr = (char *)args[i]->StringPtrLen(NULL);
         break;
       }
       case 'l': {
         long long *lp = va_arg(ap, long long *);
         double d;
-        if (!RSValue_ToNumber(args[i], &d)) {
+        if (!args[i]->ToNumber(&d)) {
           goto err;
         }
         *lp = (long long)d;
@@ -791,7 +803,7 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
       }
       case 'd': {
         double *dp = va_arg(ap, double *);
-        if (!RSValue_ToNumber(args[i], dp)) {
+        if (!args[i]->ToNumber(dp)) {
           goto err;
         }
         break;

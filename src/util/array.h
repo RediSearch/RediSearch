@@ -1,5 +1,4 @@
-#ifndef ARRAY_H
-#define ARRAY_H
+#pragma once
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -40,5 +39,3 @@ struct Array {
   void *ARRAY_ADD_AS() { return Add(sizeof(T)); }
   T ARRAY_GETITEM_AS(ix) (data + ix)
 };
-
-#endif

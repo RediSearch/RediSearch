@@ -129,7 +129,7 @@ reeval_sortkey:
       }
 
       RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
-      RSValue_SendReply(outctx, v, reqflags & QEXEC_F_TYPED);
+      v->SendReply(outctx, reqflags & QEXEC_F_TYPED);
     }
   }
   return count;

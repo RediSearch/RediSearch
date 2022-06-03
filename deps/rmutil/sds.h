@@ -30,16 +30,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __SDS_H
-#define __SDS_H
+#pragma once
 
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 typedef char *sds;
 #define SDS_MAX_PREALLOC (1024 * 1024)
@@ -268,10 +263,4 @@ void sds_free(void *ptr);
 
 #ifdef REDIS_TEST
 int sdsTest(int argc, char *argv[]);
-#endif
-
-#ifdef __cplusplus
-}
-#endif
-
 #endif
