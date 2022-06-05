@@ -95,6 +95,12 @@ A scoring function that just returns the a priory score of the document without 
 FT.SEARCH myIndex "foo" SCORER DOCSCORE
 ```
 
+The document score can be set when you create the index.
+
+```
+FT.CREATE myIndex SCORE_FIELD score
+```
+
 ## HAMMING
 
 Scoring by the (inverse) Hamming Distance between the documents' payload and the query payload. Since we are interested in the **nearest** neighbors, we inverse the hamming distance (`1/(1+d)`) so that a distance of 0 gives a perfect score of 1 and is the highest rank.
