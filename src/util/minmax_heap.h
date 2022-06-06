@@ -1,5 +1,4 @@
-#ifndef MINMAX_HEAP_H_
-#define MINMAX_HEAP_H_
+#pragma once
 
 #include <stdlib.h>
 
@@ -25,5 +24,3 @@ void* mmh_pop_min(heap_t* h);
 void* mmh_pop_max(heap_t* h);
 void* mmh_peek_min(const heap_t* h);
 void* mmh_peek_max(const heap_t* h);
-
-#endif  // MINMAX_HEAP_H_

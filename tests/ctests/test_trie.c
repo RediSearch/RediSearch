@@ -26,17 +26,17 @@ FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) 
 //         return NULL;
 //     }
 //     return dn->edges[c] ? dn->edges[c] : dn->fallback;
-//     // // if (!SparseAutomaton_CanMatch(a,v)) {
+//     // // if (!a->CanMatch(v)) {
 
 //     // //     return NULL;
 //     // // }
-//     // sparseVector *nv = SparseAutomaton_Step(a, v, b);
+//     // sparseVector *nv = a->Step(v, b);
 
 //     // // we should continue
-//     // if (SparseAutomaton_CanMatch(a, nv)) {
+//     // if (a->CanMatch(nv)) {
 //     //     return nv;
 //     // }
-//     // sparseVector_free(nv);
+//     // delete nv;
 //     // return NULL;
 // }
 

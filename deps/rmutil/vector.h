@@ -18,7 +18,7 @@ struct Vector : public Object {
 
   /* Create a new vector with element size. This should generally be used
   * internall by the NewVector macro */
-  Vector(size_t elemSize, size_t cap) {
+  Vector(size_t cap_) {
     data = rm_calloc(cap_, T);
     top = 0;
     // elemSize = elemSize;

@@ -18,12 +18,14 @@ struct sparseVector {
 
     void resize(size_t cap_);
     static size_t sizeof(size_t cap_);
-};
 
-// append appends another sparse vector entry with the given index and value.
-// NOTE: We do not check
-// that an entry with the same index is present in the vector
-//@@ What sould we do with double pointer (?)
-void sparseVector_append(sparseVector **v, int index, int value);
+    static bool equals(sparseVector *sv1, sparseVector *sv2);
+    
+    // append appends another sparse vector entry with the given index and value.
+    // NOTE: We do not check
+    // that an entry with the same index is present in the vector
+    void append(int index, int value);
+
+};
 
 #endif

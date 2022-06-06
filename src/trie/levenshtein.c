@@ -6,45 +6,43 @@
 #include "rune_util.h"
 #include "rmalloc.h"
 
-// NewSparseAutomaton creates a new automaton for the string s, with a given max
-// edit distance check
-SparseAutomaton NewSparseAutomaton(const rune *s, size_t len, int maxEdits) {
-  return (SparseAutomaton){s, len, maxEdits};
-}
+//-----------------------------------------------------------------------------
 
 // Start initializes the automaton's state vector and returns it for further
 // iteration
-sparseVector *SparseAutomaton_Start(SparseAutomaton *a) {
-  int vals[a->max + 1];
-  for (int i = 0; i < a->max + 1; i++) {
+sparseVector *SparseAutomaton::Start() {
+  int vals[max + 1];
+  for (int i = 0; i < max + 1; i++) {
     vals[i] = i;
   }
 
-  return new sparseVector(vals, a->max + 1);
+  return new sparseVector(vals, max + 1);
 }
+
+//-----------------------------------------------------------------------------
 
 // Step returns the next state of the automaton given a previous state and a
 // character to check
-sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, rune c) {
+sparseVector *SparseAutomaton::Step(sparseVector *state, rune c) {
   sparseVector *newVec = new sparseVector(state->len);
 
   if (state->len) {
     sparseVectorEntry e = state->entries[0];
-    if (e.idx == 0 && e.val < a->max) {
-      sparseVector_append(&newVec, 0, e.val + 1);
+    if (e.idx == 0 && e.val < max) {
+      newVec->append(0, e.val + 1);
     }
   }
 
   for (int j = 0; j < state->len; j++) {
     sparseVectorEntry *entry = &state->entries[j];
 
-    if (entry->idx == a->len) {
+    if (entry->idx == len) {
       break;
     }
 
     register int val = state->entries[j].val;
     // increase the cost by 1
-    if (a->string[entry->idx] != c) ++val;
+    if (string[entry->idx] != c) ++val;
 
     if (newVec->len && newVec->entries[newVec->len - 1].idx == entry->idx) {
       val = MIN(val, newVec->entries[newVec->len - 1].val + 1);
@@ -54,171 +52,197 @@ sparseVector *SparseAutomaton_Step(SparseAutomaton *a, sparseVector *state, rune
       val = MIN(val, state->entries[j + 1].val + 1);
     }
 
-    if (val <= a->max) {
-      sparseVector_append(&newVec, entry->idx + 1, val);
+    if (val <= max) {
+      newVec->append(entry->idx + 1, val);
     }
   }
   return newVec;
 }
 
+//-----------------------------------------------------------------------------
+
 // IsMatch returns true if the current state vector represents a string that is
 // within the max
 // edit distance from the initial automaton string
-inline int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v) {
-  return v->len && v->entries[v->len - 1].idx == a->len;
+inline bool SparseAutomaton::IsMatch(sparseVector *v) const {
+  return v->len && v->entries[v->len - 1].idx == len;
 }
 
+//-----------------------------------------------------------------------------
+
 // CanMatch returns true if there is a possibility that feeding the automaton
-// with more steps will
-// yield a match. Once CanMatch is false there is no point in continuing
-// iteration
-inline int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v) {
+// with more steps will yield a match.
+// Once CanMatch is false there is no point in continuing iteration.
+inline bool SparseAutomaton::CanMatch(sparseVector *v) const {
   return v->len > 0;
 }
 
-dfaNode *__newDfaNode(int distance, sparseVector *state) {
-  dfaNode *ret = rm_calloc(1, sizeof(dfaNode));
-  ret->fallback = NULL;
-  ret->distance = distance;
-  ret->v = state;
-  ret->edges = NULL;
-  ret->numEdges = 0;
+//-----------------------------------------------------------------------------
 
-  return ret;
+dfaNode::dfaNode(int distance, sparseVector *state) {
+  fallback = NULL;
+  distance = distance;
+  v = state;
+  edges = NULL;
+  numEdges = 0;
 }
 
-void __dfaNode_free(dfaNode *d) {
-  sparseVector_free(d->v);
-  if (d->edges) rm_free(d->edges);
-  rm_free(d);
+//-----------------------------------------------------------------------------
+
+dfaNode::~dfaNode() {
+  delete v;
+  if (edges) rm_free(edges);
 }
 
-int __sv_equals(sparseVector *sv1, sparseVector *sv2) {
+//-----------------------------------------------------------------------------
+
+static bool sparseVector::equals(sparseVector *sv1, sparseVector *sv2) {
   if (sv1->len != sv2->len) return 0;
 
   for (int i = 0; i < sv1->len; i++) {
     if (sv1->entries[i].idx != sv2->entries[i].idx || sv1->entries[i].val != sv2->entries[i].val) {
-      return 0;
+      return false;
     }
   }
 
-  return 1;
+  return true;
 }
 
-dfaNode *__dfn_getCache(Vector *cache, sparseVector *v) {
+//-----------------------------------------------------------------------------
+
+static dfaNode *dfaNode::getCache(Vector *cache, sparseVector *v) {
   size_t n = cache->Size();
   for (int i = 0; i < n; i++) {
     dfaNode *dfn;
     cache->Get(i, &dfn);
 
-    if (__sv_equals(v, dfn->v)) {
+    if (sparseVector::equals(v, dfn->v)) {
       return dfn;
     }
   }
   return NULL;
 }
 
-void __dfn_putCache(Vector *cache, dfaNode *dfn) {
-  cache->Push(dfn);
+//-----------------------------------------------------------------------------
+
+void dfaNode::putCache(Vector *cache) {
+  cache->Push(this);
 }
 
-inline dfaNode *__dfn_getEdge(dfaNode *n, rune r) {
-  for (int i = 0; i < n->numEdges; i++) {
-    if (n->edges[i].r == r) {
-      return n->edges[i].n;
+//-----------------------------------------------------------------------------
+
+// Get an edge for a dfa node given the next rune
+
+inline dfaNode *dfaNode::getEdge(rune r) {
+  for (int i = 0; i < numEdges; i++) {
+    if (edges[i].r == r) {
+      return edges[i].n;
     }
   }
   return NULL;
 }
 
-void __dfn_addEdge(dfaNode *n, rune r, dfaNode *child) {
-  n->edges = rm_realloc(n->edges, sizeof(dfaEdge) * (n->numEdges + 1));
-  n->edges[n->numEdges++] = (dfaEdge){.r = r, .n = child};
+//-----------------------------------------------------------------------------
+
+void dfaNode::addEdge(rune r, dfaNode *child) {
+  edges = rm_realloc(edges, sizeof(dfaEdge) * (numEdges + 1));
+  edges[numEdges++] = new dfaEdge(child, r);
 }
 
-void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
-  parent->match = SparseAutomaton_IsMatch(a, parent->v);
+//-----------------------------------------------------------------------------
 
-  for (int i = 0; i < parent->v->len; i++) {
-    if (parent->v->entries[i].idx < a->len) {
-      rune c = a->string[parent->v->entries[i].idx];
+void dfaNode::build(SparseAutomaton *a, Vector *cache) {
+  match = a->IsMatch(v);
+
+  for (int i = 0; i < v->len; i++) {
+    if (v->entries[i].idx < a->len) {
+      rune c = a->string[v->entries[i].idx];
       // printf("%c ---> ", c);
-      dfaNode *edge = __dfn_getEdge(parent, c);
+      dfaNode *edge = getEdge(c);
       if (edge == NULL) {
-        sparseVector *nv = SparseAutomaton_Step(a, parent->v, c);
+        sparseVector *nv = a->Step(v, c);
 
         if (nv->len > 0) {
-          dfaNode *dfn = __dfn_getCache(cache, nv);
+          dfaNode *dfn = getCache(cache, nv);
           if (dfn == NULL) {
             int dist = nv->entries[nv->len - 1].val;
-            edge = __newDfaNode(dist, nv);
-            __dfn_addEdge(parent, c, edge);
-            __dfn_putCache(cache, edge);
-            dfa_build(edge, a, cache);
+            edge = new dfaNode(dist, nv);
+            addEdge(c, edge);
+            edge->putCache(cache);
+            edge->build(edge, a, cache);
             continue;
           } else {
-            __dfn_addEdge(parent, c, dfn);
+            addEdge(c, dfn);
           }
         }
-        sparseVector_free(nv);
+        delete nv;
       }
     }
   }
 
-  // if (parent->distance < a->max) {
-  sparseVector *nv = SparseAutomaton_Step(a, parent->v, 1);
+  // if (distance < a->max) {
+  sparseVector *nv = a->Step(v, 1);
   if (nv->len > 0) {
-    dfaNode *dfn = __dfn_getCache(cache, nv);
+    dfaNode *dfn = getCache(cache, nv);
     if (dfn) {
-      parent->fallback = dfn;
+      fallback = dfn;
     } else {
       int dist = nv->entries[nv->len - 1].val;
       // printf("DEFAULT EDGE! edge %s - dist %d\n", a->string, dist);
-      parent->fallback = __newDfaNode(dist, nv);
-      __dfn_putCache(cache, parent->fallback);
-      dfa_build(parent->fallback, a, cache);
+      fallback = new dfaNode(dist, nv);
+      fallback->putCache(cache);
+      fallback->build(a, cache);
       return;
     }
   }
-  sparseVector_free(nv);
 
   //}
 }
 
-DFAFilter NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
-  Vector *cache = NewVector(dfaNode *, 8);
+//-----------------------------------------------------------------------------
 
-  SparseAutomaton a = NewSparseAutomaton(str, len, maxDist);
+/* Create a new DFA filter  using a Levenshtein automaton, for the given string  and maximum
+* distance. If prefixMode is 1, we match prefixes within the given distance, and then continue
+* onwards to all suffixes. */
 
-  sparseVector *v = SparseAutomaton_Start(&a);
-  dfaNode *dr = __newDfaNode(0, v);
-  __dfn_putCache(cache, dr);
-  dfa_build(dr, &a, cache);
+DFAFilter::DFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
+  Vector *cache = new Vector<dfaNode *>(8);
 
-  DFAFilter ret;
-  ret.cache = cache;
-  ret.stack = NewVector(dfaNode *, 8);
-  ret.distStack = NewVector(int, 8);
-  ret.a = a;
-  ret.prefixMode = prefixMode;
-  ret.stack->Push(dr);
-  ret.distStack->Push(maxDist + 1);
+  SparseAutomaton *a_ = new SparseAutomaton(str, len, maxDist);
 
-  return ret;
+  sparseVector *v = a_->Start();
+  dfaNode *dr = new dfaNode(0, v);
+  dr->putCache(cache);
+  dr->build(a_, cache);
+
+  cache = cache;
+  stack = new Vector<dfaNode *>(8);
+  distStack = new Vector<int>(8);
+  a = &a_;
+  prefixMode = prefixMode;
+  stack->Push(dr);
+  distStack->Push(maxDist + 1);
 }
 
-void DFAFilter_Free(DFAFilter *fc) {
-  for (int i = 0; i < fc->cache->Size(); i++) {
-    dfaNode *dn;
-    fc->cache->Get(i, &dn);
+//-----------------------------------------------------------------------------
 
-    if (dn) __dfaNode_free(dn);
+/* Free the underlying data of the DFA Filter. Note that since DFAFilter is created on the stack, it
+* is not freed by itself. */
+
+DFAFilter::~DFAFilter() {
+  for (int i = 0; i < cache->Size(); i++) {
+    dfaNode *dn;
+    cache->Get(i, &dn);
+
+    if (dn) delete dn;
   }
 
-  delete fc->cache;
-  delete fc->stack;
-  delete fc->distStack;
+  delete cache;
+  delete stack;
+  delete distStack;
 }
+
+//-----------------------------------------------------------------------------
 
 FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
   DFAFilter *fc = ctx;
@@ -249,7 +273,7 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
   rune foldedRune = runeFold(b);
 
   // get the next state change
-  dfaNode *next = __dfn_getEdge(dn, foldedRune);
+  dfaNode *next = dn->getEdge(foldedRune);
   if (!next) next = dn->fallback;
 
   // we can continue - push the state on the stack
@@ -274,6 +298,8 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
 
   return F_STOP;
 }
+
+//-----------------------------------------------------------------------------
 
 void StackPop(void *ctx, int numLevels) {
   DFAFilter *fc = ctx;

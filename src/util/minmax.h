@@ -1,5 +1,4 @@
-#ifndef MINMAX_H
-#define MINMAX_H
+#pragma once
 
 #define Min(a, b) (a) < (b) ? (a) : (b)
 #define Max(a, b) (a) > (b) ? (a) : (b)
@@ -8,6 +7,4 @@
 #endif
 #ifndef MAX
 #define MAX Max
-#endif
-
 #endif

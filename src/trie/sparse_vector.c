@@ -30,13 +30,13 @@ sparseVector::sparseVector(int *values, int len_) {
 // append appends another sparse vector entry with the given index and value.
 // NOTE: We do not check
 // that an entry with the same index is present in the vector
-void sparseVector_append(sparseVector **vp, int index, int value) {
-  sparseVector *v = *vp;
+void sparseVector::append(int index, int value) {
+  sparseVector *v = this;
   if (v->len == v->cap) {
     v->cap = v->cap ? v->cap * 2 : 1;
     v = v->resize(v->cap);
   }
 
   v->entries[v->len++] = (sparseVectorEntry){index, value};
-  *vp = v;
+  this = v;
 }
