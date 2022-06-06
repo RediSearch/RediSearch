@@ -109,7 +109,7 @@ Radius filters can be added into the query just like numeric filters. For exampl
 
 It is possible to add vector similarity queries directly into the query language.
 The basic syntax is `"*=>[ KNN {num|$num} @vector $query_vec ]"` for running K nearest neighbors query on @vector field.
-It is also possilbe to run a Hybrid Query on filtered results.
+It is also possible to run a Hybrid Query on filtered results.
 
 A Hybrid query allows the user to specify a filter criteria that ALL results in a KNN query must satisfy. The filter criteria can only include fields with non-vector indexes (e.g. indexes created on scalar values such as TEXT, PHONETIC, NUMERIC, GEO, etc)
 
@@ -121,7 +121,7 @@ The General syntax is `{some filter query}=>[ KNN {num|$num} @vector $query_vec]
 
 * `[KNN {num|$num} @vector_field $query_vec]` - Return `num` nearest neighbors entities where `query_vec` is similar to the vector stored in `@vector_field`.
 
-As of version 2.4, we allow vector similarity to be used **once** in the query. For more information on vector smilarity syntax, see [Vector Fields](/redisearch/reference/vectors/#querying-vector-fields), "Querying vector fields" section.
+As of version 2.4, we allow vector similarity to be used **once** in the query. For more information on vector similarity syntax, see [Vector Fields](/redisearch/reference/vectors/#querying-vector-fields), "Querying vector fields" section.
 
 ## Prefix matching
 
@@ -135,7 +135,7 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
 ### A few notes on prefix searches
 
-1. As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffixes.
+1. As prefixes can be expanded into many, many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffixes.
 
 2. As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:
 

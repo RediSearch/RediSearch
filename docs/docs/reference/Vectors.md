@@ -12,7 +12,7 @@ Vector fields offers the ability to use vector similarity queries in the `FT.SEA
 
 Vector Similarity search capability offers the ability to load, index and query vectors stored as fields in a redis hashes. 
 
-At present, the key functionalites offered are:
+At present, the key functionalities offered are:
 
 * Realtime vector indexing supporting 2 Indexing Methods -
 
@@ -75,7 +75,7 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
         Vector type. Current supported type is `FLOAT32`.
     
     * **DIM** - 
-        Vector dimention. should be positive integer.
+        Vector dimension. should be positive integer.
     
     * **DISTANCE_METRIC** - 
         Supported distance metric. Currently one of **{`L2`, `IP`, `COSINE`}**
@@ -112,7 +112,7 @@ FT.CREATE ... SCHEMA ... {field_name} VECTOR {algorithm} {count} [{attribute_nam
         Vector type. Current supported type is `FLOAT32`.
     
     * **DIM** - 
-        Vector dimention. should be positive integer.
+        Vector dimension. should be positive integer.
     
     * **DISTANCE_METRIC** - 
         Supported distance metric. Currently one of **{`L2`, `IP`, `COSINE`}**

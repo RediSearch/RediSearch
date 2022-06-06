@@ -10,7 +10,7 @@ In the returned response, a `+` on a term is an indication of stemming.
 
 @return
 
-@array-reply with a string represention the execution plan.
+@array-reply with a string representation the execution plan.
 
 @examples
 

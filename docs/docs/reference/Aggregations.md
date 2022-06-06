@@ -401,7 +401,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | day(timestamp) | Round a Unix timestamp to midnight (00:00) start of the current day. |
 | hour(timestamp) | Round a Unix timestamp to the beginning of the current hour. |
 | minute(timestamp) | Round a Unix timestamp to the beginning of the current minute. |
-| month(timestamp) | Round a unix timestamp to the beginning of the current month. |
+| month(timestamp) | Round a Unix timestamp to the beginning of the current month. |
 | dayofweek(timestamp) | Convert a Unix timestamp to the day number (Sunday = 0). |
 | dayofmonth(timestamp) | Convert a Unix timestamp to the day of month number (1 .. 31). |
 | dayofyear(timestamp) | Convert a Unix timestamp to the day of year number (0 .. 365). |

@@ -84,12 +84,12 @@ FT.SEARCH idx "@tags:{ hello\\ w* }"
 
 Notice that including multiple tags in the same clause creates a union of all documents that contain any of the included tags. To create an intersection of documents containing *all* of the given tags, you should repeat the tag filter several times.
 
-For example, imagine an index of travellers, with a tag field for the cities each traveller has visited:
+For example, imagine an index of travelers, with a tag field for the cities each traveler has visited:
 
 ```
-FT.CREATE myIndex ON HASH PREFIX 1 traveller: SCHEMA name TEXT cities TAG
+FT.CREATE myIndex ON HASH PREFIX 1 traveler: SCHEMA name TEXT cities TAG
 
-HSET traveller:1 name "John Doe" cities "New York, Barcelona, San Francisco"
+HSET traveler:1 name "John Doe" cities "New York, Barcelona, San Francisco"
 ```
 
 For this index, the following query will return all the people who visited **at least one** of the following cities:
