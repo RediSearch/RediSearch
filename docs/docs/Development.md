@@ -17,7 +17,7 @@ git clone --recursive https://github.com/RediSearch/RediSearch.git
 ```
 ## Working in an isolated environment
 There are several reasons to develop in an isolated environment, like keeping your workstation clean, and developing for a different Linux distribution.
-The most general option for an isolated environment is a virtual machine (it's very easy to set one up using [Vagrant](https://www.vagrantup.com)).
+The mo=st gneral option for an isolated environment is a virtual machine (it's very easy to set one up using [Vagrant](https://www.vagrantup.com)).
 Docker is even a more agile, as it offers an almost instant solution:
 
 ```
