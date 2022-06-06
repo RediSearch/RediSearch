@@ -30,13 +30,13 @@ static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
 
   if (v->t != RSValue_Array) {
     if (v->ToNumber(&d)) {
-      QS_Insert(qs, d);
+      qs->Insert(d);
     }
   } else {
     uint32_t sz = RSValue_ArrayLen(v);
     for (uint32_t i = 0; i < sz; i++) {
       if (v->ArrayItem(i)->ToNumber(&d)) {
-        QS_Insert(qs, d);
+        qs->Insert(d);
       }
     }
   }
@@ -48,14 +48,14 @@ static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
 static RSValue *quantileFinalize(Reducer *r, void *ctx) {
   QuantStream *qs = ctx;
   QTLReducer *qt = (QTLReducer *)r;
-  double value = QS_Query(qs, qt->pct);
+  double value = qs->Query(qt->pct);
   return RS_NumVal(value);
 }
 
 //---------------------------------------------------------------------------------------------
 
 static void quantileFreeInstance(Reducer *unused, void *p) {
-  QS_Free(p);
+  QS_Free(p); //@@ how do I free it if it's not really QS (?)
 }
 
 //---------------------------------------------------------------------------------------------

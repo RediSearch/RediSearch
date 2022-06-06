@@ -13,18 +13,17 @@ static size_t numInput;
 
 static int testBasic() {
   double quantiles[] = {0.50, 0.90, 0.99};
-  QuantStream *stream = NewQuantileStream(quantiles, 3, 500);
+  QuantStream *stream = new QuantileStream(quantiles, 3, 500);
   for (size_t ii = 0; ii < numInput; ++ii) {
-    QS_Insert(stream, input[ii]);
+    stream->Insert(input[ii]);
   }
-  double res50 = QS_Query(stream, 0.50);
-  double res90 = QS_Query(stream, 0.90);
-  double res99 = QS_Query(stream, 0.99);
-  size_t count = QS_GetCount(stream);
+  double res50 = stream->Query(0.50);
+  double res90 = stream->Query(0.90);
+  double res99 = stream->Query(0.99);
+  size_t count = stream->GetCount();
   printf("50: %lf, 90: %lf, 99: %lf\n", res50, res90, res99);
   printf("Count: %lu\n", count);
-  //   QS_Dump(stream, stdout);
-  QS_Free(stream);
+  //   stream->Dump(stdout);
   return 0;
 }
 
