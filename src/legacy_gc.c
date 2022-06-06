@@ -193,7 +193,7 @@ static void gc_FreeNumericGcCtxArray(GarbageCollectorCtx *gc) {
   for (int i = 0; i < array_len(gc->numericGCCtx); ++i) {
     gc_FreeNumericGcCtx(gc->numericGCCtx[i]);
   }
-  array_trimm_len(gc->numericGCCtx, 0);
+  array_trimm_cap(gc->numericGCCtx, 0);
 }
 
 static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) {
