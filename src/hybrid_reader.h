@@ -5,13 +5,18 @@
 #include "redisearch.h"
 #include "spec.h"
 #include "util/heap.h"
+#include "util/timeout.h"
 
+// This enum should match the VecSearchMode enum in VecSim
 typedef enum {
-  VECSIM_STANDARD_KNN,     // Run k-nn query over the entire vector index.
-  VECSIM_HYBRID_ADHOC_BF,  // Measure ad-hoc the distance for every result that passes the filters,
-                           // and take the top k results.
-  VECSIM_HYBRID_BATCHES    // Get the top vector results in batches upon demand, and keep the results that
-                           // passes the filters until we reach k results.
+  VECSIM_EMPTY_MODE,
+  VECSIM_STANDARD_KNN,               // Run k-nn query over the entire vector index.
+  VECSIM_HYBRID_ADHOC_BF,            // Measure ad-hoc the distance for every result that passes the filters,
+                                     // and take the top k results.
+  VECSIM_HYBRID_BATCHES,             // Get the top vector results in batches upon demand, and keep the results that
+                                     // passes the filters until we reach k results.
+  VECSIM_HYBRID_BATCHES_TO_ADHOC_BF  // Start with batches and dynamically switched to ad-hoc BF.
+
 } VecSimSearchMode;
 
 typedef struct {
@@ -24,6 +29,7 @@ typedef struct {
   char *vectorScoreField;
   bool ignoreDocScore;
   IndexIterator *childIt;
+  struct timespec timeout;
 } HybridIteratorParams;
 
 typedef struct {
@@ -47,6 +53,8 @@ typedef struct {
   //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
   size_t numIterations;
   bool ignoreScores;               // Ignore the document scores, only vector score matters.
+  TimeoutCb timeoutCb;             // Timeout callback function
+  TimeoutCtx timeoutCtx;           // Timeout parameters
 } HybridIterator;
 
 #ifdef __cplusplus

@@ -17,24 +17,24 @@ class TestDebugCommands(object):
         self.env.cmd('SET', 'foo', 'bar')
 
     def testDebugWrongArity(self):
-        self.env.expect('FT.DEBUG', 'dump_invidx').raiseError().equal("wrong number of arguments for 'FT.DEBUG' command")
-        self.env.expect('FT.DEBUG').raiseError().equal("wrong number of arguments for 'FT.DEBUG' command")
+        self.env.expect('FT.DEBUG', 'dump_invidx').raiseError().contains('wrong number of arguments')
+        self.env.expect('FT.DEBUG').raiseError().contains('wrong number of arguments')
 
     def testDebugUnknownSubcommand(self):
         self.env.expect('FT.DEBUG', 'unknown').raiseError().equal('subcommand was not found')
 
     def testDebugHelp(self):
-        err_msg = "wrong number of arguments for 'FT.DEBUG' command"
+        err_msg = 'wrong number of arguments'
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
-                    'DUMP_PHONETIC_HASH', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
-                    'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
+                     'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
+                     'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
             if cmd == 'GIT_SHA':
                 # 'GIT_SHA' do not return err_msg
                  continue
-            self.env.expect('FT.DEBUG', cmd).raiseError().equal(err_msg)
+            self.env.expect('FT.DEBUG', cmd).raiseError().contains(err_msg)
 
     def testDocInfo(self):
         rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1')
@@ -179,3 +179,6 @@ class TestDebugCommands(object):
 
     def testNumericIndexSummaryWrongArity(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1').raiseError()
+
+    def testDumpSuffixWrongArity(self):
+        self.env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').raiseError()

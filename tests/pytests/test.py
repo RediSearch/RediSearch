@@ -1370,8 +1370,11 @@ def testNumericRange(env):
             'ft.search', 'idx', '@score:[(0 (50]', 'verbatim', "nocontent")
         env.assertEqual(49, res[0])
         res = r.execute_command(
-            'ft.search', 'idx', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent")
+            'ft.search', 'idx', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent", 'limit', 0, 51)
         env.assertEqual(51, res[0])
+        env.debugPrint(', '.join(toSortedFlatList(res[2:])), force=True)
+        print (r.execute_command(
+            'ft.profile', 'idx', 'search', 'query', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent", 'limit', 0, 51))
         res = r.execute_command(
             'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
@@ -2076,9 +2079,9 @@ def testTimeout(env):
     env.cmd('ft.config', 'set', 'timeout', '1')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
 
-    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT')
+    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
-        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i))
+        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i), 'geo', str(i/10000) + ',' + str(i/1000))
 
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
 
@@ -2086,8 +2089,11 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
        .contains('Timeout limit was reached')
 
+    # test `TIMEOUT` param in query
     res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
     env.assertEqual(res[0], num_range)
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)    \
+        .error().contains('Timeout limit was reached')
 
     # test erroneous params
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout').error()
@@ -2095,13 +2101,15 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
     # check no time w/o sorter/grouper
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
-                  'LOAD', 1, 't',
-                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
-                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
-    env.assertEqual(res[0], 1)
-
+    res = env.cmd('FT.AGGREGATE', 'myIdx', '*',
+                'LOAD', 1, 'geo',
+                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance1',
+                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance2',
+                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance3',
+                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
+                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5')
+    env.assertLess(len(res[1:]), num_range)
+    
     # test grouper
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
                'LOAD', 1, 't',
@@ -2152,6 +2160,7 @@ def testTimeoutOnSorter(env):
 
     res = env.cmd('ft.search', 'idx', '*', 'SORTBY', 'n', 'DESC')
     env.assertGreater(elements, res[0])
+    env.assertGreater(len(res), 2)
 
 def testAlias(env):
     conn = getConnectionByEnv(env)
@@ -3463,6 +3472,7 @@ def test_empty_field_name(env):
     conn.execute_command('hset', 'doc1', '', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])
 
+@unstable
 def test_free_resources_on_thread(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
@@ -3517,3 +3527,24 @@ def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'RETURN', '1', 'test').error().contains("RETURN is not supported on FT.AGGREGATE")
+
+def test_emoji(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx_tag', 'ON', 'HASH', 'SCHEMA', 'test', 'TAG').equal('OK')
+
+    conn.execute_command('HSET', 'doc1', 'test', 'a📌')
+    env.expect('ft.search', 'idx', 'a📌').equal([1, 'doc1', ['test', 'a📌']])
+    env.expect('ft.search', 'idx_tag', '@test:{a📌}').equal([1, 'doc1', ['test', 'a📌']])
+    conn.execute_command('HSET', 'doc2', 'test', '💮a')
+    env.expect('ft.search', 'idx', '💮a').equal([1, 'doc2', ['test', '💮a']])
+    env.expect('ft.search', 'idx_tag', '@test:{💮a}').equal([1, 'doc2', ['test', '💮a']])
+    conn.execute_command('HSET', 'doc3', 'test', '💩')
+    env.expect('ft.search', 'idx', '💩').equal([1, 'doc3', ['test', '💩']])
+    env.expect('ft.search', 'idx_tag', '@test:{💩}').equal([1, 'doc3', ['test', '💩']])
+    '''
+    conn.execute_command('HSET', 'doc4', 'test', '😀😁🙂')
+    env.expect('ft.search', 'idx', '😀😁*').equal([1, 'doc4', ['test', '😀😁🙂']])
+    env.expect('ft.search', 'idx', '%😀😁%').equal([1, 'doc4', ['test', '😀😁🙂']])
+    conn.execute_command('HSET', 'doc4', 'test', '')
+    '''

@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-import base64
 import random
-import string
-import unittest
-from time import sleep
 
 import numpy as np
 from RLTest import Env
@@ -11,6 +7,7 @@ from RLTest import Env
 from common import *
 from includes import *
 from redis.client import NEVER_DECODE
+from random import randrange
 
 
 def test_sanity():
@@ -151,6 +148,43 @@ def testDelReuse():
     res = [4, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').equal(res)
 
+# test for issue https://github.com/RediSearch/RediSearch/pull/2705
+def testUpdateWithBadValue(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                        'SCHEMA', '$.v', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+    env.execute_command('FT.CREATE', 'idx2',
+                        'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2')
+
+    res = [1, 'doc:1', ['$', '{"v":[1,3]}']]
+    # Add doc contains a vector to the index
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"v":[1,2]}'))
+    # Override with bad vector value (wrong blob size)
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '2', '3'), [3])
+    # Override again with legal vector value
+    env.assertEqual(conn.execute_command('JSON.ARRPOP', 'doc:1', '$.v', '1'), ['2'])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,3]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
+    waitForIndex(env, 'idx')
+    # before the issue fix, the second query will result in empty result, as the first vector value was not deleted when
+    # its value was override with a bad value
+    env.expect('FT.SEARCH', 'idx', '*').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', '$').equal(res)
+
+    res = [1, 'h1', ['vec', '????>>>>']]
+    # Add doc contains a vector to the index
+    env.assertEqual(conn.execute_command('HSET', 'h1', 'vec', '????????'), 1)
+    # Override with bad vector value (wrong blob size)
+    env.assertEqual(conn.execute_command('HSET', 'h1', 'vec', 'bad-val'), 0)
+    # Override again with legal vector value
+    env.assertEqual(conn.execute_command('HSET', 'h1', 'vec', '????>>>>'), 0)
+    waitForIndex(env, 'idx2')
+    # before the issue fix, the second query will result in empty result, as the first vector value was not deleted when
+    # its value was override with a bad value
+    env.expect('FT.SEARCH', 'idx2', '*').equal(res)
+    env.expect('FT.SEARCH', 'idx2', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', 'vec').equal(res)
+
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -218,6 +252,43 @@ def testCreate():
     # info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'ALGORITHM', 'FLAT', 'TYPE', 'INT32', 'DIM', '64', 'DISTANCE_METRIC', 'COSINE', 'BLOCK_SIZE', str(1024 * 1024)]]
     # assertInfoField(env, 'idx5', 'attributes', info)
 
+
+def test_create_multiple_vector_fields():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env.skipOnCluster()
+    dim = 2
+    conn = getConnectionByEnv(env)
+    # Create index with 2 vector fields, where the first is a prefix of the second.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+               'v_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+    # Validate each index type.
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
+    env.assertEqual(info_data[:2], ['ALGORITHM', 'HNSW'])
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
+    env.assertEqual(info_data[:2], ['ALGORITHM', 'FLAT'])
+
+    # Insert one vector only to each index, validate it was inserted only to the right index.
+    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
+    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 1])
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
+    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 0])
+
+    conn.execute_command('HSET', 'b', 'v_flat', 'bbbbbbbb')
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
+    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 1])
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
+    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 1])
+
+    # Search in every index once, validate it was performed only to the right index.
+    env.cmd('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh')
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
+    env.assertEqual(info_data[-2:], ['LAST_SEARCH_MODE', 'STANDARD_KNN'])
+    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
+    env.assertEqual(info_data[-2:], ['LAST_SEARCH_MODE', 'EMPTY_MODE'])
+
+
 def testCreateErrors():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -266,11 +337,14 @@ def testCreateErrors():
 def testSearchErrors():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200')
-    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
-    conn.execute_command('HSET', 'b', 'v', 'bbbbbbbb')
-    conn.execute_command('HSET', 'c', 'v', 'cccccccc')
-    conn.execute_command('HSET', 'd', 'v', 'dddddddd')
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE',
+                        'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'COSINE',
+                        'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200',
+                        'v_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa', 'v_flat', 'aaaaaaaa', 's', 'hello')
+    conn.execute_command('HSET', 'b', 'v', 'bbbbbbbb', 'v_flat', 'bbbbbbbb', 's', "hello")
+    conn.execute_command('HSET', 'c', 'v', 'cccccccc', 'v_flat', 'cccccccc', 's', "hello")
+    conn.execute_command('HSET', 'd', 'v', 'dddddddd', 'v_flat', 'dddddddd', 's', "hello")
 
     env.expect('FT.SEARCH', 'idx', '*=>[REDIS 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN str @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
@@ -283,14 +357,33 @@ def testSearchErrors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS t]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS $score]', 'PARAMS', '4', 'score', 't', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
 
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME -42]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Attribute not supported for term')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Attribute not supported for term')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 5 EF_RUNTIME 6]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Field was specified twice')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME -42]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 5 EF_RUNTIME 6]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_FUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+
+    # ef_runtime is invalid for FLAT index.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v_flat $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+
+    # Hybrid attributes with non-hybrid query is invalid.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b HYBRID_POLICY BATCHES]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b HYBRID_POLICY BATCHES BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
+
+    # Invalid hybrid attributes.
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 0]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE -6]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 34_not_a_number]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 8 BATCH_SIZE 0]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY bad_policy]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('invalid hybrid policy was given')
+
+    # Invalid hybrid attributes combinations.
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for 'ADHOC_BF' policy")
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF EF_RUNTIME 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")
 
 
 def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     id_vec_list = []
     p = con.pipeline(transaction=False)
     for i in range(1, num_vectors+1):
@@ -325,6 +418,10 @@ def test_with_fields():
 
 def get_vecsim_memory(env, index_key, field_name):
     return float(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
+
+
+def get_vecsim_index_size(env, index_key, field_name):
+    return int(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", index_key, field_name))["INDEX_SIZE"])
 
 
 def test_memory_info():
@@ -413,7 +510,7 @@ def test_memory_info():
 
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field=False,
-                         batches_mode=True):
+                         hybrid_mode='HYBRID_BATCHES'):
     if sort_by_vector:
         ret = env.expect('FT.SEARCH', 'idx', query_string,
                    'SORTBY', '__v_score',
@@ -434,10 +531,9 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
 
     # in cluster mode, we send `_FT.DEBUG' to the local shard.
     prefix = '_' if env.isCluster() else ''
-    if batches_mode:
-        env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
-    else:
-        env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+    # returns the test name and line number from called this helper function.
+    caller_pos = f'{sys._getframe(1).f_code.co_filename.split("/")[-1]}:{sys._getframe(1).f_lineno}'
+    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], hybrid_mode, message=caller_pos)
     return ret
 
 
@@ -477,7 +573,9 @@ def test_hybrid_query_batches_mode_with_text():
     execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
 
     # Expect empty score for the intersection (disjoint sets of results)
-    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't').equal([0])
+    # The hybrid policy changes to ad hoc after the first batch
+    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param]', query_data, 't',
+                         hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal([0])
 
     # Expect the same results as in above ('other AND NOT text')
     execute_hybrid_query(env, '(@t:other -text)=>[KNN 10 @v $vec_param]', query_data, 't').equal(expected_res)
@@ -581,7 +679,7 @@ def test_hybrid_query_batches_mode_with_tags():
                          sort_by_vector=False).equal(expected_res)
 
 
-def test_hybrid_query_with_numeric_and_geo():
+def test_hybrid_query_with_numeric():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
@@ -608,14 +706,18 @@ def test_hybrid_query_with_numeric_and_geo():
     # Expect that no result will pass the filter.
     execute_hybrid_query(env, '(@num:[0 0.5])=>[KNN 10 @v $vec_param]', query_data, 'num').equal([0])
 
-    # Expect to get results with maximum numeric value of index_size-100
+    # Expect to get results with maximum numeric value of the top 100 id in the shard.
+    lower_bound_num = 100 * env.shardsCount
     expected_res = [10]
     for i in range(10):
-        expected_res.append(str(index_size-100-i))
-        expected_res.append(['__v_score', str(dim*(100+i)**2), 'num', str(index_size-100-i)])
-    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-100), query_data, 'num').equal(expected_res)
-    execute_hybrid_query(env, '(@num:[-inf {}] | @num:[100 {}])=>[KNN 10 @v $vec_param]'
-                         .format(index_size-200, index_size-100), query_data, 'num').equal(expected_res)
+        expected_res.append(str(index_size-lower_bound_num-i))
+        expected_res.append(['__v_score', str(dim*(lower_bound_num+i)**2), 'num', str(index_size-lower_bound_num-i)])
+    # We switch from batches to ad-hoc BF mode during the run.
+    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-lower_bound_num), query_data, 'num',
+                         hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal(expected_res)
+    execute_hybrid_query(env, '(@num:[-inf {}] | @num:[{} {}])=>[KNN 10 @v $vec_param]'
+                         .format(lower_bound_num, index_size-2*lower_bound_num, index_size-lower_bound_num), query_data, 'num',
+                         hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal(expected_res)
 
     # Expect for 5 results only (45-49), this will use ad-hoc BF since ratio between docs that pass the filter to
     # index size is low.
@@ -626,8 +728,12 @@ def test_hybrid_query_with_numeric_and_geo():
     prefix = "_" if env.isCluster() else ""
     env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
 
-    # Testing with geo-filters
-    env.execute_command('FT.DROPINDEX', 'idx')
+
+def test_hybrid_query_with_geo():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO').ok()
 
@@ -635,19 +741,23 @@ def test_hybrid_query_with_numeric_and_geo():
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
         vector = np.full(dim, i, dtype='float32')
-        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i)+","+str(i))
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i/100)+","+str(i/100))
     p.execute()
+    if not env.isCluster():
+        env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
 
-    # Expect that ids 1-32 will pass the geo filter, and that the top 10 from these will return.
+    query_data = np.full(dim, index_size, dtype='float32')
+    # Expect that ids 1-31 will pass the geo filter, and that the top 10 from these will return.
     expected_res = [10]
     for i in range(10):
-        expected_res.append(str(32-i))
-        expected_res.append(['coordinate', str(32-i)+","+str(32-i)])
-    env.expect('FT.SEARCH', 'idx', '(@coordinate:[0.0 0.0 5000 km])=>[KNN 10 @v $vec_param]',
+        expected_res.append(str(31-i))
+        expected_res.append(['coordinate', str((31-i)/100)+","+str((31-i)/100)])
+    env.expect('FT.SEARCH', 'idx', '(@coordinate:[0.0 0.0 50 km])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 1, 'coordinate').equal(expected_res)
 
     # Expect that no results will pass the filter
-    execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate', batches_mode=False).equal([0])
+    execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate',
+                         hybrid_mode='HYBRID_ADHOC_BF').equal([0])
 
 
 def test_hybrid_query_batches_mode_with_complex_queries():
@@ -728,8 +838,10 @@ def test_hybrid_query_non_vector_score():
                       '97', '2', ['__v_score', '1152', 't', 'text value'],
                       '98', '2', ['__v_score', '512', 't', 'text value'],
                       '99', '2', ['__v_score', '128', 't', 'text value']]
-    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, batches_mode=False).equal(expected_res_1)
-    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True, batches_mode=False).equal(expected_res_1)
+    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+                         hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
+    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
     expected_res_2 = [10,
@@ -743,8 +855,10 @@ def test_hybrid_query_non_vector_score():
                       '97', '1', ['__v_score', '1152', 't', 'text value'],
                       '98', '1', ['__v_score', '512', 't', 'text value'],
                       '99', '1', ['__v_score', '128', 't', 'text value']]
-    execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, batches_mode=False).equal(expected_res_2)
-    execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False, sort_by_non_vector_field=True, batches_mode=False).equal(expected_res_2)
+    execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+                         hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_2)
+    execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_2)
 
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10,
@@ -833,7 +947,8 @@ def test_hybrid_query_adhoc_bf_mode():
 
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
-        execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't', batches_mode=False).equal(expected_res)
+        execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't',
+                             hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
 
 
 def test_wrong_vector_size():
@@ -931,3 +1046,314 @@ def test_fail_on_v1_dialect():
     conn.execute_command("HSET", "i", "v", one_vector.tobytes())
     res = env.expect("FT.SEARCH", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes())
     res.error().contains("Syntax error")
+
+
+def test_hybrid_query_with_global_filters():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    index_size = 1000
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT', 'num', 'NUMERIC', 'coordinate', 'GEO').ok()
+
+    p = conn.pipeline(transaction=False)
+    for i in range(1, index_size+1):
+        vector = np.full(dim, i, dtype='float32')
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'hybrid', 'num', i, 'coordinate',
+                             str(i/100)+","+str(i/100))
+    p.execute()
+    if not env.isCluster():
+        env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
+    query_data = np.full(dim, index_size, dtype='float32')
+
+    # Run VecSim query in KNN mode (non-hybrid), and expect to find only one result (with key=index_size-2).
+    inkeys = [index_size-2]
+    expected_res = [1, str(index_size-2), ['__v_score', str(dim*2**2)]]
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
+               'RETURN', 1, '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+    # Change the text value to 'other' for 20% of the vectors (with ids 5, 10, ..., index_size)
+    for i in range(1, int(index_size/5) + 1):
+        vector = np.full(dim, 5*i, dtype='float32')
+        conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 't', 'other')
+
+    # Run VecSim query in hybrid mode, expect to get only the vectors that passes the filters
+    # (index_size-10 and index_size-100, since they has "other" in its 't' field and its id is in inkeys list).
+    inkeys = [index_size-2, index_size-10, index_size-100]
+    expected_res = [2, str(index_size-100), ['__v_score', str(dim*100**2)], str(index_size-10), ['__v_score', str(dim*10**2)]]
+    env.expect('FT.SEARCH', 'idx', '(other)=>[KNN 10 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
+               'RETURN', 1, '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+    # Test legacy numeric and geo global filters
+    expected_res = [10]
+    # Expect to get top 10 ids where maximum is index_size/2 in the index (due to the numeric filter).
+    for i in range(10):
+        expected_res.append(str(int(index_size/2-i)))
+        expected_res.append(['__v_score', str(int(dim*(index_size/2+i)**2))])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'filter', 'num', 0, index_size/2, 'SORTBY', '__v_score',
+               'RETURN', 1, '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+    # Expect to get top 10 ids where maximum is 31 in the index (due to the geo filter).
+    expected_res = [10]
+    for i in range(10):
+        expected_res.append(str(31-i))
+        expected_res.append(['coordinate', str((31-i)/100)+","+str((31-i)/100)])
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]', 'geofilter', 'coordinate', 0.0, 0.0, 50, 'km',
+               'SORTBY', '__v_score', 'RETURN', 1, 'coordinate',
+               'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+    # Test complex query with multiple global filters - this query applies 4 global filters:
+    # 2 numeric filters - the second filter is a subset of the first one - enforces that the result ids
+    # will be between index_size/3 to index_size/2.
+    # geo filter - get all ids whose coordinates are in 50 km radius from (5.0, 5.0) - will enforce that the result ids
+    # are in the range of (index_size/2 - 31, index_size/2 + 31), according to the previous query and the fact that the
+    # coordinates of index_size/2 are (5.0, 5.0).
+    # Finally, inkeys filter enforces that only ids that multiply by 7 are valid.
+    # On top of all that, we have the hybrid query that filters out ids that multiply by 5
+    # (i.e., their text field is not 'hybrid') - and this is the reason for the expected ids
+    expected_res = ([str(i) for i in range(int(index_size/2), int(index_size/2) - 32, -1)
+                    if i % 5 != 0 and i % 7 == 0])
+    expected_res.insert(0, len(expected_res))
+
+    inkeys = [i for i in range(index_size) if i % 7 == 0]
+    env.expect('FT.SEARCH', 'idx', '(hybrid)=>[KNN 5 @v $vec_param]', 'INKEYS', len(inkeys), *inkeys,
+               'filter', 'num', 0, index_size/2, 'filter', 'num', index_size/3, index_size/2,
+               'geofilter', 'coordinate', 5.0, 5.0, 50, 'km', 'SORTBY', '__v_score',
+               'NOCONTENT', 'PARAMS', 2, 'vec_param', query_data.tobytes()).equal(expected_res)
+
+
+def test_hybrid_query_change_policy():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    n = 6000 * env.shardsCount
+    vectors = np.random.rand(n, dim).astype(np.float32)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
+
+    file = 1
+    tags = range(10)
+    subset_size = int(n/2)
+    with conn.pipeline(transaction = False) as p:
+        for i, v in enumerate(vectors[:subset_size]):
+            conn.execute_command('HSET', i, 'v', v.tobytes(),
+                                 'tag1', str(tags[randrange(10)]), 'tag2', 'word'+str(file))
+        p.execute()
+
+    file = 2
+    with conn.pipeline(transaction = False) as p:
+        for i, v in enumerate(vectors[subset_size:]):
+            conn.execute_command('HSET', i + subset_size, 'v', v.tobytes(),
+                                 'tag1', str(10 + tags[randrange(10)]), 'tag2', 'word'+str(file))
+        p.execute()
+
+    # This should return 10 results and run in HYBRID_BATCHES mode
+    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param]'
+    res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', hybrid_mode='HYBRID_BATCHES').res
+    env.assertEqual(res[0], 10)
+
+    # Ask explicitly to use AD-HOC policy.
+    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param HYBRID_POLICY ADHOC_BF]'
+    adhoc_res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', hybrid_mode='HYBRID_ADHOC_BF').res
+    env.assertEqual(res, adhoc_res)
+
+    # This query has 0 results, since none of the tags in @tag1 go along with 'word2' in @tag2.
+    # However, the estimated number of the "child" results should be index_size/2.
+    # While running the batches, the policy should change dynamically to AD-HOC BF.
+    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param]'
+    execute_hybrid_query(env, query_string, vectors[0], 'tag2',
+                         hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal([0])
+    # Ask explicitly to use AD-HOC policy.
+    query_string_adhoc_bf = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param HYBRID_POLICY ADHOC_BF]'
+    execute_hybrid_query(env, query_string_adhoc_bf, vectors[0], 'tag2', hybrid_mode='HYBRID_ADHOC_BF').equal([0])
+
+    # Add one valid document and re-run the query (still expect to change to AD-HOC BF)
+    # This doc should return in the first batch, and then it is removed and reinserted to the results heap
+    # after the policy is changed to ad-hoc.
+    conn.execute_command('HSET', n, 'v', vectors[0].tobytes(),
+                         'tag1', str(1), 'tag2', 'word'+str(file))
+    res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').res
+    env.assertEqual(res[:2], [1, str(n)])
+
+
+def test_system_memory_limits():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    system_memory = int(env.cmd('info', 'memory')['total_system_memory'])
+    currIdx = 0
+
+    # OK parameters
+    env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+                                      'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 10000, 'BLOCK_SIZE', 100))
+    currIdx+=1
+
+    env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                                      'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 10000))
+    currIdx+=1
+
+    # Index initial size exceeded limits
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory).error().contains(
+               f'Vector index initial capacity {system_memory} exceeded server limit')
+    currIdx+=1
+
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory, 'BLOCK_SIZE', 100).error().contains(
+               f'Vector index initial capacity {system_memory} exceeded server limit')
+    currIdx+=1
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', system_memory).error().contains(
+               f'Vector index block size {system_memory} exceeded server limit')
+    currIdx+=1
+
+    # Block size with no configuration limits fails
+    block_size = system_memory // (16*4) // 9 # memory needed for this block size is more than 10% of system memory
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).error().contains(
+               f'Vector index block size {block_size} exceeded server limit')
+    currIdx+=1
+
+    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
+    #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).error().contains(
+    #            f'Vector index block size {block_size} exceeded server limit')
+
+def test_redis_memory_limits():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
+    currIdx = 0
+
+    # Config max memory (redis server memory limit)
+    maxmemory = used_memory * 5
+    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
+
+    # Index initial capacity exceeded new limits
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', maxmemory).error().contains(
+               f'Vector index initial capacity {maxmemory} exceeded server limit')
+    currIdx+=1
+
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', maxmemory, 'BLOCK_SIZE', 100).error().contains(
+               f'Vector index initial capacity {maxmemory} exceeded server limit')
+    currIdx+=1
+
+    # Block size
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', maxmemory).error().contains(
+               f'Vector index block size {maxmemory} exceeded server limit')
+    currIdx+=1
+
+    # Block size with new limits fail
+    block_size = maxmemory // (16*4) // 2 # half of memory limit divided by blob size
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
+               f'Vector index block size {block_size} exceeded server limit')
+    currIdx+=1
+    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
+    #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
+    #            f'Vector index block size {block_size} exceeded server limit')
+
+    # reset env (for clean RLTest run with env reuse)
+    env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
+
+def test_default_block_size():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
+    maxmemory = used_memory + 800000
+    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
+    currIdx = 0
+    exp_block_size = maxmemory // 10 // (128*4) # limit * 10% / dim * size of float
+
+    env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32',
+                                        'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0))
+    env.assertLessEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
+    currIdx+=1
+
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
+    maxmemory = used_memory + 800000
+    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
+    env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+                                        'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0))
+    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    # exp_block_size = maxmemory // 10 // (128*4) # limit * 10% / dim * size of float
+    # env.assertLessEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
+    currIdx+=1
+
+    # reset env (for clean RLTest run with env reuse)
+    env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
+
+def test_redisearch_memory_limit():
+    # test block size with VSS_MAX_RESIZE_MB configure
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
+    maxmemory = used_memory * 5
+    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
+    currIdx = 0
+    block_size = maxmemory // (16*4) // 2 # half of memory limit divided by blob size
+
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
+                f'Vector index block size {block_size} exceeded server limit')
+    currIdx+=1
+    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
+    #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
+    #            f'Vector index block size {block_size} exceeded server limit')
+    # currIdx+=1
+
+    env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE', maxmemory).ok()
+
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    # currIdx+=1
+    # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
+    #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+
+    # reset env (for clean RLTest run with env reuse)
+    env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
+    env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE', '0').ok()
+
+def test_rdb_memory_limit():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
+    maxmemory = used_memory * 5
+    block_size = maxmemory // (16*4) // 2 # half of memory limit divided by blob size
+
+    # succeed to create indexes with no limits
+    env.expect('FT.CREATE', 'idx-flat', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', block_size, 'BLOCK_SIZE', block_size).ok()
+    # TODO: add block size to HNSW index for testing change in block size when block size is available
+    env.expect('FT.CREATE', 'idx-hnsw', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+               'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', block_size).ok()
+    # sets memory limit
+    env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', maxmemory))
+
+    # The actual test: try creating indexes from rdb.
+    # should succeed after changing initial cap and block size to 0 and default
+    env.dumpAndReload()
+
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx-flat", "v"))
+    env.assertNotEqual(info_data['BLOCK_SIZE'], block_size)
+    # TODO: if we ever add INITIAL_CAP to debug data, add check here
+    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
+    # info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx-hnsw", "v"))
+    # env.assertNotEqual(info_data['BLOCK_SIZE'], block_size)
+    # # TODO: if we ever add INITIAL_CAP to debug data, add check here
+
+    # reset env (for clean RLTest run with env reuse)
+    env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))

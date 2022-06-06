@@ -333,6 +333,147 @@ TEST_F(LLApiTest, testMassivePrefix) {
   RediSearch_DropIndex(index);
 }
 
+const char *words[] = {"he", "her", "hell", "help", "helper", "hello",
+                        "hello world", "towel", "dealer", "bell"};
+
+void loadDocsText(RSIndex *index) {
+  char buff[16];
+  for (int i = 0; i < 10; ++i) {
+    sprintf(buff, "%d", i);
+    RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
+    RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, words[i], RSFLDTYPE_DEFAULT);
+    RediSearch_DocumentAddFieldCString(d, FIELD_NAME_2, words[i], RSFLDTYPE_DEFAULT);
+    RediSearch_SpecAddDocument(index, d);
+  }
+}
+
+TEST_F(LLApiTest, testContainsText) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+  RediSearch_CreateField(index, FIELD_NAME_2, RSFLDTYPE_FULLTEXT, RSFLDOPT_WITHSUFFIXTRIE);
+  loadDocsText(index);
+
+  RSQNode* qn = RediSearch_CreateContainsNode(index, FIELD_NAME_1, "el");
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_FALSE(iter);
+
+  qn = RediSearch_CreateContainsNode(index, FIELD_NAME_2, "el");
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter);
+
+  const char* id;
+  size_t len;
+  int ii = 0;
+  while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len))) {
+    ASSERT_TRUE(strstr(words[*id - '0'], "el") != NULL);
+    ++ii;
+  }
+  ASSERT_EQ(ii, 7);
+
+  RediSearch_ResultsIteratorFree(iter);  
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testSuffixText) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+  RediSearch_CreateField(index, FIELD_NAME_2, RSFLDTYPE_FULLTEXT, RSFLDOPT_WITHSUFFIXTRIE);
+  loadDocsText(index);
+
+  RSQNode* qn = RediSearch_CreateSuffixNode(index, FIELD_NAME_1, "er");
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_FALSE(iter);
+
+  qn = RediSearch_CreateSuffixNode(index, FIELD_NAME_2, "er");
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter);
+
+  const char* id;
+  size_t len;
+  int ii = 0;
+  while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len))) {
+    ASSERT_TRUE(strstr(words[*id - '0'], "er") != NULL);
+    ++ii;
+  }
+  ASSERT_EQ(ii, 3);
+
+  RediSearch_ResultsIteratorFree(iter);
+
+  RediSearch_DropIndex(index);
+}
+
+
+void loadDocsTag(RSIndex *index) {
+  char buff[16];
+  for (int i = 0; i < 10; ++i) {
+    sprintf(buff, "%d", i);
+    RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
+    RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME1, words[i], RSFLDTYPE_DEFAULT);
+    RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME2, words[i], RSFLDTYPE_DEFAULT);
+    RediSearch_SpecAddDocument(index, d);
+  }
+}
+
+TEST_F(LLApiTest, testContainsTag) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
+  RediSearch_CreateField(index, TAG_FIELD_NAME2, RSFLDTYPE_TAG, RSFLDOPT_WITHSUFFIXTRIE);
+  loadDocsTag(index);
+
+  const char *fields[] = {TAG_FIELD_NAME1, TAG_FIELD_NAME2};
+  for (int i = 0; i < 2; ++i) {
+    RSQNode* qn = RediSearch_CreateTagNode(index, fields[i]);
+    RSQNode* pqn = RediSearch_CreateTagContainsNode(index, "el");
+    RediSearch_QueryNodeAddChild(qn, pqn);
+    RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+    ASSERT_TRUE(iter);
+
+    const char* id;
+    size_t len;
+    int ii = 0;
+    while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len))) {
+      ASSERT_TRUE(strstr(words[*id - '0'], "el") != NULL);
+      ++ii;
+    }
+    ASSERT_EQ(ii, 7);
+
+    RediSearch_ResultsIteratorFree(iter);
+  }
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testSuffixTag) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
+  RediSearch_CreateField(index, TAG_FIELD_NAME2, RSFLDTYPE_TAG, RSFLDOPT_WITHSUFFIXTRIE);
+  loadDocsTag(index);
+
+  const char *fields[] = {TAG_FIELD_NAME1, TAG_FIELD_NAME2};
+  for (int i = 0; i < 2; ++i) {
+    RSQNode* qn = RediSearch_CreateTagNode(index, fields[i]);
+    RSQNode* pqn = RediSearch_CreateTagSuffixNode(index, "ell");
+    RediSearch_QueryNodeAddChild(qn, pqn);
+    RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+    ASSERT_TRUE(iter);
+
+    const char* id;
+    size_t len;
+    int ii = 0;
+    while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len))) {
+      ASSERT_TRUE(strstr(words[*id - '0'], "ell") != NULL);
+      ++ii;
+    }
+    ASSERT_EQ(ii, 2);
+
+    RediSearch_ResultsIteratorFree(iter);
+  }
+  RediSearch_DropIndex(index);
+}
+
 static void PopulateIndex(RSIndex* index) {
   char buf[] = {"Mark_"};
   size_t nbuf = strlen(buf);
@@ -889,7 +1030,7 @@ TEST_F(LLApiTest, testGetters) {
   RediSearch_FreeDocument(d);
 
   RediSearch_FreeIndexOptions(opt);
-  RediSearch_DropIndex(index);  
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testInfo) {
@@ -929,7 +1070,7 @@ TEST_F(LLApiTest, testInfo) {
 
   // test invalid option
   RSIdxInfo info = { .version = 0 };
-  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);  
+  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);
 
   info = { .version = RS_INFO_CURRENT_VERSION };
   ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_OK);
@@ -983,7 +1124,7 @@ TEST_F(LLApiTest, testInfo) {
   RediSearch_IndexInfoFree(&info);
 
   RediSearch_FreeIndexOptions(opt);
-  RediSearch_DropIndex(index);  
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testLanguage) {

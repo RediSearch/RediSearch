@@ -3,16 +3,43 @@
 #include "util/bsearch.h"
 #include "sparse_vector.h"
 #include "redisearch.h"
+#include "rmutil/rm_assert.h"
 #include "util/arr.h"
+#include "util/timeout.h"
+#include "config.h"
+
+typedef struct {
+  rune * buf;
+  TrieRangeCallback *callback;
+  void *cbctx;
+  union {
+    struct {
+      // for lexrange
+      bool includeMin;
+      bool includeMax;
+    };
+    struct {
+      // for prefix, suffix, contains
+      const rune *origStr;
+      int lenOrigStr;
+      bool prefix;
+      bool suffix;
+    };
+  };
+  // stop if reach limit
+  bool stop;
+
+  // timeout
+  struct timespec timeout;  // milliseconds until timeout
+  size_t timeoutCounter;    // counter to limit number of calls to TimedOut()  
+} RangeCtx;
 
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);
 }
 
-TriePayload *triePayload_New(const char *payload, uint32_t plen);
-
 // Allocate a new trie payload struct
-inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
+static inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
 
   TriePayload *p = rm_malloc(sizeof(TriePayload) + sizeof(char) * (plen + 1));
   p->len = plen;
@@ -20,7 +47,14 @@ inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
   return p;
 }
 
-TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen,
+static void triePayload_Free(TriePayload *payload, TrieFreeCallback freecb) {
+  if (freecb) {
+    freecb(payload->data);
+  }
+  rm_free(payload);
+}
+
+TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
                         t_len numChildren, float score, int terminal) {
   TrieNode *n = rm_calloc(1, __trieNode_Sizeof(numChildren, len - offset));
   n->len = len - offset;
@@ -36,7 +70,7 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload,
   return n;
 }
 
-TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload,
+TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
                           float score) {
   n->numChildren++;
   n = rm_realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
@@ -51,11 +85,12 @@ TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPay
 
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
-  TrieNode *newChild = __newTrieNode(n->str, offset, n->len, n->payload ? n->payload->data : NULL,
-                                     n->payload ? n->payload->len : 0, n->numChildren, n->score,
+  TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
                                      __trieNode_isTerminal(n));
   newChild->maxChildScore = n->maxChildScore;
   newChild->flags = n->flags;
+  newChild->payload = n->payload;
+  n->payload = NULL;
   TrieNode **children = __trieNode_children(n);
   TrieNode **newChildren = __trieNode_children(newChild);
   memcpy(newChildren, children, sizeof(TrieNode *) * n->numChildren);
@@ -69,10 +104,6 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   n->sortmode = TRIENODE_SORTED_NONE;
 
   n->maxChildScore = MAX(n->maxChildScore, newChild->score);
-  if (n->payload != NULL) {
-    rm_free(n->payload);
-    n->payload = NULL;
-  }
   n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
   __trieNode_children(n)[0] = newChild;
 
@@ -81,7 +112,7 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
 
 /* If a node has a single child after delete, we can merged them. This deletes
  * the node and returns a newly allocated node */
-TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n) {
+TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) {
 
   if (__trieNode_isTerminal(n) || n->numChildren != 1) {
     return n;
@@ -93,20 +124,18 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n) {
   memcpy(nstr, n->str, sizeof(rune) * n->len);
   memcpy(&nstr[n->len], ch->str, sizeof(rune) * ch->len);
   TrieNode *merged = __newTrieNode(
-      nstr, 0, n->len + ch->len, ch->payload ? ch->payload->data : NULL,
-      ch->payload ? ch->payload->len : 0, ch->numChildren, ch->score, __trieNode_isTerminal(ch));
+      nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren, 
+      ch->score, __trieNode_isTerminal(ch));
   merged->maxChildScore = ch->maxChildScore;
   merged->numChildren = ch->numChildren;
+  merged->payload = ch->payload;
+  ch->payload = NULL;
   merged->flags = ch->flags;
   TrieNode **children = __trieNode_children(ch);
   TrieNode **newChildren = __trieNode_children(merged);
   memcpy(newChildren, children, sizeof(TrieNode *) * merged->numChildren);
-  if (ch->payload) {
-    rm_free(ch->payload);
-    ch->payload = NULL;
-  }
   if (n->payload != NULL) {
-    rm_free(n->payload);
+    triePayload_Free(n->payload, freecb);
     n->payload = NULL;
   }
   rm_free(n);
@@ -125,8 +154,8 @@ void TrieNode_Print(TrieNode *n, int idx, int depth) {
   }
 }
 
-int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float score,
-                 TrieAddOp op) {
+int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, float score,
+                 TrieAddOp op, TrieFreeCallback freecb) {
   if (score == 0 || len == 0) {
     return 0;
   }
@@ -155,7 +184,7 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
       TrieNode *newChild = __trieNode_children(n)[0];
       n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
       if (n->payload != NULL) {
-        rm_free(n->payload);
+        triePayload_Free(n->payload, freecb);
         n->payload = NULL;
       }
       if (payload != NULL && payload->data != NULL && payload->len > 0) {
@@ -191,7 +220,7 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
     }
     if (payload != NULL && payload->data != NULL && payload->len > 0) {
       if (n->payload != NULL) {
-        rm_free(n->payload);
+        triePayload_Free(n->payload, freecb);
         n->payload = NULL;
       }
       n->payload = triePayload_New(payload->data, payload->len);
@@ -208,7 +237,7 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
   for (t_len i = 0; i < n->numChildren; i++) {
     TrieNode *child = __trieNode_children(n)[i];
     if (str[offset] == child->str[0]) {
-      int rc = TrieNode_Add(&child, str + offset, len - offset, payload, score, op);
+      int rc = TrieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb);
       __trieNode_children(n)[i] = child;
       return rc;
     }
@@ -217,21 +246,28 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
   return 1;
 }
 
-float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
+TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut) {
   t_len offset = 0;
   while (n && offset < len) {
     // printf("n %.*s offset %d, len %d\n", n->len, n->str, offset,
     // len);
     t_len localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
+      // printf("%d %c %d %c\n", offset, str[offset], localOffset, n->str[localOffset]);
       if (str[offset] != n->str[localOffset]) {
         break;
       }
     }
 
     if (offset == len) {
-      // we're at the end of both strings!
-      if (localOffset == n->len) return __trieNode_isDeleted(n) ? 0 : n->score;
+      // we're at the end of both strings or we are in prefix mode and do not
+      // require an exact match
+      if (localOffset == n->len || !exact) {
+        if (offsetOut) {
+          *offsetOut = offset - localOffset;
+        }
+        return __trieNode_isDeleted(n) ? NULL : n;
+      }
 
     } else if (localOffset == n->len) {
       // we've reached the end of the node's string but not the search string
@@ -251,11 +287,23 @@ float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
       n = nextChild;
 
     } else {
-      return 0;
+      return NULL;
     }
   }
 
-  return 0;
+  return NULL;
+}
+
+//TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len);
+float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
+  TrieNode *res = TrieNode_Get(n, str, len, true, NULL);
+  return res ? res->score : 0;
+}
+
+//TrieNode *TrieNode_Get(TrieNode *n, rune *str, t_len len);
+void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact) {
+  TrieNode *res = TrieNode_Get(n, str, len, exact, NULL);
+  return (res && res->payload) ? res->payload->data : NULL;
 }
 
 void __trieNode_sortChildren(TrieNode *n);
@@ -265,7 +313,7 @@ void __trieNode_sortChildren(TrieNode *n);
  *   2. If a child has a single child - merge them
  *   3. recalculate the max child score
  */
-void __trieNode_optimizeChildren(TrieNode *n) {
+void __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
 
   int i = 0;
   TrieNode **nodes = __trieNode_children(n);
@@ -275,7 +323,7 @@ void __trieNode_optimizeChildren(TrieNode *n) {
 
     // if this is a deleted node with no children - remove it
     if (nodes[i]->numChildren == 0 && __trieNode_isDeleted(nodes[i])) {
-      TrieNode_Free(nodes[i]);
+      TrieNode_Free(nodes[i], freecb);
 
       nodes[i] = NULL;
       // just "fill" the hole with the next node up
@@ -290,8 +338,8 @@ void __trieNode_optimizeChildren(TrieNode *n) {
 
       // this node is ok!
       // if needed - merge this node with it its single child
-      if (nodes[i] && nodes[i]->numChildren == 1) {
-        nodes[i] = __trieNode_MergeWithSingleChild(nodes[i]);
+      if (nodes[i]->numChildren == 1) {
+        nodes[i] = __trieNode_MergeWithSingleChild(nodes[i], freecb);
       }
       n->maxChildScore = MAX(n->maxChildScore, nodes[i]->maxChildScore);
     }
@@ -301,7 +349,7 @@ void __trieNode_optimizeChildren(TrieNode *n) {
   __trieNode_sortChildren(n);
 }
 
-int TrieNode_Delete(TrieNode *n, rune *str, t_len len) {
+int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb) {
   t_len offset = 0;
   static TrieNode *stack[TRIE_INITIAL_STRING_LEN];
   int stackPos = 0;
@@ -354,18 +402,18 @@ int TrieNode_Delete(TrieNode *n, rune *str, t_len len) {
 end:
 
   while (stackPos--) {
-    __trieNode_optimizeChildren(stack[stackPos]);
+    __trieNode_optimizeChildren(stack[stackPos], freecb);
   }
   return rc;
 }
 
-void TrieNode_Free(TrieNode *n) {
+void TrieNode_Free(TrieNode *n, TrieFreeCallback freecb) {
   for (t_len i = 0; i < n->numChildren; i++) {
     TrieNode *child = __trieNode_children(n)[i];
-    TrieNode_Free(child);
+    TrieNode_Free(child, freecb);
   }
   if (n->payload != NULL) {
-    rm_free(n->payload);
+    triePayload_Free(n->payload, freecb);
     n->payload = NULL;
   }
 
@@ -664,30 +712,34 @@ static int rsbComparePrefix(const void *h, const void *e) {
   return rsbCompareCommon(h, e, 1);
 }
 
-typedef struct {
-  rune *buf;
-  TrieRangeCallback *callback;
-  void *cbctx;
-  bool includeMin;
-  bool includeMax;
-} RangeCtx;
+static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
+  if (r->stop) return REDISEARCH_ERR;
 
-static void rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
+  if (TimedOut_WithCounter(&r->timeout, &r->timeoutCounter)) {
+    r->stop = 1;
+    return REDISEARCH_ERR;
+  }
+
   // Push string to stack
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
-
   if (__trieNode_isTerminal(n)) {
-    r->callback(r->buf, array_len(r->buf), r->cbctx);
+    if (r->callback(r->buf, array_len(r->buf), r->cbctx) != REDISEARCH_OK) {
+      r->stop = 1;
+      return REDISEARCH_ERR;
+    }
   }
 
   TrieNode **arr = __trieNode_children(n);
 
   for (size_t ii = 0; ii < n->numChildren; ++ii) {
     // printf("Descending to index %lu\n", ii);
-    rangeIterateSubTree(arr[ii], r);
+    if (rangeIterateSubTree(arr[ii], r) != REDISEARCH_OK) {
+      return REDISEARCH_ERR;
+    }
   }
 
-  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+  array_trimm_len(r->buf, n->len);
+  return REDISEARCH_OK;
 }
 
 /**
@@ -820,7 +872,7 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
   }
 
 clean_stack:
-  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+  array_trimm_len(r->buf, n->len);
 }
 
 // LexRange iteration.
@@ -853,8 +905,134 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
       .cbctx = ctx,
       .includeMin = includeMin,
       .includeMax = includeMax,
+      .stop = 0,
+      .timeoutCounter = REDISEARCH_UNINITIALIZED,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
   rangeIterate(n, min, nmin, max, nmax, &r);
   array_free(r.buf);
+}
+
+static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r);
+
+// Contains iteration.
+void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout) {
+  // exact match - should not be used. change to assert
+  if (!prefix && !suffix) {
+    if (TrieNode_Find(n, (rune *)str, nstr) != 0) {
+      callback(str, nstr, ctx);
+    }
+    return;
+  }
+
+  RangeCtx r = {
+      .callback = callback,
+      .cbctx = ctx,
+      .timeout = timeout ? *timeout : (struct timespec){0},
+      .timeoutCounter = 0,
+  };
+  r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
+
+  // prefix mode
+  if (prefix && !suffix) {
+    r.buf = array_ensure_append(r.buf, str, nstr, rune);
+    int offset = 0;
+    TrieNode *res = TrieNode_Get(n, (rune *)str, nstr, false, &offset);
+    if (res) {
+      array_trimm_len(r.buf, array_len(r.buf) - offset);
+      rangeIterateSubTree(res , &r);
+    }
+    goto done;
+  }
+
+  // contains and suffix mode
+  r.origStr = str;
+  r.lenOrigStr = nstr;
+  r.prefix = prefix;
+  r.suffix = suffix;
+  containsIterate(n, 0, 0, &r);
+
+done:
+  array_free(r.buf);
+}
+
+/*
+#define printStats(stage)                               \
+str = runesToStr(r->buf, array_len(r->buf), &len);   \
+printf("%s:%s %ld\n", stage, str, len);
+*/
+#define trimOne(n, r)  if (n->len) array_trimm_len(r->buf, 1)
+
+// check next char on node or children
+static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
+  if (n->len == localOffset || n->len == 0 ) {
+    TrieNode **children = __trieNode_children(n);
+    for (t_len i = 0; i < n->numChildren && r->stop == 0; ++i) {
+      containsIterate(children[i], 0, globalOffset, r);
+    }
+  } else {
+    containsIterate(n, localOffset, globalOffset, r);
+  }
+}
+
+/**
+ * Try to place as many of the common arguments in rangectx, so that the stack
+ * size is not negatively impacted and prone to attack.
+ */
+static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
+  size_t len;
+  char *str;
+  // printStats("start");
+
+  // No match
+  if ((n->numChildren == 0 && r->lenOrigStr - globalOffset > n->len) || r->stop) {
+    return;
+  }
+
+  if (TimedOut_WithCounter(&r->timeout, &r->timeoutCounter)) {
+    r->stop = 1;
+    return;
+  }
+
+  if (n->len != 0) { // not root
+    r->buf = array_ensure_append(r->buf, &n->str[localOffset], 1, rune);
+  }
+  // printStats("append");
+  TrieNode **children = __trieNode_children(n);
+
+  // next char matches
+  if (n->str[localOffset] == r->origStr[globalOffset]) {
+    /* full match found */
+    if (globalOffset + 1 == r->lenOrigStr) {
+      if (r->prefix) { // contains mode
+        array_trimm_len(r->buf, localOffset + 1);
+        //char *str = runesToStr(r->buf, array_len(r->buf), &len);
+        //printf("%s %d %d %d\n", str, array_len(r->buf), localOffset + 1, globalOffset + 1);
+        rangeIterateSubTree(n, r);
+        r->buf = array_ensure_append(r->buf, &n->str[0], localOffset, rune);
+        return;
+      } else { // suffix mode
+        // it is suffix match if node is terminal and have no extra characters.
+        if (__trieNode_isTerminal(n) && localOffset + 1 == n->len) {
+          if (r->callback(r->buf, array_len(r->buf), r->cbctx) == REDISMODULE_ERR) {
+            r->stop = 1;
+          }
+        }
+        // check if there are more suffixes downstream
+        containsNext(n, localOffset + 1, 0, r);
+        trimOne(n, r);
+        return;
+      }
+    }
+    /* partial match found */
+    containsNext(n, localOffset + 1, globalOffset + 1, r);
+  } 
+  //try on next character
+  if (!globalOffset) {
+    containsNext(n, localOffset + 1, 0, r);
+  }
+  // printStats("return");
+  trimOne(n, r);
+  return;
 }

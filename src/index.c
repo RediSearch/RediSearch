@@ -62,7 +62,7 @@ typedef struct {
   // If set to 1, we exit skips after the first hit found and not merge further results
   int quickExit;
   size_t nexpected;
-  double weight;  
+  double weight;
   uint64_t len;
 
   // type of query node UNION,GEO,NUMERIC...
@@ -406,7 +406,7 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
 
   ui->minDocId = it->minId;
 
-  // On quickExit we just return one result. 
+  // On quickExit we just return one result.
   // Otherwise, we collect all the results that equal to the root of the heap.
   if (ui->quickExit) {
     AggregateResult_AddChild(CURRENT_RECORD(ui), res);
@@ -557,7 +557,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
       continue;
     }
     RS_LOG_ASSERT(res, "should not be NULL");
-    
+
     // refresh heap with iterator with updated minId
     it->minId = res->docId;
     heap_replace(hp, it);
@@ -573,7 +573,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
 
-  // On quickExit we just return one result. 
+  // On quickExit we just return one result.
   // Otherwise, we collect all the results that equal to the root of the heap.
   if (ui->quickExit) {
     AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
@@ -688,7 +688,7 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
   if (!*it1 && !*it2) return 0;
   if (!*it1) return -1;
   if (!*it2) return 1;
-  
+
   return (int)((*it1)->NumEstimated((*it1)->ctx) - (*it2)->NumEstimated((*it2)->ctx));
 }
 
@@ -1786,7 +1786,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   int nlen = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-  printProfileType("UNION"); 
+  printProfileType("UNION");
   nlen += 2;
 
   RedisModule_ReplyWithSimpleString(ctx, "Query type");
@@ -1886,7 +1886,8 @@ PRINT_PROFILE_FUNC(name) {                                                      
   nlen += 2;                                                                        \
   if (root->type == HYBRID_ITERATOR) {                                              \
     HybridIterator *hi = root->ctx;                                                 \
-    if (hi->searchMode == VECSIM_HYBRID_BATCHES) {                                  \
+    if (hi->searchMode == VECSIM_HYBRID_BATCHES ||                                  \
+          hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {                    \
         printProfileNumBatches(hi);                                                 \
         nlen += 2;                                                                  \
     }                                                                               \
@@ -1945,7 +1946,7 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
   }
 }
 
-/** Add Profile iterator before any iterator in the tree */ 
+/** Add Profile iterator before any iterator in the tree */
 void Profile_AddIters(IndexIterator **root) {
   UnionIterator *ui;
   IntersectIterator *ini;

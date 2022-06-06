@@ -86,7 +86,7 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   /* Create an empty value object if the key is currently empty. */
   Trie *tree;
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
-    tree = NewTrie();
+    tree = NewTrie(NULL);
     RedisModule_ModuleTypeSetValue(key, TrieType, tree);
   } else {
     tree = RedisModule_ModuleTypeGetValue(key);

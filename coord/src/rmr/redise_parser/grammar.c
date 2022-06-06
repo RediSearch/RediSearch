@@ -27,7 +27,7 @@
 #line 3 "grammar.y"
 
 #include "rmr/common.h"
-#include "token.h"	
+#include "token.h"
 #include "grammar.h"
 #include "parser_ctx.h"
 #include "../cluster.h"
@@ -78,7 +78,7 @@ static void parseCtx_Free(parseCtx *ctx) {
 **                       the minor type might be the name of the identifier.
 **                       Each non-terminal can have a different minor type.
 **                       Terminal symbols all have the same minor type, though.
-**                       This macros defines the minor type for terminal 
+**                       This macros defines the minor type for terminal
 **                       symbols.
 **    YYMINORTYPE        is the data type used for all minor types.
 **                       This is typically a union of many types, one of
@@ -123,9 +123,9 @@ typedef union {
 #define YYSTACKDEPTH 100
 #endif
 #define ParseARG_SDECL  parseCtx *ctx ;
-#define ParseARG_PDECL , parseCtx *ctx 
-#define ParseARG_FETCH  parseCtx *ctx  = yypParser->ctx 
-#define ParseARG_STORE yypParser->ctx  = ctx 
+#define ParseARG_PDECL , parseCtx *ctx
+#define ParseARG_FETCH  parseCtx *ctx  = yypParser->ctx
+#define ParseARG_STORE yypParser->ctx  = ctx
 #define YYNSTATE             16
 #define YYNRULE              17
 #define YY_MAX_SHIFT         15
@@ -154,7 +154,7 @@ typedef union {
 /* Next are the tables used to determine what action to take based on the
 ** current state and lookahead token.  These tables are used to implement
 ** functions that take a state number and lookahead value and return an
-** action integer.  
+** action integer.
 **
 ** Suppose the action integer is N.  Then the action is determined as
 ** follows
@@ -241,9 +241,9 @@ static const YYACTIONTYPE yy_default[] = {
 };
 /********** End of lemon-generated parsing tables *****************************/
 
-/* The next table maps tokens (terminal symbols) into fallback tokens.  
+/* The next table maps tokens (terminal symbols) into fallback tokens.
 ** If a construct like the following:
-** 
+**
 **      %fallback ID X Y Z.
 **
 ** appears in the grammar, then ID becomes a fallback token for X, Y,
@@ -313,10 +313,10 @@ static char *yyTracePrompt = 0;
 #endif /* NDEBUG */
 
 #ifndef NDEBUG
-/* 
+/*
 ** Turn parser tracing on by giving a stream to which to write the trace
 ** and a prompt to preface each trace message.  Tracing is turned off
-** by making either argument NULL 
+** by making either argument NULL
 **
 ** Inputs:
 ** <ul>
@@ -341,13 +341,13 @@ void MRTopologyRequest_ParseTrace(FILE *TraceFILE, char *zTracePrompt){
 #ifndef NDEBUG
 /* For tracing shifts, the names of all terminals and nonterminals
 ** are required.  The following table supplies these names */
-static const char *const yyTokenName[] = { 
-  "$",             "MYID",          "HASHFUNC",      "STRING",      
+static const char *const yyTokenName[] = {
+  "$",             "MYID",          "HASHFUNC",      "STRING",
   "NUMSLOTS",      "INTEGER",       "RANGES",        "HASREPLICATION",
-  "SHARD",         "SLOTRANGE",     "ADDR",          "UNIXADDR",    
-  "MASTER",        "error",         "shard",         "endpoint",    
-  "topology",      "master",        "has_replication",  "cluster",     
-  "root",          "shardid",       "tcp_addr",      "unix_addr",   
+  "SHARD",         "SLOTRANGE",     "ADDR",          "UNIXADDR",
+  "MASTER",        "error",         "shard",         "endpoint",
+  "topology",      "master",        "has_replication",  "cluster",
+  "root",          "shardid",       "tcp_addr",      "unix_addr",
 };
 #endif /* NDEBUG */
 
@@ -405,7 +405,7 @@ static int yyGrowStack(yyParser *p){
 #endif
     p->yystksz = newSize;
   }
-  return pNew==0; 
+  return pNew==0;
 }
 #endif
 
@@ -443,7 +443,7 @@ void MRTopologyRequest_ParseInit(void *yypParser){
 }
 
 #ifndef Parse_ENGINEALWAYSONSTACK
-/* 
+/*
 ** This function allocates a new parser.
 ** The only argument is a pointer to a function which works like
 ** malloc.
@@ -467,7 +467,7 @@ void *MRTopologyRequest_ParseAlloc(void *(*mallocProc)(YYMALLOCARGTYPE)){
 /* The following function deletes the "minor type" or semantic value
 ** associated with a symbol.  The symbol can be either a terminal
 ** or nonterminal. "yymajor" is the symbol code, and "yypminor" is
-** a pointer to the value to be deleted.  The code used to do the 
+** a pointer to the value to be deleted.  The code used to do the
 ** deletions is derived from the %destructor and/or %token_destructor
 ** directives of the input grammar.
 */
@@ -481,7 +481,7 @@ static void yy_destructor(
     /* Here is inserted the actions which take place when a
     ** terminal or non-terminal is destroyed.  This can happen
     ** when the symbol is popped from the stack during a
-    ** reduce or during error processing or when a parser is 
+    ** reduce or during error processing or when a parser is
     ** being destroyed before it is finished parsing.
     **
     ** Note: during a reduce, the only symbols destroyed are those
@@ -497,7 +497,7 @@ static void yy_destructor(
     case 23: /* unix_addr */
 {
 #line 30 "grammar.y"
-  free((yypminor->yy1)); 
+  free((yypminor->yy1));
 #line 499 "grammar.c"
 }
       break;
@@ -513,14 +513,14 @@ static void yy_destructor(
     case 15: /* endpoint */
 {
 #line 37 "grammar.y"
- MREndpoint_Free(&(yypminor->yy37)); 
+ MREndpoint_Free(&(yypminor->yy37));
 #line 515 "grammar.c"
 }
       break;
     case 16: /* topology */
 {
 #line 40 "grammar.y"
- MRClusterTopology_Free((yypminor->yy45)); 
+ MRClusterTopology_Free((yypminor->yy45));
 #line 522 "grammar.c"
 }
       break;
@@ -535,7 +535,7 @@ static void yy_destructor(
     case 19: /* cluster */
 {
 #line 46 "grammar.y"
- 
+
 #line 537 "grammar.c"
 }
       break;
@@ -577,7 +577,7 @@ void MRTopologyRequest_ParseFinalize(void *p){
 }
 
 #ifndef Parse_ENGINEALWAYSONSTACK
-/* 
+/*
 ** Deallocate and destroy a parser.  Destructors are called for
 ** all stack elements before shutting the parser down.
 **
@@ -617,7 +617,7 @@ static unsigned int yy_find_shift_action(
 ){
   int i;
   int stateno = pParser->yytos->stateno;
- 
+
   if( stateno>=YY_MIN_REDUCE ) return stateno;
   assert( stateno <= YY_SHIFT_COUNT );
   do{
@@ -643,7 +643,7 @@ static unsigned int yy_find_shift_action(
 #ifdef YYWILDCARD
       {
         int j = i - iLookAhead + YYWILDCARD;
-        if( 
+        if(
 #if YY_SHIFT_MIN+YYWILDCARD<0
           j>=0 &&
 #endif
@@ -756,7 +756,7 @@ static void yy_shift(
     assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack) );
   }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
   if( yypParser->yytos>=&yypParser->yystack[YYSTACKDEPTH] ){
     yypParser->yytos--;
     yyStackOverflow(yypParser);
@@ -841,7 +841,7 @@ static void yy_reduce(
       assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack));
     }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
     if( yypParser->yytos>=&yypParser->yystack[YYSTACKDEPTH-1] ){
       yyStackOverflow(yypParser);
       return;
@@ -883,7 +883,7 @@ static void yy_reduce(
         }
     }
     // translate optional shard func from arguments to proper enum.
-    // We will only get it from newer versions of the cluster, so if we don't get it we assume 
+    // We will only get it from newer versions of the cluster, so if we don't get it we assume
     // CRC12 / 4096
     yymsp[0].minor.yy45->hashFunc = MRHashFunc_None;
     if (ctx->shardFunc) {
@@ -900,7 +900,7 @@ static void yy_reduce(
     }
     ctx->topology = yymsp[0].minor.yy45;
 
-    
+
 	// detect my id and mark the flag here
     for (size_t s = 0; s < ctx->topology->numShards; s++) {
         for (size_t n = 0; n < ctx->topology->shards[s].numNodes; n++) {
@@ -909,12 +909,12 @@ static void yy_reduce(
             }
         }
     }
-   
+
 err:
    if (ctx->ok == 0) {
     MRClusterTopology_Free(yymsp[0].minor.yy45);
   }
-  
+
 
 }
 #line 918 "grammar.c"
@@ -958,7 +958,7 @@ err:
       case 5: /* topology ::= RANGES INTEGER */
 #line 114 "grammar.y"
 {
-    
+
     yymsp[-1].minor.yy45 = MR_NewTopology(yymsp[0].minor.yy0.intval, 4096);
     // this is the default hash func
     yymsp[-1].minor.yy45->hashFunc = MRHashFunc_CRC12;
@@ -984,7 +984,7 @@ err:
       case 8: /* shard ::= SHARD shardid SLOTRANGE INTEGER INTEGER endpoint master */
 #line 131 "grammar.y"
 {
-	
+
 	yymsp[-6].minor.yy33 = (RLShard){
 			.node = (MRClusterNode) {
 			.id = yymsp[-5].minor.yy1,
@@ -1024,7 +1024,7 @@ err:
       case 12: /* endpoint ::= endpoint unix_addr */
 #line 157 "grammar.y"
 {
-  	yymsp[-1].minor.yy37.unixSock = yymsp[0].minor.yy1; 
+  	yymsp[-1].minor.yy37.unixSock = yymsp[0].minor.yy1;
 	yylhsminor.yy37 = yymsp[-1].minor.yy37;
 }
 #line 1028 "grammar.c"
@@ -1116,7 +1116,7 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 #line 24 "grammar.y"
-  
+
     asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'\n", TOKEN.pos,(int)TOKEN.len, TOKEN.s);
     ctx->ok = 0;
 #line 1120 "grammar.c"
@@ -1219,7 +1219,7 @@ void MRTopologyRequest_Parse(
 #ifdef YYERRORSYMBOL
       /* A syntax error has occurred.
       ** The response to an error depends upon whether or not the
-      ** grammar defines an error token "ERROR".  
+      ** grammar defines an error token "ERROR".
       **
       ** This is what we do if the grammar does define ERROR:
       **
@@ -1282,7 +1282,7 @@ void MRTopologyRequest_Parse(
       yy_syntax_error(yypParser,yymajor, yyminor);
       yy_destructor(yypParser,(YYCODETYPE)yymajor,&yyminorunion);
       yymajor = YYNOCODE;
-      
+
 #else  /* YYERRORSYMBOL is not defined */
       /* This is what we do if the grammar does not define ERROR:
       **
@@ -1328,22 +1328,22 @@ void MRTopologyRequest_Parse(
 
 MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err)  {
 
-    
+
     YY_BUFFER_STATE buf = yy_scan_bytes(c, len);
 
-    void* pParser =  MRTopologyRequest_ParseAlloc (malloc);        
+    void* pParser =  MRTopologyRequest_ParseAlloc (malloc);
     int t = 0;
 
     parseCtx ctx = {.topology = NULL, .ok = 1, .replication = 0, .my_id = NULL,
                     .errorMsg = NULL, .numSlots = 0, .shardFunc = MRHashFunc_None };
-    
+
     while (ctx.ok && 0 != (t = yylex())) {
-        MRTopologyRequest_Parse(pParser, t, tok, &ctx);                
+        MRTopologyRequest_Parse(pParser, t, tok, &ctx);
     }
     //if (ctx.ok) {
         MRTopologyRequest_Parse(pParser, 0, tok, &ctx);
     //}
-    
+
     MRTopologyRequest_ParseFree(pParser, free);
 
     if (err) {
@@ -1356,5 +1356,5 @@ MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err
   }
 
 
-   
+
 #line 1358 "grammar.c"

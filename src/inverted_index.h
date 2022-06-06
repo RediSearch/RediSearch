@@ -33,6 +33,9 @@ typedef struct InvertedIndex {
   t_docId lastId;
   uint32_t numDocs;
   uint32_t gcMarker;
+  // fieldMask must remain at the end as memory is not allocate for it
+  // if not required
+  t_fieldMask fieldMask;
 } InvertedIndex;
 
 struct indexReadCtx;
@@ -47,7 +50,7 @@ typedef struct {
   t_fieldMask num;
 
   // used by profile
-  double rangeMin;    
+  double rangeMin;
   double rangeMax;
 } IndexDecoderCtx;
 

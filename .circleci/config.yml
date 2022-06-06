@@ -87,10 +87,7 @@ commands:
       - run:
           name: Cleanup test log dir
           command: |
-            if [[ -d tests/pytests/logs ]]; then
-              cd tests/pytests/logs
-              rm -f *.aof *.rdb
-            fi
+            rm -f tests/pytests/logs/*.{aof,rdb}
           when: always
       - store_artifacts:
           path: tests/pytests/logs
@@ -369,6 +366,11 @@ jobs:
   build-macos:
     macos:
       xcode: 12.4.0
+    resource_class: macos.x86.medium.gen2
+    parameters:
+      upload:
+        type: string
+        default: "yes"
     steps:
       - early-returns
       # - run:
@@ -383,7 +385,7 @@ jobs:
       - run:
           name: Upload artifacts to S3
           command: |
-            if [[ -n $CIRCLE_BRANCH ]]; then
+            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
                 make upload-artifacts SHOW=1
             fi
       - persist-artifacts
@@ -637,7 +639,7 @@ jobs:
       - checkout
       - setup-automation
       - run:
-          name: Run QA Automation
+          name: Run QA Automation (RediSearch)
           command: ./tests/qa/qatests -m "$CIRCLE_TAG"
       - run:
           name: Run QA Automation (RediSearch Light)
@@ -645,6 +647,9 @@ jobs:
       - run:
           name: Run QA Automation (RediSearch/VecSim)
           command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim
+      - run:
+          name: Run QA Automation (RediSearch Light/VecSim)
+          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim --light
 
 
 #----------------------------------------------------------------------------------------------------------------------------------
@@ -677,6 +682,7 @@ on-integ-branch: &on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       ignore: /.*/
 
@@ -687,6 +693,7 @@ not-on-integ-branch: &not-on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       ignore: /.*/
 
@@ -707,14 +714,12 @@ on-integ-and-version-tags: &on-integ-and-version-tags
     tags:
       only: /^v[0-9].*/
 
-
 on-perf-and-version-tags: &on-perf-and-version-tags
   filters:
     branches:
       only:
         - master
         - /^\d+\.\d+.*$/
-        - /^feature.*$/
         - /^perf.*$/
     tags:
       only: /^v[0-9].*/
@@ -728,18 +733,12 @@ workflows:
       - build-linux-debian:
           name: build
           <<: *not-on-integ-branch
-      - build-linux-debian:
-          name: build-with-redis-<<matrix.redis_version>>
-          <<: *on-integ-and-version-tags
-          matrix:
-            parameters:
-              redis_version: ["6.0", "6.2", "7", "unstable"]
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, rocky8, bullseye]
+              platform: [focal, bionic, xenial, centos7, rocky8, bullseye, jammy]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -804,10 +803,10 @@ workflows:
             - build-arm-platforms
             - build-macos
       - release-automation:
+          <<: *on-version-tags
           context: common
           requires:
             - upload-release-artifacts
-          <<: *on-version-tags
 
   nightly:
     triggers:
@@ -817,12 +816,13 @@ workflows:
             branches:
               only: master
     jobs:
-      - build-macos
+      - build-macos:
+          upload: "no"
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2"]
+              redis_version: ["6.0", "7", "unstable"]
 
   nightly-performance:
     triggers:

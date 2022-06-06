@@ -315,7 +315,7 @@ TEST_F(QueryTest, testParser_v1) {
   ASSERT_STREQ("baz", _n->children[0]->tn.str);
 
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
-  ASSERT_STREQ("boo", _n->children[1]->pfx.str);
+  ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
   IndexSpec_Free(ctx.spec);
 }
@@ -557,7 +557,7 @@ TEST_F(QueryTest, testParser_v2) {
   ASSERT_STREQ("baz", _n->children[0]->tn.str);
 
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
-  ASSERT_STREQ("boo", _n->children[1]->pfx.str);
+  ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
   IndexSpec_Free(ctx.spec);
 }
@@ -571,7 +571,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
   QASTCXX ast;
   ast.setContext(&ctx);
   int ver = 2;
-  
+
   const char *vqt[] = {
     "(hello world)=>[KNN 10 @vec $BLOB]",
     "@title:(hello|world)=>[KNN 10 @vec $BLOB]",

@@ -46,13 +46,17 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 }
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
-  InvertedIndex *idx = rm_malloc(sizeof(InvertedIndex));
+  int useFieldMask = flags & Index_StoreFieldFlags;
+  size_t size = useFieldMask ? sizeof(InvertedIndex) :
+                               sizeof(InvertedIndex) - sizeof(t_fieldMask);
+  InvertedIndex *idx = rm_malloc(size);
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
   idx->gcMarker = 0;
   idx->flags = flags;
   idx->numDocs = 0;
+  if (useFieldMask) idx->fieldMask = (t_fieldMask)0;
   if (initBlock) {
     InvertedIndex_AddBlock(idx, 0);
   }
@@ -434,7 +438,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
 
   // use proper block size. Index_DocIdsOnly == 0x00
-  uint16_t blockSize = (idx->flags & INDEX_STORAGE_MASK) ? 
+  uint16_t blockSize = (idx->flags & INDEX_STORAGE_MASK) ?
           INDEX_BLOCK_SIZE :
           INDEX_BLOCK_SIZE_DOCID_ONLY;
 
@@ -744,7 +748,7 @@ SKIPPER(seekRawDocIdsOnly) {
     curVal = buf[cur];
   }
 
-  // we cannot get out of range since we check in 
+  // we cannot get out of range since we check in
   if (curVal < delta) {
     cur++;
   }
@@ -1274,9 +1278,6 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     // and not write anything, so the reader will advance but the writer won't.
     // this will close the "hole" in the index
     if (!docExists) {
-      if (params->RepairCallback) {
-        params->RepairCallback(res, blk, params->arg);
-      }
       if (!frags++) {
         // First invalid doc; copy everything prior to this to the repair
         // buffer
@@ -1285,6 +1286,9 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
       params->bytesCollected += sz;
       isLastValid = 0;
     } else {
+      if (params->RepairCallback) {
+        params->RepairCallback(res, blk, params->arg);
+      }
       // Valid document, but we're rewriting the block:
       if (frags) {
 

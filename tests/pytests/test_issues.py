@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from common import *
+from RLTest import Env
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
@@ -238,6 +239,8 @@ def test_MOD1266(env):
   env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2') \
     .equal([2, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
 
+  assertInfoField(env, 'idx', 'num_docs', '2')
+
   # Test fetching failure. An object cannot be indexed
   env.execute_command('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
   conn.execute_command('JSON.SET', '1', '$', r'{"t":"Redis"}')
@@ -365,3 +368,80 @@ def test_MOD1907(env):
   # Test FT.CREATE w/o fields parameters
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Fields arguments are missing')
   env.expect('FT.CREATE', 'idx', 'STOPWORDS', 0, 'SCHEMA').error().contains('Fields arguments are missing')
+
+def test_SkipFieldWithNoMatch(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
+
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]
+
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  # bar exists in `t2` only
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
+  env.assertEqual(res[1][3][1], ['Type', 'EMPTY', 'Counter', 0])
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'bar')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
+
+  # Check with NOFIELDS flag
+  env.execute_command('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+  waitForIndex(env, 'idx_nomask')
+
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'foo')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:bar')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
+  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+
+
+def testOverMaxResults():
+  env = Env(moduleArgs='MAXSEARCHRESULTS 20')
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+
+  # test with number of documents lesser than MAXSEARCHRESULTS
+  for i in range(10):
+    conn.execute_command('HSET', i, 't', i)
+
+  res = [10, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal(res)
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '0', '10').equal(res)
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '5', '10').equal([res[0], *res[6:11]])
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([10])
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([10])
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+
+  # test with number of documents equal to MAXSEARCHRESULTS
+  for i in range(10,20):
+    conn.execute_command('HSET', i, 't', i)
+
+  res = [20, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal(res)
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([20, *res[6:11]])
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([20])
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+
+  # test with number of documents greater than MAXSEARCHRESULTS
+  for i in range(20,30):
+    conn.execute_command('HSET', i, 't', i)
+
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([30, *res[1:11]])
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([30, *res[6:11]])
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([30])
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '25', '10').equal('OFFSET exceeds maximum of 20')
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')

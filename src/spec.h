@@ -53,6 +53,7 @@ struct DocumentIndexer;
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
+#define SPEC_WITHSUFFIXTRIE_STR "WITHSUFFIXTRIE"
 
 #define DEFAULT_SCORE 1.0
 
@@ -83,19 +84,7 @@ struct DocumentIndexer;
        .len = &dummy2,                                                      \
        .type = AC_ARGTYPE_STRING},
 
-/**
- * If wishing to represent field types positionally, use this
- * enum. Since field types are a bitmask, it's pointless to waste
- * space like this
- */
-
-static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
-                                      [IXFLDPOS_NUMERIC] = SPEC_NUMERIC_STR,
-                                      [IXFLDPOS_GEO] = SPEC_GEO_STR,
-                                      [IXFLDPOS_TAG] = SPEC_TAG_STR,
-                                      [IXFLDPOS_VECTOR] = SPEC_VECTOR_STR};
-
-// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace 
+// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
@@ -148,6 +137,7 @@ typedef enum {
   Index_FromLLAPI = 0x2000,
   Index_HasFieldAlias = 0x4000,
   Index_HasVecSim = 0x8000,
+  Index_HasSuffixTrie = 0x10000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -227,6 +217,9 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
 
+#define Index_StoreFieldMask(spec) \
+  ((spec)->flags & Index_StoreFieldFlags)
+
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
 typedef struct {
@@ -235,50 +228,52 @@ typedef struct {
 
 //---------------------------------------------------------------------------------------------
 
+
 typedef struct IndexSpec {
-  char *name;
-  FieldSpec *fields;
-  int numFields;
+  char *name;                     // Index name
+  uint64_t uniqueId;              // Id of index
+  FieldSpec *fields;              // Fields in the index schema
+  int numFields;                  // Number of fields
 
-  IndexStats stats;
-  IndexFlags flags;
+  IndexStats stats;               // Statistics of memory used and quantities
+  IndexFlags flags;               // Flags
 
-  Trie *terms;
+  Trie *terms;                    // Trie of all terms. Used for GC and fuzzy queries
+  Trie *suffix;                   // Trie of suffix tokens of terms. Used for contains queries
+  t_fieldMask suffixMask;         // Mask of all field that support contains query
+  dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT terms
 
-  RSSortingTable *sortables;
+  RSSortingTable *sortables;      // Contains sortable data of documents
 
-  DocTable docs;
+  DocTable docs;                  // Contains metadata of all documents
 
-  StopWordList *stopwords;
+  StopWordList *stopwords;        // List of stopwords for TEXT fields
 
-  GCContext *gc;
+  GCContext *gc;                  // Garbage collection
 
-  SynonymMap *smap;
+  SynonymMap *smap;               // List of synonym
+  char **aliases;                 // Aliases to self-remove when the index is deleted
 
-  uint64_t uniqueId;
+  struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
+  struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
+  // can be true even if scanner == NULL, in case of a scan being cancelled
+  // in favor on a newer, pending scan
+  bool scan_in_progress;
+  bool cascadeDelete;             // remove keys when removing spec. used by temporary index
+
+  struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
-
-  // For index expiretion
+  // For index expiration
   long long timeout;
   RedisModuleTimerID timerId;
   bool isTimerSet;
 
-  dict *keysDict;
+  // For criteria tester
   RSGetValueCallback getValue;
   void *getValueCtx;
-  char **aliases;  // Aliases to self-remove when the index is deleted
-  struct DocumentIndexer *indexer;
-
-  struct SchemaRule *rule;
-
-  struct IndexesScanner *scanner;
-  // can be true even if scanner == NULL, in case of a scan being cancelled
-  // in favor on a newer, pending scan
-  bool scan_in_progress;
-  bool cascadeDelete;  // remove keys when removing spec
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -323,7 +318,7 @@ typedef struct IndexSpecCache {
 void Spec_AddToDict(const IndexSpec *spec);
 
 /**
- * compare redis versions
+ * Compare redis versions
  */
 int CompareVestions(Version v1, Version v2);
 
@@ -402,6 +397,8 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
+int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
  * the Redis keyspace
@@ -412,6 +409,12 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
+#ifdef FTINFO_FOR_INFO_MODULES
+/**
+ * Exposing all the fields of the index to INFO command.
+ */
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
+#endif
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -422,6 +425,11 @@ int IndexSpec_CreateTextId(const IndexSpec *sp);
 /* Add fields to a redis schema */
 int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status);
+
+/**
+ * Checks that the given parameters pass memory limits (used while starting from RDB)
+ */
+int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, QueryError *status);
 
 //---------------------------------------------------------------------------------------------
 
@@ -528,6 +536,8 @@ typedef struct IndexesScanner {
   size_t scannedKeys, totalKeys;
   bool cancelled;
 } IndexesScanner;
+
+double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
 
 //---------------------------------------------------------------------------------------------
 

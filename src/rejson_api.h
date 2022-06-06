@@ -26,7 +26,7 @@ typedef struct RedisJSONAPI_V1 {
   RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *path);
 
   JSONResultsIterator (*get)(RedisJSON json, const char *path);
-  
+
   RedisJSON (*next)(JSONResultsIterator iter);
   size_t (*len)(JSONResultsIterator iter);
   void (*freeIter)(JSONResultsIterator iter);

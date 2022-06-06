@@ -507,10 +507,16 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(vectorPreprocessor) {
-  size_t len;
-  fdata->vector = RedisModule_StringPtrLen(field->text, &len);
-  fdata->vecLen = len;
-  if (len != fs->vectorOpts.expBlobSize) {
+  fdata->vecLen = 0;
+  if (field->unionType == FLD_VAR_T_RMS) {
+    fdata->vector = RedisModule_StringPtrLen(field->text, &fdata->vecLen);
+  } else if (field->unionType == FLD_VAR_T_CSTR) {
+    fdata->vector = field->strval;
+    fdata->vecLen = field->strlen;
+  } else if (field->unionType == FLD_VAR_T_NULL) {
+    return 0; // Skipping indexing missing vector
+  }
+  if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
     // "Could not add vector with blob size %zu (expected size %zu)", len, fs->vectorOpts.expBlobSize
     QueryError_SetCode(status, QUERY_EBADATTR);
     return -1;
@@ -530,8 +536,10 @@ FIELD_BULK_INDEXER(vectorIndexer) {
       return -1;
     }
   }
-  ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);;
-  ctx->spec->stats.numRecords++;
+  if (fdata->vecLen) { // If document is loaded with null vector (on JSON), skip.
+    ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);;
+    ctx->spec->stats.numRecords++;
+  }
   return 0;
 }
 
@@ -598,6 +606,9 @@ FIELD_BULK_INDEXER(tagIndexer) {
     if (!tidx) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
       return -1;
+    }
+    if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
+      tidx->suffix = NewTrieMap();
     }
   }
 
@@ -695,7 +706,7 @@ cleanup:
   if (ourRv != REDISMODULE_OK) {
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
-    DocTable_DeleteR(&aCtx->spec->docs, doc->docKey);
+    IndexSpec_DeleteDoc(aCtx->spec, RSDummyContext, doc->docKey);
   
     QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
     AddDocumentCtx_Finish(aCtx);

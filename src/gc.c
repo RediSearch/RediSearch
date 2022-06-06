@@ -57,7 +57,7 @@ static void stopGC(GCContext* gc) {
   gc->stopped = 1;
   if (gc->callbacks.kill) {
     gc->callbacks.kill(gc->gcCtx);
-  }  
+  }
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data);
@@ -69,7 +69,7 @@ static long long getNextPeriod(GCContext* gc) {
 }
 
 static RedisModuleTimerID scheduleNext(GCTask *task) {
-  if (!RedisModule_CreateTimer) return 0;
+  if (RS_IsMock) return 0;
 
   long long period = getNextPeriod(task->gc);
   return RedisModule_CreateTimer(RSDummyContext, period, timerCallback, task);
@@ -86,7 +86,7 @@ static void threadCallback(void* data) {
     if (bc) {
       RedisModule_ThreadSafeContextLock(ctx);
       RedisModule_UnblockClient(bc, NULL);
-      RedisModule_ThreadSafeContextUnlock(ctx); 
+      RedisModule_ThreadSafeContextUnlock(ctx);
     }
     rm_free(task);
     return;
@@ -98,7 +98,7 @@ static void threadCallback(void* data) {
 
   // if GC was invoke by debug command, we release the client
   // and terminate without rescheduling the task again.
-  if (task->debug) { 
+  if (task->debug) {
     if (bc) {
       RedisModule_UnblockClient(bc, NULL);
     }
@@ -150,7 +150,7 @@ void GCContext_Start(GCContext* gc) {
 }
 
 void GCContext_Stop(GCContext* gc) {
-  if (!RedisModule_StopTimer) {
+  if (RS_IsMock) {
     // for fork gc debug
     RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
     free(gc->gcCtx);
@@ -171,12 +171,18 @@ void GCContext_Stop(GCContext* gc) {
     rm_free(gc);
     return;
   }
-  thpool_add_work(gcThreadpool_g, destroyCallback, gc); 
+  thpool_add_work(gcThreadpool_g, destroyCallback, gc);
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
   gc->callbacks.renderStats(ctx, gc->gcCtx);
 }
+
+#ifdef FTINFO_FOR_INFO_MODULES
+void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx) {
+  gc->callbacks.renderStatsForInfo(ctx, gc->gcCtx);
+}
+#endif
 
 void GCContext_OnDelete(GCContext* gc) {
   if (gc->callbacks.onDelete) {

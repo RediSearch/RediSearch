@@ -20,6 +20,17 @@ static bool trieInsert(Trie *t, const std::string &s) {
   return trieInsert(t, s.c_str(), s.size());
 }
 
+static int rangeFunc(const rune *u16, size_t nrune, void *ctx) {
+  size_t n;
+  char *s = runesToStr(u16, nrune, &n);
+  std::string xs(s, n);
+  free(s);
+  ElemSet *e = (ElemSet *)ctx;
+  assert(e->end() == e->find(xs));
+  e->insert(xs);
+  return REDISEARCH_OK;
+}
+
 static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const char *end,
                              size_t nend) {
   rune r1[256] = {0};
@@ -44,16 +55,7 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
 
   ElemSet foundElements;
   TrieNode_IterateRange(t->root, r1Ptr, nr1, true, r2Ptr, nr2, false,
-                        [](const rune *u16, size_t nrune, void *ctx) {
-                          size_t n;
-                          char *s = runesToStr(u16, nrune, &n);
-                          std::string xs(s, n);
-                          free(s);
-                          ElemSet *e = (ElemSet *)ctx;
-                          ASSERT_EQ(e->end(), e->find(xs));
-                          e->insert(xs);
-                        },
-                        &foundElements);
+                        rangeFunc, &foundElements);
   return foundElements;
 }
 
@@ -62,7 +64,7 @@ static ElemSet trieIterRange(Trie *t, const char *begin, const char *end) {
 }
 
 TEST_F(TrieTest, testBasicRange) {
-  Trie *t = NewTrie();
+  Trie *t = NewTrie(NULL);
   rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
@@ -100,7 +102,7 @@ TEST_F(TrieTest, testBasicRange) {
  * string.
  */
 TEST_F(TrieTest, testDeepEntry) {
-  Trie *t = NewTrie();
+  Trie *t = NewTrie(NULL);
   const size_t maxbuf = TRIE_INITIAL_STRING_LEN - 1;
   char manyOnes[maxbuf + 1];
   for (size_t ii = 0; ii < maxbuf; ++ii) {
@@ -119,5 +121,82 @@ TEST_F(TrieTest, testDeepEntry) {
 
   auto ret = trieIterRange(t, "1", "1Z");
   ASSERT_EQ(maxbuf, ret.size());
+  TrieType_Free(t);
+}
+
+/**
+ * This test ensures payload isn't corrupted when the trie changes.
+ */
+TEST_F(TrieTest, testPayload) {
+  char buf1[] = "world";
+
+  Trie *t = NewTrie(NULL);
+
+  RSPayload payload = { .data = buf1, .len = 2 };
+  Trie_InsertStringBuffer(t, buf1, 2, 1, 1, &payload);
+  payload.len = 4;
+  Trie_InsertStringBuffer(t, buf1, 4, 1, 1, &payload);
+  payload.len = 5;
+  Trie_InsertStringBuffer(t, buf1, 5, 1, 1, &payload);
+  payload.len = 3;
+  Trie_InsertStringBuffer(t, buf1, 3, 1, 1, &payload);
+
+  char buf2[] = "work";
+  payload = { .data = buf2, .len = 4 };
+  Trie_InsertStringBuffer(t, buf2, 4, 1, 1, &payload);
+
+
+  // check for prefix of existing term
+  // with exact returns null, w/o return load of next term
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 1, 0), "wo", 2), 0);
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 1, 1) == NULL);
+
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), "wor", 3), 0);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl", 4), 0);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+
+  ASSERT_EQ(Trie_Delete(t, buf1, 3), 1);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl", 4), 0);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+
+  ASSERT_EQ(Trie_Delete(t, buf1, 4), 1);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+
+  // testing with exact = 0
+  // "wor" node exists with NULL payload.
+  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 0) == NULL);
+  // "worl" does not exist but is partial offset of =>`wor`+`ld`.
+  // payload of `ld` is returned.
+  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 0), "world", 5), 0);
+
+  TrieType_Free(t);
+}
+
+/**
+ * This test check free callback.
+ */
+void trieFreeCb(void *val) {
+  char **str = (char **)val;
+  rm_free(*str);
+}
+
+TEST_F(TrieTest, testFreeCallback) {
+  Trie *t = NewTrie(trieFreeCb);
+
+  char buf[] = "world";
+  char *str = rm_strdup("hello");
+
+  RSPayload payload = { .data = (char *)&str, .len = sizeof(str) };
+  Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload);
+
   TrieType_Free(t);
 }

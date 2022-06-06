@@ -4,6 +4,7 @@ import os.path
 import sys
 from RLTest import Env
 from includes import *
+from test_info_modules import info_modules_to_dict
 
 
 if 'EXT_TEST_PATH' in os.environ:
@@ -37,6 +38,9 @@ def testExt(env):
     env.assertEqual(N, res[0])
     res = env.execute_command('ft.search', 'idx', 'hello world', 'scorer', 'filterout_scorer')
     env.assertEqual(0, res[0])
+
+    info = info_modules_to_dict(env)
+    env.assertTrue('search_extension_load' in info['search_runtime_configurations'])
 
     if not env.isCluster():
         res = env.cmd('ft.config', 'get', 'EXTLOAD')[0][1]

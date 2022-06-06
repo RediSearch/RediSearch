@@ -63,13 +63,14 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 
 You can use any standard Redis client library to run RediSearch commands, but it's easiest to use a library that wraps the RediSearch API.
 
-| Language | Library | Author | License | Stars |
-|----------|---------|--------|---------|-------|
-|Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
+| Language | Library | Author | License | Stars | Comment |
+|----------|---------|--------|---------|-------|---------|
+| Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
 | Python | [redis-om][redis-om-python-url] | [Redis][redis-om-python-author] | BSD-3-Clause | [![redis-om-python-stars]][redis-om-python-url] |
-| Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
-| Java (Lettuce client library) | [lettusearch][lettusearch-url] | [Redis][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url]|
-| Java | [spring-redisearch][spring-redisearch-url] | [Redis][spring-redisearch-author] | Apache-2.0 | [![spring-redisearch-stars]][spring-redisearch-url]|
+| Java | [Jedis][Jedis-url] | [Redis][Jedis-author] | MIT | [![Jedis-stars]][Jedis-url] |
+| Java | [JRediSearch][JRediSearch-url] | [Redis][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url] | Deprecated |
+| Java | [lettusearch][lettusearch-url] | [Redis][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url] |
+| Java | [spring-redisearch][spring-redisearch-url] | [Redis][spring-redisearch-author] | Apache-2.0 | [![spring-redisearch-stars]][spring-redisearch-url] |
 | Java | [redis-om-spring][redis-om-spring-url] | [Redis][redis-om-spring-author] | BSD-3-Clause | [![redis-om-spring-stars]][redis-om-spring-url] |
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
 | Go | [redisearch-go][redisearch-go-url] | [Redis][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
@@ -80,7 +81,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 | C# | [Redis.OM][redis-om-dotnet-url] | [Redis][redis-om-dotnet-author] | BSD-3-Clause | [![redis-om-dotnet-stars]][redis-om-dotnet-url] |
 | PHP | [redisearch-php][redisearch-php-url] | [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
 | PHP | [php-redisearch][php-redisearch-url] | [MacFJA][php-redisearch-author] | MIT | [![php-redisearch-stars]][php-redisearch-url] |
-| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
+| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] |
 | Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
@@ -92,6 +93,10 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redis-om-python-url]: https://github.com/redis/redis-om-python
 [redis-om-python-author]: https://redis.com
 [redis-om-python-stars]: https://img.shields.io/github/stars/redis/redis-om-python.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[Jedis-url]: https://github.com/redis/jedis
+[Jedis-author]: https://redis.com
+[Jedis-stars]: https://img.shields.io/github/stars/redis/jedis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [JRediSearch-url]: https://github.com/RediSearch/JRediSearch
 [JRediSearch-author]: https://redis.com
@@ -134,7 +139,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [NRediSearch-stars]: https://img.shields.io/github/stars/StackExchange/NRediSearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redis-om-dotnet-url]: https://github.com/redis/redis-om-dotnet
-[redis-om-dotnet-author]: htts://redis.com
+[redis-om-dotnet-author]: https://redis.com
 [redis-om-dotnet-stars]: https://img.shields.io/github/stars/redis/redis-om-dotnet.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redisearch-php-url]: https://github.com/ethanhann/redisearch-php
@@ -161,17 +166,6 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redisearch-api-rs-author]: https://redis.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
-## Other available Libraries
-
-| Language | Library | Author | License | Stars | Comments |
-|----------|---------|--------|---------|-------|----------|
-| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
-
-[redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
-[redisearch-api-rs-author]: https://redis.com
-[redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-
 ## RediSearch features
 
 * Full-Text indexing of multiple fields in Redis hashes
@@ -185,7 +179,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 * Stemming-based query expansion in [many languages](https://oss.redis.com/redisearch/Stemming/) (using [Snowball](http://snowballstem.org/))
 * Support for Chinese-language tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
 * Numeric filters and ranges
-* Geospatial searches using [Redis geospatial indexing](https://redis.io/commands/georadius)
+* Geospatial searches using [Redis geospatial indexing](/commands/georadius)
 * A powerful aggregations engine
 * Supports for all utf-8 encoded text
 * Retrieve full documents, selected fields, or only the document IDs

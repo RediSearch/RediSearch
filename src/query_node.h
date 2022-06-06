@@ -80,7 +80,11 @@ typedef struct {
  * tokenizers. Later this gets passed to scoring functions in a Term object. See RSIndexRecord */
 typedef RSToken QueryTokenNode;
 
-typedef RSToken QueryPrefixNode;
+typedef struct {
+  RSToken tok;
+  bool prefix;
+  bool suffix;
+} QueryPrefixNode;
 
 typedef struct {
   RSToken tok;

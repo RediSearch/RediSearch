@@ -22,6 +22,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		MODULE=path           Path to RediSearch module .so
 		BINROOT=path          Path to repo binary root dir
 
+		RLTEST=path|'view'    Take RLTest from repo path or from local view
 		RLTEST_ARGS=args      Extra RLTest args
 		MODARGS=args          RediSearch module arguments
 		TEST=name             Operate in single-test mode
@@ -63,21 +64,24 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-# If current directory has RLTest in it, then we're good to go
-if [[ -d $HERE/RLTest ]]; then
-    true
-    # Do nothing - tests are already loaded
+if [[ $RLTEST == view ]]; then
+	if [[ ! -d $ROOT/../RLTest ]]; then
+		eprint "RLTest not found in view $ROOT"
+		exit 1
+	fi
+    RLTEST=$(cd $ROOT/../RLTest; pwd)
 fi
 
 if [[ -n $RLTEST ]]; then
-    # Specifically search for it in the specified location
-    PYTHONPATH="$PYTHONPATH:$RLTEST"
-else
-    # Assume there is a sibling directory called `RLTest`
-    PYTHONPATH="$PYTHONPATH:$HERE"
-fi
+	if [[ ! -d $RLTEST ]]; then
+		eprint "Invalid RLTest location: $RLTEST"
+		exit 1
+	fi
 
-export PYTHONPATH
+    # Specifically search for it in the specified location
+    export PYTHONPATH="$PYTHONPATH:$RLTEST"
+	[[ $VERBOSE == 1 ]] && echo "PYTHONPATH=$PYTHONPATH"
+fi
 
 #---------------------------------------------------------------------------------------------- 
 
@@ -101,6 +105,9 @@ OP=
 [[ $NOP == 1 ]] && OP=echo
 
 RLTEST_ARGS+=" $@"
+
+RLTEST_ARGS+=" --clear-logs"
+
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
 	[[ $LOG != 1 ]] && RLTEST_ARGS+=" -v -s"
@@ -134,22 +141,25 @@ if [[ -n $SAN ]]; then
 	export SANITIZER="$SAN"
 	export SHORT_READ_BYTES_DELTA=512
 	
-	SAN_ARGS="--no-output-catch --exit-on-failure --check-exitcode --unix"
+	# --no-output-catch --exit-on-failure --check-exitcode
+	SAN_ARGS="--unix --sanitizer $SAN"
 
-	if [[ -z $REJSON_PATH ]]; then
-		if [[ -z $BINROOT ]]; then
-			eprint "BINROOT is not set - cannot build RedisJSON"
+	if [[ -n $REJSON && $REJSON != 0 ]]; then
+		if [[ -z $REJSON_PATH ]]; then
+			if [[ -z $BINROOT ]]; then
+				eprint "BINROOT is not set - cannot build RedisJSON"
+				exit 1
+			fi
+			if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
+				echo Building RedisJSON ...
+				# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
+				$ROOT/sbin/build-redisjson
+			fi
+			export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
+		elif [[ ! -f $REJSON_PATH ]]; then
+			eprint "REJSON_PATH is set to '$REJSON_PATH' but does not exist"
 			exit 1
 		fi
-		if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
-			echo Building RedisJSON ...
-			# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
-			$ROOT/sbin/build-redisjson
-		fi
-		export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
-	elif [[ ! -f $REJSON_PATH ]]; then
-		eprint "REJSON_PATH is set to '$REJSON_PATH' but does not exist"
-		exit 1
 	fi
 
 	if [[ $SAN == addr || $SAN == address ]]; then
@@ -360,6 +370,16 @@ elif [[ $COORD == rlec ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
 	{ (RLTEST_ARGS+="${RLTEST_ARGS} --env existing-env --existing-env-addr $dhost:$RLEC_PORT" \
 	   run_tests "tests on RLEC"); (( E |= $? )); } || true
+fi
+
+if [[ $NOP != 1 && -n $SAN ]]; then
+	if grep -l "leaked in" logs/*.asan.log* &> /dev/null; then
+		echo
+		echo "${LIGHTRED}Sanitizer: leaks detected:${RED}"
+		grep -l "leaked in" logs/*.asan.log*
+		echo "${NOCOLOR}"
+		E=1
+	fi
 fi
 
 exit $E

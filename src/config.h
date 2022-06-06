@@ -4,6 +4,7 @@
 #include "redismodule.h"
 #include "rmutil/sds.h"
 #include "query_error.h"
+#include "fields_global_stats.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -55,7 +56,7 @@ typedef struct {
   // 0 means unlimited
   long long queryTimeoutMS;
 
-  long long timeoutPolicy;
+  RSTimeoutPolicy timeoutPolicy;
 
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
@@ -82,11 +83,13 @@ typedef struct {
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
 
+  FieldsGlobalStats fieldsStats;
+
   // Chained configuration data
   void *chainedConfig;
 
   long long maxResultsToUnsortedMode;
-  long long minUnionIterHeap;;
+  long long minUnionIterHeap;
 
   int noMemPool;
 
@@ -104,6 +107,9 @@ typedef struct {
   int invertedIndexRawDocidEncoding;
   // Default dialect level used throughout database lifetime.
   unsigned int defaultDialectVersion;
+  // sets the memory limit for vector indexes to resize by (in bytes).
+  // 0 indicates no limit. Default value is 0.
+  unsigned int vssMaxResize;
 } RSConfig;
 
 typedef enum {
@@ -161,6 +167,8 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
 
 sds RSConfig_GetInfoString(const RSConfig *config);
 
+void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
+
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
 #define CONCURRENT_SEARCH_POOL_DEFAULT_SIZE 20
@@ -189,7 +197,8 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
-    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1, \
+    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
+    .vssMaxResize = 0,                                                                            \
   }
 
 #define REDIS_ARRAY_LIMIT 7
