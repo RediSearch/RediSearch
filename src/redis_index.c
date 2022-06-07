@@ -467,7 +467,11 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
   RedisModuleCallReply *rep;
-  rep = RedisModule_Call(ctx, "DEL", "c", cstr);
+  if (!isCrdt) {
+    rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
+  } else {
+    rep = RedisModule_Call(ctx, "DEL", "c", cstr);
+  }
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
@@ -481,7 +485,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   SchemaPrefixes_RemoveSpec(spec);
 
   // keys are deleted from slaves automatically
-  if ((isMaster || !isCrdt) && (deleteDocuments || !!(spec->flags & Index_Temporary))) {
+  if (isMaster && (deleteDocuments || !!(spec->flags & Index_Temporary))) {
     DocTable *dt = &spec->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx->redisCtx, dmd->keyPtr));
   }
