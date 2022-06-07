@@ -48,6 +48,7 @@ dict *legacySpecRules;
 Version redisVersion;
 Version rlecVersion;
 bool isCrdt;
+bool isMaster;
 bool isTrimming = false;
 
 // Default values make no limits.

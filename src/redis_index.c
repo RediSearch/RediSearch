@@ -484,7 +484,8 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
 
   SchemaPrefixes_RemoveSpec(spec);
 
-  if (deleteDocuments || (!isCrdt && !!(spec->flags & Index_Temporary))) {
+  // keys are deleted from slaves automatically
+  if (isMaster && (deleteDocuments || !!(spec->flags & Index_Temporary))) {
     DocTable *dt = &spec->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx->redisCtx, dmd->keyPtr));
   }

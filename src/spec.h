@@ -154,6 +154,7 @@ extern Version noScanVersion;
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
+extern bool isMaster;
 extern bool isTrimming;
 
 /**

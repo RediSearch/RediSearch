@@ -837,7 +837,22 @@ static void GetRedisVersion() {
   if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
     isCrdt = false;
   }
+  if (reply) {
+    RedisModule_FreeCallReply(reply);
+  }
 
+  isMaster = false;
+  reply = RedisModule_Call(ctx, "INFO", "c", "REPLICATION");
+  if (reply && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING) {
+    size_t len;
+    // INFO REPLICATION should contain the term role:master in it if we are a master shard
+    const char *str = RedisModule_CallReplyStringPtr(reply, &len);
+    if (str) {
+      if (memmem(str, len, "role:master", strlen("role:master")) != NULL) {
+        isMaster = true;
+      }
+    }
+  }
   if (reply) {
     RedisModule_FreeCallReply(reply);
   }
