@@ -338,7 +338,7 @@ static void HR_Abort(void *ctx) {
   hr->base.isValid = 0;
 }
 
-static size_t HR_LastDocId(void *ctx) {
+static t_docId HR_LastDocId(void *ctx) {
   HybridIterator *hr = ctx;
   return hr->lastDocId;
 }
@@ -434,7 +434,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
     }
     // If user asks explicitly for a policy - use it.
     if (hParams.qParams.searchMode) {
-      hi->searchMode = hParams.qParams.searchMode;
+      hi->searchMode = (VecSimSearchMode)hParams.qParams.searchMode;
     } else {
       // Use a pre-defined heuristics that determines which approach should be faster.
       if (VecSimIndex_PreferAdHocSearch(hParams.index, subset_size, hParams.query.k, true)) {

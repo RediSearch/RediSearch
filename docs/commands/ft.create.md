@@ -171,6 +171,13 @@ FT.CREATE idx ... PREFIX 1 doc: ...
         For `TAG` attributes, keeps the original letter cases of the tags.
         If not specified, the characters are converted to lowercase.
 
+    * **WITHSUFFIXTRIE**
+
+        For `TEXT` and `TAG` attributes, keeps a suffix trie with all terms which match the suffix.
+        Used to optimize `contains` (*foo*) and `suffix` (*foo) queries. Otherwise, a brute-force search on the
+        trie will be performed. If suffix trie exists for some fields, these queries will be disabled for other fields.
+        
+
 @return
 
 @simple-string-reply - `OK` if executed correctly, or @error-reply otherwise.
