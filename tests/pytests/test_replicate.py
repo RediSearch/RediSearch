@@ -146,3 +146,92 @@ def testDropReplicate():
   slave_set = set(slave_keys)
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
+
+
+
+def testDropTempReplicate():
+  env = Env(useSlaves=True, forceTcp=True)
+
+  env.skipOnCluster()
+
+  ## on existing env we can not get a slave connection
+  ## so we can no test it
+  if env.env == 'existing-env':
+        env.skip()
+
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+  env.assertTrue(master.execute_command("ping"))
+  env.assertTrue(slave.execute_command("ping"))
+
+  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+
+  '''
+  This test creates creates a temporary index. then it creates a document and check it exists on both shard.
+  The index is then expires and dropped.
+  The text checks consistency between master and slave where both index and document are deleted.
+  '''
+
+  # test for TEMPORARY FT.DROPINDEX
+  master.execute_command('FT.CREATE', 'idx', 'TEMPORARY', '1', 'SCHEMA', 't', 'TEXT')
+
+  master.execute_command('HSET', 'doc1', 't', 'hello')
+  
+  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+  checkSlaveSynced(env, slave, (['ft._list']), ['idx'], time_out=5)
+
+  master_index = master.execute_command('FT._LIST')
+  slave_index = slave.execute_command('FT._LIST')
+  env.assertEqual(master_index, slave_index)
+
+  time.sleep(1.1)
+  checkSlaveSynced(env, slave, (['ft._list']), [], time_out=5)
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), None, time_out=5)
+
+  master_index = master.execute_command('FT._LIST')
+  slave_index = slave.execute_command('FT._LIST')
+  env.assertEqual(master_index, slave_index)
+
+  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+
+  # check that same docs were deleted by master and slave
+  master_keys = sorted(master.execute_command('KEYS', '*'))
+  slave_keys = sorted(slave.execute_command('KEYS', '*'))
+  env.assertEqual(len(master_keys), 0)
+  env.assertEqual(len(master_keys), len(slave_keys))
+  env.assertEqual(master_keys, slave_keys)
+
+  # show the different documents mostly for test debug info
+  master_set = set(master_keys)
+  slave_set = set(slave_keys)
+  env.assertEqual(master_set.difference(slave_set), set([]))
+  env.assertEqual(slave_set.difference(master_set), set([]))
+
+  # test for FT.DROP
+  master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
+  time.sleep(0.001)
+  master.execute_command('FT.DROP', 'idx')
+
+  # check that same docs were deleted by master and slave
+  time.sleep(0.01)
+  master_keys = sorted(master.execute_command('KEYS', '*'))
+  slave_keys = sorted(slave.execute_command('KEYS', '*'))
+  env.assertEqual(len(master_keys), len(slave_keys))
+  env.assertEqual(master_keys, slave_keys)
+
+  # show the different documents mostly for test debug info
+  master_set = set(master_keys)
+  slave_set = set(slave_keys)
+  env.assertEqual(master_set.difference(slave_set), set([]))
+  env.assertEqual(slave_set.difference(master_set), set([]))
+
+
+
+
+
+  #add test here & hdt
+
+
+
+
+  #add test here & hdt
