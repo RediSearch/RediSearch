@@ -24,6 +24,8 @@ Runs a search query on an index, and performs aggregate transformations on the r
   equivalent of HMGET against a Redis key, which when executed over millions of keys, amounts to very
   high processing times.
 
+  It is possible to add multiple `load` steps. Attributes that are only used for reply and not for query processing, can be load after the results were filtered or limited. The attributes will be loaded only for returned results instead for all results.
+
 * **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties.
   Each group should have at least one reducer (See below), a function that handles the group entries,
   either counting them, or performing multiple aggregate operations (see below).
