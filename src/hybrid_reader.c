@@ -327,7 +327,7 @@ static void HR_Abort(void *ctx) {
   hr->base.isValid = 0;
 }
 
-static size_t HR_LastDocId(void *ctx) {
+static t_docId HR_LastDocId(void *ctx) {
   HybridIterator *hr = ctx;
   return hr->lastDocId;
 }

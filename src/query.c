@@ -499,7 +499,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   } else {
 
     TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
-                           rangeIterCb, &ctx, q->sctx->timeout);
+                           rangeIterCb, &ctx, &q->sctx->timeout);
   }
 
   rm_free(str);
