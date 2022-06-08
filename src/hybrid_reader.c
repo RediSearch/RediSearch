@@ -19,16 +19,16 @@ static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata
 }
 
 // To use in the future, if we will need to sort results by id.
-static int cmpVecSimResById(const void *p1, const void *p2, const void *udata) {
-  const RSIndexResult *e1 = p1, *e2 = p2;
+// static int cmpVecSimResById(const void *p1, const void *p2, const void *udata) {
+//   const RSIndexResult *e1 = p1, *e2 = p2;
 
-  if (e1->docId > e2->docId) {
-    return 1;
-  } else if (e1->docId < e2->docId) {
-    return -1;
-  }
-  return 0;
-}
+//   if (e1->docId > e2->docId) {
+//     return 1;
+//   } else if (e1->docId < e2->docId) {
+//     return -1;
+//   }
+//   return 0;
+// }
 
 // Simulate the logic of "SkipTo", but it is limited to the results in a specific batch.
 static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
@@ -64,7 +64,7 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
 }
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
-                               RSIndexResult *vec_res, float *upper_bound) {
+                               RSIndexResult *vec_res, double *upper_bound) {
 
   RSIndexResult *hit;
   // If we ignore the document score, hit is single node of type DISTANCE.
@@ -96,7 +96,7 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
 }
 
 static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *vecsim_iter,
-                               float *upper_bound) {
+                               double *upper_bound) {
   RSIndexResult *cur_vec_res = NewDistanceResult();
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
   RSIndexResult *cur_res = hr->base.current;
@@ -137,7 +137,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
 }
 
 void computeDistances(HybridIterator *hr) {
-  float upper_bound = INFINITY;
+  double upper_bound = INFINITY;
   RSIndexResult *cur_res = hr->base.current;
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
   RSIndexResult *cur_vec_res = NewDistanceResult();
@@ -150,9 +150,13 @@ void computeDistances(HybridIterator *hr) {
   }
 
   while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
-    float dist = (float)VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, qvector);
+    if(TimedOut_WithCtx(&hr->timeoutCtx)) {
+      hr->list.code = VecSim_QueryResult_TimedOut;
+      break;
+    }
+    double dist = VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, qvector);
     // If this id is not in the vector index (since it was deleted), dist will return as NaN.
-    if (isnanf(dist)) {
+    if (isnan(dist)) {
       continue;
     }
     if (heap_count(hr->topResults) < hr->query.k || dist < upper_bound) {
@@ -225,7 +229,7 @@ static void prepareResults(HybridIterator *hr) {
     return;
   }
   VecSimBatchIterator *batch_it = VecSimBatchIterator_New(hr->index, hr->query.vector, &hr->runtimeParams);
-  float upper_bound = INFINITY;
+  double upper_bound = INFINITY;
   size_t child_num_estimated = hr->child->NumEstimated(hr->child->ctx);
   // Since NumEstimated(child) is an upper bound, it can be higher than index size.
   if (child_num_estimated > VecSimIndex_IndexSize(hr->index)) {
@@ -242,14 +246,15 @@ static void prepareResults(HybridIterator *hr) {
     if (batch_size == 0) {
       batch_size = n_res_left * ((float)vec_index_size / child_num_estimated) + 1;
     }
-    if (hr->list) {
-      VecSimQueryResult_Free(hr->list);
-    }
+    VecSimQueryResult_Free(hr->list);
     if (hr->iter) {
       VecSimQueryResult_IteratorFree(hr->iter);
     }
     // Get the next batch.
     hr->list = VecSimBatchIterator_Next(batch_it, batch_size, BY_ID);
+    if (hr->list.code == VecSim_QueryResult_TimedOut) {
+      break;
+    }
     hr->iter = VecSimQueryResult_List_GetIterator(hr->list);
     hr->child->Rewind(hr->child->ctx);
 
@@ -279,6 +284,9 @@ static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
   if (!hr->resultsPrepared) {
     prepareResults(hr);
     hr->resultsPrepared = true;
+    if (hr->list.code == VecSim_QueryResult_TimedOut) {
+      return INDEXREAD_TIMEOUT;
+    }
   }
   if (!HR_HasNext(ctx)) {
     return INDEXREAD_EOF;
@@ -298,6 +306,9 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
   if (!hr->resultsPrepared) {
     prepareResults(hr);
     hr->resultsPrepared = true;
+    if (hr->list.code == VecSim_QueryResult_TimedOut) {
+      return INDEXREAD_TIMEOUT;
+    }
   }
   if (!HR_HasNext(ctx)) {
     return INDEXREAD_EOF;
@@ -327,7 +338,7 @@ static void HR_Abort(void *ctx) {
   hr->base.isValid = 0;
 }
 
-static size_t HR_LastDocId(void *ctx) {
+static t_docId HR_LastDocId(void *ctx) {
   HybridIterator *hr = ctx;
   return hr->lastDocId;
 }
@@ -336,10 +347,8 @@ static void HR_Rewind(void *ctx) {
   HybridIterator *hr = ctx;
   hr->resultsPrepared = false;
   hr->numIterations = 0;
-  if (hr->list) {
-    VecSimQueryResult_Free(hr->list);
-    hr->list = NULL;
-  }
+  VecSimQueryResult_Free(hr->list);
+  memset(&hr->list, 0, sizeof(hr->list));
   if (hr->iter) {
     VecSimQueryResult_IteratorFree(hr->iter);
     hr->iter = NULL;
@@ -378,7 +387,7 @@ void HybridIterator_Free(struct indexIterator *self) {
     array_free(it->returnedResults);
   }
   IndexResult_Free(it->base.current);
-  if (it->list) VecSimQueryResult_Free(it->list);
+  VecSimQueryResult_Free(it->list);
   if (it->iter) VecSimQueryResult_IteratorFree(it->iter);
   if (it->child) {
     it->child->Free(it->child);
@@ -399,14 +408,14 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   hi->runtimeParams = hParams.qParams;
   hi->scoreField = hParams.vectorScoreField;
   hi->base.isValid = 1;
-  hi->list = NULL;
+  memset(&hi->list, 0, sizeof(hi->list));
   hi->iter = NULL;
   hi->topResults = NULL;
   hi->returnedResults = NULL;
   hi->numIterations = 0;
   hi->ignoreScores = hParams.ignoreDocScore;
-  hi->timeoutCb = TimedOut_WithCtx;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
+  hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
 
   if (hParams.childIt == NULL) {
     hi->searchMode = VECSIM_STANDARD_KNN;
