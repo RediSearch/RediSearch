@@ -8,11 +8,6 @@
 #include <stdio.h>
 #include <sys/param.h>
 
-typedef struct {
-  KHTableEntry khBase;
-  ForwardIndexEntry ent;
-} khIdxEntry;
-
 #define ENTRIES_PER_BLOCK 32
 #define TERM_BLOCK_SIZE 128
 

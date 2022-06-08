@@ -1,6 +1,5 @@
 
-#ifndef __FORWARD_INDEX_H__
-#define __FORWARD_INDEX_H__
+#pragma once
 
 #include "redisearch.h"
 #include "util/block_alloc.h"
@@ -26,7 +25,22 @@ struct ForwardIndexEntry {
   VarintVectorWriter *vw;
 };
 
+struct khIdxEntry {
+  KHTableEntry khBase;
+  ForwardIndexEntry ent;
+};
+
 //---------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------------
+
+struct ForwardIndexIterator {
+  KHTable *hits;
+  KHTableEntry *curEnt;
+  uint32_t curBucketIdx;
+
+  ForwardIndexEntry *Next();
+};
 
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
@@ -81,16 +95,4 @@ struct ForwardIndexTokenizerCtx {
   idx(idx), fieldId(fieldId), fieldScore(score), doc(doc), allOffsets(vvw) {}
 };
 
-//---------------------------------------------------------------------------------------------
-
-struct ForwardIndexIterator {
-  KHTable *hits;
-  KHTableEntry *curEnt;
-  uint32_t curBucketIdx;
-
-  ForwardIndexEntry *Next();
-};
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-#endif

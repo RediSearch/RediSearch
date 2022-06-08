@@ -103,7 +103,7 @@ struct RSAggregateOffsetIterator : public RSOffsetIterator,
 //---------------------------------------------------------------------------------------------
 
 // Create an iterator from the aggregate offset iterators of the aggregate result
-RSAggregateOffsetIterator::RSAggregateOffsetIterator(const RSAggregateResult *agg) {
+RSAggregateOffsetIterator::RSAggregateOffsetIterator(const AggregateResult *agg) {
   res = agg; //@@ ownership
 
   if (agg->numChildren > size) {
@@ -117,14 +117,14 @@ RSAggregateOffsetIterator::RSAggregateOffsetIterator(const RSAggregateResult *ag
   }
 
   for (int i = 0; i < agg->numChildren; i++) {
-    iters[i] = agg->children[i]->IterateOffsets();
+    iters[i] = agg->children[i]->IterateOffsetsInternal();
     offsets[i] = iters[i].Next(&terms[i]);
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-RSAggregateOffsetIterator RSAggregateResult::IterateOffsets() const {
+RSAggregateOffsetIterator AggregateResult::IterateOffsetsInternal() const {
   return new RSAggregateOffsetIterator(this);
 }
 
@@ -183,30 +183,6 @@ RSOffsetEmptyIterator offset_empty_iterator;
 RSOffsetIterator::Proxy::~Proxy() {
   if (it != &offset_empty_iterator) {
     delete it;
-  }
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-// Create the appropriate iterator from a result based on its type
-RSOffsetIterator::Proxy IndexResult::IterateOffsets() const {
-  switch (type) {
-  case RSResultType_Term:
-    return term.offsets.Iterate(term.term);
-
-  // virtual and numeric entries have no offsets and cannot participate
-  case RSResultType_Virtual:
-  case RSResultType_Numeric:
-    return &offset_empty_iterator;
-
-  case RSResultType_Intersection:
-  case RSResultType_Union:
-  default:
-    // if we only have one sub result, just iterate that...
-    if (agg.numChildren == 1) {
-      return agg.children[0].IterateOffsets();
-    }
-    return agg.IterateOffsets();
   }
 }
 

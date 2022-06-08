@@ -361,7 +361,7 @@ void Cursor::runCursor(RedisModuleCtx *outctx, size_t num) {
  */
 
 static void cursorRead(RedisModuleCtx *ctx, CursorId cid, size_t count) {
-  Cursor *cursor = RSCursors.TakeForExecution(cid);
+  Cursor *cursor = RSCursors->TakeForExecution(cid);
   if (cursor == NULL) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;

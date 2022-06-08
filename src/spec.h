@@ -221,8 +221,9 @@ struct IndexSpec {
   void ctor(const char *name);
   void Load(RedisModuleCtx *ctx, const char *name, int openWrite);
   void LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
-  void Parse(name, argv, argc, status);
-  void ParseRedisArgs(ctx, name, argv, argc, status);
+  void Parse(const char *name, const char **argv, int argc, QueryError *status);
+  void ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
+                      RedisModuleString **argv, int argc, QueryError *status);
 
   IndexSpec(const char *name) {
     ctor(name);
@@ -345,10 +346,6 @@ int isRdbLoading(RedisModuleCtx *ctx);
 #define INDEXSPEC_LOAD_KEYLESS 0x10
 
 //---------------------------------------------------------------------------------------------
-
-// Find and load the index using the specified parameters.
-// @return the index spec, or NULL if the index does not exist
-IndexSpec *new IndexSpec(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 // Global hook called when an index spec is created
 extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);

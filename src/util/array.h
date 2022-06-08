@@ -23,7 +23,7 @@ struct Array {
   uint32_t capacity;
   const ArrayAllocProcs *procs;
 
-  void ctor(ArrayAllocatorType allocType)
+  void ctor(ArrayAllocatorType allocType);
   Array(ArrayAllocatorType allocType) { ctor(allocType); }
   Array() { ctor(ArrayAlloc_Default); }
 
@@ -37,5 +37,5 @@ struct Array {
   size_t ARRAY_GETSIZE_AS() { return len / (sizeof(T)); }
   // T ARRAY_GETARRAY_AS() { return data; }
   void *ARRAY_ADD_AS() { return Add(sizeof(T)); }
-  T ARRAY_GETITEM_AS(ix) (data + ix)
+  T ARRAY_GETITEM_AS(size_t ix) (data + ix);
 };

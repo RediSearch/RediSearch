@@ -125,7 +125,7 @@ static dfaNode *dfaNode::getCache(Vector *cache, sparseVector *v) {
 
 //-----------------------------------------------------------------------------
 
-void dfaNode::putCache(Vector *cache) {
+void dfaNode::putCache(Vector<dfaNode *> *cache) {
   cache->Push(this);
 }
 
@@ -206,7 +206,7 @@ void dfaNode::build(SparseAutomaton *a, Vector *cache) {
 * onwards to all suffixes. */
 
 DFAFilter::DFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
-  Vector *cache = new Vector<dfaNode *>(8);
+  cache = new Vector<dfaNode *>(8);
 
   SparseAutomaton *a_ = new SparseAutomaton(str, len, maxDist);
 
@@ -215,7 +215,6 @@ DFAFilter::DFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
   dr->putCache(cache);
   dr->build(a_, cache);
 
-  cache = cache;
   stack = new Vector<dfaNode *>(8);
   distStack = new Vector<int>(8);
   a = &a_;

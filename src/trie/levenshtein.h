@@ -53,7 +53,7 @@ struct dfaNode {
 
     dfaNode *getEdge(rune r);
 
-    static dfaNode *getCache(Vector *cache, sparseVector *v);
+    static dfaNode *getCache(Vector<dfaNode *> *cache, sparseVector *v);
 };
 
 struct dfaEdge {
@@ -66,11 +66,11 @@ struct dfaEdge {
 /* DFAFilter is a constructed DFA used to filter the traversal on the trie */
 struct DFAFilter {
     // a cache of the DFA states, allowing us to re-use the same state whenever we need it
-    Vector *cache;
+    Vector *cache<dfaNode *>;
     // A stack of the states leading up to the current state
-    Vector *stack;
+    Vector *stack<dfaNode *>;
     // A stack of the minimal distance for each state, used for prefix matching
-    Vector *distStack;
+    Vector *distStack<int>;
     // whether the filter works in prefix mode or not
     int prefixMode;
 

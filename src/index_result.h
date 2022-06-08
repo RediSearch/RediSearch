@@ -5,6 +5,7 @@
 #include "redisearch.h"
 #include "rmalloc.h"
 #include "forward_index.h"
+#include "offset_vector.c"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -47,7 +48,15 @@ struct AggregateResult : IndexResult {
 
   bool IsWithinRange(int maxSlop, bool inOrder) const;
 
-  RSAggregateOffsetIterator IterateOffsets() const;
+  RSAggregateOffsetIterator IterateOffsetsInternal() const;
+
+  RSOffsetIterator::Proxy IterateOffsets() const {
+    // if we only have one sub result, just iterate that...
+    if (numChildren == 1) {
+      return children[0].IterateOffsetsInternal();
+    }
+    return IterateOffsetsInternal();
+  }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -97,6 +106,10 @@ struct TermResult : public IndexResult {
   bool HasOffsets() const;
 
   void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len);
+
+  RSOffsetIterator::Proxy IterateOffsets() const {
+    return offsets.Iterate(term.term);
+  }
 };
 
 //---------------------------------------------------------------------------------------------

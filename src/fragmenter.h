@@ -1,5 +1,4 @@
-#ifndef FRAGMENTER_H
-#define FRAGMENTER_H
+#pragma once
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -105,7 +104,7 @@ struct Fragment {
 
 struct FragmentList {
   // Array of fragments
-  Array frags;
+  Array frags<Fragment *>;
 
   // Array of indexes (in frags), sorted by score
   const Fragment **sortedFrags;
@@ -206,5 +205,3 @@ struct HighlightTags {
  * First select the highest scoring elements and then sort them by position
  */
 #define HIGHLIGHT_ORDER_SCOREPOS 0x03
-
-#endif

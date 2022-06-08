@@ -101,7 +101,6 @@ struct QueryNode {
   QueryNodeOptions opts;
   struct QueryNode **children;
 
-  int ApplyAttributes(QueryAttribute *attr, size_t len, QueryError *status);
   int ApplyAttributes(QueryAttribute *attrs, size_t len, QueryError *status);
 
   void AddChildren(QueryNode **children_, size_t n);

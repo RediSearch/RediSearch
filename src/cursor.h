@@ -83,7 +83,7 @@ struct CursorList : public Object {
   size_t cursorCount;
 
   // List of idle cursors
-  Array idle;
+  Array<Cursor *> idle;
 
   std::mutex lock;
 

@@ -1,5 +1,4 @@
-#ifndef __TRIEMAP_H__
-#define __TRIEMAP_H__
+#pragma once
 
 #include <stdint.h>
 #include <stdio.h>
@@ -54,9 +53,9 @@ struct TrieMapNode : Object {
   char str[];
 
   TrieMapNode(char *str_, tm_len_t offset, tm_len_t len_, tm_len_t numChildren,
-              void *value, int terminal);
+              void *value_, bool terminal);
 
-  int Add(char *str_, tm_len_t len_, void *value, TrieMapReplaceFunc cb);
+  bool Add(char *str_, tm_len_t len_, void *value_, TrieMapReplaceFunc cb);
   void *Find(char *str_, tm_len_t len_);
   int Delete(char *str_, tm_len_t len_, void (*freeCB)(void *));
   TrieMapNode *RandomWalk(int minSteps, char **str_, tm_len_t *len_);
@@ -80,7 +79,7 @@ struct TrieMapNode : Object {
   bool isDeleted() { return flags & TM_NODE_DELETED;}
 
   TrieMapNode *MergeWithSingleChild();
-  void AddChild(char *str_, tm_len_t offset, tm_len_t len_, void *value);
+  void AddChild(char *str_, tm_len_t offset, tm_len_t len_, void *value_);
   void Split(tm_len_t offset);
   void sortChildren();
   void resizeChildren(int offset);
@@ -91,6 +90,8 @@ struct TrieMapNode : Object {
   static int CompareCommon(const void *h, const void *e, bool prefix);
   static int CompareExact(const void *h, const void *e);
   static int ComparePrefix(const void *h, const void *e);
+
+  static int Cmp(const void *p1, const void *p2);
 };
 
 /**************  Iterator API  - not ported from the textual trie yet
@@ -131,8 +132,9 @@ struct TrieMap : Object {
   size_t cardinality;
 
   TrieMap();
+  ~TrieMap();
 
-  int Add(char *str_, tm_len_t len_, void *value, TrieMapReplaceFunc cb);
+  bool Add(char *str_, tm_len_t len_, void *value, TrieMapReplaceFunc cb);
   void *Find(char *str_, tm_len_t len_);
   int Delete(char *str_, tm_len_t len_, void (*freeCB)(void *));
   void Free(void (*freeCB)(void *));
@@ -145,5 +147,3 @@ struct TrieMap : Object {
                     TrieMapRangeCallback callback, void *ctx);
   TrieMapIterator *Iterate(const char *prefix, tm_len_t prefixLen);
 };
-
-#endif

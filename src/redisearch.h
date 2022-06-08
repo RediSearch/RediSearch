@@ -336,7 +336,9 @@ struct IndexResult : public Object {
   bool withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num, int maxSlop);
 
   // Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed
-  RSOffsetIterator::Proxy IterateOffsets() const;
+  virtual RSOffsetIterator::Proxy IterateOffsets() const {
+    return &offset_empty_iterator;
+  }
 };
 #pragma pack()
 

@@ -564,7 +564,7 @@ int FragmentTermIterator::Next(FragmentTerm **termInfo) {
 void FragmentList::Dump() const {
   printf("NumFrags: %u\n", numFrags);
   for (size_t ii = 0; ii < numFrags; ++ii) {
-    const Fragment *frag = ARRAY_GETITEM_AS(&frags, ii, Fragment *);
+    const Fragment *frag = frags.ARRAY_GETITEM_AS(ii);
     printf("Frag[%lu]: Buf=%p, (pos=%lu), Len=%u\n", ii, frag->buf, frag->buf - doc,
            frag->len);
     printf("  Score: %f, Rank=%u. Total Tokens=%u\n", frag->score, frag->scoreRank,

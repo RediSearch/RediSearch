@@ -135,8 +135,8 @@ void CursorList::Free(Cursor *cur, khiter_t khi) {
 //---------------------------------------------------------------------------------------------
 
 void CursorList::ForEach(std::function<void(CursorList&, Cursor&, void *)> f, void *arg) {
-  for (size_t i = 0; i < ARRAY_GETSIZE_AS(&idle, Cursor *); ++i) {
-    Cursor *cur = *ARRAY_GETITEM_AS(&idle, i, Cursor **);
+  for (size_t i = 0; i < idle.ARRAY_GETSIZE_AS(); ++i) {
+    Cursor *cur = *idle.ARRAY_GETITEM_AS(i);
     Cursor *oldCur = NULL;
 
     // The cursor `cur` might have been changed in the callback, if it has been
@@ -148,7 +148,7 @@ void CursorList::ForEach(std::function<void(CursorList&, Cursor&, void *)> f, vo
       f(*this, *cur, arg);
       oldCur = cur;
       if (idle.len > i) {
-        cur = *ARRAY_GETITEM_AS(&idle, i, Cursor **);
+        cur = *idle.ARRAY_GETITEM_AS(i);
       }
     }
   }

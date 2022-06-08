@@ -196,7 +196,7 @@ int AREQ::handleCommonArgs(ArgsCursor *ac, bool allowLegacy, QueryError *status)
 
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int isLegacy) {
   // Assume argument is at 'SORTBY'
-  ArgsCursor subArgs = {0};
+  ArgsCursor subArgs;
   int rv;
   int legacyDesc = 0;
 
@@ -230,15 +230,15 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   if (isLegacy) {
     // Legacy demands one field and an optional ASC/DESC parameter. Both
     // of these are handled above, so no need for argument parsing
-    const char *s = &subArgs->GetStringNC(NULL);
+    const char *s = subArgs.GetStringNC(NULL);
     keys = array_append(keys, s);
 
     if (legacyDesc) {
       SORTASCMAP_SETDESC(ascMap, 0);
     }
   } else {
-    while (!&subArgs->IsAtEnd()) {
-      const char *s = &subArgs->GetStringNC(NULL);
+    while (!subArgs.IsAtEnd()) {
+      const char *s = subArgs.GetStringNC(NULL);
       if (*s == '@') {
         if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
           QERR_MKBADARGS_FMT(status, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
@@ -384,7 +384,7 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
   searchOpts->legacy.ninfields = inFields.argc;
   searchOpts->language = RSLanguage_Find(languageStr);
 
-  if (&returnFields->IsInitialized()) {
+  if (returnFields.IsInitialized()) {
     ensureSimpleMode();
 
     outFields.explicitReturn = 1;
@@ -392,8 +392,8 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
       reqflags |= QEXEC_F_SEND_NOFIELDS;
     }
 
-    while (!&returnFields->IsAtEnd()) {
-      const char *name = &returnFields->GetStringNC(NULL);
+    while (!returnFields.IsAtEnd()) {
+      const char *name = returnFields.GetStringNC(NULL);
       ReturnedField *f = outFields.GetCreateField(name);
       f->explicitReturn = 1;
     }
@@ -411,16 +411,16 @@ char *PLN_Reducer::getAlias(const char *func) {
   // only put parentheses if we actually have args
   char buf[255];
   ArgsCursor tmp = args;
-  while (!&tmp->IsAtEnd()) {
+  while (!tmp.IsAtEnd()) {
     size_t l;
-    const char *s = &tmp->GetStringNC(&l);
+    const char *s = tmp.GetStringNC(&l);
     while (*s == '@') {
       // Don't allow the leading '@' to be included as an alias!
       ++s;
       --l;
     }
     out = sdscatlen(out, s, l);
-    if (!&tmp->IsAtEnd()) {
+    if (!tmp.IsAtEnd()) {
       out = sdscat(out, ",");
     }
   }
@@ -666,14 +666,14 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
 
   // Parse the query and basic keywords first..
   ArgsCursor ac = {0};
-  &ac->InitSDS(args, nargs);
+  ac.InitSDS(args, nargs);
 
-  if (&ac->IsAtEnd()) {
+  if (ac.IsAtEnd()) {
     status->SetError(QUERY_EPARSEARGS, "No query string provided");
     return REDISMODULE_ERR;
   }
 
-  query = &ac->GetStringNC(NULL);
+  query = ac.GetStringNC(NULL);
 
   if (parseQueryArgs(&ac, &searchopts, &ap, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -683,7 +683,7 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
 
   // Now we have a 'compiled' plan. Let's get some more options..
 
-  while (!&ac->IsAtEnd()) {
+  while (!ac.IsAtEnd()) {
     int rv = handleCommonArgs(&ac, !!(reqflags & QEXEC_F_IS_SEARCH), status);
     if (rv == ARG_HANDLED) {
       continue;
@@ -691,22 +691,22 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
-    if (&ac->AdvanceIfMatch("GROUPBY")) {
+    if (ac.AdvanceIfMatch("GROUPBY")) {
       if (!ensureExtendedMode("GROUPBY", status)) {
         return REDISMODULE_ERR;
       }
       if (parseGroupby(&ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
-    } else if (&ac->AdvanceIfMatch("APPLY")) {
+    } else if (ac.AdvanceIfMatch("APPLY")) {
       if (handleApplyOrFilter(&ac, true, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
-    } else if (&ac->AdvanceIfMatch("LOAD")) {
+    } else if (ac.AdvanceIfMatch("LOAD")) {
       if (handleLoad(&ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
-    } else if (&ac->AdvanceIfMatch("FILTER")) {
+    } else if (ac.AdvanceIfMatch("FILTER")) {
       if (handleApplyOrFilter(&ac, false, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
@@ -736,7 +736,7 @@ void QueryAST::applyGlobalFilters(RSSearchOptions &opts, const RedisSearchCtx &s
   if (opts.inkeys) {
     opts.inids = rm_malloc(sizeof(*opts.inids) * opts.ninkeys);
     for (size_t ii = 0; ii < opts.ninkeys; ++ii) {
-      t_docId did = &sctx.spec->docs->GetId(opts.inkeys[ii], strlen(opts.inkeys[ii]));
+      t_docId did = sctx.spec->docs.GetId(opts.inkeys[ii], strlen(opts.inkeys[ii]));
       if (did) {
         opts.inids[opts.nids++] = did;
       }
@@ -959,13 +959,13 @@ ResultProcessor *AREQ::getScorerRP() {
   if (!scorer) {
     scorer = DEFAULT_SCORER_NAME;
   }
-  ScoringFunctionArgs scargs = {0};
+  ScoringFunctionArgs scargs;
   if (reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
   }
   ExtScoringFunction *fns = Extensions::GetScoringFunction(&scargs, scorer);
   RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
-  sctx->spec->GetStats(&scargs.indexStats);
+  sctx->spec->GetStats(scargs.indexStats);
   scargs.qdata = ast->udata;
   scargs.qdatalen = ast->udatalen;
   ResultProcessor *rp = new RPScorer(fns, &scargs);
@@ -1153,8 +1153,8 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
           goto error;
         }
         // Get all the keys for this lookup...
-        while (!&lstp->args->IsAtEnd()) {
-          const char *s = &lstp->args->GetStringNC(NULL);
+        while (!lstp->args.IsAtEnd()) {
+          const char *s = lstp->args.GetStringNC(NULL);
           if (*s == '@') {
             s++;
           }

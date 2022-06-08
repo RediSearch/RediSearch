@@ -9,7 +9,7 @@
  * temporarily.
  * Works like C++ std::vector with an underlying resizable buffer
  */
-template<class T>
+template<class T = void>
 struct Vector : public Object {
   T *data;
   size_t elemSize;

@@ -1,5 +1,4 @@
-#ifndef __QINT_H__
-#define __QINT_H__
+#pragma once
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -9,7 +8,7 @@
 #define QINT_API
 #endif
 
-/* QInt - fast encoding and decoding of up to 4 unsinged 32 bit integers  as variable width
+/* QInt - fast encoding and decoding of up to 4 unsinged 32 bit integers as variable width
  * integers. The algorithm uses a leading byte to encode the size of each integer in bits, and has a
  * table for the actual offsets of each integer, per possible leading byte */
 
@@ -48,5 +47,3 @@ QINT_API size_t qint_decode3(BufferReader *br, uint32_t *i, uint32_t *i2, uint32
  * with encode4 or encoded array of len 4 */
 QINT_API size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3,
                              uint32_t *i4);
-
-#endif

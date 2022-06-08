@@ -1,6 +1,5 @@
 
-#ifndef SRC_PHONETIC_MANAGER_H_
-#define SRC_PHONETIC_MANAGER_H_
+#pragma once
 
 #include <stddef.h>
 
@@ -12,5 +11,3 @@ struct PhoneticManagerCtx {
 
   static void ExpandPhonetics(const char* term, size_t len, char** primary, char** secondary);
 };
-
-#endif /* SRC_PHONETIC_MANAGER_H_ */
