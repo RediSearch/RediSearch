@@ -149,7 +149,6 @@ def testDelReuse():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').equal(res)
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     for i in range(n_vec):
         vector = np.random.rand(1, vec_size).astype(np.float32)
@@ -1289,3 +1288,63 @@ def test_rdb_memory_limit():
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
+
+def test_timeout_reached():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    nshards = env.shardsCount
+
+    vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 80000 * nshards)]
+    hybrid_modes = ['HYBRID_BATCHES', 'HYBRID_ADHOC_BF']
+    dim = 10
+
+    for algo, n_vec in vecsim_algorithms_and_sizes:
+        # succeed to create indexes with no limits
+        query_vec = load_vectors_to_redis(env, n_vec, 0, dim)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, '8', 'TYPE', 'FLOAT32',
+                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec, 't', 'TEXT').ok()
+        waitForIndex(env, 'idx')
+
+        # STANDART KNN
+        # run query with no timeout. should succeed.
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                   'TIMEOUT', 0)
+        env.assertEqual(res[0], n_vec)
+        # run query with 1 milisecond timeout. should fail.
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                   'TIMEOUT', 1)
+        env.assertEqual(res[0], 0)
+
+        # HYBRID MODES
+        # Todo: uncomment when hybrid optional arguments is merged, in the meantime arrange manually settings
+        #  that will test both modes.
+        for i in range(int(n_vec/20)):
+            vector = np.random.rand(1, dim).astype(np.float32)
+            conn.execute_command('HSET', n_vec+i, 'vector', vector.tobytes(), 't', 'dummy')
+        prefix = "_" if env.isCluster() else ""
+        for mode in hybrid_modes:
+            # to trigger ad-hoc BF, use a filter that is passed by a ~5% of the vectors, and for batches use a filter
+            # that is passed by ~95% of the vectors.
+            hybrid_query_filter = "dummy" if mode == 'HYBRID_ADHOC_BF' else '-dummy'
+            n_res = int(n_vec/20) if mode == 'HYBRID_ADHOC_BF' else n_vec
+            # res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+            #                            'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+            #                            'TIMEOUT', 0)
+            res = conn.execute_command('FT.SEARCH', 'idx', f'({hybrid_query_filter})=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_res,
+                                       'PARAMS', 4, 'K', n_res, 'vec_param', query_vec.tobytes(),
+                                       'TIMEOUT', 0)
+            env.assertEqual(res[0], n_res)
+            env.assertEqual(env.cmd(prefix + "FT.DEBUG", "VECSIM_INFO", "idx", "vector")[-1], mode)
+
+            # res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+            #                            'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+            #                            'TIMEOUT', 1)
+            res = conn.execute_command('FT.SEARCH', 'idx', f'({hybrid_query_filter})=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_res,
+                                       'PARAMS', 4, 'K', n_res, 'vec_param', query_vec.tobytes(),
+                                       'TIMEOUT', 1)
+            env.assertEqual(res[0], 0)
+            env.assertEqual(env.cmd(prefix + "FT.DEBUG", "VECSIM_INFO", "idx", "vector")[-1], mode)
+
+        conn.flushall()

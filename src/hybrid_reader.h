@@ -51,7 +51,6 @@ typedef struct {
   //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
   size_t numIterations;
   bool ignoreScores;               // Ignore the document scores, only vector score matters.
-  TimeoutCb timeoutCb;             // Timeout callback function
   TimeoutCtx timeoutCtx;           // Timeout parameters
 } HybridIterator;
 

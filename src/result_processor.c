@@ -86,12 +86,16 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   while (1) {
     rc = it->Read(it->ctx, &r);
     // This means we are done!
-    if (rc == INDEXREAD_EOF) {
+    switch (rc) {
+    case INDEXREAD_EOF:
       return RS_RESULT_EOF;
-    } else if (!r || rc == INDEXREAD_NOTFOUND) {
-      continue;
-    } else if (rc == INDEXREAD_TIMEOUT) {
+    case INDEXREAD_TIMEOUT:
       return RS_RESULT_TIMEDOUT;
+    case INDEXREAD_NOTFOUND:
+      continue;
+    default: // INDEXREAD_OK
+      if (!r)
+        continue;
     }
 
     dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);
@@ -744,7 +748,7 @@ void RP_DumpChain(const ResultProcessor *rp) {
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-/// Profile RP                                                             ///
+/// Profile RP                                                               ///
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
