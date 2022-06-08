@@ -53,6 +53,7 @@ struct DocumentIndexer;
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
+#define SPEC_WITHSUFFIXTRIE_STR "WITHSUFFIXTRIE"
 
 #define DEFAULT_SCORE 1.0
 
@@ -83,19 +84,7 @@ struct DocumentIndexer;
        .len = &dummy2,                                                      \
        .type = AC_ARGTYPE_STRING},
 
-/**
- * If wishing to represent field types positionally, use this
- * enum. Since field types are a bitmask, it's pointless to waste
- * space like this
- */
-
-static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
-                                      [IXFLDPOS_NUMERIC] = SPEC_NUMERIC_STR,
-                                      [IXFLDPOS_GEO] = SPEC_GEO_STR,
-                                      [IXFLDPOS_TAG] = SPEC_TAG_STR,
-                                      [IXFLDPOS_VECTOR] = SPEC_VECTOR_STR};
-
-// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace 
+// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
@@ -148,6 +137,7 @@ typedef enum {
   Index_FromLLAPI = 0x2000,
   Index_HasFieldAlias = 0x4000,
   Index_HasVecSim = 0x8000,
+  Index_HasSuffixTrie = 0x10000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -245,8 +235,8 @@ typedef struct IndexSpec {
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields
 
-  IndexStats stats;               // Statistics of memory used and quantities 
-  IndexFlags flags;               // Flags                   
+  IndexStats stats;               // Statistics of memory used and quantities
+  IndexFlags flags;               // Flags
 
   Trie *terms;                    // Trie of all terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of suffix tokens of terms. Used for contains queries
@@ -328,7 +318,7 @@ typedef struct IndexSpecCache {
 void Spec_AddToDict(const IndexSpec *spec);
 
 /**
- * compare redis versions
+ * Compare redis versions
  */
 int CompareVestions(Version v1, Version v2);
 
@@ -419,6 +409,12 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
+#ifdef FTINFO_FOR_INFO_MODULES
+/**
+ * Exposing all the fields of the index to INFO command.
+ */
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
+#endif
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -540,6 +536,8 @@ typedef struct IndexesScanner {
   size_t scannedKeys, totalKeys;
   bool cancelled;
 } IndexesScanner;
+
+double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
 
 //---------------------------------------------------------------------------------------------
 

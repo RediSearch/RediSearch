@@ -21,7 +21,7 @@ FT.CREATE idx ... PREFIX 1 doc: ...
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
 * **ON {data_type}** currently supports HASH (default) and JSON.
-  
+
 !!! info "ON JSON"
   To index JSON, you must have the [RedisJSON](https://redisjson.io) module installed.
 
@@ -31,7 +31,7 @@ FT.CREATE idx ... PREFIX 1 doc: ...
 
 * **LANGUAGE {default_lang}**: If set indicates the default language for documents in the index. Default to English.
 * **LANGUAGE_FIELD {lang_attribute}**: If set indicates the document attribute that should be used as the document language.
-  
+
 !!! info "Supported languages"
   A stemmer is used for the supplied language during indexing.
   If an unsupported language is sent, the command returns an error.
@@ -130,9 +130,9 @@ FT.CREATE idx ... PREFIX 1 doc: ...
         Numeric, tag (not supported with JSON) or text attributes can have the optional **SORTABLE** argument. As the user [sorts the results by the value of this attribute](/redisearch/reference/sorting), the results will be available with very low latency. (this adds memory overhead so consider not to declare it on large text attributes).
 
     * **UNF**
-        
-        By default, SORTABLE applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using UNF (un-normalized form) it is possible to disable the normalization and keep the original form of the value. 
-  
+
+        By default, SORTABLE applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using UNF (un-normalized form) it is possible to disable the normalization and keep the original form of the value.
+
     * **NOSTEM**
 
         Text attributes can have the NOSTEM argument which will disable stemming when indexing its values.
@@ -170,6 +170,13 @@ FT.CREATE idx ... PREFIX 1 doc: ...
 
         For `TAG` attributes, keeps the original letter cases of the tags.
         If not specified, the characters are converted to lowercase.
+
+    * **WITHSUFFIXTRIE**
+
+        For `TEXT` and `TAG` attributes, keeps a suffix trie with all terms which match the suffix.
+        Used to optimize `contains` (*foo*) and `suffix` (*foo) queries. Otherwise, a brute-force search on the
+        trie will be performed. If suffix trie exists for some fields, these queries will be disabled for other fields.
+        
 
 @return
 

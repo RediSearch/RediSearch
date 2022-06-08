@@ -169,7 +169,8 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   *sctx = (RedisSearchCtx){.spec = sp,  // newline
                            .redisCtx = ctx,
                            .key_ = loadOpts.keyp,
-                           .refcount = 1};
+                           .refcount = 1,
+                           .timeout = { 0, 0 } };
   return sctx;
 }
 
@@ -357,9 +358,9 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
     }
   }
 
-  if (!idx->numDocs || 
+  if (!idx->numDocs ||
      (Index_StoreFieldMask(ctx->spec) && !(idx->fieldMask & fieldMask))) {
-    // empty index! or index does not have results from requested field. 
+    // empty index! or index does not have results from requested field.
     // pass
     goto err;
   }

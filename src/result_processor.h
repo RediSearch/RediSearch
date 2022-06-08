@@ -242,7 +242,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
  *  Counter Processor
  *
  * This processor counts the search results.
- * 
+ *
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
 

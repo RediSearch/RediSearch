@@ -571,7 +571,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
   QASTCXX ast;
   ast.setContext(&ctx);
   int ver = 2;
-  
+
   const char *vqt[] = {
     "(hello world)=>[KNN 10 @vec $BLOB]",
     "@title:(hello|world)=>[KNN 10 @vec $BLOB]",

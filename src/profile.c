@@ -107,7 +107,7 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
   // Print total time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Total profile time");
-  if (PROFILE_VERBOSE) 
+  if (PROFILE_VERBOSE)
       RedisModule_ReplyWithDouble(ctx, (double)req->totalTime / CLOCKS_PER_MILLISEC);
   nelem++;
 
