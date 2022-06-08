@@ -709,16 +709,7 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
     return res;
   }
   res->id = MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
-  // if the id contains curly braces, get rid of them now
-  if (res->id) {
-    MRKey mk;
-    MRKey_Parse(&mk, res->id, res->idLen);
-    res->idLen = mk.baseLen;
-    res->id = (char *)mk.base;
-    if (mk.shardLen) {
-      res->id[res->idLen] = '\0';
-    }
-  } else {  // this usually means an invalid result
+  if (!res->id) {
     return res;
   }
   // parse socre
