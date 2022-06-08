@@ -837,6 +837,7 @@ static void GetRedisVersion() {
   if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
     isCrdt = false;
   }
+
   if (reply) {
     RedisModule_FreeCallReply(reply);
   }
