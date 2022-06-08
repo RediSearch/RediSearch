@@ -487,7 +487,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   if (deleteDocuments || !!(spec->flags & Index_Temporary)) {
     // keys are deleted from slaves automatically
     if (RedisModule_GetContextFlags && 
-          (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_MASTER)) {
+          (RedisModule_GetContextFlags(ctx->redisCtx) & REDISMODULE_CTX_FLAGS_MASTER)) {
       DocTable *dt = &spec->docs;
       DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx->redisCtx, dmd->keyPtr));
     }
