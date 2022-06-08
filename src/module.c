@@ -841,28 +841,6 @@ static void GetRedisVersion() {
     RedisModule_FreeCallReply(reply);
   }
 
-  isMaster = true;
-  if (RedisModule_GetContextFlags) {
-    if (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SLAVE) {
-      isMaster = false;
-    }
-  } else { // this is an older version w/o RedisModule_GetContextFlags
-    reply = RedisModule_Call(ctx, "INFO", "c", "REPLICATION");
-    if (reply && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING) {
-      size_t len;
-      // INFO REPLICATION should contain the term role:master in it if we are a master shard
-      const char *str = RedisModule_CallReplyStringPtr(reply, &len);
-      if (str) {
-        if (memmem(str, len, "role:slave", strlen("role:slave")) != NULL) {
-          isMaster = false;
-        }
-      }
-    }
-    if (reply) {
-      RedisModule_FreeCallReply(reply);
-    }
-  }
-
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
