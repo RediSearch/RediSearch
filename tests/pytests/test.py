@@ -3228,7 +3228,7 @@ def test_empty_field_name(env):
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])
 
 def test_free_resources_on_thread(env):
-    env.skipOnCluster()
+    env.skip()      # testing fails as it depends of OS scheduling
     conn = getConnectionByEnv(env)
     pl = conn.pipeline()
     results = []
