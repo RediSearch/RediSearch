@@ -11,7 +11,7 @@ def testConfigErrors(env):
     env.skipOnCluster()
     env.expect('ft.config', 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
     env.expect('ft.config', 'no_such_command', 'idx').equal('No such configuration action')
-    env.expect('ft.config', 'idx').error().contains("wrong number of arguments for 'ft.config' command")
+    env.expect('ft.config', 'idx').error().contains("wrong number of arguments")
 
 def testGetConfigOptions(env):
     env.skipOnCluster()
