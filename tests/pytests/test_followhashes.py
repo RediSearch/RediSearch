@@ -491,7 +491,7 @@ def testExpire(env):
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
     conn.execute_command('HSET', 'doc1', 'test', 'foo')
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-    conn.execute_command('PEXPIRE', 'doc1', '1')
+    conn.execute_command('PEXPIRE', 'doc1', '100')
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
     sleep(1.1)
     env.expect('FT.SEARCH idx foo').equal([0])
