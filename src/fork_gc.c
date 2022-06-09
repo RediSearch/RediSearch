@@ -781,6 +781,8 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
       dictDelete(sctx->spec->keysDict, termKey);
     }
     Trie_Delete(sctx->spec->terms, term, len);
+    sctx->spec->stats.numTerms--;
+    sctx->spec->stats.termsSize -= len;
     RedisModule_FreeString(sctx->redisCtx, termKey);
     if (sctx->spec->suffix) {
       deleteSuffixTrie(sctx->spec->suffix, term, len);

@@ -406,6 +406,17 @@ def test_SkipFieldWithNoMatch(env):
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
   env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
 
+def test_update_num_terms(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't', 'foo')
+  conn.execute_command('HSET', 'doc1', 't', 'bar')
+  assertInfoField(env, 'idx', 'num_terms', '2')
+  forceInvokeGC(env, 'idx')
+  assertInfoField(env, 'idx', 'num_terms', '1')
 
 def testOverMaxResults():
   env = Env(moduleArgs='MAXSEARCHRESULTS 20')
