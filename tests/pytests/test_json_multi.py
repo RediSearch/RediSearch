@@ -85,3 +85,40 @@ def testMultiText(env):
     
     env.expect('FT.SEARCH', 'idx2', '@category:(programming science)=>{$slop:200; $inorder:false}', 'RETURN', '1', 'category').equal(res1)
     env.expect('FT.SEARCH', 'idx2', '@category:(programming science)=>{$slop:5; $inorder:false}', 'RETURN', '1', 'category').equal([0])
+
+
+def testMultiNonText(env):
+    # test multiple TEXT values includind some non-text values (null, number, bool, array, object)
+    conn = getConnectionByEnv(env)
+    
+    # Skip nulls without failing
+    # fail on number, bool, object, arr of strings, arr with mixed types
+    doc_content = r'''{
+        "attr1": ["first", "second", null, "third", null , "null", null],
+        "attr2": "third",
+        "attr3": [null, null],
+        "attr4": [],
+        "attr5": null,
+        "attr6": ["first", "second", null, "third", null, 2.04 ],
+        "attr7": ["first", "second", null, "third", null, false ],
+        "attr8": ["first", "second", null, "third", null, {"obj": "ection"} ],
+        "attr9": ["first", "second", null, "third", null, ["recursi", "on"] ],
+        "attr10": ["first", "second", null, "third", null, ["recursi", 50071] ]
+    }
+    '''
+    for i in range(1, 11):
+        env.execute_command('FT.CREATE', 'idx{}'.format(i), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i), 'AS', 'attr', 'TEXT')
+    env.expect('JSON.SET', 'doc:1', '$', doc_content).ok()
+    
+    # First 5 indices are OK (nulls are skipped)
+    for i in range(1, 6):
+        env.assertEqual(int(index_info(env, 'idx{}'.format(i))['hash_indexing_failures']), 0)
+    env.expect('FT.SEARCH', 'idx1', '@attr:(third)', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx2', '@attr:(third)', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # Other indices are not OK
+    for i in range(6, 11):
+        env.assertEqual(int(index_info(env, 'idx{}'.format(i))['hash_indexing_failures']), 1)
+        
+
+    
