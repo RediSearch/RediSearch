@@ -11,10 +11,12 @@ By default, FT.DROPINDEX does not delete the document hashes associated with the
 
 @simple-string-reply - `OK` if executed correctly, or @error-reply otherwise.
 
-!!! note
-     When using FT.DROPINDEX with the parameter DD, if an index creation is still running (FT.CREATE is running asynchronously),
-     only the document hashes that have already been indexed are deleted. The document hashes left to be indexed will remain in the database.
-     You can use FT.INFO to check the completion of the indexing.
+
+{{% alert title="Partial FT.DROPINDEX" color="info" %}}
+When using FT.DROPINDEX with the parameter DD, if an index creation is still running (FT.CREATE is running asynchronously),
+only the document hashes that have already been indexed are deleted. The document hashes left to be indexed will remain in the database.
+You can use FT.INFO to check the completion of the indexing.
+{{% /alert %}}
 
 @examples
 

@@ -91,8 +91,9 @@ FT.AGGREGATE books-idx *
       REDUCE MAX 1 @num_published AS max_books_published_per_year
 ```
 
-!!! tip "Reducing all results"
-    The last example used `GROUPBY 0`. Use `GROUPBY 0` to apply a `REDUCE` function over all results from the last step of an aggregation pipeline -- this works on both the  initial query and subsequent `GROUPBY` operations.
+{{% alert title="Reducing all results" color="info" %}}
+The last example used `GROUPBY 0`. Use `GROUPBY 0` to apply a `REDUCE` function over all results from the last step of an aggregation pipeline -- this works on both the  initial query and subsequent `GROUPBY` operations.
+{{% /alert %}}
 
 Searching for libraries within 10 kilometers of the longitude -73.982254 and latitude 40.753181 then annotating them with the distance between their location and those coordinates:
 
@@ -104,8 +105,9 @@ Searching for libraries within 10 kilometers of the longitude -73.982254 and lat
 
 Here, we needed to use `LOAD` to pre-load the @location attribute because it is a GEO attribute.
 
-!!! tip "More examples"
-    For more details on aggregations and detailed examples of aggregation queries, see [aggregations](/redisearch/reference/aggregations).
+{{% alert title="More examples" color="info" %}}
+For more details on aggregations and detailed examples of aggregation queries, see [aggregations](/redisearch/reference/aggregations).
+{{% /alert %}}    
 
 Here we are counting GitHub events by user (actor), to produce the most active users:
 

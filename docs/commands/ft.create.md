@@ -1,13 +1,16 @@
 Creates an index with the given spec.
 
-!!! warning "Note on attribute number limits"
-    RediSearch supports up to 1024 attributes per schema, out of which at most 128 can be TEXT attributes.
-    On 32 bit builds, at most 64 attributes can be TEXT attributes.
-    Note that the more attributes you have, the larger your index will be, as each additional 8 attributes require one extra byte per index record to encode.
-    You can always use the `NOFIELDS` option and not encode attribute information into the index, for saving space, if you do not need filtering by text attributes. This will still allow filtering by numeric and geo attributes.
 
-!!! info "Note on running in clustered databases"
-    When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
+{{% alert title="Note on attribute number limits" color="warning" %}}
+  RediSearch supports up to 1024 attributes per schema, out of which at most 128 can be TEXT attributes.
+  On 32 bit builds, at most 64 attributes can be TEXT attributes.
+  Note that the more attributes you have, the larger your index will be, as each additional 8 attributes require one extra byte per index record to encode.
+  You can always use the `NOFIELDS` option and not encode attribute information into the index, for saving space, if you do not need filtering by text attributes. This will still allow filtering by numeric and geo attributes.
+{{% /alert %}}  
+
+{{% alert title="Note on running in clustered databases" color="info" %}}
+  When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
+{{% /alert %}}  
 
 ```
 HSET doc:1{idx} ...
