@@ -130,7 +130,7 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
       .card = 0,
       .cardCheck = NR_CARD_CHECK,
       .splitCard = splitCard,
-      .values = array_new(CardinalityValue, 1),
+      .values = NULL,
       .entries = NewInvertedIndex(Index_StoreNumeric, 1),
       .invertedIndexSize = 0,
   };
