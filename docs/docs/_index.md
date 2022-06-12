@@ -83,7 +83,6 @@ Atom CPUs are not supported.
 1. [Mastering RediSearch / Part II](https://redis.com/blog/mastering-redisearch-part-ii/)
 1. [Mastering RediSearch / Part III](https://redis.com/blog/mastering-redisearch-part-iii/)
 1. [Building Real-Time Full-Text Site Search with RediSearch](https://redis.com/blog/building-real-time-full-text-site-search-with-redisearch/)
-1. [Search Benchmarking: RediSearch vs. Elasticsearch](https://redis.com/blog/search-benchmarking-redisearch-vs-elasticsearch/)
 1. [RediSearch Version 1.6 Adds Features, Improves Performance](https://redis.com/blog/redisearch-version-1-6-adds-features-improves-performance/)
 1. [RediSearch 1.6 Boosts Performance Up to 64%](https://redis.com/blog/redisearch-1-6-boosts-performance-up-to-64/)
 

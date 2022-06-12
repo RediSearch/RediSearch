@@ -91,9 +91,9 @@ OK
    6) "http://redis.io"
 ```
 
-!!! note
-    Input is expected to be valid utf-8 or ASCII. The engine cannot handle wide character unicode at the moment. 
-
+{{% alert title="Note" color="info" %}}
+Input is expected to be valid utf-8 or ASCII. The engine cannot handle wide character unicode at the moment. 
+{{% /alert %}}
 
 ## Dropping the index
 

@@ -71,8 +71,9 @@ Searches the index with a textual query, returning either documents or just ids.
 - **LIMIT first num**: Limit the results to
   the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
 
-!!! tip
-    `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
+{{% alert title="Tip" color="info" %}}
+`LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
+{{% /alert %}}
 
 - **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
 
@@ -86,8 +87,9 @@ Searches the index with a textual query, returning either documents or just ids.
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
-!!! note "Expiration of hashes during a search query"
-    If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash will not be returned.
+{{% alert title="Expiration of hashes during a search query" color="info" %}}
+If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash will not be returned.
+{{% /alert %}}
 
 @examples
 
@@ -149,5 +151,6 @@ Searching for books with semantically similar "title" to "Planet Earth", Return 
 FT.SEARCH books-idx "*=>[KNN 10 @title_embedding $query_vec AS title_score]" PARAMS 2 query_vec <"Planet Earth" embedding BLOB> SORTBY title_score DIALECT 2
 ```
 
-!!! tip "More examples"
-    For more details and query examples, see [query syntax](/redisearch/reference/query_syntax).
+{{% alert title="More examples" color="info" %}}
+For more details and query examples, see [query syntax](/redisearch/reference/query_syntax).
+{{% /alert %}}

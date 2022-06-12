@@ -406,6 +406,17 @@ def test_SkipFieldWithNoMatch(env):
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
   env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
 
+def test_update_num_terms(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't', 'foo')
+  conn.execute_command('HSET', 'doc1', 't', 'bar')
+  assertInfoField(env, 'idx', 'num_terms', '2')
+  forceInvokeGC(env, 'idx')
+  assertInfoField(env, 'idx', 'num_terms', '1')
 
 def testOverMaxResults():
   env = Env(moduleArgs='MAXSEARCHRESULTS 20')
@@ -445,3 +456,25 @@ def testOverMaxResults():
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([30])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '25', '10').equal('OFFSET exceeds maximum of 20')
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+
+
+def test_MOD_3372(env):
+  #env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+
+  env.expect('FT.EXPLAIN').error().contains('wrong number of arguments')
+  env.expect('FT.EXPLAIN', 'idx').error().contains('wrong number of arguments')
+  env.expect('FT.EXPLAIN', 'idx', 'foo').equal('UNION {\n  foo\n  +foo(expanded)\n}\n')
+  env.expect('FT.EXPLAIN', 'idx', 'foo', 'verbatim').equal('foo\n')
+  env.expect('FT.EXPLAIN', 'non-exist', 'foo').error().equal('non-exist: no such index')
+
+  if not env.isCluster():
+    # FT.EXPLAINCLI is not supported by the coordinator
+    env.expect('FT.EXPLAINCLI').error().contains('wrong number of arguments')
+    env.expect('FT.EXPLAINCLI', 'idx').error().contains('wrong number of arguments')
+    env.expect('FT.EXPLAINCLI', 'idx', 'foo').equal(['UNION {', '  foo', '  +foo(expanded)', '}', ''])
+    env.expect('FT.EXPLAINCLI', 'idx', 'foo', 'verbatim').equal(['foo', ''])
+    env.expect('FT.EXPLAINCLI', 'non-exist', 'foo').error().equal('non-exist: no such index')
+
