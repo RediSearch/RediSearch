@@ -42,10 +42,11 @@ As of v1.4.1, the `FT.CONFIG` allows setting some options during runtime. In add
 
 The maximum amount of time **in milliseconds** that a search query is allowed to run. If this time is exceeded we return the top results accumulated so far, or an error depending on the policy set with `ON_TIMEOUT`. The timeout can be disabled by setting it to 0.
 
-!!! note
-    Timeout refers to query time only. 
-    Parsing the query is not counted towards `timeout`. 
-    If timeout was not reached during the search, finalizing operation such as loading documents' content or reducers, continue. 
+{{% alert title="Note" color="info" %}}
+Timeout refers to query time only.
+Parsing the query is not counted towards `timeout`.
+If timeout was not reached during the search, finalizing operation such as loading documents' content or reducers, continue.
+{{% /alert %}}
 
 ### Default
 
@@ -166,10 +167,10 @@ The maximum number of expansions we allow for query prefixes. Setting it too hig
 ```
 $ redis-server --loadmodule ./redisearch.so MAXPREFIXEXPANSIONS 1000
 ```
-!!! Note "MAXPREFIXEXPANSIONS replaces the deprecated config word MAXEXPANSIONS."
-    
-    RediSearch considers these two configurations as synonyms.  The synonym was added to be more descriptive.
 
+{{% alert title="MAXPREFIXEXPANSIONS replaces the deprecated config word MAXEXPANSIONS" color="info" %}}
+RediSearch considers these two configurations as synonyms.  The synonym was added to be more descriptive.
+{{% /alert %}}
 
 ---
 
