@@ -67,7 +67,7 @@ static inline void checkCardinality(NumericRange *n, double value) {
 
   // add new value to cardinality values
   CardinalityValue val = {.value = value, .appearances = 1};
-  n->values = array_append(n->values, val);
+  n->values = array_ensure_append_1(n->values, val);
   n->unique_sum += value;
   ++n->card;
 }
@@ -131,7 +131,6 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
       .cardCheck = NR_CARD_CHECK,
       .splitCard = splitCard,
       .values = array_new(CardinalityValue, 1),
-      //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
       .entries = NewInvertedIndex(Index_StoreNumeric, 1),
       .invertedIndexSize = 0,
   };
