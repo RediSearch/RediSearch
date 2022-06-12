@@ -25,8 +25,9 @@ FT.CREATE idx ... PREFIX 1 doc: ...
 
 * **ON {data_type}** currently supports HASH (default) and JSON.
 
-!!! info "ON JSON"
-  To index JSON, you must have the [RedisJSON](https://redisjson.io) module installed.
+{{% alert title="ON JSON" color="info" %}}
+To index JSON, you must have the [RedisJSON](https://redisjson.io) module installed.
+{{% /alert %}}
 
 * **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
 
@@ -35,22 +36,23 @@ FT.CREATE idx ... PREFIX 1 doc: ...
 * **LANGUAGE {default_lang}**: If set indicates the default language for documents in the index. Default to English.
 * **LANGUAGE_FIELD {lang_attribute}**: If set indicates the document attribute that should be used as the document language.
 
-!!! info "Supported languages"
-  A stemmer is used for the supplied language during indexing.
-  If an unsupported language is sent, the command returns an error.
-  The supported languages are:
+{{% alert title="Supported languages" color="info" %}}
+A stemmer is used for the supplied language during indexing.
+If an unsupported language is sent, the command returns an error.
+The supported languages are:
 
-  Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
-  Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian,
-  Spanish, Swedish, Tamil, Turkish, Chinese
+Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
+Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian,
+Spanish, Swedish, Tamil, Turkish, Chinese
 
-  When adding Chinese-language documents, `LANGUAGE chinese` should be set in
-    order for the indexer to properly tokenize the terms. If the default language
-    is used then search terms will be extracted based on punctuation characters and
-    whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
-    (via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
-    checks it against a predefined dictionary. See [Stemming](/redisearch/reference/stemming) for more
-    information.
+When adding Chinese-language documents, `LANGUAGE chinese` should be set in
+  order for the indexer to properly tokenize the terms. If the default language
+  is used then search terms will be extracted based on punctuation characters and
+  whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
+  (via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
+  checks it against a predefined dictionary. See [Stemming](/redisearch/reference/stemming) for more
+  information.
+{{% /alert %}}
 
 * **SCORE {default_score}**: If set indicates the default score for documents in the index. Default score is 1.0.
 * **SCORE_FIELD {score_attribute}**: If set indicates the document attribute that should be used as the document's rank based on the user's ranking.
@@ -69,8 +71,9 @@ FT.CREATE idx ... PREFIX 1 doc: ...
 
 * **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
 
-!!! warning "Note about deleting a temporary index"
-  When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
+{{% alert title="Note about deleting a temporary index" color="warning" %}}
+When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
+{{% /alert %}}
 
 * **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
@@ -206,8 +209,9 @@ FT.CREATE author-books-idx ON HASH PREFIX 2 author:details: book:details: SCHEMA
 author_id TAG SORTABLE author_ids TAG title TEXT name TEXT
 ```
 
-!!! note
-    In this example, keys for author data use the key pattern `author:details:<id>` while keys for book data use the pattern `book:details:<id>`.
+{{% alert title="Note" color="info" %}}
+In this example, keys for author data use the key pattern `author:details:<id>` while keys for book data use the pattern `book:details:<id>`.
+{{% /alert %}}
 
 Indexing only authors whose names start with "G":
 
