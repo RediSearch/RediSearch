@@ -845,6 +845,14 @@ static void GetRedisVersion() {
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
+int IsMaster() {
+  if (RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_MASTER) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 int IsEnterprise() {
   return rlecVersion.majorVersion != -1;
 }

@@ -146,3 +146,53 @@ def testDropReplicate():
   slave_set = set(slave_keys)
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
+
+def testDropTempReplicate():
+  env = Env(useSlaves=True, forceTcp=True)
+
+  env.skipOnCluster()
+
+  ## on existing env we can not get a slave connection
+  ## so we can no test it
+  if env.env == 'existing-env':
+        env.skip()
+
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+  env.assertTrue(master.execute_command("ping"))
+  env.assertTrue(slave.execute_command("ping"))
+
+  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+
+  '''
+  This test creates creates a temporary index. then it creates a document and check it exists on both shard.
+  The index is then expires and dropped.
+  The text checks consistency between master and slave where both index and document are deleted.
+  '''
+
+  # test for TEMPORARY FT.DROPINDEX
+  master.execute_command('FT.CREATE', 'idx', 'TEMPORARY', '1', 'SCHEMA', 't', 'TEXT')
+
+  master.execute_command('HSET', 'doc1', 't', 'hello')
+
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {'t': 'hello'}, time_out=5)
+
+  # check that same index and doc exist on master and slave
+  master_index = master.execute_command('FT._LIST')
+  slave_index = slave.execute_command('FT._LIST')
+  env.assertEqual(master_index, slave_index)
+
+  master_keys = master.execute_command('KEYS', '*')
+  slave_keys = slave.execute_command('KEYS', '*')
+  env.assertEqual(len(master_keys), len(slave_keys))
+  env.assertEqual(master_keys, slave_keys)
+
+  time.sleep(1)
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {}, time_out=5)
+
+  # check that index and doc were deleted by master and slave
+  env.assertEqual(master.execute_command('FT._LIST'), [])
+  env.assertEqual(slave.execute_command('FT._LIST'), [])
+
+  env.assertEqual(master.execute_command('KEYS', '*'), 0)
+  env.assertEqual(slave.execute_command('KEYS', '*'), 0)
