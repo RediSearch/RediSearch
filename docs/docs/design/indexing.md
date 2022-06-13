@@ -29,7 +29,7 @@ document to it. Internally this is divided into several steps.
 
    Once a document has been submitted, it is preprocessed. Preprocessing performs
    stateless processing on all document input fields. For text fields, this
-   means tokenizing the document and creating a forward index. The preprocesors
+   means tokenizing the document and creating a forward index. The preprocessor
    will store this information in per-field variables within the `AddDocumentCtx`.
    This computed result is then written to the (persistent) index later on during
    the indexing phase.

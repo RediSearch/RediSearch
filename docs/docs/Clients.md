@@ -30,7 +30,7 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | C# | [Redis.OM][redis-om-dotnet-url] | [Redis][redis-om-dotnet-author] | BSD-3-Clause | [![redis-om-dotnet-stars]][redis-om-dotnet-url] |
 | PHP | [php-redisearch][php-redisearch-url] | [MacFJA][php-redisearch-author] | MIT | [![php-redisearch-stars]][php-redisearch-url] |
 | PHP | [redisearch-php][redisearch-php-url] (for RediSearch v1)| [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
-| PHP | [Redisearch][front-redisearch-url] (for RediSearch v2)| [Front][front-redisearch-author] | MIT | [![front-redisearch-stars]][front-redisearch-url] |
+| PHP | [RediSearch][front-redisearch-url] (for RediSearch v2)| [Front][front-redisearch-author] | MIT | [![front-redisearch-stars]][front-redisearch-url] |
 | Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |

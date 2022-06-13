@@ -52,4 +52,4 @@ RediSearch makes use of the [Friso](https://github.com/lionsoul2014/friso) chine
 
 If you wish to use a custom dictionary, you can do so at the module level when loading the module. The `FRISOINI` setting can point to the location of a `friso.ini` file which contains the relevant settings and paths to the dictionary files.
 
-Note that there is no "default" friso.ini file location. RedisSearch comes with its own `friso.ini` and dictionary files which are compiled into the module binary at build-time.
+Note that there is no "default" friso.ini file location. RediSearch comes with its own `friso.ini` and dictionary files which are compiled into the module binary at build-time.
