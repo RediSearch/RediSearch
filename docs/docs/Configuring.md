@@ -208,6 +208,8 @@ The maximum number of expansions we allow for query prefixes. Setting it too hig
 $ redis-server --loadmodule ./redisearch.so MAXPREFIXEXPANSIONS 1000
 ```
 
+---
+
 ### MAXDOCTABLESIZE
 
 The maximum size of the internal hash table used for storing the documents. 
@@ -503,4 +505,4 @@ $ redis-server --loadmodule ./redisearch.so DEFAULT_DIALECT 2
 #### Notes
 
 * `DIALECT 2` is required for Vector Similarity Search
-* added in v2.4.3
+* added in v2.4.3---
