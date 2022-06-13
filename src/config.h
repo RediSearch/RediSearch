@@ -204,7 +204,6 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 #define REDIS_ARRAY_LIMIT 7
 #define NO_REPLY_DEPTH_LIMIT 0x00060020
 #define RM_SCAN_KEY_API_FIX 0x00060006
-#define RM_EVENT_API_SUPPORT 0x00060000
 
 static inline int isFeatureSupported(int feature) {
   return feature <= RSGlobalConfig.serverVersion;
