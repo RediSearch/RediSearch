@@ -31,12 +31,12 @@ To try RediSearch, either use the RediSearch Docker image, or [create a free Red
 
 ### Docker image
 
-The [RediSearch Docker image](https://hub.docker.com/r/redislabs/redisearch/) makes it easy to try RediSearch.
+The [Redis Stack Docker image](https://hub.docker.com/r/redis/redis-stack-server/) makes it easy to try RediSearch.
 
 To create a local RediSearch container, run:
 
 ```sh
-$ docker run -p 6379:6379 redislabs/redisearch:latest
+$ docker run -p 6379:6379 redis/redis-stack-server:latest
 ```
 
 To connect to this instance, run:
