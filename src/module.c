@@ -426,14 +426,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   Redis_DropIndex(&sctx, delDocs);
 
-  if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
-      RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
-    // We always send KEEPDOC to the slave.
-    RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "sc", argv[1], "KEEPDOCS");
-  } else {
-    // Remove DD as documents were deleted with RM_Call.
-    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "s", argv[1]);
-  }
+  RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "s", argv[1]);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -448,6 +441,10 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!sp) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+
+  // We are on a slave and we want to avoid dropping all documents even if temporary
+  sp->flags &= ~Index_Temporary;
+
   RedisModuleString *oldCommand = argv[0];
   if (RMUtil_StringEqualsCaseC(argv[0], RS_DROP_IF_X_CMD)) {
     argv[0] = RedisModule_CreateString(ctx, RS_DROP_CMD, strlen(RS_DROP_CMD));

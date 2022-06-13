@@ -1274,7 +1274,7 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
 
   // pass FT.DROPINDEX with "DD" flag to slef.
-  RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, "FT.DROPINDEX", "cc", spec->name, "DD");
+  RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", spec->name, "DD");
   if (rep) {
     RedisModule_FreeCallReply(rep);
   }
@@ -1299,21 +1299,6 @@ void IndexSpec_Free(IndexSpec *spec) {
   }
 
   IndexSpec_FreeInternals(spec);
-}
-
-//---------------------------------------------------------------------------------------------
-
-void IndexSpec_FreeSync(IndexSpec *spec) {
-  //  todo:
-  //  mark I think we only need IndexSpec_FreeInternals, this is called only from the
-  //  LLAPI and there is no need to drop keys cause its out of the key space.
-  //  Let me know what you think
-
-  //   Need a context for this:
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
-
-  //@@ TODO: this is called by llapi, provide an explicit argument for cascasedelete
-  Redis_DropIndex(&sctx, false);
 }
 
 //---------------------------------------------------------------------------------------------
