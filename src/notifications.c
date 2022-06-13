@@ -388,9 +388,7 @@ void RoleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t sube
 }
 
 void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx) {
-  if (isFeatureSupported(RM_EVENT_API_SUPPORT)) {
-    int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplicationRoleChanged, RoleChangeCallback);
-    RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
-    RedisModule_Log(ctx, "notice", "Enabled role change notification");
-  }
+  int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplicationRoleChanged, RoleChangeCallback);
+  RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
+  RedisModule_Log(ctx, "notice", "Enabled role change notification");
 }

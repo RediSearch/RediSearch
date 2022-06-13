@@ -194,5 +194,5 @@ def testDropTempReplicate():
   env.assertEqual(master.execute_command('FT._LIST'), [])
   env.assertEqual(slave.execute_command('FT._LIST'), [])
 
-  env.assertEqual(master.execute_command('KEYS', '*'), 0)
-  env.assertEqual(slave.execute_command('KEYS', '*'), 0)
+  env.assertEqual(master.execute_command('KEYS', '*'), [])
+  env.assertEqual(slave.execute_command('KEYS', '*'), [])
