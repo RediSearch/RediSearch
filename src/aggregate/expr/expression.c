@@ -79,7 +79,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
       break;
     case '%':	      
         // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=30484
-        if (n1 == LONG_MIN && n2 == -1){
+        if (n2 == -1){ 
           res = 0;
         } else {
           res = (long long)n1 % (long long)n2;
