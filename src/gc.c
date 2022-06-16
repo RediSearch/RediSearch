@@ -133,8 +133,10 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
     // If slave traffic is not allow it means that there is a state machine running
     // we do not want to run any GC which might cause a FORK process to start for example).
     // Its better to just avoid it.
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
     GCTask* task = data;
     task->gc->timerID = scheduleNext(task);
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     return;
   }
   thpool_add_work(gcThreadpool_g, threadCallback, data);
