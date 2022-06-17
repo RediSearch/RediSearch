@@ -131,7 +131,7 @@ EF_RUNTIME 20
 
 ## Querying vector fields
 
-You can using vector similarity queries in the `FT.SEARCH` "query" parameter. 
+You can use vector similarity queries in the `FT.SEARCH` query parameter. 
 The syntax for vector similarity queries is `*=>[{vector similarity query}]` for running the query on an entire vector field, or `{primary filter query}=>[{vector similarity query}]` for running similarity query on the result of the primary filter query. 
 To use a vector similarity query, you must specify the option `DIALECT 2` in the command itself, or set the `DEFAULT_DIALECT` option to `2`, either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`.
 
