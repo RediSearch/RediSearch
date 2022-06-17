@@ -137,9 +137,13 @@ To use a vector similarity query, you must specify the option `DIALECT 2` in the
 
 As of version 2.4, you can use vector similarity *once* in the query, and over the entire query filter.
 
-* Invalid example: `"(@title:Matrix)=>[KNN 10 @v $B] @year:[2020 2022]"`
+**Invalid example** 
 
-* Valid example: `"(@title:Matrix @year:[2020 2022])=>[KNN 10 @v $B]"`
+`"(@title:Matrix)=>[KNN 10 @v $B] @year:[2020 2022]"`
+
+**Valid example** 
+
+`"(@title:Matrix @year:[2020 2022])=>[KNN 10 @v $B]"`
 
 The `{vector similarity query}` part inside the square brackets needs to be in the following format:
 
@@ -147,17 +151,17 @@ The `{vector similarity query}` part inside the square brackets needs to be in t
 KNN { number | $number_attribute } @{vector field} $blob_attribute [{vector query param name} {value|$value_attribute} [...]] [ AS {score field name | $score_field_name_attribute}]
 ```
 
-Every "`*_attribute`" parameter should refer to an attribute in the [`PARAMS`](/commands/ft.search) section.
+Every `*_attribute` parameter should refer to an attribute in the [`PARAMS`](/commands/ft.search) section.
 
-*   `{ number | $number_attribute }` - Number of requested results ("K").
+* `{ number | $number_attribute }` - Number of requested results ("K").
 
-*   `@{vector field}` - `vector field` should be a name of a vector field in the index.
+* `@{vector field}` - `vector field` should be the name of a vector field in the index.
 
-*   `$blob_attribute` - An attribute that holds the query vector as blob and must be passed through the `PARAMS` section.
+* `$blob_attribute` - An attribute that holds the query vector as blob and must be passed through the `PARAMS` section.
 
-*   `[{vector query param name} {value|$value_attribute} [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. See which [runtime parameters](/redisearch/reference/vectors#specific-runtime-attributes-per-algorithm) are valid for each algorithm.
+* `[{vector query param name} {value|$value_attribute} [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. See which [runtime parameters](/redisearch/reference/vectors#specific-runtime-attributes-per-algorithm) are valid for each algorithm.
 
-*   `[ AS {score field name | $score_field_name_attribute}]` - An optional part for specifying a score field name, for later sorting by the similarity score. By default the score field name is "`__{vector field}_score`" and it can be used for sorting without using `AS {score field name}` in the query.
+* `[ AS {score field name | $score_field_name_attribute}]` - An optional part for specifying a score field name, for later sorting by the similarity score. By default the score field name is "`__{vector field}_score`" and it can be used for sorting without using `AS {score field name}` in the query.
 
 ## Hybrid queries
 
