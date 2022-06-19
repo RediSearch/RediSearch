@@ -42,6 +42,9 @@ def testCommandStatsOnRedis(env):
     # This test checks the total time spent on the Coordinator is greater then
     # on a single shard 
     SkipOnNonCluster(env)
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
+
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
     # _FT.CREATE is not called. No option to test
@@ -57,3 +60,11 @@ def testCommandStatsOnRedis(env):
 
     conn.execute_command('FT.INFO', 'idx')
     check_info_commandstats(env, 'FT.INFO')
+
+def test_curly_brackets(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
+
+    conn.execute_command('HSET', 'foo{bar}', 't', 'Hello world!')
+    env.expect('ft.search', 'idx', 'hello').equal([1, 'foo{bar}', ['t', 'Hello world!']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', 1, '__key').equal([1, ['__key', 'foo{bar}']])

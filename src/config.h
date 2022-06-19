@@ -4,6 +4,7 @@
 #include "redismodule.h"
 #include "rmutil/sds.h"
 #include "query_error.h"
+#include "fields_global_stats.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -55,7 +56,7 @@ typedef struct {
   // 0 means unlimited
   long long queryTimeoutMS;
 
-  long long timeoutPolicy;
+  RSTimeoutPolicy timeoutPolicy;
 
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
@@ -81,6 +82,8 @@ typedef struct {
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
+
+  FieldsGlobalStats fieldsStats;
 
   // Chained configuration data
   void *chainedConfig;
@@ -163,6 +166,8 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
                        RedisModuleString **argv, int argc, size_t *offset, QueryError *status);
 
 sds RSConfig_GetInfoString(const RSConfig *config);
+
+void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000

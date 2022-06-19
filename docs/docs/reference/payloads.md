@@ -8,8 +8,10 @@ description: >
 
 # Document Payloads
 
-!!! note
-    The payload feature is deprecated in 2.0
+
+{{% alert title="Warning" color="warning" %}}
+The payload feature is deprecated in 2.0
+{{% /alert %}}
     
 Usually, RediSearch stores documents as hash keys. But if you want to access some data for aggregation or scoring functions, we might want to store that data as an inline payload. This will allow us to evaluate properties of a document for scoring purposes at very low cost.
 
@@ -33,8 +35,9 @@ When implementing a scoring function, the signature of the function exposed is:
 double (*ScoringFunction)(DocumentMetadata *dmd, IndexResult *h);
 ```
 
-!!! note
-    Currently, scoring functions cannot be dynamically added, and forking the engine and replacing them is required.
+{{% alert title="Note" color="info" %}}
+Currently, scoring functions cannot be dynamically added, and forking the engine and replacing them is required.
+{{% /alert %}}
 
 DocumentMetaData includes a few fields, one of them being the payload. It wraps a simple byte array with arbitrary length:
 

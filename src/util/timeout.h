@@ -9,6 +9,11 @@
 extern "C" {
 #endif
 
+// suppress warning 
+// "'struct timespec' declared inside parameter list will not be visible outside of this
+// definition or declaration"
+struct timespec;
+
 /*****************************************
  *            Timeout API
  ****************************************/

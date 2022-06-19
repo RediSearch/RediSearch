@@ -114,7 +114,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-
   int argvOffset = 3;
   unsigned int dialect = RSGlobalConfig.defaultDialectVersion;
   int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
@@ -216,6 +215,9 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                               int newlinesAsElements) {
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
   QueryError status = {0};
   char *explainRoot = RS_GetExplainOutput(ctx, argv, argc, &status);
   if (!explainRoot) {
@@ -608,7 +610,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     }
   }
   IndexSpec_AddFields(sp, ctx, &ac, initialScan, &status);
-
+  FieldsGlobalStats_UpdateStats(sp->fields + (sp->numFields - 1), 1);
   if (QueryError_HasError(&status)) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {

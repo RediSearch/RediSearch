@@ -84,18 +84,6 @@ struct DocumentIndexer;
        .len = &dummy2,                                                      \
        .type = AC_ARGTYPE_STRING},
 
-/**
- * If wishing to represent field types positionally, use this
- * enum. Since field types are a bitmask, it's pointless to waste
- * space like this
- */
-
-static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
-                                      [IXFLDPOS_NUMERIC] = SPEC_NUMERIC_STR,
-                                      [IXFLDPOS_GEO] = SPEC_GEO_STR,
-                                      [IXFLDPOS_TAG] = SPEC_TAG_STR,
-                                      [IXFLDPOS_VECTOR] = SPEC_VECTOR_STR};
-
 // TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
@@ -333,7 +321,7 @@ typedef struct IndexSpecCache {
 void Spec_AddToDict(const IndexSpec *spec);
 
 /**
- * compare redis versions
+ * Compare redis versions
  */
 int CompareVestions(Version v1, Version v2);
 
@@ -424,6 +412,12 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
+#ifdef FTINFO_FOR_INFO_MODULES
+/**
+ * Exposing all the fields of the index to INFO command.
+ */
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
+#endif
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -545,6 +539,8 @@ typedef struct IndexesScanner {
   size_t scannedKeys, totalKeys;
   bool cancelled;
 } IndexesScanner;
+
+double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
 
 //---------------------------------------------------------------------------------------------
 

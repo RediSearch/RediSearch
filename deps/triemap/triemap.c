@@ -928,7 +928,7 @@ static int __fullmatch_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void
  */
 static int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, tm_len_t *len, void **value) {
   int rv = 0;
-  tm_len_t compareLen;                    // number of chars to compare in current node
+  tm_len_t compareLen = 0;                    // number of chars to compare in current node
   tm_len_t termOffset = 1;                // number of chars matched. there is match for the first char
   tm_len_t localOffset = sn->stringOffset;
   tm_len_t origBufLen = array_len(it->buf);
