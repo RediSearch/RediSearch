@@ -267,6 +267,13 @@ enum RSResultType {
 
 #pragma pack(16)
 
+class RSOffsetEmptyIterator : public RSOffsetIterator {
+};
+
+RSOffsetEmptyIterator offset_empty_iterator;
+
+//---------------------------------------------------------------------------------------------
+
 struct IndexResult : public Object {
   //-------------------------------------------------------------------------------------------
   // IMPORTANT: The order of the following 4 variables must remain the same, and all

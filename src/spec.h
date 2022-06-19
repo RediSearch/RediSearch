@@ -69,6 +69,11 @@ struct IndexStats {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
+
+  IndexStats(RedisModuleIO *rdb) { RdbLoad(rdb); }
+
+  void RdbLoad(RedisModuleIO *rdb);
+  void RdbSave(RedisModuleIO *rdb);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -184,7 +189,8 @@ struct IndexLoadOptions {
 
 //---------------------------------------------------------------------------------------------
 
-struct IndexSpec {
+class IndexSpec {
+public:
   char *name;
   FieldSpec *fields;
   int numFields;
@@ -282,7 +288,7 @@ struct IndexSpec {
   bool AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew);
   bool AddFields(ArgsCursor *ac, QueryError *status);
 
-  int ParseStopWords(RedisModuleString **strs, size_t len);
+  bool ParseStopWords(RedisModuleString **strs, size_t len);
   bool IsStopWord(const char *term, size_t len);
 
   void ClearAliases();

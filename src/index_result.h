@@ -48,7 +48,7 @@ struct AggregateResult : IndexResult {
 
   bool IsWithinRange(int maxSlop, bool inOrder) const;
 
-  RSAggregateOffsetIterator IterateOffsetsInternal() const;
+  AggregateOffsetIterator IterateOffsetsInternal() const;
 
   RSOffsetIterator::Proxy IterateOffsets() const {
     // if we only have one sub result, just iterate that...
@@ -108,7 +108,7 @@ struct TermResult : public IndexResult {
   void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len);
 
   RSOffsetIterator::Proxy IterateOffsets() const {
-    return offsets.Iterate(term.term);
+    return offsets.Iterate(term);
   }
 };
 

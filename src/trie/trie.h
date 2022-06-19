@@ -46,6 +46,41 @@ enum TrieAddOp {
 };
 
 #pragma pack(1)
+
+/* Opaque trie iterator type */
+// typedef struct TrieIterator TrieIterator;
+struct TrieIterator : public Object {
+  rune buf[TRIE_INITIAL_STRING_LEN + 1];
+  t_len bufOffset;
+
+  stackNode stack[TRIE_INITIAL_STRING_LEN + 1];
+  t_len stackOffset;
+  StepFilter filter;
+  float minScore;
+  int nodesConsumed;
+  int nodesSkipped;
+  StackPopCallback popCallback;
+  void *ctx;
+
+  ~TrieIterator();
+
+  void Push(TrieNode *node, int skipped);
+  void Pop();
+
+  /* the current top of the iterator stack */
+  #define current() &stack[stackOffset - 1]
+
+  int step(void *matchCtx);
+  bool Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx);
+};
+
+/* Stop the iteration */
+#define __STEP_STOP 0
+/* Continue to next node  */
+#define __STEP_CONT 1
+/* We found a match, return the state to the user but continue afterwards */
+#define __STEP_MATCH 3
+
 /* TrieNode represents a single node in a trie. The actual size of it is bigger,
  * as the children are
  * allocated after str[].
@@ -143,37 +178,3 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 #define ITERSTATE_SELF 0
 #define ITERSTATE_CHILDREN 1
 #define ITERSTATE_MATCH 2
-
-/* Opaque trie iterator type */
-// typedef struct TrieIterator TrieIterator;
-struct TrieIterator : public Object {
-  rune buf[TRIE_INITIAL_STRING_LEN + 1];
-  t_len bufOffset;
-
-  stackNode stack[TRIE_INITIAL_STRING_LEN + 1];
-  t_len stackOffset;
-  StepFilter filter;
-  float minScore;
-  int nodesConsumed;
-  int nodesSkipped;
-  StackPopCallback popCallback;
-  void *ctx;
-
-  ~TrieIterator();
-
-  void Push(TrieNode *node, int skipped);
-  void Pop();
-
-  /* the current top of the iterator stack */
-  #define current() &stack[stackOffset - 1]
-
-  int step(void *matchCtx);
-  bool Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx);
-};
-
-/* Stop the iteration */
-#define __STEP_STOP 0
-/* Continue to next node  */
-#define __STEP_CONT 1
-/* We found a match, return the state to the user but continue afterwards */
-#define __STEP_MATCH 3

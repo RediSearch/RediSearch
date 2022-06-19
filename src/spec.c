@@ -194,7 +194,7 @@ IndexSpec::IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                      QueryError *status) {
   ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
 
-  RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
+  RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
   RedisModuleKey *k = RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE);
   RedisModule_FreeString(ctx, keyString);
 
@@ -209,14 +209,14 @@ IndexSpec::IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (k) {
       RedisModule_CloseKey(k);
     }
-    return NULL;
+    return;
   }
 
   uniqueId = spec_unique_ids++;
   // Start the garbage collector
   StartGC(ctx, GC_DEFAULT_HZ);
 
-  RSCursors->AddSpec(name, RSCURSORS_DEFAULT_CAPACITY);
+  RSCursors->Add(name, RSCURSORS_DEFAULT_CAPACITY);
 
   // set the value in redis
   RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
@@ -407,7 +407,7 @@ int IndexSpec::CreateTextId() const {
 
 bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew) {
   if (spcache) {
-    IndexSpecCache_Decref(spcache);
+    spcache->Decref();
     spcache = NULL;
   }
   const size_t prevNumFields = numFields;
@@ -429,7 +429,7 @@ bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew)
     }
 
     if (fs->IsFieldType(INDEXFLD_T_FULLTEXT) && fs->IsIndexable()) {
-      int textId = sp->CreateTextId();
+      int textId = CreateTextId();
       if (textId < 0) {
         status->SetError(QUERY_ELIMIT, "Too many TEXT fields in schema");
         goto reset;
@@ -478,7 +478,7 @@ reset:
     fs->Cleanup();
   }
   for (size_t i = prevNumFields; i < numFields; ++i) {
-    &fields[i]->Cleanup();
+    fields[i].Cleanup();
   }
 
   numFields = prevNumFields;
@@ -535,7 +535,7 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
 
   if (acStopwords.IsInitialized()) {
     if (stopwords) {
-      StopWordList_Unref(stopwords);
+      stopwords->Unref();
     }
     stopwords = new StopWordList((const char **)acStopwords.objs, acStopwords.argc);
     flags |= Index_HasCustomStopwords;
@@ -721,8 +721,8 @@ void IndexSpec::FreeInternals() {
   if (uniqueId) {
     // If uniqueid is 0, it means the index was not initialized
     // and is being freed now during an error.
-    RSCursors->PurgeWithName(name);
-    RSCursors->RemoveSpec(name);
+    RSCursors->Purge(name);
+    RSCursors->Remove(name);
   }
 
   rm_free(name);
@@ -730,7 +730,7 @@ void IndexSpec::FreeInternals() {
     delete sortables;
   }
   if (stopwords) {
-    StopWordList_Unref(stopwords);
+    stopwords->Unref();
     stopwords = NULL;
   }
 
@@ -858,7 +858,7 @@ void IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     if ((options->flags & INDEXSPEC_LOAD_NOALIAS) || ixname == NULL) {
       goto done;  // doesn't exist.
     }
-    IndexSpec *aliasTarget = this = IndexAlias_Get(ixname);
+    IndexSpec *aliasTarget = this = IndexAlias::Get(ixname);
     if (aliasTarget && (options->flags & INDEXSPEC_LOAD_KEYLESS) == 0) {
       if (isKeynameOwner) {
         RedisModule_FreeString(ctx, formatted);
@@ -921,7 +921,7 @@ RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec *fs, FieldType for
 
   RedisModuleString *ret = indexStrs[fs->index].types[typeix];
   if (!ret) {
-    RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
+    RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = this};
     switch (forType) {
       case INDEXFLD_T_NUMERIC:
         ret = fmtRedisNumericIndexKey(&sctx, fs->name);
@@ -991,11 +991,11 @@ void IndexSpec::InitializeSynonym() {
 bool IndexSpec::ParseStopWords(RedisModuleString **strs, size_t len) {
   // if the index already has custom stopwords, let us free them first
   if (stopwords) {
-    StopWordList_Unref(stopwords);
+    stopwords->Unref();
     stopwords = NULL;
   }
 
-  stopwords = NewStopWordList(strs, len);
+  stopwords = new StopWordList(strs, len);
   // on failure we revert to the default stopwords list
   if (stopwords == NULL) {
     stopwords = DefaultStopWordList();
@@ -1025,7 +1025,7 @@ void IndexSpec::ctor(const char *name) {
   name = rm_strdup(name);
   docs = new DocTable(100);
   stopwords = DefaultStopWordList();
-  terms = NewTrie();
+  terms = new Trie();
   keysDict = NULL;
   minPrefix = RSGlobalConfig.minTermPrefix;
   maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
@@ -1198,32 +1198,32 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
-  stats->numDocuments = RedisModule_LoadUnsigned(rdb);
-  stats->numTerms = RedisModule_LoadUnsigned(rdb);
-  stats->numRecords = RedisModule_LoadUnsigned(rdb);
-  stats->invertedSize = RedisModule_LoadUnsigned(rdb);
-  stats->invertedCap = RedisModule_LoadUnsigned(rdb);
-  stats->skipIndexesSize = RedisModule_LoadUnsigned(rdb);
-  stats->scoreIndexesSize = RedisModule_LoadUnsigned(rdb);
-  stats->offsetVecsSize = RedisModule_LoadUnsigned(rdb);
-  stats->offsetVecRecords = RedisModule_LoadUnsigned(rdb);
-  stats->termsSize = RedisModule_LoadUnsigned(rdb);
+void IndexStats::RdbLoad(RedisModuleIO *rdb) {
+  numDocuments = RedisModule_LoadUnsigned(rdb);
+  numTerms = RedisModule_LoadUnsigned(rdb);
+  numRecords = RedisModule_LoadUnsigned(rdb);
+  invertedSize = RedisModule_LoadUnsigned(rdb);
+  invertedCap = RedisModule_LoadUnsigned(rdb);
+  skipIndexesSize = RedisModule_LoadUnsigned(rdb);
+  scoreIndexesSize = RedisModule_LoadUnsigned(rdb);
+  offsetVecsSize = RedisModule_LoadUnsigned(rdb);
+  offsetVecRecords = RedisModule_LoadUnsigned(rdb);
+  termsSize = RedisModule_LoadUnsigned(rdb);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
-  RedisModule_SaveUnsigned(rdb, stats->numDocuments);
-  RedisModule_SaveUnsigned(rdb, stats->numTerms);
-  RedisModule_SaveUnsigned(rdb, stats->numRecords);
-  RedisModule_SaveUnsigned(rdb, stats->invertedSize);
-  RedisModule_SaveUnsigned(rdb, stats->invertedCap);
-  RedisModule_SaveUnsigned(rdb, stats->skipIndexesSize);
-  RedisModule_SaveUnsigned(rdb, stats->scoreIndexesSize);
-  RedisModule_SaveUnsigned(rdb, stats->offsetVecsSize);
-  RedisModule_SaveUnsigned(rdb, stats->offsetVecRecords);
-  RedisModule_SaveUnsigned(rdb, stats->termsSize);
+void IndexStats::RdbSave(RedisModuleIO *rdb) {
+  RedisModule_SaveUnsigned(rdb, numDocuments);
+  RedisModule_SaveUnsigned(rdb, numTerms);
+  RedisModule_SaveUnsigned(rdb, numRecords);
+  RedisModule_SaveUnsigned(rdb, invertedSize);
+  RedisModule_SaveUnsigned(rdb, invertedCap);
+  RedisModule_SaveUnsigned(rdb, skipIndexesSize);
+  RedisModule_SaveUnsigned(rdb, scoreIndexesSize);
+  RedisModule_SaveUnsigned(rdb, offsetVecsSize);
+  RedisModule_SaveUnsigned(rdb, offsetVecRecords);
+  RedisModule_SaveUnsigned(rdb, termsSize);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1264,18 +1264,18 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     }
   }
 
-  IndexStats_RdbLoad(rdb, &sp->stats);
+  sp->stats.RdbLoad(rdb);
 
-  &sp->docs->RdbLoad(rdb, encver);
+  sp->docs.RdbLoad(rdb, encver);
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
     sp->terms = TrieType_GenericLoad(rdb, 0);
   } else {
-    sp->terms = NewTrie();
+    sp->terms = new Trie();
   }
 
   if (sp->flags & Index_HasCustomStopwords) {
-    sp->stopwords = StopWordList_RdbLoad(rdb, encver);
+    sp->stopwords = new StopWordList(rdb, encver);
   } else {
     sp->stopwords = DefaultStopWordList();
   }
@@ -1284,7 +1284,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   sp->StartGC(ctx, GC_DEFAULT_HZ);
   RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
-  RSCursors->AddSpec(sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  RSCursors->Add(sp->name, RSCURSORS_DEFAULT_CAPACITY);
   RedisModule_FreeString(ctx, specKey);
 
   sp->smap = NULL;
@@ -1329,18 +1329,18 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
     FieldSpec_RdbSave(rdb, &sp->fields[i]);
   }
 
-  IndexStats_RdbSave(rdb, &sp->stats);
+  sp->stats.RdbSave(rdb);
   sp->docs.RdbSave(rdb);
   // save trie of terms
   TrieType_GenericSave(rdb, sp->terms, 0);
 
   // If we have custom stopwords, save them
   if (sp->flags & Index_HasCustomStopwords) {
-    StopWordList_RdbSave(rdb, sp->stopwords);
+    sp->stopwords->RdbSave(rdb);
   }
 
   if (sp->flags & Index_HasSmap) {
-    SynonymMap_RdbSave(rdb, sp->smap);
+    SynonymMap::RdbSave(rdb, sp->smap);
   }
   RedisModule_SaveUnsigned(rdb, sp->timeout);
 

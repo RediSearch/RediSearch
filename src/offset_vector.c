@@ -18,7 +18,7 @@
 
 class RSOffsetVectorIteratorPool : public MemPool {
 public:
-  RSOffsetVectorIteratorPool() : MemPool(8, 0, true)
+  RSOffsetVectorIteratorPool() : MemPool(8, 0, true) {}
 };
 
 // A raw offset vector iterator
@@ -67,30 +67,30 @@ uint32_t RSOffsetVectorIterator::Next(RSQueryTerm **t) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-class RSAggregateOffsetIteratorPool : public MemPool {
+class AggregateOffsetIteratorPool : public MemPool {
 public:
-  RSAggregateOffsetIteratorPool() : MemPool(8, 0, true)
+  AggregateOffsetIteratorPool() : MemPool(8, 0, true) {}
 };
 
-struct RSAggregateOffsetIterator : public RSOffsetIterator,
-                                   public PoolObject<RSAggregateOffsetIteratorPool> {
-  const RSAggregateResult *res;
+struct AggregateOffsetIterator : public RSOffsetIterator,
+                                   public PoolObject<AggregateOffsetIteratorPool> {
+  const AggregateResult *res;
   size_t size;
   RSOffsetIterator *iters;
   uint32_t *offsets;
   RSQueryTerm **terms;
   // uint32_t lastOffset; - TODO: Avoid duplicate offsets
 
-  RSAggregateOffsetIterator() {
+  AggregateOffsetIterator() {
     size = 0;
     offsets = NULL;
     iters = NULL;
     terms = NULL;
   }
 
-  RSAggregateOffsetIterator(const RSAggregateResult *agg);
+  AggregateOffsetIterator(const AggregateResult *agg);
 
-  ~RSAggregateOffsetIterator() {
+  ~AggregateOffsetIterator() {
     rm_free(offsets);
     rm_free(iters);
     rm_free(terms);
@@ -103,7 +103,7 @@ struct RSAggregateOffsetIterator : public RSOffsetIterator,
 //---------------------------------------------------------------------------------------------
 
 // Create an iterator from the aggregate offset iterators of the aggregate result
-RSAggregateOffsetIterator::RSAggregateOffsetIterator(const AggregateResult *agg) {
+AggregateOffsetIterator::AggregateOffsetIterator(const AggregateResult *agg) {
   res = agg; //@@ ownership
 
   if (agg->numChildren > size) {
@@ -124,13 +124,13 @@ RSAggregateOffsetIterator::RSAggregateOffsetIterator(const AggregateResult *agg)
 
 //---------------------------------------------------------------------------------------------
 
-RSAggregateOffsetIterator AggregateResult::IterateOffsetsInternal() const {
-  return new RSAggregateOffsetIterator(this);
+AggregateOffsetIterator AggregateResult::IterateOffsetsInternal() const {
+  return new AggregateOffsetIterator(this);
 }
 
 //---------------------------------------------------------------------------------------------
 
-uint32_t RSAggregateOffsetIterator::Next(RSQueryTerm **t) {
+uint32_t AggregateOffsetIterator::Next(RSQueryTerm **t) {
   int minIdx = -1;
   uint32_t minVal = RS_OFFSETVECTOR_EOF;
   int num = res->numChildren;
@@ -156,7 +156,7 @@ uint32_t RSAggregateOffsetIterator::Next(RSQueryTerm **t) {
 
 //---------------------------------------------------------------------------------------------
 
-RSAggregateOffsetIterator::~RSAggregateOffsetIterator() {
+AggregateOffsetIterator::~AggregateOffsetIterator() {
   for (int i = 0; i < res->numChildren; i++) {
     delete iters[i];
   }
@@ -164,7 +164,7 @@ RSAggregateOffsetIterator::~RSAggregateOffsetIterator() {
 
 //---------------------------------------------------------------------------------------------
 
-void RSAggregateOffsetIterator::Rewind() {
+void AggregateOffsetIterator::Rewind() {
   for (int i = 0; i < res->numChildren; i++) {
     iters[i].Rewind(iters[i].ctx);
     offsets[i] = 0;
@@ -172,13 +172,6 @@ void RSAggregateOffsetIterator::Rewind() {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-class RSOffsetEmptyIterator : public RSOffsetIterator {
-};
-
-RSOffsetEmptyIterator offset_empty_iterator;
-
-//---------------------------------------------------------------------------------------------
 
 RSOffsetIterator::Proxy::~Proxy() {
   if (it != &offset_empty_iterator) {

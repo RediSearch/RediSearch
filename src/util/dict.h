@@ -61,15 +61,15 @@ struct dictEntry {
     double dictGetDoubleVal() { return v.d; }
 
     void dictSetSignedIntegerVal(int64_t _val_) {
-        do { v.s64 = _val_; } while(0)
+        do { v.s64 = _val_; } while(0);
     }
 
     void dictSetUnsignedIntegerVal(uint64_t _val_) {
-        do { v.u64 = _val_; } while(0)
+        do { v.u64 = _val_; } while(0);
     }
 
     void dictSetDoubleVal(double _val_) {
-        do { v.d = _val_; } while(0)
+        do { v.d = _val_; } while(0);
     }
 };
 
@@ -121,7 +121,7 @@ public:
                 entry->v.val = type->valDup(privdata, _val_);
             else
                 entry->v.val = _val_;
-        } while(0)
+        } while(0);
     }
 
     void dictFreeKey(dictEntry *entry) {
@@ -136,7 +136,7 @@ public:
                 entry->key = type->keyDup(privdata, _key_);
             else
                 entry->key = _key_;
-        } while(0)
+        } while(0);
     }
 
     bool dictCompareKeys(const void *key1, const void *key2) {

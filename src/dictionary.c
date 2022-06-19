@@ -13,7 +13,7 @@ Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode, R
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
     Trie *t = NULL;
     if (mode == REDISMODULE_WRITE) {
-      t = NewTrie();
+      t = new Trie();
       RedisModule_ModuleTypeSetValue(*k, TrieType, t);
     } else {
       RedisModule_CloseKey(*k);
