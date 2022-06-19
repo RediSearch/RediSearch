@@ -1,6 +1,4 @@
-#ifndef __MDMA_LOGGING__
-#define __MDMA_LOGGING__
-
+#pragma once
 #define L_DEBUG 1
 #define L_INFO 2
 #define L_WARN 4
@@ -34,5 +32,3 @@ void LOGGING_INIT(int level);
     LG_MSG("[ERROR %s:%d] ", __FILE__, __LINE__); \
     LG_MSG(__VA_ARGS__);                          \
   }
-
-#endif

@@ -1,11 +1,6 @@
-#ifndef __RUNE_UTIL_H__
-#define __RUNE_UTIL_H__
+#pragma once
 
 #include "libnu/libnu.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /* Internally, the trie works with 16/32 bit "Runes", i.e. fixed width unicode
  * characters. 16 bit shuold be fine for most use cases */
@@ -28,8 +23,3 @@ rune *strToRunes(const char *str, size_t *len);
 
 /* Decode a string to a rune in-place */
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
-
-#ifdef __cplusplus
-}
-#endif
-#endif

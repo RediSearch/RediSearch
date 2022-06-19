@@ -1,9 +1,4 @@
-#ifndef RSBSEARCH_H
-#define RSBSEARCH_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#pragma once
 
 #include <stdlib.h>
 #include <assert.h>
@@ -123,8 +118,3 @@ static inline int rsb_eq(const void *arr, size_t narr, size_t elemsz, const void
   const void *p = ((const char *)arr) + tmpidx;
   return cmp(s, p) == 0 ? begin : -1;
 }
-
-#ifdef __cplusplus
-}
-#endif
-#endif

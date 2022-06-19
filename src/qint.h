@@ -6,7 +6,7 @@
 
 #ifndef QINT_API
 #define QINT_API
-#endif
+#endif //@@ (?)
 
 /* QInt - fast encoding and decoding of up to 4 unsinged 32 bit integers as variable width
  * integers. The algorithm uses a leading byte to encode the size of each integer in bits, and has a

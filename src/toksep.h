@@ -1,5 +1,4 @@
-#ifndef TOKSEP_H
-#define TOKSEP_H
+#pragma once
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -34,5 +33,3 @@ static inline char *toksep(char **s, size_t *tokLen) {
 static inline int istoksep(int c) {
   return ToksepMap_g[(uint8_t)c] != 0;
 }
-
-#endif

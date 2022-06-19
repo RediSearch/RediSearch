@@ -1,14 +1,9 @@
-#ifndef __TRIE_TYPE_H__
-#define __TRIE_TYPE_H__
+#pragma once
 
 #include "../redismodule.h"
 
 #include "trie.h"
 #include "levenshtein.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 extern RedisModuleType *TrieType;
 
@@ -51,8 +46,3 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
 void TrieType_Digest(RedisModuleDigest *digest, void *value);
 void TrieType_Free(void *value);
-
-#ifdef __cplusplus
-}
-#endif
-#endif

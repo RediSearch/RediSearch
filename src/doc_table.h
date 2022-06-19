@@ -144,7 +144,7 @@ public:
 
 //---------------------------------------------------------------------------------------------
 
-//@@ What is the type of code (?)
+//@@ What is the type of `code` (?)
 // I want to move it into RSDocumentMetadata struct.
 #define DOCTABLE_FOREACH(dt, code)                                           \
   for (size_t i = 1; i < dt->cap; ++i) {                                     \

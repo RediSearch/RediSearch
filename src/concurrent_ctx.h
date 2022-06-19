@@ -124,7 +124,7 @@ extern int CONCURRENT_POOL_SEARCH;
 void ConcurrentSearch_ThreadPoolStart();
 void ConcurrentSearch_ThreadPoolDestroy();
 
-// Create a new thread pool, and return its identifying id 
+// Create a new thread pool, and return its identifying id
 int ConcurrentSearch_CreatePool(int numThreads);
 
 // Run a function on the concurrent thread pool
@@ -173,11 +173,10 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
 //---------------------------------------------------------------------------------------------
 
 // Check if the current request can be executed in a thread
-
-inline int CheckConcurrentSupport(RedisModuleCtx *ctx) {
+inline bool CheckConcurrentSupport(RedisModuleCtx *ctx) {
   // See if this client should be concurrent
   if (!RSGlobalConfig.concurrentMode) {
-    return 0;
+    return false;
   }
 
   // Redis cannot use blocked contexts in lua and/or multi commands. Concurrent
@@ -185,9 +184,9 @@ inline int CheckConcurrentSupport(RedisModuleCtx *ctx) {
   // search mode.
   if (RedisModule_GetContextFlags && (RedisModule_GetContextFlags(ctx) &
                                      (REDISMODULE_CTX_FLAGS_LUA | REDISMODULE_CTX_FLAGS_MULTI))) {
-    return 0;
+    return false;
   }
-  return 1;
+  return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

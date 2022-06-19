@@ -1072,7 +1072,7 @@ void IndexSpec::MakeKeyless() {
     invidxDictType = dictTypeHeapRedisStrings;
     invidxDictType.valDestructor = valFreeCb;
   }
-  keysDict = dictCreate(&invidxDictType, NULL);
+  keysDict = new dict(&invidxDictType);
 }
 
 //---------------------------------------------------------------------------------------------

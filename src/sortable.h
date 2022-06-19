@@ -1,5 +1,5 @@
-#ifndef __RS_SORTABLE_H__
-#define __RS_SORTABLE_H__
+#pragma once
+
 #include "redismodule.h"
 #include "value.h"
 
@@ -62,5 +62,3 @@ struct RSSortingTable {
   int Add(const char *name, RSValueType t);
   int GetFieldIdx(const char *field);
 };
-
-#endif

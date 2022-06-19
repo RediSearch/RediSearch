@@ -1,5 +1,4 @@
-#ifndef __INDEX_H__
-#define __INDEX_H__
+#pragma once
 
 #include "doc_table.h"
 #include "forward_index.h"
@@ -287,5 +286,3 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 // IndexIterator *NewEmptyIterator();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-#endif

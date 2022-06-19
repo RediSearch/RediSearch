@@ -1,14 +1,9 @@
 
-#ifndef REDISMODULE_H
-#define REDISMODULE_H
+#pragma once
 
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdio.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /* ---------------- Defines common between core and modules --------------- */
 
@@ -202,7 +197,7 @@ typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 typedef void (*RedisModuleCommandFilterFunc)(RedisModuleCommandFilterCtx *filter);
 
 #define REDISMODULE_TYPE_METHOD_VERSION 2
-typedef struct RedisModuleTypeMethods {
+struct RedisModuleTypeMethods {
     uint64_t version;
     RedisModuleTypeLoadFunc rdb_load;
     RedisModuleTypeSaveFunc rdb_save;
@@ -213,7 +208,7 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeAuxLoadFunc aux_load;
     RedisModuleTypeAuxSaveFunc aux_save;
     int aux_save_triggers;
-} RedisModuleTypeMethods;
+};
 
 #define REDISMODULE_XAPI_STABLE(X) \
     X(void *, Alloc, (size_t bytes)) \
@@ -437,9 +432,3 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 #define RedisModuleString robj
 
 #endif /* REDISMODULE_CORE */
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* REDISMOUDLE_H */

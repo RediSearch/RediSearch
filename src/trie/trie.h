@@ -1,5 +1,4 @@
-#ifndef __TRIE_H__
-#define __TRIE_H__
+#pragma once
 
 #include <stdlib.h>
 #include <string.h>
@@ -7,9 +6,6 @@
 #include <stdbool.h>
 #include "rune_util.h"
 #include "redisearch.h"
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 typedef uint16_t t_len;
 
@@ -181,8 +177,3 @@ struct TrieIterator : public Object {
 #define __STEP_CONT 1
 /* We found a match, return the state to the user but continue afterwards */
 #define __STEP_MATCH 3
-
-#ifdef __cplusplus
-}
-#endif
-#endif

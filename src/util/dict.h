@@ -36,8 +36,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#ifndef __DICT_H
-#define __DICT_H
+#pragma once
 
 #define DICT_OK 0
 #define DICT_ERR 1
@@ -45,7 +44,7 @@
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
-typedef struct dictEntry {
+struct dictEntry {
     void *key;
     union {
         void *val;
@@ -54,99 +53,125 @@ typedef struct dictEntry {
         double d;
     } v;
     struct dictEntry *next;
-} dictEntry;
 
-typedef struct dictType {
-    uint64_t (*hashFunction)(const void *key);
-    void *(*keyDup)(void *privdata, const void *key);
-    void *(*valDup)(void *privdata, const void *obj);
-    int (*keyCompare)(void *privdata, const void *key1, const void *key2);
-    void (*keyDestructor)(void *privdata, void *key);
-    void (*valDestructor)(void *privdata, void *obj);
-} dictType;
+    void *dictGetKey() { return key; }
+    void *dictGetVal() { return v.val; }
+    int64_t dictGetSignedIntegerVal() { return v.s64; }
+    uint64_t dictGetUnsignedIntegerVal() { return v.u64; }
+    double dictGetDoubleVal() { return v.d; }
+
+    void dictSetSignedIntegerVal(int64_t _val_) {
+        do { v.s64 = _val_; } while(0)
+    }
+
+    void dictSetUnsignedIntegerVal(uint64_t _val_) {
+        do { v.u64 = _val_; } while(0)
+    }
+
+    void dictSetDoubleVal(double _val_) {
+        do { v.d = _val_; } while(0)
+    }
+};
+
+struct dictType {
+    virtual uint64_t hashFunction(const void *key);
+    virtual void *keyDup(void *privdata, const void *key);
+    virtual void *valDup(void *privdata, const void *obj);
+    virtual bool keyCompare(void *privdata, const void *key1, const void *key2);
+    virtual void keyDestructor(void *privdata, void *key);
+    virtual void valDestructor(void *privdata, void *obj);
+};
 
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
-typedef struct dictht {
+struct dictht {
     dictEntry **table;
     unsigned long size;
     unsigned long sizemask;
     unsigned long used;
-} dictht;
+};
 
-typedef struct dict {
+class dict {
     dictType *type;
     void *privdata;
     dictht ht[2];
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
     unsigned long iterators; /* number of iterators currently running */
-} dict;
+
+private:
+    int _dictExpandIfNeeded();
+    static unsigned long _dictNextPower(unsigned long size);
+    long _dictKeyIndex(const void *key, uint64_t hash, dictEntry **existing);
+    int _dictInit(dictType *type, void *privDataPtr);
+
+public:
+
+    dict(dictType *type, void *privDataPtr = NULL) { _dictInit(type,privDataPtr); }
+
+
+    void dictFreeVal(dictEntry *entry) {
+        if (type->valDestructor) {
+            type->valDestructor(privdata, entry->v.val);
+        }
+    }
+
+    void dictSetVal(dictEntry *entry, const void *_val_) {
+        do {
+            if (type->valDup)
+                entry->v.val = type->valDup(privdata, _val_);
+            else
+                entry->v.val = _val_;
+        } while(0)
+    }
+
+    void dictFreeKey(dictEntry *entry) {
+        if (type->keyDestructor) {
+            type->keyDestructor(privdata, entry->key);
+        }
+    }
+
+    void dictSetKey(dictEntry *entry, const void *_key_) {
+        do {
+            if (type->keyDup)
+                entry->key = type->keyDup(privdata, _key_);
+            else
+                entry->key = _key_;
+        } while(0)
+    }
+
+    bool dictCompareKeys(const void *key1, const void *key2) {
+        if (type->keyCompare) {
+            return type->keyCompare(privdata, key1, key2);
+        }
+        else {
+            return key1 == key2;
+        }
+    }
+
+    uint64_t dictHashKey(const void *key) { return type->hashFunction(key); }
+    unsigned long dictSlots() { return ht[0].size + ht[1].size; }
+    unsigned long dictSize() { return ht[0].used + ht[1].used; }
+    bool dictIsRehashing() { return rehashidx != -1; }
+};
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
  * dictAdd, dictFind, and other functions against the dictionary even while
  * iterating. Otherwise it is a non safe iterator, and only dictNext()
  * should be called while iterating. */
-typedef struct dictIterator {
+struct dictIterator {
     dict *d;
     long index;
     int table, safe;
     dictEntry *entry, *nextEntry;
     /* unsafe iterator fingerprint for misuse detection. */
     long long fingerprint;
-} dictIterator;
+};
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 
 /* This is the initial size of every hash table */
 #define DICT_HT_INITIAL_SIZE     4
-
-/* ------------------------------- Macros ------------------------------------*/
-#define dictFreeVal(d, entry) \
-    if ((d)->type->valDestructor) \
-        (d)->type->valDestructor((d)->privdata, (entry)->v.val)
-
-#define dictSetVal(d, entry, _val_) do { \
-    if ((d)->type->valDup) \
-        (entry)->v.val = (d)->type->valDup((d)->privdata, _val_); \
-    else \
-        (entry)->v.val = (_val_); \
-} while(0)
-
-#define dictSetSignedIntegerVal(entry, _val_) \
-    do { (entry)->v.s64 = _val_; } while(0)
-
-#define dictSetUnsignedIntegerVal(entry, _val_) \
-    do { (entry)->v.u64 = _val_; } while(0)
-
-#define dictSetDoubleVal(entry, _val_) \
-    do { (entry)->v.d = _val_; } while(0)
-
-#define dictFreeKey(d, entry) \
-    if ((d)->type->keyDestructor) \
-        (d)->type->keyDestructor((d)->privdata, (entry)->key)
-
-#define dictSetKey(d, entry, _key_) do { \
-    if ((d)->type->keyDup) \
-        (entry)->key = (d)->type->keyDup((d)->privdata, _key_); \
-    else \
-        (entry)->key = (_key_); \
-} while(0)
-
-#define dictCompareKeys(d, key1, key2) \
-    (((d)->type->keyCompare) ? \
-        (d)->type->keyCompare((d)->privdata, key1, key2) : \
-        (key1) == (key2))
-
-#define dictHashKey(d, key) (d)->type->hashFunction(key)
-#define dictGetKey(he) ((he)->key)
-#define dictGetVal(he) ((he)->v.val)
-#define dictGetSignedIntegerVal(he) ((he)->v.s64)
-#define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
-#define dictGetDoubleVal(he) ((he)->v.d)
-#define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
-#define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
-#define dictIsRehashing(d) ((d)->rehashidx != -1)
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
@@ -184,5 +209,3 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
 
 extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapRedisStrings;
-
-#endif /* __DICT_H */

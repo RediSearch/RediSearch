@@ -27,7 +27,7 @@ void SearchResult::Clear() {
   // This won't affect anything if the result is null
   score = 0;
   if (scoreExplain) {
-    SEDestroy(scoreExplain);
+    scoreExplain->SEDestroy();
     scoreExplain = NULL;
   }
   if (indexResult) {
