@@ -1,7 +1,6 @@
 #pragma once
 
 #include "search_options.h"
-#include "util/timeout.h"
 
 typedef struct QueryEvalCtx {
   ConcurrentSearchCtx *conc;
