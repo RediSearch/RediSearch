@@ -2076,9 +2076,9 @@ def testTimeout(env):
     env.cmd('ft.config', 'set', 'timeout', '1')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
 
-    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
+    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT')
     for i in range(num_range):
-        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i), 'geo', str(i/10000) + ',' + str(i/1000))
+        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i))
 
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
 
@@ -2086,11 +2086,8 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
        .contains('Timeout limit was reached')
 
-    # test `TIMEOUT` param in query
     res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
     env.assertEqual(res[0], num_range)
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)    \
-        .error().contains('Timeout limit was reached')
 
     # test erroneous params
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout').error()
@@ -2098,15 +2095,13 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
     # check no time w/o sorter/grouper
-    res = env.cmd('FT.AGGREGATE', 'myIdx', '*',
-                'LOAD', 1, 'geo',
-                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance1',
-                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance2',
-                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance3',
-                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
-                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5')
-    env.assertLess(len(res[1:]), num_range)
-    
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                  'LOAD', 1, 't',
+                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                  'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
+    env.assertEqual(res[0], 1)
+
     # test grouper
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
                'LOAD', 1, 't',
