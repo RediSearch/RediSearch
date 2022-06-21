@@ -81,6 +81,19 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type,
       tbl->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
       break;
     }
+
+     case RS_SORTABLE_OWN_RSTR: {
+      if (unf) {
+        tbl->values[idx] = RS_StealRedisStringVal((RedisModuleString*)p);
+      } else {
+        const char *ptr = RedisModule_StringPtrLen((RedisModuleString*)p, NULL);
+        char *str = normalizeStr(ptr);
+        tbl->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
+        RedisModule_FreeString(RSDummyContext, (RedisModuleString*)p);
+      }
+      break;
+    }
+
     case RS_SORTABLE_NIL:
     default:
       tbl->values[idx] = RS_NullVal();

@@ -22,6 +22,7 @@ extern "C" {
 #define RS_SORTABLE_STR 3
 // nil value means the value is empty
 #define RS_SORTABLE_NIL 4
+#define RS_SORTABLE_OWN_RSTR 5 // transfer ownership
 
 /* RSSortingVector is a vector of sortable values. All documents in a schema where sortable fields
  * are defined will have such a vector. */

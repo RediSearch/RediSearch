@@ -465,8 +465,6 @@ def testMultiValueTag_Recursive_Decent(env):
 @no_msan
 def testMultiValueErrors(env):
     # Index with Tag for array with multi-values
-    env.execute_command('FT.CREATE', 'idxtext', 'ON', 'JSON',
-                        'SCHEMA', '$.text', 'AS', 'text', 'TEXT')
     env.execute_command('FT.CREATE', 'idxnum', 'ON', 'JSON',
                         'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC')
     env.execute_command('FT.CREATE', 'idxgeo', 'ON', 'JSON',
@@ -479,8 +477,8 @@ def testMultiValueErrors(env):
                                            "vec":[[1],[2,3],[3.14]],                              \
                                            "geo":["1.234, 4.321", "0.123, 3.210"]}').ok()
 
-    # test non-tag indexes fail to index multivalue
-    indexes = ['idxtext', 'idxnum', 'idxgeo', 'idxvector']
+    # test non-tag non-text indexes fail to index multivalue
+    indexes = ['idxnum', 'idxgeo', 'idxvector']
     for index in indexes:
         res_actual = env.cmd('FT.INFO', index)
         res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
@@ -728,10 +726,9 @@ def test_WrongJsonType(env):
         '$.object4', 'GEO',
         '$.object5', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
 
-        '$.array1', 'TEXT',
-        '$.array2', 'NUMERIC',
-        '$.array3', 'GEO',
-        '$.array4', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2', # wrong sub-types
+        '$.array1', 'NUMERIC',
+        '$.array2', 'GEO',
+        '$.array3', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2', # wrong sub-types
 
         '$.numeric1', 'TEXT',
         '$.numeric2', 'TAG',
@@ -759,7 +756,6 @@ def test_WrongJsonType(env):
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array1":["foo", "bar"]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array2":["foo", "bar"]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array3":["foo", "bar"]}'))
-    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array4":["foo", "bar"]}'))
 
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric1":3.141}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric2":3.141}'))

@@ -398,7 +398,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 }
 
 #define FIELD_HANDLER(name)                                                                \
-  static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
+  static int name(RSAddDocumentCtx *aCtx, DocumentField *field, const FieldSpec *fs, \
                   FieldIndexerData *fdata, QueryError *status)
 
 #define FIELD_BULK_INDEXER(name)                                                            \
@@ -429,9 +429,15 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
   size_t fl;
   const char *c = DocumentField_GetValueCStr(field, &fl);
+  size_t valueCount = (field->unionType != FLD_VAR_T_ARRAY ? 1 : field->arrayLen);
 
   if (FieldSpec_IsSortable(fs)) {
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+    if (field->unionType != FLD_VAR_T_ARRAY) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+    } else if (field->multiValAsText) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)field->multiValAsText, RS_SORTABLE_OWN_RSTR, fs->options & FieldSpec_UNF);
+      field->multiValAsText = NULL;
+    }
   }
 
   if (FieldSpec_IsIndexable(fs)) {
@@ -451,11 +457,11 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       options |= TOKENIZE_PHONETICS;
     }
 
-    uint32_t multiSlopDelta = MAX(0, 100-1);
-    size_t valueCount = (field->unionType != FLD_VAR_T_ARRAY ? 1 : field->arrayLen);
+    uint32_t multiSlopDelta = MAX(0, 100-1);    
     for (size_t i = 0; i < valueCount; ++i) {
     
-      if (i) {
+      // Already got the first value
+      if (i) {        
         c = DocumentField_GetArrayValueCStr(field, &fl, i);
       }
       ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
@@ -900,6 +906,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
       return df->strval;
     case FLD_VAR_T_ARRAY:
       if (df->arrayLen > 0) {
+        // Return the first entry
         *len = strlen(df->multiVal[0]);
         return df->multiVal[0];
       }
@@ -914,10 +921,20 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
 }
 
 const char *DocumentField_GetArrayValueCStr(const DocumentField *df, size_t *len, size_t index) {
-  *len = 0;
   if (df->unionType == FLD_VAR_T_ARRAY && index < df->arrayLen) {
     *len = strlen(df->multiVal[index]);
     return df->multiVal[index];
   }
+  *len = 0;
   return NULL;
+}
+
+size_t DocumentField_GetArrayValueCStrLen(const DocumentField *df) {
+  size_t len = 0;
+  if (df->unionType == FLD_VAR_T_ARRAY) {
+    for (size_t i = 0; i < df->arrayLen; ++i) {
+      len += strlen(df->multiVal[i]);
+    }
+  }
+  return len;
 }
