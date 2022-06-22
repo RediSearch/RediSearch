@@ -46,9 +46,9 @@ struct dfaNode {
     ~dfaNode();
 
     /* Recusively build the DFA node and all its descendants */
-    void build(SparseAutomaton *a, Vector *cache);
+    void build(SparseAutomaton *a, Vector<dfaNode *> *cache);
 
-    void putCache(Vector *cache);
+    void putCache(Vector<dfaNode *> *cache);
     void addEdge(rune r, dfaNode *child);
 
     dfaNode *getEdge(rune r);

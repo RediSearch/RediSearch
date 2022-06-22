@@ -11,6 +11,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "util/minmax_heap.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -175,8 +176,18 @@ struct ResultProcessor : public Object {
 // Get the index spec from the result processor
 #define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
 
+/*
+ * Base Result Processor - this processor is the topmost processor of every processing chain.
+ *
+ * It takes the raw index results from the index, and builds the search result to be sent downstream.
+ */
+
 struct RPIndexIterator : public ResultProcessor {
+  IndexIterator *iiter;
+
   RPIndexIterator(IndexIterator *itr);
+
+  int Next(SearchResult *res);
 };
 
 struct RPScorer : public ResultProcessor {
@@ -196,17 +207,6 @@ void SortAscMap_Dump(uint64_t v, size_t n);
 
 //---------------------------------------------------------------------------------------------
 
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap);
-
-ResultProcessor *RPSorter_NewByScore(size_t maxresults);
-
-//---------------------------------------------------------------------------------------------
-
-ResultProcessor *RPPager_New(size_t offset, size_t limit);
-
-//---------------------------------------------------------------------------------------------
-
 /*  Loading Processor
  *
  * This processor simply takes the search results, and based on the request parameters, loads the
@@ -215,13 +215,15 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  * It fills the result objects' field map with values corresponding to the requested return fields
  */
 
-struct ResultsLoader : ResultProcessor {
+struct ResultsLoader : public ResultProcessor {
   RLookup *lk;
   const RLookupKey **fields;
   size_t nfields;
 
   ResultsLoader(RLookup *lk, const RLookupKey **keys, size_t nkeys);
   ~ResultsLoader();
+
+  int Next(SearchResult *res);
 };
 
 
@@ -238,6 +240,120 @@ struct Highlighter : public ResultProcessor {
   const IndexResult *getIndexResult(t_docId docId);
 
   virtual int Next(SearchResult *res);
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+/*
+ *  Scoring Processor
+ *
+ * It takes results from upstream, and using a scoring function applies the score to each one.
+ *
+ * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
+ */
+
+struct RPScorer : public ResultProcessor {
+  RSScoringFunction scorer;
+  RSFreeFunction scorerFree;
+  ScoringFunctionArgs scorerCtx;
+
+  RPScorer(const ExtScoringFunction *funcs, const ScoringFunctionArgs *fnargs);
+  ~RPScorer();
+
+  int Next(SearchResult *res);
+};
+
+//---------------------------------------------------------------------------------------------
+
+/*
+ *  Sorting Processor
+ *
+ * This is where things become a bit complex...
+ *
+ * The sorter takes scored results from the scorer (or in the case of SORTBY, the raw results), and
+ * maintains a heap of the top N results.
+ *
+ * Since we need it to be thread safe, every result that's put on the heap is copied, including its
+ * index result tree.
+ *
+ * This means that from here down-stream, everything is thread safe, but we also need to properly
+ * free discarded results.
+ *
+ * The sorter is actually a reducer - it returns RS_RESULT_QUEUED until its upstream parent returns
+ * EOF. then it starts yielding results one by one by popping from the top of the heap.
+ *
+ * Note: We use a min-max heap to simplify maintaining a max heap where we can pop from the bottom
+ * while
+ * finding the top N results
+ */
+
+typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *udata);
+
+struct RPSorter : public ResultProcessor {
+  // The desired size of the heap - top N results
+  // If set to 0 this is a growing heap
+  uint32_t size;
+
+  // The offset - used when popping result after we're done
+  uint32_t offset;
+
+  // The heap. We use a min-max heap here
+  heap_t *pq;
+
+  // the compare function for the heap. We use it to test if a result needs to be added to the heap
+  RPSorterCompareFunc cmp;
+
+  // private data for the compare function
+  void *cmpCtx;
+
+  // pooled result - we recycle it to avoid allocations
+  SearchResult *pooledResult;
+
+  struct Cmp {
+    const RLookupKey **keys;
+    size_t nkeys;
+    uint64_t ascendMap;
+  } fieldcmp;
+
+  void ctor(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap);
+
+  RPSorter(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap){
+    ctor(maxresults, keys, nkeys, ascmap);
+  }
+
+  RPScorer(size_t maxresults) {
+    ctor(maxresults, NULL, 0, 0);
+  }
+
+  ~RPSorter();
+
+  int Next(SearchResult *r);
+  int Accum(SearchResult *r);
+  int innerLoop(SearchResult *r);
+};
+
+//---------------------------------------------------------------------------------------------
+
+/*
+ *  Paging Processor
+ *
+ * The sorter builds a heap of size N, but the pager is responsible for taking result
+ * FIRST...FIRST+NUM from it.
+ *
+ * For example, if we want to get results 40-50, we build a heap of size 50 on the sorter, and
+ *the pager is responsible for discarding the first 40 results and returning just 10
+ *
+ * They are separated so that later on we can cache the sorter's heap, and continue paging it
+ * without re-executing the entire query
+ */
+
+struct RPPager : public ResultProcessor {
+  uint32_t offset;
+  uint32_t limit;
+  uint32_t count;
+
+  RPPager(size_t offset, size_t limit);
+  int Next(SearchResult *r);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

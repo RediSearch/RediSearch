@@ -32,6 +32,14 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
   }
 }
 
+#define RS_MAX_CONFIG_VARS 255
+struct RSConfigOptions {
+  RSConfigVar vars[RS_MAX_CONFIG_VARS];
+  struct RSConfigOptions *next;
+
+  void AddConfigs(RSConfigOptions *dst);
+};
+
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
 struct RSConfig{
@@ -110,14 +118,6 @@ struct RSConfigVar {
   int (*setValue)(RSConfig *, ArgsCursor *, QueryError *);
   sds (*getValue)(const RSConfig *);
   uint32_t flags;
-};
-
-#define RS_MAX_CONFIG_VARS 255
-struct RSConfigOptions {
-  RSConfigVar vars[RS_MAX_CONFIG_VARS];
-  struct RSConfigOptions *next;
-
-  void AddConfigs(RSConfigOptions *dst);
 };
 
 // global config extern references

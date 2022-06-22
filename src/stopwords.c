@@ -91,7 +91,7 @@ void StopWordList::ctor(const char **strs, size_t len) {
 //---------------------------------------------------------------------------------------------
 
 StopWordList::~StopWordList() {
-  TrieMap_Free(m, NULL);
+  delete m;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -133,7 +133,7 @@ StopWordList::StopWordList(RedisModuleIO *rdb, int encver) {
 //---------------------------------------------------------------------------------------------
 
 // Save a stopword list to RDB
-void StopWordList::RdbSave(RedisModuleIO *rdb) {
+void StopWordList::RdbSave(RedisModuleIO *rdb) const {
   RedisModule_SaveUnsigned(rdb, m->cardinality);
   TrieMapIterator *it = m->Iterate("", 0);
   char *str;
@@ -147,7 +147,7 @@ void StopWordList::RdbSave(RedisModuleIO *rdb) {
 
 //---------------------------------------------------------------------------------------------
 
-void StopWordList::ReplyWithStopWordsList(RedisModuleCtx *ctx) {
+void StopWordList::ReplyWithStopWordsList(RedisModuleCtx *ctx) const {
   RedisModule_ReplyWithSimpleString(ctx, "stopwords_list");
 
 #if 0

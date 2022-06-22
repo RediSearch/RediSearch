@@ -934,18 +934,18 @@ ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, const PLN_BaseStep *stp, Resul
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp.sortAscMap);
+    rp = new RPSorter(limit, sortkeys, nkeys, astp.sortAscMap);
     up = pushRP(rp, up);
   }
 
   // No sort? then it must be sort by score, which is the default.
   if (rp == NULL && (reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit);
+    rp = new RPSorter(limit);
     up = pushRP(rp, up);
   }
 
   if (astp.offset || (astp.limit && !rp)) {
-    rp = RPPager_New(astp.offset, astp.limit);
+    rp = new RPPager(astp.offset, astp.limit);
     up = pushRP(rp, up);
   }
 

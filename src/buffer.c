@@ -25,6 +25,7 @@ void Buffer::Reset() {
   cap = 0;
   offset = 0;
 }
+
 //---------------------------------------------------------------------------------------------
 
 // Ensure that at least extraLen new bytes can be added to the buffer.

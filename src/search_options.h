@@ -78,6 +78,7 @@ struct FieldList {
   ~FieldList();
 
   int parseArgs(ArgsCursor *ac, bool isHighlight);
+  int parseFieldList(ArgsCursor *ac, Array *fieldPtrs);
   void ParseSummarize(ArgsCursor *ac);
   void ParseHighlight(ArgsCursor *ac);
 

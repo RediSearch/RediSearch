@@ -179,7 +179,7 @@ uint32_t ChineseTokenizer::Next(Token *t) {
     const char *bufstart = text + tok->offset;
 
     if (!tokInit) {
-      initToken(base, t, tok);
+      initToken(t, tok);
       tokInit = 1;
     } else {
       t->rawLen = (text + len) - t->raw;
@@ -218,12 +218,12 @@ uint32_t ChineseTokenizer::Next(Token *t) {
 //---------------------------------------------------------------------------------------------
 
 ChineseTokenizer::~ChineseTokenizer() {
-  friso_free_task(fTask);
+  friso_free_task(friso_task);
 }
 
 //---------------------------------------------------------------------------------------------
 
-void ChineseTokenizer::Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+void ChineseTokenizer::Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) { //@@ do we need all the params?
   // Nothing to do here
   lastOffset = 0;
 }
@@ -233,7 +233,7 @@ void ChineseTokenizer::Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t
 ChineseTokenizer::ChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) :
   Tokenizer(stopwords, opts) {
 
-  fTask = friso_new_task();
+  friso_task = friso_new_task();
   maybeFrisoInit();
 }
 

@@ -39,7 +39,7 @@ struct TrieMaprsbHelper {
  * interested in the triemap as a set for strings
  */
 //@@ Make Template
-struct TrieMapNode : Object {
+struct TrieMapNode : public Object {
   // the string length of this node. can be 0
   tm_len_t len;
   // the number of child nodes
@@ -106,7 +106,7 @@ struct __tmi_stackNode {
 
 #pragma pack()
 
-struct TrieMapIterator : Object {
+struct TrieMapIterator : public Object {
   char *buf;
   tm_len_t bufLen;
   tm_len_t bufOffset;
@@ -127,7 +127,7 @@ struct TrieMapIterator : Object {
   __tmi_stackNode *current() { return &stack[stackOffset - 1]; }
 };
 
-struct TrieMap : Object {
+struct TrieMap : public Object {
   TrieMapNode *root;
   size_t cardinality;
 

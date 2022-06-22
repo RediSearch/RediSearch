@@ -6,12 +6,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-RLookupKey::RLookupKey(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx) {
-  ctor(lookup, name, n, flags, idx);
-}
-
-//---------------------------------------------------------------------------------------------
-
 void RLookupKey::ctor(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx) {
   flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
   dstidx = idx;
@@ -54,7 +48,7 @@ RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
 
   uint16_t idx = rowlen++;
 
-  auto ret = new RLookupKey(lookup, name, strlen(name), flags, idx);
+  auto ret = new RLookupKey(this, name, strlen(name), flags, idx);
   if (fs->IsSortable()) {
     ret->flags |= RLOOKUP_F_SVSRC;
     ret->svidx = fs->sortIdx;
@@ -84,14 +78,14 @@ RLookupKey *RLookup::GetKeyEx(const char *name, size_t n, int flags) {
   }
 
   if (!ret) {
-    ret = genKeyFromSpec(lookup, name, flags);
+    ret = genKeyFromSpec(name, flags);
   }
 
   if (!ret) {
     if (!(flags & RLOOKUP_F_OCREAT) && !(options & RLOOKUP_OPT_UNRESOLVED_OK)) {
       return NULL;
     } else {
-      ret = createNewKey(lookup, name, n, flags, rowlen++);
+      ret = new RLookupKey(this, name, n, flags, rowlen++);
       if (!(flags & RLOOKUP_F_OCREAT)) {
         ret->flags |= RLOOKUP_F_UNRESOLVED;
       }
@@ -162,8 +156,8 @@ RLookup::RLookup(IndexSpecCache *spcache) : head(NULL), tail(NULL), rowlen(0), o
 void RLookup::Reset(struct IndexSpecCache *cache) {
   head = tail = NULL;
   rowlen = 0;
-  options = 0
-  spcache = cahce;
+  options = 0;
+  spcache = cache;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -178,7 +172,7 @@ void RLookupRow::WriteOwnKey(const RLookupKey *key, RSValue *v) {
   // Find the pointer to write to ...
   RSValue **vptr = array_ensure_at(&dyn, key->dstidx, RSValue *);
   if (*vptr) {
-    vptr->Decref();
+    (*vptr)->Decref();
     ndyn--;
   }
   *vptr = v;
@@ -274,9 +268,9 @@ void RLookupRow::Cleanup() {
 
 void RLookup::MoveRow(RLookupRow *src, RLookupRow *dst) const {
   for (const RLookupKey *kk = head; kk; kk = kk->next) {
-    RSValue *vv = kk->GetItem(src);
+    RSValue *vv = src->GetItem(kk);
     if (vv) {
-      RLookup_WriteKey(kk, dst, vv);
+      dst->WriteKey(kk, vv);
     }
   }
   src->Wipe();
@@ -292,7 +286,7 @@ void RLookupRow::Dump() const {
       printf("  [%lu]: %p\n", ii, dyn[ii]);
       if (dyn[ii]) {
         printf("    ");
-        RSValue_Print(dyn[ii]);
+        dyn[ii]->Print();
         printf("\n");
       }
     }
@@ -319,14 +313,14 @@ RLookupKey::~RLookupKey() {
  */
 
 RLookup::~RLookup() {
-  RLookupKey *next, *cur = lk->head;
+  RLookupKey *next, *cur = head;
   while (cur) {
     next = cur->next;
     delete cur;
     cur = next;
   }
   if (spcache) {
-    IndexSpecCache_Decref(spcache); // TODO: refactor
+    spcache->Decref(); // TODO: refactor
     spcache = NULL;
   }
 }
@@ -419,7 +413,7 @@ int RLookupRow::getKeyCommon(const RLookupKey *kk, RLookupLoadOptions *options,
   // Value has a reference count of 1
   RSValue *rsv = hvalToValue(val, kk->fieldtype);
   RedisModule_FreeString(RSDummyContext, val);
-  RLookup_WriteKey(kk, this, rsv);
+  WriteKey(kk, rsv);
   rsv->Decref();
   return REDISMODULE_OK;
 }
@@ -433,7 +427,7 @@ int RLookup::loadIndividualKeys(RLookupRow *dst, RLookupLoadOptions *options) {
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
       const RLookupKey *kk = options->keys[ii];
-      if (getKeyCommon(kk, dst, options, &key) != REDISMODULE_OK) {
+      if (dst->getKeyCommon(kk, options, &key) != REDISMODULE_OK) {
         goto done;
       }
     }
@@ -449,7 +443,7 @@ int RLookup::loadIndividualKeys(RLookupRow *dst, RLookupLoadOptions *options) {
           continue;
         }
       }
-      if (getKeyCommon(kk, dst, options, &key) != REDISMODULE_OK) {
+      if (dst->getKeyCommon(kk, options, &key) != REDISMODULE_OK) {
         goto done;
       }
     }
@@ -470,7 +464,7 @@ int RLookup::HGETALL(RLookupRow *dst, RLookupLoadOptions *options) {
   RedisModuleCallReply *rep = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
-      RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
+    RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
 
   rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
@@ -498,7 +492,7 @@ int RLookup::HGETALL(RLookupRow *dst, RLookupLoadOptions *options) {
       ctype = RLOOKUP_C_STR;
     }
     RSValue *vptr = replyElemToValue(repv, ctype);
-    RLookup_WriteOwnKey(rlk, dst, vptr);
+    dst->WriteOwnKey(rlk, vptr);
   }
 
   rc = REDISMODULE_OK;

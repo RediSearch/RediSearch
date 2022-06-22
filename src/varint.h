@@ -41,12 +41,6 @@ inline t_fieldMask ReadVarintFieldMask(BufferReader &b) {
 
 //---------------------------------------------------------------------------------------------
 
-size_t WriteVarint(uint32_t value, BufferWriter &w);
-
-size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter &w);
-
-//---------------------------------------------------------------------------------------------
-
 struct VarintVectorWriter {
   Buffer buf;
   size_t nmemb;  // how many members we've put in

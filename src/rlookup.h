@@ -80,6 +80,12 @@ struct RLookupKey : public Object {
   // Pointer to next field in the list
   struct RLookupKey *next;
 
+  void ctor(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx);
+
+  RLookupKey(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx) {
+    ctor(lookup, name, n, flags, idx);
+  }
+  
   ~RLookupKey();
 };
 
@@ -107,6 +113,8 @@ struct RLookup {
   int LoadDocument(struct RLookupRow *dst, struct RLookupLoadOptions *options);
 
   RLookupKey *GetKey(const char *name, int flags);
+  RLookupKey *GetKeyEx(const char *name, size_t n, int flags);
+  RLookupKey *genKeyFromSpec(const char *name, int flags);
   const RLookupKey *FindKeyWith(uint32_t f) const;
 
   // Get the amount of visible fields is the RLookup
@@ -118,6 +126,9 @@ struct RLookup {
   void WriteOwnKeyByName(const char *name, RLookupRow *row, RSValue *value);
 
   void MoveRow(RLookupRow *src, RLookupRow *dst) const;
+
+  int HGETALL(RLookupRow *dst, RLookupLoadOptions *options);
+  int loadIndividualKeys(RLookupRow *dst, RLookupLoadOptions *options);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -150,6 +161,8 @@ struct RLookupRow {
   void Wipe();
   void Cleanup();
   void Dump() const;
+
+  int getKeyCommon(const RLookupKey *kk, RLookupLoadOptions *options, RedisModuleKey **keyobj);
 };
 
 //---------------------------------------------------------------------------------------------

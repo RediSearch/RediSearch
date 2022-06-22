@@ -51,68 +51,59 @@ size_t WriteVarintRaw(uint32_t value, char *buf) {
 
 //---------------------------------------------------------------------------------------------
 
-size_t WriteVarintBuffer(uint32_t value, Buffer *buf) {
+size_t Buffer::WriteVarintBuffer(uint32_t value) {
   varintBuf varint;
   size_t pos = varintEncode(value, varint);
   size_t n = VARINT_LEN(pos);
-  Buffer_Reserve(buf, n);
-  memcpy(buf->data + buf->offset, VARINT_BUF(varint, pos), n);
-  buf->offset += n;
+  Reserve(n);
+  memcpy(data + offset, VARINT_BUF(varint, pos), n);
+  offset += n;
   return n;
 }
 
 //---------------------------------------------------------------------------------------------
 
-size_t WriteVarint(uint32_t value, BufferWriter *w) {
+VarintVectorWriter::~VarintVectorWriter() {
+  delete &buf;
+}
+
+//---------------------------------------------------------------------------------------------
+
+VarintVectorWriter::VarintVectorWriter(size_t cap) {
+  lastValue = 0;
+  nmemb = 0;
+  buf = new Buffer(cap);
+}
+
+//---------------------------------------------------------------------------------------------
+
+size_t BufferWriter::WriteVarint(uint32_t value) {
   // printf("writing %d bytes\n", 16 - pos);
   varintBuf varint;
   size_t pos = varintEncode(value, varint);
   size_t nw = VARINT_LEN(pos);
 
-  if (Buffer_Reserve(w->buf, nw)) {
-    w->pos = w->buf->data + w->buf->offset;
+  if (buf->Reserve(nw)) {
+    pos = buf->data + buf->offset;
   }
 
-  memcpy(w->pos, VARINT_BUF(varint, pos), nw);
+  memcpy(pos, VARINT_BUF(varint, pos), nw);
 
-  w->buf->offset += nw;
-  w->pos += nw;
+  buf->offset += nw;
+  pos += nw;
 
   return nw;
 }
 
 //---------------------------------------------------------------------------------------------
 
-size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w) {
+size_t BufferWriter::WriteVarintFieldMask(t_fieldMask value) {
   // printf("writing %d bytes\n", 16 - pos);
 
   varintBuf varint;
   size_t pos = varintEncodeFieldMask(value, varint);
   size_t nw = VARINT_LEN(pos);
-  return Buffer_Write(w, VARINT_BUF(varint, pos), nw);
-}
-
-//---------------------------------------------------------------------------------------------
-
-void VVW_Free(VarintVectorWriter *w) {
-  Buffer_Free(&w->buf);
-  rm_free(w);
-}
-
-//---------------------------------------------------------------------------------------------
-
-VarintVectorWriter *NewVarintVectorWriter(size_t cap) {
-  VarintVectorWriter *w = rm_malloc(sizeof(VarintVectorWriter));
-  VVW_Init(w, cap);
-  return w;
-}
-
-//---------------------------------------------------------------------------------------------
-
-void VVW_Init(VarintVectorWriter *w, size_t cap) {
-  w->lastValue = 0;
-  w->nmemb = 0;
-  Buffer_Init(&w->buf, cap);
+  return Write(VARINT_BUF(varint, pos), nw);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -123,12 +114,12 @@ Write an integer to the vector.
 @param i the integer we want to write
 @retur 0 if we're out of capacity, the varint's actual size otherwise
 */
-size_t VVW_Write(VarintVectorWriter *w, uint32_t i) {
-  Buffer_Reserve(&w->buf, 16);
-  size_t n = WriteVarintBuffer(i - w->lastValue, &w->buf);
+size_t VarintVectorWriter::Write(uint32_t i) {
+  buf.Reserve(16);
+  size_t n = buf.WriteVarintBuffer(i - lastValue);
   if (n != 0) {
-    w->nmemb += 1;
-    w->lastValue = i;
+    nmemb += 1;
+    lastValue = i;
   }
   return n;
 }
@@ -136,8 +127,8 @@ size_t VVW_Write(VarintVectorWriter *w, uint32_t i) {
 //---------------------------------------------------------------------------------------------
 
 // Truncate the vector
-size_t VVW_Truncate(VarintVectorWriter *w) {
-  return Buffer_Truncate(&w->buf, 0);
+size_t VarintVectorWriter::Truncate() {
+  return buf.Truncate(0);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

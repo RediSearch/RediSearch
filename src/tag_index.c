@@ -111,7 +111,7 @@ size_t TagIndex::Put(const char *value, size_t len, t_docId docId) {
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
   InvertedIndex *iv = OpenIndex(value, len, 1);
-  return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec);
+  return iv->WriteEntryGeneric(enc, docId, &rec);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -208,7 +208,7 @@ IndexIterator *TagIndex::OpenReader(IndexSpec *sp, const char *value, size_t len
   RSToken tok = {str: (char *)value, len: len};
   RSQueryTerm *t = new QueryTerm(&tok, 0);
   IndexReader *r = new TermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
-  return new ReadIterator(r);
+  return NewReadIterator(r);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -305,7 +305,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     char *s = RedisModule_LoadStringBuffer(rdb, &slen);
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
     RS_LOG_ASSERT(inv, "loading inverted index from rdb failed");
-    values->Add(s, MIN(slen, MAX_TAG_LEN), inv, NULL);
+    idx->values->Add(s, MIN(slen, MAX_TAG_LEN), inv, NULL);
     RedisModule_Free(s);
   }
   return idx;

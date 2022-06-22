@@ -6,7 +6,7 @@
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);
 
-int RS_Suggestions::Compare(const RS_Suggestion **val1, const RS_Suggestion **val2) {
+static int RS_Suggestions::Compare(const RS_Suggestion **val1, const RS_Suggestion **val2) {
   if ((*val1)->score > (*val2)->score) {
     return -1;
   }
@@ -132,7 +132,7 @@ inline void SpellCheckCtx::FindSuggestions(Trie *t, const char *term, size_t len
     char *res = runesToStr(rstr, slen, &suggestionLen);
     double score;
     if ((score = GetScore(res, suggestionLen, fieldMask)) != -1) {
-      RS_SuggestionsAdd(s, res, suggestionLen, score, incr);
+      s->Add(res, suggestionLen, score, incr);
     }
     rm_free(res);
   }
@@ -212,7 +212,7 @@ inline bool SpellCheckCtx::ReplyTermSuggestions(char *term, size_t len, t_fieldM
 
   // searching the term on the exclude list, if its there we just return false
   // because there is no need to return suggestions on it.
-  for (int i = 0; i < array_len(>excludeDict); ++i) {
+  for (int i = 0; i < array_len(excludeDict); ++i) {
     RedisModuleKey *k = NULL;
     Trie *t =
         SpellCheck_OpenDict(sctx->redisCtx, excludeDict[i], REDISMODULE_READ, &k);
@@ -244,8 +244,7 @@ inline bool SpellCheckCtx::ReplyTermSuggestions(char *term, size_t len, t_fieldM
     RedisModule_CloseKey(k);
   }
 
-  SpellCheck_SendReplyOnTerm(sctx->redisCtx, term, len, s,
-                             (!fullScoreInfo) ? sctx->spec->docs.size - 1 : 0);
+  s->SendReplyOnTerm(sctx->redisCtx, term, len, (!fullScoreInfo) ? sctx->spec->docs.size - 1 : 0);
 
   return true;
 }
@@ -283,7 +282,7 @@ inline bool SpellCheckCtx::CheckTermDictsExistance() {
 static int forEachCallback(QueryNode *n, QueryNode *orig, void *arg) {
   SpellCheckCtx *scCtx = arg;
   if (n->type == QN_TOKEN &&
-      SpellCheck_ReplyTermSuggestions(scCtx, n->tn.str, n->tn.len, n->opts.fieldMask)) {
+      scCtx->ReplyTermSuggestions(n->tn.str, n->tn.len, n->opts.fieldMask)) {
     scCtx->results++;
   }
   return 1;
@@ -301,7 +300,7 @@ void SpellCheckCtx::Reply(QueryAST *q) {
     RedisModule_ReplyWithLongLong(sctx->redisCtx, sctx->spec->docs.size - 1);
   }
 
-  q->root->ForEach(forEachCallback, scCtx, 1);
+  q->root->ForEach(forEachCallback, this, 1);
 
   RedisModule_ReplySetArrayLength(sctx->redisCtx, results + (fullScoreInfo ? 1 : 0));
 }

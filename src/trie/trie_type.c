@@ -134,8 +134,8 @@ TrieIterator *Trie::Iterate(const char *prefix, size_t len, int maxDist, int pre
   return it;
 }
 
-Vector *Trie::Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                     int trim, int optimize) {
+Vector<TrieSearchResult*> *Trie::Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode,
+                                         int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return NULL;
@@ -151,7 +151,7 @@ Vector *Trie::Search(const char *s, size_t len, size_t num, int maxDist, int pre
   heap_t *pq = rm_malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
-  DFAFilter fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter fc = new DFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = root->Iterate(FilterFunc, StackPop, &fc);
   // TrieIterator *it = root->Iterate(NULL, NULL, NULL);
@@ -224,7 +224,7 @@ Vector *Trie::Search(const char *s, size_t len, size_t num, int maxDist, int pre
 
   // put the results from the heap on a vector to return
   size_t n = MIN(heap_count(pq), num);
-  Vector *ret = NewVector(TrieSearchResult *, n);
+  Vector<TrieSearchResult *> *ret = new Vector(n);
   for (int i = 0; i < n; ++i) {
     TrieSearchResult *h = heap_poll(pq);
     ret->Put(n - i - 1, h);

@@ -41,7 +41,7 @@ enum StemmerType {
 //---------------------------------------------------------------------------------------------
 
 // Abstract "interface" for a pluggable stemmer, ensuring we can use multiple stemmer libs
-class Stemmer : Object {
+class Stemmer : public Object {
   void __newSnowballStemmer(RSLanguage language);
   int __sbstemmer_Reset(StemmerType type, RSLanguage language);
 public:

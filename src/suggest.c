@@ -44,13 +44,13 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   int incr = 0, rv = AC_OK;
   RSPayload payload = {0};
   ArgsCursor ac = {0};
-  &ac->InitRString(argv + 4, argc - 4);
-  while (!&ac->IsAtEnd()) {
-    const char *s = &ac->GetStringNC(NULL);
+  ac.InitRString(argv + 4, argc - 4);
+  while (!ac.IsAtEnd()) {
+    const char *s = ac.GetStringNC(NULL);
     if (!strcasecmp(s, "INCR")) {
       incr = 1;
     } else if (!strcasecmp(s, "PAYLOAD")) {
-      if ((rv = &ac->GetString((const char **)&payload.data, &payload.len, 0)) != AC_OK) {
+      if ((rv = ac.GetString((const char **)&payload.data, &payload.len, 0)) != AC_OK) {
         return RMUtil_ReplyWithErrorFmt(ctx, "Invalid payload: %s", AC_Strerror(rv));
       }
     } else {
@@ -209,13 +209,13 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
 
   ACArgSpec *errArg = NULL;
   ArgsCursor ac = {0};
-  &ac->InitRString(argv, argc);
-  int rv = &ac->ParseArgSpec(argList, &errArg);
+  ac.InitRString(argv, argc);
+  int rv = ac.ParseArgSpec(argList, &errArg);
   if (rv != AC_OK) {
     if (rv == AC_ERR_ENOENT) {
       // Argument not recognized
       status->SetErrorFmt(QUERY_EPARSEARGS, "Unrecognized argument: %s",
-                             &ac->GetStringNC(NULL));
+                          ac.GetStringNC(NULL));
     } else if (errArg) {
       status->SetErrorFmt(QUERY_EPARSEARGS, "%s: %s", errArg->name, AC_Strerror(rv));
     } else {
@@ -241,7 +241,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   SuggestOptions options = {.numResults = 5};
-  QueryError status = {0};
+  QueryError status;
   if (parseSuggestOptions(argv + 3, argc - 3, &options, &status) != REDISMODULE_OK) {
     goto parse_error;
   }
@@ -269,8 +269,8 @@ parse_error:
     return RedisModule_ReplyWithNull(ctx);
   }
 
-  Vector *res = tree->Search(s, len, options.numResults, options.maxDistance, 1, options.trim,
-                             options.optimize);
+  Vector<TrieSearchResult *> *res = tree->Search(s, len, options.numResults, options.maxDistance, 1,
+                                                 options.trim, options.optimize);
   if (!res) {
     return RedisModule_ReplyWithError(ctx, "Invalid query");
   }
@@ -278,19 +278,19 @@ parse_error:
   unsigned mul = 1;
   mul = options.withScores ? mul + 1 : mul;
   mul = options.withPayloads ? mul + 1 : mul;
-  RedisModule_ReplyWithArray(ctx, Vector_Size(res) * mul);
+  RedisModule_ReplyWithArray(ctx, res->Size() * mul);
 
   for (size_t i = 0; i < res->Size(); i++) {
-    TrieSearchResult e;
-    res->Get(i, e);
+    TrieSearchResult *e;
+    res->Get(i, &e);
 
-    RedisModule_ReplyWithStringBuffer(ctx, e.str, e.len);
+    RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
     if (options.withScores) {
-      RedisModule_ReplyWithDouble(ctx, e.score);
+      RedisModule_ReplyWithDouble(ctx, e->score);
     }
     if (options.withPayloads) {
-      if (e.payload)
-        RedisModule_ReplyWithStringBuffer(ctx, e.payload, e.plen);
+      if (e->payload)
+        RedisModule_ReplyWithStringBuffer(ctx, e->payload, e->plen);
       else
         RedisModule_ReplyWithNull(ctx);
     }

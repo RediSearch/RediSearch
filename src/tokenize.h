@@ -70,6 +70,7 @@ struct Tokenizer {
   uint32_t lastOffset;
   uint32_t options;
 
+  Tokenizer(StopWordList *stopwords_, uint32_t opts) : stopwords(stopwords), options(opts) {}
   virtual ~Tokenizer();
 
   // read the next token. Return its position or 0 if we can't read anymore

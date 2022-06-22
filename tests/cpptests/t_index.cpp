@@ -27,7 +27,7 @@ static RSOffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
 }
 
 TEST_F(IndexTest, testVarint) {
-  VarintVectorWriter *vw = NewVarintVectorWriter(8);
+  VarintVectorWriter *vw = new VarintVectorWriter(8);
   uint32_t expected[5] = {10, 1000, 1020, 10000, 10020};
   for (int i = 0; i < 5; i++) {
     VVW_Write(vw, expected[i]);
@@ -52,9 +52,9 @@ TEST_F(IndexTest, testVarint) {
 }
 
 TEST_F(IndexTest, testDistance) {
-  VarintVectorWriter *vw = NewVarintVectorWriter(8);
-  VarintVectorWriter *vw2 = NewVarintVectorWriter(8);
-  VarintVectorWriter *vw3 = NewVarintVectorWriter(8);
+  VarintVectorWriter *vw = new VarintVectorWriter(8);
+  VarintVectorWriter *vw2 = new VarintVectorWriter(8);
+  VarintVectorWriter *vw3 = new VarintVectorWriter(8);
   VVW_Write(vw, 1);
   VVW_Write(vw, 9);
   VVW_Write(vw, 13);
@@ -143,7 +143,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     h.fieldMask = 1;
     h.freq = (1 + i % 100) / (float)101;
 
-    h.vw = NewVarintVectorWriter(8);
+    h.vw = new VarintVectorWriter(8);
     for (int n = 0; n < i % 4; n++) {
       VVW_Write(h.vw, n);
     }
@@ -217,7 +217,7 @@ InvertedIndex *createIndex(int size, int idStep) {
     h.term = "hello";
     h.len = 5;
 
-    h.vw = NewVarintVectorWriter(8);
+    h.vw = new VarintVectorWriter(8);
     for (int n = idStep; n < idStep + i % 4; n++) {
       VVW_Write(h.vw, n);
     }
@@ -632,7 +632,7 @@ TEST_F(IndexTest, testBuffer) {
   ASSERT_TRUE(Buffer_Offset(w.buf) == l);
   ASSERT_EQ(Buffer_Capacity(w.buf), 14);
 
-  l = WriteVarint(1337654, &w);
+  l = w.WriteVarint(1337654);
   ASSERT_TRUE(l == 3);
   ASSERT_EQ(Buffer_Offset(w.buf), 15);
   ASSERT_EQ(Buffer_Capacity(w.buf), 17);
@@ -871,7 +871,7 @@ TEST_F(IndexTest, testIndexFlags) {
   h.docId = 1234;
   h.fieldMask = 0x01;
   h.freq = 1;
-  h.vw = NewVarintVectorWriter(8);
+  h.vw = new VarintVectorWriter(8);
   for (int n = 0; n < 10; n++) {
     VVW_Write(h.vw, n);
   }
@@ -1075,7 +1075,7 @@ TEST_F(IndexTest, testVarintFieldMask) {
   Buffer_Init(&b, 1);
   BufferWriter bw(&b);
   for (int i = 0; i < sizeof(t_fieldMask); i++, x |= x << 8) {
-    size_t sz = WriteVarintFieldMask(x, &bw);
+    size_t sz = bw.WriteVarintFieldMask(x);
     ASSERT_EQ(expected[i], sz);
     bw.Seek(0);
     BufferReader br(bw.buf);

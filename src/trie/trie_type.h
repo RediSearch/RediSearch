@@ -19,7 +19,7 @@ struct Trie {
   int Delete(const char *s, size_t len);
   int Insert(RedisModuleString *s, double score, int incr, RSPayload *payload);
   int InsertStringBuffer(const char *s, size_t len, double score, int incr, RSPayload *payload);
-  Vector *Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode, int trim, int optimize);
+  Vector<TrieSearchResult*> *Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode, int trim, int optimize);
 
   TrieIterator *Iterate(const char *prefix, size_t len, int maxDist, int prefixMode);
 
@@ -33,7 +33,7 @@ struct TrieSearchResult : Object {
   char *payload;
   size_t plen;
 
-  ~TrieSearchResult()
+  ~TrieSearchResult();
 };
 
 #define SCORE_TRIM_FACTOR 10.0

@@ -146,7 +146,7 @@ ENCODER(encodeFull) {
 
 ENCODER(encodeFullWide) {
   size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
-  sz += WriteVarintFieldMask(res->fieldMask, bw);
+  sz += bw->WriteVarintFieldMask(res->fieldMask);
   sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
@@ -158,7 +158,7 @@ ENCODER(encodeFreqsFields) {
 
 ENCODER(encodeFreqsFieldsWide) {
   size_t sz = qint_encode2(bw, (uint32_t)delta, (uint32_t)res->freq);
-  sz += WriteVarintFieldMask(res->fieldMask, bw);
+  sz += bw->WriteVarintFieldMask(res->fieldMask);
   return sz;
 }
 
@@ -173,8 +173,8 @@ ENCODER(encodeFieldsOnly) {
 }
 
 ENCODER(encodeFieldsOnlyWide) {
-  size_t sz = WriteVarint((uint32_t)delta, bw);
-  sz += WriteVarintFieldMask(res->fieldMask, bw);
+  size_t sz = bw->WriteVarint((uint32_t)delta);
+  sz += bw->WriteVarintFieldMask(res->fieldMask);
   return sz;
 }
 
@@ -187,7 +187,7 @@ ENCODER(encodeFieldsOffsets) {
 
 ENCODER(encodeFieldsOffsetsWide) {
   size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
-  sz += WriteVarintFieldMask(res->fieldMask, bw);
+  sz += bw->WriteVarintFieldMask(res->fieldMask);
   sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
@@ -209,7 +209,7 @@ ENCODER(encodeFreqsOffsets) {
 
 // 8. Encode only the doc ids
 ENCODER(encodeDocIdsOnly) {
-  return WriteVarint(delta, bw);
+  return bw->WriteVarint(delta);
 }
 
 /**

@@ -50,6 +50,7 @@ struct Buffer {
   void Grow(size_t extraLen);
 
   size_t Reserve(size_t n);
+  size_t WriteVarintBuffer(uint32_t value);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -160,6 +161,8 @@ struct BufferWriter {
   }
 
   size_t WriteU8(uint8_t u) { return Write(&u, sizeof(u)); }
+  size_t WriteVarint(uint32_t value);
+  size_t WriteVarintFieldMask(t_fieldMask value);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

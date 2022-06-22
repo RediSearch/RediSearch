@@ -1,5 +1,4 @@
-#ifndef __REDISEARCH_ALLOC__
-#define __REDISEARCH_ALLOC__
+#pragma once
 
 #include <stdlib.h>
 #include <string.h>
@@ -76,5 +75,3 @@ static int rm_asprintf(char **__ptr, const char *__restrict __fmt, ...) {
 #endif
 
 #define rm_new(x) rm_malloc(sizeof(x))
-
-#endif /* __RMUTIL_ALLOC__ */

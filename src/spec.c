@@ -1052,7 +1052,7 @@ FieldSpec *IndexSpec::CreateField(const char *name) {
 
 //---------------------------------------------------------------------------------------------
 
-static dictType invidxDictType = {0};
+static dictType invidxDictType;
 
 static void valFreeCb(void *unused, void *p) {
   KeysDictValue *kdv = p;

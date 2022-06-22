@@ -49,9 +49,7 @@ static size_t estimtateTermCount(const Document *doc) {
 }
 
 static void *vvwAlloc(void) {
-  VarintVectorWriter *vvw = rm_calloc(1, sizeof(*vvw));
-  VVW_Init(vvw, 64);
-  return vvw;
+  return new VarintVectorWriter(64);
 }
 
 static void vvwFree(void *p) {

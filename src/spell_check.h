@@ -16,11 +16,11 @@ struct RS_Suggestion : Object {
   RS_Suggestion(char *suggestion, size_t len, double score);
   ~RS_Suggestion();
 
+  static int Compare(const RS_Suggestion **val1, const RS_Suggestion **val2);
+
   int Compare(const RS_Suggestion **val) const {
     return Compare(this, val);
   }
-
-  static int Compare(const RS_Suggestion **val1, const RS_Suggestion **val2);
 };
 
 struct RS_Suggestions : Object {
@@ -31,7 +31,8 @@ struct RS_Suggestions : Object {
 
   void Add(char *term, size_t len, double score, int incr);
   RS_Suggestion **GetSuggestions();
-  void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, uint64_t totalDocNumber);};
+  void SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, uint64_t totalDocNumber);
+};
 
 struct SpellCheckCtx {
   RedisSearchCtx *sctx;

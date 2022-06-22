@@ -124,9 +124,10 @@ const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *ou
 //---------------------------------------------------------------------------------------------
 
 Stemmer::~Stemmer() {
-  sb_stemmer_delete(ctx->sb);
-  rm_free(ctx->buf);
-  rm_free(ctx);
+  struct sbStemmerCtx *ctx_ = ctx;
+  sb_stemmer_delete(ctx_->sb);
+  rm_free(ctx_->buf);
+  rm_free(ctx_);
 }
 
 //---------------------------------------------------------------------------------------------
