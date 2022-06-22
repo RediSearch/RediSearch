@@ -1329,7 +1329,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
     }
   }
 
-  if (IsProfile(req)) {
+  // on coordinator, there might not be any result processors at this point
+  if (IsProfile(req) && req->qiter.endProc) {
     Profile_AddResultProcessors(&req->qiter);
   }
 
