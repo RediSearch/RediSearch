@@ -73,6 +73,7 @@ The following table summerizes which configuration parameters can be set at modu
 | [UPGRADE_INDEX](#upgrade_index)                     | :white_check_mark: | :white_check_mark:   |
 | [OSS_GLOBAL_PASSWORD](#oss_global_password)         | :white_check_mark: | :white_large_square: |
 | [DEFAULT_DIALECT](#default_dialect)                 | :white_check_mark: | :white_check_mark:   |
+| [VSS_MAX_RESIZE](#vss_max_resize)                   | :white_check_mark: | :white_check_mark:   |
 
 ---
 
@@ -505,4 +506,26 @@ $ redis-server --loadmodule ./redisearch.so DEFAULT_DIALECT 2
 #### Notes
 
 * `DIALECT 2` is required for Vector Similarity Search
-* added in v2.4.3---
+* added in v2.4.3
+
+---
+
+### VSS_MAX_RESIZE
+
+The maximum memory resize for Vector Similarity index in bytes. This value will override default memory limits if you need to allow a large [`BLOCK_SIZE`](/redisearch/reference/vectors/#creation-attributes-per-algorithm).
+
+#### Default
+
+"0"
+
+#### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so VSS_MAX_RESIZE 52428800  # 50MB
+```
+
+#### Notes
+
+* added in v2.4.8
+
+---
