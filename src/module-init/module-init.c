@@ -197,5 +197,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Initialize_CommandFilter(ctx);
   GetJSONAPIs(ctx, 1);
   Initialize_RdbNotifications(ctx);
+  Initialize_RoleChangeNotifications(ctx);
   return REDISMODULE_OK;
 }
