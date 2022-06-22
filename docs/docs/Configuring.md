@@ -512,7 +512,7 @@ $ redis-server --loadmodule ./redisearch.so DEFAULT_DIALECT 2
 
 ### VSS_MAX_RESIZE
 
-The maximum memory resize for Vector Similarity index in bytes. This value will override default memory limits if you need to allow a large [`BLOCK_SIZE`](/redisearch/reference/vectors/#creation-attributes-per-algorithm).
+The maximum memory resize for Vector Similarity index in bytes. This value will override default memory limits if you need to allow a large [`BLOCK_SIZE`](/redisearch/reference/vectors#creation-attributes-per-algorithm).
 
 #### Default
 
