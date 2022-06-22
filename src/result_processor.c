@@ -796,6 +796,20 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   return self->profileCount;
 }
 
+/** Add Profile iterator layer between iterators */
+void Profile_AddResultProcessors(QueryIterator *qiter) {
+  ResultProcessor *rp_cur = qiter->endProc;
+  ResultProcessor *rp_prev;
+  
+  qiter->endProc = RPProfile_New(rp_cur, qiter);
+
+  while (rp_cur->upstream != NULL) {
+    rp_prev = rp_cur;
+    rp_cur = rp_cur->upstream;
+    rp_prev->upstream = RPProfile_New(rp_cur, qiter);
+  }
+}
+
 /*******************************************************************************************************************
  *  Scoring Processor
  *

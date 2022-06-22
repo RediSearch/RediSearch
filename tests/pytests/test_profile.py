@@ -149,6 +149,24 @@ def testProfileAggregate(env):
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix')
   env.assertEqual(actual_res[1][4], expected_res)
 
+  expected_res = ['Result processors profile',
+                  ['Type', 'Index', 'Counter', 1],
+                  ['Type', 'Pager/Limiter', 'Counter', 2],
+                  ['Type', 'Loader', 'Counter', 2]]
+  actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
+                'limit', '0', '2',
+                'load', 1, 't')
+  env.assertEqual(actual_res[1][4], expected_res)
+
+  expected_res = ['Result processors profile',
+                  ['Type', 'Index', 'Counter', 1],
+                  ['Type', 'Loader', 'Counter', 1],
+                  ['Type', 'Pager/Limiter', 'Counter', 2]]
+  actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
+                'load', 1, 't',
+                'limit', '0', '2',)
+  env.assertEqual(actual_res[1][4], expected_res)
+
 def testProfileCursor(env):
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')

@@ -940,12 +940,6 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
 static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *rpUpstream) {
   rp->upstream = rpUpstream;
   rp->parent = &req->qiter;
-
-  // In profile mode, we add an RPprofile before any RP to collect stats.
-  if (IsProfile(req)) {
-    rp = RPProfile_New(rp, &req->qiter);
-  }
-
   req->qiter.endProc = rp;
   return rp;
 }
@@ -1333,6 +1327,10 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
     if (buildOutputPipeline(req, status) != REDISMODULE_OK) {
       goto error;
     }
+  }
+
+  if (IsProfile(req)) {
+    Profile_AddResultProcessors(&req->qiter);
   }
 
   return REDISMODULE_OK;

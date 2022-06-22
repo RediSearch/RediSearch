@@ -237,6 +237,8 @@ void RP_DumpChain(const ResultProcessor *rp);
  *******************************************************************************************************************/
 ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
 
+/** Add Profile iterator layer between result processors */
+void Profile_AddResultProcessors(QueryIterator *qiter);
 
 /*******************************************************************************************************************
  *  Counter Processor
