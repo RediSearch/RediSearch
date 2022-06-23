@@ -105,9 +105,7 @@ private:
     int _dictInit(dictType *type, void *privDataPtr);
 
 public:
-
-    dict(dictType *type, void *privDataPtr = NULL) { _dictInit(type,privDataPtr); }
-
+    dict(dictType *type, void *privDataPtr = NULL) { _dictInit(type, privDataPtr); }
 
     void dictFreeVal(dictEntry *entry) {
         if (type->valDestructor) {

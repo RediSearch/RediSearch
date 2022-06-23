@@ -45,6 +45,27 @@ enum TrieAddOp {
   ADD_INCR,
 };
 
+struct TrieNode;
+
+/* trie iterator stack node. for internal use only */
+struct stackNode {
+  int state;
+  TrieNode *n;
+  t_len stringOffset;
+  t_len childOffset;
+  int isSkipped;
+};
+
+enum FilterCode { F_CONTINUE = 0, F_STOP = 1 };
+
+// A callback for an automaton that receives the current state, evaluates the
+// next byte,
+// and returns the next state of the automaton. If we should not continue down,
+// return F_STOP
+typedef FilterCode (*StepFilter)(rune b, void *ctx, int *match, void *matchCtx);
+
+typedef void (*StackPopCallback)(void *ctx, int num);
+
 #pragma pack(1)
 
 /* Opaque trie iterator type */
@@ -111,19 +132,19 @@ struct TrieNode : public Object {
   rune str[];
   // ... now come the children, to be accessed with children()
 
-  TrieNode(rune *str_, t_len offset, t_len len_, const char *payload, size_t plen,
+  TrieNode(rune *str_, t_len offset, t_len len_, const char *payload_, size_t plen,
            t_len numChildren_, float score_, bool terminal);
   ~TrieNode();
 
   void Print(int idx, int depth); //@@ looks like nobody is uding it
-  bool Add(rune *str_, t_len len_, RSPayload *payload, float score_, TrieAddOp op);
+  TrieNode *Add(rune *str_, t_len len_, RSPayload *payload, float score_, TrieAddOp op);
 
   TrieNode *AddChild(rune *str_, t_len offset, t_len len_, RSPayload *payload, float score_);
   TrieNode *SplitNode(t_len offset);
 
   float Find(rune *str_, t_len len_);
 
-  int Delete(rune *str_, t_len len_);
+  bool Delete(rune *str_, t_len len_);
 
   TrieIterator *Iterate(StepFilter f, StackPopCallback pf, void *ctx_);
 
@@ -135,10 +156,12 @@ struct TrieNode : public Object {
 
   void IterateRange(const rune *min, int minlen, bool includeMin, const rune *max,
                     int maxlen, bool includeMax, TrieRangeCallback callback, void *ctx);
-  static void rangeIterate(const rune *min, int nmin, const rune *max, int nmax, RangeCtx *r);
-  static void rangeIterateSubTree(RangeCtx *r);
+  void rangeIterate(const rune *min, int nmin, const rune *max, int nmax, RangeCtx *r);
+  void rangeIterateSubTree(RangeCtx *r);
 
   static int Cmp(const void *p1, const void *p2);
+
+  static size_t Size(t_len numChildren, t_len slen);
 
   /* Get a pointer to the children array of a node. This is not an actual member
   * of the node for
@@ -150,30 +173,6 @@ struct TrieNode : public Object {
   bool isDeleted() { return flags & TRIENODE_DELETED; }
 };
 #pragma pack()
-
-
-/* The byte size of a node, based on its internal string length and number of
- * children */
-size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
-
-/* trie iterator stack node. for internal use only */
-struct stackNode {
-  int state;
-  TrieNode *n;
-  t_len stringOffset;
-  t_len childOffset;
-  int isSkipped;
-};
-
-enum FilterCode { F_CONTINUE = 0, F_STOP = 1 };
-
-// A callback for an automaton that receives the current state, evaluates the
-// next byte,
-// and returns the next state of the automaton. If we should not continue down,
-// return F_STOP
-typedef FilterCode (*StepFilter)(rune b, void *ctx, int *match, void *matchCtx);
-
-typedef void (*StackPopCallback)(void *ctx, int num);
 
 #define ITERSTATE_SELF 0
 #define ITERSTATE_CHILDREN 1

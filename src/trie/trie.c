@@ -5,7 +5,7 @@
 #include "redisearch.h"
 #include "util/arr.h"
 
-size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
+size_t TrieNode::Size(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);
 }
 
@@ -19,7 +19,7 @@ TriePayload::TriePayload(const char *payload, uint32_t plen) {
 up until len, and a
 given score */
 
-TrieNode::TrieNode(rune *str_, t_len offset, t_len len_, const char *payload, size_t plen,
+TrieNode::TrieNode(rune *str_, t_len offset, t_len len_, const char *payload_, size_t plen,
                    t_len numChildren_, float score_, bool terminal) {
   len = len_ - offset;
   numChildren = numChildren_;
@@ -28,15 +28,15 @@ TrieNode::TrieNode(rune *str_, t_len offset, t_len len_, const char *payload, si
   maxChildScore = 0;
   sortmode = TRIENODE_SORTED_NONE;
   memcpy(str, str_ + offset, sizeof(rune) * (len_ - offset));
-  if (payload != NULL && plen > 0) {
-    payload = new TriePayload(payload, plen);
+  if (payload_ != NULL && plen > 0) {
+    payload = new TriePayload(payload_, plen);
   }
 }
 
 //@@ Can this be a void func?
 TrieNode *TrieNode::AddChild(rune *str_, t_len offset, t_len len_, RSPayload *payload, float score_) {
   numChildren++;
-  this = rm_realloc((void *)this, __trieNode_Sizeof(numChildren, len));
+  this = rm_realloc((void *)this, TrieNode::Size(numChildren, len)); //@@ need to be fixed (realloc)
   // a newly added child must be a terminal node
   TrieNode *child(str_, offset, len_, payload ? payload->data : NULL,
                   payload ? payload->len : 0, 0, score_, 1);
@@ -73,7 +73,7 @@ TrieNode *TrieNode::SplitNode(t_len offset) {
     delete payload;
   }
   //@@ should we realloc?
-  this = rm_realloc(this, __trieNode_Sizeof(numChildren, len));
+  this = rm_realloc(this, TrieNode::Size(numChildren, len)); //@@ need to be fixed (realloc)
   getChildren()[0] = newChild;
 
   return this;
@@ -91,7 +91,7 @@ TrieNode *TrieNode::MergeWithSingleChild() {
   rune nstr[len + ch->len + 1];
   memcpy(nstr, str, sizeof(rune) * len);
   memcpy(&nstr[len], ch->str, sizeof(rune) * ch->len);
-  TrieNode *merged(
+  TrieNode *merged = new TrieNode(
       nstr, 0, len + ch->len, ch->payload ? ch->payload->data : NULL,
       ch->payload ? ch->payload->len : 0, ch->numChildren, ch->score, ch->isTerminal());
   merged->maxChildScore = ch->maxChildScore;
@@ -127,9 +127,9 @@ void TrieNode::Print(int idx, int depth) {
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
 
-bool TrieNode::Add(rune *str_, t_len len_, RSPayload *payload, float score_, TrieAddOp op) {
+TrieNode *TrieNode::Add(rune *str_, t_len len_, RSPayload *payload, float score_, TrieAddOp op) {
   if (score_ == 0 || len_ == 0) {
-    return false;
+    return NULL;
   }
 
   TrieNode *n = this;
@@ -154,9 +154,9 @@ bool TrieNode::Add(rune *str_, t_len len_, RSPayload *payload, float score_, Tri
       n->score = score_;
       n->flags |= TRIENODE_TERMINAL;
       TrieNode *newChild = getChildren()[0];
-      n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
+      n = rm_realloc(n, TrieNode::Size(n->numChildren, n->len));
       if (n->payload != NULL) {
-        deletet n->payload;
+        delete n->payload;
       }
       if (payload != NULL && payload->data != NULL && payload->len > 0) {
         n->payload = new TriePayload(payload->data, payload->len);
@@ -168,8 +168,7 @@ bool TrieNode::Add(rune *str_, t_len len_, RSPayload *payload, float score_, Tri
       n = n->AddChild(str_, offset, len_, payload, score_);
       n->maxChildScore = MAX(n->maxChildScore, score_);
     }
-    *this = n;
-    return true;
+    return n;
   }
 
   n->maxChildScore = MAX(n->maxChildScore, score_);
@@ -199,21 +198,19 @@ bool TrieNode::Add(rune *str_, t_len len_, RSPayload *payload, float score_, Tri
     n->flags |= TRIENODE_TERMINAL;
     // if it was deleted, make sure it's not now
     n->flags &= ~TRIENODE_DELETED;
-    *this = n;
-    return (term && !deleted) ? false : true;
+    return n;
   }
 
   // proceed to the next child or add a new child for the current rune
   for (t_len i = 0; i < n->numChildren; i++) {
     TrieNode *child = n->getChildren()[i];
     if (str_[offset] == child->str[0]) {
-      int rc = child->Add(str_ + offset, len_ - offset, payload, score_, op);
-      n->getChildren()[i] = child;
-      return rc;
+      n->getChildren()[i] = child->Add(str_ + offset, len_ - offset, payload, score_, op);
+      return n;
     }
   }
-  this = n->AddChild(str_, offset, len_, payload, score_);
-  return true;
+
+  return n->AddChild(str_, offset, len_, payload, score_);
 }
 
 /* Find the entry with a given string and length, and return its score. Returns
@@ -252,7 +249,7 @@ float TrieNode::Find(rune *str_, t_len len_) {
       }
 
       // we couldn't find a matching child
-      this = nextChild;
+      this = nextChild; //@@ need to be fixed
 
     } else {
       return 0;
@@ -306,13 +303,13 @@ void TrieNode::optimizeChildren() {
 /* Mark a node as deleted. For simplicity for now we don't actually delete
  * anything,
  * but the node will not be persisted to disk, thus deleted after reload.
- * Returns 1 if the node was indeed deleted, 0 otherwise */
+ * Returns true if the node was indeed deleted, false otherwise */
 
-int TrieNode::Delete(rune *str_, t_len len_) {
+bool TrieNode::Delete(rune *str_, t_len len_) {
   t_len offset = 0;
   static TrieNode *stack[TRIE_INITIAL_STRING_LEN];
   int stackPos = 0;
-  int rc = 0;
+  bool rc = false;
   while (offset < len_) {
     stack[stackPos++] = this;
     t_len localOffset = 0;
@@ -331,7 +328,7 @@ int TrieNode::Delete(rune *str_, t_len len_) {
           flags |= TRIENODE_DELETED;
           flags &= ~TRIENODE_TERMINAL;
           score = 0;
-          rc = 1;
+          rc = true;
         }
         goto end;
       }
@@ -350,7 +347,7 @@ int TrieNode::Delete(rune *str_, t_len len_) {
       }
 
       // we couldn't find a matching child
-      this = nextChild;
+      this = nextChild; //@@ need to be fixed
     } else {
       goto end;
     }
@@ -565,6 +562,7 @@ TrieNode *TrieNode::RandomWalk(int minSteps, rune **str_, t_len *len_) {
   size_t stackSz = 1;
   TrieNode **stack;
   stack[0] = this;
+  TrieNode *res;
 
   int bufCap = len;
 
@@ -572,22 +570,22 @@ TrieNode *TrieNode::RandomWalk(int minSteps, rune **str_, t_len *len_) {
 
   while (steps < minSteps || !stack[stackSz-1]->isTerminal()) {
 
-    this = stack[stackSz - 1];
+    res = stack[stackSz - 1]; //@@ need to be fixed
 
     /* select the next step - -1 means walk back up one level */
-    int rnd = (rand() % (numChildren + 1)) - 1;
+    int rnd = (rand() % (res->numChildren + 1)) - 1;
     if (rnd == -1) {
       /* we can't walk up the top level */
       if (stackSz > 1) {
         steps++;
         stackSz--;
 
-        bufCap -= len;
+        bufCap -= res->len;
       }
       continue;
     }
     /* Push a child on the stack */
-    TrieNode *child = getChildren()[rnd];
+    TrieNode *child = res->getChildren()[rnd];
     stack[stackSz++] = child;
 
     steps++;
@@ -601,7 +599,7 @@ TrieNode *TrieNode::RandomWalk(int minSteps, rune **str_, t_len *len_) {
 
   /* Return the node at the top of the stack */
 
-  this = stack[stackSz - 1];
+  res = stack[stackSz - 1]; //@@ need to be fixed
 
   /* build the string by walking the stack and copying all node strings */
   rune *buf;
@@ -615,7 +613,7 @@ TrieNode *TrieNode::RandomWalk(int minSteps, rune **str_, t_len *len_) {
   *str_ = buf;
   *len_ = bufSize;
 
-  return this;
+  return res;
 }
 
 static int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
@@ -695,7 +693,7 @@ void TrieNode::rangeIterateSubTree(RangeCtx *r) {
  * Try to place as many of the common arguments in rangectx, so that the stack
  * size is not negatively impacted and prone to attack.
  */
-inline void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax, RangeCtx *r) {
+void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax, RangeCtx *r) {
   // Push string to stack
   r->buf = array_ensure_append(r->buf, str, len, rune);
 
