@@ -524,14 +524,14 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
 
 //---------------------------------------------------------------------------------------------
 
-static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
+static bool Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   RedisModuleKey *k = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
   if (k != NULL) {
     RedisModule_DeleteKey(k);
     RedisModule_CloseKey(k);
-    return 1;
+    return true;
   }
-  return 0;
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------

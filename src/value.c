@@ -43,9 +43,7 @@ static inline mempoolThreadPool *getPoolInfo() {
   mempoolThreadPool *tp = pthread_getspecific(mempoolKey_g);
   if (tp == NULL) {
     tp = rm_calloc(1, sizeof(*tp));
-    mempool_options opts = {
-        .isGlobal = 0, .initialCap = 0, .maxCap = 1000, .alloc = _valueAlloc, .free = _valueFree};
-    tp->values = mempool_new(&opts);
+    tp->values = new mempool_t(0, 1000, false);
     pthread_setspecific(mempoolKey_g, tp);
   }
   return tp;
@@ -323,7 +321,7 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 
 bool RSValue::ToNumber(double *d) const {
   if (IsNull()) return false;
-  this = Dereference();
+  this = Dereference(); //@@ can we make it void?
 
   const char *p = NULL;
   size_t l = 0;

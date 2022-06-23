@@ -114,12 +114,12 @@ double NumericRange::Split(NumericRangeNode **lp, NumericRangeNode **rp) {
   *rp = new NumericRangeNode(entries.numDocs / 2 + 1, split, maxVal,
                              MIN(NR_MAXRANGE_CARD, 1 + splitCard * NR_EXPONENT));
 
-  NumericResult res = NULL;
+  NumericResult *res;
   NumericIndexReader ir(&entries);
-  while (INDEXREAD_OK == ir.Read(res)) {
-    auto range = res.value < split ? (*lp)->range : (*rp)->range;
+  while (INDEXREAD_OK == ir.Read(&res)) {
+    auto range = res->value < split ? (*lp)->range : (*rp)->range;
     if (range) {
-      range->Add(res.docId, res.value, 1);
+      range->Add(res->docId, res->value, 1);
     }
   }
 
@@ -221,7 +221,7 @@ NRN_AddRv NumericRangeNode::Add(t_docId docId, double newval) {
 //---------------------------------------------------------------------------------------------
 
 // Recursively add a node's children to the range
-void NumericRangeNode::AddChildren(Vector *v, double min, double max) {
+void NumericRangeNode::AddChildren(Vector<NumericRange> *v, double min, double max) {
   if (range) {
     // printf("min %f, max %f, range %f..%f, contained? %d, overlaps? %d, leaf? %d\n", min, max,
     //        range->minVal, range->maxVal, range->Contained(min, max),
@@ -251,8 +251,8 @@ void NumericRangeNode::AddChildren(Vector *v, double min, double max) {
 
 // Find the numeric ranges that fit the range we are looking for.
 // We try to minimize the number of nodes we'll later need to union.
-Vector *NumericRangeNode::FindRange(double min, double max) {
-  Vector *leaves = NewVector(NumericRange *, 8);
+Vector<NumericRange> *NumericRangeNode::FindRange(double min, double max) {
+  Vector<NumericRange> *leaves = new Vector<NumericRange>(8);
   AddChildren(leaves, min, max);
   // printf("Found %zd ranges for %f...%f\n", leaves->top, min, max);
   // for (int i = 0; i < leaves->top; i++) {
@@ -319,7 +319,7 @@ size_t NumericRangeTree::Add(t_docId docId, double value) {
 
 //---------------------------------------------------------------------------------------------
 
-Vector *NumericRangeTree::Find(double min, double max) {
+Vector<NumericRange> *NumericRangeTree::Find(double min, double max) {
   return root->FindRange(min, max);
 }
 
@@ -359,15 +359,14 @@ void NumericRangeTree::Free(NumericRangeTree *p) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
-                                       const NumericFilter *f) {
+IndexIterator::IndexIterator(const IndexSpec *sp, NumericRange *nr, const NumericFilter *f) {
   // if this range is at either end of the filter, we need to check each record
   if (f->Match(nr->minVal) && f->Match(nr->maxVal)) {
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
   IndexReader *ir = new NumericIndexReader(&nr->entries, sp, f);
-  return ir->NewReadIterator();
+  this = ir->NewReadIterator();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -376,7 +375,7 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
 // the filter
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
                                      const NumericFilter *f) {
-  Vector *v = t->Find(f->min, f->max);
+  Vector<NumericRange> *v = t->Find(f->min, f->max);
   if (!v || v->Size() == 0) {
     if (v) {
       delete v;
@@ -388,9 +387,9 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   // if we only selected one range - we can just iterate it without union or anything
   if (n == 1) {
     NumericRange *rng;
-    v->Get(0, &rng);
-    IndexIterator *it = NewNumericRangeIterator(sp, rng, f);
-    delet v;
+    v->Get(0, rng);
+    IndexIterator *it = new IndexIterator(sp, rng, f);
+    delete v;
     return it;
   }
 
@@ -400,12 +399,12 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
 
   for (size_t i = 0; i < n; i++) {
     NumericRange *rng;
-    v->Get(i, &rng);
+    v->Get(i, rng);
     if (!rng) {
       continue;
     }
 
-    its[i] = NewNumericRangeIterator(sp, rng, f);
+    its[i] = new IndexIterator(sp, rng, f);
   }
   delete v;
 
@@ -470,7 +469,8 @@ struct IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     NumericUnion *uc = rm_malloc(sizeof(*uc));
     uc->lastRevId = t->revisionId;
     uc->it = it;
-    csx->AddKey(key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc, rm_free);
+    ConcurrentKey *conc = new ConcurrentKey(key, s);
+    csx->AddKey(conc);
   }
   return it;
 }
@@ -516,8 +516,8 @@ static void __numericIndex_memUsageCallback(NumericRangeNode *n, void *arg) {
   if (n->range) {
     *sz += sizeof(NumericRange);
     *sz += n->range->card * sizeof(double);
-    if (n->range.entries) {
-      *sz += n->range.entries->MemUsage();
+    if (n->range->entries) {
+      *sz += InvertedIndex_MemUsage(n->range->entries);
     }
   }
 }
@@ -648,12 +648,12 @@ static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->IsLeaf() && n->range) {
     NumericRange *rng = n->range;
-    NumericResult res = NULL;
-    NumericIndexReader ir(rng->entries);
+    NumericResult *res = NULL;
+    NumericIndexReader ir(&rng->entries);
 
-    while (INDEXREAD_OK == ir.Read(res)) {
-      RedisModule_SaveUnsigned(rctx->rdb, res.docId);
-      RedisModule_SaveDouble(rctx->rdb, res.value);
+    while (INDEXREAD_OK == ir.Read(&res)) {
+      RedisModule_SaveUnsigned(rctx->rdb, res->docId);
+      RedisModule_SaveDouble(rctx->rdb, res->value);
     }
   }
 }
@@ -665,7 +665,7 @@ void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
   NumericRangeTree *t = value;
   struct niRdbSaveCtx ctx = {rdb};
 
-  NumericRangeNode_Traverse(t->root, numericIndex_rdbSaveCallback, &ctx);
+  t->root->Traverse(numericIndex_rdbSaveCallback, &ctx);
   // Save the final record
   RedisModule_SaveUnsigned(rdb, 0);
 }

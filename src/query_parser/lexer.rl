@@ -50,7 +50,7 @@ attr = '$'.term $ 1;
 
 main := |*
 
-  number => { 
+  number => {
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
@@ -60,7 +60,7 @@ main := |*
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
-    
+
   };
   mod => {
     tok.pos = ts-q->raw;
@@ -89,7 +89,7 @@ main := |*
       fbreak;
     }
   };
-  inf => { 
+  inf => {
     tok.pos = ts-q->raw;
     tok.s = ts;
     tok.len = te-ts;
@@ -99,22 +99,22 @@ main := |*
       fbreak;
     }
   };
-  
+
   quote => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse(pParser, QUOTE, tok, q);  
+    RSQuery_Parse(pParser, QUOTE, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-  or => { 
+  or => {
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, OR, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-  lp => { 
+  lp => {
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LP, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -122,35 +122,35 @@ main := |*
     }
   };
 
-  rp => { 
+  rp => {
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, RP, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-  lb => { 
+  lb => {
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, LB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-  rb => { 
+  rb => {
     tok.pos = ts-q->raw;
     RSQuery_Parse(pParser, RB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-   colon => { 
+   colon => {
      tok.pos = ts-q->raw;
      RSQuery_Parse(pParser, COLON, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
    };
-    semicolon => { 
+    semicolon => {
      tok.pos = ts-q->raw;
      RSQuery_Parse(pParser, SEMICOLON, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -158,16 +158,16 @@ main := |*
     }
    };
 
-  minus =>  { 
+  minus =>  {
     tok.pos = ts-q->raw;
-    RSQuery_Parse(pParser, MINUS, tok, q);  
+    RSQuery_Parse(pParser, MINUS, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-  tilde => { 
+  tilde => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse(pParser, TILDE, tok, q);  
+    RSQuery_Parse(pParser, TILDE, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -186,24 +186,24 @@ main := |*
       fbreak;
     }
   };
-  lsqb => { 
+  lsqb => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse(pParser, LSQB, tok, q);  
+    RSQuery_Parse(pParser, LSQB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
-    }  
+    }
   };
-  rsqb => { 
+  rsqb => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse(pParser, RSQB, tok, q);   
+    RSQuery_Parse(pParser, RSQB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
-    } 
+    }
   };
   space;
   punct;
   cntrl;
-  
+
   term => {
     tok.len = te-ts;
     tok.s = ts;
@@ -223,45 +223,45 @@ main := |*
     tok.s = ts;
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    
+
     RSQuery_Parse(pParser, PREFIX, tok, q);
-    
+
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
 
-  
+
 *|;
 }%%
 
 %% write data;
 
-QueryNode *RSQuery_ParseRaw(QueryParse *q) {
+QueryNode *QueryParse::ParseRaw() {
   void *pParser = RSQuery_ParseAlloc(rm_malloc);
 
-  
+
   int cs, act;
-  const char* ts = q->raw;
-  const char* te = q->raw + q->len;
+  const char* ts = raw;
+  const char* te = raw + len;
   %% write init;
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
-  
+
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
-  const char* p = q->raw;
-  const char* pe = q->raw + q->len;
+  const char* p = raw;
+  const char* pe = raw + len;
   const char* eof = pe;
-  
+
   %% write exec;
-  
+
   if (QPCTX_ISOK(q)) {
     RSQuery_Parse(pParser, 0, tok, q);
   }
   RSQuery_ParseFree(pParser, rm_free);
-  if (!QPCTX_ISOK(q) && q->root) {
-    QueryNode_Free(q->root);
-    q->root = NULL;
+  if (!QPCTX_ISOK(q) && root) {
+    QueryNode_Free(root);
+    root = NULL;
   }
-  return q->root;
+  return root;
 }
 

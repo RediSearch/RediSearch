@@ -183,7 +183,7 @@ expr(A) ::= expr(B) expr(C) . [AND] {
             B->opts.fieldMask == RS_FIELDMASK_ALL ) {
             A = B;
         } else {
-            A = NewPhraseNode(0);
+            A = new QueryPhraseNode(0);
             A->AddChild(B);
         }
         A->AddChild(C);
@@ -209,7 +209,7 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
         if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = B;
         } else {
-            A = NewUnionNode();
+            A = new QueryUnionNode();
             A->AddChild(B);
             A->opts.fieldMask |= B->opts.fieldMask;
         }
@@ -319,13 +319,13 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 }
 
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+    A = new QueryTokenNode(ctx, strdupcase(B.s, B.len), -1);
     A->opts.flags |= QueryNode_Verbatim;
 
 }
 
 expr(A) ::= term(B) . [LOWEST]  {
-   A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+   A = new QueryTokenNode(ctx, strdupcase(B.s, B.len), -1);
 }
 
 expr(A) ::= prefix(B) . [PREFIX]  {
@@ -341,14 +341,14 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 }
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
-    A = NewPhraseNode(0);
-    A->AddChild(NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
-    A->AddChild(NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    A = new QueryPhraseNode(0);
+    A->AddChild(new QueryTokenNode(ctx, strdupcase(B.s, B.len), -1));
+    A->AddChild(new QueryTokenNode(ctx, strdupcase(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    A->AddChild(NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    A->AddChild(new QueryTokenNode(ctx, strdupcase(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -385,7 +385,7 @@ expr(A) ::= TILDE expr(B) . {
 
 prefix(A) ::= PREFIX(B) . [PREFIX] {
     B.s = strdupcase(B.s, B.len);
-    A = NewPrefixNode(ctx, B.s, strlen(B.s));
+    A = new QueryPrefixNode(ctx, B.s, strlen(B.s));
 }
 
 /////////////////////////////////////////////////////////////////
@@ -394,32 +394,32 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 
 expr(A) ::=  PERCENT term(B) PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
+    A = new QueryFuzzyNode(ctx, B.s, strlen(B.s), 1);
 }
 
 expr(A) ::= PERCENT PERCENT term(B) PERCENT PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
+    A = new QueryFuzzyNode(ctx, B.s, strlen(B.s), 2);
 }
 
 expr(A) ::= PERCENT PERCENT PERCENT term(B) PERCENT PERCENT PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
+    A = new QueryFuzzyNode(ctx, B.s, strlen(B.s), 3);
 }
 
 expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
+    A = new QueryFuzzyNode(ctx, B.s, strlen(B.s), 1);
 }
 
 expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
+    A = new QueryFuzzyNode(ctx, B.s, strlen(B.s), 2);
 }
 
 expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
+    A = new QueryFuzzyNode(ctx, B.s, strlen(B.s), 3);
 }
 
 
@@ -458,7 +458,7 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
         char *s = rm_strndup(B.s, B.len);
         size_t slen = unescapen((char*)s, B.len);
 
-        A = NewTagNode(s, slen);
+        A = new QueryTagNode(s, slen);
         A->AddChildren(C->children, C->NumChildren());
 
         // Set the children count on C to 0 so they won't get recursively free'd
@@ -468,22 +468,22 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
 }
 
 tag_list(A) ::= LB term(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    A->AddChild(NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
+    A = new QueryPhraseNode(0);
+    A->AddChild(new QueryTokenNode(ctx, strdupcase(B.s, B.len), -1));
 }
 
 tag_list(A) ::= LB prefix(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
+    A = new QueryPhraseNode(0);
     A->AddChild(B);
 }
 
 tag_list(A) ::= LB termlist(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
+    A = new QueryPhraseNode(0);
     A->AddChild(B);
 }
 
 tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
-    B->AddChild(NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    B->AddChild(new QueryTokenNode(ctx, strdupcase(C.s, C.len), -1));
     A = B;
 }
 
@@ -509,7 +509,7 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
     C->fieldName = rm_strndup(B.s, B.len);
-    A = NewNumericNode(C);
+    A = new QueryNumericNode(C);
 }
 
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
@@ -523,7 +523,7 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
 expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
     C->property = rm_strndup(B.s, B.len);
-    A = NewGeofilterNode(C);
+    A = new QueryGeofilterNode(C);
 }
 
 geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {

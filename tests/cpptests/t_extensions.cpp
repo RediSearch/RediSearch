@@ -70,7 +70,7 @@ TEST_F(ExtTest, testRegistration) {
   numFreed = 0;
 
   RSQueryExpanderCtx qexp;
-  ExtQueryExpanderCtx *qx = Extensions_GetQueryExpander(&qexp, EXPANDER_NAME);
+  ExtQueryExpanderCtx *qx = Extensions::GetQueryExpander(&qexp, EXPANDER_NAME);
   ASSERT_TRUE(qx != NULL);
   ASSERT_TRUE(qx->exp == myExpander);
   ASSERT_TRUE(qx->ff == myFreeFunc);
@@ -81,7 +81,7 @@ TEST_F(ExtTest, testRegistration) {
 
   std::string ucExpander(EXPANDER_NAME);
   std::transform(ucExpander.begin(), ucExpander.end(), ucExpander.begin(), toupper);
-  ASSERT_TRUE(NULL == Extensions_GetQueryExpander(&qexp, ucExpander.c_str()));
+  ASSERT_TRUE(NULL == Extensions::GetQueryExpander(&qexp, ucExpander.c_str()));
 
   ScoringFunctionArgs scxp;
   ExtScoringFunctionCtx *sx = Extensions_GetScoringFunction(&scxp, SCORER_NAME);
@@ -109,7 +109,7 @@ TEST_F(ExtTest, testDynamicLoading) {
   ASSERT_TRUE(sx != NULL);
 
   RSQueryExpanderCtx qxcp;
-  ExtQueryExpanderCtx *qx = Extensions_GetQueryExpander(&qxcp, "example_expander");
+  ExtQueryExpanderCtx *qx = Extensions::GetQueryExpander(&qxcp, "example_expander");
   ASSERT_TRUE(qx != NULL);
 }
 
@@ -150,7 +150,7 @@ TEST_F(ExtTest, testQueryExpander) {
   ASSERT_STREQ(qtr->str, n->children[1]->children[1]->tn.str);
   ASSERT_EQ(0x00FF, qtr->flags);
 
-  Term_Free(qtr);
+  delete qtr;
   QAST_Destroy(&qast);
   ASSERT_EQ(1, numFreed);
 }

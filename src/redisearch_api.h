@@ -3,10 +3,6 @@
 #include "redismodule.h"
 #include <limits.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define REDISEARCH_CAPI_VERSION 1
@@ -322,7 +318,3 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx);
 int RediSearch_Init(RedisModuleCtx* ctx, int mode);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-#ifdef __cplusplus
-} // extern "C"
-#endif

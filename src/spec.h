@@ -166,14 +166,6 @@ struct IndexSpecFmtStrings {
 
 //---------------------------------------------------------------------------------------------
 
-struct RSIndexStats {
-  size_t numDocs;
-  size_t numTerms;
-  double avgDocLen;
-};
-
-//---------------------------------------------------------------------------------------------
-
 struct IndexLoadOptions {
   union {
     const char *cstring;

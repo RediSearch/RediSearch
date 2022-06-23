@@ -1201,7 +1201,7 @@ static YYACTIONTYPE yy_reduce(
             yymsp[-1].minor.yy35->opts.fieldMask == RS_FIELDMASK_ALL ) {
             yylhsminor.yy35 = yymsp[-1].minor.yy35;
         } else {
-            yylhsminor.yy35 = NewPhraseNode(0);
+            yylhsminor.yy35 = new QueryPhraseNode(0);
             yylhsminor.yy35->AddChild(yymsp[-1].minor.yy35);
         }
         yylhsminor.yy35->AddChild(yymsp[0].minor.yy35);
@@ -1226,7 +1226,7 @@ static YYACTIONTYPE yy_reduce(
         if (yymsp[-2].minor.yy35->type == QN_UNION && yymsp[-2].minor.yy35->opts.fieldMask == RS_FIELDMASK_ALL) {
             yylhsminor.yy35 = yymsp[-2].minor.yy35;
         } else {
-            yylhsminor.yy35 = NewUnionNode();
+            yylhsminor.yy35 = new QueryUnionNode();
             yylhsminor.yy35->AddChild(yymsp[-2].minor.yy35);
             yylhsminor.yy35->opts.fieldMask |= yymsp[-2].minor.yy35->opts.fieldMask;
         }
@@ -1344,14 +1344,14 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 17: /* expr ::= QUOTE term QUOTE */
 {
-    yymsp[-2].minor.yy35 = NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
+    yymsp[-2].minor.yy35 = new QueryTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
     yymsp[-2].minor.yy35->opts.flags |= QueryNode_Verbatim;
 
 }
         break;
       case 18: /* expr ::= term */
 {
-   yylhsminor.yy35 = NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1);
+   yylhsminor.yy35 = new QueryTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1);
 }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
@@ -1374,16 +1374,16 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 22: /* termlist ::= term term */
 {
-    yylhsminor.yy35 = NewPhraseNode(0);
-    yylhsminor.yy35->AddChild(NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
-    yylhsminor.yy35->AddChild(NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yylhsminor.yy35 = new QueryPhraseNode(0);
+    yylhsminor.yy35->AddChild(new QueryTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
+    yylhsminor.yy35->AddChild(new QueryTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 23: /* termlist ::= termlist term */
 {
     yylhsminor.yy35 = yymsp[-1].minor.yy35;
-    yylhsminor.yy35->AddChild(NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yylhsminor.yy35->AddChild(new QueryTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
@@ -1415,7 +1415,7 @@ static YYACTIONTYPE yy_reduce(
       case 27: /* prefix ::= PREFIX */
 {
     yymsp[0].minor.yy0.s = strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    yylhsminor.yy35 = NewPrefixNode(ctx, yymsp[0].minor.yy0.s, strlen(yymsp[0].minor.yy0.s));
+    yylhsminor.yy35 = new QueryPrefixNode(ctx, yymsp[0].minor.yy0.s, strlen(yymsp[0].minor.yy0.s));
 }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
@@ -1423,21 +1423,21 @@ static YYACTIONTYPE yy_reduce(
       case 31: /* expr ::= PERCENT STOPWORD PERCENT */ yytestcase(yyruleno==31);
 {
     yymsp[-1].minor.yy0.s = strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-    yymsp[-2].minor.yy35 = NewFuzzyNode(ctx, yymsp[-1].minor.yy0.s, strlen(yymsp[-1].minor.yy0.s), 1);
+    yymsp[-2].minor.yy35 = new QueryFuzzyNode(ctx, yymsp[-1].minor.yy0.s, strlen(yymsp[-1].minor.yy0.s), 1);
 }
         break;
       case 29: /* expr ::= PERCENT PERCENT term PERCENT PERCENT */
       case 32: /* expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */ yytestcase(yyruleno==32);
 {
     yymsp[-2].minor.yy0.s = strdupcase(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    yymsp[-4].minor.yy35 = NewFuzzyNode(ctx, yymsp[-2].minor.yy0.s, strlen(yymsp[-2].minor.yy0.s), 2);
+    yymsp[-4].minor.yy35 = new QueryFuzzyNode(ctx, yymsp[-2].minor.yy0.s, strlen(yymsp[-2].minor.yy0.s), 2);
 }
         break;
       case 30: /* expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
       case 33: /* expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */ yytestcase(yyruleno==33);
 {
     yymsp[-3].minor.yy0.s = strdupcase(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
-    yymsp[-6].minor.yy35 = NewFuzzyNode(ctx, yymsp[-3].minor.yy0.s, strlen(yymsp[-3].minor.yy0.s), 3);
+    yymsp[-6].minor.yy35 = new QueryFuzzyNode(ctx, yymsp[-3].minor.yy0.s, strlen(yymsp[-3].minor.yy0.s), 3);
 }
         break;
       case 34: /* modifier ::= MODIFIER */
@@ -1474,7 +1474,7 @@ static YYACTIONTYPE yy_reduce(
         char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
         size_t slen = unescapen((char*)s, yymsp[-2].minor.yy0.len);
 
-        yylhsminor.yy35 = NewTagNode(s, slen);
+        yylhsminor.yy35 = new QueryTagNode(s, slen);
         yylhsminor.yy35->AddChildren(yymsp[0].minor.yy35->children, yymsp[0].minor.yy35->NumChildren());
 
         // Set the children count on yymsp[0].minor.yy35 to 0 so they won't get recursively free'd
@@ -1486,20 +1486,20 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 38: /* tag_list ::= LB term */
 {
-    yymsp[-1].minor.yy35 = NewPhraseNode(0);
-    yymsp[-1].minor.yy35->AddChild(NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yymsp[-1].minor.yy35 = new QueryPhraseNode(0);
+    yymsp[-1].minor.yy35->AddChild(new QueryTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
         break;
       case 39: /* tag_list ::= LB prefix */
       case 40: /* tag_list ::= LB termlist */ yytestcase(yyruleno==40);
 {
-    yymsp[-1].minor.yy35 = NewPhraseNode(0);
+    yymsp[-1].minor.yy35 = new QueryPhraseNode(0);
     yymsp[-1].minor.yy35->AddChild(yymsp[0].minor.yy35);
 }
         break;
       case 41: /* tag_list ::= tag_list OR term */
 {
-    yymsp[-2].minor.yy35->AddChild(NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yymsp[-2].minor.yy35->AddChild(new QueryTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
@@ -1516,7 +1516,7 @@ static YYACTIONTYPE yy_reduce(
 {
     // we keep the capitalization as is
     yymsp[0].minor.yy36->fieldName = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    yylhsminor.yy35 = NewNumericNode(yymsp[0].minor.yy36);
+    yylhsminor.yy35 = new QueryNumericNode(yymsp[0].minor.yy36);
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
@@ -1529,7 +1529,7 @@ static YYACTIONTYPE yy_reduce(
 {
     // we keep the capitalization as is
     yymsp[0].minor.yy64->property = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    yylhsminor.yy35 = NewGeofilterNode(yymsp[0].minor.yy64);
+    yylhsminor.yy35 = new QueryGeofilterNode(yymsp[0].minor.yy64);
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;

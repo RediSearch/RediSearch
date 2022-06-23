@@ -42,14 +42,14 @@ static int ParseDouble(const char *arg, double *d) {
   return 1;
 }
 
-static int ParseBoolean(const char *arg, int *res) {
+static int ParseBoolean(const char *arg, bool *res) {
   if (STR_EQCASE(arg, strlen(arg), "true") || STR_EQCASE(arg, strlen(arg), "1")) {
-    *res = 1;
+    *res = true;
     return 1;
   }
 
   if (STR_EQCASE(arg, strlen(arg), "false") || STR_EQCASE(arg, strlen(arg), "0")) {
-    *res = 0;
+    *res = false;
     return 1;
   }
 

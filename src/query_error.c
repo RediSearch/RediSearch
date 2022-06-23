@@ -149,7 +149,7 @@ void QueryError::MaybeSetCode(QueryErrorCode c) {
 // Retrieve the error string of the error itself. This will use either the
 // built-in error string for the given code, or the custom string within the object.
 
-const char *QueryError::GetError() {
+const char *QueryError::GetError() const {
   return detail ? detail : Strerror(code);
 }
 

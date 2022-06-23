@@ -343,8 +343,8 @@ size_t RSValue_NumToString(double dd, char *buf);
 
 // Static value pointers. These don't ever get decremented
 
-static RSValue __attribute__((unused)) RS_StaticNull = new RSValue(RSValue_Null);
-static RSValue __attribute__((unused)) RS_StaticUndef = new RSValue(RSValue_Undef);
+static RSValue RS_StaticNull(RSValue_Null);
+static RSValue RS_StaticUndef(RSValue_Undef);
 
 // Maximum number of static/cached numeric values. Integral numbers in this range
 // can benefit by having 'static' values assigned to them, eliminating the need

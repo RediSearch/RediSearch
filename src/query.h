@@ -32,7 +32,7 @@ struct QueryAST : public Object {
   const void *udata;
   size_t udatalen;
 
-  // Copied query and length, because it seems we modify the string in the parser (FIXME). 
+  // Copied query and length, because it seems we modify the string in the parser (FIXME).
   // Thus, if the original query is const then it explodes.
   char *query;
   size_t nquery;
@@ -49,7 +49,7 @@ struct QueryAST : public Object {
   IndexIterator *Iterate(const RSSearchOptions &options, RedisSearchCtx &sctx,
                          ConcurrentSearchCtx &conc) const;
 
-  int Expand(const char *expander, RSSearchOptions &opts, RedisSearchCtx &sctx,
+  int Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx &sctx,
              QueryError *status);
 
   // Return a string representation of the QueryParse parse tree.
@@ -60,6 +60,7 @@ struct QueryAST : public Object {
   void Print(const IndexSpec *spec) const;
 
   void applyGlobalFilters(RSSearchOptions &opts, const RedisSearchCtx &sctx);
+  void setFilterNode(QueryNode *n);
 };
 
 //---------------------------------------------------------------------------------------------

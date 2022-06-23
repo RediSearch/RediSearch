@@ -49,9 +49,12 @@ struct QueryNodeOptions {
   QueryNodeFlags flags;
   t_fieldMask fieldMask;
   int maxSlop;
-  int inOrder;
+  bool inOrder;
   double weight;
   int phonetic;
+
+  QueryNodeOptions(t_fieldMask fieldMask, QueryNodeFlags flags, int maxSlop, bool inOrder, double weight) :
+  fieldMask(fieldMask), flags(flags), maxSlop(maxSlop), inOrder(inOrder), weight(weight) {}
 };
 
 //---------------------------------------------------------------------------------------------
@@ -88,10 +91,10 @@ struct QueryNode {
     QueryLexRangeNode lxrng;
   };*/
 
-  void ctor(QueryNodeType type_);
-  QueryNode(QueryNodeType type_) { ctor(type_); }
-  QueryNode(QueryNodeType type_, QueryNode **children_, size_t n) {
-    ctor(type_);
+  void ctor(QueryNodeType t);
+  QueryNode(QueryNodeType t) { ctor(t); }
+  QueryNode(QueryNodeType t, QueryNode **children_, size_t n) {
+    ctor(t);
     children = array_ensure_append(children, children_, n, QueryNode *);
   }
   virtual ~QueryNode();
@@ -101,7 +104,8 @@ struct QueryNode {
   QueryNodeOptions opts;
   struct QueryNode **children;
 
-  int ApplyAttributes(QueryAttribute *attrs, size_t len, QueryError *status);
+  bool ApplyAttribute(QueryAttribute *attr, QueryError *status);
+  bool ApplyAttributes(QueryAttribute *attrs, size_t len, QueryError *status);
 
   void AddChildren(QueryNode **children_, size_t n);
   void AddChild(QueryNode *child);
@@ -110,13 +114,25 @@ struct QueryNode {
   size_t NumChildren() const { return children ? array_len(children) : 0; }
   QueryNode *GetChild(int ix) { return NumChildren() > ix ? children[ix] : NULL; }
 
+  void Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *expCtx);
+
   typedef int (*ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
-  int ForEach(ForEachCallback callback, void *ctx, bool reverse);
+  int ForEach(ForEachCallback callback, void *ctx, bool reverse)
 
   void SetFieldMask(t_fieldMask mask);
 
   sds DumpSds(sds s, const IndexSpec *spec, int depth) const;
   sds DumpChildren(sds s, const IndexSpec *spec, int depth) const;
+  virtual sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscat(s, "<empty>");
+    return s;
+  }
+
+  virtual IndexIterator *EvalNode(Query *q) {
+    return NewEmptyIterator();
+  }
+
+  IndexIterator *EvalSingleTagNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -126,6 +142,36 @@ struct QueryNode {
 
 struct QueryPhraseNode : QueryNode {
   int exact;
+
+  QueryPhraseNode(int exact_) {
+    exact = exact_;
+  }
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscatprintf(s, "%s {\n", exact ? "EXACT" : "INTERSECT");
+    for (size_t ii = 0; ii < NumChildren(); ++ii) {
+      s = children[ii]->DumpSds(s, spec, depth + 1);
+    }
+
+    s = doPad(s, depth);
+    return s;
+  }
+
+  IndexIterator *EvalNode(Query *q);
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx,
+                            IndexIteratorArray *iterout, double weight) {
+    char *terms[NumChildren()];
+    for (size_t i = 0; i < NumChildren(); ++i) {
+      if (children[i]->type == QN_TOKEN) {
+        terms[i] = children[i]->str;
+      } else {
+        terms[i] = "";
+      }
+    }
+
+    sds s = sdsjoin(terms, NumChildren(), " ");
+    return idx->OpenReader(q->sctx->spec, s, sdslen(s), weight);
+  }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -133,8 +179,13 @@ struct QueryPhraseNode : QueryNode {
 // Query node used when the query is effectively null but not invalid.
 // This might happen as a result of a query containing only stopwords.
 
-struct QueryNullNode : QueryNode {
-  //int dummy;
+struct QueryWildcardNode : QueryNode {
+  IndexIterator *EvalNode(Query *q);
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscat(s, "<WILDCARD>");
+    return s;
+  }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -142,6 +193,17 @@ struct QueryNullNode : QueryNode {
 struct QueryTagNode : QueryNode {
   const char *fieldName;
   size_t len;
+
+  QueryTagNode(const char *field, size_t len) : fieldName(field), len(len) {}
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscatprintf(s, "TAG:@%.*s {\n", (int)len, fieldName);
+    s = DumpChildren(s, spec, depth + 1);
+    s = doPad(s, depth);
+    return s;
+  }
+
+  IndexIterator *EvalNode(Query *q);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -156,29 +218,124 @@ struct QueryTagNode : QueryNode {
 
 struct QueryTokenNode : QueryNode {
   RSToken tok;
+
+  QueryTokenNode(QueryParse *q, const char *s, size_t len_) {
+    if (len_ == (size_t)-1) {
+      len_ = strlen(s);
+    }
+
+    q->numTokens++;
+
+    str = (char *)s;
+    len = len_;
+    expanded = 0;
+    flags = 0;
+  }
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscatprintf(s, "%s%s", (char *)str, expanded ? "(expanded)" : "");
+    if (opts.weight != 1) {
+      s = sdscatprintf(s, " => {$weight: %g;}", opts.weight);
+    }
+    s = sdscat(s, "\n");
+    return s;
+  }
+
+  IndexIterator *EvalNode(Query *q);
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx,
+                            IndexIteratorArray *iterout, double weight) {
+    return idx->OpenReader(q->sctx->spec, str, len, weight);
+  }
 };
+
+//---------------------------------------------------------------------------------------------
 
 struct QueryPrefixNode : QueryNode {
   RSToken tok;
+
+  QueryPrefixNode(QueryParse *q, const char *s, size_t len_) {
+    q->numTokens++;
+
+    str = (char *)s;
+    len = len_;
+    expanded = 0;
+    flags = 0;
+  }
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscatprintf(s, "PREFIX{%s*", (char *)str);
+    return s;
+  }
+
+  IndexIterator *EvalNode(Query *q);
+  IndexIterator *EvalTagPrefixNode(Query *q, TagIndex *idx,
+                                   IndexIteratorArray *iterout, double weight);
+
 };
+
+//---------------------------------------------------------------------------------------------
 
 struct QueryFuzzyNode : QueryNode {
   RSToken tok;
   int maxDist;
+
+  QueryFuzzyNode(QueryParse *q, const char *s, size_t len_, int maxDist_) {
+    q->numTokens++;
+
+    tok = {
+            (RSToken) {
+              .str = (char *)s,
+              .len = len_,
+              .expanded = 0,
+              .flags = 0,
+          },
+        .maxDist = maxDist_,
+    };
+  }
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscatprintf(s, "FUZZY{%s}\n", tok.str);
+    return s;
+  }
+
+
 };
 
 //---------------------------------------------------------------------------------------------
 
 // A node with a numeric filter
+struct NumericFilter;
 
 struct QueryNumericNode : QueryNode {
-  struct NumericFilter *nf;
+  NumericFilter *nf;
+
+  QueryNumericNode(const NumericFilter *flt) {
+    nf = flt;
+  }
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f", nf->min, nf->inclusiveMin ? "<=" : "<",
+                     nf->fieldName, nf->inclusiveMax ? "<=" : "<", nf->max);
+    return s;
+  }
+
+  IndexIterator *EvalNode(Query *q);
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct QueryGeofilterNode : QueryNode {
   const struct GeoFilter *gf;
+
+  QueryGeofilterNode(const GeoFilter *flt) {
+    gf = flt;
+  }
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s", gf->property, gf->lon,
+                     gf->lat, gf->radius, gf->unitType.ToString());
+    return s;
+  }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -186,6 +343,16 @@ struct QueryGeofilterNode : QueryNode {
 struct QueryIdFilterNode : QueryNode {
   t_docId *ids;
   size_t len;
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscat(s, "IDS { ");
+    for (int i = 0; i < fn.len; i++) {
+      s = sdscatprintf(s, "%llu,", (unsigned long long)fn.ids[i]);
+    }
+    return s;
+  }
+
+  IndexIterator *EvalNode(Query *q);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -195,10 +362,56 @@ struct QueryLexRangeNode : QueryNode {
   bool includeBegin;
   char *end;
   bool includeEnd;
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscatprintf(s, "LEXRANGE{%s...%s", begin ? begin : "", end ? end : "");
+    return s;
+  }
+
+  IndexIterator *EvalNode(Query *q);
+  IndexIterator *EvalTagLexRangeNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
+                                     double weight);
 };
 
 //---------------------------------------------------------------------------------------------
 
-typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
+// typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;//@@ How to seperate it to classes?
+
+struct QueryUnionNode : QueryNode {
+  IndexIterator *EvalNode(Query *q);
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscat(s, "UNION {\n");
+    s = DumpChildren(s, spec, depth + 1);
+    s = doPad(s, depth);
+    return s;
+  }
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct QueryNotNode : QueryNode {
+  IndexIterator *EvalNode(Query *q);
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscat(s, "NOT{\n");
+    s = DumpChildren(s, spec, depth + 1);
+    s = doPad(s, depth);
+    return s;
+  }
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct QueryOptionalNode : QueryNode {
+  IndexIterator *EvalNode(Query *q);
+
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+    s = sdscat(s, "OPTIONAL{\n");
+    s = DumpChildren(s, spec, depth + 1);
+    s = doPad(s, depth);
+    return s;
+  }
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

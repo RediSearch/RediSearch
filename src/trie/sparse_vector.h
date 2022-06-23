@@ -3,26 +3,27 @@
 #include <stdlib.h>
 
 struct sparseVectorEntry {
-    int idx, val;
+  int idx, val;
+
+  sparseVectorEntry(int idx, int val) : idx(idx), val(val) {}
 };
 
 // sparseVector is a crude implementation of a sparse vector for our needs
-struct sparseVector {
-    size_t len;
-    size_t cap;
-    sparseVectorEntry entries[];
+struct sparseVector : Object {
+  size_t len;
+  size_t cap;
+  sparseVectorEntry entries[];
 
-    sparseVector(size_t cap_);
-    sparseVector(int *values, int len_);
+  sparseVector(size_t cap_);
+  sparseVector(int *values, int len_);
 
-    void resize(size_t cap_);
-    static size_t sizeof(size_t cap_);
+  void resize(size_t cap_);
+  static size_t size(size_t cap_);
 
-    static bool equals(sparseVector *sv1, sparseVector *sv2);
+  static bool equals(sparseVector *sv1, sparseVector *sv2);
 
-    // append appends another sparse vector entry with the given index and value.
-    // NOTE: We do not check
-    // that an entry with the same index is present in the vector
-    void append(int index, int value);
-
+  // append appends another sparse vector entry with the given index and value.
+  // NOTE: We do not check
+  // that an entry with the same index is present in the vector
+  void append(int index, int value);
 };

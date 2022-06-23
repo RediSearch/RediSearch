@@ -357,6 +357,14 @@ struct IndexResult : public Object {
 
 //---------------------------------------------------------------------------------------------
 
+struct RSIndexStats {
+  size_t numDocs;
+  size_t numTerms;
+  double avgDocLen;
+};
+
+//---------------------------------------------------------------------------------------------
+
 // The context given to a scoring function. It includes the payload set by the user or expander,
 // the private data set by the extensionm and callback functions
 

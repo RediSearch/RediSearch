@@ -2,12 +2,13 @@
 #include <stdio.h>
 #include "rmalloc.h"
 
-static inline size_t sparseVector::sizeof(size_t cap_) {
+size_t sparseVector::size(size_t cap_) {
   return sizeof(sparseVector) + cap_ * sizeof(sparseVectorEntry);
 }
 
 inline void sparseVector::resize(size_t cap_) {
-  this = rm_realloc(this, sizeof(cap_));
+  //@@ need to be fixed
+  // this = rm_realloc(this, sparseVector::size(cap_));
   cap = cap_;
 }
 
@@ -23,7 +24,7 @@ sparseVector::sparseVector(int *values, int len_) {
   len = len_;
 
   for (int i = 0; i < len_; i++) {
-    entries[i] = (sparseVectorEntry){i, values[i]};
+    entries[i] = new sparseVectorEntry(i, values[i]);
   }
 }
 

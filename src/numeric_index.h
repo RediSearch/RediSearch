@@ -91,11 +91,11 @@ struct NumericRangeNode : public Object {
   // Add a value to a tree node or its children recursively. Splits the relevant node if needed.
   // Returns 0 if no nodes were split, 1 if we splitted nodes.
   NRN_AddRv Add(t_docId docId, double value);
-  void AddChildren(Vector *v, double min, double max);
+  void AddChildren(Vector<NumericRange> *v, double min, double max);
 
   // Recursively find all the leaves under a node that correspond to a given min-max range.
   // Returns a vector with range node pointers.
-  Vector *FindRange(double min, double max);
+  Vector<NumericRange> *FindRange(double min, double max);
 
   bool IsLeaf() const { return left == NULL && right == NULL; }
 
@@ -137,7 +137,7 @@ struct NumericRangeTree : public Object {
 
   // Recursively find all the leaves under tree's root, that correspond to a given min-max range.
   // Returns a vector with range node pointers.
-  Vector<int> *Find(double min, double max);
+  Vector<NumericRange> *Find(double min, double max);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -150,9 +150,6 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyNa
 class NumericFilterIterator : public IndexIterator {
 
 };
-
-struct IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
-                                              const NumericFilter *f);
 
 struct IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx);

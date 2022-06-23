@@ -694,6 +694,8 @@ void TrieNode::rangeIterateSubTree(RangeCtx *r) {
  * size is not negatively impacted and prone to attack.
  */
 void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax, RangeCtx *r) {
+  int endIdx, beginIdx = 0, endEqIdx = -1, beginEqIdx = -1;
+
   // Push string to stack
   r->buf = array_ensure_append(r->buf, str, len, rune);
 
@@ -725,7 +727,6 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
   // Use binary search to find the beginning and end ranges:
   rsbHelper h;
 
-  int beginEqIdx = -1;
   if (nmin > 0) {
     // searching for node that matches the prefix of our min value
     h.r = min;
@@ -733,7 +734,6 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     beginEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, rsbComparePrefix);
   }
 
-  int endEqIdx = -1;
   if (nmax > 0) {
     // searching for node that matches the prefix of our max value
     h.r = max;
@@ -780,7 +780,6 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     child->rangeIterate(nextMin, nNextMin, NULL, -1, r);
   }
 
-  int beginIdx = 0;
   if (nmin > 0) {
     // search for the first element which are greater then our min value
     h.r = min;
@@ -788,7 +787,7 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
   }
 
-  int endIdx = nmax ? arrlen - 1 : -1;
+  endIdx = nmax ? arrlen - 1 : -1;
   if (nmax > 0) {
     // search for the first element which are less then our max value
     h.r = max;
