@@ -3519,7 +3519,7 @@ def test_free_resources_on_thread(env):
     # ensure freeing resources on a 2nd thread is quicker
     # than freeing it on the main thread    
     # (skip this check point on CI since it is not guaranteed)
-    if not os.environ.get('CI'):
+    if not CI:
         env.assertLess(results[0], results[1])
 
     conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
