@@ -1,11 +1,17 @@
+#include "trie/rune_util.h"
+
 #include "libnu/libnu.h"
-#include "rune_util.h"
+#include "rmalloc.h"
+
 #include <stdlib.h>
 #include <string.h>
-#include "rmalloc.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // The maximum size we allow converting to at once
 #define MAX_RUNESTR_LEN 1024
+
+//---------------------------------------------------------------------------------------------
 
 static uint32_t __fold(uint32_t runelike) {
   uint32_t lowered = 0;
@@ -18,9 +24,15 @@ static uint32_t __fold(uint32_t runelike) {
   return lowered;
 }
 
+//---------------------------------------------------------------------------------------------
+
 rune runeFold(rune r) {
   return __fold((uint32_t)r);
 }
+
+//---------------------------------------------------------------------------------------------
+
+// Convert a rune string to utf-8 characters
 
 char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   if (len > MAX_RUNESTR_LEN) {
@@ -40,10 +52,11 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   return ret;
 }
 
-/* implementation is identical to that of
- * strToRunes except for line where __fold is called */
-rune *strToFoldedRunes(const char *str, size_t *len) {
+//---------------------------------------------------------------------------------------------
 
+// implementation is identical to that of strToRunes except for line where __fold is called
+
+rune *strToFoldedRunes(const char *str, size_t *len, bool &dynamic, rune *buf = NULL) {
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
   if (rlen > MAX_RUNESTR_LEN) {
     if (len) *len = 0;
@@ -54,7 +67,13 @@ rune *strToFoldedRunes(const char *str, size_t *len) {
   decoded[rlen] = 0;
   nu_readstr(str, decoded, nu_utf8_read);
 
-  rune *ret = rm_calloc(rlen + 1, sizeof(rune));
+  rune *ret;
+  dynamic = rlen > RUNE_STATIC_ALLOC_SIZE || !buf;
+  if (dynamic) {
+    ret = rm_calloc(rlen + 1, sizeof(rune));
+  } else {
+    ret = buf;
+  }
   for (int i = 0; i < rlen; i++) {
     uint32_t runelike = decoded[i];
     ret[i] = (rune)__fold(runelike);
@@ -64,7 +83,11 @@ rune *strToFoldedRunes(const char *str, size_t *len) {
   return ret;
 }
 
-rune *strToRunes(const char *str, size_t *len) {
+//---------------------------------------------------------------------------------------------
+
+// Convert a utf-8 string to constant width runes
+
+rune *strToRunes(const char *str, size_t *len, bool &dynamic, rune *buf = NULL) {
   // Determine the length
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
   if (rlen > MAX_RUNESTR_LEN) {
@@ -72,7 +95,14 @@ rune *strToRunes(const char *str, size_t *len) {
     return NULL;
   }
 
-  rune *ret = rm_malloc((rlen + 1) * sizeof(rune));
+  rune *ret;
+  dynamic = rlen > RUNE_STATIC_ALLOC_SIZE || !buf;
+  if (dynamic) {
+    ret = rm_malloc((rlen + 1) * sizeof(rune));
+  } else {
+    ret = buf;
+  }
+
   strToRunesN(str, strlen(str), ret);
   ret[rlen] = '\0';
   if (len) {
@@ -80,6 +110,10 @@ rune *strToRunes(const char *str, size_t *len) {
   }
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
+
+// Decode a string to a rune in-place
 
 size_t strToRunesN(const char *src, size_t slen, rune *out) {
   const char *end = src + slen;
@@ -94,3 +128,11 @@ size_t strToRunesN(const char *src, size_t slen, rune *out) {
   }
   return nout;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+Runes::~Runes() {
+  if (dynamic) rm_free(_runes);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////

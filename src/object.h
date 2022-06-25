@@ -59,7 +59,7 @@ public:
     template <class U> rm_allocator(rm_allocator<U> const&) noexcept {}
 
     value_type* allocate(std::size_t n) {
-        return static_cast<value_type*>(rm_alloc(n * sizeof(value_type)));
+        return static_cast<value_type*>(rm_malloc(n * sizeof(value_type)));
     }
 
     void

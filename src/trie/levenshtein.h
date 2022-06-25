@@ -1,9 +1,17 @@
 #pragma once
 
-#include <stdlib.h>
 #include "sparse_vector.h"
 #include "rmutil/vector.h"
 #include "trie.h"
+
+#include <stdlib.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+struct DFANode;
+struct DFAEdge;
+
+//---------------------------------------------------------------------------------------------
 
 /*
 * SparseAutomaton is a C implementation of a levenshtein automaton using
@@ -13,76 +21,78 @@
 * We then convert the automaton to a simple DFA that is faster to evaluate during the query stage.
 * This DFA is used while traversing a Trie to decide where to stop.
 */
-struct SparseAutomaton {
-    const rune *string;
-    size_t len;
-    int max;
 
-    /* Create a new Sparse Levenshtein Automaton  for string s and length len, with a maximal edit
-    * distance of maxEdits */
-    SparseAutomaton(const rune *s, size_t len, int maxEdits) : string(s), len(len), max(maxEdits) {}
+struct SparseAutomaton : Object {
+  const Runes &runes; //@@ ownership
+  int max;
 
-    sparseVector *Start();
-    sparseVector *Step(sparseVector *state, rune c);
+  SparseAutomaton(const Runes &runes, int maxEdits) : runes(runes),max(maxEdits) {}
 
-    bool IsMatch(sparseVector *v) const;
-    bool CanMatch(sparseVector *v) const;
+  SparseVector Start();
+  SparseVector Step(SparseVector &state, rune c);
+
+  bool IsMatch(const SparseVector &v) const;
+  bool CanMatch(const SparseVector &v) const;
 };
 
-struct dfaEdge;
+//---------------------------------------------------------------------------------------------
 
-/* dfaNode is DFA graph node constructed using the Levenshtein automaton */
-struct dfaNode {
-    int distance;
+// DFAFilter is a constructed DFA used to filter the traversal on the trie
 
-    int match;
-    sparseVector *v;
-    struct dfaEdge *edges;
-    size_t numEdges;
-    struct dfaNode *fallback;
+struct DFACache : Vector<std::unique_ptr<DFANode>> {
+  typedef Vector<std::unique_ptr<DFANode>> Super;
 
-    /* Create a new DFA node */
-    dfaNode(int distance, sparseVector *state);
-    ~dfaNode();
-
-    /* Recusively build the DFA node and all its descendants */
-    void build(SparseAutomaton *a, Vector<dfaNode *> *cache);
-
-    void putCache(Vector<dfaNode *> *cache);
-    void addEdge(rune r, dfaNode *child);
-
-    dfaNode *getEdge(rune r);
-
-    static dfaNode *getCache(Vector<dfaNode *> *cache, sparseVector *v);
+  DFANode *find(const SparseVector &v) const;
+  void put(DFANode *node);
 };
 
-struct dfaEdge {
-    dfaNode *n;
-    rune r;
+//---------------------------------------------------------------------------------------------
 
-    dfaEdge(dfaNode *n, rune r) : n(n), r(r) {}
+struct DFAEdge : Object {
+  DFAEdge(DFANode *n, rune r) : n(n), r(r) {}
+  DFANode *n;
+  rune r;
 };
 
-/* DFAFilter is a constructed DFA used to filter the traversal on the trie */
-struct DFAFilter {
-    // a cache of the DFA states, allowing us to re-use the same state whenever we need it
-    Vector *cache<dfaNode *>;
-    // A stack of the states leading up to the current state
-    Vector *stack<dfaNode *>;
-    // A stack of the minimal distance for each state, used for prefix matching
-    Vector *distStack<int>;
-    // whether the filter works in prefix mode or not
-    int prefixMode;
+//---------------------------------------------------------------------------------------------
+
+// DFANode is DFA graph node constructed using the Levenshtein automaton
+
+struct DFANode : Object {
+  int distance;
+  int match;
+  SparseVector v;
+  Vector<DFAEdge> edges;
+  struct DFANode *fallback;
+
+  DFANode(int distance, SparseVector &&state);
+
+  void build(SparseAutomaton &a, DFACache &cache);
+  DFANode *getCache(const SparseVector &v) const;
+
+  DFANode *getEdgeNode(rune r);
+  void addEdge(rune r, DFANode *child);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct DFAFilter : Object {
+	DFAFilter(Runes &runes, int maxDist, bool prefixMode);
+    
+    DFACache cache; // cache of DFA states, allowing re-use of states
+    Vector<DFANode*> stack; // stack of states leading up to the current state. NOTE: null nodes are allowed.
+    Vector<int> distStack; // stack of minimal distance for each state, used for prefix matching
+    
+    bool prefixMode; // whether the filter works in prefix mode
 
     SparseAutomaton a;
-
-    DFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
-    ~DFAFilter();
 };
 
-/* A callback function for the DFA Filter, passed to the Trie iterator */
-FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
+// A callback function for the DFA Filter, passed to the Trie iterator
+FilterCode FilterFunc(rune b, DFAFilter *filter, int *matched, void *matchCtx);
 
-/* A stack-pop callback, passed to the trie iterator. It's called when we reach a dead end and need
- * to rewind the stack of the filter */
-void StackPop(void *ctx, int numLevels);
+// A stack-pop callback, passed to the trie iterator.
+// It's called when we reach a dead end and need to rewind the stack of the filter.
+void StackPop(DFAFilter *filter, int numLevels);
+
+///////////////////////////////////////////////////////////////////////////////////////////////

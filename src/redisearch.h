@@ -43,6 +43,7 @@ struct RSSortingVector;
  * extracted from each result or document */
 
 struct RSPayload {
+  RSPayload() : data(NULL), len(0) {}
   char *data;
   size_t len;
 };

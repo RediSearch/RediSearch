@@ -1,9 +1,26 @@
 #pragma once
 
+#include "object.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <vector>
 
+#if 1
+
+template <class T>
+class Vector : public std::vector<T, rm_allocator<T>> {
+  typedef std::vector<T, rm_allocator<T>> Super;
+
+public:
+  Vector() {}
+  Vector(size_t size) : Super(size) {}
+  Vector(Super &&v) : Super(v) {}
+};
+
+#else
+	
 /*
  * Generic resizable vector that can be used if you just want to store stuff
  * temporarily.
@@ -115,3 +132,5 @@ struct Vector : public Object {
 //@@ how should I change it
 //@@ Also there is no implemetation for this
 void Vector_FreeEx(Vector *v, void (*freeCB)(void *));
+
+#endif // 0

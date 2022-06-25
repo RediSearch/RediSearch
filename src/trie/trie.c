@@ -1,13 +1,18 @@
-#include <sys/param.h>
-#include "trie.h"
+#include "trie/trie.h"
 #include "util/bsearch.h"
 #include "sparse_vector.h"
 #include "redisearch.h"
 #include "util/arr.h"
 
+#include <sys/param.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 size_t TrieNode::Size(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Allocate a new trie payload struct
 TriePayload::TriePayload(const char *payload, uint32_t plen) {
@@ -15,11 +20,12 @@ TriePayload::TriePayload(const char *payload, uint32_t plen) {
   memcpy(data, payload, sizeof(char) * plen);
 }
 
-/* Add a child node to the parent node n, with a string str starting at offset
-up until len, and a
-given score */
+//---------------------------------------------------------------------------------------------
 
-TrieNode::TrieNode(rune *str_, t_len offset, t_len len_, const char *payload_, size_t plen,
+// Add a child node to the parent node n, with a string str starting at offset up until len, and a
+// given score
+
+TrieNode::TrieNode(Runes &runes, t_len offset, t_len len_, const char *payload_, size_t plen,
                    t_len numChildren_, float score_, bool terminal) {
   len = len_ - offset;
   numChildren = numChildren_;
@@ -27,29 +33,34 @@ TrieNode::TrieNode(rune *str_, t_len offset, t_len len_, const char *payload_, s
   flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
   maxChildScore = 0;
   sortmode = TRIENODE_SORTED_NONE;
-  memcpy(str, str_ + offset, sizeof(rune) * (len_ - offset));
+  memcpy(str, &runes[offset], sizeof(rune) * (len_ - offset));
   if (payload_ != NULL && plen > 0) {
     payload = new TriePayload(payload_, plen);
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 //@@ Can this be a void func?
-TrieNode *TrieNode::AddChild(rune *str_, t_len offset, t_len len_, RSPayload *payload, float score_) {
+
+TrieNode *TrieNode::AddChild(Runes &runes, t_len offset, t_len len_, RSPayload *payload, float score_) {
   numChildren++;
   this = rm_realloc((void *)this, TrieNode::Size(numChildren, len)); //@@ need to be fixed (realloc)
   // a newly added child must be a terminal node
-  TrieNode *child(str_, offset, len_, payload ? payload->data : NULL,
-                  payload ? payload->len : 0, 0, score_, 1);
+  TrieNode *child = new TrieNode(runes, offset, len_, payload ? payload->data : NULL, payload ? payload->len : 0, 0, score_, 1);
   getChildren()[numChildren - 1] = child;
   sortmode = TRIENODE_SORTED_NONE;
 
   return this;
 }
 
-/* Split node n at string offset n. This returns a new node which has a string
- * up until offset, and
- * a single child holding The old score of n, and its score */
+//---------------------------------------------------------------------------------------------
+
+// Split node n at string offset n. This returns a new node which has a string
+// up until offset, and a single child holding The old score of n, and its score.
+
 //@@ Can this be a void func?
+
 TrieNode *TrieNode::SplitNode(t_len offset) {
   // Copy the current node's data and children to a new child node
   TrieNode *newChild = new TrieNode(str, offset, len, payload ? payload->data : NULL,
@@ -79,8 +90,11 @@ TrieNode *TrieNode::SplitNode(t_len offset) {
   return this;
 }
 
-/* If a node has a single child after delete, we can merged them. This deletes
- * the node and returns a newly allocated node */
+//---------------------------------------------------------------------------------------------
+
+// If a node has a single child after delete, we can merged them.
+// This deletes the node and returns a newly allocated node.
+
 TrieNode *TrieNode::MergeWithSingleChild() {
   if (isTerminal() || numChildren != 1) {
     return this;
@@ -112,6 +126,8 @@ TrieNode *TrieNode::MergeWithSingleChild() {
   return merged;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void TrieNode::Print(int idx, int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
@@ -122,12 +138,13 @@ void TrieNode::Print(int idx, int depth) {
   }
 }
 
-/* Add a new string to a trie. Returns 1 if the string did not exist there, or 0
- * if we just replaced
- * the score. We pass a pointer to the node because it may actually change when
- * splitting */
+//---------------------------------------------------------------------------------------------
 
-TrieNode *TrieNode::Add(rune *str_, t_len len_, RSPayload *payload, float score_, TrieAddOp op) {
+// Add a new string to a trie.
+// Returns 1 if the string did not exist there, or 0 if we just replaced the score. 
+// We pass a pointer to the node because it may actually change when splitting.
+
+TrieNode *TrieNode::Add(Runes &runes, t_len len_, RSPayload *payload, float score_, TrieAddOp op) {
   if (score_ == 0 || len_ == 0) {
     return NULL;
   }
@@ -213,12 +230,13 @@ TrieNode *TrieNode::Add(rune *str_, t_len len_, RSPayload *payload, float score_
   return n->AddChild(str_, offset, len_, payload, score_);
 }
 
-/* Find the entry with a given string and length, and return its score. Returns
- * 0 if the entry was
- * not found.
- * Note that you cannot put entries with zero score */
+//---------------------------------------------------------------------------------------------
 
-float TrieNode::Find(rune *str_, t_len len_) {
+// Find the entry with a given string and length, and return its score.
+// Returns 0 if the entry was not found.
+// Note that you cannot put entries with zero score.
+
+float TrieNode::Find(rune *str_, t_len len_) const {
   t_len offset = 0;
   while (offset < len_) {
     // printf("n %.*s offset %d, len %d\n", len, str, offset,
@@ -258,6 +276,8 @@ float TrieNode::Find(rune *str_, t_len len_) {
 
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* Optimize the node and its children:
  *   1. If a child should be deleted - delete it and reduce the child count
@@ -300,14 +320,15 @@ void TrieNode::optimizeChildren() {
   sortChildren();
 }
 
-/* Mark a node as deleted. For simplicity for now we don't actually delete
- * anything,
- * but the node will not be persisted to disk, thus deleted after reload.
- * Returns true if the node was indeed deleted, false otherwise */
+//---------------------------------------------------------------------------------------------
+
+// Mark a node as deleted. For simplicity for now we don't actually delete anything,
+// but the node will not be persisted to disk, thus deleted after reload.
+// Returns true if the node was indeed deleted, false otherwise.
 
 bool TrieNode::Delete(rune *str_, t_len len_) {
   t_len offset = 0;
-  static TrieNode *stack[TRIE_INITIAL_STRING_LEN];
+  static TrieNode *stack[TRIE_INITIAL_STRING_LEN]; //@@ static?!
   int stackPos = 0;
   bool rc = false;
   while (offset < len_) {
@@ -354,12 +375,13 @@ bool TrieNode::Delete(rune *str_, t_len len_) {
   }
 
 end:
-
   while (stackPos--) {
     stack[stackPos]->optimizeChildren();
   }
   return rc;
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Free the trie's root and all its children recursively
 TrieNode::~TrieNode() {
@@ -370,6 +392,8 @@ TrieNode::~TrieNode() {
     delete payload;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 // comparator for node sorting by child max score
 static int TrieNode::Cmp(const void *p1, const void *p2) {
@@ -384,6 +408,8 @@ static int TrieNode::Cmp(const void *p1, const void *p2) {
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Sort the children of a node by their maxChildScore
 void TrieNode::sortChildren() {
   if (!(sortmode != TRIENODE_SORTED_SCORE) && numChildren > 1) {
@@ -392,40 +418,45 @@ void TrieNode::sortChildren() {
   sortmode = TRIENODE_SORTED_SCORE;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Push a new trie node on the iterator's stack
-inline void TrieIterator::Push(TrieNode *node, int skipped) {
+void TrieIterator::Push(TrieNode *node, int skipped) {
   if (stackOffset < TRIE_INITIAL_STRING_LEN - 1) {
-    stackNode *sn = &stack[stackOffset++];
-    sn->childOffset = 0;
-    sn->stringOffset = 0;
-    sn->isSkipped = skipped;
-    sn->n = node;
-    sn->state = ITERSTATE_SELF;
+    StackNode &sn = stack[stackOffset++];
+    sn.childOffset = 0;
+    sn.stringOffset = 0;
+    sn.isSkipped = skipped;
+    sn.n = node;
+    sn.state = ITERSTATE_SELF;
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 // pop a node from the iterator's stcak
-inline void TrieIterator::Pop() {
+void TrieIterator::Pop() {
   if (stackOffset > 0) {
-    stackNode *current = current();
+    StackNode &curr = current();
     if (popCallback) {
-      popCallback(ctx, current->stringOffset);
+      popCallback(ctx, curr.stringOffset);
     }
 
-    bufOffset -= current->stringOffset;
+    bufOffset -= curr.stringOffset;
     --stackOffset;
   }
 }
 
-/* Single step iteration, feeding the given filter/automaton with the next
- * character */
+//---------------------------------------------------------------------------------------------
 
-inline int TrieIterator::step(void *matchCtx) {
+// Single step iteration, feeding the given filter/automaton with the next character
+
+TrieIterator::StepResult TrieIterator::Step(void *matchCtx) {
   if (stackOffset == 0) {
     return __STEP_STOP;
   }
 
-  stackNode *current = current();
+  StackNode &curr = current();
 
   int matched = 0;
   // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child
@@ -434,16 +465,15 @@ inline int TrieIterator::step(void *matchCtx) {
   //        current->n->score, current->state, current->stringOffset,
   //        current->n->len,
   //        current->childOffset, current->n->numChildren);
-  switch (current->state) {
+  switch (curr.state) {
     case ITERSTATE_MATCH:
       Pop();
       goto next;
 
     case ITERSTATE_SELF:
-
-      if (current->stringOffset < current->n->len) {
+      if (curr.stringOffset < curr.n->len) {
         // get the current rune to feed the filter
-        rune b = current->n->str[current->stringOffset];
+        rune b = curr.n->str[curr.stringOffset];
 
         if (filter) {
           // run the next character in the filter
@@ -453,7 +483,7 @@ inline int TrieIterator::step(void *matchCtx) {
           if (rc == F_STOP) {
             // match stop - change the state to MATCH and return
             if (matched) {
-              current->state = ITERSTATE_MATCH;
+              curr.state = ITERSTATE_MATCH;
               return __STEP_MATCH;
             }
             // normal stop - just pop and continue
@@ -464,13 +494,13 @@ inline int TrieIterator::step(void *matchCtx) {
 
         // advance the buffer offset and character offset
         buf[bufOffset++] = b;
-        current->stringOffset++;
+        curr.stringOffset++;
 
         // if we don't have a filter, a "match" is when we reach the end of the
         // node
         if (!filter) {
-          if (current->n->len > 0 && current->stringOffset == current->n->len &&
-              current->n->isTerminal() && !current->n->isDeleted()) {
+          if (curr.n->len > 0 && curr.stringOffset == curr.n->len &&
+              curr.n->isTerminal() && !curr.n->isDeleted()) {
             matched = 1;
           }
         }
@@ -478,17 +508,17 @@ inline int TrieIterator::step(void *matchCtx) {
         return matched ? __STEP_MATCH : __STEP_CONT;
       } else {
         // switch to "children mode"
-        current->state = ITERSTATE_CHILDREN;
+        curr.state = ITERSTATE_CHILDREN;
       }
 
     case ITERSTATE_CHILDREN:
     default:
-      if (current->n->sortmode != TRIENODE_SORTED_SCORE) {
-        current->n->sortChildren();
+      if (curr.n->sortmode != TRIENODE_SORTED_SCORE) {
+        curr.n->sortChildren();
       }
       // push the next child
-      if (current->childOffset < current->n->numChildren) {
-        TrieNode *ch = current->n->getChildren()[current->childOffset++];
+      if (curr.childOffset < curr.n->numChildren) {
+        TrieNode *ch = curr.n->getChildren()[curr.childOffset++];
         if (ch->maxChildScore >= minScore || ch->score >= minScore) {
           Push(ch, 0);
           nodesConsumed++;
@@ -506,41 +536,41 @@ next:
   return __STEP_CONT;
 }
 
-/* Iterate the tree with a step filter, which tells the iterator whether to
- * continue down the trie
- * or not. This can be a levenshtein automaton, a regex automaton, etc. A NULL
- * filter means just
- * continue iterating the entire trie. ctx is the filter's context */
+//---------------------------------------------------------------------------------------------
 
-TrieIterator *TrieNode::Iterate(StepFilter f, StackPopCallback pf, void *ctx_) {
-  TrieIterator *it;
-  it->filter = f;
-  it->popCallback = pf;
-  it->minScore = 0;
-  it->ctx = ctx_;
-  it->Push(this, 0);
+// Iterate the tree with a step filter, which tells the iterator whether to continue down the trie
+// or not. This can be a levenshtein automaton, a regex automaton, etc.
+// NULL filter means just continue iterating the entire trie. ctx is the filter's context.
 
-  return it;
+TrieIterator TrieNode::Iterate(StepFilter f, StackPopCallback pf, void *ctx) {
+  return TrieIterator(this, f, pf, ctx);
 }
 
-/* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
- * or 0 if we're done
- * and should exit */
+//---------------------------------------------------------------------------------------------
+
+TrieIterator::TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, void *ctx) : 
+    filter(f), popCallback(pf), ctx(ctx), minScore(0) {
+}
+
+//---------------------------------------------------------------------------------------------
+
+// Iterate to the next matching entry in the trie. 
+// Returns true if we can continue, or false if we're done and should exit.
 
 bool TrieIterator::Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx) {
-  int rc;
-  while ((rc = step(matchCtx)) != __STEP_STOP) {
+  StepResult rc;
+  while ((rc = Step(matchCtx)) != __STEP_STOP) {
     if (rc == __STEP_MATCH) {
-      stackNode *sn = current();
+      StackNode &sn = current();
 
-      if (sn->n->isTerminal() && sn->n->len == sn->stringOffset && !sn->n->isDeleted()) {
+      if (sn.n->isTerminal() && sn.n->len == sn.stringOffset && !sn.n->isDeleted()) {
         *ptr = buf;
         *len = bufOffset;
-        *score = sn->n->score;
+        *score = sn.n->score;
         if (payload != NULL) {
-          if (sn->n->payload != NULL) {
-            payload->data = sn->n->payload->data;
-            payload->len = sn->n->payload->len;
+          if (sn.n->payload != NULL) {
+            payload->data = sn.n->payload->data;
+            payload->len = sn.n->payload->len;
           } else {
             payload->data = NULL;
             payload->len = 0;
@@ -553,6 +583,8 @@ bool TrieIterator::Next(rune **ptr, t_len *len, RSPayload *payload, float *score
 
   return false;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 TrieNode *TrieNode::RandomWalk(int minSteps, rune **str_, t_len *len_) {
   // create an iteration stack we walk up and down
@@ -572,10 +604,10 @@ TrieNode *TrieNode::RandomWalk(int minSteps, rune **str_, t_len *len_) {
 
     res = stack[stackSz - 1]; //@@ need to be fixed
 
-    /* select the next step - -1 means walk back up one level */
+    // select the next step - -1 means walk back up one level
     int rnd = (rand() % (res->numChildren + 1)) - 1;
     if (rnd == -1) {
-      /* we can't walk up the top level */
+      // we can't walk up the top level
       if (stackSz > 1) {
         steps++;
         stackSz--;
@@ -584,7 +616,7 @@ TrieNode *TrieNode::RandomWalk(int minSteps, rune **str_, t_len *len_) {
       }
       continue;
     }
-    /* Push a child on the stack */
+    // Push a child on the stack
     TrieNode *child = res->getChildren()[rnd];
     stack[stackSz++] = child;
 
@@ -597,11 +629,11 @@ TrieNode *TrieNode::RandomWalk(int minSteps, rune **str_, t_len *len_) {
     bufCap += child->len;
   }
 
-  /* Return the node at the top of the stack */
+  // Return the node at the top of the stack
 
   res = stack[stackSz - 1]; //@@ need to be fixed
 
-  /* build the string by walking the stack and copying all node strings */
+  // build the string by walking the stack and copying all node strings
   rune *buf;
 
   t_len bufSize = 0;
@@ -615,6 +647,8 @@ TrieNode *TrieNode::RandomWalk(int minSteps, rune **str_, t_len *len_) {
 
   return res;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
   size_t minlen = MIN(na, nb);
@@ -638,15 +672,21 @@ static int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int cmpLexFull(const void *a, const void *b) {
   const TrieNode *na = *(const TrieNode **)a, *nb = *(const TrieNode **)b;
   return runecmp(na->str, na->len, nb->str, nb->len);
 }
 
+//---------------------------------------------------------------------------------------------
+
 struct rsbHelper {
   const rune *r;
   uint16_t n;
 };
+
+//---------------------------------------------------------------------------------------------
 
 static int rsbCompareCommon(const void *h, const void *e, int prefix) {
   const rsbHelper *term = h;
@@ -663,13 +703,19 @@ static int rsbCompareCommon(const void *h, const void *e, int prefix) {
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int rsbCompareExact(const void *h, const void *e) {
   return rsbCompareCommon(h, e, 0);
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int rsbComparePrefix(const void *h, const void *e) {
   return rsbCompareCommon(h, e, 1);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 void TrieNode::rangeIterateSubTree(RangeCtx *r) {
   // Push string to stack
@@ -689,10 +735,11 @@ void TrieNode::rangeIterateSubTree(RangeCtx *r) {
   array_trimm_len(r->buf, array_len(r->buf) - len);
 }
 
-/**
- * Try to place as many of the common arguments in rangectx, so that the stack
- * size is not negatively impacted and prone to attack.
- */
+//---------------------------------------------------------------------------------------------
+
+// Try to place as many of the common arguments in rangectx, so that the stack
+// size is not negatively impacted and prone to attack.
+
 void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax, RangeCtx *r) {
   int endIdx, beginIdx = 0, endEqIdx = -1, beginEqIdx = -1;
 
@@ -723,8 +770,8 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     sortmode = TRIENODE_SORTED_LEX;
   }
 
-  // Find the minimum range here..
-  // Use binary search to find the beginning and end ranges:
+  // Find the minimum range here
+  // Use binary search to find the beginning and end ranges
   rsbHelper h;
 
   if (nmin > 0) {
@@ -820,6 +867,8 @@ clean_stack:
   array_trimm_len(r->buf, array_len(r->buf) - len);
 }
 
+//---------------------------------------------------------------------------------------------
+
 /**
  * Iterate all nodes within range.
  * @param n the node to iterateo
@@ -863,3 +912,5 @@ void TrieNode::IterateRange(const rune *min, int nmin, bool includeMin, const ru
   rangeIterate(min, nmin, max, nmax, &r);
   array_free(r.buf);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

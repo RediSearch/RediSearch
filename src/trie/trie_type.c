@@ -1,26 +1,30 @@
+#include "trie/trie_type.h"
+#include "trie/rune_util.h"
+
+#include "commands.h"
+#include "rmalloc.h"
 
 #include "libnu/libnu.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/heap.h"
 #include "util/misc.h"
-#include "rune_util.h"
 
-#include "trie_type.h"
-#include "../commands.h"
 #include <math.h>
 #include <sys/param.h>
 #include <time.h>
 #include <string.h>
 #include <limits.h>
-#include "rmalloc.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 Trie::Trie() {
-  rune *rs = strToRunes("", 0);
+  Runes rs("");
   root->ctor(rs, 0, 0, NULL, 0, 0, 0, 0);
   size = 0;
-  rm_free(rs);
 }
+
+//---------------------------------------------------------------------------------------------
 
 int Trie::Insert(RedisModuleString *s, double score, int incr, RSPayload *payload) {
   size_t len;
@@ -29,82 +33,52 @@ int Trie::Insert(RedisModuleString *s, double score, int incr, RSPayload *payloa
   return ret;
 }
 
-#define RUNE_STATIC_ALLOC_SIZE 127
-struct runeBuf {
-  int isDynamic;
-  union {
-    rune s[RUNE_STATIC_ALLOC_SIZE + 1];
-    rune *p;
-  } u;
-};
-
-static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
-  /**
-   * Assumption: the number of bytes in a utf8 string is always greater than the
-   * number of codepoints it can produce.
-   */
-  *len = n;
-  rune *target;
-  if (*len > RUNE_STATIC_ALLOC_SIZE) {
-    buf->isDynamic = 1;
-    target = buf->u.p = rm_malloc(((*len) + 1) * sizeof(rune));
-  } else {
-    buf->isDynamic = 0;
-    target = buf->u.s;
-  }
-  *len = strToRunesN(s, n, target);
-  target[*len] = 0;
-  return target;
-}
-
-static inline void runeBufFree(runeBuf *buf) {
-  if (buf->isDynamic) {
-    rm_free(buf->u.p);
-  }
-}
+//---------------------------------------------------------------------------------------------
 
 int Trie::InsertStringBuffer(const char *s, size_t len, double score, int incr, RSPayload *payload) {
   if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
     return 0;
   }
-  runeBuf buf;
-  rune *runes = runeBufFill(s, len, &buf, &len);
-  int rc;
 
-  if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
-    rc = root->Add(runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
-    size += rc;
-  } else {
-    rc = 0;
-  }
-
-  runeBufFree(&buf);
-  return rc;
-}
-
-// Delete the string from the trie. Return 1 if the node was found and deleted, 0 otherwise
-int Trie::Delete(const char *s, size_t len) {
-  rune *runes = strToRunes(s, &len);
-  if (!runes || len > TRIE_INITIAL_STRING_LEN) {
+  Runes runes(s);
+  if (!runes || runes.len() == 0 || runes.len() >= TRIE_INITIAL_STRING_LEN) {
     return 0;
   }
-  int rc = root->Delete(runes, len);
-  size -= rc;
-  rm_free(runes);
+
+  int rc = root->Add(runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
+  size += rc;
+
   return rc;
 }
+
+//---------------------------------------------------------------------------------------------
+
+// Delete the string from the trie. Return true if node was found and deleted, false otherwise.
+
+bool Trie::Delete(const char *s) {
+  Runes runes(s);
+  if (!runes || runes.len() > TRIE_INITIAL_STRING_LEN) {
+    return false;
+  }
+  int rc = root->Delete(runes);
+  size -= rc;
+  return rc > 0;
+}
+
+//---------------------------------------------------------------------------------------------
 
 TrieSearchResult::~TrieSearchResult() {
   if (str) {
-    deletet str;
+    delete str;
   }
   payload = NULL;
   plen = 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int cmpEntries(const void *p1, const void *p2, const void *udata) {
   const TrieSearchResult *e1 = p1, *e2 = p2;
-
   if (e1->score < e2->score) {
     return 1;
   } else if (e1->score > e2->score) {
@@ -113,52 +87,48 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
   return 0;
 }
 
-/* Iterate  the trie, using maxDist edit distance, returning a trie iterator that the
- * caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
- * Otherwise we return an iterator to all strings within maxDist Levenshtein distance */
+//---------------------------------------------------------------------------------------------
 
-TrieIterator *Trie::Iterate(const char *prefix, size_t len, int maxDist, int prefixMode) {
+// Iterate the trie, using maxDist edit distance, returning a trie iterator that the
+// caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
+// Otherwise we return an iterator to all strings within maxDist Levenshtein distance.
+
+TrieIterator Trie::Iterate(const char *prefix, size_t len, int maxDist, int prefixMode) {
   size_t rlen;
-  rune *runes = strToFoldedRunes(prefix, &rlen);
+  Runes runes(prefix, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
-    if (runes) {
-      rm_free(runes);
-    }
     return NULL;
   }
-  DFAFilter *fc = rm_malloc(sizeof(*fc));
-  *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter *fc = new DFAFilter(runes, rlen, maxDist, prefixMode);
 
-  TrieIterator *it = root->Iterate(FilterFunc, StackPop, fc);
-  rm_free(runes);
+  TrieIterator it = root->Iterate(FilterFunc, StackPop, fc);
   return it;
 }
 
+//---------------------------------------------------------------------------------------------
+
 Vector<TrieSearchResult*> *Trie::Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                                         int trim, int optimize) {
+                                        int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return NULL;
   }
-  size_t rlen;
-  rune *runes = strToFoldedRunes(s, &rlen);
+
+  Runes runes(s, Runes::Folded::Yes);
   // make sure query length does not overflow
-  if (!runes || rlen >= TRIE_MAX_PREFIX) {
-    rm_free(runes);
+  if (!runes || runes.len() >= TRIE_MAX_PREFIX) {
     return NULL;
   }
 
-  heap_t *pq = rm_malloc(heap_sizeof(num));
-  heap_init(pq, cmpEntries, NULL, num);
+  Heap pq(cmpEntries, NULL, num);
 
-  DFAFilter fc = new DFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter fc{runes, maxDist, prefixMode};
 
-  TrieIterator *it = root->Iterate(FilterFunc, StackPop, &fc);
-  // TrieIterator *it = root->Iterate(NULL, NULL, NULL);
+  TrieIterator it = root->Iterate(FilterFunc, StackPop, &fc);
   rune *rstr;
   t_len slen;
   float score;
-  RSPayload payload = {.data = NULL, .len = 0};
+  RSPayload payload;
 
   TrieSearchResult *pooledEntry;
   int dist = maxDist + 1;
@@ -253,16 +223,13 @@ Vector<TrieSearchResult*> *Trie::Search(const char *s, size_t len, size_t num, i
     }
   }
 
-  rm_free(runes);
-  delete it;
-  DFAFilter_Free(&fc);
-  heap_free(pq);
-
   return ret;
 }
 
-/* Get a random key from the trie, and put the node's score in the score pointer. Returns 0 if the
- * trie is empty and we cannot do that */
+//---------------------------------------------------------------------------------------------
+
+// Get a random key from the trie, and put the node's score in the score pointer.
+// Returns 0 if the trie is empty and we cannot do that.
 
 bool Trie::RandomKey(char **str, t_len *len, double *score) {
   if (size == 0) {
@@ -286,14 +253,13 @@ bool Trie::RandomKey(char **str, t_len *len, double *score) {
   return true;
 }
 
-/***************************************************************
- *
- *                       Trie type methods
- *
- ***************************************************************/
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Trie type methods
 
-/* declaration of the type for redis registration. */
+// declaration of the type for redis registration
 RedisModuleType *TrieType;
+
+//---------------------------------------------------------------------------------------------
 
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > TRIE_ENCVER_CURRENT) {
@@ -301,6 +267,8 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   return TrieType_GenericLoad(rdb, encver > TRIE_ENCVER_NOPAYLOADS);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
 
@@ -325,9 +293,13 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
   return tree;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
   TrieType_GenericSave(rdb, (Trie *)value, 1);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   RedisModule_SaveUnsigned(rdb, tree->size);
@@ -368,9 +340,13 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void TrieType_Digest(RedisModuleDigest *digest, void *value) {
-  /* TODO: The DIGEST module interface is yet not implemented. */
+  // TODO: The DIGEST module interface is yet not implemented
 }
+
+//---------------------------------------------------------------------------------------------
 
 void TrieType_Free(void *value) {
   Trie *tree = value;
@@ -378,6 +354,8 @@ void TrieType_Free(void *value) {
     delete tree->root;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 int TrieType_Register(RedisModuleCtx *ctx) {
 
@@ -394,3 +372,5 @@ int TrieType_Register(RedisModuleCtx *ctx) {
 
   return REDISMODULE_OK;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

@@ -2,42 +2,37 @@
 #include <stdio.h>
 #include "rmalloc.h"
 
-size_t sparseVector::size(size_t cap_) {
-  return sizeof(sparseVector) + cap_ * sizeof(sparseVectorEntry);
-}
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-inline void sparseVector::resize(size_t cap_) {
-  //@@ need to be fixed
-  // this = rm_realloc(this, sparseVector::size(cap_));
-  cap = cap_;
-}
+// creates a new sparse vector with the initial values of the dense int slice given to it
 
-sparseVector::sparseVector(size_t cap_) {
-  cap = cap_;
-  len = 0;
-}
-
-// creates a new sparse vector with the initial values of the
-// dense int slice given to it
-sparseVector::sparseVector(int *values, int len_) {
-  cap = len_ * 2;
-  len = len_;
-
-  for (int i = 0; i < len_; i++) {
-    entries[i] = new sparseVectorEntry(i, values[i]);
+SparseVector::SparseVector(int *values, int len) : Super() {
+  for (int i = 0; i < len; i++) {
+    emplace_back(i, values[i]);
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 // append appends another sparse vector entry with the given index and value.
-// NOTE: We do not check
-// that an entry with the same index is present in the vector
-void sparseVector::append(int index, int value) {
-  sparseVector *v = this;
-  if (v->len == v->cap) {
-    v->cap = v->cap ? v->cap * 2 : 1;
-    v = v->resize(v->cap);
+// NOTE: We do not check an entry with the same index is present in the vector
+
+void SparseVector::append(int index, int value) {
+  emplace_back(index, value);
+}
+
+//---------------------------------------------------------------------------------------------
+
+bool SparseVector::operator==(const SparseVector &v) const {
+  if (size() != v.size()) return false;
+
+  for (int i = 0; i < size(); ++i) {
+    if (at(i).idx != v.at(i).idx || at(i).val != v.at(i).val) {
+      return false;
+    }
   }
 
-  v->entries[v->len++] = (sparseVectorEntry){index, value};
-  this = v;
+  return true;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
