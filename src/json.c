@@ -8,34 +8,39 @@
 
 // REJSON APIs
 RedisJSONAPI_V1 *japi = NULL;
+RedisJSONAPI_V2 *japi2 = NULL;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
                          RedisModuleModuleChange *ei) {
   REDISMODULE_NOT_USED(e);
-  if (sub != REDISMODULE_SUBEVENT_MODULE_LOADED || strcmp(ei->module_name, "ReJSON") || japi)
+  if (sub != REDISMODULE_SUBEVENT_MODULE_LOADED || japi || japi2 || strcmp(ei->module_name, "ReJSON"))
     return;
   // If RedisJSON module is loaded after RediSearch need to get the API exported by RedisJSON
 
   if (!GetJSONAPIs(ctx, 0)) {
     RedisModule_Log(ctx, "error", "Detected RedisJSON: failed to acquire ReJSON API");
-  }
-  //TODO: Once registered we can unsubscribe from ServerEvent RedisModuleEvent_ModuleChange
-  // Unless we want to handle ReJSON module unload
+  }  
 }
 
 //---------------------------------------------------------------------------------------------
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
+    japi2 = RedisModule_GetSharedAPI(ctx, "RedisJSON_V2");
+    if (japi2) {
+      RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V2 API");
+    }
     japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V1");
     if (japi) {
-        RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V1 API");
-        return 1;
+      RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V1 API");
+    }
+    if (japi || japi2) {
+      return 1;
     }
     if (subscribeToModuleChange) {
-        RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ModuleChange,
-                                           (RedisModuleEventCallback) ModuleChangeHandler);
+      RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ModuleChange,
+                                         (RedisModuleEventCallback) ModuleChangeHandler);
     }
     return 0;
 }
@@ -178,10 +183,9 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
   return REDISMODULE_OK;
 }
 
-int JSON_StoreTextInDocField(RedisModuleCtx *ctx, FieldSpec *fs, size_t len, JSONResultsIterator jsonIter, struct DocumentField *df, RedisJSON parent) {
+int JSON_StoreTextInDocField(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
     df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
-    df->multiValAsText = NULL;
-
+    
     int i = 0, nulls = 0;
     size_t strlen;
     RedisJSON json;
@@ -203,26 +207,18 @@ int JSON_StoreTextInDocField(RedisModuleCtx *ctx, FieldSpec *fs, size_t len, JSO
     // Remain with surplus unused array entries from skipped null values until `Document_Clear` is called
     df->arrayLen = i;
     df->unionType = FLD_VAR_T_ARRAY;
-    
-    if (parent && FieldSpec_IsSortable(fs)) {   
-      if (japi->getJSON(parent, ctx, &df->multiValAsText) != REDISMODULE_OK) {
-        goto error;
-      }
-    }
     return REDISMODULE_OK;
+
 error:
   for (int j = 0; j < i; ++j) {
     rm_free(df->multiVal[j]);
   }
   rm_free(df->multiVal);
   df->arrayLen = 0;
-  if (df->multiValAsText) {
-    RedisModule_FreeString(ctx, df->multiValAsText);
-  }
   return REDISMODULE_ERR;
 }
 
-int JSON_StoreInDocField(RedisModuleCtx *ctx, RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df) {
+int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df) {
   int rv = REDISMODULE_OK;
 
   int boolval;
@@ -265,7 +261,7 @@ int JSON_StoreInDocField(RedisModuleCtx *ctx, RedisJSON json, JSONType jsonType,
         if (fs->types == INDEXFLD_T_VECTOR) {
           rv = JSON_StoreVectorInDocField(fs, arrIter, df);
         } else {
-          rv = JSON_StoreTextInDocField(ctx, fs, japi->len(arrIter), arrIter, df, json);
+          rv = JSON_StoreTextInDocField(japi->len(arrIter), arrIter, df);
         }
         japi->freeIter(arrIter);
       } else {
@@ -319,15 +315,15 @@ int JSON_LoadDocumentField(RedisModuleCtx *ctx, JSONResultsIterator jsonIter, si
       return REDISMODULE_ERR;
     }
 
-    if (JSON_StoreInDocField(ctx, json, jsonType, fs, df) != REDISMODULE_OK) {
+    if (JSON_StoreInDocField(json, jsonType, fs, df) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   } else if (fs->types == INDEXFLD_T_TAG) {
     // Handling multiple values as a Tag list
     rv = JSON_StoreTagsInDocField(len, jsonIter, df);
   } else if (fs->types == INDEXFLD_T_FULLTEXT) {
-    // Hendling multiple values as Text
-    rv = JSON_StoreTextInDocField(ctx, fs, len, jsonIter, df, NULL);
+    // Handling multiple values as Text
+    rv = JSON_StoreTextInDocField(len, jsonIter, df);
   } else {
     rv = REDISMODULE_ERR;
   }

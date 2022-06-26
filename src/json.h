@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 extern RedisJSONAPI_V1 *japi;
+extern RedisJSONAPI_V2 *japi2;
 // extern RedisModuleCtx *RSDummyContext;
 
 #define JSON_ROOT "$"

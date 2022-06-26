@@ -63,7 +63,6 @@ typedef struct DocumentField{
     struct {
       char **multiVal;
       size_t arrayLen; // for multiVal TODO: use arr.h
-      RedisModuleString *multiValAsText; // string representation to be used for sorting (until sorting vector uses RSValue_Array)
     };
   };
   FieldVarType unionType;

@@ -26,7 +26,7 @@ static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
 
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
-  const RLookup *lastLk;
+  RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
 

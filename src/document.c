@@ -398,7 +398,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 }
 
 #define FIELD_HANDLER(name)                                                                \
-  static int name(RSAddDocumentCtx *aCtx, DocumentField *field, const FieldSpec *fs, \
+  static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
                   FieldIndexerData *fdata, QueryError *status)
 
 #define FIELD_BULK_INDEXER(name)                                                            \
@@ -434,9 +434,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
       RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
-    } else if (field->multiValAsText) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)field->multiValAsText, RS_SORTABLE_OWN_RSTR, fs->options & FieldSpec_UNF);
-      field->multiValAsText = NULL;
+    } else {
+      QueryError_SetCode(status, QUERY_EBADSORTOPTION);
+      return 1;
     }
   }
 

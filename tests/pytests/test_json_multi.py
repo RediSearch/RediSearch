@@ -210,15 +210,6 @@ def testMultiSortNested(env):
         ["I", "will", "not", "flip", "the", "classroom", "upside", "down"]  #sorted 3th
     ]
 
-    ''' As JSON String
-    [\"Next time it could be\",\"me on the scaffolding\"],                          #sorted 6th
-    [\"I am not\",\"authorized to\",\"fire substitute teachers\"],                  #sorted 2nd
-    [\"A\",\"fire drill\",\"does not demand a fire\"],                              #sorted 1st
-    [\"I will not use abbrev.\"],                                                   #sorted 3rd
-    [\"I will not yell\",\"\\\"fire\\\"\",\"in a\",\"crowded classroom\"],          #sorted 4th
-    [\"I\",\"will\",\"not\",\"flip\",\"the\",\"classroom\",\"upside\",\"down\"]]]"  #sorted 5th
-    '''
-
     env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'STOPWORDS', '0', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT')
     env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'STOPWORDS', '0', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT', 'SORTABLE')
     env.execute_command('FT.CREATE', 'idx3', 'ON', 'JSON', 'STOPWORDS', '0', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT', 'SORTABLE', 'UNF')
@@ -230,26 +221,31 @@ def testMultiSortNested(env):
     sorted_res1 = [3, 'doc:3', 'doc:2', 'doc:5']
     
     cmd_args2 = ['@gag:(class*)', 'NOCONTENT', 'SORTBY', 'gag', 'ASC']
-    sorted_res2 = [2, 'doc:5', 'doc:6']
+    sorted_res2 = [2, 'doc:6', 'doc:5']
 
     cmd_args3 = ['*', 'NOCONTENT', 'SORTBY', 'gag', 'ASC']
-    sorted_res3 = [6, 'doc:3', 'doc:2', 'doc:4', 'doc:5', 'doc:6', 'doc:1']
+    sorted_res3 = [6, 'doc:3', 'doc:2', 'doc:6', 'doc:4', 'doc:5', 'doc:1']
+
+    cmd_args4 = ['@gag:(fire)', 'NOCONTENT']
+    sorted_res4 = [3, 'doc:2', 'doc:3', 'doc:5']
 
     # docs with array of strings
     for i, gag in enumerate(gag_arr):
         env.expect('JSON.SET', 'doc:{}'.format(i+1), '$', json.dumps({ "chalkboard": gag})).ok()
     
-    env.expect('FT.SEARCH', 'idx1', *cmd_args1).equal(sorted_res1)
-    env.expect('FT.SEARCH', 'idx2', *cmd_args1).equal(sorted_res1)
-    env.expect('FT.SEARCH', 'idx3', *cmd_args1).equal(sorted_res1)
-    
-    env.expect('FT.SEARCH', 'idx1', *cmd_args2).equal(sorted_res2)
-    env.expect('FT.SEARCH', 'idx2', *cmd_args2).equal(sorted_res2)
-    env.expect('FT.SEARCH', 'idx3', *cmd_args2).equal(sorted_res2)
+    # TODO:
+    # Index without SORTABLE - SEARCH fails with SORTBY
+    env.expect('FT.SEARCH', 'idx1', *cmd_args1).equal([0])
+    env.expect('FT.SEARCH', 'idx1', *cmd_args2).equal([0])
+    env.expect('FT.SEARCH', 'idx1', *cmd_args3).equal([0])
+    # Index without SORTABLE - SEARCH succeeds without SORTBY
+    env.expect('FT.SEARCH', 'idx1', *cmd_args4).equal(sorted_res4)
 
-    env.expect('FT.SEARCH', 'idx1', *cmd_args3).equal(sorted_res3)
-    env.expect('FT.SEARCH', 'idx2', *cmd_args3).equal(sorted_res3)
-    env.expect('FT.SEARCH', 'idx3', *cmd_args3).equal(sorted_res3)
+    # Indices with SORTABLE failed
+    env.assertEqual(int(index_info(env, 'idx2')['hash_indexing_failures']), len(gag_arr))
+    env.assertEqual(int(index_info(env, 'idx3')['hash_indexing_failures']), len(gag_arr))
+    env.expect('FT.SEARCH', 'idx2', *cmd_args1).equal([0])
+    env.expect('FT.SEARCH', 'idx3', *cmd_args1).equal([0])    
     
     # doc with a single string (concatentaed)
     for i, gag in enumerate(gag_arr):

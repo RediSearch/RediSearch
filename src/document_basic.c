@@ -356,9 +356,6 @@ void Document_Clear(Document *d) {
           }
           rm_free(field->multiVal);
           field->arrayLen = 0;
-          if (field->multiValAsText) {
-            RedisModule_FreeString(RSDummyContext, field->multiValAsText);
-          }
         case FLD_VAR_T_GEO:
         case FLD_VAR_T_NUM:
         case FLD_VAR_T_NULL:
