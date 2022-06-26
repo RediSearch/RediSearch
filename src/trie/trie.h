@@ -1,6 +1,7 @@
 #pragma once
 
 #include "trie/rune_util.h"
+#include "rmutil/vector.h"
 #include "redisearch.h"
 
 #include <stdlib.h>
@@ -127,39 +128,38 @@ struct TrieIterator : public Object {
 // Nonterminal nodes always have a score of 0, meaning nodes with score 0 cannot be inserted to the trie.
 
 struct TrieNode : public Object {
-  t_len len; // string length of this node. can be 0
-  t_len numChildren; // number of child nodes
+  t_len _len; // string length of this node. can be 0
 
-  uint8_t flags : 2;
-  uint8_t sortmode : 2;
+  uint8_t _flags : 2;
+  uint8_t _sortmode : 2;
 
-  float score; // Nonterminal nodes always have a score of 0
+  float _score; // Nonterminal nodes always have a score of 0
 
-  float maxChildScore; // maximal score of any descendant of this node, used to optimize traversal
+  float _maxChildScore; // maximal score of any descendant of this node, used to optimize traversal
   
-  TriePayload *payload; // payload of terminal node. can be NULL if nonterminal.
+  TriePayload *_payload; // payload of terminal node. can be NULL if nonterminal.
   
-  rune str[]; // string of current node
-  // ... now come the children, to be accessed with children()
+  Runes _str; // string of current node
+  Vector<TrieNode*> _children;
 
-  TrieNode(Runes &runes, t_len offset, t_len len_, const char *payload_, size_t plen,
-           t_len numChildren_, float score_, bool terminal);
+  TrieNode(rune *runes, t_len offset, t_len new_len, const char *new_payload, size_t plen,
+           t_len numChildren, float score, bool terminal);
   ~TrieNode();
 
   void Print(int idx, int depth); //@@ looks like nobody is using it
-  TrieNode *Add(Runes &runes, t_len len_, RSPayload *payload, float score_, TrieAddOp op);
+  TrieNode *Add(rune *runes, t_len len, RSPayload *payload, float score, TrieAddOp op);
 
-  TrieNode *AddChild(Runes &runes, t_len offset, t_len len_, RSPayload *payload, float score_);
-  TrieNode *SplitNode(t_len offset);
+  TrieNode *AddChild(rune *runes, t_len offset, t_len len, RSPayload *payload, float score);
+  void SplitNode(t_len offset);
 
-  float Find(Runes *runes, t_len len_) const;
+  float Find(rune *runes, t_len len) const;
 
-  bool Delete(rune *str_, t_len len_);
+  bool Delete(rune *runes, t_len len);
 
-  TrieIterator Iterate(StepFilter f, StackPopCallback pf, void *ctx_);
+  TrieIterator Iterate(StepFilter f, StackPopCallback pf, void *ctx);
 
-  TrieNode *RandomWalk(int minSteps, rune **str, t_len *len);
-  TrieNode *MergeWithSingleChild();
+  TrieNode *RandomWalk(int minSteps, rune *&str, t_len &len);
+  void MergeWithSingleChild();
 
   void sortChildren();
   void optimizeChildren();
@@ -171,13 +171,10 @@ struct TrieNode : public Object {
 
   static int Cmp(const void *p1, const void *p2);
 
-  static size_t Size(t_len numChildren, t_len slen);
+//  static size_t Size(t_len numChildren, t_len slen);
 
-  // Get pointer to children array of node. This is not an actual node member for memory saving reasons.
-  TrieNode **getChildren() { return ((void *)this + sizeof(TrieNode) + (len + 1) * sizeof(rune)); }
-
-  bool isTerminal() const { return flags & TRIENODE_TERMINAL; }
-  bool isDeleted() const { return flags & TRIENODE_DELETED; }
+  bool isTerminal() const { return _flags & TRIENODE_TERMINAL; }
+  bool isDeleted() const { return _flags & TRIENODE_DELETED; }
 };
 #pragma pack()
 
