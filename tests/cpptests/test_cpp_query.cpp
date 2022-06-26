@@ -850,7 +850,7 @@ TEST_F(QueryTest, testWildCardV2) {
   ASSERT_TRUE(n->opts.fieldMask | QueryNode_WildCard);
   ASSERT_STREQ(n->tn.str, "hel*o");
 
-  qt = "@title:w'hel\\*o' w'world'";
+  qt = "@title:(w'hel\\*o' w'world')";
   ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
   //ast.print();
   n = ast.root;
@@ -861,6 +861,21 @@ TEST_F(QueryTest, testWildCardV2) {
   ASSERT_STREQ(n->children[0]->tn.str, "hel*o");
   ASSERT_TRUE(n->children[1]->opts.fieldMask | QueryNode_WildCard);
   ASSERT_STREQ(n->children[1]->tn.str, "world");
+
+  qt = "@title:(w'hel\\*o' world)";
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
+  //ast.print();
+  n = ast.root;
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+
+  ASSERT_TRUE(n->children[0]->opts.fieldMask | QueryNode_WildCard);
+  ASSERT_STREQ(n->children[0]->tn.str, "hel*o");
+  ASSERT_TRUE(n->children[1]->opts.fieldMask | QueryNode_Verbatim);
+  ASSERT_STREQ(n->children[1]->tn.str, "world");
+
+  qt = "@title:(w'hel\\*o' 'world')";
+  assertInvalidQuery_v(2, qt);
 }
 
 TEST_F(QueryTest, testRegexV2) {
@@ -880,7 +895,7 @@ TEST_F(QueryTest, testRegexV2) {
   ASSERT_TRUE(n->opts.fieldMask | QueryNode_Regex);
   ASSERT_STREQ(n->tn.str, "hel.*o");
 
-  qt = "@title:r'hel\\.\\*o' r'world'";
+  qt = "@title:(r'hel\\.\\*o' r'world')";
   ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
   //ast.print();
   n = ast.root;
@@ -891,5 +906,20 @@ TEST_F(QueryTest, testRegexV2) {
   ASSERT_STREQ(n->children[0]->tn.str, "hel.*o");
   ASSERT_TRUE(n->children[1]->opts.fieldMask | QueryNode_Regex);
   ASSERT_STREQ(n->children[1]->tn.str, "world");
+
+  qt = "@title:(r'hel\\.\\*o' world)";
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
+  //ast.print();
+  n = ast.root;
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+
+  ASSERT_TRUE(n->children[0]->opts.fieldMask | QueryNode_Regex);
+  ASSERT_STREQ(n->children[0]->tn.str, "hel.*o");
+  ASSERT_TRUE(n->children[1]->opts.fieldMask | QueryNode_Verbatim);
+  ASSERT_STREQ(n->children[1]->tn.str, "world");
+
+  qt = "@title:(r'hel\\.\\*o' 'world')";
+  assertInvalidQuery_v(2, qt);
 }
 
