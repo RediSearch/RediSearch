@@ -1,5 +1,4 @@
-#ifndef RS_CONFIG_H_
-#define RS_CONFIG_H_
+#pragma once
 
 #include "redismodule.h"
 #include "rmutil/sds.h"
@@ -164,5 +163,3 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err);
     maxResultsToUnsortedMode: DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE,  \
     noMemPool: 0,  \
   }
-
-#endif

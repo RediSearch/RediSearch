@@ -61,7 +61,7 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   for (int i = 0; i < len; ++i) {
     size_t len;
     const char *val = RedisModule_StringPtrLen(values[i], &len);
-    valuesDeleted += Trie_Delete(t, (char *)val, len);
+    valuesDeleted += t->Delete((char *)val, len);
   }
 
   if (t->size == 0) {
@@ -89,15 +89,15 @@ bool Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
 
   RedisModule_ReplyWithArray(ctx, t->size);
 
-  TrieIterator *it = t->Iterate("", 0, 0, 1);
-  while (it->Next(&rstr, &slen, NULL, &score, &dist)) {
+  TrieIterator it = t->Iterate("", 0, 0, 1);
+  while (it.Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
 
+  delete it.ctx;
+  
   RedisModule_CloseKey(k);
 
   return true;

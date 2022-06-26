@@ -60,7 +60,7 @@ struct DMDChain {
 
 //---------------------------------------------------------------------------------------------
 
-struct DocTable : Object {
+class DocTable : public Object {
   size_t size;
   // the maximum size this table is allowed to grow to
   t_docId maxSize;
