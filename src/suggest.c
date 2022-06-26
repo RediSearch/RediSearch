@@ -141,13 +141,13 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
   }
 
-  Trie *tree = RedisModule_ModuleTypeGetValue(key);
-  if (!tree) {
+  Trie *trie = RedisModule_ModuleTypeGetValue(key);
+  if (!trie) {
     return RedisModule_ReplyWithLongLong(ctx, 0);
   }
   size_t len;
   const char *str = RedisModule_StringPtrLen(argv[2], &len);
-  return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, str, len));
+  return RedisModule_ReplyWithLongLong(ctx, trie->Delete(str, len));
 }
 
 /*
@@ -269,20 +269,18 @@ parse_error:
     return RedisModule_ReplyWithNull(ctx);
   }
 
-  Vector<TrieSearchResult *> *res = tree->Search(s, len, options.numResults, options.maxDistance, 1,
-                                                 options.trim, options.optimize);
-  if (!res) {
+  Vector<TrieSearchResult*> res = tree->Search(s, len, options.numResults, options.maxDistance, 1,
+                                               options.trim, options.optimize);
+  if (res.empty()) {
     return RedisModule_ReplyWithError(ctx, "Invalid query");
   }
   // if we also need to return scores, we need double the records
   unsigned mul = 1;
   mul = options.withScores ? mul + 1 : mul;
   mul = options.withPayloads ? mul + 1 : mul;
-  RedisModule_ReplyWithArray(ctx, res->size() * mul);
+  RedisModule_ReplyWithArray(ctx, res.size() * mul);
 
-  for (size_t i = 0; i < res->size(); i++) {
-    TrieSearchResult *e = res[i];
-
+  for (auto e: res) {
     RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
     if (options.withScores) {
       RedisModule_ReplyWithDouble(ctx, e->score);

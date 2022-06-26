@@ -107,17 +107,17 @@ TrieIterator Trie::Iterate(const char *prefix, size_t len, int maxDist, int pref
 
 //---------------------------------------------------------------------------------------------
 
-Vector<TrieSearchResult*> *Trie::Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                                        int trim, int optimize) {
+Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode,
+                                       int trim, int optimize) {
 
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
-    return NULL;
+    return Vector<TrieSearchResult *>();
   }
 
   Runes runes(s, Runes::Folded::Yes);
   // make sure query length does not overflow
   if (!runes || runes.len() >= TRIE_MAX_PREFIX) {
-    return NULL;
+    return Vector<TrieSearchResult *>();
   }
 
   Heap pq(cmpEntries, NULL, num);
@@ -194,10 +194,10 @@ Vector<TrieSearchResult*> *Trie::Search(const char *s, size_t len, size_t num, i
 
   // put the results from the heap on a vector to return
   size_t n = MIN(heap_count(pq), num);
-  Vector<TrieSearchResult *> *ret = new Vector(n);
+  Vector<TrieSearchResult *> ret(n);
   for (int i = 0; i < n; ++i) {
     TrieSearchResult *h = heap_poll(pq);
-    ret->Put(n - i - 1, h);
+    ret[n - i - 1] = h;
   }
 
   // trim the results to remove irrelevant results
@@ -217,8 +217,7 @@ Vector<TrieSearchResult*> *Trie::Search(const char *s, size_t len, size_t num, i
     }
 
     for (; i < n; ++i) {
-      TrieSearchResult *h;
-      ret->Get(i, &h);
+      TrieSearchResult *h = ret[i];
       delete h;
     }
   }
