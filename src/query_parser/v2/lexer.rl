@@ -28,6 +28,7 @@ size = digit+ $ 2;
 number = '-'? digit+('.' digit+)? (('E'|'e') '-'? digit+)? $ 3;
 
 quote = '"';
+single_quote = '\'';
 or = '|';
 lp = '(';
 rp = ')';
@@ -51,6 +52,8 @@ contains = (star.term.star | star.number.star | star.attr.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
 suffix = (star.term | star.number | star.attr) $1;
 as = 'AS'|'aS'|'As'|'as';
+wildcard = 'w';
+regex = 'r';
 
 main := |*
 
@@ -130,6 +133,13 @@ main := |*
   quote => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, QUOTE, tok, q);  
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  single_quote => {
+    tok.pos = ts-q->raw;
+    RSQuery_Parse_v2(pParser, SINGLE_QUOTE, tok, q);  
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -227,6 +237,21 @@ main := |*
       fbreak;
     } 
   };
+  wildcard => {
+    tok.pos = ts-q->raw;
+    RSQuery_Parse_v2(pParser, WILDCARD, tok, q);   
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    } 
+  };
+  regex => {
+    tok.pos = ts-q->raw;
+    RSQuery_Parse_v2(pParser, REGEX, tok, q);   
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    } 
+  };
+
   space;
   punct;
   cntrl;

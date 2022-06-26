@@ -831,3 +831,65 @@ TEST_F(QueryTest, testTags) {
   ASSERT_STREQ("lorem\\ ipsum", n->children[3]->tn.str);
   IndexSpec_Free(ctx.spec);
 }
+
+
+TEST_F(QueryTest, testWildCardV2) {
+  static const char *args[] = {"SCHEMA", "title",  "text"};
+  QueryError err = {QUERY_OK};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  const char *qt = "@title:w'hel\\*o'";
+  QASTCXX ast(ctx);
+  int ver = 2;
+
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
+  //ast.print();
+  QueryNode *n = ast.root;
+  ASSERT_EQ(n->type, QN_TOKEN);
+  ASSERT_EQ(QueryNode_NumChildren(n), 0);
+  ASSERT_TRUE(n->opts.fieldMask | QueryNode_WildCard);
+  ASSERT_STREQ(n->tn.str, "hel*o");
+
+  qt = "@title:w'hel\\*o' w'world'";
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
+  //ast.print();
+  n = ast.root;
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+
+  ASSERT_TRUE(n->children[0]->opts.fieldMask | QueryNode_WildCard);
+  ASSERT_STREQ(n->children[0]->tn.str, "hel*o");
+  ASSERT_TRUE(n->children[1]->opts.fieldMask | QueryNode_WildCard);
+  ASSERT_STREQ(n->children[1]->tn.str, "world");
+}
+
+TEST_F(QueryTest, testRegexV2) {
+  static const char *args[] = {"SCHEMA", "title",  "text"};
+  QueryError err = {QUERY_OK};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  const char *qt = "@title:r'hel\\.\\*o'";
+  QASTCXX ast(ctx);
+  int ver = 2;
+
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
+  //ast.print();
+  QueryNode *n = ast.root;
+  ASSERT_EQ(n->type, QN_TOKEN);
+  ASSERT_EQ(QueryNode_NumChildren(n), 0);
+  ASSERT_TRUE(n->opts.fieldMask | QueryNode_Regex);
+  ASSERT_STREQ(n->tn.str, "hel.*o");
+
+  qt = "@title:r'hel\\.\\*o' r'world'";
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
+  //ast.print();
+  n = ast.root;
+  ASSERT_EQ(n->type, QN_PHRASE);
+  ASSERT_EQ(QueryNode_NumChildren(n), 2);
+
+  ASSERT_TRUE(n->children[0]->opts.fieldMask | QueryNode_Regex);
+  ASSERT_STREQ(n->children[0]->tn.str, "hel.*o");
+  ASSERT_TRUE(n->children[1]->opts.fieldMask | QueryNode_Regex);
+  ASSERT_STREQ(n->children[1]->tn.str, "world");
+}
+

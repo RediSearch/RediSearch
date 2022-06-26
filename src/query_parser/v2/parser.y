@@ -14,7 +14,11 @@
 
 %left TERM.
 %left QUOTE.
+%left SINGLE_QUOTE.
+%left WILDCARD.
+%left REGEX.
 %left LP LB LSQB.
+
 
 %left TILDE MINUS.
 %left AND.
@@ -555,6 +559,17 @@ text_expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
   A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
   A->opts.flags |= QueryNode_Verbatim;
 }
+
+text_expr(A) ::= WILDCARD SINGLE_QUOTE term(B) SINGLE_QUOTE. [TERMLIST] {
+  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+  A->opts.flags |= QueryNode_WildCard;
+}
+
+text_expr(A) ::= REGEX SINGLE_QUOTE term(B) SINGLE_QUOTE. [TERMLIST] {
+  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+  A->opts.flags |= QueryNode_Regex;
+}
+
 
 text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   // Quoted/verbatim string should not be handled as parameters

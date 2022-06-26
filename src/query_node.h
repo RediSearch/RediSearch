@@ -118,6 +118,8 @@ typedef struct {
 
 typedef enum {
   QueryNode_Verbatim = 0x01,
+  QueryNode_WildCard = 0x02,
+  QueryNode_Regex = 0x04,
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
