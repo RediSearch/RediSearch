@@ -129,6 +129,30 @@ size_t strToRunesN(const char *src, size_t slen, rune *out) {
   return nout;
 }
 
+//---------------------------------------------------------------------------------------------
+
+int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
+  size_t minlen = MIN(na, nb);
+  for (size_t ii = 0; ii < minlen; ++ii) {
+    int rc = sa[ii] - sb[ii];
+    if (rc == 0) {
+      continue;
+    }
+    return rc;
+  }
+
+  // Both strings match up to this point
+  if (na > nb) {
+    // nb is a substring of na; na is greater
+    return 1;
+  } else if (nb > na) {
+    // na is a substring of nb; nb is greater
+    return -1;
+  }
+  // strings are the same
+  return 0;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 Runes::~Runes() {

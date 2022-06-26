@@ -28,6 +28,8 @@ rune *strToRunes(const char *str, size_t *len, bool &dynamic, rune *buf = NULL);
 // Decode a string to a rune in-place
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
 
+int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb);
+
 //---------------------------------------------------------------------------------------------
 
 #define RUNE_STATIC_ALLOC_SIZE 127
@@ -43,6 +45,10 @@ struct Runes {
       _runes = strToFoldedRunes(str, &_len, dynamic, _runes_s);
     }
   }
+
+  Runes(const Runes &runes) { copy(runes); }
+  Runes(const rune *runes, size_t len) { copy(runes, len); }
+
   ~Runes();
 
   bool dynamic;
@@ -50,14 +56,36 @@ struct Runes {
   rune *_runes;
   size_t _len;
 
+  void copy(const rune *runes, size_t len) {
+    dynamic = len > RUNE_STATIC_ALLOC_SIZE;
+    if (dynamic) {
+      _runes = (rune *) rm_malloc((len + 1) * sizeof(rune));
+    } else {
+      _runes = _runes_s;
+    }
+    memcpy(_runes, runes, len);
+    _runes[len] = '\0';
+    _len = len;
+  }
+
+  void copy(const Runes &runes) { copy(_runes, _len); }
+
   size_t len() const { return _len; }
+  bool empty() const { return !_runes || !_len;}
+
   rune *operator*() { return _runes; }
   const rune *operator*() const { return _runes; }
+
   bool operator!() const { return !_runes; }
+
   rune &operator[](int i) { return _runes[i]; }
-  rune operator[](int i) const { return _runes[i]; }
+  const rune &operator[](int i) const { return _runes[i]; }
 
   char *toUTF8(size_t *utflen) const { return runesToStr(_runes, _len, utflen); }
+
+  bool operator<(const Runes &r) const {
+    return runecmp(_runes, _len, r._runes, r._len) < 0;
+  }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
