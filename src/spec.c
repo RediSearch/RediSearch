@@ -1265,21 +1265,21 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
 //---------------------------------------------------------------------------------------------
 
 // called on master shard for temporary indexes and deletes all documents by defaults
-static void IndexSpec_FreeTask(IndexSpec *spec) {
+static void IndexSpec_FreeTask(char *specName) {
 #ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Freeing index %s in background", spec->name);
+  RedisModule_Log(NULL, "notice", "Freeing index %s in background", specName);
 #endif
   RedisModule_ThreadSafeContextLock(RSDummyContext);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
-
   // pass FT.DROPINDEX with "DD" flag to slef.
-  RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", spec->name, "DD");
+  RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", specName, "DD");
   if (rep) {
     RedisModule_FreeCallReply(rep);
   }
 
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+
+  rm_free(specName);
 }
 
 void IndexSpec_LegacyFree(void *spec) {
@@ -1294,7 +1294,7 @@ void IndexSpec_Free(IndexSpec *spec) {
       RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
       spec->isTimerSet = false;
     }
-    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, spec);
+    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
     return;
   }
 
