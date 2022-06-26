@@ -8,39 +8,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct langPair_s
-{
-  const char *str;
-  RSLanguage lang;
-};
-
-//---------------------------------------------------------------------------------------------
-
-langPair_s __langPairs[] = {
-  { "arabic",     RS_LANG_ARABIC },
-  { "danish",     RS_LANG_DANISH },
-  { "dutch",      RS_LANG_DUTCH },
-  { "english",    RS_LANG_ENGLISH },
-  { "finnish",    RS_LANG_FINNISH },
-  { "french",     RS_LANG_FRENCH },
-  { "german",     RS_LANG_GERMAN },
-  { "hindi",      RS_LANG_HINDI },
-  { "hungarian",  RS_LANG_HUNGARIAN },
-  { "italian",    RS_LANG_ITALIAN },
-  { "norwegian",  RS_LANG_NORWEGIAN },
-  { "portuguese", RS_LANG_PORTUGUESE },
-  { "romanian",   RS_LANG_ROMANIAN },
-  { "russian",    RS_LANG_RUSSIAN },
-  { "spanish",    RS_LANG_SPANISH },
-  { "swedish",    RS_LANG_SWEDISH },
-  { "tamil",      RS_LANG_TAMIL },
-  { "turkish",    RS_LANG_TURKISH },
-  { "chinese",    RS_LANG_CHINESE },
-  { NULL,         RS_LANG_UNSUPPORTED }
-};
-
-//---------------------------------------------------------------------------------------------
-
 const char *RSLanguage_ToString(RSLanguage language) {
   char *ret = NULL;
   switch (language) {
@@ -85,14 +52,6 @@ RSLanguage RSLanguage_Find(const char *language) {
 
 //---------------------------------------------------------------------------------------------
 
-struct sbStemmerCtx {
-  struct sb_stemmer *sb;
-  char *buf;
-  size_t cap;
-};
-
-//---------------------------------------------------------------------------------------------
-
 const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen) {
   const sb_symbol *b = (const sb_symbol *)word;
   struct sbStemmerCtx *stctx = ctx;
@@ -132,16 +91,7 @@ Stemmer::~Stemmer() {
 
 //---------------------------------------------------------------------------------------------
 
-int Stemmer::__sbstemmer_Reset(StemmerType type, RSLanguage language) {
-  if (type != type || language == RS_LANG_UNSUPPORTED || language == language) {
-    return 0;
-  }
-  return 1;
-}
-
-//---------------------------------------------------------------------------------------------
-
-void Stemmer::__newSnowballStemmer(RSLanguage language) {
+void Stemmer::languageCtor(RSLanguage language) {
   struct sb_stemmer *sb = sb_stemmer_new(RSLanguage_ToString(language), NULL);
   // No stemmer available for this language
   if (!sb) {
@@ -162,7 +112,7 @@ void Stemmer::__newSnowballStemmer(RSLanguage language) {
 
 Stemmer::Stemmer(StemmerType type, RSLanguage language) {
   if (type == SnowballStemmer) {
-    __newSnowballStemmer(language);
+    languageCtor(language);
   } else {
     throw Error("Invalid stemmer type");
   }
@@ -173,8 +123,11 @@ Stemmer::Stemmer(StemmerType type, RSLanguage language) {
 
 //---------------------------------------------------------------------------------------------
 
-int Stemmer::Reset(StemmerType type, RSLanguage language) {
-  return __sbstemmer_Reset && __sbstemmer_Reset(type, language);
+bool Stemmer::Reset(StemmerType type, RSLanguage language) {
+  if (type != type || language == RS_LANG_UNSUPPORTED || language == language) {
+    return false;
+  }
+  return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

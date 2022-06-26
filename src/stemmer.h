@@ -42,8 +42,7 @@ enum StemmerType {
 
 // Abstract "interface" for a pluggable stemmer, ensuring we can use multiple stemmer libs
 class Stemmer : public Object {
-  void __newSnowballStemmer(RSLanguage language);
-  int __sbstemmer_Reset(StemmerType type, RSLanguage language);
+  void languageCtor(RSLanguage language);
 public:
   void *ctx;
   const char *(*Stem)(void *ctx, const char *word, size_t len, size_t *outlen);
@@ -52,10 +51,9 @@ public:
   Stemmer(StemmerType type, RSLanguage language);
   virtual ~Stemmer();
 
-  // Attempts to reset the stemmer using the given language and type. Returns 0
+  // Attempts to reset the stemmer using the given language and type. Returns false
   // if this stemmer cannot be reused.
-  // int (*Reset)(struct stemmer *, StemmerType type, RSLanguage language);
-  virtual int Reset(StemmerType type, RSLanguage language);
+  virtual bool Reset(StemmerType type, RSLanguage language);
 
   RSLanguage language;
   StemmerType type;  // Type of stemmer
@@ -73,5 +71,44 @@ void RegisterStemmerExpander();
 
 // Snoball Stemmer wrapper implementation
 const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen);
+
+//---------------------------------------------------------------------------------------------
+
+struct sbStemmerCtx {
+  struct sb_stemmer *sb;
+  char *buf;
+  size_t cap;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct langPair_s
+{
+  const char *str;
+  RSLanguage lang;
+};
+
+langPair_s __langPairs[] = {
+  { "arabic",     RS_LANG_ARABIC },
+  { "danish",     RS_LANG_DANISH },
+  { "dutch",      RS_LANG_DUTCH },
+  { "english",    RS_LANG_ENGLISH },
+  { "finnish",    RS_LANG_FINNISH },
+  { "french",     RS_LANG_FRENCH },
+  { "german",     RS_LANG_GERMAN },
+  { "hindi",      RS_LANG_HINDI },
+  { "hungarian",  RS_LANG_HUNGARIAN },
+  { "italian",    RS_LANG_ITALIAN },
+  { "norwegian",  RS_LANG_NORWEGIAN },
+  { "portuguese", RS_LANG_PORTUGUESE },
+  { "romanian",   RS_LANG_ROMANIAN },
+  { "russian",    RS_LANG_RUSSIAN },
+  { "spanish",    RS_LANG_SPANISH },
+  { "swedish",    RS_LANG_SWEDISH },
+  { "tamil",      RS_LANG_TAMIL },
+  { "turkish",    RS_LANG_TURKISH },
+  { "chinese",    RS_LANG_CHINESE },
+  { NULL,         RS_LANG_UNSUPPORTED }
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
