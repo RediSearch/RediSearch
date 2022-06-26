@@ -85,7 +85,7 @@ int Ext_RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFre
   if (exp == NULL || queryExpanders_g == NULL) {
     return REDISEARCH_ERR;
   }
-  ExtQueryExpanderCtx *ctx = rm_new(ExtQueryExpanderCtx);
+  ExtQueryExpander *ctx;
   ctx->privdata = privdata;
   ctx->ff = ff;
   ctx->exp = exp;
@@ -210,7 +210,7 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
   if (replace) {
     deletet qn;
 
-    *ctx->currentNode = ph;
+    currentNode = ph;
   } else {
 
     // Replace current node with a new union node if needed
@@ -219,10 +219,10 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
 
       // Append current node to the new union node as a child
       un->AddChild(qn);
-      *currentNode = un;
+      currentNode = un;
     }
     // Now the current node must be a union node - so we just add a new token node to it
-    *currentNode->AddChild(ph);
+    currentNode->AddChild(ph);
   }
 }
 
@@ -245,9 +245,9 @@ static ExtQueryExpander *Extensions::GetQueryExpander(RSQueryExpander *ctx, cons
   ExtQueryExpander *p = queryExpanders_g->Find((char *)name, strlen(name));
 
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
-    ctx->ExpandToken = Ext_ExpandToken;
-    ctx->SetPayload = Ext_SetPayload;
-    ctx->ExpandTokenWithPhrase = Ext_ExpandTokenWithPhrase;
+    ctx->ExpandToken = RSQueryExpander::ExpandToken;
+    ctx->SetPayload = RSQueryExpander::SetPayload;
+    ctx->ExpandTokenWithPhrase = RSQueryExpander::ExpandTokenWithPhrase;
     ctx->privdata = p->privdata;
     return p;
   }

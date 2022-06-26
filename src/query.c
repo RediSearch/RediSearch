@@ -849,7 +849,7 @@ int QueryAST::Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx
   RSQueryExpanderCtx expCtx = {
       qast: = q, language: opts->language, handle: &sctx, status: status};
 
-  ExtQueryExpanderCtx *xpc =
+  ExtQueryExpander *xpc =
       Extensions::GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
   if (xpc && xpc->exp) {
     root->Expand(xpc->exp, &expCtx);

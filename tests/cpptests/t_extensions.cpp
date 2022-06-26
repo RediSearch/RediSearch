@@ -70,7 +70,7 @@ TEST_F(ExtTest, testRegistration) {
   numFreed = 0;
 
   RSQueryExpanderCtx qexp;
-  ExtQueryExpanderCtx *qx = Extensions::GetQueryExpander(&qexp, EXPANDER_NAME);
+  ExtQueryExpander *qx = Extensions::GetQueryExpander(&qexp, EXPANDER_NAME);
   ASSERT_TRUE(qx != NULL);
   ASSERT_TRUE(qx->exp == myExpander);
   ASSERT_TRUE(qx->ff == myFreeFunc);
@@ -109,7 +109,7 @@ TEST_F(ExtTest, testDynamicLoading) {
   ASSERT_TRUE(sx != NULL);
 
   RSQueryExpanderCtx qxcp;
-  ExtQueryExpanderCtx *qx = Extensions::GetQueryExpander(&qxcp, "example_expander");
+  ExtQueryExpander *qx = Extensions::GetQueryExpander(&qxcp, "example_expander");
   ASSERT_TRUE(qx != NULL);
 }
 
