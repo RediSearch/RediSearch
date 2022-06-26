@@ -42,8 +42,8 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   int incr = 0, rv = AC_OK;
-  RSPayload payload = {0};
-  ArgsCursor ac = {0};
+  RSPayload payload;
+  ArgsCursor ac;
   ac.InitRString(argv + 4, argc - 4);
   while (!ac.IsAtEnd()) {
     const char *s = ac.GetStringNC(NULL);
@@ -179,7 +179,7 @@ payload
 Array reply: a list of the top suggestions matching the prefix
 */
 
-typedef struct {
+struct SuggestOptions {
   int fuzzy;
   int withScores;
   int trim;
@@ -187,7 +187,7 @@ typedef struct {
   int withPayloads;
   unsigned maxDistance;
   unsigned numResults;
-} SuggestOptions;
+};
 
 int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *options,
                         QueryError *status) {
@@ -208,7 +208,7 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
       {NULL}};
 
   ACArgSpec *errArg = NULL;
-  ArgsCursor ac = {0};
+  ArgsCursor ac;
   ac.InitRString(argv, argc);
   int rv = ac.ParseArgSpec(argList, &errArg);
   if (rv != AC_OK) {
@@ -278,11 +278,10 @@ parse_error:
   unsigned mul = 1;
   mul = options.withScores ? mul + 1 : mul;
   mul = options.withPayloads ? mul + 1 : mul;
-  RedisModule_ReplyWithArray(ctx, res->Size() * mul);
+  RedisModule_ReplyWithArray(ctx, res->size() * mul);
 
-  for (size_t i = 0; i < res->Size(); i++) {
-    TrieSearchResult *e;
-    res->Get(i, &e);
+  for (size_t i = 0; i < res->size(); i++) {
+    TrieSearchResult *e = res[i];
 
     RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
     if (options.withScores) {

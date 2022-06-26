@@ -16,7 +16,7 @@ struct langPair_s
 
 //---------------------------------------------------------------------------------------------
 
-langPair_t __langPairs[] = {
+langPair_s __langPairs[] = {
   { "arabic",     RS_LANG_ARABIC },
   { "danish",     RS_LANG_DANISH },
   { "dutch",      RS_LANG_DUTCH },

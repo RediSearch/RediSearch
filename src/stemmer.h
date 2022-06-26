@@ -49,6 +49,7 @@ public:
   const char *(*Stem)(void *ctx, const char *word, size_t len, size_t *outlen);
 
   Stemmer();
+  Stemmer(StemmerType type, RSLanguage language);
   virtual ~Stemmer();
 
   // Attempts to reset the stemmer using the given language and type. Returns 0

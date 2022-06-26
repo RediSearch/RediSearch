@@ -141,7 +141,7 @@ void TrieNode::Print(int idx, int depth) {
 //---------------------------------------------------------------------------------------------
 
 // Add a new string to a trie.
-// Returns 1 if the string did not exist there, or 0 if we just replaced the score. 
+// Returns 1 if the string did not exist there, or 0 if we just replaced the score.
 // We pass a pointer to the node because it may actually change when splitting.
 
 TrieNode *TrieNode::Add(Runes &runes, t_len len_, RSPayload *payload, float score_, TrieAddOp op) {
@@ -153,7 +153,7 @@ TrieNode *TrieNode::Add(Runes &runes, t_len len_, RSPayload *payload, float scor
 
   int offset = 0;
   for (; offset < len_ && offset < n->len; offset++) {
-    if (str_[offset] != n->str[offset]) {
+    if (&runes[offset] != n->str[offset]) {
       break;
     }
   }
@@ -182,7 +182,7 @@ TrieNode *TrieNode::Add(Runes &runes, t_len len_, RSPayload *payload, float scor
       getChildren()[0] = newChild;
     } else {
       // we add a child
-      n = n->AddChild(str_, offset, len_, payload, score_);
+      n = n->AddChild(runes, offset, len_, payload, score_);
       n->maxChildScore = MAX(n->maxChildScore, score_);
     }
     return n;
@@ -221,13 +221,13 @@ TrieNode *TrieNode::Add(Runes &runes, t_len len_, RSPayload *payload, float scor
   // proceed to the next child or add a new child for the current rune
   for (t_len i = 0; i < n->numChildren; i++) {
     TrieNode *child = n->getChildren()[i];
-    if (str_[offset] == child->str[0]) {
-      n->getChildren()[i] = child->Add(str_ + offset, len_ - offset, payload, score_, op);
+    if (&runes[offset] == child->str[0]) {
+      n->getChildren()[i] = child->Add(&runes[offset], len_ - offset, payload, score_, op);
       return n;
     }
   }
 
-  return n->AddChild(str_, offset, len_, payload, score_);
+  return n->AddChild(runes, offset, len_, payload, score_);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -236,14 +236,14 @@ TrieNode *TrieNode::Add(Runes &runes, t_len len_, RSPayload *payload, float scor
 // Returns 0 if the entry was not found.
 // Note that you cannot put entries with zero score.
 
-float TrieNode::Find(rune *str_, t_len len_) const {
+float TrieNode::Find(Runes *runes, t_len len_) const {
   t_len offset = 0;
   while (offset < len_) {
     // printf("n %.*s offset %d, len %d\n", len, str, offset,
     // len);
     t_len localOffset = 0;
     for (; offset < len_ && localOffset < len; offset++, localOffset++) {
-      if (str_[offset] != str[localOffset]) {
+      if (&runes[offset] != str[localOffset]) {
         break;
       }
     }
@@ -260,7 +260,7 @@ float TrieNode::Find(rune *str_, t_len len_) const {
       for (; i < numChildren; i++) {
         TrieNode *child = getChildren()[i];
 
-        if (str_[offset] == child->str[0]) {
+        if (&runes[offset] == child->str[0]) {
           nextChild = child;
           break;
         }
@@ -548,13 +548,13 @@ TrieIterator TrieNode::Iterate(StepFilter f, StackPopCallback pf, void *ctx) {
 
 //---------------------------------------------------------------------------------------------
 
-TrieIterator::TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, void *ctx) : 
+TrieIterator::TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, void *ctx) :
     filter(f), popCallback(pf), ctx(ctx), minScore(0) {
 }
 
 //---------------------------------------------------------------------------------------------
 
-// Iterate to the next matching entry in the trie. 
+// Iterate to the next matching entry in the trie.
 // Returns true if we can continue, or false if we're done and should exit.
 
 bool TrieIterator::Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx) {
