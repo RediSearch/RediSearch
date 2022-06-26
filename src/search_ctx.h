@@ -35,10 +35,17 @@ struct RedisSearchCtx {
   RedisModuleString *TermKeyName(const char *term, size_t len);
   RedisModuleString *SkipIndexKeyName(const char *term, size_t len);
   RedisModuleString *NumericIndexKeyName(const char *field);
+
+  int AddDocument(RedisModuleString *name, const AddDocumentOptions *opts, QueryError *status);
 };
 
-#define SEARCH_CTX_STATIC(ctx, sp) \
-  { ctx, NULL, sp, 0, 1 }
+// #define SEARCH_CTX_STATIC(ctx, sp) \
+//   { ctx, NULL, sp, 0, 1 }
+
+//@@ Is it truly static?
+RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, struct IndexSpec *sp) {
+  return new RedisSearchCtx(ctx, sp);
+}
 
 #if 0
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)

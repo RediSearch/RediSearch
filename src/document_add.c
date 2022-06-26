@@ -129,12 +129,12 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   return REDISMODULE_OK;
 }
 
-int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
-                   QueryError *status) {
+int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOptions *opts,
+                                QueryError *status) {
   int rc = REDISMODULE_ERR;
   // If the ID is 0, then the document does not exist.
-  IndexSpec *sp = sctx->spec;
-  int exists = !!&sp->docs->GetIdR(name);
+  IndexSpec *sp = spec;
+  int exists = !!&sp->docs.GetIdR(name);
   if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
     status->SetError(QUERY_EDOCEXISTS, NULL);
     goto error;
@@ -143,7 +143,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   // handle update condition, only if the document exists
   if (exists && opts->evalExpr) {
     int res = 0;
-    if (Document::EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
+    if (Document::EvalExpression(this, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
       if (res == 0) {
         status->SetError(QUERY_EDOCNOTADDED, NULL);
         goto error;
@@ -158,23 +158,23 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     }
   }
 
-  RedisModuleCtx *ctx = sctx->redisCtx;
+  RedisModuleCtx *ctx = redisCtx;
   Document doc = new Document(name, opts->score, opts->language);
 
   if (opts->payload) {
     size_t npayload = 0;
     const char *payload = RedisModule_StringPtrLen(opts->payload, &npayload);
-    &doc->SetPayload(payload, npayload);
+    doc.SetPayload(payload, npayload);
   }
-  Document_LoadPairwiseArgs(&doc, opts->fieldsArray, opts->numFieldElems);
+  doc.LoadPairwiseArgs(opts->fieldsArray, opts->numFieldElems);
 
   if (!(opts->options & DOCUMENT_ADD_NOSAVE)) {
     int saveopts = 0;
     if (opts->options & DOCUMENT_ADD_NOCREATE) {
       saveopts |= REDIS_SAVEDOC_NOCREATE;
     }
-    RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp);
-    if (Redis_SaveDocument(&sctx_s, &doc, saveopts, status) != REDISMODULE_OK) {
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(redisCtx, sp);
+    if (Redis_SaveDocument(&sctx, &doc, saveopts, status) != REDISMODULE_OK) {
       goto error;
     }
   }
@@ -197,7 +197,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   }
 
   aCtx->donecb = opts->donecb;
-  AddDocumentCtx_Submit(aCtx, sctx, addOptions);
+  aCtx->Submit(this, addOptions);
   return REDISMODULE_OK;
 
 error:
@@ -224,12 +224,14 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   ArgsCursor ac;
   AddDocumentOptions opts = {.donecb = replyCallback};
-  QueryError status = {0};
+  QueryError status;
+  RedisSearchCtx sctx;
+  IndexSpec *sp;
 
-  &ac->InitRString(argv + 3, argc - 3);
+  ac.InitRString(argv + 3, argc - 3);
 
   int rv = 0;
-  if ((rv = &ac->GetDouble(&opts.score, 0) != AC_OK)) {
+  if ((rv = ac.GetDouble(&opts.score, 0) != AC_OK)) {
     status.SetError(QUERY_EADDARGS, "Could not parse document score");
   } else if (opts.score < 0 || opts.score > 1.0) {
     status.SetError(QUERY_EADDARGS, "Score must be between 0 and 1");
@@ -242,7 +244,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
@@ -251,7 +253,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (!CheckConcurrentSupport(ctx) || (sp->flags & Index_Temporary) || !canBlock) {
     opts.options |= DOCUMENT_ADD_CURTHREAD;
   }
-  RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
+  sctx = new RedisSearchCtx(ctx, sp);
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
   if (rv != REDISMODULE_OK) {
     if (status.code == QUERY_EDOCNOTADDED) {
@@ -311,13 +313,25 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_WrongArity(ctx);
   }
 
-  QueryError status = {0};
-  ArgsCursor ac = {0};
-  &ac->InitRString(argv + 3, argc - 3);
+  QueryError status;
+  ArgsCursor ac;
+  ac.InitRString(argv + 3, argc - 3);
   double ds;
-  int rv = 0;
+  int rv = 0, replace = 0;
+  const char *languageStr = NULL;
+  RSLanguage language;
+  IndexSpec *sp;
+  Document doc;
+  RedisSearchCtx sctx;
+  RSAddDocumentCtx *aCtx;
 
-  if ((rv = &ac->GetDouble(&ds, 0)) != AC_OK) {
+  ACArgSpec specs[] =  // Comment to force newline
+      {{.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
+       {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
+       {.name = NULL}};
+  ACArgSpec *errArg = NULL;
+
+  if ((rv = ac.GetDouble(&ds, 0)) != AC_OK) {
     status.SetError(QUERY_EADDARGS, "Could not parse document score");
     goto cleanup;
   } else if (ds < 0 || ds > 1.0) {
@@ -325,50 +339,42 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto cleanup;
   }
 
-  int replace = 0;
-  const char *languageStr = NULL;
-  ACArgSpec specs[] =  // Comment to force newline
-      {{.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
-       {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
-       {.name = NULL}};
-  ACArgSpec *errArg = NULL;
-  rv = &ac->ParseArgSpec(specs, &errArg);
+  rv = ac.ParseArgSpec(specs, &errArg);
   if (rv == AC_OK) {
     // OK. No error
   } else if (rv == AC_ERR_ENOENT) {
-    const char *keyword = &ac->GetStringNC(, NULL);
+    const char *keyword = ac.GetStringNC(NULL);
     status.SetErrorFmt(QUERY_EADDARGS, "Unknown keyword: `%s`", keyword);
     goto cleanup;
   } else {
     status.SetErrorFmt(QUERY_EADDARGS, "Error parsing arguments for `%s`: %s",
-                           errArg ? errArg->name : "", AC_Strerror(rv));
+                       errArg ? errArg->name : "", AC_Strerror(rv));
     goto cleanup;
   }
 
-  RSLanguage language = RSLanguage_Find(languageStr);
+  language = RSLanguage_Find(languageStr);
   if (language == RS_LANG_UNSUPPORTED) {
     status.SetErrorFmt(QUERY_EADDARGS, "Unknown language: `%s`", languageStr);
     goto cleanup;
   }
 
-  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     status.SetErrorFmt(QUERY_EGENERIC, "Unknown Index name");
     goto cleanup;
   }
 
   // Load the document score
-
-  Document doc = new Document(argv[2], ds, language);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  if (&doc->LoadAllFields(ctx) != REDISMODULE_OK) {
+  doc = new Document(argv[2], ds, language);
+  sctx = SEARCH_CTX_STATIC(ctx, sp);
+  if (doc.LoadAllFields(ctx) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
 
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &status);
+  aCtx = new RSAddDocumentCtx(sp, &doc, &status);
   if (aCtx == NULL) {
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -384,7 +390,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   RedisModule_Replicate(ctx, RS_SAFEADDHASH_CMD, "v", argv + 1, argc - 1);
-  AddDocumentCtx_Submit(aCtx, &sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
+  aCtx->Submit(&sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
   return REDISMODULE_OK;
 
 cleanup:

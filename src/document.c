@@ -295,42 +295,40 @@ static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * At this point the context will take over from the caller, and handle sending
- * the replies and so on.
- */
+// At this point the context will take over from the caller, and handle sending
+// the replies and so on.
 
-void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options) {
-  aCtx->options = options;
-  if ((aCtx->options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(aCtx, sctx)) {
+void RSAddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
+  options = options;
+  if ((options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(aCtx, sctx)) {
     return;
   }
 
   // We actually modify (!) the strings in the document, so we always require
   // ownership
-  &aCtx->doc->MakeStringsOwner();
+  doc.MakeStringsOwner();
 
   if (AddDocumentCtx_IsBlockable(aCtx)) {
-    aCtx->client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
+    client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
   } else {
-    aCtx->client.sctx = sctx;
+    client.sctx = sctx;
   }
 
-  RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
+  RS_LOG_ASSERT(client.bc, "No blocked client");
   size_t totalSize = 0;
-  for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
-    const DocumentField *ff = aCtx->doc.fields + ii;
-    if (aCtx->fspecs[ii].name && (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
+  for (size_t ii = 0; ii < doc.numFields; ++ii) {
+    const DocumentField *ff = doc.fields + ii;
+    if (fspecs[ii].name && (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
       size_t n;
-      RedisModule_StringPtrLen(aCtx->doc.fields[ii].text, &n);
+      RedisModule_StringPtrLen(doc.fields[ii].text, &n);
       totalSize += n;
     }
   }
 
-  if (totalSize >= SELF_EXEC_THRESHOLD && AddDocumentCtx_IsBlockable(aCtx)) {
-    ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
+  if (totalSize >= SELF_EXEC_THRESHOLD && AddDocumentCtx_IsBlockable(this)) {
+    ConcurrentSearch_ThreadPoolRun(threadCallback, this, CONCURRENT_POOL_INDEX);
   } else {
-    Document::AddToIndexes(aCtx);
+    Document::AddToIndexes(this);
   }
 }
 

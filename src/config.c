@@ -302,7 +302,7 @@ static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *nam
 
 int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   *err = NULL;
-  QueryError status = {0};
+  QueryError status;
 
   if (getenv("RS_MIN_THREADS")) {
     printf("Setting thread pool sizes to 1\n");
@@ -310,10 +310,10 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     RSGlobalConfig.indexPoolSize = 1;
     RSGlobalConfig.poolSizeNoAuto = 1;
   }
-  ArgsCursor ac = {0};
-  &ac->InitRString(argv, argc);
-  while (!&ac->IsAtEnd()) {
-    const char *name = &ac->GetStringNC(NULL);
+  ArgsCursor ac;
+  ac.InitRString(argv, argc);
+  while (!ac.IsAtEnd()) {
+    const char *name = ac.GetStringNC(NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
     if (curVar == NULL) {
       rm_asprintf(err, "No such configuration option `%s`", name);
@@ -444,7 +444,7 @@ RSConfigOptions RSGlobalConfigOptions = {
 
 void RSConfigOptions::AddConfigs(RSConfigOptions *dst) {
   while (next != NULL) {
-    src = next;
+    this = next; //@@ need to be fixed
   }
   next = dst;
   dst->next = NULL;
@@ -453,24 +453,24 @@ void RSConfigOptions::AddConfigs(RSConfigOptions *dst) {
 sds RSConfig::GetInfoString() const {
   sds ss = sdsempty();
 
-  ss = sdscatprintf(ss, "concurrent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
-  ss = sdscatprintf(ss, "gc: %s, ", config->enableGC ? "ON" : "OFF");
-  ss = sdscatprintf(ss, "prefix min length: %lld, ", config->minTermPrefix);
-  ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->maxPrefixExpansions);
-  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->queryTimeoutMS);
-  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->timeoutPolicy));
-  ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
-  ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
-  ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
-  ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
-  ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
+  ss = sdscatprintf(ss, "concurrent writes: %s, ", concurrentMode ? "ON" : "OFF");
+  ss = sdscatprintf(ss, "gc: %s, ", enableGC ? "ON" : "OFF");
+  ss = sdscatprintf(ss, "prefix min length: %lld, ", minTermPrefix);
+  ss = sdscatprintf(ss, "prefix max expansions: %lld, ", maxPrefixExpansions);
+  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", queryTimeoutMS);
+  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(timeoutPolicy));
+  ss = sdscatprintf(ss, "cursor read size: %lld, ", cursorReadSize);
+  ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", cursorMaxIdle);
+  ss = sdscatprintf(ss, "max doctable size: %lu, ", maxDocTableSize);
+  ss = sdscatprintf(ss, "search pool size: %lu, ", searchPoolSize);
+  ss = sdscatprintf(ss, "index pool size: %lu, ", indexPoolSize);
 
-  if (config->extLoad) {
-    ss = sdscatprintf(ss, "ext load: %s, ", config->extLoad);
+  if (extLoad) {
+    ss = sdscatprintf(ss, "ext load: %s, ", extLoad);
   }
 
-  if (config->frisoIni) {
-    ss = sdscatprintf(ss, "friso ini: %s, ", config->frisoIni);
+  if (frisoIni) {
+    ss = sdscatprintf(ss, "friso ini: %s, ", frisoIni);
   }
   return ss;
 }
@@ -512,7 +512,7 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
  */
 
 void RSConfig::DumpProto(const RSConfigOptions *options, const char *name,
-                        RedisModuleCtx *ctx, int isHelp) {
+                        RedisModuleCtx *ctx, int isHelp) const {
   size_t numElems = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   if (!strcmp("*", name)) {
@@ -552,7 +552,7 @@ int RSConfig::SetOption(RSConfigOptions *options, const char *name, RedisModuleS
     return REDISMODULE_ERR;
   }
   ArgsCursor ac;
-  &ac->InitRString(argv + *offset, argc - *offset);
+  ac.InitRString(argv + *offset, argc - *offset);
   int rc = var->setValue(this, &ac, status);
   *offset += ac.offset;
   return rc;

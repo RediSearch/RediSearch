@@ -136,7 +136,7 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   auto cmd = new ConcurrentCmd(0, handler, ctx, argv, argc);
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmd, poolType);
-  return REDISMODULE_OK
+  return REDISMODULE_OK;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -144,7 +144,7 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
 void ConcurrentSearchCtx::CloseKeys() {
   size_t sz = numOpenKeys;
   for (size_t i = 0; i < sz; i++) {
-    ConcurrentKeyCtx *kx = openKeys[i];
+    ConcurrentKey *kx = openKeys[i];
     if (kx->key) {
       RedisModule_CloseKey(kx->key);
       kx->key = NULL;
@@ -157,7 +157,7 @@ void ConcurrentSearchCtx::CloseKeys() {
 void ConcurrentSearchCtx::ReopenKeys() {
   size_t sz = numOpenKeys;
   for (size_t i = 0; i < sz; i++) {
-    ConcurrentKeyCtx *kx = openKeys[i];
+    ConcurrentKey *kx = openKeys[i];
     kx->key = RedisModule_OpenKey(ctx, kx->keyName, kx->keyFlags);
     // if the key is marked as shared, make sure it isn't now
     kx->Reopen(kx->key);
@@ -173,8 +173,8 @@ int ConcurrentSearchCtx::CheckTimer() {
   static struct timespec now;
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
 
-  long long durationNS = (long long)1000000000 * (now.tv_sec - ctx->lastTime.tv_sec) +
-                         (now.tv_nsec - ctx->lastTime.tv_nsec);
+  long long durationNS = (long long)1000000000 * (now.tv_sec - lastTime.tv_sec) +
+                         (now.tv_nsec - lastTime.tv_nsec);
 
   // Timeout - release the thread safe context lock and let other threads run as well
   if (durationNS > CONCURRENT_TIMEOUT_NS) {
@@ -209,7 +209,7 @@ void ConcurrentSearchCtx::ResetClock() {
 
 ConcurrentSearchCtx::ConcurrentSearchCtx(RedisModuleCtx *rctx) {
   ctx = rctx;
-  isLocked = 0;
+  isLocked = false;
   numOpenKeys = 0;
   openKeys = NULL;
   ResetClock();
@@ -222,7 +222,7 @@ ConcurrentSearchCtx::ConcurrentSearchCtx(RedisModuleCtx *rctx) {
 
 ConcurrentSearchCtx::ConcurrentSearchCtx(RedisModuleCtx *rctx, ConcurrentKey *concKey) {
   ctx = rctx;
-  isLocked = 0;
+  isLocked = false;
   numOpenKeys = 1;
   openKeys = rm_calloc(1, sizeof(ConcurrentKey*));
   openKeys[0] = concKey;
@@ -233,7 +233,7 @@ ConcurrentSearchCtx::ConcurrentSearchCtx(RedisModuleCtx *rctx, ConcurrentKey *co
 ConcurrentSearchCtx::~ConcurrentSearchCtx() {
   // Release the monitored open keys
   for (size_t i = 0; i < numOpenKeys; i++) {
-    ConcurrentKey *concKey = &openKeys[i];
+    ConcurrentKey *concKey = openKeys[i];
 
     RedisModule_FreeString(ctx, concKey->keyName);
 
@@ -245,7 +245,7 @@ ConcurrentSearchCtx::~ConcurrentSearchCtx() {
     delete concKey;
   }
 
-  rm_free(ctx->openKeys);
+  rm_free(openKeys);
   numOpenKeys = 0;
 }
 
@@ -273,6 +273,7 @@ void ConcurrentSearchCtx::AddKey(RedisModuleKey *key, int openFlags,
 void ConcurrentSearchCtx::AddKey(ConcurrentKey *concKey) {
   openKeys = rm_realloc(openKeys, ++numOpenKeys * sizeof(ConcurrentKey*));
   openKeys[numOpenKeys - 1] = concKey;
+  RedisModule_RetainString(this, concKey->keyName);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -287,16 +288,16 @@ void ConcurrentSearchCtx::AddKey(ConcurrentKey *concKey) {
  */
 
 void ConcurrentSearchCtx::SetKey(RedisModuleString *keyName, void *privdata) {
-  openKeys[0].keyName = keyName;
-  openKeys[0].privdata = privdata;
+  openKeys[0]->keyName = keyName;
+  openKeys[0]->privdata = privdata; //@@ Can we remove privdata from ConcurrentKey?
 }
 
 //---------------------------------------------------------------------------------------------
 
 void ConcurrentSearchCtx::Lock() {
-  RS_LOG_ASSERT(!ctx->isLocked, "Redis GIL shouldn't be locked");
+  RS_LOG_ASSERT(!isLocked, "Redis GIL shouldn't be locked");
   RedisModule_ThreadSafeContextLock(ctx);
-  isLocked = 1;
+  isLocked = true;
   ReopenKeys();
 }
 
@@ -305,14 +306,12 @@ void ConcurrentSearchCtx::Lock() {
 void ConcurrentSearchCtx::Unlock() {
   CloseKeys();
   RedisModule_ThreadSafeContextUnlock(ctx);
-  isLocked = 0;
+  isLocked = false;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 ConcurrentKey::ConcurrentKey(RedisModuleKey *key, RedisModuleString *keyName, int openFlags) :
-    key(key), keyName(keyName), keyFlags(openFlags) {
-  RedisModule_RetainString(ctx, keyName);
-}
+    key(key), keyName(keyName), keyFlags(openFlags) { }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

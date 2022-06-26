@@ -34,7 +34,7 @@ static int readRecord(ReaderCtx *ctx) {
   BufferReader *rdr = ctx->rdr;
   // Read the flags
   char c;
-  size_t nr = rdr.ReadByte(&c);
+  size_t nr = rdr->ReadByte(&c);
   if (!nr) {
     return 0;
   }
@@ -49,7 +49,7 @@ static int readRecord(ReaderCtx *ctx) {
   uint16_t numSyns = 0;
 
   if (c & Record_HasSynonyms) {
-    rdr.Read(&numSyns, 2);
+    rdr->Read(&numSyns, 2);
     numSyns = htons(numSyns);
   }
 
@@ -72,7 +72,7 @@ static int readRecord(ReaderCtx *ctx) {
   // If there's a frequency, read that too.
   uint32_t freq = 0;
   if (c & Record_HasFrequency) {
-    rdr.Read(&freq, 4);
+    rdr->Read(&freq, 4);
     freq = htonl(freq);
   }
 

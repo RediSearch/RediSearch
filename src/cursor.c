@@ -392,7 +392,7 @@ void CursorList::Purge(const char *lookupName) {
     cl.Free(&cur, kh_get(cursors, cl.lookup, cur.id));
   };
 
-  ForEach(cl, cb, info);
+  ForEach(this, cb, info);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -417,7 +417,7 @@ CursorList::~CursorList() {
     rm_free(infos);
   }
 
-  delete idle;
+  delete &idle;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

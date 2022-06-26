@@ -46,7 +46,7 @@ TrieNode::TrieNode(rune *runes, t_len offset, t_len len, const char *payload, si
 
 TrieNode *TrieNode::AddChild(rune *str, t_len offset, t_len len, RSPayload *payload, float score) {
   // a newly added child must be a terminal node
-  _children.emplace_back(new TrieNode(str, offset, len, payload ? payload->data : NULL, 
+  _children.emplace_back(new TrieNode(str, offset, len, payload ? payload->data : NULL,
     payload ? payload->len : 0, 0, score, 1));
   _sortmode = TRIENODE_SORTED_NONE;
   return _children.back();
@@ -95,14 +95,14 @@ void TrieNode::MergeWithSingleChild() {
   if (_payload != NULL) {
     delete _payload;
   }
-  
+
   size_t nlen = _len + ch._len;
   rune nstr[nlen + 1];
   memcpy(nstr, &_str[0], sizeof(rune) * _len);
   memcpy(&nstr[_len], &ch._str[0], sizeof(rune) * ch._len);
   nstr[nlen] = 0;
   _str.copy(nstr, nlen);
-  
+
   // copy state from child
   _score = ch._score;
   _payload = ch._payload;
@@ -130,9 +130,7 @@ void TrieNode::Print(int idx, int depth) {
 
 //---------------------------------------------------------------------------------------------
 
-// Add a new string to a trie.
-// Returns 1 if the string did not exist there, or 0 if we just replaced the score.
-// We pass a pointer to the node because it may actually change when splitting.
+// Add a new string to a trie and return the node.
 
 TrieNode *TrieNode::Add(rune *runes, t_len len, RSPayload *payload, float score, TrieAddOp op) {
   if (score == 0 || len == 0) {
@@ -197,7 +195,7 @@ TrieNode *TrieNode::Add(rune *runes, t_len len, RSPayload *payload, float score,
     if (payload != NULL && payload->data != NULL && payload->len > 0) {
       _payload = new TriePayload(payload->data, payload->len);
     }
-    
+
     _flags |= TRIENODE_TERMINAL; // set the node as terminal
     _flags &= ~TRIENODE_DELETED; // if it was deleted, make sure it's not now
     return this;
@@ -267,7 +265,7 @@ float TrieNode::Find(rune *runes, t_len len) const {
 
 void TrieNode::optimizeChildren() {
   _maxChildScore = _score;
-  
+
   // free deleted terminal nodes
   for (auto child_i = _children.begin(); child_i != _children.end(); ++child_i) {
     auto *child = *child_i;

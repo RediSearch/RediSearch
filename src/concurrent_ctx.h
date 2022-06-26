@@ -66,13 +66,13 @@ struct ConcurrentKey {
 
 //---------------------------------------------------------------------------------------------
 
-struct ConcurrentSearchCtx {
+struct ConcurrentSearchCtx { //@@ Should it derive from 'RedisModuleCtx'?
   long long ticker;
   struct timespec lastTime;
   RedisModuleCtx *ctx;
   ConcurrentKey **openKeys;
   uint32_t numOpenKeys;
-  uint32_t isLocked;
+  bool isLocked;
 
   ConcurrentSearchCtx(RedisModuleCtx *rctx);
   ConcurrentSearchCtx(RedisModuleCtx *rctx, ConcurrentKey *concKey);
@@ -90,6 +90,7 @@ struct ConcurrentSearchCtx {
   void Unlock();
 
   void ReopenKeys();
+  void CloseKeys();
 };
 
 //---------------------------------------------------------------------------------------------
