@@ -876,6 +876,7 @@ TEST_F(QueryTest, testWildCardV2) {
 
   qt = "@title:(w'hel\\*o' 'world')";
   assertInvalidQuery_v(2, qt);
+  IndexSpec_Free(ctx.spec);
 }
 
 TEST_F(QueryTest, testRegexV2) {
@@ -921,5 +922,6 @@ TEST_F(QueryTest, testRegexV2) {
 
   qt = "@title:(r'hel\\.\\*o' 'world')";
   assertInvalidQuery_v(2, qt);
+  IndexSpec_Free(ctx.spec);
 }
 
