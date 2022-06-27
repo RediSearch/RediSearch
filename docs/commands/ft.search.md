@@ -20,7 +20,7 @@ Searches the index with a textual query, returning either documents or just ids.
 - **NOSTOPWORDS**: If set, we do not filter stopwords from the query.
 - **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances
-- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.ADD).
+- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.CREATE).
   the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
   right after the id and score and /or payload if requested. This is usually not needed by users, and
