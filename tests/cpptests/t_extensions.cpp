@@ -10,8 +10,8 @@ int myRegisterFunc(RSExtensionCtx *ctx);
 class ExtTest : public ::testing::Test {
  protected:
   virtual void SetUp(void) {
-    Extensions_Init();
-    Extension_Load("testung", myRegisterFunc);
+    Extensions::Init();
+    Extensions::Load("testung", myRegisterFunc);
   }
 
   virtual void TearDown(void) {
@@ -98,7 +98,7 @@ TEST_F(ExtTest, testRegistration) {
 
 TEST_F(ExtTest, testDynamicLoading) {
   char *errMsg = NULL;
-  int rc = Extension_LoadDynamic(getExtensionPath(), &errMsg);
+  int rc = Extensions::LoadDynamic(getExtensionPath(), &errMsg);
   ASSERT_EQ(rc, REDISMODULE_OK);
   if (errMsg != NULL) {
     FAIL() << "Error loading extension: " << errMsg;

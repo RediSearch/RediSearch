@@ -85,7 +85,8 @@ protected:
 
 public:
   DocTable(size_t cap, size_t max_size) { ctor(cap, max_size); }
-  DocTable(size_t cap) { ctor(cap, RSGlobalConfig.maxDocTableSize); }
+  DocTable(size_t cap);
+  DocTable();
   ~DocTable();
 
   RSDocumentMetadata *Get(t_docId docId) const;

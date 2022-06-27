@@ -18,7 +18,7 @@
 typedef struct IndexSpec RSIndex;
 typedef size_t RSFieldID;
 typedef struct Document RSDoc;
-typedef struct RSQueryNode RSQNode;
+typedef struct QueryNode RSQNode;
 typedef struct RS_ApiIter RSResultsIterator;
 typedef struct RSIdxOptions RSIndexOptions;
 

@@ -100,7 +100,7 @@ CursorList::CursorList() {
   nextIdleTimeoutNs = 0;
 
   lookup = kh_init(cursors);
-  idle = new Array();
+  idle = *new Array<Cursor *>();
   infos = NULL;
 
   srand48(getpid());
@@ -280,7 +280,7 @@ Cursor *CursorList::Reserve(const char *lookupName, unsigned interval, QueryErro
     }
   }
 
-  cur = new Cursor(*this, spec, interval);
+  cur = new Cursor(this, spec, interval);
   lookup.emplace(cur->id, cur);
   // int dummy;
   // khiter_t iter = kh_put(cursors, lookup, cur->id, &dummy);
@@ -392,7 +392,7 @@ void CursorList::Purge(const char *lookupName) {
     cl.Free(&cur, kh_get(cursors, cl.lookup, cur.id));
   };
 
-  ForEach(this, cb, info);
+  ForEach(cb, info);
 }
 
 //---------------------------------------------------------------------------------------------

@@ -185,7 +185,7 @@ private:
   void sendBuffer(const void *buff, size_t len);
   void sendTerminator();
 
-  int recvFixed(void *buf, size_t len); //@@ __attribute__ (?)
+  int recvFixed(void *buf, size_t len);
   int tryRecvFixed(void *obj, size_t len); //@@ Why do we need it for?
   int recvBuffer(void **buf, size_t *len);
   int tryRecvBuffer(void **buf, size_t *len); //@@ looks like nobody was using it

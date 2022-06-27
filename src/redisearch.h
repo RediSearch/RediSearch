@@ -119,7 +119,7 @@ struct RSDocumentMetadata : Object {
 // struct RSQuery;
 
 // Forward declaration of the opaque query node object
-struct RSQueryNode;
+struct QueryNode;
 
 // We support up to 30 user given flags for each token, flags 1 and 2 are taken by the engine
 typedef uint32_t RSTokenFlags;
@@ -153,7 +153,7 @@ struct RSQueryExpander {
   struct RedisSearchCtx *handle;
 
   // Opaque query node object used internally by the engine, and should not be accessed
-  struct RSQueryNode **currentNode;
+  struct QueryNode **currentNode;
 
   // Error object. Can be used to signal an error to the user
   struct QueryError *status;

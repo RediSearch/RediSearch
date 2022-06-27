@@ -5,23 +5,14 @@
 #include "rmalloc.h"
 #include "redismodule.h"
 #include "index_result.h"
-#include "triemap/triemap.h"
 #include "query.h"
 #include <err.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// The registry for query expanders. Initialized by Extensions_Init()
-static TrieMap *Extensions::queryExpanders_g = NULL;
-
-// The registry for scorers. Initialized by Extensions_Init()
-static TrieMap *Extensions::scorers_g = NULL;
-
-//---------------------------------------------------------------------------------------------
-
 // Init the extension system - currently just create the regsistries
 
-Extensions::Extensions() {
+void Extensions::Init() {
   if (!queryExpanders_g) {
     queryExpanders_g = new TrieMap();
     scorers_g = new TrieMap();
@@ -30,35 +21,24 @@ Extensions::Extensions() {
 
 //---------------------------------------------------------------------------------------------
 
-static void freeExpanderCb(void *p) {
-  rm_free(p);
-}
-
-//---------------------------------------------------------------------------------------------
-
-static void freeScorerCb(void *p) {
-  rm_free(p);
-}
-
-//---------------------------------------------------------------------------------------------
-
 Extensions::~Extensions() {
   if (queryExpanders_g) {
-    TrieMap_Free(queryExpanders_g, freeExpanderCb);
+    delete queryExpanders_g;
     queryExpanders_g = NULL;
   }
   if (scorers_g) {
-    TrieMap_Free(scorers_g, freeScorerCb);
+    delete scorers_g;
     scorers_g = NULL;
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-/* Register a scoring function by its alias. privdata is an optional pointer to a user defined
- * struct. ff is a free function releasing any resources allocated at the end of query execution */
-int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff,
-                                void *privdata) {
+// Register a scoring function by its alias. privdata is an optional pointer to a user defined
+// struct. ff is a free function releasing any resources allocated at the end of query execution.
+
+int Extensions::RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff,
+                                        void *privdata) {
   if (func == NULL || scorers_g == NULL) {
     return REDISEARCH_ERR;
   }
@@ -79,9 +59,10 @@ int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFre
 
 //---------------------------------------------------------------------------------------------
 
-/* Register a aquery expander */
-int Ext_RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff,
-                              void *privdata) {
+// Register a aquery expander
+
+int Extensions::RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff,
+                                      void *privdata) {
   if (exp == NULL || queryExpanders_g == NULL) {
     return REDISEARCH_ERR;
   }
@@ -102,11 +83,11 @@ int Ext_RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFre
 //---------------------------------------------------------------------------------------------
 
 /* Load an extension by calling its init function. return REDISEARCH_ERR or REDISEARCH_OK */
-int Extension_Load(const char *name, RSExtensionInitFunc func) {
+int Extensions::Load(const char *name, RSExtensionInitFunc func) {
   // bind the callbacks in the context
   RSExtensionCtx ctx = {
-      .RegisterScoringFunction = Ext_RegisterScoringFunction,
-      .RegisterQueryExpander = Ext_RegisterQueryExpander,
+      .RegisterScoringFunction = RegisterScoringFunction,
+      .RegisterQueryExpander = RegisterQueryExpander,
   };
 
   return func(&ctx);
@@ -114,8 +95,9 @@ int Extension_Load(const char *name, RSExtensionInitFunc func) {
 
 //---------------------------------------------------------------------------------------------
 
-/* Dynamically load a RediSearch extension by .so file path. Returns REDISMODULE_OK or ERR */
-int Extension_LoadDynamic(const char *path, char **errMsg) {
+// Dynamically load a RediSearch extension by .so file path. Returns REDISMODULE_OK or ERR
+
+int Extensions::LoadDynamic(const char *path, char **errMsg) {
   int (*init)(struct RSExtensionCtx *);
   void *handle;
   *errMsg = NULL;
@@ -133,7 +115,7 @@ int Extension_LoadDynamic(const char *path, char **errMsg) {
     return REDISMODULE_ERR;
   }
 
-  if (Extension_Load(path, init) == REDISEARCH_ERR) {
+  if (Extensions::Load(path, init) == REDISEARCH_ERR) {
     FMT_ERR(errMsg, "Could not register extension %s", path);
     return REDISMODULE_ERR;
   }
@@ -208,7 +190,7 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
 
   // if we're replacing - just set the expanded phrase instead of the token
   if (replace) {
-    deletet qn;
+    delete qn;
 
     currentNode = ph;
   } else {

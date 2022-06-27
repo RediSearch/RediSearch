@@ -70,7 +70,7 @@ void *Array::Add(uint32_t toAdd) {
 
 //---------------------------------------------------------------------------------------------
 
-void Array::Write(const void *data, size_t len) {
+void Array::Write(const T *data, size_t len) {
   void *ptr = Add(len);
   memcpy(ptr, data, len);
 }

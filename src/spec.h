@@ -70,6 +70,7 @@ struct IndexStats {
   size_t offsetVecRecords;
   size_t termsSize;
 
+  IndexStats() {}
   IndexStats(RedisModuleIO *rdb) { RdbLoad(rdb); }
 
   void RdbLoad(RedisModuleIO *rdb);
@@ -239,8 +240,7 @@ public:
             int argc, QueryError *status) {
     ParseRedisArgs(ctx, name, argv, argc, status);
   }
-  IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                               QueryError *status);
+  IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryError *status);
 
   void FreeInternals();
   void FreeAsync();

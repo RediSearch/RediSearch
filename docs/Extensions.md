@@ -100,7 +100,7 @@ typedef struct RSQueryExpanderCtx {
   struct RSQuery *query;
 
   /* Opaque query node object used internally by the engine, and should not be accessed */
-  struct RSQueryNode **currentNode;
+  struct QueryNode **currentNode;
 
   /* Private data of the extension, set on extension initialization */
   void *privdata;

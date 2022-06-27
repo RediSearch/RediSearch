@@ -1023,7 +1023,7 @@ void IndexSpec::ctor(const char *name) {
   sortables = new RSSortingTable();
   flags = INDEX_DEFAULT_FLAGS;
   name = rm_strdup(name);
-  docs = new DocTable(100);
+  docs = new DocTable();
   stopwords = DefaultStopWordList();
   terms = new Trie();
   keysDict = NULL;
@@ -1233,7 +1233,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  IndexSpec *sp;
   sp->sortables = new RSSortingTable();
   sp->terms = NULL;
   sp->docs = new DocTable(1000);

@@ -59,7 +59,7 @@ done:
   return ret;
 }
 
-std::vector<std::string> RS::search(RSIndex *index, RSQueryNode *qn) {
+std::vector<std::string> RS::search(RSIndex *index, QueryNode *qn) {
   auto it = RediSearch_GetResultsIterator(qn, index);
   return getResultsCommon(index, it);
 }

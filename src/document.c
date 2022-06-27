@@ -30,27 +30,26 @@ template<> AddDocumentPool MemPoolObject<AddDocumentPool>::pool(16, 0, true);
 
 //---------------------------------------------------------------------------------------------
 
-static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *doc,
-                                      size_t oldFieldCount) {
-  aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
-  aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
-  aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
+int RSAddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCount) {
+  stateFlags &= ~ACTX_F_INDEXABLES;
+  stateFlags &= ~ACTX_F_TEXTINDEXED;
+  stateFlags &= ~ACTX_F_OTHERINDEXED;
 
   if (oldFieldCount < doc->numFields) {
     // Pre-allocate the field specs
-    aCtx->fspecs = rm_realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
-    aCtx->fdatas = rm_realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
+    fspecs = rm_realloc(fspecs, sizeof(*fspecs) * doc->numFields);
+    fdatas = rm_realloc(fdatas, sizeof(*fdatas) * doc->numFields);
   }
 
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     // zero out field data. We check at the destructor to see if there is any
     // left-over tag data here; if we've realloc'd, then this contains garbage
-    aCtx->fdatas[ii].tags = TagIndex::Tags();
+    fdatas[ii].tags = TagIndex::Tags();
   }
   size_t numTextIndexable = 0;
 
   // size: uint16_t * SPEC_MAX_FIELDS
-  FieldSpecDedupeArray dedupe = {0};
+  FieldSpecDedupeArray dedupe;
   int hasTextFields = 0;
   int hasOtherFields = 0;
 
@@ -58,14 +57,14 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
     DocumentField *f = doc->fields + i;
     const FieldSpec *fs = sp->GetField(f->name, strlen(f->name));
     if (!fs || !f->text) {
-      aCtx->fspecs[i].name = NULL;
-      aCtx->fspecs[i].types = 0;
+      fspecs[i].name = NULL;
+      fspecs[i].types = 0;
       continue;
     }
 
-    aCtx->fspecs[i] = *fs;
+    fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      aCtx->status.SetErrorFmt(QUERY_EDUPFIELD, "Tried to insert `%s` twice", fs->name);
+      status.SetErrorFmt(QUERY_EDUPFIELD, "Tried to insert `%s` twice", fs->name);
       return -1;
     }
 
@@ -73,7 +72,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
     if (fs->IsSortable()) {
       // mark sortable fields to be updated in the state flags
-      aCtx->stateFlags |= ACTX_F_SORTABLES;
+      stateFlags |= ACTX_F_SORTABLES;
     }
 
     // See what we want the given field indexed as:
@@ -82,7 +81,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
     } else {
       // Verify the flags:
       if ((f->indexAs & fs->types) != f->indexAs) {
-        aCtx->status.SetErrorFmt(QUERY_EUNSUPPTYPE,
+        status.SetErrorFmt(QUERY_EUNSUPPTYPE,
                                "Tried to index field %s as type not specified in schema", fs->name);
         return -1;
       }
@@ -100,48 +99,48 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
       }
 
       if (FIELD_CHKIDX(f->indexAs, INDEXFLD_T_GEO)) {
-        aCtx->docFlags = Document_HasOnDemandDeletable;
+        docFlags = Document_HasOnDemandDeletable;
       }
     }
   }
 
   if (hasTextFields || hasOtherFields) {
-    aCtx->stateFlags |= ACTX_F_INDEXABLES;
+    stateFlags |= ACTX_F_INDEXABLES;
   } else {
-    aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
+    stateFlags &= ~ACTX_F_INDEXABLES;
   }
 
   if (!hasTextFields) {
-    aCtx->stateFlags |= ACTX_F_TEXTINDEXED;
+    stateFlags |= ACTX_F_TEXTINDEXED;
   } else {
-    aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
+    stateFlags &= ~ACTX_F_TEXTINDEXED;
   }
 
   if (!hasOtherFields) {
-    aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
+    stateFlags |= ACTX_F_OTHERINDEXED;
   } else {
-    aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
+    stateFlags &= ~ACTX_F_OTHERINDEXED;
   }
 
-  if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
-    aCtx->sv = new RSSortingVector(sp->sortables->len);
+  if ((stateFlags & ACTX_F_SORTABLES) && sv == NULL) {
+    sv = new RSSortingVector(sp->sortables->len);
   }
 
-  int empty = (aCtx->sv == NULL) && !hasTextFields && !hasOtherFields;
+  int empty = (sv == NULL) && !hasTextFields && !hasOtherFields;
   if (empty) {
-    aCtx->stateFlags |= ACTX_F_EMPTY;
+    stateFlags |= ACTX_F_EMPTY;
   }
 
-  if ((aCtx->options & DOCUMENT_ADD_NOSAVE) == 0 && numTextIndexable &&
+  if ((options & DOCUMENT_ADD_NOSAVE) == 0 && numTextIndexable &&
       (sp->flags & Index_StoreByteOffsets)) {
-    if (!aCtx->byteOffsets) {
-      aCtx->byteOffsets = NewByteOffsets();
-      ByteOffsetWriter_Init(&aCtx->offsetsWriter);
+    if (!byteOffsets) {
+      byteOffsets = new RSByteOffsets();
+      offsetsWriter = new ByteOffsetWriter();
     }
-    RSByteOffsets_ReserveFields(aCtx->byteOffsets, numTextIndexable);
+    byteOffsets->ReserveFields(numTextIndexable);
   }
 
-  Document::Move(&aCtx->doc, doc);
+  Document::Move(&doc, doc);
   return 0;
 }
 
@@ -159,7 +158,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
  *   call Document_Free on the document after a successful return of this
  *   function.
  *
- * When done, call AddDocumentCtx_Free
+ * When done, call delete
  */
 
 RSAddDocumentCtx::RSAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) {
@@ -172,13 +171,13 @@ RSAddDocumentCtx::RSAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *statu
   specFlags = sp->flags;
   indexer = sp->indexer;
   RS_LOG_ASSERT(sp->indexer, "No indexer");
-  Indexer_Incref(indexer);
+  indexer->Incref();
 
   // Assign the document:
   if (SetDocument(sp, b, doc.numFields) != 0) {
     *status_ = status;
     status.detail = NULL;
-    throw Error("RSAddDocumentCtx: SetDocument failed");
+    throw Error("RSAddDocumentCtx::SetDocument failed");
   }
 
   // try to reuse the forward index on recycled contexts
@@ -204,8 +203,8 @@ RSAddDocumentCtx::RSAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *statu
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
   aCtx->donecb(aCtx, ctx, aCtx->donecbData);
-  Indexer_Decref(aCtx->indexer);
-  AddDocumentCtx_Free(aCtx);
+  aCtx->indexer->Decref();
+  delete aCtx;
 }
 
 static int replyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -218,11 +217,11 @@ static void threadCallback(void *p) {
   Document::AddToIndexes(p);
 }
 
-/**
- * Indicate that processing is finished on the current document
- */
+//---------------------------------------------------------------------------------------------
 
-void AddDocumentCtx::Finish() {
+// Indicate that processing is finished on the current document
+
+void RSAddDocumentCtx::Finish() {
   if (stateFlags & ACTX_F_NOBLOCK) {
     doReplyFinish(this, client.sctx->redisCtx);
   } else {
@@ -252,44 +251,42 @@ void Document::Dump() const {
 
 //---------------------------------------------------------------------------------------------
 
-static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
-
-static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+bool RSAddDocumentCtx::ReplaceMerge(RedisSearchCtx *sctx) {
   /**
    * The REPLACE operation contains fields which must be reindexed. This means
    * that a new document ID needs to be assigned, and as a consequence, all
    * fields must be reindexed.
    */
   // Free the old field data
-  size_t oldFieldCount = aCtx->doc.numFields;
+  size_t oldFieldCount = doc.numFields;
 
-  &aCtx->doc->Clear();
-  int rv = &aCtx->doc->LoadSchemaFields(sctx);
+  doc.Clear();
+  int rv = doc.LoadSchemaFields(sctx);
   if (rv != REDISMODULE_OK) {
-    aCtx->status.SetError(QUERY_ENODOC, "Could not load existing document");
-    aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
-    AddDocumentCtx_Free(aCtx);
-    return 1;
+    status.SetError(QUERY_ENODOC, "Could not load existing document");
+    donecb(this, sctx->redisCtx, donecbData);
+    delete this;
+    return true;
   }
 
   // Keep hold of the new fields.
-  &aCtx->doc->MakeStringsOwner();
-  AddDocumentCtx_SetDocument(aCtx, sctx->spec, &aCtx->doc, oldFieldCount);
-  return 0;
+  doc.MakeStringsOwner();
+  SetDocument(sctx->spec, &doc, oldFieldCount);
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+static bool handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Handle partial update of fields
   if (aCtx->stateFlags & ACTX_F_INDEXABLES) {
-    return AddDocumentCtx_ReplaceMerge(aCtx, sctx);
+    return aCtx->ReplaceMerge(sctx);
   } else {
     // No indexable fields are updated, we can just update the metadata.
     // Quick update just updates the score, payload and sortable fields of the document.
     // Thus full-reindexing of the document is not required
-    AddDocumentCtx_UpdateNoIndex(aCtx, sctx);
-    return 1;
+    aCtx->UpdateNoIndex(sctx);
+    return true;
   }
 }
 
@@ -334,12 +331,10 @@ void RSAddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Free the AddDocumentCtx. Should be done once AddToIndexes() completes; or
- * when the client is unblocked.
- */
+// Free RSAddDocumentCtx. Should be done once AddToIndexes() completes; or
+// when the client is unblocked.
 
-~RSAddDocumentCtx::RSAddDocumentCtx() {
+RSAddDocumentCtx::~RSAddDocumentCtx() {
   // Free preprocessed data; this is the only reliable place to do it
   for (size_t i = 0; i < doc.numFields; ++i) {
     if (FIELD_IS_VALID(this, i) && (fspecs + i)->IsFieldType(INDEXFLD_T_TAG) &&
@@ -638,7 +633,7 @@ cleanup:
 static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
                                     int *result, QueryError *status) {
   int rc = REDISMODULE_ERR;
-  const RSDocumentMetadata *dmd = &sctx->spec->docs->GetByKeyR(key);
+  const RSDocumentMetadata *dmd = sctx->spec->docs.GetByKeyR(key);
   if (!dmd) {
     // We don't know the document...
     status->SetError(QUERY_ENODOC, "");
@@ -650,37 +645,37 @@ static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key
     RSExpr e(expr, strlen(expr), status);
 
     if (status->HasError()) {
-      RSExpr_Free(e);
+      delete &e;
       return REDISMODULE_ERR;
     }
 
-    RLookupRow row = {0};
+    RLookupRow row;
     IndexSpecCache *spcache = sctx->spec->GetSpecCache();
     RLookup lookup_s(spcache);
     if (e.GetLookupKeys(&lookup_s, status) == EXPR_EVAL_ERR) {
       goto done;
     }
 
-    RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
-    if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
+    RLookupLoadOptions loadopts(sctx, dmd, status);
+    if (lookup_s.LoadDocument(&row, &loadopts) != REDISMODULE_OK) {
       // printf("Couldn't load document!\n");
       goto done;
     }
 
-    ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = &e};
     RSValue rv;
-    if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
+    ExprEval evaluator(status, &lookup_s, &row, &e);
+    if (evaluator.Eval(&rv) != EXPR_EVAL_OK) {
       // printf("Eval not OK!!! SAD!!\n");
       goto done;
     }
 
     *result = rv.BoolTest();
-    rv.RSValue_Clear();
+    rv.Clear();
     rc = REDISMODULE_OK;
 
   // Clean up:
 done:
-    RLookupRow_Cleanup(&row);
+    row.Cleanup();
     return rc;
   } catch (...) {
     return REDISMODULE_ERR;
@@ -689,19 +684,20 @@ done:
 
 //---------------------------------------------------------------------------------------------
 
-static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-#define BAIL(s)                                            \
-  do {                                                     \
-    aCtx->status.SetError(QUERY_EGENERIC, s); \
-    goto done;                                             \
+void RSAddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
+#define BAIL(s)                                \
+  do {                                         \
+    status.SetError(QUERY_EGENERIC, s);        \
+    donecb(aCtx, sctx->redisCtx, donecbData);  \
+    delete aCtx;                               \
   } while (0);
 
-  Document *doc = &aCtx->doc;
-  t_docId docId = &sctx->spec->docs->GetIdR(doc->docKey);
+  Document *doc = &doc;
+  t_docId docId = sctx->spec->docs.GetIdR(doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");
   }
-  RSDocumentMetadata *md = &sctx->spec->docs->Get(docId);
+  RSDocumentMetadata *md = sctx->spec->docs.Get(docId);
   if (!md) {
     BAIL("Couldn't load document metadata");
   }
@@ -710,10 +706,10 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   md->score = doc->score;
   // Set the payload if needed
   if (doc->payload) {
-    &sctx->spec->docs->SetPayload(docId, doc->payload, doc->payloadSize);
+    sctx->spec->docs.SetPayload(docId, doc->payload, doc->payloadSize);
   }
 
-  if (aCtx->stateFlags & ACTX_F_SORTABLES) {
+  if (stateFlags & ACTX_F_SORTABLES) {
     FieldSpecDedupeArray dedupes = {0};
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
@@ -758,10 +754,6 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       }
     }
   }
-
-done:
-  aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
-  AddDocumentCtx_Free(aCtx);
 }
 
 //---------------------------------------------------------------------------------------------

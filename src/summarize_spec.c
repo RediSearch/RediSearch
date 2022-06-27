@@ -12,8 +12,8 @@
  * SUMMARISE [FIELDS {num} {field} …] [LEN {len}] [FRAGS {num}]
  */
 
-int FieldList::parseFieldList(ArgsCursor *ac, Array *fieldPtrs) {
-  ArgsCursor fieldArgs = {0};
+int FieldList::parseFieldList(ArgsCursor *ac, Array<size_t> *fieldPtrs) {
+  ArgsCursor fieldArgs;
   if (ac->GetVarArgs(&fieldArgs) != AC_OK) {
     return -1;
   }

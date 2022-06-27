@@ -3,6 +3,8 @@
 
 //#include "spec.h"
 #include "redismodule.h"
+#include "spec.h"
+#include "document.h"
 
 #include <sched.h>
 #include <time.h>
@@ -13,6 +15,8 @@
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
 
+struct AddDocumentOptions;
+
 // Context passed to all redis related search handling functions
 struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
@@ -22,7 +26,7 @@ struct RedisSearchCtx {
   uint64_t specId;  // Unique id of the spec; used when refreshing
 
   RedisSearchCtx(RedisModuleCtx *ctx);
-  RedisSearchCtx(RedisModuleCtx *ctx, struct IndexSpec *spec);
+  RedisSearchCtx(RedisModuleCtx *ctx, IndexSpec *spec);
   RedisSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
   RedisSearchCtx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
   RedisSearchCtx(const RedisSearchCtx &sctx);
@@ -43,7 +47,7 @@ struct RedisSearchCtx {
 //   { ctx, NULL, sp, 0, 1 }
 
 //@@ Is it truly static?
-RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, struct IndexSpec *sp) {
+RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
   return new RedisSearchCtx(ctx, sp);
 }
 

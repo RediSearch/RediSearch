@@ -320,10 +320,6 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   int rv = 0, replace = 0;
   const char *languageStr = NULL;
   RSLanguage language;
-  IndexSpec *sp;
-  Document doc;
-  RedisSearchCtx sctx;
-  RSAddDocumentCtx *aCtx;
 
   ACArgSpec specs[] =  // Comment to force newline
       {{.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
@@ -358,15 +354,15 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto cleanup;
   }
 
-  sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  IndexSpec sp = *new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     status.SetErrorFmt(QUERY_EGENERIC, "Unknown Index name");
     goto cleanup;
   }
 
   // Load the document score
-  doc = new Document(argv[2], ds, language);
-  sctx = SEARCH_CTX_STATIC(ctx, sp);
+  Document doc = *new Document(argv[2], ds, language);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, &sp);
   if (doc.LoadAllFields(ctx) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
@@ -374,7 +370,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
 
-  aCtx = new RSAddDocumentCtx(sp, &doc, &status);
+  RSAddDocumentCtx aCtx = *new RSAddDocumentCtx(sp, &doc, &status);
   if (aCtx == NULL) {
     return QueryError_ReplyAndClear(ctx, &status);
   }

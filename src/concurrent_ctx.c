@@ -273,7 +273,7 @@ void ConcurrentSearchCtx::AddKey(RedisModuleKey *key, int openFlags,
 void ConcurrentSearchCtx::AddKey(ConcurrentKey *concKey) {
   openKeys = rm_realloc(openKeys, ++numOpenKeys * sizeof(ConcurrentKey*));
   openKeys[numOpenKeys - 1] = concKey;
-  RedisModule_RetainString(this, concKey->keyName);
+  RedisModule_RetainString(ctx, concKey->keyName);
 }
 
 //---------------------------------------------------------------------------------------------

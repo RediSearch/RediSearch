@@ -26,6 +26,14 @@ void DocTable::ctor(size_t cap, size_t max_size) {
   buckets = NULL;
 }
 
+DocTable::DocTable(size_t cap) {
+  ctor(cap, RSGlobalConfig.maxDocTableSize);
+}
+
+DocTable::DocTable() {
+  ctor(100, RSGlobalConfig.maxDocTableSize);
+}
+
 //---------------------------------------------------------------------------------------------
 
 inline uint32_t DocTable::GetBucket(t_docId docId) const {

@@ -63,7 +63,7 @@ struct DocumentIndexer : public Object {
   int writeMergedEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, KHTable *ht, RSAddDocumentCtx **parentMap);
   void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx);
 
-private:
+// private:
   size_t Decref();
   size_t Incref();
 };

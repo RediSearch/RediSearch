@@ -3,6 +3,7 @@
 
 #include "search_ctx.h"
 #include "spec.h"
+#include "field_spec.h"
 #include "redisearch.h"
 #include "tokenize.h"
 #include "concurrent_ctx.h"
@@ -11,6 +12,8 @@
 
 #include "redismodule.h"
 #include "rmutil/args.h"
+
+#include "util/mempool.h"
 
 #include <pthread.h>
 
@@ -42,6 +45,8 @@ struct DocumentField : Object {
 };
 
 //---------------------------------------------------------------------------------------------
+
+struct RSAddDocumentCtx;
 
 struct Document : Object {
   RedisModuleString *docKey;
@@ -220,6 +225,11 @@ struct RSAddDocumentCtx : MemPoolObject<AddDocumentPool> {
   int AddToIndexes();
 
   bool IsBlockable() const { return !(stateFlags & ACTX_F_NOBLOCK); }
+
+  void UpdateNoIndex(RedisSearchCtx *sctx);
+  bool ReplaceMerge(RedisSearchCtx *sctx);
+
+  int SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCount);
 };
 
 // Don't create document if it does not exist. Replace only

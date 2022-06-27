@@ -45,7 +45,7 @@ struct EvalCtx : ExprEval {
   }
 
   int eval() {
-    return ExprEval_Eval(this, &res_s);
+    return Eval(&res_s);
   }
 
   EvalCtx operator=(EvalCtx &) = delete;

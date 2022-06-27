@@ -16,8 +16,8 @@ enum ArrayAllocatorType {
 };
 
 /** Array datatype. Simple wrapper around a C array, with capacity and length. */
-template <class T> //@@ Is it correct to male it template (?)
-struct Array {
+template <class T>
+class Array {
   T *data;
   uint32_t len;
   uint32_t capacity;
@@ -28,7 +28,7 @@ struct Array {
   Array() { ctor(ArrayAlloc_Default); }
 
   void *Add(uint32_t elemSize);
-  void Write(const void *data, size_t len);
+  void Write(const T *data, size_t len);
 
   void ShrinkToSize();
   int Resize(uint32_t newSize);

@@ -276,7 +276,7 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
 
   while (elements--) {
     size_t len;
-    RSPayload payload = {.data = NULL, .len = 0};
+    RSPayload payload;
     char *str = RedisModule_LoadStringBuffer(rdb, &len);
     double score = RedisModule_LoadDouble(rdb);
     if (loadPayloads) {
@@ -310,7 +310,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
     rune *rstr;
     t_len len;
     float score;
-    RSPayload payload = {.data = NULL, .len = 0};
+    RSPayload payload;
 
     while (it->Next(&rstr, &len, &payload, &score, NULL)) {
       size_t slen = 0;

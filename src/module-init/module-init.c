@@ -141,7 +141,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   sdsfree(confstr);
 
   // Init extension mechanism
-  Extensions_Init();
+  Extensions::Init();
 
   if (RSGlobalConfig.concurrentMode) {
     ConcurrentSearch_ThreadPoolStart();
@@ -164,7 +164,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
     char *errMsg = NULL;
     // Load the extension so TODO: pass with param
-    if (Extension_LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
+    if (Extensions::LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
       DO_LOG("warning", "Could not load extension %s: %s", RSGlobalConfig.extLoad, errMsg);
       rm_free(errMsg);
       return REDISMODULE_ERR;
@@ -173,7 +173,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
 
   // Register the default hard coded extension
-  if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
+  if (Extensions::Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
     DO_LOG("warning", "Could not register default extension");
     return REDISMODULE_ERR;
   }

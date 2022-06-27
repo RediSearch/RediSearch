@@ -16,7 +16,7 @@
  * calling this function).
  */
 
-void Document::Document(RedisModuleString *docKey, double score, RSLanguage lang) {
+Document::Document(RedisModuleString *docKey, double score, RSLanguage lang) {
   docKey = docKey;
   score = (float)score;
   numFields = 0;
@@ -30,11 +30,11 @@ void Document::Document(RedisModuleString *docKey, double score, RSLanguage lang
 
 DocumentField *Document::addFieldCommon(const char *fieldname, uint32_t typemask) {
   DocumentField *f = fields + numFields - 1;
-  indexAs = typemask;
+  f->indexAs = typemask;
   if (flags & DOCUMENT_F_OWNSTRINGS) {
-    name = rm_strdup(fieldname);
+    f->name = rm_strdup(fieldname);
   } else {
-    name = fieldname;
+    f->name = fieldname;
   }
   return f;
 }
@@ -149,11 +149,13 @@ void Document::MakeRefOwner() {
 int Document::LoadSchemaFields(RedisSearchCtx *sctx) {
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, docKey, REDISMODULE_READ);
   int rv = REDISMODULE_ERR;
+  size_t nitems;
+
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
     goto done;
   }
 
-  size_t nitems = RedisModule_ValueLength(k);
+  nitems = RedisModule_ValueLength(k);
   if (nitems == 0) {
     goto done;
   }
@@ -190,13 +192,14 @@ done:
 int Document::LoadAllFields(RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
+  size_t n = 0, len;
 
   rep = RedisModule_Call(ctx, "HGETALL", "s", docKey);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
   }
 
-  size_t len = RedisModule_CallReplyLength(rep);
+  len = RedisModule_CallReplyLength(rep);
   // Zero means the document does not exist in redis
   if (len == 0) {
     goto done;
@@ -206,7 +209,6 @@ int Document::LoadAllFields(RedisModuleCtx *ctx) {
 
   fields = rm_calloc(len / 2, sizeof(DocumentField));
   numFields = len / 2;
-  size_t n = 0;
   RedisModuleCallReply *k, *v;
   for (size_t i = 0; i < len; i += 2, ++n) {
     k = RedisModule_CallReplyArrayElement(rep, i);
@@ -265,7 +267,7 @@ void Document::Clear() {
 
 // Free the document's internals (like the field array)
 
-void Document::~Document() {
+Document::~Document() {
   if (flags & DOCUMENT_F_DEAD) {
     return;
   }

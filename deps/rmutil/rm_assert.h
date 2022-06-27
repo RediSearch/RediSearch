@@ -1,5 +1,4 @@
-#ifndef __REDISEARCH_ASSERT__
-#define __REDISEARCH_ASSERT__
+#pragma once
 
 #include <redismodule.h>
 #include <assert.h>
@@ -17,10 +16,8 @@
         RedisModule_Log(assertCtx, "warning", "(%s) failed on %s:%s, Line %d - " fmt,   \
                 #condition, __FILE__, __func__, __LINE__, __VA_ARGS__);                 \
         *((char *)NULL) = 0; /* Crashes server and create a crash report*/              \
-    } 
+    }
 
 #define RS_LOG_ASSERT(condition, str)  RS_LOG_ASSERT_FMT(condition, str "%s", "")
 
 #endif  //NDEBUG
-
-#endif  //__REDISEARCH_ASSERT__

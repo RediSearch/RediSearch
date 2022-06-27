@@ -31,6 +31,17 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
   }
 }
 
+struct RSConfig;
+
+struct RSConfigVar {
+  const char *name;
+  const char *helpText;
+  // Whether this configuration option can be modified after initial loading
+  int (*setValue)(RSConfig *, ArgsCursor *, QueryError *);
+  sds (*getValue)(const RSConfig *);
+  uint32_t flags;
+};
+
 #define RS_MAX_CONFIG_VARS 255
 struct RSConfigOptions {
   RSConfigVar vars[RS_MAX_CONFIG_VARS];
@@ -110,21 +121,12 @@ enum RSConfigVarFlags{
   RSCONFIGVAR_F_SHORTHAND = 0x08
 };
 
-struct RSConfigVar {
-  const char *name;
-  const char *helpText;
-  // Whether this configuration option can be modified after initial loading
-  int (*setValue)(RSConfig *, ArgsCursor *, QueryError *);
-  sds (*getValue)(const RSConfig *);
-  uint32_t flags;
-};
-
 // global config extern references
 extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
 
-/* Read configuration from redis module arguments into the global config object. Return
- * REDISMODULE_ERR and sets an error message if something is invalid */
+// Read configuration from redis module arguments into the global config object.
+// Return REDISMODULE_ERR and sets an error message if something is invalid.
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
 
 #define DEFAULT_DOC_TABLE_SIZE 1000000

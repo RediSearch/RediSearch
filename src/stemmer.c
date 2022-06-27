@@ -1,6 +1,7 @@
 #include "stemmer.h"
 #include "snowball/include/libstemmer.h"
 #include "rmalloc.h"
+#include "query_error.h"
 
 #include <string.h>
 #include <stdio.h>

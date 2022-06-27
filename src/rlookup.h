@@ -85,7 +85,7 @@ struct RLookupKey : public Object {
   RLookupKey(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx) {
     ctor(lookup, name, n, flags, idx);
   }
-  
+
   ~RLookupKey();
 };
 
@@ -271,6 +271,9 @@ struct RLookupLoadOptions {
   int forceString;
 
   struct QueryError *status;
+
+  RLookupLoadOptions(RedisSearchCtx *sctx, RSDocumentMetadata *dmd, QueryError *status) :
+  sctx(sctx), dmd(dmd), status(status) {}
 };
 
 //---------------------------------------------------------------------------------------------

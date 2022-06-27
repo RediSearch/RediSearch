@@ -197,6 +197,9 @@ struct ExprEval {
   const RSExpr *root;
   BlkAlloc stralloc; // Optional. YNOT?
 
+  ExprEval(QueryError *err, RLookup *lookup, RLookupRow *srcrow, RSExpr *root, SearchResult *res = NULL) :
+  err(err), lookup(lookup), srcrow(srcrow), root(root), res(res) {}
+
   int Eval(RSValue *result);
 
   void *UnalignedAlloc(size_t n);
