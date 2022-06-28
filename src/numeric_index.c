@@ -284,7 +284,6 @@ uint16_t NumericRangeTree::UniqueId = 0;
 
 // Create a new numeric range tree
 NumericRangeTree::NumericRangeTree() {
-#define GC_NODES_INITIAL_SIZE 10
   root = new NumericRangeNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
   numEntries = 0;
   numRanges = 1;
@@ -421,18 +420,16 @@ RedisModuleType *NumericIndexType = NULL;
 
 static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, keyName);
-  if (kdv) {
-    return kdv->p;
+  if (ctx->spec->keysDict.contains(keyName)) {
+    return ctx->spec->keysDict[keyName];
   }
   if (!write) {
     return NULL;
   }
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->dtor = (void (*)(void *))NumericRangeTree::Free;
-  kdv->p = new NumericRangeTree();
-  dictAdd(ctx->spec->keysDict, keyName, kdv);
-  return kdv->p;
+
+  NumericRangeTree val = new NumericRangeTree();
+  ctx->spec->keysDict.insert({keyName, val});
+  return val;
 }
 
 //---------------------------------------------------------------------------------------------

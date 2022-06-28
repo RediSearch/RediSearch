@@ -762,9 +762,7 @@ void IndexSpec::FreeInternals() {
 
   ClearAliases();
 
-  if (keysDict) {
-    dictRelease(keysDict);
-  }
+  delete &keysDict;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1026,7 +1024,6 @@ void IndexSpec::ctor(const char *name) {
   docs = new DocTable();
   stopwords = DefaultStopWordList();
   terms = new Trie();
-  keysDict = NULL;
   minPrefix = RSGlobalConfig.minTermPrefix;
   maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   getValue = NULL;
@@ -1072,7 +1069,7 @@ void IndexSpec::MakeKeyless() {
     invidxDictType = dictTypeHeapRedisStrings;
     invidxDictType.valDestructor = valFreeCb;
   }
-  keysDict = new dict(&invidxDictType);
+  keysDict.clear();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1242,7 +1239,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   RedisModule_Free(sp->name);
   sp->name = tmpName;
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
-  sp->keysDict = NULL;
+  sp->keysDict.clear();
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->minPrefix = RSGlobalConfig.minTermPrefix;
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
@@ -1375,6 +1372,20 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   }
 
   return REDISMODULE_OK;
+}
+
+//---------------------------------------------------------------------------------------------
+
+void IndexSpec::addAlias(const char *alias) {
+  char *duped = rm_strdup(alias);
+  aliases = array_ensure_append(aliases, &duped, 1, char *);
+}
+
+//---------------------------------------------------------------------------------------------
+
+void IndexSpec::delAlias(ssize_t idx) {
+  toFree = aliases[idx];
+  aliases = array_del_fast(aliases, idx);
 }
 
 //---------------------------------------------------------------------------------------------

@@ -223,18 +223,16 @@ static RedisModuleString *TagIndex::FormatName(RedisSearchCtx *sctx, const char 
 //---------------------------------------------------------------------------------------------
 
 static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
-  if (kdv) {
-    return kdv->p;
+  if (ctx->spec->keysDict.contains(key)) {
+    return ctx->spec->keysDict[key];
   }
   if (!openWrite) {
     return NULL;
   }
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = new TagIndex();
-  kdv->dtor = TagIndex_Free;
-  dictAdd(ctx->spec->keysDict, key, kdv);
-  return kdv->p;
+
+  TagIndex val = new TagIndex();
+  ctx->spec->keysDict.insert({key, &val});
+  return val;
 }
 
 //---------------------------------------------------------------------------------------------

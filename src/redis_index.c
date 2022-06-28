@@ -328,21 +328,17 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
 
 //---------------------------------------------------------------------------------------------
 
-static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *termKey,
-                                        int write) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, termKey);
-  if (kdv) {
-    return kdv->p;
+static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *termKey, int write) {
+  if (ctx->spec->keysDict.contains(termKey)) {
+    return ctx->spec->keysDict[termKey];
   }
   if (!write) {
     return NULL;
   }
 
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->dtor = InvertedIndex_Free;
-  kdv->p = new InvertedIndex(ctx->spec->flags, 1);
-  dictAdd(ctx->spec->keysDict, termKey, kdv);
-  return kdv->p;
+  InvertedIndex val = new InvertedIndex(ctx->spec->flags, 1);
+  ctx->spec->keysDict.insert({termKey, val});
+  return val;
 }
 
 //---------------------------------------------------------------------------------------------

@@ -48,7 +48,7 @@ struct RedisSearchCtx {
 
 //@@ Is it truly static?
 RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
-  return new RedisSearchCtx(ctx, sp);
+  return *new RedisSearchCtx(ctx, sp);
 }
 
 #if 0

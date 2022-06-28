@@ -10,7 +10,7 @@
 #include "synonym_map.h"
 #include "query_error.h"
 #include "field_spec.h"
-#include "util/dict.h"
+#include "util/map.h"
 #include "redisearch_api.h"
 
 #include <stdlib.h>
@@ -209,7 +209,7 @@ public:
   IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
   long long timeout;
-  dict *keysDict;
+  UnorderedMap<RedisModuleString, struct InvertedIndex*> keysDict;
   long long minPrefix;
   long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;
@@ -272,7 +272,7 @@ public:
 
   void MakeKeyless();
   int CreateTextId() const;
-  bool IsKeyless() { return keysDict != NULL; }
+  bool IsKeyless() { return keysDict.empty(); }
 
   int AddTerm(const char *term, size_t len);
   char *GetRandomTerm(size_t sampleSize);
@@ -285,6 +285,9 @@ public:
 
   void ClearAliases();
   void InitializeSynonym();
+
+  void addAlias(const char *alias);
+  void delAlias(ssize_t idx);
 
   RedisModuleString *GetFormattedKey(const FieldSpec *fs, FieldType forType);
   RedisModuleString *GetFormattedKeyByName(const char *s, FieldType forType);

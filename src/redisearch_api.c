@@ -14,7 +14,6 @@
 #include "module.h"
 
 #include "rmutil/rm_assert.h"
-#include "util/dict.h"
 
 #include <float.h>
 
@@ -55,7 +54,6 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
 
 void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
-  dict* d = sp->keysDict;
   sp->FreeSync();
   RWLOCK_RELEASE();
 }

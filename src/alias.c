@@ -4,32 +4,18 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-AliasTable::AliasTable() {
-  d = new dict(&dictTypeHeapStrings);
-}
-
-//---------------------------------------------------------------------------------------------
-
-AliasTable::~AliasTable() {
-  dictRelease(d);
-}
-
-//---------------------------------------------------------------------------------------------
-
 int AliasTable::Add(const char *alias, IndexSpec *spec, int options, QueryError *error) {
-  // look up and see if it exists:
-  dictEntry *e, *existing = NULL;
-  e = dictAddRaw(d, (void *)alias, &existing);
-  if (existing) {
+  const auto [it, success] = d.insert({alias, spec});
+
+  if (!success) {
     error->SetError(QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;
   }
-  RS_LOG_ASSERT(e->key != alias, "Alias should be different than key");
-  e->v.val = spec;
+
   if (!(options & INDEXALIAS_NO_BACKREF)) {
-    char *duped = rm_strdup(alias);
-    spec->aliases = array_ensure_append(spec->aliases, &duped, 1, char *);
+    spec->addAlias(alias);
   }
+
   return REDISMODULE_OK;
 }
 
@@ -51,33 +37,25 @@ int AliasTable::Del(const char *alias, IndexSpec *spec, int options, QueryError 
       break;
     }
   }
+
   if (idx == -1) {
     error->SetError(QUERY_ENOINDEX, "Alias does not belong to provided spec");
     return REDISMODULE_ERR;
   }
 
   if (!(options & INDEXALIAS_NO_BACKREF)) {
-    toFree = spec->aliases[idx];
-    spec->aliases = array_del_fast(spec->aliases, idx);
+    spec->delAlias(idx);
   }
-  int rc = dictDelete(d, alias);
-  RS_LOG_ASSERT(rc == DICT_OK, "Dictionary delete failed");
 
-  if (toFree) {
-    rm_free(toFree);
-  }
+  int rc = d.erase(alias);
+  RS_LOG_ASSERT(rc == DICT_OK, "Dictionary delete failed");
   return REDISMODULE_OK;
 }
 
 //---------------------------------------------------------------------------------------------
 
 IndexSpec *AliasTable::Get(const char *alias) {
-  dictEntry *e = dictFind(d, alias);
-  if (e) {
-    return e->v.val;
-  } else {
-    return NULL;
-  }
+  return d[alias];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

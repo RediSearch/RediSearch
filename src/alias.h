@@ -1,21 +1,17 @@
 #pragma once
 
+#include "util/map.h"
 #include "redismodule.h"
 #include "spec.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Do not access or otherwise touch the backreference in the index spec. 
+// Do not access or otherwise touch the backreference in the index spec.
 // This is used for add and delete operations
 #define INDEXALIAS_NO_BACKREF 0x01
 
 struct AliasTable : public Object {
-  struct dict *d;
-  void (*on_add)(const char *alias, const IndexSpec *spec);
-  void (*on_del)(const char *alias, const IndexSpec *spec);
-
-  AliasTable();
-  ~AliasTable();
+  UnorderedMap<String, IndexSpec *> d;
 
   int Add(const char *alias, IndexSpec *spec, int options, QueryError *status);
   int Del(const char *alias, IndexSpec *spec, int options, QueryError *status);

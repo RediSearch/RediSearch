@@ -31,10 +31,10 @@ class Array
 	T *data;
 	size_t n;
 
-public:	
+public:
 	Array() : data(0), n(0) {}
 
-	template<typename... Args> 
+	template<typename... Args>
 	void append(Args&&... args)
 	{
 		if (!data)
@@ -73,5 +73,18 @@ bool operator==(rm_allocator<T> const&, rm_allocator<U> const&) noexcept { retur
 
 template <class T, class U>
 bool operator!=(rm_allocator<T> const& x, rm_allocator<U> const& y) noexcept { return !(x == y); }
+
+//---------------------------------------------------------------------------------------------
+
+template<class CharT, class Traits = std::char_traits<CharT>>
+struct BasicString : std::basic_string<CharT, Traits, rm_allocator<CharT>> {
+	typedef std::basic_string<CharT, Traits, rm_allocator<CharT>> Super;
+	BasicString() {}
+	BasicString(const Super &s) : Super(s) {}
+	BasicString(Super &&s) : Super(s) {}
+	BasicString(const CharT* s) : Super(s) {}
+};
+
+typedef BasicString<char> String;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

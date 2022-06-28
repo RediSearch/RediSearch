@@ -108,42 +108,27 @@ public:
     dict(dictType *type, void *privDataPtr = NULL) { _dictInit(type, privDataPtr); }
 
     void dictFreeVal(dictEntry *entry) {
-        if (type->valDestructor) {
-            type->valDestructor(privdata, entry->v.val);
-        }
+        type->valDestructor(privdata, entry->v.val);
     }
 
     void dictSetVal(dictEntry *entry, const void *_val_) {
         do {
-            if (type->valDup)
-                entry->v.val = type->valDup(privdata, _val_);
-            else
-                entry->v.val = _val_;
+            entry->v.val = type->valDup(privdata, _val_);
         } while(0);
     }
 
     void dictFreeKey(dictEntry *entry) {
-        if (type->keyDestructor) {
-            type->keyDestructor(privdata, entry->key);
-        }
+        type->keyDestructor(privdata, entry->key);
     }
 
     void dictSetKey(dictEntry *entry, const void *_key_) {
         do {
-            if (type->keyDup)
-                entry->key = type->keyDup(privdata, _key_);
-            else
-                entry->key = _key_;
+            entry->key = type->keyDup(privdata, _key_);
         } while(0);
     }
 
     bool dictCompareKeys(const void *key1, const void *key2) {
-        if (type->keyCompare) {
-            return type->keyCompare(privdata, key1, key2);
-        }
-        else {
-            return key1 == key2;
-        }
+        return type->keyCompare(privdata, key1, key2);
     }
 
     uint64_t dictHashKey(const void *key) { return type->hashFunction(key); }
