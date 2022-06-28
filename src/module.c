@@ -215,6 +215,9 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                               int newlinesAsElements) {
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
   QueryError status = {0};
   char *explainRoot = RS_GetExplainOutput(ctx, argv, argc, &status);
   if (!explainRoot) {
@@ -423,17 +426,15 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Redis_DropIndex(&sctx, delDocs);
-
-  if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
-      RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
-    // We always send KEEPDOC to the slave.
-    RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "sc", argv[1], "KEEPDOCS");
-  } else {
-    // Remove DD as documents were deleted with RM_Call.
-    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "s", argv[1]);
+  int keepDocs = 0;
+  if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
+    keepDocs = 1;
   }
+
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  Redis_DropIndex(&sctx, (delDocs || sp->flags & Index_Temporary) && !keepDocs);
+
+  RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "sc", argv[1], "_FORCEKEEPDOCS");
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -448,6 +449,7 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!sp) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+
   RedisModuleString *oldCommand = argv[0];
   if (RMUtil_StringEqualsCaseC(argv[0], RS_DROP_IF_X_CMD)) {
     argv[0] = RedisModule_CreateString(ctx, RS_DROP_CMD, strlen(RS_DROP_CMD));
@@ -843,6 +845,14 @@ static void GetRedisVersion() {
   }
 
   RedisModule_FreeThreadSafeContext(ctx);
+}
+
+int IsMaster() {
+  if (RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_MASTER) {
+    return 1;
+  } else {
+    return 0;
+  }
 }
 
 int IsEnterprise() {
