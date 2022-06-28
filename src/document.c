@@ -432,11 +432,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t valueCount = (field->unionType != FLD_VAR_T_ARRAY ? 1 : field->arrayLen);
 
   if (FieldSpec_IsSortable(fs)) {
+    // Currently multi values are skipped from sorting vector
     if (field->unionType != FLD_VAR_T_ARRAY) {
       RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
-    } else {
-      QueryError_SetCode(status, QUERY_EBADSORTOPTION);
-      return 1;
     }
   }
 
