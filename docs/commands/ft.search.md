@@ -20,14 +20,14 @@ Searches the index with a textual query, returning either documents or just ids.
 - **NOSTOPWORDS**: If set, we do not filter stopwords from the query.
 - **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances
-- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.CREATE).
+- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see `FT.CREATE`).
   the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
   right after the id and score and /or payload if requested. This is usually not needed by users, and
   exists for distributed search coordination purposes.
 
 - **FILTER numeric_attribute min max**: If set, and numeric_attribute is defined as a numeric attribute in
-  FT.CREATE, we will limit results to those having numeric values ranging between min and max.
+  `FT.CREATE`, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges.
   Multiple numeric filters for different attributes are supported in one query.
 - **GEOFILTER {geo_attribute} {lon} {lat} {radius} m|km|mi|ft**: If set, we filter the results to a given radius
@@ -58,7 +58,7 @@ Searches the index with a textual query, returning either documents or just ids.
   If querying documents in Chinese, this should be set to `chinese` in order to
   properly tokenize the query terms.
   Defaults to English. If an unsupported language is sent, the command returns an error.
-  See FT.ADD for the list of languages.
+  See `FT.CREATE` for the list of languages.
 
 - **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](/redisearch/reference/extensions).
 - **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](/redisearch/reference/extensions).
