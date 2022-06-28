@@ -82,7 +82,7 @@ DEBUG_COMMAND(DumpTerms) {
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);
 
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -131,7 +131,7 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -156,7 +156,7 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -193,7 +193,7 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -231,7 +231,7 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -276,7 +276,7 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -299,7 +299,7 @@ DEBUG_COMMAND(IdToDocId) {
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
   }
 end:
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -314,7 +314,7 @@ DEBUG_COMMAND(DocIdToId) {
   const char *key = RedisModule_StringPtrLen(argv[1], &n);
   t_docId id = &sctx->spec->docs->GetId(key, n);
   RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -540,7 +540,7 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -600,7 +600,7 @@ DEBUG_COMMAND(DocInfo) {
 
   const RSDocumentMetadata *dmd = &sctx->spec->docs->GetByKeyR(argv[1]);
   if (!dmd) {
-    SearchCtx_Free(sctx);
+    delete sctx;
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
   }
 
@@ -630,7 +630,7 @@ DEBUG_COMMAND(DocInfo) {
     nelem += 2;
   }
   RedisModule_ReplySetArrayLength(ctx, nelem);
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 

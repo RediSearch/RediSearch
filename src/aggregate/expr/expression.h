@@ -21,7 +21,7 @@ enum RSExprType {
 //---------------------------------------------------------------------------------------------
 
 struct RSExpr : Object {
-/*
+  /*
   RSExprType t;
   union {
     RSExprOp op;
@@ -31,7 +31,7 @@ struct RSExpr : Object {
     RSLookupExpr property;
     RSInverted inverted;
   };
-*/
+  */
   RSExpr() {}
   RSExpr(const char *e, size_t n, QueryError *status);
   virtual ~RSExpr() {}

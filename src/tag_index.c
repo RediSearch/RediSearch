@@ -224,14 +224,21 @@ static RedisModuleString *TagIndex::FormatName(RedisSearchCtx *sctx, const char 
 
 static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
   if (ctx->spec->keysDict.contains(key)) {
-    return ctx->spec->keysDict[key];
+    BaseIndex *index = ctx->spec->keysDict[keyName];
+    try {
+      TagIndex *val = dynamic_cast<NumericRangeTree*>(index);
+    } catch (std::bad_cast) {
+      ASSERT("error: invalid index type...")
+    }
+    return val;
   }
+
   if (!openWrite) {
     return NULL;
   }
 
-  TagIndex val = new TagIndex();
-  ctx->spec->keysDict.insert({key, &val});
+  TagIndex *val = new TagIndex();
+  ctx->spec->keysDict.insert({key, val});
   return val;
 }
 

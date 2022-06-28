@@ -84,11 +84,11 @@ size_t GarbageCollector::CollectRandomTerm(RedisModuleCtx *ctx, int *status) {
     int blockNum = 0;
     do {
       IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize};
-      TimeSampler_Start(&ts);
+      ts.Start();
       // repair 100 blocks at once
       blockNum = idx->Repair(&sctx->spec->docs, blockNum, &params);
-      TimeSampler_End(&ts);
-      RedisModule_Log(ctx, "debug", "Repair took %lldns", TimeSampler_DurationNS(&ts));
+      ts.End();
+      RedisModule_Log(ctx, "debug", "Repair took %lldns", ts.DurationNS());
       /// update the statistics with the the number of records deleted
       totalRemoved += params.docsCollected;
       updateStats(sctx, params.docsCollected, params.bytesCollected);
@@ -118,7 +118,7 @@ size_t GarbageCollector::CollectRandomTerm(RedisModuleCtx *ctx, int *status) {
   RedisModule_Log(ctx, "debug", "New HZ: %f\n", hz);
 end:
   if (sctx) {
-    SearchCtx_Free(sctx);
+    delete sctx;
   }
   if (idxKey) RedisModule_CloseKey(idxKey);
 
@@ -254,7 +254,7 @@ end:
   }
 
   if (sctx) {
-    SearchCtx_Free(sctx);
+    delete sctx;
   }
 
   return totalRemoved;
@@ -346,7 +346,7 @@ end:
   }
 
   if (sctx) {
-    SearchCtx_Free(sctx);
+    delete sctx;
   }
 
   return totalRemoved;

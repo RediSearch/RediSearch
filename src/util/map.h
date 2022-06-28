@@ -42,7 +42,7 @@ struct std::hash<RedisModuleString>
 {
     std::size_t operator()(const RedisModuleString &s) const noexcept
     {
-		const char *cp = RedisModule_StringPtrLen(s, NULL);
+		const char *cp = RedisModule_StringPtrLen(&s, NULL);
 		return std::hash<std::string>{}(cp);
     }
 };

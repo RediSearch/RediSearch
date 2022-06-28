@@ -219,6 +219,8 @@ struct RSAddDocumentCtx : MemPoolObject<AddDocumentPool> {
   RSAddDocumentCtx(IndexSpec *sp, Document *base, QueryError *status);
   virtual ~RSAddDocumentCtx();
 
+  bool handlePartialUpdate(RedisSearchCtx *sctx); // can be private
+
   void Submit(RedisSearchCtx *sctx, uint32_t options);
 
   void Finish();

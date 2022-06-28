@@ -15,6 +15,7 @@
 #include "alias.h"
 #include "module.h"
 #include "rmutil/rm_assert.h"
+#include "numeric_index.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -224,7 +225,7 @@ IndexSpec::IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     RedisModule_SetExpire(k, timeout * 1000);
   }
   // Create the indexer
-  indexer = new Indexer(this);
+  indexer = new DocumentIndexer(this);
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(this);
   }
@@ -535,7 +536,7 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
 
   if (acStopwords.IsInitialized()) {
     if (stopwords) {
-      stopwords->Unref();
+      delete stopwords;
     }
     stopwords = new StopWordList((const char **)acStopwords.objs, acStopwords.argc);
     flags |= Index_HasCustomStopwords;
@@ -716,7 +717,7 @@ void IndexSpec::FreeInternals() {
   if (terms) {
     TrieType_Free(terms);
   }
-  delete docs;
+  delete &docs;
 
   if (uniqueId) {
     // If uniqueid is 0, it means the index was not initialized
@@ -730,7 +731,7 @@ void IndexSpec::FreeInternals() {
     delete sortables;
   }
   if (stopwords) {
-    stopwords->Unref();
+    delete stopwords;
     stopwords = NULL;
   }
 
@@ -989,7 +990,7 @@ void IndexSpec::InitializeSynonym() {
 bool IndexSpec::ParseStopWords(RedisModuleString **strs, size_t len) {
   // if the index already has custom stopwords, let us free them first
   if (stopwords) {
-    stopwords->Unref();
+    delete stopwords;
     stopwords = NULL;
   }
 
@@ -1049,26 +1050,9 @@ FieldSpec *IndexSpec::CreateField(const char *name) {
 
 //---------------------------------------------------------------------------------------------
 
-static dictType invidxDictType;
-
-static void valFreeCb(void *unused, void *p) {
-  KeysDictValue *kdv = p;
-  if (kdv->dtor) {
-    kdv->dtor(kdv->p);
-  }
-  rm_free(kdv);
-}
-
-//---------------------------------------------------------------------------------------------
-
 // Indicate the index spec should use an internal dictionary, rather than the Redis keyspace
 
 void IndexSpec::MakeKeyless() {
-  // Initialize only once:
-  if (!invidxDictType.valDestructor) {
-    invidxDictType = dictTypeHeapRedisStrings;
-    invidxDictType.valDestructor = valFreeCb;
-  }
   keysDict.clear();
 }
 

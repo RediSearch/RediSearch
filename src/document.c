@@ -135,12 +135,12 @@ int RSAddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldC
       (sp->flags & Index_StoreByteOffsets)) {
     if (!byteOffsets) {
       byteOffsets = new RSByteOffsets();
-      offsetsWriter = new ByteOffsetWriter();
+      offsetsWriter = *new ByteOffsetWriter();
     }
     byteOffsets->ReserveFields(numTextIndexable);
   }
 
-  Document::Move(&doc, doc);
+  Document::Move(doc, doc);
   return 0;
 }
 
@@ -277,15 +277,15 @@ bool RSAddDocumentCtx::ReplaceMerge(RedisSearchCtx *sctx) {
 
 //---------------------------------------------------------------------------------------------
 
-static bool handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+bool RSAddDocumentCtx::handlePartialUpdate(RedisSearchCtx *sctx) {
   // Handle partial update of fields
-  if (aCtx->stateFlags & ACTX_F_INDEXABLES) {
-    return aCtx->ReplaceMerge(sctx);
+  if (stateFlags & ACTX_F_INDEXABLES) {
+    return ReplaceMerge(sctx);
   } else {
     // No indexable fields are updated, we can just update the metadata.
     // Quick update just updates the score, payload and sortable fields of the document.
     // Thus full-reindexing of the document is not required
-    aCtx->UpdateNoIndex(sctx);
+    UpdateNoIndex(sctx);
     return true;
   }
 }
@@ -297,7 +297,7 @@ static bool handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
 void RSAddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
   options = options;
-  if ((options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(aCtx, sctx)) {
+  if ((options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(sctx)) {
     return;
   }
 
@@ -305,7 +305,7 @@ void RSAddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
   // ownership
   doc.MakeStringsOwner();
 
-  if (AddDocumentCtx_IsBlockable(aCtx)) {
+  if (IsBlockable()) {
     client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
   } else {
     client.sctx = sctx;
@@ -322,7 +322,7 @@ void RSAddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
     }
   }
 
-  if (totalSize >= SELF_EXEC_THRESHOLD && AddDocumentCtx_IsBlockable(this)) {
+  if (totalSize >= SELF_EXEC_THRESHOLD && IsBlockable()) {
     ConcurrentSearch_ThreadPoolRun(threadCallback, this, CONCURRENT_POOL_INDEX);
   } else {
     Document::AddToIndexes(this);
@@ -352,7 +352,7 @@ RSAddDocumentCtx::~RSAddDocumentCtx() {
     oldMd = NULL;
   }
 
-  offsetsWriter->Cleanup();
+  offsetsWriter.Cleanup();
   status.ClearError();
 
   delete fwIdx;
@@ -391,7 +391,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     VarintVectorWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
-      curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
+      curOffsetField = aCtx->byteOffsets->AddField(fs->ftId, aCtx->totalTokens + 1);
       curOffsetWriter = &aCtx->offsetsWriter;
     }
 
@@ -404,14 +404,14 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     if (fs->IsPhonetics()) {
       options |= TOKENIZE_PHONETICS;
     }
-    aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
+    aCtx->tokenizer->Start((char *)c, fl, options);
 
     Token tok;
     uint32_t newTokPos;
-    while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
-      &tokCtx->TokenFunc(&tok);
+    while (0 != (newTokPos = aCtx->tokenizer->Next(&tok))) {
+      tokCtx.TokenFunc(&tok);
     }
-    uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
+    uint32_t lastTokPos = aCtx->tokenizer->lastOffset;
 
     if (curOffsetField) {
       curOffsetField->lastTokPos = lastTokPos;
@@ -606,7 +606,7 @@ static int Document::AddToIndexes(RSAddDocumentCtx *aCtx) {
     }
   }
 
-  if (Indexer_Add(aCtx->indexer, aCtx) != 0) {
+  if (aCtx->indexer->Add(aCtx) != 0) {
     ourRv = REDISMODULE_ERR;
     goto cleanup;
   }
@@ -688,11 +688,11 @@ void RSAddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
 #define BAIL(s)                                \
   do {                                         \
     status.SetError(QUERY_EGENERIC, s);        \
-    donecb(aCtx, sctx->redisCtx, donecbData);  \
-    delete aCtx;                               \
+    donecb(this, sctx->redisCtx, donecbData);  \
+    delete this;                               \
   } while (0);
 
-  Document *doc = &doc;
+  Document *doc = doc;
   t_docId docId = sctx->spec->docs.GetIdR(doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");

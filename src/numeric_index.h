@@ -117,7 +117,7 @@ struct NumericRangeTreeIterator : public Object {
 //---------------------------------------------------------------------------------------------
 
 // The root tree and its metadata
-struct NumericRangeTree : public Object {
+struct NumericRangeTree : public BaseIndex {
   NumericRangeNode *root;
   size_t numRanges;
   size_t numEntries;

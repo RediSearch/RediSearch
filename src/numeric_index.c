@@ -418,16 +418,29 @@ RedisModuleType *NumericIndexType = NULL;
 
 //---------------------------------------------------------------------------------------------
 
+static RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name, field);
+}
+
+//---------------------------------------------------------------------------------------------
+
 static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
   if (ctx->spec->keysDict.contains(keyName)) {
-    return ctx->spec->keysDict[keyName];
+    BaseIndex *index = ctx->spec->keysDict[keyName];
+    try {
+      NumericRangeTree *val = dynamic_cast<NumericRangeTree*>(index);
+    } catch (std::bad_cast) {
+      ASSERT("error: invalid index type...")
+    }
+    return val;
   }
+
   if (!write) {
     return NULL;
   }
 
-  NumericRangeTree val = new NumericRangeTree();
+  NumericRangeTree *val = new NumericRangeTree();
   ctx->spec->keysDict.insert({keyName, val});
   return val;
 }

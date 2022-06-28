@@ -205,18 +205,17 @@ void ForwardIndex::HandleToken(const char *tok, size_t tokLen, uint32_t pos,
 // void ForwardIndex::NormalizeFreq(ForwardIndexEntry *e) {
 //   e->freq = e->freq / maxFreq;
 // }
-static int ForwardIndex::TokenFunc(void *ctx, const Token *tokInfo) {
+static int ForwardIndexTokenizerCtx::TokenFunc(const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
-  const ForwardIndexTokenizerCtx *tokCtx = ctx;
   int options = 0;
   if (tokInfo->flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
   }
-  tokCtx->idx->HandleToken(tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
-                           tokCtx->fieldScore, tokCtx->fieldId, options);
+  idx->HandleToken(tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
+                   fieldScore, fieldId, options);
 
-  if (tokCtx->allOffsets) {
-    VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
+  if (allOffsets) {
+    VVW_Write(allOffsets, tokInfo->raw - doc);
   }
 
   if (tokInfo->stem) {
@@ -224,26 +223,26 @@ static int ForwardIndex::TokenFunc(void *ctx, const Token *tokInfo) {
     if (tokInfo->flags & Token_CopyStem) {
       stemopts |= TOKOPT_F_COPYSTR;
     }
-    tokCtx->idx->HandleToken(tokInfo->stem, tokInfo->stemLen, tokInfo->pos,
-                             tokCtx->fieldScore, tokCtx->fieldId, stemopts);
+    idx->HandleToken(tokInfo->stem, tokInfo->stemLen, tokInfo->pos,
+                     fieldScore, fieldId, stemopts);
   }
 
-  if (tokCtx->idx->smap) {
-    TermData *t_data = tokCtx->idx->smap->GetIdsBySynonym(tokInfo->tok, tokInfo->tokLen);
+  if (idx->smap) {
+    TermData *t_data = idx->smap->GetIdsBySynonym(tokInfo->tok, tokInfo->tokLen);
     if (t_data) {
       char synonym_buff[SYNONYM_BUFF_LEN];
       size_t synonym_len;
       for (int i = 0; i < array_len(t_data->ids); ++i) {
         synonym_len = SynonymMap::IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
-        tokCtx->idx->HandleToken(synonym_buff, synonym_len, tokInfo->pos,
-                                 tokCtx->fieldScore, tokCtx->fieldId, TOKOPT_F_COPYSTR);
+        idx->HandleToken(synonym_buff, synonym_len, tokInfo->pos,
+                         fieldScore, fieldId, TOKOPT_F_COPYSTR);
       }
     }
   }
 
   if (tokInfo->phoneticsPrimary) {
-    tokCtx->idx->HandleToken(tokInfo->phoneticsPrimary, strlen(tokInfo->phoneticsPrimary),
-                             tokInfo->pos, tokCtx->fieldScore, tokCtx->fieldId, TOKOPT_F_COPYSTR);
+    idx->HandleToken(tokInfo->phoneticsPrimary, strlen(tokInfo->phoneticsPrimary),
+                     tokInfo->pos, fieldScore, fieldId, TOKOPT_F_COPYSTR);
   }
 
   return 0;

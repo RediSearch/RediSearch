@@ -239,7 +239,7 @@ QINT_API size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32
 //   uint64_t total = 0;
 //   TimeSample ts;
 
-//   TimeSampler_Start(&ts);
+//   ts.Start();
 //   BufferReader br(b);
 //   uint32_t i1, i2, i3, i4;
 //   for (int i = 0; i < N; i++) {
@@ -247,11 +247,11 @@ QINT_API size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32
 //     printf("Decoded: %d, %d, %d, %d\n", i1, i2, i3, i4);
 //     total += i1;
 
-//     TimeSampler_Tick(&ts);
+//     ts.Tick();
 //   }
-//   TimeSampler_End(&ts);
-//   printf("Total: %zdms for %d iters, %fns/iter", TimeSampler_DurationMS(&ts), ts.num,
-//          (double)TimeSampler_DurationNS(&ts) / (double)ts.num);
+//   ts.End();
+//   printf("Total: %zdms for %d iters, %fns/iter", ts.DurationMS(), ts.num,
+//          (double)ts.DurationNS() / (double)ts.num);
 //   printf("%d\n", total);
 //   //   //printf("%d %x\n",config.fields[i].offset, config.fields[i].headerMask);
 //   //   printf("%d\n", );

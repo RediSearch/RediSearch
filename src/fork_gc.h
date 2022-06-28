@@ -2,7 +2,8 @@
 #pragma once
 
 #include "gc.h"
-#include "redismodule.h"
+#include "search_ctx.h"
+#include "inverted_index.h"
 #include "object.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -96,6 +97,8 @@ struct tagNumHeader {
 
 //---------------------------------------------------------------------------------------------
 
+struct IndexBlock;
+
 struct InvIdxBuffers {
   MSG_DeletedBlock *delBlocks;
   size_t numDelBlocks;
@@ -109,6 +112,9 @@ struct InvIdxBuffers {
 
 //---------------------------------------------------------------------------------------------
 
+struct NumericRangeNode;
+struct CardinalityValue;
+
 struct NumGcInfo {
   // Node in the tree that was GC'd
   NumericRangeNode *node;
@@ -121,6 +127,8 @@ struct NumGcInfo {
 };
 
 //---------------------------------------------------------------------------------------------
+
+struct InvertedIndex;
 
 // Internal definition of the garbage collector context (each index has one)
 struct ForkGC : public Object, public GCAPI {
@@ -176,7 +184,9 @@ struct ForkGC : public Object, public GCAPI {
   // Don't perform diagnostic waits
   void WaitClear();
 
+
 private:
+  int lock(RedisModuleCtx *ctx);
   void unlock(RedisModuleCtx *ctx);
   RedisSearchCtx *getSctx(RedisModuleCtx *ctx);
   void updateStats(RedisSearchCtx *sctx, size_t recordsRemoved, size_t bytesCollected);
@@ -189,6 +199,7 @@ private:
   int tryRecvFixed(void *obj, size_t len); //@@ Why do we need it for?
   int recvBuffer(void **buf, size_t *len);
   int tryRecvBuffer(void **buf, size_t *len); //@@ looks like nobody was using it
+  int recvRepairedBlock(MSG_RepairedBlock *binfo);
   int recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info);
 
   bool childRepairInvidx(RedisSearchCtx *sctx, InvertedIndex *idx, void (*headerCallback)(ForkGC *, void *),
@@ -208,7 +219,8 @@ private:
   FGCError recvNumericTagHeader(char **fieldName, size_t *fieldNameLen, uint64_t *id);
   FGCError recvNumIdx(NumGcInfo *ninfo);
 
-  static bool haveRedisFork();
+  bool haveRedisFork();
+  int Fork(RedisModuleCtx *ctx);
 
   void sendKht(const khash_t(cardvals) *kh);
   void checkLastBlock(InvIdxBuffers *idxData, MSG_IndexInfo *info, InvertedIndex *idx);

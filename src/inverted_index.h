@@ -123,7 +123,7 @@ struct IndexDecoder {
 
 //---------------------------------------------------------------------------------------------
 
-struct InvertedIndex : Object {
+struct InvertedIndex : BaseIndex {
   IndexBlock *blocks;
   uint32_t size;
   IndexFlags flags;

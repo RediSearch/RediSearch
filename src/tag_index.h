@@ -91,7 +91,7 @@ struct InvertedIndex;
  *
  */
 
-struct TagIndex : public Object {
+struct TagIndex : public BaseIndex {
   static uint32_t niqueId;
 
   uint32_t uniqueId;

@@ -330,13 +330,20 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
 
 static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *termKey, int write) {
   if (ctx->spec->keysDict.contains(termKey)) {
-    return ctx->spec->keysDict[termKey];
+    BaseIndex *index = ctx->spec->keysDict[keyName];
+    try {
+      InvertedIndex *val = dynamic_cast<NumericRangeTree*>(index);
+    } catch (std::bad_cast) {
+      ASSERT("error: invalid index type...")
+    }
+    return val;
   }
+
   if (!write) {
     return NULL;
   }
 
-  InvertedIndex val = new InvertedIndex(ctx->spec->flags, 1);
+  InvertedIndex *val = new InvertedIndex(ctx->spec->flags, 1);
   ctx->spec->keysDict.insert({termKey, val});
   return val;
 }

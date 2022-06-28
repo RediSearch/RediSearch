@@ -1,7 +1,6 @@
 
 #pragma once
 
-//#include "spec.h"
 #include "redismodule.h"
 #include "spec.h"
 #include "document.h"
@@ -62,7 +61,7 @@ RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
 
 #define SearchCtx_Decref(sctx) \
   if (!--((sctx)->refcount)) { \
-    SearchCtx_Free(sctx);      \
+    delete sctx;      \
   }
 #endif // 0
 

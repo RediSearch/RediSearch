@@ -23,9 +23,9 @@ struct AliasTable : public Object {
 struct IndexAlias {
   static AliasTable *AliasTable_g;
 
-  int Add(const char *alias, IndexSpec *spec, int options, QueryError *status);
-  int Del(const char *alias, IndexSpec *spec, int options, QueryError *status);
-  IndexSpec *Get(const char *alias);
+  static int Add(const char *alias, IndexSpec *spec, int options, QueryError *status);
+  static int Del(const char *alias, IndexSpec *spec, int options, QueryError *status);
+  static IndexSpec *Get(const char *alias);
 
   static void InitGlobal();
   static void DestroyGlobal();

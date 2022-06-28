@@ -151,7 +151,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   } else {
     doc.ReplyFields(ctx);
   }
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -236,7 +236,7 @@ end:
   if (excludeDict != NULL) {
     array_free(excludeDict);
   }
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 
@@ -393,7 +393,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   idx->SerializeValues(ctx);
 
 cleanup:
-  SearchCtx_Free(sctx);
+  delete sctx;
   return REDISMODULE_OK;
 }
 

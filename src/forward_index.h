@@ -56,8 +56,6 @@ struct ForwardIndex {
   BlkAlloc entries;
   mempool_t *vvwPool;
 
-  static int TokenFunc(void *ctx, const Token *tokInfo);
-
   ForwardIndex(Document *doc, uint32_t idxFlags_);
   ~ForwardIndex();
 
@@ -93,6 +91,8 @@ struct ForwardIndexTokenizerCtx {
   ForwardIndexTokenizerCtx(ForwardIndex *idx, const char *doc, VarintVectorWriter *vvw,
                            t_fieldId fieldId, float score) :
   idx(idx), fieldId(fieldId), fieldScore(score), doc(doc), allOffsets(vvw) {}
+
+  int TokenFunc(const Token *tokInfo);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

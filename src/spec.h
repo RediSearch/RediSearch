@@ -182,6 +182,10 @@ struct IndexLoadOptions {
 
 //---------------------------------------------------------------------------------------------
 
+struct BaseIndex : Object {
+  virtual ~BaseIndex() {}
+};
+
 class IndexSpec {
 public:
   char *name;
@@ -197,7 +201,8 @@ public:
 
   DocTable docs;
 
-  std::shared_ptr<StopWordList> stopwords;
+  //@@ std::shared_ptr<StopWordList> stopwords;
+  StopWordList *stopwords;
 
   GC *gc;
 
@@ -209,7 +214,7 @@ public:
   IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
   long long timeout;
-  UnorderedMap<RedisModuleString, struct InvertedIndex*> keysDict;
+  UnorderedMap<RedisModuleString, BaseIndex*> keysDict;
   long long minPrefix;
   long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;
