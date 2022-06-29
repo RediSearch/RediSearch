@@ -1329,18 +1329,12 @@ def test_timeout_reached():
             # that is passed by ~95% of the vectors.
             hybrid_query_filter = "dummy" if mode == 'HYBRID_ADHOC_BF' else '-dummy'
             n_res = int(n_vec/20) if mode == 'HYBRID_ADHOC_BF' else n_vec
-            # res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-            #                            'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
-            #                            'TIMEOUT', 0)
             res = conn.execute_command('FT.SEARCH', 'idx', f'({hybrid_query_filter})=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_res,
                                        'PARAMS', 4, 'K', n_res, 'vec_param', query_vec.tobytes(),
                                        'TIMEOUT', 0)
             env.assertEqual(res[0], n_res)
             env.assertEqual(env.cmd(prefix + "FT.DEBUG", "VECSIM_INFO", "idx", "vector")[-1], mode)
 
-            # res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-            #                            'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
-            #                            'TIMEOUT', 1)
             res = conn.execute_command('FT.SEARCH', 'idx', f'({hybrid_query_filter})=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_res,
                                        'PARAMS', 4, 'K', n_res, 'vec_param', query_vec.tobytes(),
                                        'TIMEOUT', 1)
