@@ -22,6 +22,7 @@
 #include "dictionary.h"
 #include "doc_types.h"
 #include "rdb.h"
+#include "commands.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
