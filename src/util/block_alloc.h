@@ -22,8 +22,8 @@ struct BlkAlloc {
   ~BlkAlloc() { FreeAll(NULL, NULL, 0); }
 
   // Allocate a new element from the block allocator.
-  // A pointer of size elemSize will be returned. 
-  // blockSize is the size of the new block to be created (if the current block has no more 
+  // A pointer of size elemSize will be returned.
+  // blockSize is the size of the new block to be created (if the current block has no more
   // room for elemSize).
   // blockSize should be greater than elemSize, and should likely be a multiple thereof.
   //
@@ -40,7 +40,6 @@ struct BlkAlloc {
   void FreeAll(Cleaner cleaner, void *arg, size_t elemSize);
 
   // Like FreeAll, except the blocks are recycled and placed inside the 'avail' pool instead.
-
   void Clear(Cleaner cleaner, void *arg, size_t elemSize);
 
 protected:
@@ -59,7 +58,7 @@ struct DumbBlockPool {
     size_t used;
     size_t capacity;
     char data[0] __attribute__((aligned(16)));
-	
+
 	Block(size_t items) : used(0), capacity(itms), next(NULL) {}
 
     void reset() } {
@@ -101,7 +100,7 @@ struct DumbBlockPool {
       }
       cur = curNext;
     }
-  
+
     if (!recycle && avail) {
       cur = avail;
       while (cur) {
@@ -128,11 +127,11 @@ protected:
       }
       prev = cur;
     }
-  
+
     if (!block) {
 	  return new Block(items);
     }
-  
+
     block->reset();
     return block;
   }
@@ -143,7 +142,7 @@ protected:
 template <class T>
 struct BlockPool : DumpBlockPool<T> {
   typedef DumpBlockPool<T> Super;
-  
+
   BlockPool() : DumpBlockPool<T>() {}
   BlockPool() { FreeAll(); }
 
@@ -168,7 +167,7 @@ struct BlockPool : DumpBlockPool<T> {
       }
       cur = curNext;
     }
-  
+
     if (!recycle && avail) {
       cur = avail;
       while (cur) {

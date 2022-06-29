@@ -29,7 +29,7 @@ enum RLookupCoerceType {
  * using quick objects rather than "dynamic" string comparison mechanisms.
  *
  * The basic workflow is that users of a given key (i.e. "foo") are expected
- * to first create the key by use of RLookup_GetKey(). This will provide
+ * to first create the key by use of RLookup::GetKey(). This will provide
  * the consumer with an opaque object that is the slot of "foo". Once the
  * key is provided, it may then be use to both read and write the key.
  *

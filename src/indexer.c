@@ -68,7 +68,8 @@ uint32_t MergeHashTable::Hash(const KHTableEntry *ent) {
 
 // Boilerplate dict entry allocator
 KHTableEntry *MergeHashTable::Alloc(void *ctx) {
-  return BlkAlloc_Alloc(ctx, sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
+  BlkAlloc b = ctx;
+  return b->Alloc(sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -511,7 +512,7 @@ cleanup:
     concCtx->Unlock();
   }
   if (useTermHt) {
-    BlkAlloc_Clear(&alloc, NULL, NULL, 0);
+    alloc.Clear(NULL, NULL, 0);
     mergeHt.Clear();
   }
 }

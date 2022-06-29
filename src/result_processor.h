@@ -107,7 +107,7 @@ struct SearchResult {
   // duplicate index results to make them thread safe.
   IndexResult *indexResult;
 
-  // Row data. Use RLookup_* functions to access
+  // Row data. Use RLookup* functions to access
   RLookupRow rowdata;
 
   SearchResult();

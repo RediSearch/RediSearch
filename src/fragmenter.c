@@ -446,7 +446,7 @@ void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextS
 
 //---------------------------------------------------------------------------------------------
 
-void FragmentList::~FragmentList() {
+FragmentList::~FragmentList() {
   Fragment *frags_ = (Fragment *)GetFragments();
   for (size_t ii = 0; ii < numFrags; ii++) {
     delete &frags_[ii].termLocs;
@@ -513,7 +513,7 @@ void FragmentList::FragmentizeIter(const char *doc_, size_t docLen,
 void FragmentTermIterator::InitOffsets(RSByteOffsetIterator *byteOffsets, RSOffsetIterator *offIter) {
   offsetIter = offIter;
   byteIter = byteOffsets;
-  curByteOffset = RSByteOffsetIterator_Next(byteIter);
+  curByteOffset = byteIter->Next();
 
   // Advance the offset iterator to the first offset we care about (i.e. that
   // correlates with the first byte offset)
@@ -552,7 +552,7 @@ int FragmentTermIterator::Next(FragmentTerm **termInfo) {
 
   uint32_t nextPos = offsetIter->Next(offsetIter->ctx, &curMatchRec);
   if (nextPos != curTokPos) {
-    curByteOffset = RSByteOffsetIterator_Next(byteIter);
+    curByteOffset = byteIter->Next();
   }
   curTokPos = nextPos;
   return 1;

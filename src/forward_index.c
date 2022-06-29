@@ -29,7 +29,7 @@ static uint32_t khtHash(const KHTableEntry *entBase) {
 
 static KHTableEntry *allocBucketEntry(void *ptr) {
   BlkAlloc *alloc = ptr;
-  void *p = BlkAlloc_Alloc(alloc, sizeof(khIdxEntry), ENTRIES_PER_BLOCK * sizeof(khIdxEntry));
+  void *p = alloc->Alloc(sizeof(khIdxEntry), ENTRIES_PER_BLOCK * sizeof(khIdxEntry));
   return p;
 }
 
@@ -63,9 +63,6 @@ void ForwardIndex::InitCommon(Document *doc, uint32_t idxFlags_) {
 }
 
 ForwardIndex::ForwardIndex(Document *doc, uint32_t idxFlags_) {
-  BlkAlloc_Init(&terms);
-  BlkAlloc_Init(&entries);
-
   static const KHTableProcs procs = {
       Compare: khtCompare,
       Hash: khtHash,
@@ -94,8 +91,8 @@ static void clearEntry(void *elem, void *pool) {
 }
 
 void ForwardIndex::Reset(Document *doc, uint32_t idxFlags_) {
-  BlkAlloc_Clear(&terms, NULL, NULL, 0);
-  BlkAlloc_Clear(&entries, clearEntry, vvwPool, sizeof(khIdxEntry));
+  terms.Clear(NULL, NULL, 0);
+  entries.Clear(clearEntry, vvwPool, sizeof(khIdxEntry));
   KHTable_Clear(hits);
   if (smap) {
     delete smap;
@@ -109,8 +106,8 @@ inline int ForwardIndex::hasOffsets() const {
 }
 
 ForwardIndex::~ForwardIndex() {
-  BlkAlloc_FreeAll(&entries, clearEntry, vvwPool, sizeof(khIdxEntry));
-  BlkAlloc_FreeAll(&terms, NULL, NULL, 0);
+  entries.FreeAll(clearEntry, vvwPool, sizeof(khIdxEntry));
+  terms.FreeAll(NULL, NULL, 0);
   KHTable_Free(hits);
   rm_free(hits);
   mempool_destroy(vvwPool);
@@ -120,7 +117,7 @@ ForwardIndex::~ForwardIndex() {
 }
 
 char *ForwardIndex::copyTempString(const char *s, size_t n) {
-  char *dst = BlkAlloc_Alloc(&terms, n + 1, MAX(n + 1, TERM_BLOCK_SIZE));
+  char *dst = terms.Alloc(n + 1, MAX(n + 1, TERM_BLOCK_SIZE));
   memcpy(dst, s, n);
   dst[n] = '\0';
   return dst;

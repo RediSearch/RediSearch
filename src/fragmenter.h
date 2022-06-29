@@ -5,6 +5,7 @@
 #include <sys/uio.h>
 #include "util/array.h"
 #include "stemmer.h"
+#include "tokenize.h"
 #include "redisearch.h"
 #include "stopwords.h"
 #include "byte_offsets.h"
@@ -102,6 +103,11 @@ struct Fragment {
                  size_t closeLen, Array *iovs, const char **preamble) const;
 };
 
+struct HighlightTags {
+  const char *openTag;
+  const char *closeTag;
+};
+
 struct FragmentList {
   // Array of fragments
   Array frags<Fragment *>;
@@ -135,7 +141,6 @@ struct FragmentList {
     estAvgWordSize = estWordSize;
     sortedFrags = NULL;
     scratchFrags = NULL;
-    Array_Init(&frags);
   }
   ~FragmentList();
 
@@ -184,11 +189,6 @@ struct FragmentSearchTerm {
 #define DOCLEN_NULTERM ((size_t)-1)
 
 #define FRAGMENTIZE_TOKLEN_EXACT 0x01
-
-struct HighlightTags {
-  const char *openTag;
-  const char *closeTag;
-};
 
 /**
  * Return fragments by their score. The highest ranked fragment is returned fist

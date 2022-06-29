@@ -163,8 +163,8 @@ void RLookup::Reset(struct IndexSpecCache *cache) {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
- * idioms such as RLookup_WriteKey(..., RS_NumVal(10)); which would otherwise cause
+ * Exactly like WriteKey, but does not increment the refcount, allowing
+ * idioms such as WriteKey(..., RS_NumVal(10)); which would otherwise cause
  * a leak.
  */
 

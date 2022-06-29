@@ -105,6 +105,7 @@ GeoFilter::~GeoFilter() {
 t_docId *GeoIndex::RangeLoad(const GeoFilter &gf, size_t &num) const {
   num = 0;
   t_docId *docIds = NULL;
+  size_t sz;
   RedisModuleString *s = ctx->spec->GetFormattedKey(fs, INDEXFLD_T_GEO);
   RS_LOG_ASSERT(s, "failed to retrive key");
   // GEORADIUS key longitude latitude radius m|km|ft|mi
@@ -118,7 +119,7 @@ t_docId *GeoIndex::RangeLoad(const GeoFilter &gf, size_t &num) const {
     goto done;
   }
 
-  size_t sz = RedisModule_CallReplyLength(rep);
+  sz = RedisModule_CallReplyLength(rep);
   docIds = rm_calloc(sz, sizeof(t_docId));
   for (size_t i = 0; i < sz; i++) {
     const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);

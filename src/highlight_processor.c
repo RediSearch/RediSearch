@@ -49,8 +49,8 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
   int rc = 0;
   var offsIter = indexResult->IterateOffsets();
   FragmentTermIterator fragIter;
-  RSByteOffsetIterator bytesIter;
-  if (RSByteOffset_Iterate(byteOffsets, fs->ftId, &bytesIter) != REDISMODULE_OK) {
+  RSByteOffsetIterator bytesIter(byteOffsets, fs->ftId);
+  if (!bytesIter.valid) {
     goto done;
   }
 
@@ -254,17 +254,17 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
 
 //---------------------------------------------------------------------------------------------
 
-static void Highlighter::processField(hlpDocContext *docParams, ReturnedField *spec) {
+static void processField(hlpDocContext *docParams, ReturnedField *spec) {
   const char *fName = spec->name;
-  const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
+  const RSValue *fieldValue = docParams->row->GetItem(spec->lookupKey);
 
-  if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
+  if (fieldValue == NULL || !fieldValue->IsString()) {
     return;
   }
-  RSValue *v = summarizeField(RP_SPEC(&hlpCtx->base), spec, fName, fieldValue, docParams,
-                              hlpCtx->fragmentizeOptions);
+  RSValue *v = summarizeField(RP_SPEC(&this), spec, fName, fieldValue, docParams,
+                              fragmentizeOptions);
   if (v) {
-    RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);
+    docParams->row->WriteOwnKey(spec->lookupKey, v);
   }
 }
 
@@ -290,7 +290,7 @@ int Highlighter::Next(SearchResult *r) {
 
   // Get the index result for the current document from the root iterator.
   // The current result should not contain an index result
-  const IndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(rbase, r->docId);
+  const IndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(r->docId);
 
   // we can't work withot the inex result, just return QUEUED
   if (!ir) {
@@ -318,10 +318,10 @@ int Highlighter::Next(SearchResult *r) {
       ReturnedField combinedSpec;
       normalizeSettings(ff, &fields->defaultField, &combinedSpec);
       resetIovsArr(&docParams.iovsArr, &numIovsArr, combinedSpec.summarizeSettings.numFrags);
-      processField(hlp, &docParams, &combinedSpec);
+      processField(&docParams, &combinedSpec);
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
-    for (const RLookupKey *k = hlp->lookup->head; k; k = k->next) {
+    for (const RLookupKey *k = lookup->head; k; k = k->next) {
       if (k->flags & RLOOKUP_F_HIDDEN) {
         continue;
       }
@@ -347,7 +347,6 @@ Highlighter::Highlighter(const RSSearchOptions *searchopts, const FieldList *fie
   if (searchopts->language == RS_LANG_CHINESE) {
     fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }
-  Next = hlpNext;
   fields = fields_;
   lookup = lookup_;
 }
