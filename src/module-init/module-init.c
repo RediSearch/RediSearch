@@ -96,6 +96,8 @@ static int initAsModule(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
+  GetJSONAPIs(ctx, 1);
+
   return REDISMODULE_OK;
 }
 
@@ -196,7 +198,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   Initialize_KeyspaceNotifications(ctx);
   Initialize_CommandFilter(ctx);
-  GetJSONAPIs(ctx, 1);
   Initialize_RdbNotifications(ctx);
 
   // Register rm_malloc memory functions as vector similarity memory functions.

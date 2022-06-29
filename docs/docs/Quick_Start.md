@@ -17,14 +17,14 @@ RediSearch is available on all Redis Cloud managed services.  Redis Cloud Essent
 ## Running with Docker
 
 ```sh
-docker run -p 6379:6379 redislabs/redisearch:latest
+docker run -p 6379:6379 redis/redis-stack-server:latest
 ```
 
 ## Download and running binaries
 
 First download the pre-compiled version from the [Redis download center](https://redis.com/download-center/modules/).
 
-Next, run Redis with RediSearch: 
+Next, run Redis with RediSearch:
 
 ```sh
 $ redis-server --loadmodule /path/to/module/src/redisearch.so
@@ -67,13 +67,13 @@ For more elaborate build instructions, see the [Development page](/redisearch/de
 
 ```
 127.0.0.1:6379> FT.CREATE myIdx ON HASH PREFIX 1 doc: SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
-OK 
+OK
 
 ```
 
 ## Adding documents to the index
 ```
-127.0.0.1:6379> hset doc:1 title "hello world" body "lorem ipsum" url "http://redis.io" 
+127.0.0.1:6379> hset doc:1 title "hello world" body "lorem ipsum" url "http://redis.io"
 (integer) 3
 ```
 
@@ -91,14 +91,14 @@ OK
    6) "http://redis.io"
 ```
 
-!!! note
-    Input is expected to be valid utf-8 or ASCII. The engine cannot handle wide character unicode at the moment. 
-
+{{% alert title="Note" color="info" %}}
+Input is expected to be valid utf-8 or ASCII. The engine cannot handle wide character unicode at the moment.
+{{% /alert %}}
 
 ## Dropping the index
 
 ```
-127.0.0.1:6379> FT.DROPINDEX myIdx 
+127.0.0.1:6379> FT.DROPINDEX myIdx
 OK
 ```
 

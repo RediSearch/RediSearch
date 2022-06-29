@@ -44,7 +44,7 @@ def testRDBCompatibility(env):
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
     if not downloadFiles():
-        if os.environ.get('CI'):
+        if CI:
             env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
         else:
             env.skip()

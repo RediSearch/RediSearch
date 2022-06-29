@@ -322,7 +322,9 @@ DFT.DROP {index} [KEEPDOCS]
 
 ### Description
 
-!!! warning "This command is deprecated"
+{{% alert title="Deprecation" color="warning" %}}
+"This command is deprecated"
+{{% /alert %}}
 
 Deletes the index and all the keys associated with it. 
 

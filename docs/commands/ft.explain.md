@@ -8,8 +8,9 @@ In the returned response, a `+` on a term is an indication of stemming.
 - **query**: The query string, as if sent to FT.SEARCH
 - **DIALECT {dialect_version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
 
-!!! tip
-    You should use `redis-cli --raw` to properly read line-breaks in the returned response.
+{{% alert title="raw mode" color="info" %}}
+You should use `redis-cli --raw` to properly read line-breaks in the returned response.
+{{% /alert %}}
 
 @return
 

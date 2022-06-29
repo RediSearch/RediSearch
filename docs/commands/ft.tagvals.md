@@ -2,10 +2,11 @@ Returns the distinct set of values indexed in a Tag field.
 
 This is useful if your tag indexes things like cities, categories, etc.
 
-!!! warning "Limitations"
-    There is no paging or sorting, the tags are not alphabetically sorted.
-    This command only operates on [Tag fields](/redisearch/reference/tags).
-    The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
+{{% alert title="Limitations" color="warning" %}}
+There is no paging or sorting, the tags are not alphabetically sorted.
+This command only operates on [Tag fields](/redisearch/reference/tags).
+The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
+{{% /alert %}}
 
 #### Parameters
 
