@@ -55,6 +55,8 @@ struct MSG_IndexInfo {
   size_t lastblkDocsRemoved;
   size_t lastblkBytesCollected;
   size_t lastblkNumDocs;
+
+  MSG_IndexInfo(uint32_t nblocksOrig) : nblocksOrig(nblocksOrig) {}
 };
 
 // Structure sent describing an index block
@@ -93,6 +95,8 @@ struct tagNumHeader {
   const void *curPtr;
   uint64_t uniqueId;
   int sentFieldName;
+
+  tagNumHeader(const char *field, uint64_t uniqueId) : field(field), uniqueId(uniqueId) {}
 };
 
 //---------------------------------------------------------------------------------------------
@@ -186,7 +190,7 @@ struct ForkGC : public Object, public GCAPI {
 
 
 private:
-  int lock(RedisModuleCtx *ctx);
+  bool lock(RedisModuleCtx *ctx);
   void unlock(RedisModuleCtx *ctx);
   RedisSearchCtx *getSctx(RedisModuleCtx *ctx);
   void updateStats(RedisSearchCtx *sctx, size_t recordsRemoved, size_t bytesCollected);
@@ -202,7 +206,7 @@ private:
   int recvRepairedBlock(MSG_RepairedBlock *binfo);
   int recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info);
 
-  bool childRepairInvidx(RedisSearchCtx *sctx, InvertedIndex *idx, void (*headerCallback)(ForkGC *, void *),
+  bool childRepairInvidx(RedisSearchCtx *sctx, InvertedIndex *idx, void (*headerCallback)(void *),
                          void *hdrarg, IndexRepairParams *params);
   void sendHeaderString(void *arg);
   void sendNumericTagHeader(void *arg);

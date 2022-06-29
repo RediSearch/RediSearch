@@ -32,21 +32,21 @@
 
 //---------------------------------------------------------------------------------------------
 
-int ForkGC::lock(RedisModuleCtx *ctx) {
+bool ForkGC::lock(RedisModuleCtx *ctx) {
   if (type == FGC_TYPE_NOKEYSPACE) {
     RWLOCK_ACQUIRE_WRITE();
     if (deleting) {
       RWLOCK_RELEASE();
-      return 0;
+      return false;
     }
   } else {
     RedisModule_ThreadSafeContextLock(ctx);
     if (deleting) {
       RedisModule_ThreadSafeContextUnlock(ctx);
-      return 0;
+      return false;
     }
   }
-  return 1;
+  return true;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -173,12 +173,12 @@ int ForkGC::tryRecvBuffer(void **buf, size_t *len) {
  * RepairCallback and its argument are passed directly to IndexBlock::Repair; see
  * that function for more details.
  */
-bool ForkGC::childRepairInvidx(RedisSearchCtx *sctx, InvertedIndex *idx, void (*headerCallback)(ForkGC *, void *),
+bool ForkGC::childRepairInvidx(RedisSearchCtx *sctx, InvertedIndex *idx, void (*headerCallback)(void *),
                                void *hdrarg, IndexRepairParams *params) {
   arrayof(MSG_RepairedBlock) fixed = array_new(MSG_RepairedBlock, 10);
   arrayof(MSG_DeletedBlock) deleted = array_new(MSG_DeletedBlock, 10);
   arrayof(IndexBlock) blocklist = array_new(IndexBlock, idx->size);
-  MSG_IndexInfo ixmsg = {.nblocksOrig = idx->size};
+  MSG_IndexInfo ixmsg(idx->size);
   IndexRepairParams params_s;
   bool rv = false;
   if (!params) {
@@ -235,7 +235,7 @@ bool ForkGC::childRepairInvidx(RedisSearchCtx *sctx, InvertedIndex *idx, void (*
     goto done;
   }
 
-  headerCallback(gc, hdrarg);
+  headerCallback(hdrarg);
   sendFixed(&ixmsg, sizeof ixmsg);
   if (array_len(blocklist) == idx->size) {
     // no empty block, there is no need to send the blocks array. Don't send
@@ -373,7 +373,7 @@ void ForkGC::sendKht(const khash_t(cardvals) *kh) {
     }
     numUnion u = {kh_key(kh, it)};
     size_t count = kh_val(kh, it);
-    CardinalityValue cu = {.value = u.d48, .appearances = count};
+    CardinalityValue cu(u.d48, count);
     sendVar(cu);
     nsent++;
   }
@@ -394,7 +394,7 @@ void ForkGC::childCollectNumeric(RedisSearchCtx *sctx) {
     NumericRangeTreeIterator gcIterator(rt);
 
     NumericRangeNode *currNode = NULL;
-    tagNumHeader header = {.field = numericFields[i]->name, .uniqueId = rt->uniqueId};
+    tagNumHeader header(numericFields[i]->name, rt->uniqueId);
 
     while ((currNode = gcIterator.Next())) {
       if (!currNode->range) {
@@ -450,7 +450,7 @@ void ForkGC::childCollectTags(RedisSearchCtx *sctx) {
         continue;
       }
 
-      tagNumHeader header = {.field = tagFields[i]->name, .uniqueId = tagIdx->uniqueId};
+      tagNumHeader header(tagFields[i]->name, tagIdx->uniqueId);
 
       TrieMapIterator *iter = tagIdx->values->Iterate("", 0);
       char *ptr;
