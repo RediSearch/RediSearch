@@ -38,6 +38,15 @@ struct std::hash<String>
 };
 
 template<>
+struct std::hash<uint64_t>
+{
+    std::size_t operator()(const uint64_t &u) const noexcept
+    {
+		return std::hash<unsigned long long>{}(u);
+    }
+};
+
+template<>
 struct std::hash<RedisModuleString>
 {
     std::size_t operator()(const RedisModuleString &s) const noexcept

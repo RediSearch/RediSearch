@@ -5,8 +5,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 int AliasTable::Add(const char *alias, IndexSpec *spec, int options, QueryError *error) {
-  const auto [it, success] = d.insert({alias, spec});
-
+  bool success = d.insert({alias, spec}).second;
   if (!success) {
     error->SetError(QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;

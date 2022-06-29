@@ -48,22 +48,12 @@ static size_t estimtateTermCount(const Document *doc) {
   return nChars / CHARS_PER_TERM;
 }
 
-static void *vvwAlloc(void) {
-  return new VarintVectorWriter(64);
-}
-
-static void vvwFree(void *p) {
-  // printf("Releasing VVW=%p\n", p);
-  VVW_Cleanup(p);
-  rm_free(p);
-}
-
 void ForwardIndex::InitCommon(Document *doc, uint32_t idxFlags_) {
   idxFlags = idxFlags_;
   maxFreq = 0;
   totalFreq = 0;
 
-  if (stemmer && !stemmer->ResetStemmer(SnowballStemmer, doc->language)) {
+  if (stemmer && !stemmer->Reset(SnowballStemmer, doc->language)) {
     delete stemmer;
   }
 
@@ -88,7 +78,7 @@ ForwardIndex::ForwardIndex(Document *doc, uint32_t idxFlags_) {
   totalFreq = 0;
 
   KHTable_Init(hits, &procs, &entries, termCount);
-  mempool_options options = { alloc: vvwAlloc, free: vvwFree, initialCap: termCount};
+  mempool_options options = { alloc: new VarintVectorWriter(), free: ~VarintVectorWriter(), initialCap: termCount};
   vvwPool = mempool_new(&options);
 
   InitCommon(doc, idxFlags_);
@@ -111,28 +101,21 @@ void ForwardIndex::Reset(Document *doc, uint32_t idxFlags_) {
     delete smap;
   }
 
-  ForwardIndex_InitCommon(idx, doc, idxFlags_);
+  InitCommon(doc, idxFlags_);
 }
 
 inline int ForwardIndex::hasOffsets() const {
   return (idxFlags & Index_StoreTermOffsets);
 }
 
-void ForwardIndex::~ForwardIndex() {
+ForwardIndex::~ForwardIndex() {
   BlkAlloc_FreeAll(&entries, clearEntry, vvwPool, sizeof(khIdxEntry));
   BlkAlloc_FreeAll(&terms, NULL, NULL, 0);
   KHTable_Free(hits);
   rm_free(hits);
   mempool_destroy(vvwPool);
-
-  if (stemmer) {
-    stemmer->Free(stemmer);
-  }
-
-  if (smap) {
-    delete smap;
-  }
-
+  delete stemmer;
+  delete smap;
   smap = NULL;
 }
 
@@ -177,7 +160,7 @@ void ForwardIndex::HandleToken(const char *tok, size_t tokLen, uint32_t pos,
     if (hasOffsets()) {
       h->vw = mempool_get(vvwPool);
       // printf("Got VVW=%p\n", h->vw);
-      VVW_Reset(h->vw);
+      h->vw->Reset();
     } else {
       h->vw = NULL;
     }
@@ -196,7 +179,7 @@ void ForwardIndex::HandleToken(const char *tok, size_t tokLen, uint32_t pos,
   maxFreq = MAX(h->freq, maxFreq);
   totalFreq += h->freq;
   if (h->vw) {
-    VVW_Write(h->vw, pos);
+    h->vw->Write(pos);
   }
 
   // LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
@@ -215,7 +198,7 @@ static int ForwardIndexTokenizerCtx::TokenFunc(const Token *tokInfo) {
                    fieldScore, fieldId, options);
 
   if (allOffsets) {
-    VVW_Write(allOffsets, tokInfo->raw - doc);
+    allOffsets->Write(tokInfo->raw - doc);
   }
 
   if (tokInfo->stem) {

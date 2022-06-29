@@ -79,8 +79,8 @@ KHASH_MAP_INIT_INT64(cardvals, size_t)
 
 struct numCbCtx {
   const IndexBlock *lastblk;
-  khash_t(cardvals) * delLast;
-  khash_t(cardvals) * delRest;
+  UnorderedMap<uint64_t, size_t> delLast;
+  UnorderedMap<uint64_t, size_t> delRest;
 };
 
 typedef union {

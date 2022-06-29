@@ -300,25 +300,21 @@ void ForkGC::childCollectTerms(RedisSearchCtx *sctx) {
 
 //---------------------------------------------------------------------------------------------
 
-static void countDeleted(const IndexResult *r, const IndexBlock *blk, void *arg) {
+static void countDeleted(const NumericResult *r, const IndexBlock *blk, void *arg) {
   numCbCtx *ctx = arg;
-  khash_t(cardvals) *ht = NULL;
+  UnorderedMap<uint64_t, size_t> ht;
   if (blk == ctx->lastblk) {
-    if ((ht = ctx->delLast) == NULL) {
-      ht = ctx->delLast = kh_init(cardvals);
-    }
-  } else if ((ht = ctx->delRest) == NULL) {
-    ht = ctx->delRest = kh_init(cardvals);
+      ht = ctx->delLast;
+  } else {
+    ht = ctx->delRest;
   }
   RS_LOG_ASSERT(ht, "cardvals should not be NULL");
-  int added = 0;
-  numUnion u = {r->num.value};
-  khiter_t it = kh_put(cardvals, ht, u.u64, &added);
-  if (!added) {
+  double u = r->value;
+  if (ht.contains(u)) {
     // i.e. already existed
-    kh_val(ht, it)++;
+    ht[u]++;
   } else {
-    kh_val(ht, it) = 0;
+    ht[u] = 0;
   }
 }
 
@@ -767,11 +763,9 @@ FGCError ForkGC::recvNumIdx(NumGcInfo *ninfo) {
   if (ninfo->node == NULL) {
     return FGC_DONE;
   }
-
   if (recvInvIdx(&ninfo->idxbufs, &ninfo->info) != REDISMODULE_OK) {
     goto error;
   }
-
   if (recvCardvals(&ninfo->restBlockDeleted, &ninfo->nrestBlockDel) != REDISMODULE_OK) {
     goto error;
   }
@@ -793,21 +787,19 @@ error:
 //---------------------------------------------------------------------------------------------
 
 static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
-  khash_t(cardvals) *kh = kh_init(cardvals);
-  int added;
-  for (size_t ii = 0; ii < info->nrestBlockDel; ++ii) {
-    numUnion u = {info->restBlockDeleted[ii].value};
-    khiter_t it = kh_put(cardvals, kh, u.u64, &added);
-    kh_val(kh, it) = info->restBlockDeleted[ii].appearances;
+  UnorderedMap<uint64_t, size_t> kh;
+  uint64_t u;
+  for (size_t i = 0; i < info->nrestBlockDel; ++i) {
+    u = info->restBlockDeleted[i].value;
+    kh[u] = info->restBlockDeleted[i].appearances;
   }
   if (!info->idxbufs.lastBlockIgnored) {
-    for (size_t ii = 0; ii < info->nlastBlockDel; ++ii) {
-      numUnion u = {info->lastBlockDeleted[ii].value};
-      khiter_t it = kh_put(cardvals, kh, u.u64, &added);
-      if (!added) {
-        kh_val(kh, it) += info->lastBlockDeleted[ii].appearances;
+    for (size_t i = 0; i < info->nlastBlockDel; ++i) {
+      u = info->lastBlockDeleted[i].value;
+      if (kh.contains(u)) {
+        kh[u] += info->lastBlockDeleted[i].appearances;
       } else {
-        kh_val(kh, it) = info->lastBlockDeleted[ii].appearances;
+        kh[u] = info->lastBlockDeleted[i].appearances;
       }
     }
   }
@@ -816,24 +808,23 @@ static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
   size_t n = array_len(r->values);
   double minVal = DBL_MAX, maxVal = -DBL_MIN, uniqueSum = 0;
 
-  for (size_t ii = 0; ii < array_len(r->values); ++ii) {
+  for (size_t i = 0; i < array_len(r->values); ++i) {
   reeval:;
-    numUnion u = {r->values[ii].value};
-    khiter_t it = kh_get(cardvals, kh, u.u64);
-    if (it != kh_end(kh) && (r->values[ii].appearances -= kh_val(kh, it)) == 0) {
+    u = r->values[i].value;
+    if (r->values[i].appearances -= kh[u] == 0) {
       // delet this
-      size_t isLast = array_len(r->values) == ii + 1;
-      array_del_fast(r->values, ii);
+      size_t isLast = array_len(r->values) == i + 1;
+      array_del_fast(r->values, i);
       if (!isLast) {
         goto reeval;
       }
     } else {
-      minVal = MIN(minVal, r->values[ii].value);
-      maxVal = MAX(maxVal, r->values[ii].value);
-      uniqueSum += r->values[ii].value;
+      minVal = MIN(minVal, r->values[i].value);
+      maxVal = MAX(maxVal, r->values[i].value);
+      uniqueSum += r->values[i].value;
     }
   }
-  kh_destroy(cardvals, kh);
+
   // we can only update the min and the max value if the node is a leaf.
   // otherwise the min and the max also represent its children values and
   // we can not change it.
