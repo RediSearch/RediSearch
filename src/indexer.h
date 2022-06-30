@@ -51,7 +51,8 @@ struct DocumentIndexer : public Object {
   ~DocumentIndexer();
 
   static DocumentIndexer *Copy(DocumentIndexer *indexer);
-  static void Free();
+  void Free();
+  void Process(AddDocumentCtx *aCtx);
 
   int Add(AddDocumentCtx *aCtx);
 

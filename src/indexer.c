@@ -27,8 +27,8 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder en
 
   /* Record the space saved for offset vectors */
   if (spec->flags & Index_StoreTermOffsets) {
-    spec->stats.offsetVecsSize += VVW_GetByteLength(entry.vw);
-    spec->stats.offsetVecRecords += VVW_GetCount(entry.vw);
+    spec->stats.offsetVecsSize += entry.vw->GetByteLength();
+    spec->stats.offsetVecRecords += entry.vw->GetCount();
   }
 }
 
@@ -108,7 +108,7 @@ static AddDocumentCtx *doMerge(AddDocumentCtx *aCtx, KHTable *ht, AddDocumentCtx
   while (cur && ++counter < 1000 && curIdIdx < MAX_BULK_DOCS) {
 
     ForwardIndexIterator it = cur->fwIdx->Iterate();
-    ForwardIndexEntry *entry = &it->Next();
+    ForwardIndexEntry *entry = it.Next();
 
     while (entry) {
       // Because we don't have the actual document ID at this point, the document
@@ -159,7 +159,7 @@ int DocumentIndexer::writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ct
                                         KHTable *ht, AddDocumentCtx **parentMap) {
 
   IndexEncoder encoder = InvertedIndex::GetEncoder(ctx->spec->flags);
-  const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
+  const int isBlocked = aCtx->IsBlockable();
 
   // This is used as a cache layer, so that we don't need to derefernce the
   // AddDocumentCtx each time.
@@ -232,7 +232,7 @@ void DocumentIndexer::writeCurEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx)
   ForwardIndexIterator it = aCtx->fwIdx->Iterate();
   ForwardIndexEntry *entry = it.Next();
   IndexEncoder encoder = InvertedIndex::GetEncoder(aCtx->specFlags);
-  const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
+  const int isBlocked = aCtx->IsBlockable();
 
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
@@ -399,21 +399,20 @@ struct DocumentIndexerConcurrentKey : public ConcurrentKey {
     ConcurrentKey(key, keyName, REDISMODULE_READ | REDISMODULE_WRITE) {
   }
 
-  virtual void Reopen(RedisModuleKey *k);
-    // Index Key
-    RedisSearchCtx *ctx = arg;
+  virtual void Reopen(RedisModuleKey *k) {
     // we do not allow empty indexes when loading an existing index
     if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
         RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
-      ctx->spec = NULL;
+      sctx.spec = NULL;
       return;
     }
 
-    ctx->spec = RedisModule_ModuleTypeGetValue(k);
-    if (ctx->spec->uniqueId != ctx->specId) {
-      ctx->spec = NULL;
+    sctx.spec = RedisModule_ModuleTypeGetValue(k);
+    if (sctx.spec->uniqueId != sctx.specId) {
+      sctx.spec = NULL;
     }
   }
+};
 
 //---------------------------------------------------------------------------------------------
 
@@ -462,9 +461,9 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
 
     sctx.redisCtx = redisCtx;
     sctx.specId = specId;
-    concCtx->SetKey(specKeyName, &sctx);
-    concCtx->ResetClock();
-    concCtx->Lock();
+    concCtx.SetKey(specKeyName, &sctx);
+    concCtx.ResetClock();
+    concCtx.Lock();
   } else {
     sctx = *aCtx->client.sctx;
   }
@@ -500,16 +499,16 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
   if (useTermHt) {
     writeMergedEntries(aCtx, &sctx, &mergeHt, parentMap);
   } else if (aCtx->fwIdx && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
-    writeCurEntries(aCtx, &ctx);
+    writeCurEntries(aCtx, &sctx);
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
-    IndexBulkData::indexBulkFields(aCtx, &ctx);
+    IndexBulkData::indexBulkFields(aCtx, &sctx);
   }
 
 cleanup:
   if (isBlocked) {
-    concCtx->Unlock();
+    concCtx.Unlock();
   }
   if (useTermHt) {
     alloc.Clear(NULL, NULL, 0);
@@ -606,12 +605,12 @@ int DocumentIndexer::Add(AddDocumentCtx *aCtx) {
 // thread. This does not insert it into the list of threads, though
 // todo: remove the withIndexThread var once we switch to threadpool
 
-DocumentIndexer::DocumentIndexer(IndexSpec *spec) : mergeHt(alloc, 4096) {
+DocumentIndexer::DocumentIndexer(IndexSpec *spec) {
+  mergeHt = new MergeHashTable(alloc, 4096);
   size = 0;
   isDbSelected = false;
   refcount = 1;
   head = tail = NULL;
-
   options = 0;
   if (!!(spec->flags & Index_Temporary) || !RSGlobalConfig.concurrentMode) {
     options |= INDEXER_THREADLESS;
@@ -629,7 +628,7 @@ DocumentIndexer::DocumentIndexer(IndexSpec *spec) : mergeHt(alloc, 4096) {
   specId = spec->uniqueId;
   specKeyName = RedisModule_CreateStringPrintf(redisCtx, INDEX_SPEC_KEY_FMT, spec->name);
 
-  concCtx = new ConcurrentSearchCtx(redisCtx, REDISMODULE_READ | REDISMODULE_WRITE, reopenCb);
+  concCtx = *new ConcurrentSearchCtx(redisCtx, REDISMODULE_READ | REDISMODULE_WRITE);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -639,7 +638,7 @@ DocumentIndexer::~DocumentIndexer() {
     pthread_cond_destroy(&cond);
     pthread_mutex_destroy(&lock);
   }
-  delete concCtx;
+  delete &concCtx;
   RedisModule_FreeString(redisCtx, specKeyName);
   mergeHt.Clear();
   // KHTable_Free(&mergeHt);
@@ -670,7 +669,7 @@ size_t DocumentIndexer::Incref() {
 
 void DocumentIndexer::Free() {
   if (options & INDEXER_THREADLESS) {
-    delete indexer;
+    delete this;
   } else {
     Decref();
   }
