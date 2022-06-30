@@ -18,6 +18,7 @@ typedef enum JSONType {
 } JSONType;
 
 typedef enum PathInfoFlags {
+  PathInfoFlag_Unknown = 0,
   PathInfoFlag_Invalid = 1,
   PathInfoFlag_Static = 2,
   PathInfoFlag_DefinedOrder = 4

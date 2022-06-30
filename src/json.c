@@ -47,6 +47,13 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+PathInfoFlags getPathFlags(const char *path) {
+  if (japi2) {
+    return japi2->getPathInfoFlags(path);
+  } else {
+    return PathInfoFlag_Unknown;
+  }
+}
 
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   int rv = REDISMODULE_ERR;

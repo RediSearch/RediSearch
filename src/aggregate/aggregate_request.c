@@ -861,13 +861,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), req->dialectVersion, status);
+  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
   QAST_EvalParams(ast, opts, status);
   applyGlobalFilters(opts, ast, sctx);
+  
+  if (QAST_CheckIsValid(ast, req->sctx->spec, opts, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   if (!(opts->flags & Search_Verbatim)) {
     if (QAST_Expand(ast, opts->expanderName, opts, sctx, status) != REDISMODULE_OK) {

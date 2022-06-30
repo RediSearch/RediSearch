@@ -155,9 +155,14 @@ def testMultiText(env):
     env.execute_command('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.[*]', 'AS', 'category', 'TEXT')
     # Index an array
     env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$', 'AS', 'category', 'TEXT')
+    # Index both multi flat values and an array
+    env.execute_command('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
+        '$.[*]', 'AS', 'author', 'TEXT', # testing root path, so reuse the single top-level value
+        '$', 'AS', 'category', 'TEXT')
     
     waitForIndex(env, 'idx_category_flat')
     waitForIndex(env, 'idx_category_arr')
+    waitForIndex(env, 'idx_category_arr_author_flat')
     
     searchMultiTextCategory(env)
 
@@ -176,11 +181,16 @@ def testMultiTextNested(env):
     env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     # Index an array of arrays
     env.execute_command('FT.CREATE', 'idx_author_arr', 'ON', 'JSON', 'SCHEMA', '$.books[*].authors', 'AS', 'author', 'TEXT')
+    # Index both multi flat values and an array
+    env.execute_command('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
+        '$.books[*].authors[*]', 'AS', 'author', 'TEXT',
+        '$.category', 'AS', 'category', 'TEXT')
     
     waitForIndex(env, 'idx_category_flat')
     waitForIndex(env, 'idx_author_flat')
     waitForIndex(env, 'idx_category_arr')
     waitForIndex(env, 'idx_author_arr')
+    waitForIndex(env, 'idx_category_arr_author_flat')
 
     searchMultiTextCategory(env)
     searchMultiTextAuthor(env)
@@ -189,6 +199,7 @@ def testMultiTextNested(env):
         '$.category', 'AS', 'category', 'TEXT',
         '$.books[*].authors[*]', 'AS', 'author', 'TEXT',
         '$.books[*].name', 'AS', 'name', 'TEXT')
+    waitForIndex(env, 'idx_book')
     res = env.execute_command('FT.SEARCH', 'idx_book',
         '(@name:(design*) -@category:(cloud)) | '
         '(@name:(Kubernetes*) @category:(cloud))',
@@ -199,7 +210,7 @@ def testMultiTextNested(env):
 def searchMultiTextCategory(env):
     """ helper function for searching multi-value attributes """
 
-    for idx in ['idx_category_arr']:
+    for idx in ['idx_category_arr', 'idx_category_arr_author_flat']:
         env.debugPrint(idx, force=True)
         env.expect('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '1').equal([0])
         env.expect('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '99').equal([1, 'doc:1'])
@@ -217,10 +228,8 @@ def searchMultiTextCategory(env):
         env.expect('FT.SEARCH', idx, '@category:(cloud)', 'NOCONTENT').equal([1, 'doc:3'])
     
     # Multi-value attributes which have no definite ordering cannot use slop or inorder
-    # TODO:
-    ##env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$slop:200}').error().contains("zzz")
-    ##env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$inorder:false}').error().contains("zzz")    
-
+    env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$slop:200}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$inorder:false}').error().contains("has undefined ordering")    
 
 def searchMultiTextAuthor(env):
     """ helper function for searching multi-value attributes """
@@ -238,12 +247,55 @@ def searchMultiTextAuthor(env):
         res = env.execute_command('FT.SEARCH', idx, '@author:(Redis)', 'NOCONTENT')
         env.assertListEqual(toSortedFlatList(res), toSortedFlatList([3, 'doc:1', 'doc:2', 'doc:3']))
 
-    # Multi-value attributes which have no definite ordering cannot use slop or inorder
-    # TODO:
-    ##env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Richard)=>{$slop:200}').error().contains("zzz")
-    ##env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Richard)=>{$inorder:false}').error().contains("zzz")
+    # None-exact phrase using multi-value attributes which have no definite ordering cannot use slop or inorder
+    env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
+    
+    env.expect('FT.SEARCH', 'idx_author_flat', '@category|author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_author_flat', '@category|author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
 
+    env.expect('FT.SEARCH', 'idx_author_flat', '@category|author:("Redis Ltd.")=>{$inorder:true}').error().contains("has undefined ordering")
+    
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
 
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200; $inorder:false}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$inorder:false}', 'NOCONTENT').equal([1, 'doc:1'])
+
+def testUndefinedOrderingWithSlopAndInorder(env):
+    """ Test that query attributes `slop` and `inorder` cannot be used when order is not well defined """
+
+    # Index both multi flat values and an array
+    env.execute_command('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
+        '$.books[*].authors', 'AS', 'author', 'TEXT',
+        '$.category', 'AS', 'category', 'TEXT')
+    waitForIndex(env, 'idx_category_arr_author_flat')
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)=>{$slop:200}').equal([0])
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)=>{$inorder:false}').equal([0])
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)=>{$inorder:true}').equal([0])
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$slop:200}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:false}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:true}').error().contains("has undefined ordering")
+
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)', 'SLOP', '200').equal([0])
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)', 'INORDER').equal([0])
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'SLOP', '200').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'INORDER').error().contains("has undefined ordering")
+
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)', 'SLOP', '200').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)', 'INORDER').error().contains("has undefined ordering")
+
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', 'does not matter', 'SLOP', '200').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', 'does not matter', 'INORDER').error().contains("has undefined ordering")
+    
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$inorder:false}', 'SLOP', '200').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$slop:200}', 'INORDER').error().contains("has undefined ordering")
+
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$inorder:false}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$slop:200}').error().contains("has undefined ordering")
+
+    
 def testMultiNonText(env):
     """
     test multiple TEXT values which include some non-text values at root level (null, number, bool, array, object)
@@ -263,6 +315,7 @@ def testMultiNonText(env):
         doc = 'doc:{}:'.format(i+1)
         idx = 'idx{}'.format(i+1)
         env.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'TEXT')
+        waitForIndex(env, idx)
         env.expect('JSON.SET', doc, '$', json.dumps(v)).ok()
         res_failures = 0 if i+1 <= 5 else 1
         env.assertEqual(int(index_info(env, idx)['hash_indexing_failures']), res_failures, message=str(i))

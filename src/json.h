@@ -25,6 +25,8 @@ int JSON_LoadDocumentField(RedisModuleCtx *ctx, JSONResultsIterator jsonIter, si
 /* Checks if JSONType fits the FieldType */
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type);
 
+PathInfoFlags getPathFlags(const char *path);
+
 #ifdef __cplusplus
 }
 #endif
