@@ -339,7 +339,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
   tokVec->top = 0;
   tokenizer->Start(tokenizer, token->str, token->len, 0);
 
-  Token tTok = {0};
+  Token tTok;
   while (tokenizer->Next(tokenizer, &tTok)) {
     char *s = rm_strndup(tTok.tok, tTok.tokLen);
     tokVec->Push(s);

@@ -1186,7 +1186,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 2: /* query ::= STAR */
 {
-    ctx->root = NewWildcardNode();
+    ctx->root = new QueryWildcardNode();
 }
         break;
       case 3: /* expr ::= expr expr */
@@ -1397,7 +1397,7 @@ static YYACTIONTYPE yy_reduce(
       case 25: /* expr ::= MINUS expr */
 {
     if (yymsp[0].minor.yy35) {
-        yymsp[-1].minor.yy35 = NewNotNode(yymsp[0].minor.yy35);
+        yymsp[-1].minor.yy35 = new QueryNotNode(yymsp[0].minor.yy35);
     } else {
         yymsp[-1].minor.yy35 = NULL;
     }
@@ -1406,7 +1406,7 @@ static YYACTIONTYPE yy_reduce(
       case 26: /* expr ::= TILDE expr */
 {
     if (yymsp[0].minor.yy35) {
-        yymsp[-1].minor.yy35 = NewOptionalNode(yymsp[0].minor.yy35);
+        yymsp[-1].minor.yy35 = new QueryOptionalNode(yymsp[0].minor.yy35);
     } else {
         yymsp[-1].minor.yy35 = NULL;
     }
@@ -1479,7 +1479,7 @@ static YYACTIONTYPE yy_reduce(
 
         // Set the children count on yymsp[0].minor.yy35 to 0 so they won't get recursively free'd
         yymsp[0].minor.yy35->ClearChildren(false);
-        deletet yymsp[0].minor.yy35;
+        delete yymsp[0].minor.yy35;
     }
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;

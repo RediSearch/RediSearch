@@ -165,7 +165,7 @@ query ::= . {
 }
 
 query ::= STAR . {
-    ctx->root = NewWildcardNode();
+    ctx->root = new QueryWildcardNode();
 }
 
 /////////////////////////////////////////////////////////////////
@@ -361,7 +361,7 @@ termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
 
 expr(A) ::= MINUS expr(B) . {
     if (B) {
-        A = NewNotNode(B);
+        A = new QueryNotNode(B);
     } else {
         A = NULL;
     }
@@ -373,7 +373,7 @@ expr(A) ::= MINUS expr(B) . {
 
 expr(A) ::= TILDE expr(B) . {
     if (B) {
-        A = NewOptionalNode(B);
+        A = new QueryOptionalNode(B);
     } else {
         A = NULL;
     }
