@@ -159,7 +159,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
   }
 
   RedisModuleCtx *ctx = redisCtx;
-  Document doc = new Document(name, opts->score, opts->language);
+  Document doc = *new Document(name, opts->score, opts->language);
 
   if (opts->payload) {
     size_t npayload = 0;
@@ -181,7 +181,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
-  RSAddDocumentCtx *aCtx = new RSAddDocumentCtx(sp, &doc, status);
+  AddDocumentCtx *aCtx = new AddDocumentCtx(sp, &doc, status);
   if (aCtx == NULL) {
     goto error;
   }
@@ -204,7 +204,7 @@ error:
   return REDISMODULE_ERR;
 }
 
-static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
+static void replyCallback(AddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
   if (aCtx->status.HasError()) {
     if (aCtx->status.code == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithError(ctx, "NOADD");
@@ -370,7 +370,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
 
-  RSAddDocumentCtx aCtx = *new RSAddDocumentCtx(sp, &doc, &status);
+  AddDocumentCtx aCtx(&sp, &doc, &status);
   if (aCtx == NULL) {
     return QueryError_ReplyAndClear(ctx, &status);
   }

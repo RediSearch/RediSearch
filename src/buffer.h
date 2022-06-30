@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include "redismodule.h"
+#include "redisearch.h"
 
 #include <stdio.h>
 #include <stdlib.h>

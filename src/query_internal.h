@@ -56,17 +56,4 @@ struct Query : Object {
   IndexIterator *Eval(QueryNode *node);
 };
 
-//---------------------------------------------------------------------------------------------
-
-// TODO: These APIs are helpers for the generated parser. They belong in the
-// bowels of the actual parser, and should probably be a macro!
-
-QueryNode *NewTokenNodeExpanded(struct QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
-
-#define NewWildcardNode() new QueryNode(QN_WILDCARD)
-#define NewNotNode(child) new QueryNode(QN_NOT, &child, 1)
-#define NewOptionalNode(child) new QueryNode(QN_OPTIONAL, &child, 1)
-
-QueryNode *NewIdFilterNode(const t_docId *, size_t);
-
 ///////////////////////////////////////////////////////////////////////////////////////////////

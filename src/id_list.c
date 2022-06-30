@@ -165,7 +165,7 @@ IdListIterator::IdListIterator(t_docId *ids, t_offset num, double weight) {
   if (num > 0) memcpy(docIds, ids, num * sizeof(t_docId));
   setEof(0);
   lastDocId = 0;
-  current = NewVirtualResult(weight);
+  current = new VirtualResult(weight);
   current->fieldMask = RS_FIELDMASK_ALL;
 
   offset = 0;

@@ -30,7 +30,7 @@ template<> AddDocumentPool MemPoolObject<AddDocumentPool>::pool(16, 0, true);
 
 //---------------------------------------------------------------------------------------------
 
-int RSAddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCount) {
+int AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCount) {
   stateFlags &= ~ACTX_F_INDEXABLES;
   stateFlags &= ~ACTX_F_TEXTINDEXED;
   stateFlags &= ~ACTX_F_OTHERINDEXED;
@@ -161,7 +161,7 @@ int RSAddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldC
  * When done, call delete
  */
 
-RSAddDocumentCtx::RSAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) {
+AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) {
   stateFlags = 0;
   status.ClearError();
   totalTokens = 0;
@@ -177,7 +177,7 @@ RSAddDocumentCtx::RSAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *statu
   if (SetDocument(sp, b, doc.numFields) != 0) {
     *status_ = status;
     status.detail = NULL;
-    throw Error("RSAddDocumentCtx::SetDocument failed");
+    throw Error("AddDocumentCtx::SetDocument failed");
   }
 
   // try to reuse the forward index on recycled contexts
@@ -201,14 +201,14 @@ RSAddDocumentCtx::RSAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *statu
 
 //---------------------------------------------------------------------------------------------
 
-static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
+static void doReplyFinish(AddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
   aCtx->donecb(aCtx, ctx, aCtx->donecbData);
   aCtx->indexer->Decref();
   delete aCtx;
 }
 
 static int replyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RSAddDocumentCtx *aCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  AddDocumentCtx *aCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   doReplyFinish(aCtx, ctx);
   return REDISMODULE_OK;
 }
@@ -221,7 +221,7 @@ static void threadCallback(void *p) {
 
 // Indicate that processing is finished on the current document
 
-void RSAddDocumentCtx::Finish() {
+void AddDocumentCtx::Finish() {
   if (stateFlags & ACTX_F_NOBLOCK) {
     doReplyFinish(this, client.sctx->redisCtx);
   } else {
@@ -251,7 +251,7 @@ void Document::Dump() const {
 
 //---------------------------------------------------------------------------------------------
 
-bool RSAddDocumentCtx::ReplaceMerge(RedisSearchCtx *sctx) {
+bool AddDocumentCtx::ReplaceMerge(RedisSearchCtx *sctx) {
   /**
    * The REPLACE operation contains fields which must be reindexed. This means
    * that a new document ID needs to be assigned, and as a consequence, all
@@ -277,7 +277,7 @@ bool RSAddDocumentCtx::ReplaceMerge(RedisSearchCtx *sctx) {
 
 //---------------------------------------------------------------------------------------------
 
-bool RSAddDocumentCtx::handlePartialUpdate(RedisSearchCtx *sctx) {
+bool AddDocumentCtx::handlePartialUpdate(RedisSearchCtx *sctx) {
   // Handle partial update of fields
   if (stateFlags & ACTX_F_INDEXABLES) {
     return ReplaceMerge(sctx);
@@ -295,7 +295,7 @@ bool RSAddDocumentCtx::handlePartialUpdate(RedisSearchCtx *sctx) {
 // At this point the context will take over from the caller, and handle sending
 // the replies and so on.
 
-void RSAddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
+void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
   options = options;
   if ((options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(sctx)) {
     return;
@@ -331,10 +331,10 @@ void RSAddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
 
 //---------------------------------------------------------------------------------------------
 
-// Free RSAddDocumentCtx. Should be done once AddToIndexes() completes; or
+// Free AddDocumentCtx. Should be done once AddToIndexes() completes; or
 // when the client is unblocked.
 
-RSAddDocumentCtx::~RSAddDocumentCtx() {
+AddDocumentCtx::~AddDocumentCtx() {
   // Free preprocessed data; this is the only reliable place to do it
   for (size_t i = 0; i < doc.numFields; ++i) {
     if (FIELD_IS_VALID(this, i) && (fspecs + i)->IsFieldType(INDEXFLD_T_TAG) &&
@@ -364,11 +364,11 @@ RSAddDocumentCtx::~RSAddDocumentCtx() {
 //---------------------------------------------------------------------------------------------
 
 #define FIELD_HANDLER(name)                                                                \
-  static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
+  static int name(AddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs,   \
                   FieldIndexerData *fdata, QueryError *status)
 
 #define FIELD_BULK_INDEXER(name)                                                            \
-  static int name(IndexBulkData *bulk, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,         \
+  static int name(IndexBulkData *bulk, AddDocumentCtx *aCtx, RedisSearchCtx *ctx,           \
                   const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata, \
                   QueryError *status)
 
@@ -529,7 +529,7 @@ static PreprocessorFunc preprocessorMap[] = {
 
 //---------------------------------------------------------------------------------------------
 
-int IndexBulkData::Add(RSAddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField *field,
+int IndexBulkData::Add(AddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField *field,
                        const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status) {
   int rc = 0;
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES && rc == 0; ++ii) {
@@ -579,7 +579,7 @@ void IndexBulkData::Cleanup(RedisSearchCtx *sctx) {
  * unblock the client passed when the context was first created.
  */
 
-static int Document::AddToIndexes(RSAddDocumentCtx *aCtx) {
+static int Document::AddToIndexes(AddDocumentCtx *aCtx) {
   Document *doc = &aCtx->doc;
   int ourRv = REDISMODULE_OK;
 
@@ -684,7 +684,7 @@ done:
 
 //---------------------------------------------------------------------------------------------
 
-void RSAddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
+void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
 #define BAIL(s)                                \
   do {                                         \
     status.SetError(QUERY_EGENERIC, s);        \

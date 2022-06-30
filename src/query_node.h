@@ -92,6 +92,7 @@ struct QueryNode {
   };*/
 
   void ctor(QueryNodeType t);
+  QueryNode() { ctor(QN_NULL); }
   QueryNode(QueryNodeType t) { ctor(t); }
   QueryNode(QueryNodeType t, QueryNode **children_, size_t n) {
     ctor(t);
@@ -143,7 +144,7 @@ struct QueryNode {
 struct QueryPhraseNode : QueryNode {
   int exact;
 
-  QueryPhraseNode(int exact_) {
+  QueryPhraseNode(int exact_) : QueryNode(QN_PHRASE) {
     exact = exact_;
   }
 
@@ -180,6 +181,8 @@ struct QueryPhraseNode : QueryNode {
 // This might happen as a result of a query containing only stopwords.
 
 struct QueryWildcardNode : QueryNode {
+  QueryWildcardNode() : QueryNode(QN_WILDCARD) {}
+
   IndexIterator *EvalNode(Query *q);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
@@ -194,7 +197,10 @@ struct QueryTagNode : QueryNode {
   const char *fieldName;
   size_t len;
 
-  QueryTagNode(const char *field, size_t len) : fieldName(field), len(len) {}
+  QueryTagNode(const char *field, size_t len_) : QueryNode(QN_TAG) {
+    fieldName = field;
+    len = len_;
+  }
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "TAG:@%.*s {\n", (int)len, fieldName);
@@ -213,27 +219,21 @@ struct QueryTagNode : QueryNode {
 // A token can have private metadata written by expanders or tokenizers.
 // Later this gets passed to scoring functions in a Term object. See RSIndexRecord.
 
-// typedef RSToken QueryTokenNode;
-// typedef RSToken QueryPrefixNode;
-
 struct QueryTokenNode : QueryNode {
   RSToken tok;
 
-  QueryTokenNode(QueryParse *q, const char *s, size_t len_) {
+  QueryTokenNode(QueryParse *q, const char *s, size_t len, uint8_t expanded = 0,
+                 RSTokenFlags flags = 0) : QueryNode(QN_TOKEN) {
     if (len_ == (size_t)-1) {
       len_ = strlen(s);
     }
 
-    q->numTokens++;
-
-    str = (char *)s;
-    len = len_;
-    expanded = 0;
-    flags = 0;
+    if (q) q->numTokens++;
+    tok = new RSToken((char *)s, len, expanded, flags);
   }
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
-    s = sdscatprintf(s, "%s%s", (char *)str, expanded ? "(expanded)" : "");
+    s = sdscatprintf(s, "%s%s", (char *)str, tok->expanded ? "(expanded)" : "");
     if (opts.weight != 1) {
       s = sdscatprintf(s, " => {$weight: %g;}", opts.weight);
     }
@@ -242,8 +242,7 @@ struct QueryTokenNode : QueryNode {
   }
 
   IndexIterator *EvalNode(Query *q);
-  IndexIterator *EvalSingle(Query *q, TagIndex *idx,
-                            IndexIteratorArray *iterout, double weight) {
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight) {
     return idx->OpenReader(q->sctx->spec, str, len, weight);
   }
 };
@@ -253,8 +252,8 @@ struct QueryTokenNode : QueryNode {
 struct QueryPrefixNode : QueryNode {
   RSToken tok;
 
-  QueryPrefixNode(QueryParse *q, const char *s, size_t len_) {
-    q->numTokens++;
+  QueryPrefixNode(QueryParse *q, const char *s, size_t len_) : QueryNode(QN_PREFX) {
+    if (q) q->numTokens++;
 
     str = (char *)s;
     len = len_;
@@ -279,18 +278,11 @@ struct QueryFuzzyNode : QueryNode {
   RSToken tok;
   int maxDist;
 
-  QueryFuzzyNode(QueryParse *q, const char *s, size_t len_, int maxDist_) {
+  QueryFuzzyNode(QueryParse *q, const char *s, size_t len_, int maxDist_) : QueryNode(QN_FUZZY) {
     q->numTokens++;
 
-    tok = {
-            (RSToken) {
-              .str = (char *)s,
-              .len = len_,
-              .expanded = 0,
-              .flags = 0,
-          },
-        .maxDist = maxDist_,
-    };
+    tok = new RSToken((char *)s, len_, 0, 0);
+    maxDist = maxDist_;
   }
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
@@ -309,7 +301,7 @@ struct NumericFilter;
 struct QueryNumericNode : QueryNode {
   NumericFilter *nf;
 
-  QueryNumericNode(const NumericFilter *flt) {
+  QueryNumericNode(const NumericFilter *flt) : QueryNode(QN_NUMERIC)  {
     nf = flt;
   }
 
@@ -327,7 +319,7 @@ struct QueryNumericNode : QueryNode {
 struct QueryGeofilterNode : QueryNode {
   const struct GeoFilter *gf;
 
-  QueryGeofilterNode(const GeoFilter *flt) {
+  QueryGeofilterNode(const GeoFilter *flt) : QueryNode(QN_GEO)  {
     gf = flt;
   }
 
@@ -343,6 +335,11 @@ struct QueryGeofilterNode : QueryNode {
 struct QueryIdFilterNode : QueryNode {
   t_docId *ids;
   size_t len;
+
+  QueryIdFilterNode(t_docId *ids_, size_t len_) : QueryNode(QN_IDS) {
+    ids = ids_;
+    len = len_;
+  }
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscat(s, "IDS { ");
@@ -363,6 +360,8 @@ struct QueryLexRangeNode : QueryNode {
   char *end;
   bool includeEnd;
 
+  QueryLexRangeNode() : QueryNode(QN_LEXRANGE) {}
+
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "LEXRANGE{%s...%s", begin ? begin : "", end ? end : "");
     return s;
@@ -378,6 +377,8 @@ struct QueryLexRangeNode : QueryNode {
 // typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;//@@ How to seperate it to classes?
 
 struct QueryUnionNode : QueryNode {
+  QueryUnionNode() : QueryNode(QN_UNION) {}
+
   IndexIterator *EvalNode(Query *q);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
@@ -391,6 +392,9 @@ struct QueryUnionNode : QueryNode {
 //---------------------------------------------------------------------------------------------
 
 struct QueryNotNode : QueryNode {
+  QueryNotNode() : QueryNode(QN_NOT) {}
+  QueryNotNode(QueryNode *child) : QueryNode(QN_NOT, &child, 1) {}
+
   IndexIterator *EvalNode(Query *q);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
@@ -404,6 +408,9 @@ struct QueryNotNode : QueryNode {
 //---------------------------------------------------------------------------------------------
 
 struct QueryOptionalNode : QueryNode {
+  QueryOptionalNode() : QueryNode(QN_OPTIONAL) {}
+  QueryOptionalNode(QueryNode *child) : QueryNode(QN_OPTIONAL, &child, 1) {}
+
   IndexIterator *EvalNode(Query *q);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {

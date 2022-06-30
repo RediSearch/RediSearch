@@ -459,7 +459,7 @@ DEBUG_COMMAND(InfoTagIndex) {
                           {.name = "limit", .type = AC_ARGTYPE_UINT, .target = &options.limit},
                           {NULL}};
   RedisModuleKey *keyp = NULL;
-  ArgsCursor ac = {0};
+  ArgsCursor ac;
   ACArgSpec *errSpec = NULL;
   &ac->InitRString(argv + 2, argc - 2);
   int rv = &ac->ParseArgSpec(argspecs, &errSpec);

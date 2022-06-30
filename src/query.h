@@ -61,6 +61,8 @@ struct QueryAST : public Object {
 
   void applyGlobalFilters(RSSearchOptions &opts, const RedisSearchCtx &sctx);
   void setFilterNode(QueryNode *n);
+
+  QueryTokenNode *NewTokenNodeExpanded(const char *s, size_t len, RSTokenFlags flags);
 };
 
 //---------------------------------------------------------------------------------------------

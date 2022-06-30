@@ -205,8 +205,8 @@ IndexIterator *TagIndex::OpenReader(IndexSpec *sp, const char *value, size_t len
     return NULL;
   }
 
-  RSToken tok = {str: (char *)value, len: len};
-  RSQueryTerm *t = new QueryTerm(&tok, 0);
+  RSToken tok((char *)value, len);
+  RSQueryTerm *t = new RSQueryTerm(&tok, 0);
   IndexReader *r = new TermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
   return NewReadIterator(r);
 }

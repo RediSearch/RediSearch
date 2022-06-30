@@ -58,49 +58,11 @@ QueryLexRangeNode::~QueryLexRangeNode() {
 
 QueryNode::~QueryNode() {
   if (children) {
-    for (size_t ii = 0; ii < NumChildren(); ++ii) {
-      delete children[ii];
+    for (size_t i = 0; i < NumChildren(); ++i) {
+      delete children[i];
     }
     array_free(children);
     children = NULL;
-  }
-
-  switch (type) {
-    case QN_TOKEN:
-      delete &tn;
-      break;
-    case QN_NUMERIC:
-      delete (void *)nn.nf;
-
-      break;  //
-    case QN_PREFX:
-      deletet &pfx;
-      break;
-    case QN_GEO:
-      if (gn.gf) {
-        delete (void *)gn.gf;
-      }
-      break;
-    case QN_FUZZY:
-      delete &fz.tok;
-      break;
-    case QN_LEXRANGE:
-      delete &lxrng;
-      break;
-    case QN_WILDCARD:
-    case QN_IDS:
-      break;
-
-    case QN_TAG:
-      deletet &tag;
-      break;
-
-    case QN_UNION:
-    case QN_NOT:
-    case QN_OPTIONAL:
-    case QN_NULL:
-    case QN_PHRASE:
-      break;
   }
 }
 
@@ -113,10 +75,9 @@ void QueryNode::ctor(QueryNodeType t) {
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode *QueryAST::NewTokenNodeExpanded(const char *s, size_t len, RSTokenFlags flags) {
-  QueryNode *ret = new QueryNode(QN_TOKEN);
+QueryTokenNode *QueryAST::NewTokenNodeExpanded(const char *s, size_t len, RSTokenFlags flags) {
+  QueryTokenNode *ret = new QueryTokenNode(NULL, (char *)s, len, 1, flags);
   numTokens++;
-  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 1, .flags = flags};
   return ret;
 }
 
@@ -143,30 +104,25 @@ void QueryAST::setFilterNode(QueryNode *n) {
 
 // Used only to support legacy FILTER keyword. Should not be used by newer code
 void QueryAST::SetGlobalFilters(const NumericFilter *numeric) {
-  QueryNumericNode *n;
-  n->nf = (NumericFilter *)numeric;
+  QueryNumericNode *n(numeric);
   setFilterNode(n);
 }
 
 // Used only to support legacy GEOFILTER keyword. Should not be used by newer code
 void QueryAST::SetGlobalFilters(const GeoFilter *geo) {
-  QueryGeofilterNode *n;
-  n->gf = geo;
+  QueryGeofilterNode *n(geo);
   setFilterNode(n);
 }
 
 // List of IDs to limit to, and the length of that array
 void QueryAST::SetGlobalFilters(t_docId *ids, size_t nids) {
-  QueryIdFilterNode *n;
-  n->ids = ids;
-  n->len = nids;
+  QueryIdFilterNode *n(ids, nids);
   setFilterNode(n);
 }
 
 //---------------------------------------------------------------------------------------------
 
 void QueryNode::Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *expCtx) {
-
   QueryNode *qn = this;
   // Do not expand verbatim nodes
   if (qn->opts.flags & QueryNode_Verbatim) {
@@ -179,12 +135,12 @@ void QueryNode::Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *expCtx
     expCtx->currentNode = this;
     expander(expCtx, &qn);
   } else if (qn->type == QN_UNION ||
-             (qn->type == QN_PHRASE && !qn->pn.exact)) {  // do not expand exact phrases
+             (qn->type == QN_PHRASE && !qn->exact)) {  // do not expand exact phrases
     expandChildren = 1;
   }
   if (expandChildren) {
-    for (size_t ii = 0; ii < qn->NumChildren(); ++ii) {
-      qn->children[ii]->Expand(expander, expCtx);
+    for (size_t i = 0; i < qn->NumChildren(); ++i) {
+      qn->children[i]->Expand(expander, expCtx);
     }
   }
 }
@@ -208,7 +164,7 @@ IndexIterator *QueryTokenNode::Eval(Query *q) {
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
                                      EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
   if (ir == NULL) {
-    Term_Free(term);
+    delete term;
     return NULL;
   }
 
@@ -237,11 +193,7 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
          (itsSz < maxExpansions || maxExpansions == -1)) {
 
     // Create a token for the reader
-    RSToken tok = (RSToken){
-        .expanded = 0,
-        .flags = 0,
-        .len = 0,
-    };
+    RSToken tok(NULL, 0, 0, 0);
     tok.str = runesToStr(rstr, slen, &tok.len);
     if (q->sctx && q->sctx->redisCtx) {
       RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
@@ -253,7 +205,6 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
     IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                        q->opts->fieldmask & opts->fieldMask, q->conc, 1);
 
-    rm_free(tok.str);
     if (!ir) {
       delete term;
       continue;
@@ -267,8 +218,7 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
     }
   }
 
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
+  delete it->ctx;
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
     rm_free(its);
@@ -773,7 +723,7 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
     if (status->HasError()) {
       throw Error(status);
     }
-    root = new QueryNode(QN_NULL);
+    root = new QueryNode();
   }
   if (status->HasError()) {
     if (root) {

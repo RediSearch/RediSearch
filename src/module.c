@@ -173,10 +173,10 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   QueryError status;
+  RSSearchOptions opts;
   size_t len;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   const char **includeDict = NULL, **excludeDict = NULL;
-  RSSearchOptions opts = {0};
   try {
     QueryAST qast(sctx, &opts, rawQuery, len, &status);
 
@@ -247,7 +247,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                               int newlinesAsElements) {
-  QueryError status = {0};
+  QueryError status;
   char *explainRoot = RS_GetExplainOutput(ctx, argv, argc, &status);
   if (!explainRoot) {
     return QueryError_ReplyAndClear(ctx, &status);
@@ -439,7 +439,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
 
   RedisModule_ReplicateVerbatim(ctx);
-  QueryError status = {0};
+  QueryError status;
 
   IndexSpec *sp = new IndexSpec(ctx, argv, argc, &status);
   if (sp == NULL) {
@@ -673,8 +673,9 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 //---------------------------------------------------------------------------------------------
 
 int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  ArgsCursor ac = {0};
-  &ac->InitRString(argv + 1, argc - 1);
+  ArgsCursor ac;
+  ac.InitRString(argv + 1, argc - 1);
+  QueryError status;
 
   // Need at least <cmd> <index> <subcommand> <args...>
   RedisModule_AutoMemory(ctx);
@@ -682,19 +683,18 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
-  QueryError status = {0};
 
-  const char *ixname = &ac->GetStringNC(NULL);
+  const char *ixname = ac.GetStringNC(NULL);
   IndexSpec *sp = new IndexSpec(ctx, ixname, 1);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  if (&ac->AdvanceIfMatch("SCHEMA")) {
-    if (!&ac->AdvanceIfMatch("ADD")) {
+  if (ac.AdvanceIfMatch("SCHEMA")) {
+    if (!ac.AdvanceIfMatch("ADD")) {
       return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
     }
-    if (!&ac->NumRemaining()) {
+    if (!ac.NumRemaining()) {
       return RedisModule_ReplyWithError(ctx, "No fields provided");
     }
     sp->AddFields(&ac, &status);
@@ -712,8 +712,8 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           QueryError *error) {
-  ArgsCursor ac = {0};
-  &ac->InitRString(argv + 1, argc - 1);
+  ArgsCursor ac;
+  ac.InitRString(argv + 1, argc - 1);
   IndexLoadOptions loadOpts = {
       name: {rstring: argv[2]},
       flags: INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
@@ -732,7 +732,7 @@ static int AliasAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
-  QueryError e = {0};
+  QueryError e;
   if (aliasAddCommon(ctx, argv, argc, &e) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &e);
   } else {
@@ -753,7 +753,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
   }
-  QueryError status = {0};
+  QueryError status;
   if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), sp, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
@@ -769,7 +769,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_WrongArity(ctx);
   }
 
-  QueryError status = {0};
+  QueryError status;
   IndexLoadOptions lOpts = {name: {rstring: argv[1]},
                             flags: INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
   IndexSpec *spOrig = new IndexSpec(ctx, &lOpts);
@@ -782,7 +782,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (aliasAddCommon(ctx, argv, argc, &status) != REDISMODULE_OK) {
     // Add back the previous index.. this shouldn't fail
     if (spOrig) {
-      QueryError e2 = {0};
+      QueryError e2;
       const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
       IndexAlias::Add(alias, spOrig, 0, &e2);
       e2.ClearError();
@@ -799,7 +799,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Not bound to a specific index, so...
   RedisModule_AutoMemory(ctx);
-  QueryError status = {0};
+  QueryError status;
 
   // CONFIG <GET|SET> <NAME> [value]
   if (argc < 3) {

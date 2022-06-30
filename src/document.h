@@ -24,13 +24,13 @@
  * --------------------
  * To index a document, call Document_PrepareForAdd on the document itself.
  * This initializes the Document structure for indexing purposes. Once the
- * document has been prepared, acquire a new RSAddDocumentCtx() by calling
+ * document has been prepared, acquire a new AddDocumentCtx() by calling
  * NewAddDocumentCtx().
  *
  * Once the new context has been received, call Document::AddToIndexes(). This
  * will start tokenizing the documents, and should be called in a separate
  * thread. This function will tokenize the document and send a reply back to
- * the client. You may free the RSAddDocumentCtx structure by calling
+ * the client. You may free the AddDocumentCtx structure by calling
  * AddDocumentCtx_Free().
  *
  * See document.c for the internals.
@@ -46,7 +46,7 @@ struct DocumentField : Object {
 
 //---------------------------------------------------------------------------------------------
 
-struct RSAddDocumentCtx;
+struct AddDocumentCtx;
 
 struct Document : Object {
   RedisModuleString *docKey;
@@ -75,7 +75,7 @@ struct Document : Object {
   void Dump() const; //@@ looks like nobody is using this func
 
   static void Move(Document *dst, Document *src);
-  static int AddToIndexes(RSAddDocumentCtx *aCtx);
+  static int AddToIndexes(AddDocumentCtx *aCtx);
   static int EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
                             int *result, QueryError *err);
   int LoadSchemaFields(RedisSearchCtx *sctx);
@@ -112,9 +112,7 @@ struct Document : Object {
 
 //---------------------------------------------------------------------------------------------
 
-struct RSAddDocumentCtx;
-
-typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *, void *);
+typedef void (*DocumentAddCompleted)(struct AddDocumentCtx *, RedisModuleCtx *, void *);
 
 struct AddDocumentOptions {
   uint32_t options;                 // DOCUMENT_ADD_XXX
@@ -172,8 +170,8 @@ struct AddDocumentPool : MemPool {
 
 // Context used when indexing documents
 
-struct RSAddDocumentCtx : MemPoolObject<AddDocumentPool> {
-  struct RSAddDocumentCtx *next;  // Next context in the queue
+struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
+  struct AddDocumentCtx *next;  // Next context in the queue
   Document doc;                   // Document which is being indexed
 
   union {
@@ -216,8 +214,8 @@ struct RSAddDocumentCtx : MemPoolObject<AddDocumentPool> {
   DocumentAddCompleted donecb;
   void *donecbData;
 
-  RSAddDocumentCtx(IndexSpec *sp, Document *base, QueryError *status);
-  virtual ~RSAddDocumentCtx();
+  AddDocumentCtx(IndexSpec *sp, Document *base, QueryError *status);
+  virtual ~AddDocumentCtx();
 
   bool handlePartialUpdate(RedisSearchCtx *sctx); // can be private
 

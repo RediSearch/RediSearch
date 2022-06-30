@@ -86,13 +86,13 @@ static size_t countMerged(mergedEntry *ent) {
 //---------------------------------------------------------------------------------------------
 
 // Merges all terms in the queue into a single hash table.
-// parentMap is assumed to be a RSAddDocumentCtx*[] of capacity MAX_DOCID_ENTRIES
+// parentMap is assumed to be a AddDocumentCtx*[] of capacity MAX_DOCID_ENTRIES
 //
 // This function returns the first aCtx which lacks its own document ID.
 // This wil be used when actually assigning document IDs later on, so that we
 // don't need to seek the document list again for it.
 
-static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocumentCtx **parentMap) {
+static AddDocumentCtx *doMerge(AddDocumentCtx *aCtx, KHTable *ht, AddDocumentCtx **parentMap) {
   // Counter is to make sure we don't block the CPU if there are many many items
   // in the queue, though in reality the number of iterations is also limited
   // by MAX_DOCID_ENTRIES
@@ -102,8 +102,8 @@ static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocum
   // doc ID value
   size_t curIdIdx = 0;
 
-  RSAddDocumentCtx *cur = aCtx;
-  RSAddDocumentCtx *firstZeroId = NULL;
+  AddDocumentCtx *cur = aCtx;
+  AddDocumentCtx *firstZeroId = NULL;
 
   while (cur && ++counter < 1000 && curIdIdx < MAX_BULK_DOCS) {
 
@@ -152,17 +152,17 @@ static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocum
 
 // Writes all the entries in the hash table to the inverted index.
 // parentMap contains the actual mapping between the `docID` field and the actual
-// RSAddDocumentCtx which contains the document itself, which by this time should
+// AddDocumentCtx which contains the document itself, which by this time should
 // have been assigned an ID via makeDocumentId()
 
-int DocumentIndexer::writeMergedEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-                                        KHTable *ht, RSAddDocumentCtx **parentMap) {
+int DocumentIndexer::writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
+                                        KHTable *ht, AddDocumentCtx **parentMap) {
 
   IndexEncoder encoder = InvertedIndex::GetEncoder(ctx->spec->flags);
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
   // This is used as a cache layer, so that we don't need to derefernce the
-  // RSAddDocumentCtx each time.
+  // AddDocumentCtx each time.
   uint32_t docIdMap[MAX_BULK_DOCS] = {0};
 
   // Iterate over all the entries
@@ -191,7 +191,7 @@ int DocumentIndexer::writeMergedEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *
         uint32_t docId = docIdMap[fwent->docId];
         if (docId == 0) {
           // Meaning the entry is not yet in the cache.
-          RSAddDocumentCtx *parent = parentMap[fwent->docId];
+          AddDocumentCtx *parent = parentMap[fwent->docId];
           if ((parent->stateFlags & ACTX_F_ERRORED) || parent->doc.docId == 0) {
             // Has an error, or for some reason it doesn't have a document ID(!? is this possible)
             continue;
@@ -226,7 +226,7 @@ int DocumentIndexer::writeMergedEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *
 // In this case it's simpler to forego building the merged dictionary because there is
 // nothing to merge.
 
-void DocumentIndexer::writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
+void DocumentIndexer::writeCurEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx shound not be NULL");
 
   ForwardIndexIterator it = aCtx->fwIdx->Iterate();
@@ -276,7 +276,7 @@ static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
 
 // Assigns a document ID to a single document
 
-static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
+static int makeDocumentId(AddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
                           QueryError *status) {
   IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
@@ -319,7 +319,7 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
  *
  * This function also sets the document's sorting vector, if present.
  */
-static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
+static void doAssignIds(AddDocumentCtx *cur, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   for (; cur; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
@@ -352,13 +352,13 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexBulkData::indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+static void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
   IndexBulkData bData[SPEC_MAX_FIELDS] = {{{NULL}}};
   IndexBulkData *activeBulks[SPEC_MAX_FIELDS];
   size_t numActiveBulks = 0;
 
-  for (RSAddDocumentCtx *cur = aCtx; cur && cur->doc.docId; cur = cur->next) {
+  for (AddDocumentCtx *cur = aCtx; cur && cur->doc.docId; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
       continue;
     }
@@ -427,9 +427,9 @@ struct DocumentIndexerConcurrentKey : public ConcurrentKey {
 // Perform the processing chain on a single document entry, optionally merging
 // the tokens of further entries in the queue
 
-void DocumentIndexer::Process(RSAddDocumentCtx *aCtx) {
-  RSAddDocumentCtx *parentMap[MAX_BULK_DOCS] = {0};
-  RSAddDocumentCtx *firstZeroId = aCtx;
+void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
+  AddDocumentCtx *parentMap[MAX_BULK_DOCS] = {0};
+  AddDocumentCtx *firstZeroId = aCtx;
 
   if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
     // Document is complete or errored. No need for further processing.
@@ -526,7 +526,7 @@ void DocumentIndexer::main() {
       pthread_cond_wait(&cond, &lock);
     }
 
-    RSAddDocumentCtx *cur = head;
+    AddDocumentCtx *cur = head;
     if (cur == NULL) {
       RS_LOG_ASSERT(ShouldStop(), "indexer was stopped");
       pthread_mutex_unlock(&lock);
@@ -565,7 +565,7 @@ static void *DocumentIndexer::_main(void *self_) {
 // Add a document to the indexing queue. If successful, the indexer now takes
 // ownership of the document context (until it DocumentAddCtx_Finish).
 
-int DocumentIndexer::Add(RSAddDocumentCtx *aCtx) {
+int DocumentIndexer::Add(AddDocumentCtx *aCtx) {
   if (!aCtx->IsBlockable() || !!(options & INDEXER_THREADLESS)) {
     Process(aCtx);
     aCtx->Finish();

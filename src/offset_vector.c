@@ -38,13 +38,6 @@ struct RSOffsetVectorIterator : public RSOffsetIterator,
 
 //---------------------------------------------------------------------------------------------
 
-// Create an offset iterator interface  from a raw offset vector
-RSOffsetIterator RSOffsetVector::Iterate(RSQueryTerm *t) const {
-  return new RSOffsetVectorIterator(this, t);
-}
-
-//---------------------------------------------------------------------------------------------
-
 // Rewind an offset vector iterator and start reading it from the beginning
 void RSOffsetVectorIterator::Rewind() {
   lastValue = 0;

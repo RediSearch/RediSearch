@@ -53,7 +53,7 @@ void AggregateResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &le
 
 // Reset aggregate result's child vector
 void AggregateResult::Reset() {
-  docId = 0;
+  IndexResult::Reset();
   numChildren = 0;
   typeMask = (RSResultType) 0;
 }
@@ -115,7 +115,7 @@ bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
     rc = withinRangeUnordered(iters, positions, n, maxSlop);
   // printf("slop result for %d: %d\n", ir->docId, rc);
   for (int i = 0; i < n; i++) {
-    delete iters[i];
+    delete &iters[i];
   }
 
   return !!rc;
@@ -155,26 +155,26 @@ int AggregateResult::MinOffsetDelta() const {
       continue;
     }
     if (i == num) {
-      v1.Free(v1.ctx);
+      delete &v1.Proxy;
       dist = dist ? dist : 100;
       break;
     }
     v2 = children[i]->IterateOffsets();
 
-    uint32_t p1 = v1.Next(v1.ctx, NULL);
-    uint32_t p2 = v2.Next(v2.ctx, NULL);
+    uint32_t p1 = v1.Next(NULL);
+    uint32_t p2 = v2.Next(NULL);
     int cd = __absdelta(p2, p1);
     while (cd > 1 && p1 != RS_OFFSETVECTOR_EOF && p2 != RS_OFFSETVECTOR_EOF) {
       cd = MIN(__absdelta(p2, p1), cd);
       if (p2 > p1) {
-        p1 = v1.Next(v1.ctx, NULL);
+        p1 = v1.Next(NULL);
       } else {
-        p2 = v2.Next(v2.ctx, NULL);
+        p2 = v2.Next(NULL);
       }
     }
 
-    v1.Free(v1.ctx);
-    v2.Free(v2.ctx);
+    delete &v1.Proxy;
+    delete &v2.Proxy;
 
     dist += cd * cd;
   }
@@ -261,10 +261,6 @@ void IndexResult::Reset() {
   docId = 0;
   fieldMask = 0;
   freq = 0;
-
-  if (type == RSResultType_Intersection || type == RSResultType_Union) {
-    numChildren = 0;
-  }
 }
 
 //------------------------------------------------------------------------------`---------------
@@ -292,13 +288,13 @@ bool IndexResult::withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
     for (int i = 0; i < num; i++) {
       // take the current position and the position of the previous iterator.
       // For the first iterator we always advance once
-      uint32_t pos = i ? positions[i] : iters[i].Next(iters[i].ctx, NULL);
+      uint32_t pos = i ? positions[i] : iters[i].Next(NULL);
       uint32_t lastPos = i ? positions[i - 1] : 0;
       // printf("Before: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // read while we are not in order
       while (pos != RS_OFFSETVECTOR_EOF && pos < lastPos) {
-        pos = iters[i].Next(iters[i].ctx, NULL);
+        pos = iters[i].Next(NULL);
         // printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
       }
       // printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
@@ -362,7 +358,7 @@ static inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
 bool IndexResult::withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num,
                                        int maxSlop) {
   for (int i = 0; i < num; i++) {
-    positions[i] = iters[i].Next(iters[i].ctx, NULL);
+    positions[i] = iters[i].Next(NULL);
   }
   uint32_t minPos, maxPos, min, max;
   // find the max member
@@ -384,7 +380,7 @@ bool IndexResult::withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
     }
 
     // if we are not meeting the conditions - advance the minimal iterator
-    positions[minPos] = iters[minPos].Next(iters[minPos].ctx, NULL);
+    positions[minPos] = iters[minPos].Next(NULL);
     // If the minimal iterator is larger than the max iterator, the minimal iterator is the new
     // maximal iterator.
     if (positions[minPos] != RS_OFFSETVECTOR_EOF && positions[minPos] > max) {

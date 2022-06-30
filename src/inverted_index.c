@@ -1138,7 +1138,7 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
 
   t_docId oldFirstBlock = lastId;
   lastId = firstId = 0;
-  Buffer repair = {0};
+  Buffer repair;
   BufferReader br(&buf);
   BufferWriter bw(&repair);
 
@@ -1160,7 +1160,6 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
   }
 
   while (!br.AtEnd()) {
-    //static const IndexDecoderCtx empty = {0};
     const char *bufBegin = br.Current();
     (decoder.*(decoder.decoder))(&br, res);
     size_t sz = br.Current() - bufBegin;

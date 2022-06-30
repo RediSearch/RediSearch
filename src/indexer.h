@@ -30,8 +30,8 @@ struct MergeHashTable : KHTable {
 //---------------------------------------------------------------------------------------------
 
 struct DocumentIndexer : public Object {
-  RSAddDocumentCtx *head;          // first item in the queue
-  RSAddDocumentCtx *tail;          // last item in the queue
+  AddDocumentCtx *head;            // first item in the queue
+  AddDocumentCtx *tail;            // last item in the queue
   pthread_mutex_t lock;            // lock - only used when adding or removing items from the queue
   pthread_cond_t cond;             // condition - used to wait on items added to the queue
   size_t size;                     // number of items in the queue
@@ -53,15 +53,15 @@ struct DocumentIndexer : public Object {
   static DocumentIndexer *Copy(DocumentIndexer *indexer);
   static void Free();
 
-  int Add(RSAddDocumentCtx *aCtx);
+  int Add(AddDocumentCtx *aCtx);
 
   void main();
   static void *_main(void *self);
 
   bool ShouldStop() const { return options & INDEXER_STOPPED; }
 
-  int writeMergedEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, KHTable *ht, RSAddDocumentCtx **parentMap);
-  void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx);
+  int writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, KHTable *ht, AddDocumentCtx **parentMap);
+  void writeCurEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx);
 
 // private:
   size_t Decref();
@@ -84,14 +84,14 @@ struct DocumentIndexer : public Object {
  *
  * This function is called with the GIL released.
  */
-typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, const DocumentField *field,
+typedef int (*PreprocessorFunc)(AddDocumentCtx *aCtx, const DocumentField *field,
                                 const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
 /**
  * Function to write the entry for the field into the actual index. This is called
  * with the GIL locked, and it should therefore only write data, and nothing more.
  */
-typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
+typedef int (*IndexerFunc)(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
                            const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
 //---------------------------------------------------------------------------------------------
@@ -102,12 +102,12 @@ struct IndexBulkData {
   FieldType typemask;
   int found;
 
-  int Add(RSAddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField *field,
+  int Add(AddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField *field,
           const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
   void Cleanup(RedisSearchCtx *sctx);
 
-  static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
+  static void indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

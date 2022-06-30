@@ -164,7 +164,7 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
   ({                                                         \
     int conctx__didSwitch = 0;                               \
     if ((x) && ++(x)->ticker % CONCURRENT_TICK_CHECK == 0) { \
-      if (ConcurrentSearch_CheckTimer((x))) {                \
+      if ((x)->CheckTimer()) {                \
         conctx__didSwitch = 1;                               \
       }                                                      \
     }                                                        \

@@ -133,10 +133,17 @@ struct RSToken {
   size_t len;
 
   // Is this token an expansion?
-  uint8_t expanded : 1;
+  uint8_t expanded;
 
   // Extension set token flags - up to 31 bits
-  RSTokenFlags flags : 31;
+  RSTokenFlags flags;
+
+  RSToken(char *str, size_t len, uint8_t expanded = 1, RSTokenFlags flags = 31) :
+  str(str), len(len), expanded(expanded), flags(flags) {}
+
+  ~RSToken() {
+    rm_free(str);
+  }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -249,7 +256,10 @@ struct RSOffsetVector {
   char *data;
   uint32_t len;
 
-  RSOffsetIterator Iterate(RSQueryTerm *t) const;
+  // Create an offset iterator interface  from a raw offset vector
+  RSOffsetIterator Iterate(RSQueryTerm *t) const {
+    return new RSOffsetVectorIterator(this, t);
+  }
 };
 
 //---------------------------------------------------------------------------------------------

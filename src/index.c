@@ -679,6 +679,8 @@ size_t IntersectIterator::NumEstimated() {
   return nexpected;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int IntersectIterator::ReadSorted(IndexResult **hit) {
   if (num == 0) return INDEXREAD_EOF;
 
@@ -799,6 +801,9 @@ NotIterator::~NotIterator() {
 // If we have a match - return NOTFOUND. If we don't or we're at the end - return OK
 
 int NotIterator::SkipTo(t_docId docId, IndexResult **hit) {
+  int rc;
+  t_docId childId;
+
   // do not skip beyond max doc id
   if (docId > maxDocId) {
     return INDEXREAD_EOF;
@@ -810,7 +815,7 @@ int NotIterator::SkipTo(t_docId docId, IndexResult **hit) {
   }
 
   // Get the child's last read docId
-  t_docId childId = child->LastDocId();
+  childId = child->LastDocId();
 
   // If the child is ahead of the skipto id, it means the child doesn't have this id.
   // So we are okay!
@@ -827,7 +832,7 @@ int NotIterator::SkipTo(t_docId docId, IndexResult **hit) {
   }
 
   // read the next entry from the child
-  int rc = child->SkipTo(docId, hit);
+  rc = child->SkipTo(docId, hit);
 
   // OK means not found
   if (rc == INDEXREAD_OK) {
@@ -1140,7 +1145,7 @@ void OptionalIterator::Rewind() {
 //---------------------------------------------------------------------------------------------
 
 OptionalIterator::OptionalIterator(IndexIterator *it, t_docId maxDocId_, double weight_) {
-  virt = NewVirtualResult(weight);
+  virt = new VirtualResult(weight);
   virt->fieldMask = RS_FIELDMASK_ALL;
   virt->freq = 1;
   current = virt;

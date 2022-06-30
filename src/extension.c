@@ -144,12 +144,11 @@ static ExtScoringFunction *Extensions::GetScoringFunction(ScoringFunctionArgs *f
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* The implementation of the actual query expansion. This function either turns the current node
- * into a union node with the original token node and new token node as children. Or if it is
- * already a union node (in consecutive calls), it just adds a new token node as a child to it */
+// The implementation of the actual query expansion. This function either turns the current node
+// into a union node with the original token node and new token node as children. Or if it is
+// already a union node (in consecutive calls), it just adds a new token node as a child to it */
 
 void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flags) {
-
   QueryAST *q = qast;
   QueryNode *qn = *currentNode;
 
@@ -164,28 +163,26 @@ void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flag
     *currentNode = un;
   }
 
-  QueryNode *exp = NewTokenNodeExpanded(q, str, len, flags);
+  QueryTokenNode *exp = q->NewTokenNodeExpanded(str, len, flags);
   exp->opts.fieldMask = qn->opts.fieldMask;
   // Now the current node must be a union node - so we just add a new token node to it
   *currentNode->AddChild(exp);
-  // q->numTokens++;
 }
 
 //---------------------------------------------------------------------------------------------
 
-/* The implementation of the actual query expansion. This function either turns the current node
- * into a union node with the original token node and new token node as children. Or if it is
- * already a union node (in consecutive calls), it just adds a new token node as a child to it */
+// The implementation of the actual query expansion. This function either turns the current node
+// into a union node with the original token node and new token node as children. Or if it is
+// already a union node (in consecutive calls), it just adds a new token node as a child to it */
 
 void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTokenFlags flags,
                                             int replace, int exact) {
-
   QueryAST *q = qast;
   QueryNode *qn = *currentNode;
 
   QueryPhraseNode *ph = new QueryPhraseNode(exact);
   for (size_t i = 0; i < num; i++) {
-    ph->AddChild(NewTokenNodeExpanded(q, toks[i], strlen(toks[i]), flags));
+    ph->AddChild(q->NewTokenNodeExpanded(toks[i], strlen(toks[i]), flags));
   }
 
   // if we're replacing - just set the expanded phrase instead of the token
@@ -221,7 +218,6 @@ void RSQueryExpander::SetPayload(RSPayload payload) {
 // Get an expander by name
 
 static ExtQueryExpander *Extensions::GetQueryExpander(RSQueryExpander *ctx, const char *name) {
-
   if (!queryExpanders_g) return NULL;
 
   ExtQueryExpander *p = queryExpanders_g->Find((char *)name, strlen(name));

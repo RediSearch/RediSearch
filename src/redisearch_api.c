@@ -209,8 +209,8 @@ typedef struct {
   int hasErr;
 } RSError;
 
-void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* err) {
-  RSError* ourErr = err;
+void RediSearch_AddDocDone(AddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* err) {
+  RSError* ourErr = err; //@@ can we use `Error` here instead of RSError?
   if (aCtx->status.HasError()) {
     if (ourErr->s) {
       *ourErr->s = rm_strdup(aCtx->status.GetError());
@@ -224,12 +224,12 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
 int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** errs) {
   RWLOCK_ACQUIRE_WRITE();
 
-  RSError err = {.s = errs};
-  QueryError status = {0};
-  RSAddDocumentCtx* aCtx = new RSAddDocumentCtx(sp, d, &status);
+  RSError err = {.s = errs}; //@@ Can we use here Error insead?
+  QueryError status;
+  AddDocumentCtx* aCtx = new AddDocumentCtx(sp, d, &status);
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
-  RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
+  RedisSearchCtx sctx(NULL, sp);
   int exists = !!&sp->docs->GetIdR(d->docKey);
   if (exists) {
     if (options & REDISEARCH_ADD_REPLACE) {
@@ -238,7 +238,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
       if (errs) {
         *errs = rm_strdup("Document already exists");
       }
-      AddDocumentCtx_Free(aCtx);
+      delete aCtx;
       RWLOCK_RELEASE();
       return REDISMODULE_ERR;
     }
@@ -247,7 +247,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   options |= DOCUMENT_ADD_NOSAVE;
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   aCtx->Submit(&sctx, options);
-  rm_free(d);
+  delete d;
 
   RWLOCK_RELEASE();
   return err.hasErr ? REDISMODULE_ERR : REDISMODULE_OK;
@@ -255,11 +255,8 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
-  QueryNode* ret = new QueryNode(QN_TOKEN);
-
-  ret->tn = (QueryTokenNode){
-      .str = (char*)rm_strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
+QueryTokenNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
+  QueryTokenNode *ret(NULL, (char*)rm_strdup(token), strlen(token));
   if (fieldName) {
     ret->opts.fieldMask = sp->GetFieldBit(fieldName, strlen(fieldName));
   }
@@ -268,20 +265,20 @@ QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, cons
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
-                                        int includeMax, int includeMin) {
-  QueryNode* ret = new QueryNode(QN_NUMERIC);
-  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
-  ret->nn.nf->fieldName = rm_strdup(field);
+QueryNumericNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
+                                               int includeMax, int includeMin) {
+  QueryNumericNode* ret(new NumericFilter(min, max, includeMin, includeMax));
+  ret->nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
   return ret;
 }
 
-QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  QueryNode* ret = new QueryNode(QN_PREFX);
-  ret->pfx =
-      (QueryPrefixNode){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
-  if (fieldName) {
+//---------------------------------------------------------------------------------------------
+
+QueryPrefixNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
+  QueryPrefixNode* ret(NULL, (char*)rm_strdup(s), strlen(s));
+
+    if (fieldName) {
     ret->opts.fieldMask = sp->GetFieldBit(fieldName, strlen(fieldName));
   }
   return ret;
@@ -289,16 +286,16 @@ QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, con
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
-                                         const char* end, int includeBegin, int includeEnd) {
-  QueryNode* ret = new QueryNode(QN_LEXRANGE);
+QueryLexRangeNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
+                                                 const char* end, int includeBegin, int includeEnd) {
+  QueryLexRangeNode* ret;
   if (begin) {
-    ret->lxrng.begin = begin ? rm_strdup(begin) : NULL;
-    ret->lxrng.includeBegin = includeBegin;
+    ret->begin = begin ? rm_strdup(begin) : NULL;
+    ret->includeBegin = includeBegin;
   }
   if (end) {
-    ret->lxrng.end = end ? rm_strdup(end) : NULL;
-    ret->lxrng.includeEnd = includeEnd;
+    ret->end = end ? rm_strdup(end) : NULL;
+    ret->includeEnd = includeEnd;
   }
   if (fieldName) {
     ret->opts.fieldMask = sp->GetFieldBit(fieldName, strlen(fieldName));
@@ -308,33 +305,31 @@ QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, c
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
-  QueryNode* ret = new QueryNode(QN_TAG);
-  ret->tag.fieldName = rm_strdup(field);
-  ret->tag.len = strlen(field);
+QueryTagNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
+  QueryTagNode* ret(rm_strdup(field), strlen(field));
   ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
   return ret;
 }
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode* RediSearch_CreateIntersectNode(IndexSpec* sp, int exact) {
-  QueryNode* ret = new QueryNode(QN_PHRASE);
-  ret->pn.exact = exact;
-  return ret;
+QueryPhraseNode* RediSearch_CreateIntersectNode(IndexSpec* sp, int exact) {
+  return new QueryPhraseNode(exact);
 }
 
-QueryNode* RediSearch_CreateUnionNode(IndexSpec* sp) {
-  return new QueryNode(QN_UNION);
+QueryUnionNode* RediSearch_CreateUnionNode(IndexSpec* sp) {
+  return new QueryUnionNode();
 }
 
 QueryNode* RediSearch_CreateEmptyNode(IndexSpec* sp) {
-  return new QueryNode(QN_NULL);
+  return new QueryNode();
 }
 
-QueryNode* RediSearch_CreateNotNode(IndexSpec* sp) {
-  return new QueryNode(QN_NOT);
+QueryNotNode* RediSearch_CreateNotNode(IndexSpec* sp) {
+  return new QueryNotNode();
 }
+
+//---------------------------------------------------------------------------------------------
 
 int RediSearch_QueryNodeGetFieldMask(QueryNode* qn) {
   return qn->opts.fieldMask;
