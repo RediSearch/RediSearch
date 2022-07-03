@@ -212,8 +212,9 @@ def searchMultiTextCategory(env):
 
     for idx in ['idx_category_arr', 'idx_category_arr_author_flat']:
         env.debugPrint(idx, force=True)
-        env.expect('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '1').equal([0])
+        env.expect('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '98').equal([0])
         env.expect('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '99').equal([1, 'doc:1'])
+        env.expect('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '99', 'INORDER').equal([0])
         env.expect('FT.SEARCH', idx, '@category:(database programming)=>{$slop:99}', 'NOCONTENT', 'SLOP', '1').equal([1, 'doc:1'])
         env.expect('FT.SEARCH', idx, '@category:(database programming)=>{$slop:100; $inorder:true}', 'NOCONTENT').equal([0])
         env.expect('FT.SEARCH', idx, '@category:(database programming)=>{$slop:100; $inorder:false}', 'NOCONTENT').equal([1, 'doc:1'])
@@ -324,7 +325,6 @@ def testMultiNonText(env):
     env.expect('FT.SEARCH', 'idx1', '@root:(third)', 'NOCONTENT').equal([1, 'doc:1:'])
     env.expect('FT.SEARCH', 'idx2', '@root:(third)', 'NOCONTENT').equal([1, 'doc:2:'])
 
-
 def testMultiNonTextNested(env):
     """
     test multiple TEXT values which include some non-text values at inner level (null, number, bool, array, object)
@@ -356,8 +356,6 @@ def trim_in_list(val, lst):
         if type(v) == str:
             lst[i] = v.replace(val, '')
     return lst
-
-
 
 def testMultiSortRoot(env):
     """
@@ -484,8 +482,57 @@ def testMultiEmptyBlankOrNone(env):
     env.expect('JSON.SET', 'doc', '$', json.dumps({"val": ["haha"]})).ok()
     env.expect('FT.SEARCH', 'idx', '@val:(haha)', 'NOCONTENT', 'SORTBY', 'val', 'ASC').equal([1, 'doc'])
 
+def testconfigMultiTextOffsetDelta(env):
+    """ test config `MULTI_TEXT_OFFSET_DELTA` """
+    
+    conn = getConnectionByEnv(env)
+    env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
+    env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
+    waitForIndex(env, 'idx_category_arr')
+
+    # MULTI_TEXT_OFFSET_DELTA = 100 (Default)
+    #
+    # Offsets:
+    # ["mathematics and computer science", "logic", "programming", "database"]
+    #   1                2        3      ,  103   ,  203         ,  303
+    
+    res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_OFFSET_DELTA')
+    env.assertEqual(res[0][1], '100')
+    env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '300').equal([0])
+    env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '301').equal([1, 'doc:1'])
+    
+    # MULTI_TEXT_OFFSET_DELTA = 101
+    env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_OFFSET_DELTA', '101').ok()
+    # Offsets:
+    # ["mathematics and computer science", "logic", "programming", "database"]
+    #   1                2        3      ,  104   ,  205         ,  306
+    env.execute_command('FT.CREATE', 'idx_category_arr_2', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
+    waitForIndex(env, 'idx_category_arr_2')
+    env.expect('FT.SEARCH', 'idx_category_arr_2', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '303').equal([0])
+    env.expect('FT.SEARCH', 'idx_category_arr_2', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '304').equal([1, 'doc:1'])
+    
+    env.expect('FT.SEARCH', 'idx_category_arr_2', '@category:(science database)', 'NOCONTENT', 'SLOP', '301').equal([0])
+    env.expect('FT.SEARCH', 'idx_category_arr_2', '@category:(science database)', 'NOCONTENT', 'SLOP', '302').equal([1, 'doc:1'])
+
+    # MULTI_TEXT_OFFSET_DELTA = 0
+    env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_OFFSET_DELTA', '0').ok()
+    # Offsets:
+    # ["mathematics and computer science", "logic", "programming", "database"]
+    #   1                2        3      ,  4   ,    5         ,    6
+    env.execute_command('FT.CREATE', 'idx_category_arr_3', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
+    waitForIndex(env, 'idx_category_arr_3')
+    env.expect('FT.SEARCH', 'idx_category_arr_3', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '3').equal([0])
+    env.expect('FT.SEARCH', 'idx_category_arr_3', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '4').equal([1, 'doc:1'])
+
+    env.expect('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '1').equal([0])
+    env.expect('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '2').equal([1, 'doc:1'])
+
+    # MULTI_TEXT_OFFSET_DELTA = -1
+    env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_OFFSET_DELTA', '-1').error()
+
 
 def testMultiNoHighlight(env):
     """ highlight is not supported with multiple TEXT"""
-    pass # TODO:
+    pass
 

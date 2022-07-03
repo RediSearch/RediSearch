@@ -455,7 +455,12 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       options |= TOKENIZE_PHONETICS;
     }
 
-    uint32_t multiSlopDelta = MAX(0, 100-1);    
+    unsigned int multiTextOffsetDelta;
+    if (valueCount > 1 && RSGlobalConfig.multiTextOffsetDelta > 0) {
+      multiTextOffsetDelta = RSGlobalConfig.multiTextOffsetDelta - 1;
+    } else {
+      multiTextOffsetDelta = 0;
+    }
     for (size_t i = 0; i < valueCount; ++i) {
     
       // Already got the first value
@@ -478,8 +483,10 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       aCtx->totalTokens = lastTokPos;
       Token_Destroy(&tok);
 
-      aCtx->tokenizer->ctx.lastOffset += multiSlopDelta;
+      aCtx->tokenizer->ctx.lastOffset += multiTextOffsetDelta;
     }
+    // Decrease the last increment
+    aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
   }
   return 0;
 }
