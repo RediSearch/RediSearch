@@ -33,14 +33,13 @@ int __parent(const int idx) {
 /**
  * Create new heap and initialise it.
  *
- * malloc()s space for heap.
  *
  * @param[in] cmp Callback used to get an item's priority
  * @param[in] udata User data passed through to cmp callback
  */
 
 template <class T>
-Heap::Heap(int (*cmp)(const void *, const void *, const void *udata), const void *udata) {
+Heap<T>::Heap(int (*cmp)(const void *, const void *, const void *udata), const void *udata) {
   reserve(DEFAULT_CAPACITY);
   cmp = cmp;
   udata = udata;
@@ -52,7 +51,7 @@ Heap::Heap(int (*cmp)(const void *, const void *, const void *udata), const void
  * @return a new heap on success; NULL otherwise */
 
 template <class T>
-void Heap::__ensurecapacity() {
+void Heap<T>::__ensurecapacity() {
   if (size() < capacity()) return;
   resize(size() * 2);
 }
@@ -60,22 +59,20 @@ void Heap::__ensurecapacity() {
 //---------------------------------------------------------------------------------------------
 
 template <class T>
-void Heap::__swap(const int i1, const int i2) {
-  void *tmp = array[i1];
-  array[i1] = array[i2];
-  array[i2] = tmp;
+void Heap<T>::__swap(const int i1, const int i2) {
+  std::swap(_at(i1), _at(i2));
 }
 
 //---------------------------------------------------------------------------------------------
 
 template <class T>
-int Heap::__pushup(unsigned int idx) {
+int Heap<T>::__pushup(unsigned int idx) {
   /* 0 is the root node */
   while (0 != idx) {
     int parent = __parent(idx);
 
     // we are smaller than the parent
-    if (cmp(array[idx], array[parent], udata) < 0)
+    if (cmp(_at(idx), _at(parent), udata) < 0)
       return -1;
     else
       __swap(idx, parent);
@@ -89,7 +86,7 @@ int Heap::__pushup(unsigned int idx) {
 //---------------------------------------------------------------------------------------------
 
 template <class T>
-void Heap::__pushdown(unsigned int idx) {
+void Heap<T>::__pushdown(unsigned int idx) {
   while (1) {
     unsigned int childl, childr, child;
 
@@ -103,13 +100,13 @@ void Heap::__pushdown(unsigned int idx) {
       child = childl;
     }
     // find biggest child
-    else if (cmp(array[childl], array[childr], udata) < 0)
+    else if (cmp(_at(childl), _at(childr), udata) < 0)
       child = childr;
     else
       child = childl;
 
     // idx is smaller than child
-    if (cmp(array[idx], array[child], udata) < 0) {
+    if (cmp(_at(idx), _at(child), udata) < 0) {
       __swap(idx, child);
       idx = child;
       // bigger than the biggest child, we stop, we win
@@ -132,8 +129,8 @@ void Heap::__pushdown(unsigned int idx) {
  * @return 0 on success; -1 on error */
 
 template <class T>
-void Heap::__offerx(T *item) {
-  array[count] = item;
+void Heap<T>::__offerx(T *item) {
+  _at(count) = item;
 
   // ensure heap properties
   __pushup(count++);
@@ -142,7 +139,7 @@ void Heap::__offerx(T *item) {
 //---------------------------------------------------------------------------------------------
 
 template <class T>
-int Heap::offerx(void *item) {
+int Heap<T>::offerx(void *item) {
   if (size() == capacity()) return -1;
   __offerx(item);
   return 0;
@@ -164,7 +161,7 @@ int Heap::offerx(void *item) {
  * @return 0 on success; -1 on failure */
 
 template <class T>
-int Heap::offer(void *item) {
+int Heap<T>::offer(void *item) {
   __ensurecapacity();
   __offerx(item);
   return 0;
@@ -178,15 +175,15 @@ int Heap::offer(void *item) {
  * @return top item */
 
 template <class T>
-T *Heap::poll() {
+T *Heap<T>::poll() {
   if (empty()) return NULL;
 
   T *item = at(0);
 
-  array[0] = array[count - 1];
-  count--;
+  front() = back();
+  pop_back();
 
-  if (count > 1) __pushdown(0);
+  if (size() > 1) __pushdown(0);
 
   return item;
 }
@@ -197,7 +194,7 @@ T *Heap::poll() {
  * @return top item of the heap */
 
 template <class T>
-T *Heap::peek() const {
+T *Heap<T>::peek() const {
   if (empty()) return NULL;
   return at(0);
 }
@@ -214,7 +211,7 @@ T *Heap::peek() const {
  *  Only use if item memory is managed outside of heap */
 
 template <class T>
-void Heap::clear() {
+void Heap<T>::clear() {
   count = 0;
 }
 
@@ -226,11 +223,11 @@ void Heap::clear() {
  * @return item's index on the heap's array; otherwise -1 */
 
 template <class T>
-int Heap::__item_get_idx(const T *item) const {
+int Heap<T>::__item_get_idx(const T *item) const {
   unsigned int idx;
 
   for (idx = 0; idx < count; idx++)
-    if (0 == cmp(array[idx], item, udata)) return idx;
+    if (0 == cmp((_at(idx), item, udata)) return idx;
 
   return -1;
 }
@@ -244,17 +241,17 @@ int Heap::__item_get_idx(const T *item) const {
  * @return item to be removed; NULL if item does not exist */
 
 template <class T>
-T *Heap::remove_item(const T *item) {
+T *Heap<T>::remove_item(const T *item) {
   int idx = __item_get_idx(item);
 
   if (idx == -1) return NULL;
 
   // swap the item we found with the last item on the heap
-  T *ret_item = array[idx];
-  array[idx] = array[count - 1];
-  array[count - 1] = NULL;
+  T *ret_item = _at(idx);
+  _at(idx) = back();
+  back() = NULL;
 
-  count -= 1;
+  pop_back();
 
   // ensure heap property
   __pushup(idx);
@@ -271,7 +268,7 @@ T *Heap::remove_item(const T *item) {
  * @return 1 if the heap contains this item; otherwise 0 */
 
 template <class T>
-bool Heap::contains_item(const T *item) const {
+bool Heap<T>::contains_item(const T *item) const {
   return __item_get_idx(item) != -1;
 }
 

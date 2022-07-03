@@ -75,28 +75,65 @@ struct MSG_DeletedBlock {
 
 //---------------------------------------------------------------------------------------------
 
-KHASH_MAP_INIT_INT64(cardvals, size_t)
+//KHASH_MAP_INIT_INT64(cardvals, size_t)
 
-struct numCbCtx {
+struct NumericIndexBlockRepair : IndexBlockRepair {
+  NumericIndexBlockRepair(const InvertedIndex &idx);
+  
   const IndexBlock *lastblk;
   UnorderedMap<uint64_t, size_t> delLast;
   UnorderedMap<uint64_t, size_t> delRest;
+
+  void countDeleted(const NumericResult *r, const IndexBlock *blk);
+
+  virtual void collect(const IndexResult &r, const IndexBlock &blk) {
+    NumericResult *nr = dynamic_cast<NumericResult*>(r);
+	if (nr)
+	  countDeleted(nr, blk);
+	}
+  }
 };
 
-typedef union {
+union numUnion {
   uint64_t u64;
   double d48;
-} numUnion;
+};
 
 //---------------------------------------------------------------------------------------------
 
-struct tagNumHeader {
-  const char *field;
-  const void *curPtr;
-  uint64_t uniqueId;
-  int sentFieldName;
+struct IndexRepair {
+	virtual void sendHeader() = 0;
+};
 
-  tagNumHeader(const char *field, uint64_t uniqueId) : field(field), uniqueId(uniqueId) {}
+struct InvertedIndexRepair : IndexRepair {
+	InvertedIndexRepair();
+
+    char *term;
+    size_t termLen;
+	
+	void sendHeader();
+};
+
+struct NumericAndTagIndexRepair : IndexRepair {
+  NumericIndexRepair(const FieldSpec &field, uint64_t uniqueId, const void *idx) :
+	field(field.name), uniqueId(uniqueId), idx(idx), sentFieldName(false) {}
+
+  const char *field;
+  uint64_t uniqueId;
+  const void *idx;
+  bool sentFieldName;
+
+  void sendHeader();
+};
+
+struct NumericIndexRepair : IndexRepair {
+  NumericIndexRepair(const FieldSpec &field, const NumericRangeTree &tree, const NumericRangeNode &node) :
+	NumericAndTagIndexRepair(field, tree.uniqueId, &node) {}
+};
+
+struct TagIndexRepair : IndexRepair {
+  TagIndexRepair(const FieldSpec &field, const TagIndex &tree, const InvertedIndex &idx) :
+	NumericAndTagIndexRepair(field, tree.uniqueId, &idx) {}
 };
 
 //---------------------------------------------------------------------------------------------
@@ -188,7 +225,6 @@ struct ForkGC : public Object, public GCAPI {
   // Don't perform diagnostic waits
   void WaitClear();
 
-
 private:
   bool lock(RedisModuleCtx *ctx);
   void unlock(RedisModuleCtx *ctx);
@@ -206,9 +242,8 @@ private:
   int recvRepairedBlock(MSG_RepairedBlock *binfo);
   int recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info);
 
-  bool childRepairInvidx(RedisSearchCtx *sctx, InvertedIndex *idx, void (*headerCallback)(void *),
-                         void *hdrarg, IndexRepairParams *params);
-  void sendHeaderString(void *arg);
+  bool childRepairInvIdx(RedisSearchCtx *sctx, InvertedIndex *idx, IndexRepair &indexrepair, IndexBlockRepair &blockrepair);
+  void sendHeaderString(struct iovec *iov);
   void sendNumericTagHeader(void *arg);
 
   void childScanIndexes();

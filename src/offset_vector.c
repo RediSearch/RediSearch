@@ -23,7 +23,7 @@ public:
 
 // A raw offset vector iterator
 struct RSOffsetVectorIterator : public RSOffsetIterator,
-                                public PoolObject<RSOffsetVectorIteratorPool> {
+                                public MemPoolObject<RSOffsetVectorIteratorPool> {
   Buffer buf;
   BufferReader br;
   uint32_t lastValue;
@@ -66,7 +66,7 @@ public:
 };
 
 struct AggregateOffsetIterator : public RSOffsetIterator,
-                                   public PoolObject<AggregateOffsetIteratorPool> {
+                                   public MemPoolObject<AggregateOffsetIteratorPool> {
   const AggregateResult *res;
   size_t size;
   RSOffsetIterator *iters;
@@ -170,6 +170,12 @@ RSOffsetIterator::Proxy::~Proxy() {
   if (it != &offset_empty_iterator) {
     delete it;
   }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+RSOffsetIterator RSOffsetVector::Iterate(RSQueryTerm *t) const {
+  return RSOffsetVectorIterator(this, t);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

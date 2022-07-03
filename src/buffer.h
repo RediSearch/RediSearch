@@ -37,6 +37,7 @@ struct Buffer {
   size_t offset;
 
   Buffer() : data(0), cap(0), offset(0) {}
+  Buffer(char *data, size_t cap, size_t offset = 0);
   Buffer(size_t cap, size_t offset = 0);
   ~Buffer();
 

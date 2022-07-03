@@ -230,6 +230,7 @@ struct RSQueryTerm : public Object {
 //---------------------------------------------------------------------------------------------
 
 // RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records
+
 struct RSOffsetIterator {
   virtual ~RSOffsetIterator() {}
   virtual uint32_t Next(RSQueryTerm **term) { return RS_OFFSETVECTOR_EOF; }
@@ -257,9 +258,7 @@ struct RSOffsetVector {
   uint32_t len;
 
   // Create an offset iterator interface  from a raw offset vector
-  RSOffsetIterator Iterate(RSQueryTerm *t) const {
-    return new RSOffsetVectorIterator(this, t);
-  }
+  RSOffsetIterator Iterate(RSQueryTerm *t) const;
 };
 
 //---------------------------------------------------------------------------------------------

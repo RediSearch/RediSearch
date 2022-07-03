@@ -214,7 +214,7 @@ public:
   IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
   long long timeout;
-  UnorderedMap<RedisModuleString, BaseIndex*> keysDict;
+  UnorderedMap<RedisModuleString*, BaseIndex*> keysDict;
   long long minPrefix;
   long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;

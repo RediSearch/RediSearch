@@ -17,6 +17,8 @@
 
 extern uint64_t TotalIIBlocks;
 
+struct IndexBlockRepair;
+
 // A single block of data in the index. The index is basically a list of blocks we iterate
 
 struct IndexBlock {
@@ -30,7 +32,7 @@ struct IndexBlock {
   char *DataBuf() { return buf.data; }
   size_t DataLen() const { return buf.offset; }
 
-  int Repair(DocTable *dt, IndexFlags flags, struct IndexRepairParams *params);
+  int Repair(DocTable &dt, IndexFlags flags, struct IndexBlockRepair &blockrepair);
 
   bool Matches(t_docId docId) const { return firstId <= docId && docId <= lastId; }
 };
@@ -42,15 +44,14 @@ typedef void (*RepairCallback)(const IndexResult *res, void *arg);
 
 //---------------------------------------------------------------------------------------------
 
-struct IndexRepairParams {
+struct IndexBlockRepair {
+  IndexBlockRepair() : bytesCollected(0), docsCollected(0) {}
   size_t bytesCollected; // out: Number of bytes collected
   size_t docsCollected;  // out: Number of documents collected
-  size_t limit;          // in: how many index blocks to scan at once
+  size_t limit;           // in: how many index blocks to scan at once
 
-  // in: Callback to invoke when a document is collected
-  void (*RepairCallback)(const IndexResult *, const IndexBlock *, void *);
-  // argument to pass to callback
-  void *arg;
+  // invoke when a document is collected
+  virtual void collect(const IndexResult &, const IndexBlock &) {}
 };
 
 //---------------------------------------------------------------------------------------------
@@ -153,7 +154,7 @@ struct InvertedIndex : BaseIndex {
   // Used to externally inject the endoder/decoder when reading and writing.
   static IndexDecoder GetDecoder(uint32_t flags);
 
-  int Repair(DocTable *dt, uint32_t startBlock, struct IndexRepairParams *params);
+  int Repair(DocTable &dt, uint32_t startBlock, IndexBlockRepairParams &blockrepair);
 
   // The last block of the index
   IndexBlock &LastBlock();

@@ -1132,7 +1132,7 @@ IndexIterator *IndexReader::NewReadIterator() {
  * Returns the number of records collected, and puts the number of bytes collected in the given
  * pointer. If an error occurred - returns -1
  */
-int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
+int IndexBlock::Repair(DocTable &dt, IndexFlags flags, IndexBlockRepair &blockrepair) {
   t_docId lastReadId = firstId;
   bool isFirstRes = true;
 
@@ -1142,11 +1142,7 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
   BufferReader br(&buf);
   BufferWriter bw(&repair);
 
-  IndexResult *res;
-  if (flags == Index_StoreNumeric)
-    res = new NumericResult();
-  else
-    res = new TermResult(NULL, 1);
+  unique_ptr<IndexResult> res = flags == Index_StoreNumeric ? new NumericResult() : new TermResult(NULL, 1);
   size_t frags = 0;
   int isLastValid = 0;
 
@@ -1165,26 +1161,22 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
     size_t sz = br.Current() - bufBegin;
     if (!(isFirstRes && res->docId != 0)) {
       // if we are entering this here
-      // then its not the first entry or its
-      // not an old rdb version
+      // then its not the first entry or its not an old rdb version
       // on an old rdb version, the first entry is the docid itself and not
       // the delta, so no need to increase by the lastReadId
       res->docId = (*(uint32_t *)&res->docId) + lastReadId;
     }
     isFirstRes = false;
     lastReadId = res->docId;
-    int docExists = dt->Exists(res->docId);
+    int docExists = dt.Exists(res->docId);
 
     // If we found a deleted document, we increment the number of found "frags",
     // and not write anything, so the reader will advance but the writer won't.
     // this will close the "hole" in the index
     if (!docExists) {
-      if (params->RepairCallback) {
-        params->RepairCallback(res, this, params->arg);
-      }
+      repairctx.collect(*res, *this);
       if (!frags++) {
-        // First invalid doc; copy everything prior to this to the repair
-        // buffer
+        // First invalid doc; copy everything prior to this to the repair buffer
         bw.Write(buf.data, bufBegin - buf.data);
       }
       params->bytesCollected += sz;
@@ -1230,30 +1222,29 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
     // from rdb (in case we read a corrunpted rdb from older versions).
     firstId = oldFirstBlock;
   }
-  delete res;
   return frags;
 }
 
 //---------------------------------------------------------------------------------------------
 
-int InvertedIndex::Repair(DocTable *dt, uint32_t startBlock, IndexRepairParams *params) {
+int InvertedIndex::Repair(DocTable &dt, uint32_t startBlock, IndexBlockRepair &blockrepair) {
   size_t limit = params->limit ? params->limit : SIZE_MAX;
   size_t blocksProcessed = 0;
   for (; startBlock < size && blocksProcessed < limit; ++startBlock, ++blocksProcessed) {
-    IndexBlock *blk = blocks + startBlock;
-    if (blk->lastId - blk->firstId > UINT32_MAX) {
+    IndexBlock &blk = *blocks[startBlock];
+    if (blk->lastId - blk.firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
       // want to split a block into two (or more) on high-delta boundaries.
       continue;
     }
-    int repaired = blocks[startBlock].Repair(dt, flags, params);
+    int repaired = blk.Repair(dt, flags, blockrepair);
     // We couldn't repair the block - return 0
     if (repaired == -1) {
       return 0;
     }
     if (repaired > 0) {
       // Record the number of records removed for gc stats
-      params->docsCollected += repaired;
+      repairproc.docsCollected += repaired;
       numDocs -= repaired;
 
       // Increase the GC marker so other queries can tell that we did something

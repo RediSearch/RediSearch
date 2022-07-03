@@ -37,6 +37,7 @@ struct std::hash<String>
     }
 };
 
+/*
 template<>
 struct std::hash<uint64_t>
 {
@@ -45,13 +46,14 @@ struct std::hash<uint64_t>
 		return std::hash<unsigned long long>{}(u);
     }
 };
+*/
 
 template<>
-struct std::hash<RedisModuleString>
+struct std::hash<RedisModuleString*>
 {
-    std::size_t operator()(const RedisModuleString &s) const noexcept
+    std::size_t operator()(const RedisModuleString *s) const noexcept
     {
-		const char *cp = RedisModule_StringPtrLen(&s, NULL);
+		const char *cp = RedisModule_StringPtrLen(s, NULL);
 		return std::hash<std::string>{}(cp);
     }
 };
