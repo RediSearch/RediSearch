@@ -196,17 +196,11 @@ GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit,
 
 int GeoFilter_EvalParams(dict *params, QueryNode *node, QueryError *status) {
   if (node->params) {
-    int resolved = 0;
-
     for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
       int res = QueryParam_Resolve(&node->params[i], params, status);
       if (res < 0)
         return REDISMODULE_ERR;
-      else if (res > 0)
-        resolved = 1;
     }
-    if (resolved && !GeoFilter_Validate(node->gn.gf, status))
-        return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
