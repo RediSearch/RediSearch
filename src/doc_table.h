@@ -61,16 +61,6 @@ struct DMDChain {
 //---------------------------------------------------------------------------------------------
 
 class DocTable : public Object {
-  size_t size;
-  // the maximum size this table is allowed to grow to
-  t_docId maxSize;
-  t_docId maxDocId;
-  size_t cap;
-  size_t memsize;
-  size_t sortablesSize;
-
-  DMDChain *buckets;
-  DocIdMap dim;
 
 protected:
   void ctor(size_t cap, size_t max_size);
@@ -84,6 +74,17 @@ protected:
   uint32_t GetBucket(t_docId docId) const;
 
 public:
+  size_t size;
+  // the maximum size this table is allowed to grow to
+  t_docId maxSize;
+  t_docId maxDocId;
+  size_t cap;
+  size_t memsize;
+  size_t sortablesSize;
+
+  DMDChain *buckets;
+  DocIdMap dim;
+  
   DocTable(size_t cap, size_t max_size) { ctor(cap, max_size); }
   DocTable(size_t cap);
   DocTable();

@@ -5,7 +5,6 @@
 #include "util/arr.h"
 #include "redismodule.h"
 #include "util/misc.h"
-//#include "tests/time_sample.h"
 
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
@@ -229,7 +228,7 @@ void NumericRangeNode::AddChildren(Vector<NumericRange> *v, double min, double m
 
     // if range is completely contained in the search, add it and not inspect any downwards
     if (range->Contained(min, max)) {
-      v->Push(range);
+      v->push_back(*range);
       return;
     }
     // No overlap at all - no need to do anything
@@ -243,7 +242,7 @@ void NumericRangeNode::AddChildren(Vector<NumericRange> *v, double min, double m
     if (left) left->AddChildren(v, min, max);
     if (right) right->AddChildren(v, min, max);
   } else if (range && range->Overlaps(min, max)) {
-    v->Push(range);
+    v->push_back(*range);
   }
 }
 
@@ -375,20 +374,18 @@ IndexIterator::IndexIterator(const IndexSpec *sp, NumericRange *nr, const Numeri
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
                                      const NumericFilter *f) {
   Vector<NumericRange> *v = t->Find(f->min, f->max);
-  if (!v || v->Size() == 0) {
+  if (!v || v->size() == 0) {
     if (v) {
       delete v;
     }
     return NULL;
   }
 
-  int n = v->Size();
+  int n = v->size();
   // if we only selected one range - we can just iterate it without union or anything
   if (n == 1) {
-    NumericRange *rng;
-    v->Get(0, rng);
-    IndexIterator *it = new IndexIterator(sp, rng, f);
-    delete v;
+    NumericRange rng = v->at(0);
+    IndexIterator *it = new IndexIterator(sp, &rng, f);
     return it;
   }
 
@@ -397,19 +394,11 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   IndexIterator **its = rm_calloc(n, sizeof(IndexIterator *));
 
   for (size_t i = 0; i < n; i++) {
-    NumericRange *rng;
-    v->Get(i, rng);
-    if (!rng) {
-      continue;
-    }
-
+    NumericRange rng = v->at(i);
     its[i] = new IndexIterator(sp, rng, f);
   }
-  delete v;
 
-  IndexIterator *it = new UnionIterator(its, n, NULL, 1, 1);
-
-  return it;
+  return new UnionIterator(its, n, NULL, 1, 1);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -426,10 +415,11 @@ static RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const cha
 
 static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
+  NumericRangeTree *val = NULL;
   if (ctx->spec->keysDict.contains(keyName)) {
     BaseIndex *index = ctx->spec->keysDict[keyName];
     try {
-      NumericRangeTree *val = dynamic_cast<NumericRangeTree*>(index);
+      val = dynamic_cast<NumericRangeTree*>(index);
     } catch (std::bad_cast) {
       ASSERT("error: invalid index type...")
     }
@@ -440,7 +430,7 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
     return NULL;
   }
 
-  NumericRangeTree *val = new NumericRangeTree();
+  val = new NumericRangeTree();
   ctx->spec->keysDict.insert({keyName, val});
   return val;
 }
@@ -526,9 +516,7 @@ static void __numericIndex_memUsageCallback(NumericRangeNode *n, void *arg) {
   if (n->range) {
     *sz += sizeof(NumericRange);
     *sz += n->range->card * sizeof(double);
-    if (n->range->entries) {
-      *sz += InvertedIndex_MemUsage(n->range->entries);
-    }
+    *sz += InvertedIndex_MemUsage(&n->range->entries);
   }
 }
 

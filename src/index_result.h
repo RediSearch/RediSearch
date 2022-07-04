@@ -5,11 +5,79 @@
 #include "redisearch.h"
 #include "rmalloc.h"
 #include "forward_index.h"
-#include "offset_vector.c"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define DEFAULT_RECORDLIST_SIZE 4
+
+//---------------------------------------------------------------------------------------------
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+// We have two types of offset vector iterators - for terms and for aggregates.
+// For terms we simply yield the encoded offsets one by one.
+// For aggregates, we merge them on the fly in order.
+// They are both encapsulated in an abstract iterator interface called RSOffsetIterator, with
+// callbacks and context matching the appropriate implementation.
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+class RSOffsetVectorIteratorPool : public MemPool {
+public:
+  RSOffsetVectorIteratorPool() : MemPool(8, 0, true) {}
+};
+
+// A raw offset vector iterator
+struct RSOffsetVectorIterator : public RSOffsetIterator,
+                                public MemPoolObject<RSOffsetVectorIteratorPool> {
+  Buffer buf;
+  BufferReader br;
+  uint32_t lastValue;
+  RSQueryTerm *term;
+
+  RSOffsetVectorIterator(const RSOffsetVector *v, RSQueryTerm *t) : buf(v->data, v->len, v->len),
+    br(&buf), lastValue(0), term(t) {}
+
+  virtual uint32_t Next(RSQueryTerm **t);
+  virtual void Rewind();
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct AggregateResult;
+
+class AggregateOffsetIteratorPool : public MemPool {
+public:
+  AggregateOffsetIteratorPool() : MemPool(8, 0, true) {}
+};
+
+struct AggregateOffsetIterator : public RSOffsetIterator,
+                                 public MemPoolObject<AggregateOffsetIteratorPool> {
+  const AggregateResult *res;
+  size_t size;
+  RSOffsetIterator *iters;
+  uint32_t *offsets;
+  RSQueryTerm **terms;
+  // uint32_t lastOffset; - TODO: Avoid duplicate offsets
+
+  AggregateOffsetIterator() {
+    size = 0;
+    offsets = NULL;
+    iters = NULL;
+    terms = NULL;
+  }
+
+  AggregateOffsetIterator(const AggregateResult *agg);
+
+  ~AggregateOffsetIterator() {
+    rm_free(offsets);
+    rm_free(iters);
+    rm_free(terms);
+  }
+
+  virtual uint32_t Next(RSQueryTerm **t);
+  virtual void Rewind();
+};
 
 //---------------------------------------------------------------------------------------------
 
@@ -48,14 +116,12 @@ struct AggregateResult : IndexResult {
 
   bool IsWithinRange(int maxSlop, bool inOrder) const;
 
-  AggregateOffsetIterator IterateOffsetsInternal() const;
-
   RSOffsetIterator::Proxy IterateOffsets() const {
     // if we only have one sub result, just iterate that...
     if (numChildren == 1) {
-      return children[0].IterateOffsetsInternal();
+      return new AggregateOffsetIterator(children[0]);
     }
-    return IterateOffsetsInternal();
+    return new AggregateOffsetIterator(this);
   }
 };
 

@@ -10,7 +10,7 @@ QINT_API size_t qint_encode(BufferWriter *bw, uint32_t arr[], int len) {
 
   char leading = 0;
   // save the current buffer possition
-  size_t pos = Buffer_Offset(bw->buf);
+  size_t pos = bw->buf->Offset();
 
   // write a zero for the leading byte
   size_t ret = bw->Write("\0", 1);
@@ -61,7 +61,7 @@ inline size_t __qint_encode(char *leading, BufferWriter *bw, uint32_t i, int off
 QINT_API size_t qint_encode1(BufferWriter *bw, uint32_t i) {
   size_t ret = 1;
   char leading = 0;
-  size_t pos = Buffer_Offset(bw->buf);
+  size_t pos = bw->buf->Offset();
   bw->Write("\0", 1);
   ret += __qint_encode(&leading, bw, i, 0);
   bw->WriteAt(pos, &leading, 1);
@@ -72,7 +72,7 @@ QINT_API size_t qint_encode1(BufferWriter *bw, uint32_t i) {
 QINT_API size_t qint_encode2(BufferWriter *bw, uint32_t i1, uint32_t i2) {
   size_t ret = 1;
   char leading = 0;
-  size_t pos = Buffer_Offset(bw->buf);
+  size_t pos = bw->buf->Offset();
   bw->Write("\0", 1);
   ret += __qint_encode(&leading, bw, i1, 0);
   ret += __qint_encode(&leading, bw, i2, 1);
@@ -84,7 +84,7 @@ QINT_API size_t qint_encode2(BufferWriter *bw, uint32_t i1, uint32_t i2) {
 QINT_API size_t qint_encode3(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_t i3) {
   size_t ret = 1;
   char leading = 0;
-  size_t pos = Buffer_Offset(bw->buf);
+  size_t pos = bw->buf->Offset();
   bw->Write("\0", 1);
   ret += __qint_encode(&leading, bw, i1, 0);
   ret += __qint_encode(&leading, bw, i2, 1);
@@ -97,7 +97,7 @@ QINT_API size_t qint_encode3(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_
 QINT_API size_t qint_encode4(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_t i3, uint32_t i4) {
   size_t ret = 1;
   char leading = 0;
-  size_t pos = Buffer_Offset(bw->buf);
+  size_t pos = bw->buf->Offset();
   bw->Write("\0", 1);
   ret += __qint_encode(&leading, bw, i1, 0);
   ret += __qint_encode(&leading, bw, i2, 1);
@@ -133,7 +133,7 @@ QINT_API size_t qint_encode4(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_
 /* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid
  */
 size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, int len) {
-  const uint8_t *start = (uint8_t *)BufferReader_Current(br);
+  const uint8_t *start = (uint8_t *)br->Current();
   const uint8_t *p = start;
   uint8_t header = *p;
   p++;
@@ -147,7 +147,7 @@ size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, in
   }
 
   size_t nread = p - start;
-  Buffer_Skip(br, nread);
+  br->Skip(nread);
   return nread;
 }
 
@@ -158,41 +158,41 @@ size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, in
   } while (0)
 
 QINT_API size_t qint_decode1(BufferReader *br, uint32_t *i) {
-  const uint8_t *p = (uint8_t *)BufferReader_Current(br);
+  const uint8_t *p = (uint8_t *)br->Current();
   size_t total = 0, tmp = 0;
   QINT_DECODE_MULTI(*i, 0, p, total, tmp);
-  Buffer_Skip(br, total + 1);
+  br->Skip(total + 1);
   return total + 1;
 }
 
 QINT_API size_t qint_decode2(BufferReader *br, uint32_t *i, uint32_t *i2) {
-  const uint8_t *p = (uint8_t *)BufferReader_Current(br);
+  const uint8_t *p = (uint8_t *)br->Current();
   size_t total = 0, tmp = 0;
   QINT_DECODE_MULTI(*i, 0, p, total, tmp);
   QINT_DECODE_MULTI(*i2, 1, p, total, tmp);
-  Buffer_Skip(br, total + 1);
+  br->Skip(total + 1);
   return total + 1;
 }
 
 QINT_API size_t qint_decode3(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3) {
-  const uint8_t *p = (uint8_t *)BufferReader_Current(br);
+  const uint8_t *p = (uint8_t *)br->Current();
   size_t total = 0, tmp = 0;
   QINT_DECODE_MULTI(*i, 0, p, total, tmp);
   QINT_DECODE_MULTI(*i2, 1, p, total, tmp);
   QINT_DECODE_MULTI(*i3, 2, p, total, tmp);
-  Buffer_Skip(br, total + 1);
+  br->Skip(total + 1);
   return total + 1;
 }
 
 QINT_API size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3,
                              uint32_t *i4) {
-  const uint8_t *p = (uint8_t *)BufferReader_Current(br);
+  const uint8_t *p = (uint8_t *)br->Current();
   size_t total = 0, tmp = 0;
   QINT_DECODE_MULTI(*i, 0, p, total, tmp);
   QINT_DECODE_MULTI(*i2, 1, p, total, tmp);
   QINT_DECODE_MULTI(*i3, 2, p, total, tmp);
   QINT_DECODE_MULTI(*i4, 3, p, total, tmp);
-  Buffer_Skip(br, total + 1);
+  br->Skip(total + 1);
   return total + 1;
 }
 

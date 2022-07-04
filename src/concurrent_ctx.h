@@ -29,7 +29,7 @@
  * We intend to switch this model to a single thread running multiple "coroutines", but for now
  * this naive implementation is good enough and will fix the search concurrency issue.
  *
- * The ConcurrentSearchCtx is part of a query, and the query calls the CONCURRENT_CTX_TICK macro
+ * The ConcurrentSearchCtx is part of a query, and the query calls the Tick function
  * for every "cycle" - meaning a processed search result. The concurrency engine will switch
  * execution to another query when the current thread has spent enough time working.
  *
@@ -91,6 +91,8 @@ struct ConcurrentSearchCtx { //@@ Should it derive from 'RedisModuleCtx'?
 
   void ReopenKeys();
   void CloseKeys();
+
+  bool Tick();
 };
 
 //---------------------------------------------------------------------------------------------
@@ -156,20 +158,6 @@ struct ConcurrentCmd : public Object {
 
 int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
-// This macro is called by concurrent executors (currently the query only).
-// It checks if enough time has passed and releases the global lock if that is the case.
-
-#define CONCURRENT_CTX_TICK(x)                               \
-  ({                                                         \
-    int conctx__didSwitch = 0;                               \
-    if ((x) && ++(x)->ticker % CONCURRENT_TICK_CHECK == 0) { \
-      if ((x)->CheckTimer()) {                \
-        conctx__didSwitch = 1;                               \
-      }                                                      \
-    }                                                        \
-    conctx__didSwitch;                                       \
-  })
 
 //---------------------------------------------------------------------------------------------
 

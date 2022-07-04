@@ -1,6 +1,5 @@
 
-#ifndef SRC_SPELL_CHECK_H_
-#define SRC_SPELL_CHECK_H_
+#pragma once
 
 #include "search_ctx.h"
 #include "query.h"
@@ -42,6 +41,9 @@ struct SpellCheckCtx {
   bool fullScoreInfo;
   size_t results;
 
+  SpellCheckCtx(RedisSearchCtx *sctx, const char **includeDict, const char **excludeDict, long long distance, bool fullScoreInfo) :
+  sctx(sctx), includeDict(includeDict), excludeDict(excludeDict), distance(distance), fullScoreInfo(fullScoreInfo) {}
+
   void Reply(QueryAST *q);
   bool ReplyTermSuggestions(char *term, size_t len, t_fieldMask fieldMask);
 
@@ -51,5 +53,3 @@ struct SpellCheckCtx {
   bool CheckDictExistence(const char *dict);
   bool CheckTermDictsExistance();
 };
-
-#endif /* SRC_SPELL_CHECK_H_ */

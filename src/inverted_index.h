@@ -97,29 +97,31 @@ struct IndexDecoder {
   int (IndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
     t_docId to, IndexResult *res);
 
-#define DECODER(name) \
-  int name(BufferReader *br, IndexResult *res)
+  // We have 9 distinct ways to decode the index records. Based on the index flags we select the
+  // correct decoder for creating an index reader. A decoder both decodes the entry and does initial
+  // filtering, returning true if the record is ok or false if it is filtered.
 
-  DECODER(readFreqsFlags);
-  DECODER(readFreqsFlagsWide);
-  DECODER(readFreqOffsetsFlags);
-  DECODER(readFreqOffsetsFlagsWide);
-  DECODER(readNumeric);
-  DECODER(readFreqs);
-  DECODER(readFlags);
-  DECODER(readFlagsWide);
-  DECODER(readFlagsOffsets);
-  DECODER(readFlagsOffsetsWide);
-  DECODER(readOffsets);
-  DECODER(readFreqsOffsets);
-  DECODER(readDocIdsOnly);
-#undef DECODER
+  bool readFreqsFlags(BufferReader *br, IndexResult *res);
+  bool readFreqsFlagsWide(BufferReader *br, IndexResult *res);
+  bool readFreqOffsetsFlags(BufferReader *br, TermResult *res);
+  bool readFreqOffsetsFlagsWide(BufferReader *br, TermResult *res);
+  bool readNumeric(BufferReader *br, NumericResult *res);
+  bool readFreqs(BufferReader *br, IndexResult *res);
+  bool readFlags(BufferReader *br, IndexResult *res);
+  bool readFlagsWide(BufferReader *br, IndexResult *res);
+  bool readFlagsOffsets(BufferReader *br, TermResult *res);
+  bool readFlagsOffsetsWide(BufferReader *br, TermResult *res);
+  bool readOffsets(BufferReader *br, TermResult *res);
+  bool readFreqsOffsets(BufferReader *br, TermResult *res);
+  bool readDocIdsOnly(BufferReader *br, IndexResult *res);
 
-#define SKIPPER(name) \
-  int name(BufferReader *br, IndexReader *ir, t_docId expid, IndexResult *res)
+  bool CHECK_FLAGS(TermResult *res) {
+    return (res->fieldMask & mask) != 0;
+  }
 
-  SKIPPER(seekFreqOffsetsFlags);
-#undef SKIPPER
+  // Skipper implements SkipTo. It is an optimized version of DECODER which reads
+
+  bool seekFreqOffsetsFlags(BufferReader *br, IndexReader *ir, t_docId expid, TermResult *res);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -154,7 +156,7 @@ struct InvertedIndex : BaseIndex {
   // Used to externally inject the endoder/decoder when reading and writing.
   static IndexDecoder GetDecoder(uint32_t flags);
 
-  int Repair(DocTable &dt, uint32_t startBlock, IndexBlockRepairParams &blockrepair);
+  int Repair(DocTable &dt, uint32_t startBlock, IndexBlockRepair &blockrepair);
 
   // The last block of the index
   IndexBlock &LastBlock();
@@ -183,7 +185,7 @@ struct IndexReader : public IndexIterator {
   size_t len;
 
   // The record we are decoding into
-  IndexResult *record;
+  TermResult *record;
 
   int atEnd;
 

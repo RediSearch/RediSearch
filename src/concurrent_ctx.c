@@ -309,6 +309,20 @@ void ConcurrentSearchCtx::Unlock() {
   isLocked = false;
 }
 
+//---------------------------------------------------------------------------------------------
+
+// This function is called by concurrent executors (currently the query only).
+// It checks if enough time has passed and releases the global lock if that is the case.
+
+bool ConcurrentSearchCtx::Tick() {
+  if (++ticker % CONCURRENT_TICK_CHECK == 0) {
+    if (CheckTimer()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 ConcurrentKey::ConcurrentKey(RedisModuleKey *key, RedisModuleString *keyName, int openFlags) :

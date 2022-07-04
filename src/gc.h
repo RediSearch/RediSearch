@@ -10,7 +10,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct GCAPI {
-  virtual int PeriodicCallback(RedisModuleCtx* ctx) { return 0; }
+  virtual bool PeriodicCallback(RedisModuleCtx* ctx) { return 0; }
   virtual void RenderStats(RedisModuleCtx* ctx) {}
   virtual void OnDelete() {}
   virtual void OnTerm() {}

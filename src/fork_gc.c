@@ -172,7 +172,7 @@ int ForkGC::tryRecvBuffer(void **buf, size_t *len) {
  * blockrepair is passed directly to IndexBlock::Repair.
  */
 bool ForkGC::childRepairInvIdx(RedisSearchCtx *sctx, InvertedIndex *idx, IndexRepair &repair,
-    IndexBlockRepair &blockrepair) {
+                               IndexBlockRepair &blockrepair) {
   arrayof(MSG_RepairedBlock) fixed = array_new(MSG_RepairedBlock, 10);
   arrayof(MSG_DeletedBlock) deleted = array_new(MSG_DeletedBlock, 10);
   arrayof(IndexBlock) blocklist = array_new(IndexBlock, idx->size);
@@ -180,8 +180,8 @@ bool ForkGC::childRepairInvIdx(RedisSearchCtx *sctx, InvertedIndex *idx, IndexRe
   bool rv = false;
 
   for (size_t i = 0; i < idx->size; ++i) {
-    IndexBlock &blk = *idx->blocks[i];
-    if (blk->lastId - blk.firstId > UINT32_MAX) {
+    IndexBlock &blk = idx->blocks[i];
+    if (blk.lastId - blk.firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
       // want to split a block into two (or more) on high-delta boundaries.
       // todo: is it ok??
@@ -191,7 +191,7 @@ bool ForkGC::childRepairInvIdx(RedisSearchCtx *sctx, InvertedIndex *idx, IndexRe
 
     // Capture the pointer address before the block is cleared; otherwise the pointer might be freed!
     void *bufptr = blk.buf.data;
-    int nrepaired = blk.Repair(&sctx->spec->docs, idx->flags, blockRepair);
+    int nrepaired = blk.Repair(&sctx->spec->docs, idx->flags, blockrepair);
     // We couldn't repair the block - return 0
     if (nrepaired == -1) {
       goto done;
@@ -219,7 +219,7 @@ bool ForkGC::childRepairInvIdx(RedisSearchCtx *sctx, InvertedIndex *idx, IndexRe
     if (i == idx->size - 1) {
       ixmsg.lastblkBytesCollected = blockrepair.bytesCollected;
       ixmsg.lastblkDocsRemoved = nrepaired;
-      ixmsg.lastblkNumDocs = blk->numDocs + nrepaired;
+      ixmsg.lastblkNumDocs = blk.numDocs + nrepaired;
     }
   }
 
@@ -257,11 +257,8 @@ done:
 
 //---------------------------------------------------------------------------------------------
 
-InvertedIndexRepair::InvertedIndexRepair() : term(term), termLen(termLen) {
-}
-
 void InvertedIndexRepair::sendHeader() {
-  sendBuffer(term, termLen);
+  sendBuffer(term, termLen); //@@ function not declared
 }
 
 //---------------------------------------------------------------------------------------------
@@ -316,13 +313,13 @@ void NumericIndexBlockRepair::countDeleted(const NumericResult *r, const IndexBl
 
 //---------------------------------------------------------------------------------------------
 
-void NumericAndTagIndexRepair:sendHeader() {
+void NumericAndTagIndexRepair::sendHeader() {
   if (!sentFieldName) {
     sentFieldName = true;
     sendBuffer(field, strlen(field));
     sendFixed(&uniqueId, sizeof(uniqueId));
   }
-  sendVar(curPtr);
+  sendVar(idx);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -378,7 +375,6 @@ void ForkGC::childCollectNumeric(RedisSearchCtx *sctx) {
     RedisModuleString *keyName = sctx->spec->GetFormattedKey(numericFields[i], INDEXFLD_T_NUMERIC);
     RedisModuleKey *idxKey = NULL;
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
-    
 
     NumericRangeTreeIterator gcIterator(rt);
     for (NumericRangeNode *node = NULL; (node = gcIterator.Next()); ) {
@@ -386,7 +382,7 @@ void ForkGC::childCollectNumeric(RedisSearchCtx *sctx) {
         continue;
       }
       InvertedIndex &idx = node->range->entries;
-      NumericIndexRepair indexrepair{*numericFields[i], *rt, *node};
+      NumericIndexRepair indexrepair(*numericFields[i], *rt, *node);
       NumericIndexBlockRepair blockrepair(idx);
       bool repaired = childRepairInvIdx(sctx, &idx, indexrepair, blockrepair);
 
@@ -396,7 +392,7 @@ void ForkGC::childCollectNumeric(RedisSearchCtx *sctx) {
       }
     }
 
-    if (repairproc.sentFieldName) {
+    if (repairproc.sentFieldName) { //@@ what is repairproc?
       // If we've repaired at least one entry, send the terminator;
       // note that "terminator" just means a zero address and not the
       // "no more strings" terminator in sendTerminator
@@ -421,7 +417,7 @@ void ForkGC::childCollectTags(RedisSearchCtx *sctx) {
     for (int i = 0; i < array_len(tagFields); ++i) {
       RedisModuleString *keyName = sctx->spec->GetFormattedKey(tagFields[i], INDEXFLD_T_TAG);
       RedisModuleKey *idxKey = NULL;
-       *tagIdx = TagIndex::Open(sctx, keyName, false, &idxKey);
+      TagIndex *tagIdx = TagIndex::Open(sctx, keyName, false, &idxKey);
       if (!tagIdx) {
         continue;
       }
@@ -431,8 +427,9 @@ void ForkGC::childCollectTags(RedisSearchCtx *sctx) {
       char *ptr;
       tm_len_t len;
       InvertedIndex *invidx;
+      TagIndexRepair indexrepair;
       while (iter->Next(&ptr, &len, (void **)&invidx)) {
-        TagIndexRepair indexrepair{*tagFields[i], *tagIdx, *invidx};
+        indexrepair = *new TagIndexRepair(*tagFields[i], *tagIdx, *invidx);
         IndexBlockRepair blockrepair;
         // send repaired data
         childRepairInvIdx(sctx, invidx, indexrepair, blockrepair);

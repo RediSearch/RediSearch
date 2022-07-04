@@ -357,7 +357,7 @@ end:
 // The GC periodic callback, called in a separate thread.
 // It selects a random term (using weighted random).
 
-int GarbageCollector::PeriodicCallback(RedisModuleCtx *ctx) {
+bool GarbageCollector::PeriodicCallback(RedisModuleCtx *ctx) {
   int status = SPEC_STATUS_OK;
   RedisModule_AutoMemory(ctx);
   RedisModule_ThreadSafeContextLock(ctx);

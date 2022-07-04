@@ -90,16 +90,16 @@ static void GCTask::_taskThread(GCTask *task) {
     if (bc && bc != DEADBEEF) {
       RedisModule_ThreadSafeContextLock(ctx);
       RedisModule_UnblockClient(bc, NULL);
-      RedisModule_ThreadSafeContextUnlock(ctx); 
+      RedisModule_ThreadSafeContextUnlock(ctx);
     }
     delete task;
     return;
   }
 
-  int periodic = gc->gc->PeriodicCallback(ctx);
+  bool periodic = gc->gc->PeriodicCallback(ctx);
 
   RedisModule_ThreadSafeContextLock(ctx);
-  if (bc) { 
+  if (bc) {
     if (bc != DEADBEEF) {
       RedisModule_UnblockClient(bc, NULL);
     }
@@ -125,7 +125,7 @@ void GC::_destroyCallback(GC* gc) {
   RedisModuleCtx* ctx = RSDummyContext;
   assert(gc->stopped == 1);
 
-  RedisModule_ThreadSafeContextLock(ctx);  
+  RedisModule_ThreadSafeContextLock(ctx);
   gc->gc->OnTerm();
   delete gc;
   RedisModule_ThreadSafeContextUnlock(ctx);
@@ -177,7 +177,7 @@ void GC::Stop() {
     assert(task->gc->gc == gc);
     delete task;
   }
-  thpool_add_work(gcThreadpool_g, _destroyCallback, this); 
+  thpool_add_work(gcThreadpool_g, _destroyCallback, this);
 }
 
 //---------------------------------------------------------------------------------------------

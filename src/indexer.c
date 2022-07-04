@@ -210,7 +210,7 @@ int DocumentIndexer::writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ct
         RedisModule_CloseKey(idxKey);
       }
 
-      if (isBlocked && CONCURRENT_CTX_TICK(&concCtx) && ctx->spec == NULL) {
+      if (isBlocked && concCtx.Tick() && ctx->spec == NULL) {
         aCtx->status.SetError(QUERY_ENOINDEX, NULL);
         return -1;
       }
@@ -249,7 +249,7 @@ void DocumentIndexer::writeCurEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx)
     }
 
     entry = it.Next();
-    if (isBlocked && CONCURRENT_CTX_TICK(&concCtx) && ctx->spec == NULL) {
+    if (isBlocked && concCtx.Tick() && ctx->spec == NULL) {
       aCtx->status.SetError(QUERY_ENOINDEX, NULL);
       return;
     }

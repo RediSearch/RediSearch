@@ -64,7 +64,7 @@ InvertedIndex::InvertedIndex(IndexFlags flags, int initBlock) {
 //---------------------------------------------------------------------------------------------
 
 IndexBlock::~IndexBlock() {
-  Buffer_Free(&buf);
+  delete &buf;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -135,80 +135,77 @@ void IndexReader::OnReopen(RedisModuleKey *k) {
  *
  ******************************************************************************/
 
-#define ENCODER(f) static size_t f(BufferWriter *bw, uint32_t delta, IndexResult *res)
-
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
-ENCODER(encodeFull) {
+static size_t encodeFull(BufferWriter *bw, uint32_t delta, TermResult *res) {
   size_t sz = qint_encode4(bw, delta, res->freq, (uint32_t)res->fieldMask, res->offsetsSz);
-  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
+  sz += bw->Write(res->offsets.data, res->offsets.len);
   return sz;
 }
 
-ENCODER(encodeFullWide) {
+static size_t encodeFullWide(BufferWriter *bw, uint32_t delta, TermResult *res) {
   size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
   sz += bw->WriteVarintFieldMask(res->fieldMask);
-  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
+  sz += bw->Write(res->offsets.data, res->offsets.len);
   return sz;
 }
 
 // 2. (Frequency, Field)
-ENCODER(encodeFreqsFields) {
+static size_t encodeFreqsFields(BufferWriter *bw, uint32_t delta, IndexResult *res) {
   return qint_encode3(bw, (uint32_t)delta, (uint32_t)res->freq, (uint32_t)res->fieldMask);
 }
 
-ENCODER(encodeFreqsFieldsWide) {
+static size_t encodeFreqsFieldsWide(BufferWriter *bw, uint32_t delta, IndexResult *res) {
   size_t sz = qint_encode2(bw, (uint32_t)delta, (uint32_t)res->freq);
   sz += bw->WriteVarintFieldMask(res->fieldMask);
   return sz;
 }
 
 // 3. Frequencies only
-ENCODER(encodeFreqsOnly) {
+static size_t encodeFreqsOnly(BufferWriter *bw, uint32_t delta, IndexResult *res) {
   return qint_encode2(bw, (uint32_t)delta, (uint32_t)res->freq);
 }
 
 // 4. Field mask only
-ENCODER(encodeFieldsOnly) {
+static size_t encodeFieldsOnly(BufferWriter *bw, uint32_t delta, IndexResult *res) {
   return qint_encode2(bw, (uint32_t)delta, (uint32_t)res->fieldMask);
 }
 
-ENCODER(encodeFieldsOnlyWide) {
+static size_t encodeFieldsOnlyWide(BufferWriter *bw, uint32_t delta, IndexResult *res) {
   size_t sz = bw->WriteVarint((uint32_t)delta);
   sz += bw->WriteVarintFieldMask(res->fieldMask);
   return sz;
 }
 
 // 5. (field, offset)
-ENCODER(encodeFieldsOffsets) {
-  size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, res->term.offsets.len);
-  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
+static size_t encodeFieldsOffsets(BufferWriter *bw, uint32_t delta, TermResult *res) {
+  size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, res->offsets.len);
+  sz += bw->Write(res->offsets.data, res->offsets.len);
   return sz;
 }
 
-ENCODER(encodeFieldsOffsetsWide) {
-  size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
+static size_t encodeFieldsOffsetsWide(BufferWriter *bw, uint32_t delta, TermResult *res) {
+  size_t sz = qint_encode2(bw, delta, res->offsets.len);
   sz += bw->WriteVarintFieldMask(res->fieldMask);
-  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
+  sz += bw->Write(res->offsets.data, res->offsets.len);
   return sz;
 }
 
 // 6. Offsets only
-ENCODER(encodeOffsetsOnly) {
-
-  size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
-  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
+static size_t encodeOffsetsOnly(BufferWriter *bw, uint32_t delta, TermResult *res) {
+  size_t sz = qint_encode2(bw, delta, res->offsets.len);
+  sz += bw->Write(res->offsets.data, res->offsets.len);
   return sz;
 }
 
 // 7. Offsets and freqs
-ENCODER(encodeFreqsOffsets) {
-  size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, (uint32_t)res->term.offsets.len);
-  sz += bw->Write(res->term.offsets.data, res->term.offsets.len);
+static size_t encodeFreqsOffsets(BufferWriter *bw, uint32_t delta, TermResult *res) {
+  size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, (uint32_t)res->offsets.len);
+  sz += bw->Write(res->offsets.data, res->offsets.len);
   return sz;
 }
 
 // 8. Encode only the doc ids
-ENCODER(encodeDocIdsOnly) {
+static size_t encodeDocIdsOnly(BufferWriter *bw, uint32_t delta, IndexResult *res) {
   return bw->WriteVarint(delta);
 }
 
@@ -220,43 +217,42 @@ ENCODER(encodeDocIdsOnly) {
 
 #define NUM_TINYENC_MASK 0x07  // This flag is set if the number is 'tiny'
 
-typedef struct {
+struct NumEncodingInt {
   uint8_t deltaEncoding : 2;
   uint8_t zero : 2;
   uint8_t valueByteCount : 3;
   uint8_t sign : 1;
-} NumEncodingInt;
+};
 
-typedef struct {
+struct NumEncodingTiny {
   uint8_t deltaEncoding : 2;
   uint8_t zero : 1;
   uint8_t isTiny : 1;
   uint8_t tinyValue : 4;
-} NumEncodingTiny;
+};
 
-typedef struct {
+struct NumEncodingFloat {
   uint8_t deltaEncoding : 2;
   uint8_t isFloat : 1;  // Always set to 1
   uint8_t isInf : 1;    // -INFINITY has the 'sign' bit set too
   uint8_t sign : 1;
   uint8_t isDouble : 1;  // Read 8 bytes rather than 4
-} NumEncodingFloat;
+};
 
-typedef struct {
+struct NumEncodingCommon {
   uint8_t deltaEncoding : 2;
   uint8_t isFloat : 1;
   uint8_t specific : 5;
-} NumEncodingCommon;
+};
 
-typedef union {
+union EncodingHeader {
   uint8_t storage;
   NumEncodingCommon encCommon;
   NumEncodingInt encInt;
   NumEncodingTiny encTiny;
   NumEncodingFloat encFloat;
-} EncodingHeader;
+};
 
-#define NUM_TINY_MAX 0xF  // Mask/Limit for 'Tiny' value
 static void dumpBits(uint64_t value, size_t numBits, FILE *fp) {
   while (numBits) {
     fprintf(fp, "%d", !!(value & (1 << (numBits - 1))));
@@ -283,16 +279,16 @@ static void dumpEncoding(EncodingHeader header, FILE *fp) {
 }
 
 // 9. Special encoder for numeric values
-ENCODER(encodeNumeric) {
-  const double absVal = fabs(res->num.value);
-  const double realVal = res->num.value;
+static size_t encodeNumeric(BufferWriter *bw, uint32_t delta, NumericResult *res) {
+  const double absVal = fabs(res->value);
+  const double realVal = res->value;
   const float f32Num = absVal;
   uint64_t u64Num = (uint64_t)absVal;
   const uint8_t tinyNum = ((uint8_t)absVal) & NUM_TINYENC_MASK;
 
   EncodingHeader header = {.storage = 0};
 
-  size_t pos = BufferWriter_Offset(bw);
+  size_t pos = bw->Offset();
   size_t sz = bw->Write("\0", 1);
 
   // Write the delta
@@ -350,10 +346,7 @@ ENCODER(encodeNumeric) {
     }
   }
 
-  *BufferWriter_PtrAt(bw, pos) = header.storage;
-  // printf("== Encoded ==\n");
-  // dumpEncoding(header, stdout);
-
+  *bw->PtrAt(pos) = header.storage;
   return sz;
 }
 
@@ -443,7 +436,7 @@ size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, con
     delta = 0;
   }
 
-  BufferWriter bw = NewBufferWriter(&blk->buf);
+  BufferWriter bw(&blk->buf);
 
   // printf("Writing docId %llu, delta %llu, flags %x\n", docId, delta, (int)idx->flags);
   size_t ret = encoder(&bw, delta, &entry);
@@ -483,60 +476,38 @@ void IndexReader::AdvanceBlock() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* Index Decoder Implementations
- *
- * We have 9 distinct ways to decode the index records. Based on the index flags we select the
- * correct decoder for creating an index reader. A decoder both decodes the entry and does initial
- * filtering, returning 1 if the record is ok or 0 if it is filtered.
- *
- * Term indexes can filter based on fieldMask, and
- */
-
-#define DECODER(name) \
-  int IndexDecoder::name(BufferReader *br, IndexResult *res)
-
-// Skipper implements SkipTo. It is an optimized version of DECODER which reads
-// the document ID first, and skips ahead if the result does not match the expected one.
-
-#define SKIPPER(name) \
-  int IndexDecoder::name(BufferReader *br, IndexReader *ir, t_docId expid, IndexResult *res)
-
-#define CHECK_FLAGS(res) return ((res->fieldMask & mask) != 0)
-
-//---------------------------------------------------------------------------------------------
-
-DECODER(readFreqsFlags) {
+bool IndexDecoder::readFreqsFlags(BufferReader *br, IndexResult *res) {
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask);
   // qint_decode3(br, &res->docId, &res->freq, &res->fieldMask);
-  CHECK_FLAGS(res);
+  return CHECK_FLAGS(res);
 }
 
-DECODER(readFreqsFlagsWide) {
+bool IndexDecoder::readFreqsFlagsWide(BufferReader *br, IndexResult *res) {
   uint32_t maskSz;
   qint_decode2(br, (uint32_t *)&res->docId, &res->freq);
-  res->fieldMask = ReadVarintFieldMask(br);
-  CHECK_FLAGS(res);
+  res->fieldMask = ReadVarintFieldMask(*br);
+  return CHECK_FLAGS(res);
 }
 
-DECODER(readFreqOffsetsFlags) {
+bool IndexDecoder::readFreqOffsetsFlags(BufferReader *br, TermResult *res) {
   qint_decode4(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask,
                &res->offsetsSz);
-  res->term.offsets.data = BufferReader_Current(br);
-  res->term.offsets.len = res->offsetsSz;
-  Buffer_Skip(br, res->offsetsSz);
-  CHECK_FLAGS(res);
+  res->offsets.data = br->Current();
+  res->offsets.len = res->offsetsSz;
+  br->Skip(res->offsetsSz);
+  return CHECK_FLAGS(res);
 }
 
-SKIPPER(seekFreqOffsetsFlags) {
+bool IndexDecoder::seekFreqOffsetsFlags(BufferReader *br, IndexReader *ir, t_docId expid, TermResult *res) {
   uint32_t did = 0, freq = 0, offsz = 0;
   t_fieldMask fm = 0;
   t_docId lastId = ir->lastId;
-  int rc = 0;
+  int rc = false;
 
-  if (!BufferReader_AtEnd(br)) {
+  if (!br->AtEnd()) {
     size_t oldpos = br->pos;
     qint_decode4(br, &did, &freq, (uint32_t *)&fm, &offsz);
-    Buffer_Skip(br, offsz);
+    br->Skip(offsz);
 
     if (oldpos == 0 && did != 0) {
       // Old RDB: Delta is not 0, but the docid itself
@@ -548,23 +519,23 @@ SKIPPER(seekFreqOffsetsFlags) {
     if (mask & fm) {
       if (did >= expid) {
         // overshoot
-        rc = 1;
+        rc = true;
         goto done;
       }
     }
   }
 
-  if (!BufferReader_AtEnd(br)) {
-    while (!BufferReader_AtEnd(br)) {
+  if (!br->AtEnd()) {
+    while (!br->AtEnd()) {
       qint_decode4(br, &did, &freq, (uint32_t *)&fm, &offsz);
-      Buffer_Skip(br, offsz);
+      br->Skip(offsz);
       lastId = (did += lastId);
       if (!(mask & fm)) {
         continue;  // we just ignore it if it does not match the field mask
       }
       if (did >= expid) {
         // Overshoot!
-        rc = 1;
+        rc = true;
         break;
       }
     }
@@ -575,128 +546,122 @@ done:
   res->freq = freq;
   res->fieldMask = fm;
   res->offsetsSz = offsz;
-  res->term.offsets.data = BufferReader_Current(br) - offsz;
-  res->term.offsets.len = offsz;
+  res->offsets.data = br->Current() - offsz;
+  res->offsets.len = offsz;
 
   // sync back!
   ir->lastId = lastId;
   return rc;
 }
 
-DECODER(readFreqOffsetsFlagsWide) {
+bool IndexDecoder::readFreqOffsetsFlagsWide(BufferReader *br, TermResult *res) {
   uint32_t maskSz;
 
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, &res->offsetsSz);
-  res->fieldMask = ReadVarintFieldMask(br);
-  res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
-  Buffer_Skip(br, res->offsetsSz);
-  CHECK_FLAGS(res);
+  res->fieldMask = ReadVarintFieldMask(*br);
+  res->offsets = (RSOffsetVector){.data = br->Current(), .len = res->offsetsSz};
+  br->Skip(res->offsetsSz);
+  return CHECK_FLAGS(res);
 }
 
 // special decoder for decoding numeric results
-DECODER(readNumeric) {
+bool IndexDecoder::readNumeric(BufferReader *br, NumericResult *res) {
   EncodingHeader header;
-  Buffer_Read(br, &header, 1);
+  br->Read(&header, 1);
 
   res->docId = 0;
-  Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding + 1);
+  br->Read(&res->docId, header.encCommon.deltaEncoding + 1);
 
   if (header.encCommon.isFloat) {
     if (header.encFloat.isInf) {
-      res->num.value = INFINITY;
+      res->value = INFINITY;
     } else if (header.encFloat.isDouble) {
-      Buffer_Read(br, &res->num.value, 8);
+      br->Read(&res->value, 8);
     } else {
       float f;
-      Buffer_Read(br, &f, 4);
-      res->num.value = f;
+      br->Read(&f, 4);
+      res->value = f;
     }
     if (header.encFloat.sign) {
-      res->num.value = -res->num.value;
+      res->value = -res->value;
     }
   } else if (header.encTiny.isTiny) {
     // Is embedded into the header
-    res->num.value = header.encTiny.tinyValue;
+    res->value = header.encTiny.tinyValue;
 
   } else {
     // Is a whole number
     uint64_t num = 0;
-    Buffer_Read(br, &num, header.encInt.valueByteCount + 1);
-    res->num.value = num;
+    br->Read(&num, header.encInt.valueByteCount + 1);
+    res->value = num;
     if (header.encInt.sign) {
-      res->num.value = -res->num.value;
+      res->value = -res->value;
     }
   }
 
-  // printf("res->num.value: %lf\n", res->num.value);
-
   if (filter) {
-    bool rv = filter->Match(res->num.value);
-    // printf("Checking against filter: %d\n", rv);
-    return rv ? 1 : 0;
+    return filter->Match(res->value);
   }
-  // printf("Field matches.. hurray!\n");
-  return 1;
+  return true;
 }
 
-DECODER(readFreqs) {
+bool IndexDecoder::readFreqs(BufferReader *br, IndexResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->freq);
-  return 1;
+  return true;
 }
 
-DECODER(readFlags) {
+bool IndexDecoder::readFlags(BufferReader *br, IndexResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, (uint32_t *)&res->fieldMask);
-  CHECK_FLAGS(res);
+  return CHECK_FLAGS(res);
 }
 
-DECODER(readFlagsWide) {
-  res->docId = ReadVarint(br);
+bool IndexDecoder::readFlagsWide(BufferReader *br, IndexResult *res) {
+  res->docId = ReadVarint(*br);
   res->freq = 1;
-  res->fieldMask = ReadVarintFieldMask(br);
-  CHECK_FLAGS(res);
+  res->fieldMask = ReadVarintFieldMask(*br);
+  return CHECK_FLAGS(res);
 }
 
-DECODER(readFlagsOffsets) {
+bool IndexDecoder::readFlagsOffsets(BufferReader *br, TermResult *res) {
   qint_decode3(br, (uint32_t *)&res->docId, (uint32_t *)&res->fieldMask, &res->offsetsSz);
-  res->term.offsets = RSOffsetVector(BufferReader_Current(br), res->offsetsSz);
-  Buffer_Skip(br, res->offsetsSz);
-  CHECK_FLAGS(res);
+  res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
+  br->Skip(res->offsetsSz);
+  return CHECK_FLAGS(res);
 }
 
-DECODER(readFlagsOffsetsWide) {
-
+bool IndexDecoder::readFlagsOffsetsWide(BufferReader *br, TermResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->offsetsSz);
-  res->fieldMask = ReadVarintFieldMask(br);
-  res->term.offsets = RSOffsetVector(BufferReader_Current(br), res->offsetsSz);
+  res->fieldMask = ReadVarintFieldMask(*br);
+  res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
 
-  Buffer_Skip(br, res->offsetsSz);
-  CHECK_FLAGS(res);
+  br->Skip(res->offsetsSz);
+  return CHECK_FLAGS(res);
 }
 
-DECODER(readOffsets) {
+bool IndexDecoder::readOffsets(BufferReader *br, TermResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->offsetsSz);
-  res->term.offsets = RSOffsetVector(BufferReader_Current(br), res->offsetsSz);
-  Buffer_Skip(br, res->offsetsSz);
-  return 1;
+  res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
+  br->Skip(res->offsetsSz);
+  return true;
 }
 
-DECODER(readFreqsOffsets) {
+bool IndexDecoder::readFreqsOffsets(BufferReader *br, TermResult *res) {
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, &res->offsetsSz);
-  res->term.offsets = RSOffsetVector(BufferReader_Current(br), res->offsetsSz);
-  Buffer_Skip(br, res->offsetsSz);
-  return 1;
+  res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
+  br->Skip(res->offsetsSz);
+  return true;
 }
 
-DECODER(readDocIdsOnly) {
-  res->docId = ReadVarint(br);
+bool IndexDecoder::readDocIdsOnly(BufferReader *br, IndexResult *res) {
+  res->docId = ReadVarint(*br);
   res->freq = 1;
-  return 1;  // Don't care about field mask
+  return true;  // Don't care about field mask
 }
 
 //---------------------------------------------------------------------------------------------
 
 IndexDecoder InvertedIndex::GetDecoder(uint32_t flags) {
-  return IndexDecoder(flags);
+  return *new IndexDecoder(flags);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -715,63 +680,63 @@ IndexDecoder::IndexDecoder(uint32_t flags, const NumericFilter *filter) : filter
 
 void IndexDecoder::ctor(uint32_t flags) {
 
-#define SET_DECODERS(decoder_, seeker_) \
-  decoder = decoder_; \
-  seeker = seeker_; \
-  return
+// #define SET_DECODERS(decoder_, seeker_) \
+//   decoder = decoder_; \
+//   seeker = seeker_; \
+//   return
 
-  switch (flags & INDEX_STORAGE_MASK) {
-    // (freqs, fields, offset)
-    case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets:
-      SET_DECODERS(&readFreqOffsetsFlags, &seekFreqOffsetsFlags);
+//   switch (flags & INDEX_STORAGE_MASK) {
+//     // (freqs, fields, offset)
+//     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets:
+//       SET_DECODERS(&readFreqOffsetsFlags, &seekFreqOffsetsFlags);
 
-    case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-      SET_DECODERS(&readFreqOffsetsFlagsWide, nullptr);
+//     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
+//       SET_DECODERS(&readFreqOffsetsFlagsWide, nullptr);
 
-    // (freqs)
-    case Index_StoreFreqs:
-      SET_DECODERS(&readFreqs, nullptr);
+//     // (freqs)
+//     case Index_StoreFreqs:
+//       SET_DECODERS(&readFreqs, nullptr);
 
-    // (offsets)
-    case Index_StoreTermOffsets:
-      SET_DECODERS(&readOffsets, nullptr);
+//     // (offsets)
+//     case Index_StoreTermOffsets:
+//       SET_DECODERS(&readOffsets, nullptr);
 
-    // (fields)
-    case Index_StoreFieldFlags:
-      SET_DECODERS(&readFlags, nullptr);
+//     // (fields)
+//     case Index_StoreFieldFlags:
+//       SET_DECODERS(&readFlags, nullptr);
 
-    case Index_StoreFieldFlags | Index_WideSchema:
-      SET_DECODERS(&readFlagsWide, nullptr);
+//     case Index_StoreFieldFlags | Index_WideSchema:
+//       SET_DECODERS(&readFlagsWide, nullptr);
 
-    // ()
-    case Index_DocIdsOnly:
-      SET_DECODERS(&readDocIdsOnly, nullptr);
+//     // ()
+//     case Index_DocIdsOnly:
+//       SET_DECODERS(&readDocIdsOnly, nullptr);
 
-    // (freqs, offsets)
-    case Index_StoreFreqs | Index_StoreTermOffsets:
-      SET_DECODERS(&readFreqsOffsets, nullptr);
+//     // (freqs, offsets)
+//     case Index_StoreFreqs | Index_StoreTermOffsets:
+//       SET_DECODERS(&readFreqsOffsets, nullptr);
 
-    // (freqs, fields)
-    case Index_StoreFreqs | Index_StoreFieldFlags:
-      SET_DECODERS(&readFreqsFlags, nullptr);
+//     // (freqs, fields)
+//     case Index_StoreFreqs | Index_StoreFieldFlags:
+//       SET_DECODERS(&readFreqsFlags, nullptr);
 
-    case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
-      SET_DECODERS(&readFreqsFlagsWide, nullptr);
+//     case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
+//       SET_DECODERS(&readFreqsFlagsWide, nullptr);
 
-    // (fields, offsets)
-    case Index_StoreFieldFlags | Index_StoreTermOffsets:
-      SET_DECODERS(&readFlagsOffsets, nullptr);
+//     // (fields, offsets)
+//     case Index_StoreFieldFlags | Index_StoreTermOffsets:
+//       SET_DECODERS(&readFlagsOffsets, nullptr);
 
-    case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-      SET_DECODERS(&readFlagsOffsetsWide, nullptr);
+//     case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
+//       SET_DECODERS(&readFlagsOffsetsWide, nullptr);
 
-    case Index_StoreNumeric:
-      SET_DECODERS(&readNumeric, nullptr);
+//     case Index_StoreNumeric:
+//       SET_DECODERS(&readNumeric, nullptr);
 
-    default:
-      fprintf(stderr, "No decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
-      SET_DECODERS(nullptr, nullptr);
-  }
+//     default:
+//       fprintf(stderr, "No decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
+//       SET_DECODERS(nullptr, nullptr);
+//   }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -835,8 +800,8 @@ public:
 
   TermIndexCriteriaTester(IndexReader *ir) {
     spec = ir->sp;
-    term = rm_strdup(ir->record->term.term->str);
-    termLen = ir->record->term.term->len;
+    term = rm_strdup(ir->record->term->str);
+    termLen = ir->record->term->len;
     fieldMask = ir->decoder.mask;
   }
 
@@ -892,7 +857,7 @@ int IndexReader::Read(IndexResult **e) {
   }
   do {
     // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
-    while (BufferReader_AtEnd(&br)) {
+    while (br.AtEnd()) {
       // We're at the end of the last block...
       if (currentBlock + 1 == idx->size) {
         goto eof;
@@ -975,7 +940,7 @@ int IndexReader::SkipTo(t_docId docId, IndexResult **hit) {
 
   if (!CurrentBlock().Matches(docId)) {
     SkipToBlock(docId);
-  } else if (BufferReader_AtEnd(&br)) {
+  } else if (br.AtEnd()) {
     // Current block, but there's nothing here
     if (Read(hit) == INDEXREAD_EOF) {
       goto eof;
@@ -1007,7 +972,7 @@ int IndexReader::SkipTo(t_docId docId, IndexResult **hit) {
 
   if (decoder.seeker) {
     // // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
-    while (BufferReader_AtEnd(&br)) {
+    while (br.AtEnd()) {
       // We're at the end of the last block...
       if (currentBlock + 1 == idx->size) {
         goto eof;
@@ -1019,7 +984,7 @@ int IndexReader::SkipTo(t_docId docId, IndexResult **hit) {
     // searched docid and the field mask matches the searched fields mask. We need to continue
     // scanning only when we found such an id or we reached the end of the inverted index.
     while (! (decoder.*(decoder.seeker))(&br, this, docId, record)) {
-      if (BufferReader_AtEnd(&br)) {
+      if (br.AtEnd()) {
         if (currentBlock < idx->size - 1) {
           AdvanceBlock();
         } else {
@@ -1056,10 +1021,10 @@ size_t IndexReader::NumDocs() const {
 
 IndexReader::IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
     IndexResult *record, double weight) : IndexIterator(this), sp(sp), idx(idx), decoder(decoder),
-    record(record), weight(weight) {
+    record(record), weight(weight), br(*new BufferReader(&CurrentBlock().buf)) {
   gcMarker = idx->gcMarker;
   lastId = CurrentBlock().firstId;
-  br.Set(&CurrentBlock().buf);
+  // br = *new BufferReader(&CurrentBlock().buf);
 
   currentBlock = 0;
   len = 0;
@@ -1092,7 +1057,7 @@ static RSQueryTerm *termWithIDF(RSQueryTerm *term, InvertedIndex *idx, IndexSpec
 TermIndexReader::TermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
     RSQueryTerm *term, double weight) : IndexReader(sp, idx,
       IndexDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK, fieldMask),
-      NewTermRecord(termWithIDF(term, idx, sp), weight),
+      new TermResult(termWithIDF(term, idx, sp), weight),
       weight) {
 }
 
@@ -1174,12 +1139,12 @@ int IndexBlock::Repair(DocTable &dt, IndexFlags flags, IndexBlockRepair &blockre
     // and not write anything, so the reader will advance but the writer won't.
     // this will close the "hole" in the index
     if (!docExists) {
-      repairctx.collect(*res, *this);
+      blockrepair.collect(*res, *this);
       if (!frags++) {
         // First invalid doc; copy everything prior to this to the repair buffer
         bw.Write(buf.data, bufBegin - buf.data);
       }
-      params->bytesCollected += sz;
+      blockrepair.bytesCollected += sz;
       isLastValid = 0;
     } else {
       // Valid document, but we're rewriting the block:
@@ -1228,11 +1193,11 @@ int IndexBlock::Repair(DocTable &dt, IndexFlags flags, IndexBlockRepair &blockre
 //---------------------------------------------------------------------------------------------
 
 int InvertedIndex::Repair(DocTable &dt, uint32_t startBlock, IndexBlockRepair &blockrepair) {
-  size_t limit = params->limit ? params->limit : SIZE_MAX;
+  size_t limit = blockrepair.limit ? blockrepair.limit : SIZE_MAX;
   size_t blocksProcessed = 0;
   for (; startBlock < size && blocksProcessed < limit; ++startBlock, ++blocksProcessed) {
-    IndexBlock &blk = *blocks[startBlock];
-    if (blk->lastId - blk.firstId > UINT32_MAX) {
+    IndexBlock &blk = blocks[startBlock];
+    if (blk.lastId - blk.firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
       // want to split a block into two (or more) on high-delta boundaries.
       continue;
@@ -1244,7 +1209,7 @@ int InvertedIndex::Repair(DocTable &dt, uint32_t startBlock, IndexBlockRepair &b
     }
     if (repaired > 0) {
       // Record the number of records removed for gc stats
-      repairproc.docsCollected += repaired;
+      blockrepair.docsCollected += repaired;
       numDocs -= repaired;
 
       // Increase the GC marker so other queries can tell that we did something

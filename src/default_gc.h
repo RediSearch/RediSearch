@@ -81,7 +81,7 @@ struct GarbageCollector : public Object, public GCAPI {
 
   //-------------------------------------------------------------------------------------------
 
-  virtual int PeriodicCallback(RedisModuleCtx* ctx);
+  virtual bool PeriodicCallback(RedisModuleCtx* ctx);
   virtual void RenderStats(RedisModuleCtx* ctx);
   virtual void OnDelete(); // called when the user deletes a document to hint at increasing the HZ
   virtual void OnTerm();

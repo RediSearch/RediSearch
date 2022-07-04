@@ -50,6 +50,8 @@ pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 
 // FT.SETPAYLOAD {index} {docId} {payload}
 int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  t_docId docId;
+  size_t mdlen;
 
   // nosave must be at place 4 and we must have at least 7 fields
   if (argc != 4) {
@@ -66,23 +68,20 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   /* Find the document by its key */
-  t_docId docId = &sp->docs->GetIdR(argv[2]);
+  docId = sp->docs.GetIdR(argv[2]);
   if (docId == 0) {
     RedisModule_ReplyWithError(ctx, "Document not in index");
     goto cleanup;
   }
 
-  size_t mdlen;
   const char *md = RedisModule_StringPtrLen(argv[3], &mdlen);
-
-  if (&sp->docs->SetPayload(docId, md, mdlen) == 0) {
+  if (sp->docs.SetPayload(docId, md, mdlen) == 0) {
     RedisModule_ReplyWithError(ctx, "Could not set payload ¯\\_(ツ)_/¯");
     goto cleanup;
   }
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
 cleanup:
-
   return REDISMODULE_OK;
 }
 
@@ -103,7 +102,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   RedisSearchCtx sctx(ctx, argv[1], true);
 
-  const DocTable *dt = sctx.spec->docs;
+  const DocTable *dt = &sctx.spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
 
@@ -167,7 +166,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
+  RedisSearchCtx *sctx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -191,7 +190,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       }
       if (RedisModule_StringToLongLong(argv[distanceArgPos + 1], &distance) != REDISMODULE_OK ||
           distance < 1 || distance > MAX_LEV_DISTANCE) {
-        throw ERror("bad distance given, distance must be a natural number between 1 to "
+        throw Error("bad distance given, distance must be a natural number between 1 to "
                     STRINGIFY(MAX_LEV_DISTANCE));
       }
     }  // LCOV_EXCL_LINE
@@ -217,13 +216,8 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       fullScoreInfo = true;
     }
 
-    SpellCheckCtx scCtx = {.sctx = sctx,
-                          .includeDict = includeDict,
-                          .excludeDict = excludeDict,
-                          .distance = distance,
-                          .fullScoreInfo = fullScoreInfo};
-
-    SpellCheck_Reply(&scCtx, &qast);
+    SpellCheckCtx scCtx(sctx, includeDict, excludeDict, distance, fullScoreInfo);
+    scCtx.Reply(&qast);
   } catch (Error &x) {
     RedisModule_ReplyWithError(ctx, x.what());
   }
@@ -311,7 +305,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModuleString *docKey = argv[2];
 
   // Get the doc ID
-  t_docId id = &sp->docs->GetIdR(docKey);
+  t_docId id = sp->docs.GetIdR(docKey);
   if (id == 0) {
     return RedisModule_ReplyWithLongLong(ctx, 0);
     // ID does not exist.
@@ -326,7 +320,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     gi.RemoveEntries(id);
   }
 
-  int rc = &sp->docs->DeleteR(docKey);
+  int rc = sp->docs.DeleteR(docKey);
   if (rc) {
     sp->stats.numDocuments--;
 
@@ -754,7 +748,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
   }
   QueryError status;
-  if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), sp, 0, &status) != REDISMODULE_OK) {
+  if (IndexAlias::Del(RedisModule_StringPtrLen(argv[1], NULL), sp, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
     RedisModule_ReplicateVerbatim(ctx);
@@ -774,7 +768,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
                             flags: INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
   IndexSpec *spOrig = new IndexSpec(ctx, &lOpts);
   if (spOrig) {
-    if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), spOrig, 0, &status) !=
+    if (IndexAlias::Del(RedisModule_StringPtrLen(argv[1], NULL), spOrig, 0, &status) !=
         REDISMODULE_OK) {
       return QueryError_ReplyAndClear(ctx, &status);
     }
@@ -808,13 +802,13 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *action = RedisModule_StringPtrLen(argv[1], NULL);
   const char *name = RedisModule_StringPtrLen(argv[2], NULL);
   if (!strcasecmp(action, "GET")) {
-    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, ctx, 0);
+    RSGlobalConfig.DumpProto(&RSGlobalConfigOptions, name, ctx, 0);
   } else if (!strcasecmp(action, "HELP")) {
-    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, ctx, 1);
+    RSGlobalConfig.DumpProto(&RSGlobalConfigOptions, name, ctx, 1);
   } else if (!strcasecmp(action, "SET")) {
     size_t offset = 3;  // Might be == argc. SetOption deals with it.
-    if (RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc, &offset,
-                           &status) == REDISMODULE_ERR) {
+    if (RSGlobalConfig.SetOption(&RSGlobalConfigOptions, name, argv, argc, &offset,
+                                 &status) == REDISMODULE_ERR) {
       RedisModule_ReplyWithSimpleString(ctx, status.GetError());
       return REDISMODULE_OK;
     }

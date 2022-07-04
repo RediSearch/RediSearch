@@ -4,6 +4,9 @@
 #include "gc.h"
 #include "search_ctx.h"
 #include "inverted_index.h"
+#include "numeric_index.h"
+#include "tag_index.h"
+#include "index_result.h"
 #include "object.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -56,7 +59,7 @@ struct MSG_IndexInfo {
   size_t lastblkBytesCollected;
   size_t lastblkNumDocs;
 
-  MSG_IndexInfo(uint32_t nblocksOrig) : nblocksOrig(nblocksOrig) {}
+  MSG_IndexInfo(uint32_t nblocksOrig = 0) : nblocksOrig(nblocksOrig) {}
 };
 
 // Structure sent describing an index block
@@ -79,7 +82,7 @@ struct MSG_DeletedBlock {
 
 struct NumericIndexBlockRepair : IndexBlockRepair {
   NumericIndexBlockRepair(const InvertedIndex &idx);
-  
+
   const IndexBlock *lastblk;
   UnorderedMap<uint64_t, size_t> delLast;
   UnorderedMap<uint64_t, size_t> delRest;
@@ -88,10 +91,9 @@ struct NumericIndexBlockRepair : IndexBlockRepair {
 
   virtual void collect(const IndexResult &r, const IndexBlock &blk) {
     NumericResult *nr = dynamic_cast<NumericResult*>(r);
-	if (nr)
-	  countDeleted(nr, blk);
+    if (nr)
+      countDeleted(nr, &blk);
 	}
-  }
 };
 
 union numUnion {
@@ -106,16 +108,16 @@ struct IndexRepair {
 };
 
 struct InvertedIndexRepair : IndexRepair {
-	InvertedIndexRepair();
+	InvertedIndexRepair(char *term, size_t termLen) : term(term), termLen(termLen);
 
-    char *term;
-    size_t termLen;
-	
+  char *term;
+  size_t termLen;
+
 	void sendHeader();
 };
 
 struct NumericAndTagIndexRepair : IndexRepair {
-  NumericIndexRepair(const FieldSpec &field, uint64_t uniqueId, const void *idx) :
+  NumericAndTagIndexRepair(const FieldSpec &field, uint64_t uniqueId, const void *idx) :
 	field(field.name), uniqueId(uniqueId), idx(idx), sentFieldName(false) {}
 
   const char *field;
@@ -126,12 +128,12 @@ struct NumericAndTagIndexRepair : IndexRepair {
   void sendHeader();
 };
 
-struct NumericIndexRepair : IndexRepair {
+struct NumericIndexRepair : NumericAndTagIndexRepair {
   NumericIndexRepair(const FieldSpec &field, const NumericRangeTree &tree, const NumericRangeNode &node) :
 	NumericAndTagIndexRepair(field, tree.uniqueId, &node) {}
 };
 
-struct TagIndexRepair : IndexRepair {
+struct TagIndexRepair : NumericAndTagIndexRepair {
   TagIndexRepair(const FieldSpec &field, const TagIndex &tree, const InvertedIndex &idx) :
 	NumericAndTagIndexRepair(field, tree.uniqueId, &idx) {}
 };
