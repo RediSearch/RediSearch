@@ -410,9 +410,7 @@ CONFIG_GETTER(getVSSMaxResize) {
 }
 
 CONFIG_SETTER(setMultiTextOffsetDelta) {
-  unsigned int multiTextOffsetDelta;
-  int acrc = AC_GetUnsigned(ac, &multiTextOffsetDelta, AC_F_GE0);
-  config->multiTextOffsetDelta = multiTextOffsetDelta;
+  int acrc = AC_GetUnsigned(ac, &config->multiTextOffsetDelta, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 

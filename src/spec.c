@@ -842,7 +842,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
             // Ordering is well undefined
             fs->options &= ~FieldSpec_UndefinedOrder;
           } else {
+            // Mark FieldSpec
             fs->options |= FieldSpec_UndefinedOrder;
+            // Mark IndexSpec
+            sp->flags |= Index_HasUndefinedOrder;
           }
         }
       }

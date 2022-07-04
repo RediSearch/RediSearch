@@ -322,7 +322,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 
   RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
   
-  bool concurrentSearch;
+  bool concurrentSearch = false;
   if (AddDocumentCtx_IsBlockable(aCtx)) {
     size_t totalSize = 0;
     for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
@@ -341,8 +341,6 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
       }
     }
     concurrentSearch = (totalSize >= SELF_EXEC_THRESHOLD); 
-  } else {
-    concurrentSearch = false;
   }
   
   if (!concurrentSearch) {
@@ -461,6 +459,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     } else {
       multiTextOffsetDelta = 0;
     }
+
     for (size_t i = 0; i < valueCount; ++i) {
     
       // Already got the first value
@@ -935,11 +934,10 @@ const char *DocumentField_GetArrayValueCStr(const DocumentField *df, size_t *len
 }
 
 size_t DocumentField_GetArrayValueCStrLen(const DocumentField *df) {
+  RS_LOG_ASSERT(df->unionType == FLD_VAR_T_ARRAY, "must be array");
   size_t len = 0;
-  if (df->unionType == FLD_VAR_T_ARRAY) {
-    for (size_t i = 0; i < df->arrayLen; ++i) {
-      len += strlen(df->multiVal[i]);
-    }
+  for (size_t i = 0; i < df->arrayLen; ++i) {
+    len += strlen(df->multiVal[i]);
   }
   return len;
 }

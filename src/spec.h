@@ -138,6 +138,9 @@ typedef enum {
   Index_HasFieldAlias = 0x4000,
   Index_HasVecSim = 0x8000,
   Index_HasSuffixTrie = 0x10000,
+  // If any of the fields has undefined order. This is just a cache for quick lookup
+  Index_HasUndefinedOrder = 0x20000,
+
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,

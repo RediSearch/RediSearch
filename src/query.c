@@ -1240,9 +1240,9 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
 }
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  if (!q || !q->root || !isSpecJson(spec)) {
+  if (!q || !q->root || !isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder)) {
     return REDISMODULE_OK;
-  }   
+  }
   return QueryNode_CheckIsValid(q->root, spec, opts, status);
 }
 
