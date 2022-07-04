@@ -1067,6 +1067,7 @@ def test_hybrid_query_change_policy():
     conn = getConnectionByEnv(env)
     dim = 2
     n = 6000 * env.shardsCount
+    np.random.seed(10)
     vectors = np.random.rand(n, dim).astype(np.float32)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
@@ -1091,6 +1092,14 @@ def test_hybrid_query_change_policy():
     query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param]'
     res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', hybrid_mode='HYBRID_BATCHES').res
     env.assertEqual(res[0], 10)
+
+    # Ask explicitly to use AD-HOC policy.
+    query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param HYBRID_POLICY ADHOC_BF]'
+    adhoc_res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', hybrid_mode='HYBRID_ADHOC_BF').res
+
+    # Validate that the same scores are back for the top k results (not necessarily the exact same ids)
+    for i, res_fields in enumerate(res[2::2]):
+        env.assertEqual(res_fields, adhoc_res[2+2*i])
 
     # This query has 0 results, since none of the tags in @tag1 go along with 'word2' in @tag2.
     # However, the estimated number of the "child" results should be index_size/2.
