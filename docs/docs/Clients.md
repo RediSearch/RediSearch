@@ -17,12 +17,11 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
 | Python | [redis-om][redis-om-python-url] | [Redis][redis-om-python-author] | BSD-3-Clause | [![redis-om-python-stars]][redis-om-python-url] |
 | Java | [Jedis][Jedis-url] | [Redis][Jedis-author] | MIT | [![Jedis-stars]][Jedis-url] |
-| Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis Inc][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
 | Java | [redis-om-spring][redis-om-spring-url] | [Redis][redis-om-spring-author] | BSD-3-Clause | [![redis-om-spring-stars]][redis-om-spring-url] |
-| Java (Lettuce client library) | [LettuceMod][lettucemod-url] | [Redis Inc][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
-| Java | [Spring LettuceMod][lettucemod-url] | [Redis Labs][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
+| Java (Lettuce client library) | [LettuceMod][lettucemod-url] | [Redis][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
+| Java | [Spring LettuceMod][lettucemod-url] | [Redis][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
-| Go | [redisearch-go][redisearch-go-url] | [Redis Inc][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
+| Go | [redisearch-go][redisearch-go-url] | [Redis][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
 | JavaScript | [Redis-om][redis-om-node-url] | [Redis][redis-om-node-author] | BSD-3-Clause | [![redis-om-node-stars]][redis-om-node-url] |
 | TypeScript | [Node-Redis][node-redis-url] | [Redis][node-redis-author] | MIT | [![node-redis-stars]][node-redis-url]|
 | TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
@@ -117,7 +116,7 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redis-om-node-stars]: https://img.shields.io/github/stars/redis/redis-om-node.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redis-om-dotnet-url]: https://github.com/redis/redis-om-dotnet
-[redis-om-dotnet-author]: htts://redis.com
+[redis-om-dotnet-author]: https://redis.com
 [redis-om-dotnet-stars]: https://img.shields.io/github/stars/redis/redis-om-dotnet.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 ## Other available Libraries
