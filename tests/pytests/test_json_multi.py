@@ -483,7 +483,7 @@ def testMultiEmptyBlankOrNone(env):
     env.expect('FT.SEARCH', 'idx', '@val:(haha)', 'NOCONTENT', 'SORTBY', 'val', 'ASC').equal([1, 'doc'])
 
 def testconfigMultiTextOffsetDelta(env):
-    """ test config `MULTI_TEXT_OFFSET_DELTA` """
+    """ test ft.config `MULTI_TEXT_OFFSET_DELTA` """
     
     conn = getConnectionByEnv(env)
     env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()

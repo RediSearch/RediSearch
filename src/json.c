@@ -310,7 +310,7 @@ int JSON_StoreTagsInDocField(size_t len, JSONResultsIterator jsonIter, struct Do
     return REDISMODULE_OK;
 }
 
-int JSON_LoadDocumentField(RedisModuleCtx *ctx, JSONResultsIterator jsonIter, size_t len,
+int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
                               FieldSpec *fs, struct DocumentField *df) {
   int rv = REDISMODULE_OK;
 

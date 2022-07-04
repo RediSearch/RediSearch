@@ -35,7 +35,7 @@ extern "C" {
   X(QUERY_EREDISKEYTYPE, "Invalid Redis key")                                             \
   X(QUERY_EINDEXEXISTS, "Index already exists")                                           \
   X(QUERY_EBADOPTION, "Option not supported for current mode")                            \
-  X(QUERY_EBADORDEROPTION, "Field with undefined ordering does not support slop/inorder") \
+  X(QUERY_EBADORDEROPTION, "Path with undefined ordering does not support slop/inorder") \
   X(QUERY_ELIMIT, "Limit exceeded")                                                       \
   X(QUERY_ENOINDEX, "Index not found")                                                    \
   X(QUERY_EDOCEXISTS, "Document already exists")                                          \
