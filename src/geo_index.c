@@ -106,6 +106,13 @@ done:
 }
 
 IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
+  // check input parameters are valid
+  if (gf->radius <= 0 ||
+      gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
+      gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN) {
+    return NULL;
+  }
+
   GeoHashRange ranges[GEO_RANGE_COUNT] = {{0}};
   double radius_meter = gf->radius * extractUnitFactor(gf->unitType);
   calcRanges(gf->lon, gf->lat, radius_meter, ranges);
@@ -213,7 +220,7 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status) {
   }
 
   // validate lat/lon
-  if (gf->lat > 90 || gf->lat < -90 || gf->lon > 180 || gf->lon < -180) {
+  if (gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN || gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN) {
     QERR_MKSYNTAXERR(status, "Invalid GeoFilter lat/lon");
     return 0;
   }

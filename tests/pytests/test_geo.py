@@ -41,6 +41,9 @@ def testGeoDistanceSimple(env):
   env.expect('FT.ADD', 'idx', 'geo3', '1', 'FIELDS', 'location', '1.23,4.55', 'hq', '1.25,4.5').ok()
   env.expect('FT.ADD', 'idx', 'geo4', '1', 'FIELDS', 'location', '1.23,4.57', 'hq', '1.25,4.5').ok()
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 km]', 'nocontent').equal([4, 'geo1', 'geo2', 'geo3', 'geo4'])
+  env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 -10 km]').error().contains('Invalid GeoFilter radius')
+  env.expect('FT.SEARCH', 'idx', '@location:[181 4.56 10 km]').error().contains('Invalid GeoFilter lat/lon')
+  env.expect('FT.SEARCH', 'idx', '@location:[1.23 86 10 km]').error().contains('Invalid GeoFilter lat/lon')
 
   # test profile
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
