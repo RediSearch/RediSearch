@@ -364,3 +364,13 @@ def testEmptyTagLeak(env):
         pl.execute()
     forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+
+def testIssue2854(env):
+    # TAG field with spaces at start or end
+    env.expect('FT.CREATE myIdx SCHEMA title TAG')
+    env.expect('HSET', 'doc1', 'title', 'hello world')
+    env.expect('HSET', 'doc2', 'title', 'hello world ')
+    env.expect('HSET', 'doc3', 'title', ' hello world')
+    env.expect('ft.search', 'myIdx', '@title:{hello world}').equal([1, 'doc1', ['title', 'hello world']])
+    env.expect('ft.search', 'myIdx', '@title:{hello world\ }').equal([1, 'doc2', ['title', 'hello world ']])
+    env.expect('ft.search', 'myIdx', '@title:{\ hello world}').equal([1, 'doc3', ['title', ' hello world']])
