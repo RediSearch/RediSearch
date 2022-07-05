@@ -66,11 +66,11 @@ TEST_F(TagIndexTest, testSepString) {
   size_t tokenLen;
   char *token;
 
-  orig = s = strdup(" , , , , , , ,   , , , ,,,,   ,,,");
+  orig = s = strdup(" ,  , , , , , ,   , , , ,,,,   ,,,");
   token = TagIndex_SepString(',', &s, &tokenLen);
-  ASSERT_FALSE(token);
+  EXPECT_STREQ(token, " ");
   token = TagIndex_SepString(',', &s, &tokenLen);
-  ASSERT_FALSE(token);
+  EXPECT_STREQ(token, "  ");
   free(orig);
 
   orig = s = strdup("");

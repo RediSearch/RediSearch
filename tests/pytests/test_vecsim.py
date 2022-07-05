@@ -640,15 +640,15 @@ def test_hybrid_query_batches_mode_with_tags():
     # Change the tag values to 'different, tag' for vectors with ids 5, 10, 20, ..., 6000)
     for i in range(1, int(index_size/5) + 1):
         vector = np.full(dim, 5*i, dtype='float32')
-        conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 'tags', 'different, tag')
+        conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 'tags', 'different,tag')
 
     expected_res = [10]
     # Expect to get result which are around index_size/2 that divide by 5, closer results
     # will come before (secondary sorting by id).
-    expected_res.extend([str(int(index_size/2)), ['__v_score', str(0), 'tags', 'different, tag']])
+    expected_res.extend([str(int(index_size/2)), ['__v_score', str(0), 'tags', 'different,tag']])
     for i in range(1, 10):
         expected_res.append(str(int(index_size/2) + (-1*int((5*i+5)/2) if i % 2 else int(5*i/2))))
-        expected_res.append(['__v_score', str(dim*(5*int((i+1)/2))**2), 'tags', 'different, tag'])
+        expected_res.append(['__v_score', str(dim*(5*int((i+1)/2))**2), 'tags', 'different,tag'])
     execute_hybrid_query(env, '(@tags:{different})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
     # Expect for top 10 results from vector search that still has the original text "text value".
     expected_res = [10]
@@ -667,8 +667,8 @@ def test_hybrid_query_batches_mode_with_tags():
 
     # Search with tag list. Expect that docs with 'hybrid' will have lower score (1 vs 2), since they are more frequent.
     expected_res = [10]
-    expected_res.extend([str(int(index_size/2) - 5), '2', ['__v_score', str(dim*5**2), 'tags',  'different, tag'],
-                         str(int(index_size/2)), '2', ['__v_score', str(0), 'tags',  'different, tag']])
+    expected_res.extend([str(int(index_size/2) - 5), '2', ['__v_score', str(dim*5**2), 'tags',  'different,tag'],
+                         str(int(index_size/2)), '2', ['__v_score', str(0), 'tags',  'different,tag']])
     for i in range(1, 10):
         if i == 5:      # ids that divide by 5 were already inserted.
             continue

@@ -428,24 +428,24 @@ def testMultiValueTag(env):
     # multivalue without a separator
     #
     env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}'))
-    env.assertOk(conn.execute_command('JSON.SET', 'doc:2', '$', '{"tag":["foo, bar", "baz"]}'))
-    env.assertOk(conn.execute_command('JSON.SET', 'doc:3', '$', '{"tag":["foo, bar, baz"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:2', '$', '{"tag":["foo,bar", "baz"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:3', '$', '{"tag":["foo,bar,baz"]}'))
 
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$'), '[{"tag":["foo","bar","baz"]}]')
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag'), '[["foo","bar","baz"]]')
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","bar","baz"]')
 
-    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$'), '[{"tag":["foo, bar","baz"]}]')
-    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$.tag'), '[["foo, bar","baz"]]')
-    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$.tag[*]'), '["foo, bar","baz"]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$'), '[{"tag":["foo,bar","baz"]}]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$.tag'), '[["foo,bar","baz"]]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$.tag[*]'), '["foo,bar","baz"]')
 
-    env.assertEqual(conn.execute_command('JSON.GET', 'doc:3', '$'), '[{"tag":["foo, bar, baz"]}]')
-    env.assertEqual(conn.execute_command('JSON.GET', 'doc:3', '$.tag'), '[["foo, bar, baz"]]')
-    env.assertEqual(conn.execute_command('JSON.GET', 'doc:3', '$.tag[*]'), '["foo, bar, baz"]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:3', '$'), '[{"tag":["foo,bar,baz"]}]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:3', '$.tag'), '[["foo,bar,baz"]]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:3', '$.tag[*]'), '["foo,bar,baz"]')
 
     res = [3, 'doc:1', ['$', '{"tag":["foo","bar","baz"]}'],
-               'doc:2', ['$', '{"tag":["foo, bar","baz"]}'],
-               'doc:3', ['$', '{"tag":["foo, bar, baz"]}']]
+               'doc:2', ['$', '{"tag":["foo,bar","baz"]}'],
+               'doc:3', ['$', '{"tag":["foo,bar,baz"]}']]
     env.expect('FT.SEARCH', 'idx', '@tag:{foo}').equal(res)
     env.expect('FT.SEARCH', 'idx', '@tag:{bar}').equal(res)
     env.expect('FT.SEARCH', 'idx', '@tag:{baz}').equal(res)

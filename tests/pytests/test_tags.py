@@ -60,7 +60,8 @@ def testSeparator(env):
                                    'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR').ok()
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
-        for q in ('@tags:{hello world}', '@tags:{fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}', '@tags:{x}'):
+        for q in ('@tags:{hello world}', '@tags:{\ fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}', '@tags:{x}'):
+            print(q)
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(1, res[0])
 
