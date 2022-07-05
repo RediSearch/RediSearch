@@ -186,23 +186,22 @@ TEST_F(LLApiTest, testAddDocumentGeoField) {
   // radius < 0
   RSQNode* qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 0.123455, -1, RS_GEO_DISTANCE_M);
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
-  ASSERT_STREQ((const char*)RediSearch_ResultsIteratorNext(iter, index, &len), NULL);
-  RediSearch_ResultsIteratorFree(iter);
+  ASSERT_FALSE(iter);
+
   // lat > MAX_LAT
-  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 200, 0.123455, 10, RS_GEO_DISTANCE_M);
-  iter = RediSearch_GetResultsIterator(qn, index);
-  ASSERT_STREQ((const char*)RediSearch_ResultsIteratorNext(iter, index, &len), NULL);
-  RediSearch_ResultsIteratorFree(iter);
+  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 100, 0.123455, 10, RS_GEO_DISTANCE_M);
+  iter = RediSearch_GetResultsIterator(qn, index);  ASSERT_FALSE(iter);
+  ASSERT_FALSE(iter);
+
   // lon > MAX_LON
-  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 100, 10, RS_GEO_DISTANCE_M);
+  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 200, 10, RS_GEO_DISTANCE_M);
   iter = RediSearch_GetResultsIterator(qn, index);
-  ASSERT_STREQ((const char*)RediSearch_ResultsIteratorNext(iter, index, &len), NULL);
-  RediSearch_ResultsIteratorFree(iter);
+  ASSERT_FALSE(iter);
 
   // searching on the index
   qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 0.123455, 10, RS_GEO_DISTANCE_M);
   iter = RediSearch_GetResultsIterator(qn, index);
-  ASSERT_TRUE(iter != NULL);
+  ASSERT_TRUE(iter);
 
   id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID1);
