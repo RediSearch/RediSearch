@@ -118,7 +118,6 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 }
 
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
-  const char *name;
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     if (fm & ((t_fieldMask)1 << ii)) {
       const FieldSpec *fs = spec->fields + ii;
@@ -837,7 +836,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       }
       fs->ftId = textId;
       if isSpecJson(sp) {
-        if ((sp->flags | Index_HasFieldAlias) && (sp->flags | Index_StoreTermOffsets)) {
+        if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
           if (getPathFlags(fs->path) & PathInfoFlag_DefinedOrder) {
             // Ordering is well undefined
             fs->options &= ~FieldSpec_UndefinedOrder;

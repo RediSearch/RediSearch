@@ -1588,7 +1588,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
       return 0;
     }
     qn->opts.inOrder = b;
-    qn->opts.flags |= QueryNode_overriddenInOrder;
+    qn->opts.flags |= QueryNode_OverriddenInOrder;
 
   } else if (STR_EQCASE(attr->name, attr->namelen, "weight")) {
     // Apply weight: [0  ... INF]
@@ -1634,18 +1634,12 @@ int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len, 
 }
 
 int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool atTopLevel, QueryError *status) {
-  t_fieldMask fm;
   // Need to check when slop/inorder are locally overridden at query node level, or at query top-level
-  if(atTopLevel || qn->opts.maxSlop >= 0 || (qn->opts.flags & QueryNode_overriddenInOrder)) {
-    if (qn->opts.fieldMask != RS_FIELDMASK_ALL) {
-      // Check specific fields
-      fm = qn->opts.fieldMask;
-    } else {
-      // Check all fields
-      fm = RS_FIELDMASK_ALL;
-    }
+  if(atTopLevel || qn->opts.maxSlop >= 0 || (qn->opts.flags & QueryNode_OverriddenInOrder)) {
+    // Check only fields that are used in this query node (either specific fields or all fields)
+    return IndexSpec_CheckAllowSlopAndInorder(spec, qn->opts.fieldMask, status);
   } else {
     return 1;
   }
-  return IndexSpec_CheckAllowSlopAndInorder(spec, fm, status);
+  
 }

@@ -191,30 +191,29 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
 }
 
 int JSON_StoreTextInDocField(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
-    df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
-    
-    int i = 0, nulls = 0;
-    size_t strlen;
-    RedisJSON json;
-    const char *str;
-    while ((json = japi->next(jsonIter))) {
-      JSONType jsonType = japi->getType(json);
-      if (jsonType == JSONType_String) {
-        japi->getString(json, &str, &strlen);
-        df->multiVal[i++] = rm_strndup(str, strlen);
-      } else if (jsonType == JSONType_Null) {
-        nulls++; // Skip Nulls
-      }
-      else {
-        // Text fields can handle only strings or Nulls
-        goto error;
-      }
+  df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
+  
+  int i = 0, nulls = 0;
+  size_t strlen;
+  RedisJSON json;
+  const char *str;
+  while ((json = japi->next(jsonIter))) {
+    JSONType jsonType = japi->getType(json);
+    if (jsonType == JSONType_String) {
+      japi->getString(json, &str, &strlen);
+      df->multiVal[i++] = rm_strndup(str, strlen);
+    } else if (jsonType == JSONType_Null) {
+      nulls++; // Skip Nulls
+    } else {
+      // Text fields can handle only strings or Nulls
+      goto error;
     }
-    RS_LOG_ASSERT ((i + nulls) == len, "TEXT iterator count and len must be equal");
-    // Remain with surplus unused array entries from skipped null values until `Document_Clear` is called
-    df->arrayLen = i;
-    df->unionType = FLD_VAR_T_ARRAY;
-    return REDISMODULE_OK;
+  }
+  RS_LOG_ASSERT ((i + nulls) == len, "TEXT iterator count and len must be equal");
+  // Remain with surplus unused array entries from skipped null values until `Document_Clear` is called
+  df->arrayLen = i;
+  df->unionType = FLD_VAR_T_ARRAY;
+  return REDISMODULE_OK;
 
 error:
   for (int j = 0; j < i; ++j) {
@@ -261,14 +260,15 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
     case JSONType_Null:
       df->unionType = FLD_VAR_T_NULL;
       break;
-    case JSONType_Array:;
-      if (fs->types == INDEXFLD_T_VECTOR || fs->types == INDEXFLD_T_FULLTEXT) {
+    case JSONType_Array:
+      if (fs->types == INDEXFLD_T_FULLTEXT || fs->types == INDEXFLD_T_VECTOR) {
         // Flattening the array to go over it with iterator api
+        // (using a path which is rooted at the current array)
         JSONResultsIterator arrIter = japi->get(json, "$.[*]");
-        if (fs->types == INDEXFLD_T_VECTOR) {
-          rv = JSON_StoreVectorInDocField(fs, arrIter, df);
-        } else {
+        if (fs->types == INDEXFLD_T_FULLTEXT) {
           rv = JSON_StoreTextInDocField(japi->len(arrIter), arrIter, df);
+        } else {
+          rv = JSON_StoreVectorInDocField(fs, arrIter, df);
         }
         japi->freeIter(arrIter);
       } else {

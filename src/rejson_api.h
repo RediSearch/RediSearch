@@ -18,10 +18,10 @@ typedef enum JSONType {
 } JSONType;
 
 typedef enum PathInfoFlags {
-  PathInfoFlag_Unknown = 0,
-  PathInfoFlag_Invalid = 1,
-  PathInfoFlag_Static = 2,
-  PathInfoFlag_DefinedOrder = 4
+  PathInfoFlag_Unknown = 0x00,
+  PathInfoFlag_Invalid = 0x01,
+  PathInfoFlag_Static = 0x02,
+  PathInfoFlag_DefinedOrder = 0x04,
 } PathInfoFlags;
 
 typedef const void* RedisJSON;
