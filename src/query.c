@@ -115,29 +115,19 @@ void QueryAST::SetGlobalFilters(t_docId *ids, size_t nids) {
 
 //---------------------------------------------------------------------------------------------
 
-void QueryNode::Expand(RSQueryTokenExpander expander, RSQueryExpander *expCtx) {
-  QueryNode *qn = this;
+void QueryNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp) {
   // Do not expand verbatim nodes
-  if (qn->opts.flags & QueryNode_Verbatim) {
+  if (opts.flags & QueryNode_Verbatim) {
     return;
   }
 
-  bool expand = expandChildren();
-
-  if (qn->type == QN_TOKEN) {
-    expCtx->currentNode = this;
-    QueryTokenNode *tn = dynamic_cast<QueryTokenNode*>(this);
-    expander(expCtx, &tn->tok);
-  }
-
-  if (expand) {
-    for (size_t i = 0; i < qn->NumChildren(); ++i) {
-      qn->children[i]->Expand(expander, expCtx);
-    }
+  if (!expandChildren()) return;
+  for (size_t i = 0; i < NumChildren(); ++i) {
+    children[i]->Expand(expander, qexp);
   }
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryTokenNode::EvalNode(Query *q) {
   // if (qn->type != QN_TOKEN) {
@@ -163,6 +153,26 @@ IndexIterator *QueryTokenNode::EvalNode(Query *q) {
 }
 
 //---------------------------------------------------------------------------------------------
+
+void QueryTokenNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp) {
+  // Do not expand verbatim nodes
+  if (opts.flags & QueryNode_Verbatim) {
+    return;
+  }
+
+  bool expand = expandChildren();
+
+  qexp.currentNode = &this; // @@TODO: check this up
+  expander(qexp, &tok);
+
+  if (!expand) return;
+
+  for (size_t i = 0; i < NumChildren(); ++i) {
+    children[i]->Expand(expander, qexp);
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *str,
                                            size_t len, int maxDist, int prefixMode,
@@ -247,7 +257,7 @@ struct LexRangeCtx {
   double weight;
 
   LexRangeCtx(Query q, QueryNodeOptions *opts, double weight = 0) :
-  q(&q), opts(opts), weight(weight) {}
+    q(&q), opts(opts), weight(weight) {}
 };
 
 static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
@@ -338,7 +348,7 @@ IndexIterator *QueryFuzzyNode::EvalNode(Query *q) {
   return iterateExpandedTerms(q, terms, pfx.str, pfx.len, maxDist, 0, &opts); //@@ Why can it be Fuzzy and Prefix?
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryPhraseNode::EvalNode(Query *q) {
   // if (qn->type != QN_PHRASE) {
@@ -362,8 +372,8 @@ IndexIterator *QueryPhraseNode::EvalNode(Query *q) {
   IndexIterator *ret;
 
   if (exact) {
-    ret = NewIntersecIterator(iters, NumChildren(), q->docTable,
-                              EFFECTIVE_FIELDMASK(q, this), 0, 1, opts.weight);
+    ret = new IntersectIterator(iters, NumChildren(), q->docTable,
+                                EFFECTIVE_FIELDMASK(q, this), 0, 1, opts.weight);
   } else {
     // Let the query node override the slop/order parameters
     int slop = opts.maxSlop;
@@ -379,32 +389,51 @@ IndexIterator *QueryPhraseNode::EvalNode(Query *q) {
       slop = __INT_MAX__;
     }
 
-    ret = NewIntersecIterator(iters, NumChildren(), q->docTable,
-                              EFFECTIVE_FIELDMASK(q, this), slop, inOrder, opts.weight);
+    ret = new IntersectIterator(iters, NumChildren(), q->docTable,
+                                EFFECTIVE_FIELDMASK(q, this), slop, inOrder, opts.weight);
   }
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
 
 IndexIterator *QueryWildcardNode::EvalNode(Query *q) {
   if (!q->docTable) {
     return NULL;
   }
 
-  return NewWildcardIterator(q->docTable->maxDocId);
+  return new WildcardIterator(q->docTable->maxDocId);
 }
 
 //---------------------------------------------------------------------------------------------
+
+IndexIterator *QueryPhraseNode::EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight) {
+  char *terms[NumChildren()];
+  for (size_t i = 0; i < NumChildren(); ++i) {
+    if (children[i]->type == QN_TOKEN) {
+      TermResult *res = dynamic_cast<TermResult*>(children[i]);
+      terms[i] = res->term->str;
+    } else {
+      terms[i] = "";
+    }
+  }
+
+  sds s = sdsjoin(terms, NumChildren(), " ");
+  return idx->OpenReader(q->sctx->spec, s, sdslen(s), weight);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryNotNode::EvalNode(Query *q) {
   // if (qn->type != QN_NOT) {
   //   return NULL;
   // }
 
-  return NewNotIterator(NumChildren() ? children[0]->EvalNode(q) : NULL,
-                        q->docTable->maxDocId, opts.weight);
+  return new NotIterator(NumChildren() ? children[0]->EvalNode(q) : NULL,
+                         q->docTable->maxDocId, opts.weight);
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryOptionalNode::EvalNode(Query *q) {
   // if (type != QN_OPTIONAL) {
@@ -412,11 +441,11 @@ IndexIterator *QueryOptionalNode::EvalNode(Query *q) {
   // }
   // QueryOptionalNode *node = &qn->opt;
 
-  return NewOptionalIterator(NumChildren() ? children[0]->EvalNode(q) : NULL,
-                             q->docTable->maxDocId, opts.weight);
+  return new OptionalIterator(NumChildren() ? children[0]->EvalNode(q) : NULL,
+                              q->docTable->maxDocId, opts.weight);
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryNumericNode::EvalNode(Query *q) {
   const FieldSpec *fs =
@@ -425,10 +454,10 @@ IndexIterator *QueryNumericNode::EvalNode(Query *q) {
     return NULL;
   }
 
-  return NewNumericFilterIterator(q->sctx, nf, q->conc);
+  return new NumericFilterIterator(q->sctx, nf, q->conc);
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryGeofilterNode::Eval(Query *q, double weight) {
   const FieldSpec *fs =
@@ -438,16 +467,16 @@ IndexIterator *QueryGeofilterNode::Eval(Query *q, double weight) {
   }
 
   GeoIndex gi(q->sctx, fs);
-  return NewGeoRangeIterator(&gi, gf, weight);
+  return new GeoRangeIterator(&gi, gf, weight);
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryIdFilterNode::EvalNode(Query *q) {
-  return NewIdListIterator(ids, len, 1);
+  return new IdListIterator(ids, len, 1);
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryUnionNode::EvalNode(Query *q) {
   // if (qn->type != QN_UNION) {
@@ -481,7 +510,7 @@ IndexIterator *QueryUnionNode::EvalNode(Query *q) {
   return new UnionIterator(iters, n, q->docTable, 0, opts.weight);
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryLexRangeNode::EvalTagLexRangeNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
                                                       double weight) {
@@ -509,9 +538,10 @@ IndexIterator *QueryLexRangeNode::EvalTagLexRangeNode(Query *q, TagIndex *idx, I
   }
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* Evaluate a tag prefix by expanding it with a lookup on the tag index */
+// Evaluate a tag prefix by expanding it with a lookup on the tag index
+
 IndexIterator *QueryPrefixNode::EvalTagPrefixNode(Query *q, TagIndex *idx,
                                                   IndexIteratorArray *iterout, double weight) {
   // if (type != QN_PREFX) {
@@ -560,7 +590,7 @@ IndexIterator *QueryPrefixNode::EvalTagPrefixNode(Query *q, TagIndex *idx,
   return new UnionIterator(its, itsSz, q->docTable, 1, weight);
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
                                             double weight) {
@@ -606,7 +636,7 @@ IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIterat
   return ret;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryTagNode::EvalNode(Query *q) {
   // if (qn->type != QN_TAG) {
@@ -673,7 +703,7 @@ done:
   return ret;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 QueryParse::QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_,
                        const RSSearchOptions &opts_, QueryError *status_) {
@@ -684,7 +714,7 @@ QueryParse::QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_,
   status = status_;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Parse the query string into an AST.
@@ -720,7 +750,7 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
   numTokens = qp.numTokens;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 Query::Query(QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx_,
              ConcurrentSearchCtx *conc_) {
@@ -768,8 +798,8 @@ QueryAST::~QueryAST() {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Expand the query using a pre-registered expander. Query expansion possibly
- * modifies or adds additional search terms to the query.
+ * Expand the query using a pre-registered expander. 
+ * Query expansion possibly modifies or adds additional search terms to the query.
  * @param q the query
  * @param expander the name of the expander
  * @param opts query options, passed to the expander function
@@ -782,15 +812,12 @@ int QueryAST::Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx
   if (!root) {
     return REDISMODULE_OK;
   }
-  RSQueryExpander expCtx = {
-      qast: = q, language: opts->language, handle: &sctx, status: status};
-
-  ExtQueryExpander *xpc =
-      Extensions::GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
+  RSQueryExpander qexp(q, sctx, opts->language, status);
+  ExtQueryExpander *xpc = Extensions::GetQueryExpander(qexp, expander ? expander : DEFAULT_EXPANDER_NAME);
   if (xpc && xpc->exp) {
-    root->Expand(xpc->exp, &expCtx);
+    root->Expand(xpc->exp, qexp);
     if (xpc->ff) {
-      xpc->ff(expCtx.privdata);
+      xpc->ff(qexp.privdata);
     }
   }
   if (status->HasError()) {
@@ -799,12 +826,11 @@ int QueryAST::Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx
   return REDISMODULE_OK;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Set the field mask recursively on a query node. This is called by the parser to handle
 // situations like @foo:(bar baz|gaz), where a complex tree is being applied a field mask.
 void QueryNode::SetFieldMask(t_fieldMask mask) {
-  if (!this) return;
   opts.fieldMask &= mask;
   for (size_t ii = 0; ii < NumChildren(); ++ii) {
     children[ii]->SetFieldMask(mask);
@@ -914,11 +940,11 @@ sds QueryNode::DumpChildren(sds s, const IndexSpec *spec, int depth) const {
   return s;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* Return a string representation of the query parse tree. The string should be freed by the
- * caller
- */
+// Return a string representation of the query parse tree. 
+// The string should be freed by the caller.
+
 char *QueryAST::DumpExplain(const IndexSpec *spec) const {
   // empty query
   if (!root) {

@@ -84,7 +84,7 @@ typedef IndexIterator **IndexIteratorArray;
 // QueryNode reqresents any query node in the query tree.
 // It has a type to resolve which node it is, and a union of all possible nodes.
 
-struct QueryNode {
+struct QueryNode : Object {
   //@@ make derive classes
   /*union {
     QueryPhraseNode pn;
@@ -119,30 +119,26 @@ struct QueryNode {
   bool ApplyAttribute(QueryAttribute *attr, QueryError *status);
   bool ApplyAttributes(QueryAttribute *attrs, size_t len, QueryError *status);
 
-  void AddChildren(QueryNode **children_, size_t n);
+  void AddChildren(QueryNode **children, size_t n);
   void AddChild(QueryNode *child);
   void ClearChildren(bool shouldFree);
 
   size_t NumChildren() const { return children ? array_len(children) : 0; }
   QueryNode *GetChild(int ix) { return NumChildren() > ix ? children[ix] : NULL; }
 
-  void Expand(RSQueryTokenExpander expander, RSQueryExpander *expCtx);
-  virtual bool expandChildren() { return false; }
+  virtual void Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp);
+  virtual bool expandChildren() const { return false; }
 
   typedef int (*ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
   int ForEach(ForEachCallback callback, void *ctx, bool reverse);
 
   void SetFieldMask(t_fieldMask mask);
+
   sds DumpSds(sds s, const IndexSpec *spec, int depth) const;
   sds DumpChildren(sds s, const IndexSpec *spec, int depth) const;
-  virtual sds dumpsds(sds s, const IndexSpec *spec, int depth) {
-    s = sdscat(s, "<empty>");
-    return s;
-  }
+  virtual sds dumpsds(sds s, const IndexSpec *spec, int depth) { return sdscat(s, "<empty>"); }
 
-  virtual IndexIterator *EvalNode(Query *q) {
-    return new EmptyIterator();
-  }
+  virtual IndexIterator *EvalNode(Query *q) { return new EmptyIterator(); }
 
   IndexIterator *EvalSingleTagNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
 };
@@ -155,9 +151,7 @@ struct QueryNode {
 struct QueryPhraseNode : QueryNode {
   bool exact;
 
-  QueryPhraseNode(bool exact_) : QueryNode(QN_PHRASE) {
-    exact = exact_;
-  }
+  QueryPhraseNode(bool exact) : QueryNode(QN_PHRASE), exact(exact) {}
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "%s {\n", exact ? "EXACT" : "INTERSECT");
@@ -169,24 +163,10 @@ struct QueryPhraseNode : QueryNode {
     return s;
   }
 
-  bool expandChildren() { return !exact; }
+  bool expandChildren() const { return !exact; }
 
   IndexIterator *EvalNode(Query *q);
-  IndexIterator *EvalSingle(Query *q, TagIndex *idx,
-                            IndexIteratorArray *iterout, double weight) {
-    char *terms[NumChildren()];
-    for (size_t i = 0; i < NumChildren(); ++i) {
-      if (children[i]->type == QN_TOKEN) {
-        TermResult *res = dynamic_cast<TermResult*>(children[i]);
-        terms[i] = res->term->str;
-      } else {
-        terms[i] = "";
-      }
-    }
-
-    sds s = sdsjoin(terms, NumChildren(), " ");
-    return idx->OpenReader(q->sctx->spec, s, sdslen(s), weight);
-  }
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -211,11 +191,7 @@ struct QueryTagNode : QueryNode {
   const char *fieldName;
   size_t len;
 
-  QueryTagNode(const char *field, size_t len_) : QueryNode(QN_TAG) {
-    fieldName = field;
-    len = len_;
-  }
-
+  QueryTagNode(const char *field, size_t len_) : QueryNode(QN_TAG), fieldName(field), len(len) {}
   ~QueryTagNode();
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
@@ -239,13 +215,15 @@ struct QueryTokenNode : QueryNode {
   RSToken tok;
 
   QueryTokenNode(QueryParse *q, const char *s, size_t len, uint8_t expanded = 0, RSTokenFlags flags = 0) :
-    QueryNode(QN_TOKEN), tok(RSToken((char *)s, len, expanded, flags)) {
+    QueryNode(QN_TOKEN), tok((char *)s, len, expanded, flags) {
     if (len == (size_t)-1) {
       len = strlen(s);
     }
 
     if (q) q->numTokens++;
   }
+
+  virtual void Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "%s%s", (char *)tok.str, tok.expanded ? "(expanded)" : "");
@@ -278,9 +256,7 @@ struct QueryPrefixNode : QueryNode {
   }
 
   IndexIterator *EvalNode(Query *q);
-  IndexIterator *EvalTagPrefixNode(Query *q, TagIndex *idx,
-                                   IndexIteratorArray *iterout, double weight);
-
+  IndexIterator *EvalTagPrefixNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -289,18 +265,17 @@ struct QueryFuzzyNode : QueryNode {
   RSToken tok;
   int maxDist;
 
-  QueryFuzzyNode(QueryParse *q, const char *s, size_t len_, int maxDist_) :
-    QueryNode(QN_FUZZY), tok(RSToken((char *)s, len_, 0, 0)) {
+  QueryFuzzyNode(QueryParse *q, const char *s, size_t len, int maxDist) :
+      QueryNode(QN_FUZZY), tok((char *)s, len, 0, 0), maxDist(maxDist) {
     q->numTokens++;
-    maxDist = maxDist_;
   }
+
+  IndexIterator *EvalNode(Query *q);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "FUZZY{%s}\n", tok.str);
     return s;
   }
-
-
 };
 
 //---------------------------------------------------------------------------------------------
@@ -308,11 +283,9 @@ struct QueryFuzzyNode : QueryNode {
 // A node with a numeric filter
 
 struct QueryNumericNode : QueryNode {
-  NumericFilter *nf;
+  const NumericFilter *nf;
 
-  QueryNumericNode(const NumericFilter *flt) : QueryNode(QN_NUMERIC)  {
-    nf = flt;
-  }
+  QueryNumericNode(const NumericFilter *nf) : QueryNode(QN_NUMERIC), nf(nf) {}
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f", nf->min, nf->inclusiveMin ? "<=" : "<",
@@ -328,9 +301,7 @@ struct QueryNumericNode : QueryNode {
 struct QueryGeofilterNode : QueryNode {
   const struct GeoFilter *gf;
 
-  QueryGeofilterNode(const GeoFilter *flt) : QueryNode(QN_GEO)  {
-    gf = flt;
-  }
+  QueryGeofilterNode(const GeoFilter *gf) : QueryNode(QN_GEO), gf(gf) {}
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s", gf->property, gf->lon,
@@ -345,10 +316,7 @@ struct QueryIdFilterNode : QueryNode {
   t_docId *ids;
   size_t len;
 
-  QueryIdFilterNode(t_docId *ids_, size_t len_) : QueryNode(QN_IDS) {
-    ids = ids_;
-    len = len_;
-  }
+  QueryIdFilterNode(t_docId *ids, size_t len) : QueryNode(QN_IDS), ids(ids), len(len) {}
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscat(s, "IDS { ");
@@ -369,7 +337,7 @@ struct QueryLexRangeNode : QueryNode {
   char *end;
   bool includeEnd;
 
-  QueryLexRangeNode() : QueryNode(QN_LEXRANGE) {}
+  QueryLexRangeNode() : QueryNode(QN_LEXRANGE), begin(NULL), includeBegin(false), end(NULL), includeEnd(false) {}
   ~QueryLexRangeNode();
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {

@@ -372,8 +372,8 @@ IndexIterator::IndexIterator(const IndexSpec *sp, NumericRange *nr, const Numeri
 
 // Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
 // the filter
-IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
-                                     const NumericFilter *f) {
+IndexIterator *NumericIterator::create(const IndexSpec *sp, NumericRangeTree *t,
+                                       const NumericFilter *f) {
   Vector<NumericRange> *v = t->Find(f->min, f->max);
   if (!v || v->size() == 0) {
     if (v) {
@@ -386,8 +386,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   // if we only selected one range - we can just iterate it without union or anything
   if (n == 1) {
     NumericRange rng = v->at(0);
-    IndexIterator *it = new IndexIterator(sp, &rng, f);
-    return it;
+    return new IndexIterator(sp, &rng, f);
   }
 
   // We create a  union iterator, advancing a union on all the selected range,
@@ -438,8 +437,8 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
 
 //---------------------------------------------------------------------------------------------
 
-struct IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx) {
+NumericFilterIterator::NumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
+                                             ConcurrentSearchCtx *csx) {
   RedisModuleString *s = ctx->spec->GetFormattedKeyByName(flt->fieldName, INDEXFLD_T_NUMERIC);
   if (!s) {
     return NULL;

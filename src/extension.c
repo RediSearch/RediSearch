@@ -144,9 +144,14 @@ static ExtScoringFunction *Extensions::GetScoringFunction(ScoringFunctionArgs *f
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+// ExpandToken allows the user to add an expansion of the token in the query, that will be
+// union-merged with the given token in query time.
+// str is the expanded string, len is its length, and flags is a 32 bit flag mask that 
+// can be used by the extension to set private information on the token.
+
 // The implementation of the actual query expansion. This function either turns the current node
 // into a union node with the original token node and new token node as children. Or if it is
-// already a union node (in consecutive calls), it just adds a new token node as a child to it */
+// already a union node (in consecutive calls), it just adds a new token node as a child to it.
 
 void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flags) {
   QueryAST *q = qast;
@@ -171,12 +176,18 @@ void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flag
 
 //---------------------------------------------------------------------------------------------
 
-// The implementation of the actual query expansion. This function either turns the current node
-// into a union node with the original token node and new token node as children. Or if it is
-// already a union node (in consecutive calls), it just adds a new token node as a child to it */
+// Expand the token with a multi-word phrase, where all terms are intersected.
+// toks is an array with num its len, each member of it is a null terminated string. 
+// If replace is set to 1, we replace the original token with the new phrase. 
+// If exact is 1 the expanded phrase is an exact match phrase.
+
+// The implementation of the actual query expansion. 
+// Either turn the current node into a union node with the original token node and new 
+// token node as children. Or if it is already a union node (in consecutive calls), 
+// it just adds a new token node as a child to it.
 
 void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTokenFlags flags,
-                                            int replace, int exact) {
+                                            bool replace, bool exact) {
   QueryAST *q = qast;
   QueryNode *qn = *currentNode;
 

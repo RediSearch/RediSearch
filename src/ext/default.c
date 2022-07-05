@@ -462,8 +462,8 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Default query expander
  *
  ******************************************************************************************/
-int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-  int phonetic = (*(ctx->currentNode))->opts.phonetic;
+int DefaultExpander(RSQueryExpanderCtx &ctx, RSToken *token) {
+  int phonetic = (*ctx.currentNode)->opts.phonetic;
   SynonymExpand(ctx, token);
 
   if (phonetic == PHONETIC_DEFAULT) {
@@ -475,12 +475,12 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   } else if (phonetic == PHONETIC_ENABLED || phonetic == PHONETIC_DESABLED) {
     // Verify that the field is actually phonetic
     int isValid = 0;
-    if ((*ctx->currentNode)->opts.fieldMask == RS_FIELDMASK_ALL) {
+    if ((*ctx.currentNode)->opts.fieldMask == RS_FIELDMASK_ALL) {
       if (ctx->handle->spec->flags & Index_HasPhonetic) {
         isValid = 1;
       }
     } else {
-      t_fieldMask fm = (*ctx->currentNode)->opts.fieldMask;
+      t_fieldMask fm = (*ctx.currentNode)->opts.fieldMask;
       for (size_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
         if (!(fm & (t_fieldMask)1 << ii)) {
           continue;
