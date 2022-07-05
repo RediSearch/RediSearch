@@ -1084,14 +1084,14 @@
         ]
       },
       {
-        "name": "PARAMS",
+        "name": "params",
         "type": "block",
         "optional": true,
         "arguments": [          
           {
             "name": "params",
             "type": "pure-token",
-            "token": "params"
+            "token": "PARAMS"
           },
           {
             "name": "nargs",
@@ -1335,17 +1335,17 @@
         ]
       },
       {
-        "name": "PARAMS",
+        "name": "params",
         "type": "block",
         "optional": true,
         "arguments": [          
           {
             "name": "params",
             "type": "pure-token",
-            "token": "params"
+            "token": "PARAMS"
           },
           {
-            "name": "NARGS",
+            "name": "nargs",
             "type": "integer"
           },
           {
