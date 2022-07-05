@@ -44,7 +44,7 @@ AggregateOffsetIterator::AggregateOffsetIterator(const AggregateResult *agg) {
   }
 
   for (int i = 0; i < agg->numChildren; i++) {
-    iters[i] = new AggregateOffsetIterator(agg->children[i]);
+    iters[i] = *new AggregateOffsetIterator(agg->children[i]);
     offsets[i] = iters[i].Next(&terms[i]);
   }
 }
@@ -78,16 +78,17 @@ uint32_t AggregateOffsetIterator::Next(RSQueryTerm **t) {
 //---------------------------------------------------------------------------------------------
 
 AggregateOffsetIterator::~AggregateOffsetIterator() {
-  for (int i = 0; i < res->numChildren; i++) {
-    delete iters[i];
-  }
+  delete res;
+  rm_free(offsets);
+  rm_free(iters);
+  rm_free(terms);
 }
 
 //---------------------------------------------------------------------------------------------
 
 void AggregateOffsetIterator::Rewind() {
   for (int i = 0; i < res->numChildren; i++) {
-    iters[i].Rewind(iters[i].ctx);
+    iters[i].Rewind();
     offsets[i] = 0;
   }
 }

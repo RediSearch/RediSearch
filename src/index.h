@@ -283,6 +283,4 @@ int IndexResult_LoadMetadata(IndexResult *h, DocTable *dt);
 // the end and assumed to be allocated using rm_malloc
 IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 
-// IndexIterator *NewEmptyIterator();
-
 ///////////////////////////////////////////////////////////////////////////////////////////////

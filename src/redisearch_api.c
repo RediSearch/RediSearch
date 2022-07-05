@@ -507,7 +507,7 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
 }
 
 void RediSearch_ResultsIteratorReset(RS_ApiIter* iter) {
-  iter->internal->Rewind(iter->internal->ctx);
+  iter->internal->Rewind();
 }
 
 //---------------------------------------------------------------------------------------------

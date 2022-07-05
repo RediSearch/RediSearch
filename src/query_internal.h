@@ -3,14 +3,15 @@
 
 #include "query_error.h"
 #include "query_node.h"
+#include "numeric_filter.h"
+#include "geo_index.h"
+#include "search_options.h"
 
 #include <stdlib.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct QueryAST;
-struct NumericFilter;
-struct GeoFilter;
 
 //---------------------------------------------------------------------------------------------
 

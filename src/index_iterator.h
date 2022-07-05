@@ -38,18 +38,18 @@ public:
 // Basically query execution creates a tree of iterators that activate each other recursively
 
 class IndexIterator : public Object {
-public:
-  typedef IndexIteratorMode Mode;
+  void init(IndexReader *ir_);
 
+public:
   IndexIterator();
-  IndexIterator(IndexReader *ir);
+  IndexIterator(IndexReader *ir_);
 
   virtual ~IndexIterator();
 
   //-------------------------------------------------------------------------------------------
 
   // Cached value - used if HasNext() is not set
-  uint8_t isValid;
+  bool isValid;
 
   IndexReader *ir;
 

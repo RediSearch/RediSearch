@@ -62,21 +62,20 @@ typedef size_t (*IndexEncoder)(BufferWriter *bw, uint32_t delta, const IndexResu
 
 //---------------------------------------------------------------------------------------------
 
+enum decoderType {Base, Term, Numeric};
+
 struct IndexDecoder {
   // This context is passed to the decoder callback, and can contain either a pointer or integer.
   // It is intended to relay along any kind of additional configuration information to help the
   // decoder determine whether to filter the entry.
 
-  union {
-    const NumericFilter *filter;
-    t_fieldMask mask;
-  };
+  t_fieldMask mask;
+  decoderType type;
 
-  IndexDecoder(uint32_t flags);
-  IndexDecoder(uint32_t flags, t_fieldMask mask);
-  IndexDecoder(uint32_t flags, const NumericFilter *filter);
+  IndexDecoder(uint32_t flags, decoderType type = decoderType::Base);
+  IndexDecoder(uint32_t flags, t_fieldMask mask, decoderType type = decoderType::Base);
 
-  void ctor(uint32_t flags);
+  virtual void ctor(uint32_t flags);
 
   // Decode a single record from the buffer reader. This function is responsible for:
   // (1) Decoding the record at the given position of br
@@ -85,16 +84,16 @@ struct IndexDecoder {
   // (4) Populating `res` with the information from the record.
 
   // If the record should not be processed, it should not be populated and 0 should be returned.
-  // Otherwise, the function should return 1.
+  // Otherwise, the function should return true.
 
-  int (IndexDecoder::*decoder)(BufferReader *br, IndexResult *res);
+  bool (IndexDecoder::*decoder)(BufferReader *br, IndexResult *res);
 
   // Custom implementation of a seeking function. Seek to the specific ID within the index,
   // or at one position after it.
   // The implementation of this function is optional.
   // If this is not used, then the decoder() implementation will be used instead.
 
-  int (IndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
+  bool (IndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
     t_docId to, IndexResult *res);
 
   // We have 9 distinct ways to decode the index records. Based on the index flags we select the
@@ -103,25 +102,54 @@ struct IndexDecoder {
 
   bool readFreqsFlags(BufferReader *br, IndexResult *res);
   bool readFreqsFlagsWide(BufferReader *br, IndexResult *res);
-  bool readFreqOffsetsFlags(BufferReader *br, TermResult *res);
-  bool readFreqOffsetsFlagsWide(BufferReader *br, TermResult *res);
-  bool readNumeric(BufferReader *br, NumericResult *res);
   bool readFreqs(BufferReader *br, IndexResult *res);
   bool readFlags(BufferReader *br, IndexResult *res);
   bool readFlagsWide(BufferReader *br, IndexResult *res);
+  bool readDocIdsOnly(BufferReader *br, IndexResult *res);
+
+  bool CHECK_FLAGS(IndexResult *res) {
+    return (res->fieldMask & mask) != 0;
+  }
+};
+
+struct TermIndexDecoder : IndexDecoder {
+  TermIndexDecoder(uint32_t flags) : IndexDecoder(flags, decoderType::Term) {}
+  TermIndexDecoder(uint32_t flags, t_fieldMask mask) : IndexDecoder(flags, mask, decoderType::Term) {}
+
+  void ctor(uint32_t flags);
+
+  bool (TermIndexDecoder::*decoder)(BufferReader *br, TermResult *res);
+
+  bool (TermIndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
+    t_docId to, TermResult *res);
+
+  bool readFreqOffsetsFlags(BufferReader *br, TermResult *res);
+  bool readFreqOffsetsFlagsWide(BufferReader *br, TermResult *res);
   bool readFlagsOffsets(BufferReader *br, TermResult *res);
   bool readFlagsOffsetsWide(BufferReader *br, TermResult *res);
   bool readOffsets(BufferReader *br, TermResult *res);
   bool readFreqsOffsets(BufferReader *br, TermResult *res);
-  bool readDocIdsOnly(BufferReader *br, IndexResult *res);
-
-  bool CHECK_FLAGS(TermResult *res) {
-    return (res->fieldMask & mask) != 0;
-  }
 
   // Skipper implements SkipTo. It is an optimized version of DECODER which reads
 
   bool seekFreqOffsetsFlags(BufferReader *br, IndexReader *ir, t_docId expid, TermResult *res);
+};
+
+struct NumericIndexDecoder : IndexDecoder {
+  const NumericFilter *filter;
+
+  NumericIndexDecoder(uint32_t flags) : IndexDecoder(flags, decoderType::Numeric) {}
+  NumericIndexDecoder(uint32_t flags, t_fieldMask mask) : IndexDecoder(flags, mask, decoderType::Numeric) {}
+  NumericIndexDecoder(uint32_t flags, const NumericFilter *filter) : IndexDecoder(flags, decoderType::Numeric), filter(filter) {}
+
+  void ctor(uint32_t flags);
+
+  bool (NumericIndexDecoder::*decoder)(BufferReader *br, NumericResult *res);
+
+  bool (NumericIndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
+    t_docId to, NumericResult *res);
+
+  bool readNumeric(BufferReader *br, NumericResult *res);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -154,7 +182,7 @@ struct InvertedIndex : BaseIndex {
 
   // Get the decoder for the index based on the index flags.
   // Used to externally inject the endoder/decoder when reading and writing.
-  static IndexDecoder GetDecoder(uint32_t flags);
+  // static IndexDecoder GetDecoder(uint32_t flags);
 
   int Repair(DocTable &dt, uint32_t startBlock, IndexBlockRepair &blockrepair);
 
@@ -191,7 +219,7 @@ struct IndexReader : public IndexIterator {
 
   // If present, this pointer is updated when the end has been reached.
   // This is an optimization to avoid calling IR_HasNext() each time.
-  uint8_t *isValidP;
+  bool isValidP;
 
   // This marker lets us know whether the garbage collector has visited this index while the reading
   // thread was asleep, and reset the state in a deeper way
@@ -250,7 +278,7 @@ struct IndexReader : public IndexIterator {
   // Create a reader iterator that iterates an inverted index record
   IndexIterator *NewReadIterator();
 
-  void SetAtEnd(int value);
+  void SetAtEnd(bool value);
 
   // current block while reading the index
   IndexBlock &CurrentBlock();

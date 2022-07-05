@@ -1108,6 +1108,15 @@ sds sdsjoinsds(sds *argv, int argc, const char *sep, size_t seplen) {
     return join;
 }
 
+sds doPad(sds s, int len) {
+  if (!len) return s;
+
+  char buf[len * 2 + 1];
+  memset(buf, ' ', len * 2);
+  buf[len * 2] = 0;
+  return sdscat(s, buf);
+}
+
 /* Wrappers to the allocators used by SDS. Note that SDS will actually
  * just use the macros defined into sdsalloc.h in order to avoid to pay
  * the overhead of function calls. Here we define these wrappers only for

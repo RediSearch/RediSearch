@@ -2,13 +2,15 @@
 
 #include "redisearch.h"
 #include "query_error.h"
+#include "query_internal.h"
+#include "tag_index.h"
+#include "geo_index.h"
+#include "numeric_filter.h"
 
 #include <stdlib.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct numericFilter;
-struct geoFilter;
 struct idFilter;
 
 //---------------------------------------------------------------------------------------------
@@ -53,7 +55,11 @@ struct QueryNodeOptions {
   double weight;
   int phonetic;
 
-  QueryNodeOptions(t_fieldMask fieldMask, QueryNodeFlags flags, int maxSlop, bool inOrder, double weight) :
+  QueryNodeOptions(t_fieldMask fieldMask = RS_FIELDMASK_ALL,
+                   QueryNodeFlags flags = 0,
+                   int maxSlop = -1,
+                   bool inOrder = false,
+                   double weight = 1) :
   fieldMask(fieldMask), flags(flags), maxSlop(maxSlop), inOrder(inOrder), weight(weight) {}
 };
 
@@ -68,6 +74,10 @@ struct QueryAttribute {
   const char *value;
   size_t vallen;
 };
+
+//---------------------------------------------------------------------------------------------
+
+typedef IndexIterator **IndexIteratorArray;
 
 //---------------------------------------------------------------------------------------------
 
@@ -92,6 +102,7 @@ struct QueryNode {
   };*/
 
   void ctor(QueryNodeType t);
+
   QueryNode() { ctor(QN_NULL); }
   QueryNode(QueryNodeType t) { ctor(t); }
   QueryNode(QueryNodeType t, QueryNode **children_, size_t n) {
@@ -115,13 +126,13 @@ struct QueryNode {
   size_t NumChildren() const { return children ? array_len(children) : 0; }
   QueryNode *GetChild(int ix) { return NumChildren() > ix ? children[ix] : NULL; }
 
-  void Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *expCtx);
+  void Expand(RSQueryTokenExpander expander, RSQueryExpander *expCtx);
+  virtual bool expandChildren() { return false; }
 
   typedef int (*ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
-  int ForEach(ForEachCallback callback, void *ctx, bool reverse)
+  int ForEach(ForEachCallback callback, void *ctx, bool reverse);
 
   void SetFieldMask(t_fieldMask mask);
-
   sds DumpSds(sds s, const IndexSpec *spec, int depth) const;
   sds DumpChildren(sds s, const IndexSpec *spec, int depth) const;
   virtual sds dumpsds(sds s, const IndexSpec *spec, int depth) {
@@ -130,7 +141,7 @@ struct QueryNode {
   }
 
   virtual IndexIterator *EvalNode(Query *q) {
-    return NewEmptyIterator();
+    return new EmptyIterator();
   }
 
   IndexIterator *EvalSingleTagNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
@@ -142,9 +153,9 @@ struct QueryNode {
 // of several token nodes.
 
 struct QueryPhraseNode : QueryNode {
-  int exact;
+  bool exact;
 
-  QueryPhraseNode(int exact_) : QueryNode(QN_PHRASE) {
+  QueryPhraseNode(bool exact_) : QueryNode(QN_PHRASE) {
     exact = exact_;
   }
 
@@ -158,13 +169,16 @@ struct QueryPhraseNode : QueryNode {
     return s;
   }
 
+  bool expandChildren() { return !exact; }
+
   IndexIterator *EvalNode(Query *q);
   IndexIterator *EvalSingle(Query *q, TagIndex *idx,
                             IndexIteratorArray *iterout, double weight) {
     char *terms[NumChildren()];
     for (size_t i = 0; i < NumChildren(); ++i) {
       if (children[i]->type == QN_TOKEN) {
-        terms[i] = children[i]->str;
+        TermResult *res = dynamic_cast<TermResult*>(children[i]);
+        terms[i] = res->term->str;
       } else {
         terms[i] = "";
       }
@@ -202,6 +216,8 @@ struct QueryTagNode : QueryNode {
     len = len_;
   }
 
+  ~QueryTagNode();
+
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "TAG:@%.*s {\n", (int)len, fieldName);
     s = DumpChildren(s, spec, depth + 1);
@@ -222,18 +238,17 @@ struct QueryTagNode : QueryNode {
 struct QueryTokenNode : QueryNode {
   RSToken tok;
 
-  QueryTokenNode(QueryParse *q, const char *s, size_t len, uint8_t expanded = 0,
-                 RSTokenFlags flags = 0) : QueryNode(QN_TOKEN) {
-    if (len_ == (size_t)-1) {
-      len_ = strlen(s);
+  QueryTokenNode(QueryParse *q, const char *s, size_t len, uint8_t expanded = 0, RSTokenFlags flags = 0) :
+    QueryNode(QN_TOKEN), tok(RSToken((char *)s, len, expanded, flags)) {
+    if (len == (size_t)-1) {
+      len = strlen(s);
     }
 
     if (q) q->numTokens++;
-    tok = new RSToken((char *)s, len, expanded, flags);
   }
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
-    s = sdscatprintf(s, "%s%s", (char *)str, tok->expanded ? "(expanded)" : "");
+    s = sdscatprintf(s, "%s%s", (char *)tok.str, tok.expanded ? "(expanded)" : "");
     if (opts.weight != 1) {
       s = sdscatprintf(s, " => {$weight: %g;}", opts.weight);
     }
@@ -243,7 +258,7 @@ struct QueryTokenNode : QueryNode {
 
   IndexIterator *EvalNode(Query *q);
   IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight) {
-    return idx->OpenReader(q->sctx->spec, str, len, weight);
+    return idx->OpenReader(q->sctx->spec, tok.str, tok.len, weight);
   }
 };
 
@@ -252,17 +267,13 @@ struct QueryTokenNode : QueryNode {
 struct QueryPrefixNode : QueryNode {
   RSToken tok;
 
-  QueryPrefixNode(QueryParse *q, const char *s, size_t len_) : QueryNode(QN_PREFX) {
+  QueryPrefixNode(QueryParse *q, const char *s, size_t len) :
+    QueryNode(QN_PREFX), tok(RSToken((char *)s, len, 0, 0)) {
     if (q) q->numTokens++;
-
-    str = (char *)s;
-    len = len_;
-    expanded = 0;
-    flags = 0;
   }
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
-    s = sdscatprintf(s, "PREFIX{%s*", (char *)str);
+    s = sdscatprintf(s, "PREFIX{%s*", (char *)tok.str);
     return s;
   }
 
@@ -278,10 +289,9 @@ struct QueryFuzzyNode : QueryNode {
   RSToken tok;
   int maxDist;
 
-  QueryFuzzyNode(QueryParse *q, const char *s, size_t len_, int maxDist_) : QueryNode(QN_FUZZY) {
+  QueryFuzzyNode(QueryParse *q, const char *s, size_t len_, int maxDist_) :
+    QueryNode(QN_FUZZY), tok(RSToken((char *)s, len_, 0, 0)) {
     q->numTokens++;
-
-    tok = new RSToken((char *)s, len_, 0, 0);
     maxDist = maxDist_;
   }
 
@@ -296,7 +306,6 @@ struct QueryFuzzyNode : QueryNode {
 //---------------------------------------------------------------------------------------------
 
 // A node with a numeric filter
-struct NumericFilter;
 
 struct QueryNumericNode : QueryNode {
   NumericFilter *nf;
@@ -343,8 +352,8 @@ struct QueryIdFilterNode : QueryNode {
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscat(s, "IDS { ");
-    for (int i = 0; i < fn.len; i++) {
-      s = sdscatprintf(s, "%llu,", (unsigned long long)fn.ids[i]);
+    for (int i = 0; i < len; i++) {
+      s = sdscatprintf(s, "%llu,", (unsigned long long)ids[i]);
     }
     return s;
   }
@@ -361,6 +370,7 @@ struct QueryLexRangeNode : QueryNode {
   bool includeEnd;
 
   QueryLexRangeNode() : QueryNode(QN_LEXRANGE) {}
+  ~QueryLexRangeNode();
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "LEXRANGE{%s...%s", begin ? begin : "", end ? end : "");
@@ -387,6 +397,8 @@ struct QueryUnionNode : QueryNode {
     s = doPad(s, depth);
     return s;
   }
+
+  bool expandChildren() { return true; }
 };
 
 //---------------------------------------------------------------------------------------------

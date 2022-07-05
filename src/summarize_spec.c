@@ -19,7 +19,7 @@ int FieldList::parseFieldList(ArgsCursor *ac, Array<size_t> *fieldPtrs) {
   }
 
   while (!fieldArgs.IsAtEnd()) {
-    const char *name = &fieldArgs->GetStringNC(NULL);
+    const char *name = fieldArgs.GetStringNC(NULL);
     ReturnedField *fieldInfo = GetCreateField(name);
     size_t ix = fieldInfo - fields;
     fieldPtrs.Write(&ix, sizeof(size_t));

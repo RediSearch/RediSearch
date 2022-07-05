@@ -7,7 +7,6 @@
 #include "redismodule.h"
 #include "search_ctx.h"
 #include "concurrent_ctx.h"
-#include "inverted_index.h"
 #include "numeric_filter.h"
 
 #include "rmutil/vector.h"
@@ -99,8 +98,8 @@ struct NumericRangeNode : public Object {
 
   bool IsLeaf() const { return left == NULL && right == NULL; }
 
-  //void Traverse(void (*callback)(NumericRangeNode *n, void *arg), void *arg);
-  void Traverse(std::function<void(NumericRangeNode *, void *arg)> fn, void *arg);
+  void Traverse(void (*callback)(NumericRangeNode *n, void *arg), void *arg);
+  void Traverse(std::function<void (*)(NumericRangeNode *, void *arg)> fn, void *arg);
 };
 
 //---------------------------------------------------------------------------------------------

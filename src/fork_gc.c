@@ -258,7 +258,7 @@ done:
 //---------------------------------------------------------------------------------------------
 
 void InvertedIndexRepair::sendHeader() {
-  sendBuffer(term, termLen); //@@ function not declared
+  fgc.sendBuffer(term, termLen);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -275,7 +275,7 @@ void ForkGC::childCollectTerms(RedisSearchCtx *sctx) {
     RedisModuleKey *idxKey = NULL;
     InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
     if (idx) {
-      InvertedIndexRepair indexrepair(term, termLen);
+      InvertedIndexRepair indexrepair(*this, term, termLen);
       IndexBlockRepair blockrepair;
       childRepairInvIdx(sctx, idx, indexrepair, blockrepair);
     }
@@ -304,8 +304,7 @@ void NumericIndexBlockRepair::countDeleted(const NumericResult *r, const IndexBl
   RS_LOG_ASSERT(ht, "cardvals should not be NULL");
   double u = r->value;
   if (ht.contains(u)) {
-    // i.e. already existed
-    ht[u]++;
+    ht[u]++; // i.e. already existed
   } else {
     ht[u] = 0;
   }
@@ -316,10 +315,10 @@ void NumericIndexBlockRepair::countDeleted(const NumericResult *r, const IndexBl
 void NumericAndTagIndexRepair::sendHeader() {
   if (!sentFieldName) {
     sentFieldName = true;
-    sendBuffer(field, strlen(field));
-    sendFixed(&uniqueId, sizeof(uniqueId));
+    fgc.sendBuffer(field, strlen(field));
+    fgc.sendFixed(&uniqueId, sizeof(uniqueId));
   }
-  sendVar(idx);
+  fgc.sendVar(idx);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -344,23 +343,13 @@ FGCError ForkGC::recvNumericTagHeader(char **fieldName, size_t *fieldNameLen, ui
 
 //---------------------------------------------------------------------------------------------
 
-void ForkGC::sendKht(const khash_t(cardvals) *kh) {
-  size_t n = 0;
-  if (!kh) {
-    sendVar(n);
-    return;
-  }
-  n = kh_size(kh);
+void ForkGC::sendKht(const UnorderedMap<uint64_t, size_t> &kh) {
+  size_t n = kh.size();
   size_t nsent = 0;
 
   sendVar(n);
-  for (khiter_t it = kh_begin(kh); it != kh_end(kh); ++it) {
-    if (!kh_exist(kh, it)) {
-      continue;
-    }
-    numUnion u = {kh_key(kh, it)};
-    size_t count = kh_val(kh, it);
-    CardinalityValue cu(u.d48, count);
+  for (const auto& [key, count] : kh) {
+    CardinalityValue cu(key, count);
     sendVar(cu);
     nsent++;
   }
@@ -377,12 +366,13 @@ void ForkGC::childCollectNumeric(RedisSearchCtx *sctx) {
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     NumericRangeTreeIterator gcIterator(rt);
+    NumericIndexRepair indexrepair(*this, *numericFields[i], *rt);
     for (NumericRangeNode *node = NULL; (node = gcIterator.Next()); ) {
       if (!node->range) {
         continue;
       }
+      indexrepair.set(node);
       InvertedIndex &idx = node->range->entries;
-      NumericIndexRepair indexrepair(*numericFields[i], *rt, *node);
       NumericIndexBlockRepair blockrepair(idx);
       bool repaired = childRepairInvIdx(sctx, &idx, indexrepair, blockrepair);
 
@@ -392,7 +382,7 @@ void ForkGC::childCollectNumeric(RedisSearchCtx *sctx) {
       }
     }
 
-    if (repairproc.sentFieldName) { //@@ what is repairproc?
+    if (indexrepair.sentFieldName) {
       // If we've repaired at least one entry, send the terminator;
       // note that "terminator" just means a zero address and not the
       // "no more strings" terminator in sendTerminator
@@ -422,15 +412,14 @@ void ForkGC::childCollectTags(RedisSearchCtx *sctx) {
         continue;
       }
 
-
       TrieMapIterator *iter = tagIdx->values->Iterate("", 0);
+      TagIndexRepair indexrepair(*this, *tagFields[i], *tagIdx);
+      IndexBlockRepair blockrepair;
       char *ptr;
       tm_len_t len;
-      InvertedIndex *invidx;
-      TagIndexRepair indexrepair;
+      InvertedIndex *invidx = NULL;
       while (iter->Next(&ptr, &len, (void **)&invidx)) {
-        indexrepair = *new TagIndexRepair(*tagFields[i], *tagIdx, *invidx);
-        IndexBlockRepair blockrepair;
+        indexrepair.set(invidx);
         // send repaired data
         childRepairInvIdx(sctx, invidx, indexrepair, blockrepair);
       }
@@ -653,9 +642,12 @@ FGCError ForkGC::parentHandleTerms(RedisModuleCtx *rctx) {
   size_t len;
   int hasLock = 0;
   char *term = NULL;
+  InvertedIndex *idx = NULL;
+
   if (recvBuffer((void **)&term, &len) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
   }
+
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NULL;
 
@@ -682,7 +674,7 @@ FGCError ForkGC::parentHandleTerms(RedisModuleCtx *rctx) {
     goto cleanup;
   }
 
-  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, &idxKey);
+  idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, &idxKey);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;
@@ -830,7 +822,10 @@ FGCError ForkGC::parentHandleNumeric(RedisModuleCtx *rctx) {
   int hasLock = 0;
   size_t fieldNameLen;
   char *fieldName = NULL;
+  NumericRangeTree *rt = NULL;
   uint64_t rtUniqueId;
+  RedisModuleString *keyName;
+
   FGCError status = recvNumericTagHeader(&fieldName, &fieldNameLen, &rtUniqueId);
   if (status == FGC_DONE) {
     return FGC_DONE;
@@ -859,9 +854,8 @@ FGCError ForkGC::parentHandleNumeric(RedisModuleCtx *rctx) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
     }
-    RedisModuleString *keyName =
-        sctx->spec->GetFormattedKeyByName(fieldName, INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+    keyName = sctx->spec->GetFormattedKeyByName(fieldName, INDEXFLD_T_NUMERIC);
+    rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {
       status = FGC_PARENT_ERROR;

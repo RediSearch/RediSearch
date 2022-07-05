@@ -316,9 +316,9 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
                          QueryError *status) {
   // Parse query-specific arguments..
   const char *languageStr = NULL;
-  ArgsCursor returnFields = {0};
-  ArgsCursor inKeys = {0};
-  ArgsCursor inFields = {0};
+  ArgsCursor returnFields;
+  ArgsCursor inKeys;
+  ArgsCursor inFields;
   ACArgSpec querySpecs[] = {
       {name: "INFIELDS", type: AC_ARGTYPE_SUBARGS, target: &inFields},  // Comment
       {name: "SLOP",     type: AC_ARGTYPE_INT,     target: &searchOpts->slop, intflags: AC_F_COALESCE},
@@ -512,7 +512,7 @@ PLN_GroupStep::PLN_GroupStep(const char **properties_, size_t nproperties_) : PL
 //---------------------------------------------------------------------------------------------
 
 int AREQ::parseGroupby(ArgsCursor *ac, QueryError *status) {
-  ArgsCursor groupArgs = {0};
+  ArgsCursor groupArgs;
   const char *s;
   ac->GetString(&s, NULL, AC_F_NOADVANCE);
   int rv = ac->GetVarArgs(&groupArgs);
@@ -608,7 +608,7 @@ PLN_LoadStep::~PLN_LoadStep() {
 //---------------------------------------------------------------------------------------------
 
 int AREQ::handleLoad(ArgsCursor *ac, QueryError *status) {
-  ArgsCursor loadfields = {0};
+  ArgsCursor loadfields;
   int rc = ac->GetVarArgs(&loadfields);
   if (rc != AC_OK) {
     QERR_MKBADARGS_AC(status, "LOAD", rc);
@@ -665,7 +665,7 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
   }
 
   // Parse the query and basic keywords first..
-  ArgsCursor ac = {0};
+  ArgsCursor ac;
   ac.InitSDS(args, nargs);
 
   if (ac.IsAtEnd()) {
@@ -801,7 +801,7 @@ int AREQ::ApplyContext(QueryError *status) {
   }
 
   if (!(opts.flags & Search_Verbatim)) {
-    if (ast->Expand(opts.expanderName, opts, *sctx, status) != REDISMODULE_OK) {
+    if (ast->Expand(opts.expanderName, &opts, *sctx, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   }
@@ -965,7 +965,7 @@ ResultProcessor *AREQ::getScorerRP() {
   }
   ExtScoringFunction *fns = Extensions::GetScoringFunction(&scargs, scorer);
   RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
-  sctx->spec->GetStats(scargs.indexStats);
+  sctx->spec->GetStats(&scargs.indexStats);
   scargs.qdata = ast->udata;
   scargs.qdatalen = ast->udatalen;
   ResultProcessor *rp = new RPScorer(fns, &scargs);

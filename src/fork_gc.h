@@ -90,7 +90,7 @@ struct NumericIndexBlockRepair : IndexBlockRepair {
   void countDeleted(const NumericResult *r, const IndexBlock *blk);
 
   virtual void collect(const IndexResult &r, const IndexBlock &blk) {
-    NumericResult *nr = dynamic_cast<NumericResult*>(r);
+    const NumericResult *nr = dynamic_cast<const NumericResult*>(&r);
     if (nr)
       countDeleted(nr, &blk);
 	}
@@ -104,11 +104,13 @@ union numUnion {
 //---------------------------------------------------------------------------------------------
 
 struct IndexRepair {
+  struct ForkGC &fgc;
+  IndexRepair(struct ForkGC &fgc) : fgc(fgc) {}
 	virtual void sendHeader() = 0;
 };
 
 struct InvertedIndexRepair : IndexRepair {
-	InvertedIndexRepair(char *term, size_t termLen) : term(term), termLen(termLen);
+	InvertedIndexRepair(struct ForkGC &fgc, char *term, size_t termLen) : IndexRepair(fgc), term(term), termLen(termLen) {}
 
   char *term;
   size_t termLen;
@@ -117,8 +119,8 @@ struct InvertedIndexRepair : IndexRepair {
 };
 
 struct NumericAndTagIndexRepair : IndexRepair {
-  NumericAndTagIndexRepair(const FieldSpec &field, uint64_t uniqueId, const void *idx) :
-	field(field.name), uniqueId(uniqueId), idx(idx), sentFieldName(false) {}
+  NumericAndTagIndexRepair(struct ForkGC &fgc, const FieldSpec &field, uint64_t uniqueId) :
+	  IndexRepair(fgc), field(field.name), uniqueId(uniqueId), idx(NULL), sentFieldName(false) {}
 
   const char *field;
   uint64_t uniqueId;
@@ -129,13 +131,22 @@ struct NumericAndTagIndexRepair : IndexRepair {
 };
 
 struct NumericIndexRepair : NumericAndTagIndexRepair {
-  NumericIndexRepair(const FieldSpec &field, const NumericRangeTree &tree, const NumericRangeNode &node) :
-	NumericAndTagIndexRepair(field, tree.uniqueId, &node) {}
+  NumericIndexRepair(struct ForkGC &fgc, const FieldSpec &field, const NumericRangeTree &tree) :
+	  NumericAndTagIndexRepair(fgc, field, tree.uniqueId) {}
+
+  void set(const NumericRangeNode *invidx) {
+    idx = invidx;
+  }
+
 };
 
 struct TagIndexRepair : NumericAndTagIndexRepair {
-  TagIndexRepair(const FieldSpec &field, const TagIndex &tree, const InvertedIndex &idx) :
-	NumericAndTagIndexRepair(field, tree.uniqueId, &idx) {}
+  TagIndexRepair(struct ForkGC &fgc, const FieldSpec &field, const TagIndex &tree) :
+	  NumericAndTagIndexRepair(fgc, field, tree.uniqueId) {}
+
+  void set(const InvertedIndex *invidx) {
+    idx = invidx;
+  }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -227,13 +238,14 @@ struct ForkGC : public Object, public GCAPI {
   // Don't perform diagnostic waits
   void WaitClear();
 
-private:
+//private:
   bool lock(RedisModuleCtx *ctx);
   void unlock(RedisModuleCtx *ctx);
   RedisSearchCtx *getSctx(RedisModuleCtx *ctx);
   void updateStats(RedisSearchCtx *sctx, size_t recordsRemoved, size_t bytesCollected);
   void sendFixed(const void *buff, size_t len);
-  void sendVar(const void v) { sendFixed(&v, sizeof v); }
+  template <class T>
+  void sendVar(const T &x) { sendFixed(reinterpret_cast<const T*>(&x), sizeof(x)); }
   void sendBuffer(const void *buff, size_t len);
   void sendTerminator();
 
@@ -263,7 +275,7 @@ private:
   bool haveRedisFork();
   int Fork(RedisModuleCtx *ctx);
 
-  void sendKht(const khash_t(cardvals) *kh);
+  void sendKht(const UnorderedMap<uint64_t, size_t> &kh);
   void checkLastBlock(InvIdxBuffers *idxData, MSG_IndexInfo *info, InvertedIndex *idx);
   void applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, InvertedIndex *idx);
   void applyNumIdx(RedisSearchCtx *sctx, NumGcInfo *ninfo);

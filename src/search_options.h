@@ -119,7 +119,8 @@ struct RSSearchOptions {
   t_docId *inids;
   size_t nids;
 
-  std::shared_ptr<const StopWordList> stopwords;
+  //std::shared_ptr<const StopWordList> stopwords;
+  StopWordList *stopwords;
 
   // Legacy options
   struct Legacy {

@@ -1165,7 +1165,7 @@ OptionalIterator::OptionalIterator(IndexIterator *it, t_docId maxDocId_, double 
     _Read = &OptionalIterator::ReadUnsorted;
   }
   if (!child) {
-    child = NewEmptyIterator();
+    child = new EmptyIterator();
   }
 }
 

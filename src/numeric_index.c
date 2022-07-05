@@ -363,8 +363,9 @@ IndexIterator::IndexIterator(const IndexSpec *sp, NumericRange *nr, const Numeri
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
-  IndexReader *ir = new NumericIndexReader(&nr->entries, sp, f);
-  this = ir->NewReadIterator();
+  IndexReader *_ir = new NumericIndexReader(&nr->entries, sp, f);
+  init(_ir);
+  _ir->isValidP = isValid;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -395,7 +396,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
 
   for (size_t i = 0; i < n; i++) {
     NumericRange rng = v->at(i);
-    its[i] = new IndexIterator(sp, rng, f);
+    its[i] = new IndexIterator(sp, &rng, f);
   }
 
   return new UnionIterator(its, n, NULL, 1, 1);

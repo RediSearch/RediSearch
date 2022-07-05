@@ -190,10 +190,6 @@ struct RPIndexIterator : public ResultProcessor {
   int Next(SearchResult *res);
 };
 
-struct RPScorer : public ResultProcessor {
-  RPScorer(const ExtScoringFunction *funcs, const ScoringFunctionArgs *fnargs);
-};
-
 //---------------------------------------------------------------------------------------------
 
 // Functions abstracting the sortmap. Hides the bitwise logic
@@ -317,12 +313,9 @@ struct RPSorter : public ResultProcessor {
 
   void ctor(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap);
 
-  RPSorter(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap){
+  RPSorter(size_t maxresults, const RLookupKey **keys = NULL, size_t nkeys = 0, uint64_t ascmap = 0) :
+    ResultProcessor("") {
     ctor(maxresults, keys, nkeys, ascmap);
-  }
-
-  RPScorer(size_t maxresults) {
-    ctor(maxresults, NULL, 0, 0);
   }
 
   ~RPSorter();

@@ -79,10 +79,8 @@ InvertedIndex::~InvertedIndex() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void IndexReader::SetAtEnd(int value) {
-  if (isValidP) {
-    *isValidP = !value;
-  }
+void IndexReader::SetAtEnd(bool value) {
+  isValidP = !value;
   atEnd = value;
 }
 
@@ -92,10 +90,9 @@ void IndexReader::SetAtEnd(int value) {
 // underlying term key. We check for changes in the underlying key, or possible deletion of it.
 
 void IndexReader::OnReopen(RedisModuleKey *k) {
-
   // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
   if (k == NULL || RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
-    SetAtEnd(1);
+    SetAtEnd(true);
     idx = NULL;
     br.buf = NULL;
     return;
@@ -458,7 +455,7 @@ size_t InvertedIndex::WriteForwardIndexEntry(IndexEncoder encoder, const Forward
 
 // Write a numeric entry to the index
 size_t InvertedIndex::WriteNumericEntry(t_docId docId, double value) {
-  return WriteEntryGeneric(encodeNumeric, docId, IndexResult{docId, value});
+  return WriteEntryGeneric(encodeNumeric, docId, NumericResult(docId, value));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -489,7 +486,7 @@ bool IndexDecoder::readFreqsFlagsWide(BufferReader *br, IndexResult *res) {
   return CHECK_FLAGS(res);
 }
 
-bool IndexDecoder::readFreqOffsetsFlags(BufferReader *br, TermResult *res) {
+bool TermIndexDecoder::readFreqOffsetsFlags(BufferReader *br, TermResult *res) {
   qint_decode4(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask,
                &res->offsetsSz);
   res->offsets.data = br->Current();
@@ -498,7 +495,7 @@ bool IndexDecoder::readFreqOffsetsFlags(BufferReader *br, TermResult *res) {
   return CHECK_FLAGS(res);
 }
 
-bool IndexDecoder::seekFreqOffsetsFlags(BufferReader *br, IndexReader *ir, t_docId expid, TermResult *res) {
+bool TermIndexDecoder::seekFreqOffsetsFlags(BufferReader *br, IndexReader *ir, t_docId expid, TermResult *res) {
   uint32_t did = 0, freq = 0, offsz = 0;
   t_fieldMask fm = 0;
   t_docId lastId = ir->lastId;
@@ -554,7 +551,7 @@ done:
   return rc;
 }
 
-bool IndexDecoder::readFreqOffsetsFlagsWide(BufferReader *br, TermResult *res) {
+bool TermIndexDecoder::readFreqOffsetsFlagsWide(BufferReader *br, TermResult *res) {
   uint32_t maskSz;
 
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, &res->offsetsSz);
@@ -565,7 +562,7 @@ bool IndexDecoder::readFreqOffsetsFlagsWide(BufferReader *br, TermResult *res) {
 }
 
 // special decoder for decoding numeric results
-bool IndexDecoder::readNumeric(BufferReader *br, NumericResult *res) {
+bool NumericIndexDecoder::readNumeric(BufferReader *br, NumericResult *res) {
   EncodingHeader header;
   br->Read(&header, 1);
 
@@ -622,14 +619,14 @@ bool IndexDecoder::readFlagsWide(BufferReader *br, IndexResult *res) {
   return CHECK_FLAGS(res);
 }
 
-bool IndexDecoder::readFlagsOffsets(BufferReader *br, TermResult *res) {
+bool TermIndexDecoder::readFlagsOffsets(BufferReader *br, TermResult *res) {
   qint_decode3(br, (uint32_t *)&res->docId, (uint32_t *)&res->fieldMask, &res->offsetsSz);
   res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
   br->Skip(res->offsetsSz);
   return CHECK_FLAGS(res);
 }
 
-bool IndexDecoder::readFlagsOffsetsWide(BufferReader *br, TermResult *res) {
+bool TermIndexDecoder::readFlagsOffsetsWide(BufferReader *br, TermResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(*br);
   res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
@@ -638,14 +635,14 @@ bool IndexDecoder::readFlagsOffsetsWide(BufferReader *br, TermResult *res) {
   return CHECK_FLAGS(res);
 }
 
-bool IndexDecoder::readOffsets(BufferReader *br, TermResult *res) {
+bool TermIndexDecoder::readOffsets(BufferReader *br, TermResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->offsetsSz);
   res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
   br->Skip(res->offsetsSz);
   return true;
 }
 
-bool IndexDecoder::readFreqsOffsets(BufferReader *br, TermResult *res) {
+bool TermIndexDecoder::readFreqsOffsets(BufferReader *br, TermResult *res) {
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, &res->offsetsSz);
   res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
   br->Skip(res->offsetsSz);
@@ -660,89 +657,127 @@ bool IndexDecoder::readDocIdsOnly(BufferReader *br, IndexResult *res) {
 
 //---------------------------------------------------------------------------------------------
 
-IndexDecoder InvertedIndex::GetDecoder(uint32_t flags) {
-  return *new IndexDecoder(flags);
-}
+// IndexDecoder InvertedIndex::GetDecoder(uint32_t flags) {
+//   return *new IndexDecoder(flags);
+// }
 
 //---------------------------------------------------------------------------------------------
 
-IndexDecoder::IndexDecoder(uint32_t flags) {
+IndexDecoder::IndexDecoder(uint32_t flags, decoderType type) : type(type)  {
   ctor(flags);
 }
 
-IndexDecoder::IndexDecoder(uint32_t flags, t_fieldMask mask) : mask(mask) {
-  ctor(flags);
-}
-
-IndexDecoder::IndexDecoder(uint32_t flags, const NumericFilter *filter) : filter(filter) {
+IndexDecoder::IndexDecoder(uint32_t flags, t_fieldMask mask, decoderType type) : mask(mask), type(type) {
   ctor(flags);
 }
 
 void IndexDecoder::ctor(uint32_t flags) {
+  switch (flags & INDEX_STORAGE_MASK) {
+    // (freqs)
+    case Index_StoreFreqs:
+      decoder = &readFreqs;
+      seeker = nullptr;
+      break;
 
-// #define SET_DECODERS(decoder_, seeker_) \
-//   decoder = decoder_; \
-//   seeker = seeker_; \
-//   return
+    // (fields)
+    case Index_StoreFieldFlags:
+      decoder = &readFlags;
+      seeker = nullptr;
+      break;
 
-//   switch (flags & INDEX_STORAGE_MASK) {
-//     // (freqs, fields, offset)
-//     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets:
-//       SET_DECODERS(&readFreqOffsetsFlags, &seekFreqOffsetsFlags);
+    case Index_StoreFieldFlags | Index_WideSchema:
+      decoder = &readFlagsWide;
+      seeker = nullptr;
+      break;
 
-//     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-//       SET_DECODERS(&readFreqOffsetsFlagsWide, nullptr);
+    // ()
+    case Index_DocIdsOnly:
+      decoder = &readDocIdsOnly;
+      seeker = nullptr;
+      break;
 
-//     // (freqs)
-//     case Index_StoreFreqs:
-//       SET_DECODERS(&readFreqs, nullptr);
+    // (freqs, fields)
+    case Index_StoreFreqs | Index_StoreFieldFlags:
+      decoder = &readFreqsFlags;
+      seeker = nullptr;
+      break;
 
-//     // (offsets)
-//     case Index_StoreTermOffsets:
-//       SET_DECODERS(&readOffsets, nullptr);
+    case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
+      decoder = &readFreqsFlagsWide;
+      seeker = nullptr;
+      break;
 
-//     // (fields)
-//     case Index_StoreFieldFlags:
-//       SET_DECODERS(&readFlags, nullptr);
+    default:
+      fprintf(stderr, "No decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
+      decoder = nullptr;
+      seeker = nullptr;
+      break;
+  }
+}
 
-//     case Index_StoreFieldFlags | Index_WideSchema:
-//       SET_DECODERS(&readFlagsWide, nullptr);
+void TermIndexDecoder::ctor(uint32_t flags) {
+  switch (flags & INDEX_STORAGE_MASK) {
+    // (freqs, fields, offset)
+    case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets:
+      decoder = &readFreqOffsetsFlags;
+      seeker = &seekFreqOffsetsFlags;
+      break;
 
-//     // ()
-//     case Index_DocIdsOnly:
-//       SET_DECODERS(&readDocIdsOnly, nullptr);
+    case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
+      decoder = &readFreqOffsetsFlagsWide;
+      seeker = nullptr;
+      break;
 
-//     // (freqs, offsets)
-//     case Index_StoreFreqs | Index_StoreTermOffsets:
-//       SET_DECODERS(&readFreqsOffsets, nullptr);
+    // (fields, offsets)
+    case Index_StoreFieldFlags | Index_StoreTermOffsets:
+      decoder = &readFlagsOffsets;
+      seeker = nullptr;
+      break;
 
-//     // (freqs, fields)
-//     case Index_StoreFreqs | Index_StoreFieldFlags:
-//       SET_DECODERS(&readFreqsFlags, nullptr);
+    case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
+      decoder = &readFlagsOffsetsWide;
+      seeker = nullptr;
+      break;
 
-//     case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
-//       SET_DECODERS(&readFreqsFlagsWide, nullptr);
+    // (offsets)
+    case Index_StoreTermOffsets:
+      decoder = &readOffsets;
+      seeker = nullptr;
+      break;
 
-//     // (fields, offsets)
-//     case Index_StoreFieldFlags | Index_StoreTermOffsets:
-//       SET_DECODERS(&readFlagsOffsets, nullptr);
+    // (freqs, offsets)
+    case Index_StoreFreqs | Index_StoreTermOffsets:
+      decoder = &readFreqsOffsets;
+      seeker = nullptr;
+      break;
 
-//     case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-//       SET_DECODERS(&readFlagsOffsetsWide, nullptr);
+    default:
+      fprintf(stderr, "No term decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
+      decoder = nullptr;
+      seeker = nullptr;
+      break;
+  }
+}
 
-//     case Index_StoreNumeric:
-//       SET_DECODERS(&readNumeric, nullptr);
+void NumericIndexDecoder::ctor(uint32_t flags) {
+  switch (flags & INDEX_STORAGE_MASK) {
+    case Index_StoreNumeric:
+      decoder = &readNumeric;
+      seeker = nullptr;
+      break;
 
-//     default:
-//       fprintf(stderr, "No decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
-//       SET_DECODERS(nullptr, nullptr);
-//   }
+    default:
+      fprintf(stderr, "No numeric decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
+      decoder = nullptr;
+      seeker = nullptr;
+      break;
+  }
 }
 
 //---------------------------------------------------------------------------------------------
 
 NumericIndexReader::NumericIndexReader(InvertedIndex *idx, const IndexSpec *sp, const NumericFilter *flt) :
-    IndexReader(sp, idx, IndexDecoder(Index_StoreNumeric, flt), new NumericResult(), 1.0) {
+    IndexReader(sp, idx, NumericIndexDecoder(Index_StoreNumeric, flt), new NumericResult(), 1.0) {
 }
 
 //---------------------------------------------------------------------------------------------
@@ -832,15 +867,18 @@ IndexCriteriaTester *IR_GetCriteriaTester(IndexReader *ir) {
   if (!ir->sp || !ir->sp->getValue) {
     return NULL;  // CriteriaTester is not supported!!!
   }
-  if (ir->decoder.decoder != &IndexDecoder::readNumeric) {
+
+  if (ir->decoder.type == decoderType::Term) {
     return new TermIndexCriteriaTester(ir);
   }
   // for now, if the iterator did not took the numric filter we will avoid using the CT.
   // TODO: save the numeric filter in the numeric iterator to support CT anyway.
-  if (!ir->decoder.filter) {
-    return NULL;
+  if (ir->decoder.type == decoderType::Numeric) {
+    const NumericIndexDecoder *nr = dynamic_cast<const NumericIndexDecoder*>(&ir->decoder);
+    return new NumericIndexCriteriaTester(ir, *nr->filter);
   }
-  return new NumericIndexCriteriaTester(ir, *ir->decoder.filter);
+
+  return NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -885,7 +923,7 @@ int IndexReader::Read(IndexResult **e) {
   } while (1);
 
 eof:
-  SetAtEnd(1);
+  SetAtEnd(true);
   return INDEXREAD_EOF;
 }
 
@@ -1006,7 +1044,7 @@ int IndexReader::SkipTo(t_docId docId, IndexResult **hit) {
     }
   }
 eof:
-  SetAtEnd(1);
+  SetAtEnd(true);
   return INDEXREAD_EOF;
 }
 
@@ -1028,8 +1066,7 @@ IndexReader::IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder d
 
   currentBlock = 0;
   len = 0;
-  isValidP = NULL;
-  SetAtEnd(0);
+  SetAtEnd(false);
 }
 
 IndexReader::~IndexReader() {
@@ -1056,7 +1093,7 @@ static RSQueryTerm *termWithIDF(RSQueryTerm *term, InvertedIndex *idx, IndexSpec
 
 TermIndexReader::TermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
     RSQueryTerm *term, double weight) : IndexReader(sp, idx,
-      IndexDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK, fieldMask),
+      TermIndexDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK, fieldMask),
       new TermResult(termWithIDF(term, idx, sp), weight),
       weight) {
 }
@@ -1064,7 +1101,7 @@ TermIndexReader::TermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask 
 //---------------------------------------------------------------------------------------------
 
 void IndexReader::Abort() {
-  SetAtEnd(1);
+  SetAtEnd(true);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1076,7 +1113,7 @@ inline t_docId IndexReader::LastDocId() const {
 //---------------------------------------------------------------------------------------------
 
 void IndexReader::Rewind() {
-  SetAtEnd(0);
+  SetAtEnd(false);
   currentBlock = 0;
   gcMarker = idx->gcMarker;
   br.Set(&CurrentBlock().buf);
@@ -1087,7 +1124,7 @@ void IndexReader::Rewind() {
 
 IndexIterator *IndexReader::NewReadIterator() {
 	auto ri = new IndexIterator(this);
-	isValidP = &ri->isValid;
+	isValidP = ri->isValid;
 	return ri;
 }
 
@@ -1107,7 +1144,7 @@ int IndexBlock::Repair(DocTable &dt, IndexFlags flags, IndexBlockRepair &blockre
   BufferReader br(&buf);
   BufferWriter bw(&repair);
 
-  unique_ptr<IndexResult> res = flags == Index_StoreNumeric ? new NumericResult() : new TermResult(NULL, 1);
+  unique_ptr<IndexResult> res = flags == Index_StoreNumeric ? std::make_unique<NumericResult>() : std::make_unique<TermResult>(NULL, 1);
   size_t frags = 0;
   int isLastValid = 0;
 
@@ -1222,11 +1259,23 @@ int InvertedIndex::Repair(DocTable &dt, uint32_t startBlock, IndexBlockRepair &b
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexIterator::IndexIterator() : ir(NULL), mode(IndexIteratorMode::Sorted), isValid(false),
-  current(ir->record) {}
+void IndexIterator::init(IndexReader *ir_) {
+  ir = ir_;
+  mode = IndexIteratorMode::Sorted;
+  isValid = !ir_->atEnd;
+  current = ir_->record;
+}
 
-IndexIterator::IndexIterator(IndexReader *ir) : ir(ir), mode(IndexIteratorMode::Sorted),
-  isValid(!ir->atEnd), current(ir->record) {}
+IndexIterator::IndexIterator() {
+  ir = NULL;
+  mode = IndexIteratorMode::Sorted;
+  isValid = false;
+  current = ir->record;
+}
+
+IndexIterator::IndexIterator(IndexReader *ir_) {
+  init(ir_);
+}
 
 IndexIterator::~IndexIterator() {
   delete ir; //@@ ownership?

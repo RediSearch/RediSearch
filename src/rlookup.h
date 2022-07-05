@@ -57,6 +57,8 @@ enum RLookupCoerceType {
  * they have the same name.
  */
 
+struct RLookup;
+
 struct RLookupKey : public Object {
   // The index into the array where the value resides
   uint16_t dstidx;
