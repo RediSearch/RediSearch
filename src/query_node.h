@@ -215,7 +215,7 @@ struct QueryTokenNode : QueryNode {
   RSToken tok;
 
   QueryTokenNode(QueryParse *q, const char *s, size_t len, uint8_t expanded = 0, RSTokenFlags flags = 0) :
-    QueryNode(QN_TOKEN), tok((char *)s, len, expanded, flags) {
+    QueryNode(QN_TOKEN), tok(s, len, expanded, flags) {
     if (len == (size_t)-1) {
       len = strlen(s);
     }
@@ -246,7 +246,7 @@ struct QueryPrefixNode : QueryNode {
   RSToken tok;
 
   QueryPrefixNode(QueryParse *q, const char *s, size_t len) :
-    QueryNode(QN_PREFX), tok(RSToken((char *)s, len, 0, 0)) {
+    QueryNode(QN_PREFX), tok((char *)s, len, 0, 0) {
     if (q) q->numTokens++;
   }
 

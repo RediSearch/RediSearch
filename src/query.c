@@ -138,7 +138,7 @@ IndexIterator *QueryTokenNode::EvalNode(Query *q) {
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
   int isSingleWord = q->numTokens == 1 && q->opts->fieldmask == RS_FIELDMASK_ALL;
-  RSQueryTerm *term = new RSQueryTerm(&tok, q->tokenId++);
+  RSQueryTerm *term = new RSQueryTerm(tok, q->tokenId++);
 
   // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
 
@@ -191,15 +191,13 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
   size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
   while (it.Next(&rstr, &slen, NULL, &score, &dist) &&
          (itsSz < maxExpansions || maxExpansions == -1)) {
-
     // Create a token for the reader
-    RSToken tok(NULL, 0, 0, 0);
-    tok.str = runesToStr(rstr, slen, &tok.len);
+    RSToken tok{rstr, slen};
     if (q->sctx && q->sctx->redisCtx) {
       RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
     }
 
-    RSQueryTerm *term = new RSQueryTerm(&tok, q->tokenId++);
+    RSQueryTerm *term = new RSQueryTerm(tok, q->tokenId++);
 
     // Open an index reader
     IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
@@ -273,7 +271,7 @@ static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
 static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   LexRangeCtx *ctx = p;
   Query *q = ctx->q;
-  RSToken tok((char *)r, n);
+  RSToken tok{r, n};
   RSQueryTerm *term = new RSQueryTerm(&tok, ctx->q->tokenId++);
   IndexReader *ir = new TermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, ctx->weight);
   if (!ir) {
@@ -289,9 +287,8 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
 static void rangeIterCb(const rune *r, size_t n, void *p) {
   LexRangeCtx *ctx = p;
   Query *q = ctx->q;
-  RSToken tok;
-  tok.str = runesToStr(r, n, &tok.len);
-  RSQueryTerm *term = new RSQueryTerm(&tok, ctx->q->tokenId++);
+  RSToken tok{r, n};
+  RSQueryTerm *term = new RSQueryTerm(tok, ctx->q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
   rm_free(tok.str);

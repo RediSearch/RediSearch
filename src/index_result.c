@@ -196,6 +196,8 @@ TermResult::TermResult(const TermResult &src) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 TermResult::~TermResult() {
   if (isCopy) {
     rm_free(offsets.data);
@@ -207,6 +209,8 @@ TermResult::~TermResult() {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void TermResult::Print(int depth) const {
   for (int i = 0; i < depth; i++) printf("  ");
 
@@ -214,9 +218,13 @@ void TermResult::Print(int depth) const {
          term ? term->str : "nil");
 }
 
+//---------------------------------------------------------------------------------------------
+
 bool TermResult::HasOffsets() const {
   return offsets.len > 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void TermResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) {
   if (len == cap) return;
@@ -245,7 +253,7 @@ void VirtualResult::Print(int depth) const {
 
 //---------------------------------------------------------------------------------------------
 
-RSQueryTerm::RSQueryTerm(RSToken *tok, int id) : id(id), idf(1.0), flags(tok->flags),
+RSQueryTerm::RSQueryTerm(const RSToken &tok, int id) : id(id), idf(1.0), flags(tok->flags),
   str(tok->str ? rm_strndup(tok->str, tok->len) : NULL), len(tok->len) {
 }
 

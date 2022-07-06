@@ -267,7 +267,7 @@ QueryTokenNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName,
 
 QueryNumericNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
                                                int includeMax, int includeMin) {
-  QueryNumericNode* ret(new NumericFilter(min, max, includeMin, includeMax));
+  QueryNumericNode* ret = new NumericFilter(min, max, includeMin, includeMax);
   ret->nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
   return ret;
@@ -276,9 +276,9 @@ QueryNumericNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field,
 //---------------------------------------------------------------------------------------------
 
 QueryPrefixNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  QueryPrefixNode* ret(NULL, (char*)rm_strdup(s), strlen(s));
+  QueryPrefixNode *ret = new QueryPrefixNode(NULL, (char*)rm_strdup(s), strlen(s));
 
-    if (fieldName) {
+  if (fieldName) {
     ret->opts.fieldMask = sp->GetFieldBit(fieldName, strlen(fieldName));
   }
   return ret;
@@ -306,7 +306,7 @@ QueryLexRangeNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fiel
 //---------------------------------------------------------------------------------------------
 
 QueryTagNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
-  QueryTagNode* ret(rm_strdup(field), strlen(field));
+  QueryTagNode *ret = new QueryTagNode(rm_strdup(field), strlen(field));
   ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
   return ret;
 }
@@ -353,7 +353,7 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
 
 //---------------------------------------------------------------------------------------------
 
-typedef struct RS_ApiIter {
+struct RS_ApiIter {
   IndexIterator* internal;
   IndexResult* res;
   const RSDocumentMetadata* lastmd;
@@ -362,14 +362,14 @@ typedef struct RS_ApiIter {
   RSFreeFunction scorerFree;
   double minscore;  // Used for scoring
   QueryAST qast;    // Used for string queries..
-} RS_ApiIter;
+};
 
 //---------------------------------------------------------------------------------------------
 
 #define QUERY_INPUT_STRING 1
 #define QUERY_INPUT_NODE 2
 
-typedef struct {
+struct QueryInput {
   int qtype;
   union {
     struct {
@@ -378,7 +378,7 @@ typedef struct {
     } s;
     QueryNode* qn;
   } u;
-} QueryInput;
+};
 
 //---------------------------------------------------------------------------------------------
 
@@ -420,7 +420,6 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   // dummy statement for goto
   ;
 end:
-
   if (status.HasError() || it->internal == NULL) {
     if (it) {
       RediSearch_ResultsIteratorFree(it);

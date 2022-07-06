@@ -127,22 +127,20 @@ typedef uint32_t RSTokenFlags;
 // A token in the query.
 // The expanders receive query tokens and can expand the query with more query tokens.
 struct RSToken {
-  // The token string - which may or may not be NULL terminated
-  char *str;
-  // The token length
-  size_t len;
+  char *str; // The token string - which may or may not be NULL terminated
+  size_t len; // The token length
+  uint8_t expanded; // Is this token an expansion?
+  RSTokenFlags flags; // Extension set token flags - up to 31 bits
 
-  // Is this token an expansion?
-  uint8_t expanded;
+  RSToken(const char *str, size_t len, uint8_t expanded = 1, RSTokenFlags flags = 31) :
+    str(str ? rm_strdup(str) : NULL), len(len), expanded(expanded), flags(flags) {}
 
-  // Extension set token flags - up to 31 bits
-  RSTokenFlags flags;
-
-  RSToken(char *str, size_t len, uint8_t expanded = 1, RSTokenFlags flags = 31) :
-  str(str), len(len), expanded(expanded), flags(flags) {}
+  RSToken(const rune *r, size_t n) {
+      str = runesToStr(r, n, &len);
+  }
 
   ~RSToken() {
-    rm_free(str);
+    if (str) rm_free(str);
   }
 };
 
@@ -209,7 +207,7 @@ struct RSQueryTerm : public Object {
   // Flags given by the engine or by the query expander
   RSTokenFlags flags;
 
-  RSQueryTerm(RSToken *tok, int id);
+  RSQueryTerm(const RSToken &tok, int id);
   ~RSQueryTerm();
 };
 

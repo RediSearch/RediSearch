@@ -187,8 +187,7 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
 //---------------------------------------------------------------------------------------------
 
 void TagIndex::RegisterConcurrentIterators(ConcurrentSearchCtx *conc,
-                                           RedisModuleKey *key, RedisModuleString *keyname,
-                                           array_t *iters) {
+    RedisModuleKey *key, RedisModuleString *keyname, array_t *iters) {
   TagConcCtx *tctx = rm_calloc(1, sizeof(*tctx));
   tctx->uid = uniqueId;
   tctx->its = (IndexIterator **)iters;
@@ -198,15 +197,16 @@ void TagIndex::RegisterConcurrentIterators(ConcurrentSearchCtx *conc,
 //---------------------------------------------------------------------------------------------
 
 // Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
-// Returns NULL if there is no such tag in the index */
+// Returns NULL if there is no such tag in the index.
+
 IndexIterator *TagIndex::OpenReader(IndexSpec *sp, const char *value, size_t len, double weight) {
   InvertedIndex *iv = values->Find((char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
 
-  RSToken tok((char *)value, len);
-  RSQueryTerm *t = new RSQueryTerm(&tok, 0);
+  RSToken tok{value, len};
+  RSQueryTerm *t = new RSQueryTerm(tok, 0);
   IndexReader *r = new TermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
   return NewReadIterator(r);
 }
