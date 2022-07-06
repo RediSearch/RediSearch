@@ -13,8 +13,7 @@ Runs a search query on an index, and performs aggregate transformations on the r
 * **query**: The base filtering query that retrieves the documents. It follows
   **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
-- **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms
-  verbatim.
+- **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms verbatim.
 
 * **LOAD {nargs} {identifier} AS {property} …**: Load document attributes from the source document.
   `identifier` is either an attribute name (for hashes and JSON) or a JSON Path expression for (JSON).
