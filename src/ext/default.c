@@ -321,7 +321,7 @@ struct defaultExpanderCtx {
   } data;
 };
 
-static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
+static void expandCn(RSQueryExpander *ctx, RSToken *token) {
   defaultExpanderCtx *dd = ctx->privdata;
   SimpleTokenizer *tokenizer;
   if (!dd) {
@@ -353,8 +353,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Stemmer based query expander
  *
  ******************************************************************************************/
-int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-
+int StemmerExpander(RSQueryExpander *ctx, RSToken *token) {
   // we store the stemmer as private data on the first call to expand
   defaultExpanderCtx *dd = ctx->privdata;
   struct sb_stemmer *sb;
@@ -420,7 +419,7 @@ void StemmerExpanderFree(void *p) {
  * phonetic based query expander
  *
  ******************************************************************************************/
-int PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+int PhoneticExpand(RSQueryExpander *ctx, RSToken *token) {
   char *primary = NULL;
 
   PhoneticManagerCtx::ExpandPhonetics(token->str, token->len, &primary, NULL);
@@ -436,7 +435,7 @@ int PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Synonyms based query expander
  *
  ******************************************************************************************/
-int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+int SynonymExpand(RSQueryExpander *ctx, RSToken *token) {
 #define BUFF_LEN 100
   IndexSpec *spec = ctx->handle->spec;
   if (!spec->smap) {
@@ -462,7 +461,7 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Default query expander
  *
  ******************************************************************************************/
-int DefaultExpander(RSQueryExpanderCtx &ctx, RSToken *token) {
+int DefaultExpander(RSQueryExpander &ctx, RSToken *token) {
   int phonetic = (*ctx.currentNode)->opts.phonetic;
   SynonymExpand(ctx, token);
 
