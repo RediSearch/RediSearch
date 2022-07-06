@@ -75,8 +75,8 @@ int RPIndexIterator::Next(SearchResult *res) {
   int rc;
 
   // Read from the root filter until we have a valid result
-  while (1) {
-    rc = it->Read(it->ctx, &r);
+  while (true) {
+    rc = it->Read(it->ctx, &r); //@@ What should replace it->ctx?
     // This means we are done!
     if (rc == INDEXREAD_EOF) {
       return RS_RESULT_EOF;
@@ -84,7 +84,7 @@ int RPIndexIterator::Next(SearchResult *res) {
       continue;
     }
 
-    dmd = &RP_SPEC(this)->docs.Get(r->docId);
+    dmd = RP_SPEC(this)->docs.Get(r->docId);
     if (!dmd || (dmd->flags & Document_Deleted)) {
       continue;
     }
@@ -119,7 +119,7 @@ IndexIterator *QueryIterator::GetRootFilter() {
 //---------------------------------------------------------------------------------------------
 
 void QueryIterator::PushRP(ResultProcessor *rp) {
-  rp->parent = it;
+  rp->parent = this;
   if (!rootProc) {
     endProc = rootProc = rp;
     rp->upstream = NULL;
@@ -146,7 +146,7 @@ int RPScorer::Next(SearchResult *res) {
   int rc;
 
   do {
-    rc = upstream->Next(upstream, res);
+    rc = upstream->Next(res);
     if (rc != RS_RESULT_OK) {
       return rc;
     }
@@ -190,11 +190,10 @@ RPScorer::~RPScorer() {
 // Create a new scorer by name. If the name is not found in the scorer registry, we use the
 // defalt scorer
 
-RPScorer::RPScorer(const ExtScoringFunction *funcs, const ScoringFunctionArgs *fnargs) {
+RPScorer::RPScorer(const ExtScoringFunction *funcs, const ScoringFunctionArgs *fnargs) : ResultProcessor("Scorer") {
   scorer = funcs->sf;
   scorerFree = funcs->ff;
   scorerCtx = *fnargs;
-  name = "Scorer";
 }
 
 //---------------------------------------------------------------------------------------------
@@ -219,8 +218,7 @@ int RPSorter::Next(SearchResult *r) {
 
 RPSorter::~RPSorter() {
   if (pooledResult) {
-    SearchResult_Destroy(pooledResult);
-    rm_free(pooledResult);
+    delete pooledResult;
   }
 
   // calling mmh_free will free all the remaining results in the heap, if any
@@ -239,7 +237,7 @@ int RPSorter::innerLoop(SearchResult *r) {
   }
 
   SearchResult *h = pooledResult;
-  int rc = upstream->Next(upstream, h);
+  int rc = upstream->Next(h);
 
   // if our upstream has finished - just change the state to not accumulating, and Next
   if (rc == RS_RESULT_EOF) {
@@ -420,14 +418,9 @@ int RPPager::Next(SearchResult *r) {
 //---------------------------------------------------------------------------------------------
 
 // Create a new pager. The offset and limit are taken from the user request
-RPPager::RPPager(size_t offset, size_t limit) {
-  offset = offset;
-  limit = limit;
-  name = "Pager/Limiter";
-}
 
-//---------------------------------------------------------------------------------------------
-// Value Loader
+RPPager::RPPager(size_t offset, size_t limit) :
+  ResultProcessor("Pager/Limiter"), offset(offset), limit(limit) {}
 
 //---------------------------------------------------------------------------------------------
 
@@ -444,16 +437,13 @@ int ResultsLoader::Next(SearchResult *r) {
   if (r->dmd == NULL || (r->dmd->flags & Document_Deleted)) {
     return RS_RESULT_OK;
   }
-  RedisSearchCtx *sctx = parent->sctx;
 
-  QueryError status;
-  RLookupLoadOptions loadopts = {.sctx = parent->sctx,  // lb
-                                 .dmd = r->dmd,
-                                 .noSortables = 1,
-                                 .forceString = 1,
-                                 .status = &status,
-                                 .keys = fields,
-                                 .nkeys = nfields};
+  RLookupLoadOptions loadopts(parent->sctx, r->dmd, new QueryError());
+  loadopts.noSortables = true;
+  loadopts.forceString = true;
+  loadopts.keys = fields;
+  loadopts.nkeys = nfields;
+
   if (isExplicitReturn) {
     loadopts.mode |= RLOOKUP_LOAD_KEYLIST;
   } else {
@@ -471,13 +461,10 @@ ResultsLoader::~ResultsLoader() {
 
 //---------------------------------------------------------------------------------------------
 
-ResultsLoader::ResultsLoader(RLookup *lk_, const RLookupKey **keys, size_t nkeys) {
-  nfields = nkeys;
+ResultsLoader::ResultsLoader(RLookup *lk, const RLookupKey **keys, size_t nkeys) :
+  ResultProcessor("Loader"), nfields(nkeys), lk(lk) {
   fields = rm_calloc(nkeys, sizeof(*fields));
   memcpy(fields, keys, sizeof(*keys) * nkeys);
-
-  lk = lk_;
-  name = "Loader";
 }
 
 //---------------------------------------------------------------------------------------------

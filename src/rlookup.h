@@ -267,10 +267,10 @@ struct RLookupLoadOptions {
 
   // Don't use sortables when loading documents. This might be used to ensure
   // that only the exact document and not a normalized version is employed
-  int noSortables;
+  bool noSortables;
 
   // Force string return; don't coerce to native type
-  int forceString;
+  bool forceString;
 
   struct QueryError *status;
 

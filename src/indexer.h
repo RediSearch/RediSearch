@@ -10,6 +10,11 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#define INDEXER_THREADLESS 0x01
+
+// Set when the indexer is about to be deleted
+#define INDEXER_STOPPED 0x02
+
 // Preprocessors can store field data to this location
 
 struct FieldIndexerData {
@@ -70,11 +75,6 @@ struct DocumentIndexer : public Object {
 };
 
 //---------------------------------------------------------------------------------------------
-
-#define INDEXER_THREADLESS 0x01
-
-// Set when the indexer is about to be deleted
-#define INDEXER_STOPPED 0x02
 
 /**
  * Function to preprocess field data. This should do as much stateless processing

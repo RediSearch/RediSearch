@@ -232,6 +232,7 @@ typedef OptionalIterator OptionalMatchContext;
 // and matches every skip within its range.
 
 class WildcardIterator : public IndexIterator {
+public:
   WildcardIterator(t_docId maxId);
 
   t_docId topId;

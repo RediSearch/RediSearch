@@ -3,6 +3,7 @@
 
 #include "object.h"
 #include "util/dllist.h"
+#include "trie/rune_util.h"
 #include "stemmer.h"
 #include "rmalloc.h"
 

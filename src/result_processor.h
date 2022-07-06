@@ -20,23 +20,18 @@ struct RLookup;
 
 //---------------------------------------------------------------------------------------------
 
-/*
- * Result Processor Chain
- *
- * We use a chain of result processors to sort, score, filter and page the results coming from the
- * index.
- *
- * The index iterator tree is responsible for extracting results from the index, and the processor
- * chain is responsible for processing those and preparing them for the users.
- * The processors are exposing an iterator interface, adding values to SearchResult objects.
- *
- * SearchResult objects contain all the data needed for a search result - from docId and score, to
- * the actual fields loaded from redis.
- *
- * Processors can add more fields, rewrite them, change the score, etc.
- * The query plan builds the chain based on the request, and then the chain just processes the
- * results.
- */
+// Result Processor Chain
+//
+// We use a chain of result processors to sort, score, filter and page the results coming from the
+// index.
+// The index iterator tree is responsible for extracting results from the index, and the processor
+// chain is responsible for processing those and preparing them for the users.
+// The processors are exposing an iterator interface, adding values to SearchResult objects.
+// SearchResult objects contain all the data needed for a search result - from docId and score, to
+// the actual fields loaded from redis.
+// Processors can add more fields, rewrite them, change the score, etc.
+// The query plan builds the chain based on the request, and then the chain just processes the
+// results.
 
 // Query processing state
 enum QITRState {
@@ -86,13 +81,12 @@ struct QueryIterator {
 
 //---------------------------------------------------------------------------------------------
 
-/*
- * SearchResult - the object all the processing chain is working on.
- * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
- *
- * And a list of fields loaded by the chain - currenly only by the loader, but possibly by
- * aggregators later on.
- */
+// SearchResult
+//
+// the object all the processing chain is working on.
+// It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
+// And a list of fields loaded by the chain - currenly only by the loader, but possibly by
+// aggregators later on.
 
 struct SearchResult {
   t_docId docId;
@@ -176,12 +170,8 @@ struct ResultProcessor : public Object {
 // Get the index spec from the result processor
 #define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
 
-/*
- * Base Result Processor - this processor is the topmost processor of every processing chain.
- *
- * It takes the raw index results from the index, and builds the search result to be sent downstream.
- */
-
+// Base Result Processor - this processor is the topmost processor of every processing chain.
+// It takes the raw index results from the index, and builds the search result to be sent downstream.
 struct RPIndexIterator : public ResultProcessor {
   IndexIterator *iiter;
 
@@ -203,13 +193,11 @@ void SortAscMap_Dump(uint64_t v, size_t n);
 
 //---------------------------------------------------------------------------------------------
 
-/*  Loading Processor
- *
- * This processor simply takes the search results, and based on the request parameters, loads the
- * relevant fields for the results that need to be displayed to the user, from redis.
- *
- * It fills the result objects' field map with values corresponding to the requested return fields
- */
+// Loading Processor
+//
+// This processor simply takes the search results, and based on the request parameters, loads the
+// relevant fields for the results that need to be displayed to the user, from redis.
+// It fills the result objects' field map with values corresponding to the requested return fields
 
 struct ResultsLoader : public ResultProcessor {
   RLookup *lk;
@@ -221,7 +209,6 @@ struct ResultsLoader : public ResultProcessor {
 
   int Next(SearchResult *res);
 };
-
 
 //---------------------------------------------------------------------------------------------
 
@@ -240,13 +227,10 @@ struct Highlighter : public ResultProcessor {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/*
- *  Scoring Processor
- *
- * It takes results from upstream, and using a scoring function applies the score to each one.
- *
- * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
- */
+// Scoring Processor
+//
+// It takes results from upstream, and using a scoring function applies the score to each one.
+// It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
 
 struct RPScorer : public ResultProcessor {
   RSScoringFunction scorer;
@@ -261,27 +245,19 @@ struct RPScorer : public ResultProcessor {
 
 //---------------------------------------------------------------------------------------------
 
-/*
- *  Sorting Processor
- *
- * This is where things become a bit complex...
- *
- * The sorter takes scored results from the scorer (or in the case of SORTBY, the raw results), and
- * maintains a heap of the top N results.
- *
- * Since we need it to be thread safe, every result that's put on the heap is copied, including its
- * index result tree.
- *
- * This means that from here down-stream, everything is thread safe, but we also need to properly
- * free discarded results.
- *
- * The sorter is actually a reducer - it returns RS_RESULT_QUEUED until its upstream parent returns
- * EOF. then it starts yielding results one by one by popping from the top of the heap.
- *
- * Note: We use a min-max heap to simplify maintaining a max heap where we can pop from the bottom
- * while
- * finding the top N results
- */
+// Sorting Processor
+//
+// This is where things become a bit complex...
+// The sorter takes scored results from the scorer (or in the case of SORTBY, the raw results), and
+// maintains a heap of the top N results.
+// Since we need it to be thread safe, every result that's put on the heap is copied, including its
+// index result tree.
+// This means that from here down-stream, everything is thread safe, but we also need to properly
+// free discarded results.
+// The sorter is actually a reducer - it returns RS_RESULT_QUEUED until its upstream parent returns
+// EOF. then it starts yielding results one by one by popping from the top of the heap.
+// Note: We use a min-max heap to simplify maintaining a max heap where we can pop from the bottom
+// while finding the top N results
 
 typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *udata);
 
@@ -327,18 +303,14 @@ struct RPSorter : public ResultProcessor {
 
 //---------------------------------------------------------------------------------------------
 
-/*
- *  Paging Processor
- *
- * The sorter builds a heap of size N, but the pager is responsible for taking result
- * FIRST...FIRST+NUM from it.
- *
- * For example, if we want to get results 40-50, we build a heap of size 50 on the sorter, and
- *the pager is responsible for discarding the first 40 results and returning just 10
- *
- * They are separated so that later on we can cache the sorter's heap, and continue paging it
- * without re-executing the entire query
- */
+// Paging Processor
+//
+// The sorter builds a heap of size N, but the pager is responsible for taking result
+// FIRST...FIRST+NUM from it.
+// For example, if we want to get results 40-50, we build a heap of size 50 on the sorter, and
+// the pager is responsible for discarding the first 40 results and returning just 10
+// They are separated so that later on we can cache the sorter's heap, and continue paging it
+// without re-executing the entire query
 
 struct RPPager : public ResultProcessor {
   uint32_t offset;

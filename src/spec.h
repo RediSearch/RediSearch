@@ -171,13 +171,16 @@ struct IndexLoadOptions {
   union {
     const char *cstring;
     RedisModuleString *rstring;
-  } name;
+  };
   uint32_t flags;
 
   // key pointer. you should close this when done with the index
   RedisModuleKey *keyp;
   // name of alias lookup key to use
   const char *alookup;
+
+  IndexLoadOptions(uint32_t flags, const char *cstring) : flags(flags), cstring(cstring) {}
+  IndexLoadOptions(uint32_t flags, RedisModuleString *rstring) : flags(flags), rstring(rstring) {}
 };
 
 //---------------------------------------------------------------------------------------------

@@ -280,8 +280,8 @@ Grouper::~Grouper() {
  * RLookupKey *srckeys[3];
  * RLookupKey *dstkeys[3];
  * for (size_t ii = 0; ii < 3; ++ii) {
- *  srckeys[ii] = RLookup_GetKey(&lksrc, kname[ii], RLOOKUP_F_OCREAT);
- *  dstkeys[ii] = RLookup_GetKey(&lkdst, kname[ii], RLOOKUP_F_OCREAT);
+ *  srckeys[ii] = lksrc.GetKey(kname[ii], RLOOKUP_F_OCREAT);
+ *  dstkeys[ii] = lkdst.GetKey(kname[ii], RLOOKUP_F_OCREAT);
  * }
  * @endcode
  *

@@ -27,7 +27,7 @@ static uint64_t spec_unique_ids = 1;
 
 //---------------------------------------------------------------------------------------------
 
-const FieldSpec *FieldSpec::getFieldCommon(const char *name, size_t len, int useCase) const {
+const FieldSpec *IndexSpec::getFieldCommon(const char *name, size_t len, int useCase) const {
   for (size_t i = 0; i < numFields; i++) {
     if (len != strlen(fields[i].name)) {
       continue;
@@ -220,7 +220,7 @@ IndexSpec::IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   RSCursors->Add(name, RSCURSORS_DEFAULT_CAPACITY);
 
   // set the value in redis
-  RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
+  RedisModule_ModuleTypeSetValue(k, IndexSpecType, this);
   if (flags & Index_Temporary) {
     RedisModule_SetExpire(k, timeout * 1000);
   }
@@ -268,7 +268,7 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
 
 //---------------------------------------------------------------------------------------------
 
-static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
+static bool parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
   int rc;
   // this is a text field
   // init default weight and type
@@ -276,20 +276,18 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
     if (ac->AdvanceIfMatch(SPEC_NOSTEM_STR)) {
       sp->options |= FieldSpec_NoStemming;
       continue;
-
     } else if (ac->AdvanceIfMatch(SPEC_WEIGHT_STR)) {
       double d;
       if ((rc = ac->GetDouble(&d, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "weight", rc);
-        return 0;
+        return false;
       }
       sp->ftWeight = d;
       continue;
-
     } else if (ac->AdvanceIfMatch(SPEC_PHONETIC_STR)) {
       if (ac->IsAtEnd()) {
         status->SetError(QUERY_EPARSEARGS, SPEC_PHONETIC_STR " requires an argument");
-        return 0;
+        return false;
       }
 
       const char *matcher = ac->GetStringNC(NULL);
@@ -299,21 +297,20 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
       // Spanish (es)
       // in the future we will support more algorithms and more languages
       if (!checkPhoneticAlgorithmAndLang(matcher)) {
+        status->SetError(QUERY_EINVAL,
+        "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
+        "double metaphone (dm). Supported languages: English (en), French (fr), "
+        "Portuguese (pt) and Spanish (es)");
 
-            status->SetError(QUERY_EINVAL,
-            "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
-            "double metaphone (dm). Supported languages: English (en), French (fr), "
-            "Portuguese (pt) and Spanish (es)");
-        return 0;
+        return false;
       }
       sp->options |= FieldSpec_Phonetics;
       continue;
-
     } else {
       break;
     }
   }
-  return 1;
+  return true;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -901,8 +898,7 @@ done:
 
 /* Load the spec from the saved version */
 void IndexSpec::Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
-  IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
-                            .name = {.cstring = name}};
+  IndexLoadOptions lopts(openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0, name);
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
   LoadEx(ctx, &lopts);
 }
@@ -1321,7 +1317,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   }
 
   if (sp->flags & Index_HasSmap) {
-    SynonymMap::RdbSave(rdb, sp->smap);
+    sp->smap->RdbSave(rdb);
   }
   RedisModule_SaveUnsigned(rdb, sp->timeout);
 

@@ -461,6 +461,7 @@ done:
 
 int RLookup::HGETALL(RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
+  size_t len;
   RedisModuleCallReply *rep = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
@@ -471,7 +472,7 @@ int RLookup::HGETALL(RLookupRow *dst, RLookupLoadOptions *options) {
     goto done;
   }
 
-  size_t len = RedisModule_CallReplyLength(rep);
+  len = RedisModule_CallReplyLength(rep);
   // Zero means the document does not exist in redis
   if (len == 0) {
     goto done;

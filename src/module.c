@@ -708,10 +708,9 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                           QueryError *error) {
   ArgsCursor ac;
   ac.InitRString(argv + 1, argc - 1);
-  IndexLoadOptions loadOpts = {
-      name: {rstring: argv[2]},
-      flags: INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
-  IndexSpec *sptmp = new IndexSpec(ctx, &loadOpts);
+  uint32_t flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING;
+  IndexLoadOptions loadOpts(flags, argv[2]);
+  IndexSpec *sptmp(ctx, &loadOpts);
   if (!sptmp) {
     error->SetError(QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
     return REDISMODULE_ERR;
@@ -741,12 +740,15 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lOpts = {name: {rstring: argv[1]},
-                            flags: INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
-  IndexSpec *sp = new IndexSpec(ctx, &lOpts);
+
+  uint32_t flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING;
+  IndexLoadOptions lOpts(flags, argv[1]);
+  IndexSpec *sp(ctx, &lOpts);
+
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
   }
+
   QueryError status;
   if (IndexAlias::Del(RedisModule_StringPtrLen(argv[1], NULL), sp, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
@@ -764,15 +766,17 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   QueryError status;
-  IndexLoadOptions lOpts = {name: {rstring: argv[1]},
-                            flags: INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
+  uint32_t flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING;
+  IndexLoadOptions lOpts(flags, argv[1]);
   IndexSpec *spOrig = new IndexSpec(ctx, &lOpts);
+
   if (spOrig) {
     if (IndexAlias::Del(RedisModule_StringPtrLen(argv[1], NULL), spOrig, 0, &status) !=
         REDISMODULE_OK) {
       return QueryError_ReplyAndClear(ctx, &status);
     }
   }
+
   if (aliasAddCommon(ctx, argv, argc, &status) != REDISMODULE_OK) {
     // Add back the previous index.. this shouldn't fail
     if (spOrig) {

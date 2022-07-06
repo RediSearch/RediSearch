@@ -65,15 +65,18 @@ RS_Suggestions::~RS_Suggestions() {
  */
 inline double SpellCheckCtx::GetScore(char *suggestion, size_t len, t_fieldMask fieldMask) {
   RedisModuleKey *keyp = NULL;
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, suggestion, len, 0, &keyp);
+  IndexReader *reader = NULL;
+  IndexIterator *iter = NULL;
+  IndexResult *r;
   double retVal = 0;
+  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, suggestion, len, 0, &keyp);
   if (!invidx) {
     // can not find inverted index key, score is 0.
     goto end;
   }
-  IndexReader *reader = new TermIndexReader(invidx, NULL, fieldMask, NULL, 1);
-  IndexIterator *iter = reader->NewReadIterator();
-  IndexResult *r;
+
+  reader = new TermIndexReader(invidx, NULL, fieldMask, NULL, 1);
+  iter = reader->NewReadIterator();
   if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
     // we have at least one result, the suggestion is relevant.
     if (fullScoreInfo) {
@@ -99,7 +102,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   float score = 0;
   int dist = 0;
   bool retVal = false;
-  TrieIterator *it = t->Iterate(term, len, 0, 0);
+  TrieIterator *it = &t->Iterate(term, len, 0, 0);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return retVal;
@@ -123,7 +126,7 @@ inline void SpellCheckCtx::FindSuggestions(Trie *t, const char *term, size_t len
   int dist = 0;
   size_t suggestionLen;
 
-  TrieIterator *it = t->Iterate(term, len, (int)distance, 0);
+  TrieIterator *it = &t->Iterate(term, len, (int)distance, 0);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return;
@@ -141,19 +144,19 @@ inline void SpellCheckCtx::FindSuggestions(Trie *t, const char *term, size_t len
 }
 
 RS_Suggestion **RS_Suggestions::GetSuggestions() {
-  TrieIterator *iter = suggestionsTrie->Iterate("", 0, 0, 1);
+  TrieIterator iter = suggestionsTrie->Iterate("", 0, 0, 1);
   RS_Suggestion **ret = array_new(RS_Suggestion *, suggestionsTrie->size);
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
   int dist = 0;
   size_t termLen;
-  while (iter->Next(&rstr, &slen, NULL, &score, &dist)) {
+  while (iter.Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     ret = array_append(ret, new RS_Suggestion(res, termLen, score));
   }
-  DFAFilter_Free(iter->ctx);
-  rm_free(iter->ctx);
+  DFAFilter_Free(iter.ctx);
+  rm_free(iter.ctx);
   return ret;
 }
 
@@ -279,13 +282,16 @@ inline bool SpellCheckCtx::CheckTermDictsExistance() {
   return true;
 }
 
-static int forEachCallback(QueryNode *n, QueryNode *orig, void *arg) {
+static int forEachCallback(QueryNode *n, void *arg) {
   SpellCheckCtx *scCtx = arg;
-  if (n->type == QN_TOKEN &&
-      scCtx->ReplyTermSuggestions(n->tn.str, n->tn.len, n->opts.fieldMask)) {
-    scCtx->results++;
+  if (n->type == QN_TOKEN) {
+    QueryTokenNode *tn = dynamic_cast<QueryTokenNode*>(n);
+    if (scCtx->ReplyTermSuggestions(tn->tok.str, tn->tok.len, tn->opts.fieldMask)) {
+      scCtx->results++;
+    }
   }
-  return 1;
+
+  return true;
 }
 
 void SpellCheckCtx::Reply(QueryAST *q) {
