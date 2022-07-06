@@ -93,6 +93,10 @@ void QueryNode_Free(QueryNode *n) {
     case QN_VECTOR:
       QueryVectorNode_Free(&n->vn);
       break;
+    case QN_WILDCARD_QUERY:
+    case QN_VERBATIM:
+      QueryTokenNode_Free(&n->verb.tok);
+      break;
     case QN_WILDCARD:
     case QN_IDS:
       break;
@@ -198,6 +202,64 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefi
     assert (qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->pfx.tok.str, &ret->pfx.tok.len, qt);
+  }
+  return ret;
+}
+
+static size_t _removeEscape(char *str, size_t len) {
+  int i = 0;
+  do {
+    if (str[i] == '\\') break;
+  } while (++i < len && str[i] != '\0');
+
+  // check if we haven't remove any backslash
+  if (i == len) {
+    return len;
+  }
+
+  // copy string w/o '\\'
+  int runner = i;
+  for (; i < len && str[i] != '\0'; ++i, ++runner) {
+    if (str[i] == '\\') {
+      ++i;
+    }
+    // printf("%c %c\n", str[runner], str[i]);
+    str[runner] = str[i];
+  }
+
+  str[runner] = '\0';
+  return runner;
+}
+
+QueryNode *NewVerbatimNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
+  QueryNode *ret = NewQueryNode(QN_VERBATIM);
+  q->numTokens++;
+  if (qt->type == QT_TERM) {
+    char *s = rm_strdupcase(qt->s, qt->len);
+    size_t len = _removeEscape(s, qt->len);
+    ret->verb.tok = (RSToken){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
+  } else {
+    // TODO: check correct parsing
+    assert (qt->type == QT_PARAM_TERM);
+    QueryNode_InitParams(ret, 1);
+    QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
+    ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
+  }
+  return ret;
+}
+
+QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
+  QueryNode *ret = NewQueryNode(QN_WILDCARD_QUERY);
+  q->numTokens++;
+  if (qt->type == QT_TERM) {
+    char *s = rm_strdupcase(qt->s, qt->len);
+    size_t len = _removeEscape(s, qt->len);
+    ret->verb.tok = (RSToken){.str = s, .len = len, .expanded = 0, .flags = 0};
+  } else {
+    assert (qt->type == QT_PARAM_TERM);
+    QueryNode_InitParams(ret, 1);
+    QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
+    ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
   }
   return ret;
 }
@@ -1081,6 +1143,9 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalIdFilterNode(q, &n->fn);
     case QN_WILDCARD:
       return Query_EvalWildcardNode(q, n);
+    case QN_WILDCARD_QUERY:
+    case QN_VERBATIM:
+      //TODO:
     case QN_NULL:
       return NewEmptyIterator();
   }
@@ -1201,6 +1266,9 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
   int withChildren = 1;
   int res = REDISMODULE_OK;
   switch(n->type) {
+    case QN_WILDCARD_QUERY:
+    case QN_VERBATIM:
+      // TODO:
     case QN_GEO:
       res = GeoFilter_EvalParams(params, n, status);
       break;
@@ -1439,7 +1507,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_FUZZY:
       s = sdscatprintf(s, "FUZZY{%s}\n", qs->fz.tok.str);
       return s;
-
+    case QN_WILDCARD_QUERY:
+    case QN_VERBATIM:
+      //TODO:
     case QN_NULL:
       s = sdscat(s, "<empty>");
   }

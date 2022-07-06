@@ -27,6 +27,8 @@
 #define CONTAINS                        27
 #define PERCENT                         28
 #define ATTRIBUTE                       29
-#define AS_S                            30
-#define AS_T                            31
-#define SEMICOLON                       32
+#define VERBATIM                        30
+#define WILDCARD                        31
+#define AS_S                            32
+#define AS_T                            33
+#define SEMICOLON                       34
