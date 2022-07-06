@@ -130,6 +130,11 @@ For example, querying for the tag `Andrew's Top 5` in the redis-cli looks like t
 FT.SEARCH punctuation "@tags:{ Andrew\\'s Top 5 }"
 ```
 
+And this is how you would search for an email address in redis-cli:
+
+```
+FT.SEARCH idx "@email:{you\\@domain\\.com}"
+```
 
 
 ## Tags that contain multiple words
