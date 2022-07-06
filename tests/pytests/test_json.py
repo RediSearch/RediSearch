@@ -835,3 +835,105 @@ def testNullValue(env):
     check_index_with_null(env, 'idx_separator')
     check_index_with_null(env, 'idx_casesensitive')
 
+@no_msan
+def testVector_empty_array(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"vec":[]}'))
+    assertInfoField(env, 'idx', 'hash_indexing_failures', '1')
+
+@no_msan
+def testVector_correct_eval(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+
+    env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[1,1]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[1,-0.189207144]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[2.772453851,1]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j4', '$', r'{"vec":[-1,1]}'))
+    blob = np.ones(2, 'float32').tobytes()
+
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @vec $b AS scores]', 'PARAMS', '2', 'b', blob, 'RETURN', '1', 'scores').equal(
+        [4, 'j1', ['scores', '0'], 'j2', ['scores', '1.41421341896'], 'j3', ['scores', '3.14159250259'], 'j4', ['scores', '4']]
+    )
+
+@no_msan
+def testVector_bad_values(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '5','DISTANCE_METRIC', 'L2').ok()
+
+    env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[1,2,3,4,"ab"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[1,2,3,true,5]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[1,2,null,4,5]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[1,2,3,4]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[1,2,3,4,5,6]}'))
+
+    assertInfoField(env, 'idx', 'hash_indexing_failures', '5')
+    assertInfoField(env, 'idx', 'num_docs', '0')
+
+@no_msan
+def testVector_delete(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+
+    env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[0.1,0.1]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[0.2,0.3]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[0.3,0.3]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j4', '$', r'{"vec":[0.4,0.4]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j5', '$', r'{"vec":[0.5,0.5]}'))
+
+    env.assertOk(conn.execute_command('JSON.SET', 'j6', '$', r'{"vec":[1,1]}'))
+    blob = np.zeros(2, 'float32').tobytes()
+
+    q = ['FT.SEARCH', 'idx', '*=>[KNN 6 @vec $b]', 'PARAMS', '2', 'b', blob, 'RETURN', '0', 'SORTBY', '__vec_score']
+    env.expect(*q).equal([6, 'j1', 'j2', 'j3', 'j4', 'j5', 'j6'])
+
+    q = ['FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b]', 'PARAMS', '2', 'b', blob, 'RETURN', '0', 'SORTBY', '__vec_score']
+    env.expect(*q).equal([1, 'j1'])
+
+    env.assertEqual(conn.execute_command('JSON.DEL', 'j1'), 1)
+    env.assertEqual(conn.execute_command('JSON.DEL', 'j2'), 1)
+    env.assertEqual(conn.execute_command('JSON.DEL', 'j3'), 1)
+    env.assertEqual(conn.execute_command('JSON.DEL', 'j4'), 1)
+    env.assertEqual(conn.execute_command('JSON.DEL', 'j5'), 1)
+
+    env.expect(*q).equal([1, 'j6'])
+
+
+@no_msan
+def testRedisCommands(env):
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
+    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # Test Redis COPY
+    env.execute_command('COPY', 'doc:1', 'doc:2')
+    env.execute_command('COPY', 'doc:2', 'dos:3')
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
+
+    # Test Redis DEL
+    env.execute_command('DEL', 'doc:1')
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:2'])
+
+    # Test Redis RENAME
+    env.execute_command('RENAME', 'dos:3', 'doc:3')
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc2', 'doc:3'])
+
+    # Test Redis UNLINK
+    env.execute_command('UNLINK', 'doc:3')
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc2'])
+
+    # Test Redis EXPIRE
+    env.execute_command('EXPIRE', 'doc:2', 1)
+    time.sleep(1.1)
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([0])
+
