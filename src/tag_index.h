@@ -110,6 +110,8 @@ struct TagIndex : public BaseIndex {
 
   static char *SepString(char sep, char **s, size_t *toklen);
 
+  char **Preprocess(char sep, TagFieldFlags flags, const DocumentField *data);
+
   struct Tags {
     arrayof(char*) tags;
 
@@ -133,7 +135,7 @@ struct TagIndex : public BaseIndex {
   };
 
   // Index a vector of pre-processed tags for a docId
-  size_t Index(const Tags &tags, t_docId docId);
+  size_t Index(const Tags &tags, size_t n, t_docId docId);
 
   // Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
   // Returns NULL if there is no such tag in the index.

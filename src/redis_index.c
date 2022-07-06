@@ -181,7 +181,7 @@ RedisModuleString *RedisSearchCtx::ScoreIndexKeyName(const char *term, size_t le
 
 RedisSearchCtx::ctor(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   redisCtx = ctx;
-  IndexLoadOptions loadOpts = {name: {cstring: indexName}};
+  IndexLoadOptions loadOpts(0, indexName);
   spec = new IndexSpec(ctx, &loadOpts);
   key_ = loadOpts.keyp;
   if (!spec) {

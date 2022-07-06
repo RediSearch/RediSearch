@@ -52,8 +52,10 @@ struct Reducer : public Object {
   // Creates a new per-group instance of this reducer. This is used to create
   // actual data. The reducer structure itself, on the other hand, may be
   // used to retain settings common to all group.
+  virtual Reducer() {}
 
-  virtual void *NewInstance();
+  // Frees the global reducer struct (this object)
+  virtual ~Reducer() {}
 
   // Passes a result through the reducer. The reducer can then store the
   // results internally until it can be outputted in `dstrow`.
@@ -67,9 +69,6 @@ struct Reducer : public Object {
 
   // Frees the object created by NewInstance()
   virtual void FreeInstance();
-
-  // Frees the global reducer struct (this object)
-  virtual ~Reducer() {}
 
   void *BlkAlloc(size_t elemsz, size_t absBlkSize);
 };
@@ -94,7 +93,6 @@ struct ReducerOptions {
 
 struct RDCRCount : public Reducer {
   RDCRCount(const ReducerOptions *);
-  virtual int Add(Reducer *r, const RLookupRow *srcrow);
 
   struct Data {
     size_t count;

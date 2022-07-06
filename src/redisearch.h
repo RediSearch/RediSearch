@@ -317,6 +317,10 @@ struct IndexResult : public Object {
     isCopy = false;
   }
 
+  IndexResult(RSResultType type, t_docId docId) : type(type), docId(docId) {
+    isCopy = false;
+  }
+
   // Create deep copy of results that is totall thread safe. Very slow so use with caution.
   virtual IndexResult(const IndexResult &src) {
     *this = src;
