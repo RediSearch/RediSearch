@@ -574,6 +574,57 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 }
 
+/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+ * of them.
+ * Used for Prefix, Contains and suffix nodes.
+*/
+static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn) {
+  RS_LOG_ASSERT(qn->type == QN_WILDCARD_QUERY, "query node type should be wildcard query");
+  
+  IndexSpec *spec = q->sctx->spec;
+  Trie *t = spec->terms;
+  ContainsCtx ctx = {.q = q, .opts = &qn->opts};
+
+  if (!t) {
+    return NULL;
+  }
+
+  rune *str = NULL;
+  //bool endWithStar = false;
+  size_t nstr;
+  if (qn->verb.tok.str) {
+    str = strToFoldedRunes(qn->verb.tok.str, &nstr);
+    //endWithStar = qn->verb.tok.str[qn->verb.tok.len - 1] == '*';
+  }
+
+  ctx.cap = 8;
+  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
+  ctx.nits = 0;
+
+  // spec support contains queries
+  //if (spec->suffix) {
+  //  // all modifier fields are supported
+  //  if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
+  //     (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
+  //  Suffix_IterateContains(spec->suffix->root, str, nstr, qn->verb.prefix,
+  //                         suffixIterCb, &ctx);
+  //  } else {
+  //    QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+  //  }
+  //} else {
+  TrieNode_IterateWildcard(t->root, str, nstr, rangeIterCb, &ctx, &q->sctx->timeout);
+  //}
+
+  rm_free(str);
+  if (!ctx.its || ctx.nits == 0) {
+    rm_free(ctx.its);
+    return NULL;
+  } else {
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
+                            QN_WILDCARD_QUERY, qn->verb.tok.str);
+  }
+}
+
 typedef struct {
   IndexIterator **its;
   size_t nits;
@@ -1144,6 +1195,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_WILDCARD:
       return Query_EvalWildcardNode(q, n);
     case QN_WILDCARD_QUERY:
+      return Query_EvalWildcardQueryNode(q,n);
     case QN_VERBATIM:
       //TODO:
     case QN_NULL:

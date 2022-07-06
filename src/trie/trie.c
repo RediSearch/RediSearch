@@ -7,6 +7,7 @@
 #include "util/arr.h"
 #include "util/timeout.h"
 #include "config.h"
+#include "wildcard/wildcard.h"
 
 typedef struct {
   rune * buf;
@@ -1036,3 +1037,66 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
   trimOne(n, r);
   return;
 }
+
+static void wildcardIterate(TrieNode *n, RangeCtx *r) {
+  // timeout check
+  if (TimedOut_WithCounter(&r->timeout, &r->timeoutCounter)) {
+    r->stop = 1;
+  }
+  if (r->stop) {
+    return;
+  }
+
+  if (n->len != 0) { // not root
+    r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
+  }
+  // printStats("append");
+  TrieNode **children = __trieNode_children(n);
+
+  match_t match = WildcardMatchRune(r->origStr, r->lenOrigStr, r->buf, array_len(r->buf));
+
+  switch (match) {
+    case NO_MATCH:
+      // array_trimm_len(r->buf, n->len);
+      break;;
+    case FULL_MATCH: {
+      if (r->prefix) {
+        array_trimm_len(r->buf, n->len);
+        rangeIterateSubTree(n, r);
+        return; // we trimmed buffer before
+      } else {
+        r->callback(r->buf, array_len(r->buf), r->cbctx);
+        // array_trimm_len(r->buf, n->len);
+        break;
+      }
+    }
+    case PARTIAL_MATCH: {
+      TrieNode **children = __trieNode_children(n);
+      for (t_len i = 0; i < n->numChildren && r->stop == 0; ++i) {
+        wildcardIterate(children[i], r);
+      } 
+      break;
+    }
+  }
+  array_trimm_len(r->buf, n->len);
+}
+
+void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout) {
+  RangeCtx r = {
+      .callback = callback,
+      .cbctx = ctx,
+      .timeout = timeout ? *timeout : (struct timespec){0},
+      .timeoutCounter = 0,
+      .origStr = str,
+      .lenOrigStr = nstr,
+      .buf = array_new(rune, TRIE_INITIAL_STRING_LEN),
+      // if last char is '*', we return all following terms
+      .prefix = str[nstr - 1] == (rune)'*',
+  };
+
+  wildcardIterate(n, &r);
+
+  array_free(r.buf);
+}
+

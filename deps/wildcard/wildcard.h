@@ -29,4 +29,4 @@ typedef enum {
 } match_t;
 
 match_t WildcardMatchChar(const char *pattern, size_t p_len, const char *str, size_t str_len);
-match_t WildcardMatchRune(const rune *pattern, size_t p_len, const char *str, size_t str_len);
+match_t WildcardMatchRune(const rune *pattern, size_t p_len, const rune *str, size_t str_len);
