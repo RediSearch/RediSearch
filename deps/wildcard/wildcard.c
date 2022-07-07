@@ -13,7 +13,7 @@ match_t WildcardMatchChar(const char *pattern, size_t p_len, const char *str, si
   const char *ns_itr = NULL;
   int i = 0;
   while (++i) {
-    printf("%d ", i);
+    //printf("%d ", i);
     if (pattern_end != pattern_itr) {
       const char c = *pattern_itr;
       if ((str_end != str_itr) && (c == *str_itr || c == '?')) {
@@ -58,7 +58,7 @@ match_t WildcardMatchRune(const rune *pattern, size_t p_len, const rune *str, si
   const rune *ns_itr = NULL;
   int i = 0;
   while (++i) {
-    printf("%d ", i);
+    //printf("%d ", i);
     if (pattern_end != pattern_itr) {
       const rune c = *pattern_itr;
       if ((str_end != str_itr) && (c == *str_itr || c == '?')) {

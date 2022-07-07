@@ -1057,17 +1057,18 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
 
   switch (match) {
     case NO_MATCH:
-      // array_trimm_len(r->buf, n->len);
       break;;
     case FULL_MATCH: {
       if (r->prefix) {
         array_trimm_len(r->buf, n->len);
         rangeIterateSubTree(n, r);
-        return; // we trimmed buffer before
+        return; // we trimmed buffer earlier
       } else {
-        r->callback(r->buf, array_len(r->buf), r->cbctx);
-        // array_trimm_len(r->buf, n->len);
-        break;
+        // if node is terminal we add the result.
+        if (__trieNode_isTerminal(n)) {
+          r->callback(r->buf, array_len(r->buf), r->cbctx);
+        }
+        // we continue to look for matches on children similar to PARTIAL_MATCH
       }
     }
     case PARTIAL_MATCH: {
