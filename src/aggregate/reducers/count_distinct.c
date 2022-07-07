@@ -74,8 +74,7 @@ RDCRCountDistinct::RDCRCountDistinct(const ReducerOptions *options) {
 
 static void *distinctishNewInstance(Reducer *parent) {
   BlkAlloc *ba = &parent->alloc;
-  distinctishCounter *ctr =
-      BlkAlloc_Alloc(ba, sizeof(*ctr), 1024 * sizeof(*ctr));  // malloc(sizeof(*ctr));
+  distinctishCounter *ctr = ba->Alloc(sizeof(*ctr), 1024 * sizeof(*ctr));
   hll_init(&ctr->hll, HLL_PRECISION_BITS);
   ctr->key = parent->srckey;
   return ctr;
@@ -85,7 +84,7 @@ static void *distinctishNewInstance(Reducer *parent) {
 
 static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *srcrow) {
   distinctishCounter *ctr = instance;
-  const RSValue *val = RLookup_GetItem(ctr->key, srcrow);
+  const RSValue *val = srcrow->GetItem(ctr->key);
   if (!val || val->t == RSValue_Null) {
     return 1;
   }

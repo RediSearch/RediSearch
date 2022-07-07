@@ -20,10 +20,10 @@ static size_t TrieMapNode::Sizeof(tm_len_t numChildren, tm_len_t slen) {
 //---------------------------------------------------------------------------------------------
 
 void TrieMapNode::resizeChildren(int offset) {
-  TrieMapNode **children = children();
+  TrieMapNode **_children = children();
 
   // stretch or shrink the child key cache array
-  memmove(((char *)children) + offset, (char *)children, sizeof(TrieMapNode *) * numChildren);
+  memmove(((char *)_children) + offset, (char *)_children, sizeof(TrieMapNode *) * numChildren);
   numChildren += offset;
 }
 

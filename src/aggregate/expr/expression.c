@@ -358,9 +358,8 @@ RPEvaluator::~RPEvaluator() {
 //---------------------------------------------------------------------------------------------
 
 RPEvaluator::RPEvaluator(const char *name, const RSExpr *ast, const RLookup *lookup,
-    const RLookupKey *dstkey) : ResultProcessor(name) {
-  eval.lookup = lookup;
-  eval.root = ast;
+                         const RLookupKey *dstkey) :
+  ResultProcessor(name), eval(NULL, lookup, NULL, ast) {
   outkey = dstkey;
 }
 

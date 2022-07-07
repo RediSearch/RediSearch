@@ -29,6 +29,7 @@ Cursor::~Cursor() {
   if (execState) {
     delete execState;
   }
+  delete parent;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -61,8 +62,8 @@ int Cursor::Pause() {
   }
 
   // Add to idle list
-  *(Cursor **)(ARRAY_ADD_AS(&cl.idle, Cursor *)) = this;
-  pos = ARRAY_GETSIZE_AS(&cl.idle, Cursor **) - 1;
+  *(Cursor **)(cl.idle.ARRAY_ADD_AS()) = this;
+  pos = cl.idle.ARRAY_GETSIZE_AS() - 1;
 
   return REDISMODULE_OK;
 }
@@ -70,9 +71,9 @@ int Cursor::Pause() {
 //---------------------------------------------------------------------------------------------
 
 void Cursor::RemoveFromIdle() {
-  Array *idle = &parent->idle;
-  Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
-  size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
+  Array<Cursor *> *idle = &parent->idle;
+  Cursor **ll = idle->ARRAY_GETARRAY_AS();
+  size_t n = idle->ARRAY_GETSIZE_AS();
 
   if (n > 1) {
     Cursor *last = ll[n - 1]; // Last cursor - move to current position
@@ -99,7 +100,6 @@ CursorList::CursorList() {
   lastCollect = 0;
   nextIdleTimeoutNs = 0;
 
-  lookup = kh_init(cursors);
   idle = *new Array<Cursor *>();
   infos = NULL;
 
@@ -122,21 +122,9 @@ CursorSpecInfo *CursorList::Find(const char *keyName, size_t *index) const {
 
 //---------------------------------------------------------------------------------------------
 
-void CursorList::Free(Cursor *cur, khiter_t khi) {
-  // Decrement the used count
-  auto &lookup = parent->lookup;
-  RS_LOG_ASSERT(khi != kh_end(lookup), "Iterator shouldn't be at end of cursor list");
-  RS_LOG_ASSERT(kh_get(cursors, lookup, id) != kh_end(lookup), "Cursor was not found");
-  kh_del(cursors, lookup, khi);
-  RS_LOG_ASSERT(kh_get(cursors, lookup, id) == kh_end(lookup), "Failed to delete cursor");
-  delete cur;
-}
-
-//---------------------------------------------------------------------------------------------
-
 void CursorList::ForEach(std::function<void(CursorList&, Cursor&, void *)> f, void *arg) {
   for (size_t i = 0; i < idle.ARRAY_GETSIZE_AS(); ++i) {
-    Cursor *cur = *idle.ARRAY_GETITEM_AS(i);
+    Cursor *cur = idle.ARRAY_GETITEM_AS(i);
     Cursor *oldCur = NULL;
 
     // The cursor `cur` might have been changed in the callback, if it has been
@@ -148,7 +136,7 @@ void CursorList::ForEach(std::function<void(CursorList&, Cursor&, void *)> f, vo
       f(*this, *cur, arg);
       oldCur = cur;
       if (idle.len > i) {
-        cur = *idle.ARRAY_GETITEM_AS(i);
+        cur = idle.ARRAY_GETITEM_AS(i);
       }
     }
   }
@@ -156,17 +144,15 @@ void CursorList::ForEach(std::function<void(CursorList&, Cursor&, void *)> f, vo
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Garbage collection:
- *
- * Garbage collection is performed:
- *
- * - Every <n> operations
- * - If there are too many active cursors and we want to create a cursor
- * - If NextTimeout is set and is earlier than the current time.
- *
- * Garbage collection is throttled within a given interval as well.
- */
+// Garbage collection:
+//
+// Garbage collection is performed:
+//
+// - Every <n> operations
+// - If there are too many active cursors and we want to create a cursor
+// - If NextTimeout is set and is earlier than the current time.
+//
+// Garbage collection is throttled within a given interval as well.
 
 int CursorList::GCInternal(bool force) {
   uint64_t now = curTimeNs();
@@ -187,7 +173,7 @@ int CursorList::GCInternal(bool force) {
     GcData *data = gc_data;
     if (cur.nextTimeoutNs <= data->now) {
       cur.RemoveFromIdle();
-      cl.Free(&cur, kh_get(cursors, cl.lookup, cur.id));
+      delete &cl;
       data->numCollected++;
     }
   };
@@ -282,9 +268,6 @@ Cursor *CursorList::Reserve(const char *lookupName, unsigned interval, QueryErro
 
   cur = new Cursor(this, spec, interval);
   lookup.emplace(cur->id, cur);
-  // int dummy;
-  // khiter_t iter = kh_put(cursors, lookup, cur->id, &dummy);
-  // kh_value(lookup, iter) = cur;
 
 done:
   if (cur) {
@@ -302,17 +285,13 @@ Cursor *CursorList::TakeForExecution(CursorId cid) {
   MutexGuard guard(lock);
   IncrCounter();
 
-  Cursor *cur = NULL;
-  khiter_t iter = kh_get(cursors, lookup, cid);
-  if (iter != kh_end(lookup)) {
-    cur = kh_value(lookup, iter);
-    if (cur->pos == -1) {
-      // Cursor is not idle!
-      cur = NULL;
-    } else {
-      // Remove from idle
-      cur->RemoveFromIdle();
-    }
+  Cursor *cur = lookup[cid];
+  if (cur->pos == -1) {
+    // Cursor is not idle!
+    cur = NULL;
+  } else {
+    // Remove from idle
+    cur->RemoveFromIdle();
   }
 
   return cur;
@@ -327,15 +306,12 @@ int CursorList::Purge(CursorId cid) {
   IncrCounter();
 
   int rc;
-  khiter_t iter = kh_get(cursors, lookup, cid);
-  if (iter != kh_end(lookup)) {
-    Cursor *cur = kh_value(lookup, iter);
-    if (cur->IsIdle()) {
-      cur->RemoveFromIdle();
+  if (lookup.contains(cid)) {
+    Cursor cur = *lookup[cid];
+    if (cur.IsIdle()) {
+      cur.RemoveFromIdle();
     }
-    Free(cur, iter);
     rc = REDISMODULE_OK;
-
   } else {
     rc = REDISMODULE_ERR;
   }
@@ -352,11 +328,11 @@ void CursorList::RenderStats(const char *name, RedisModuleCtx *ctx) {
   // Output total information
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithSimpleString(ctx, "global_idle");
-  RedisModule_ReplyWithLongLong(ctx, ARRAY_GETSIZE_AS(&idle, Cursor **));
+  RedisModule_ReplyWithLongLong(ctx, idle.ARRAY_GETSIZE_AS());
   n += 2;
 
   RedisModule_ReplyWithSimpleString(ctx, "global_total");
-  RedisModule_ReplyWithLongLong(ctx, kh_size(lookup));
+  RedisModule_ReplyWithLongLong(ctx, lookup.size());
   n += 2;
 
   if (info) {
@@ -389,7 +365,7 @@ void CursorList::Purge(const char *lookupName) {
     }
 
     cur.RemoveFromIdle();
-    cl.Free(&cur, kh_get(cursors, cl.lookup, cur.id));
+    delete &cl;
   };
 
   ForEach(cb, info);
@@ -399,16 +375,7 @@ void CursorList::Purge(const char *lookupName) {
 
 CursorList::~CursorList() {
   GCInternal(true);
-
-  for (khiter_t i = 0; i != kh_end(lookup); ++i) {
-    if (!kh_exist(lookup, i)) {
-      continue;
-    }
-    Cursor *cur = kh_val(lookup, i);
-    fprintf(stderr, "[redisearch] leaked cursor at %p\n", cur);
-    Free(cur, i);
-  }
-  kh_destroy(cursors, lookup);
+  delete &lookup;
 
   if (infos) {
     for (size_t i = 0; i < cursorCount; ++i) {

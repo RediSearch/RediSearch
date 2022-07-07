@@ -49,6 +49,8 @@ struct NumericFieldGC :public Object {
 
 // Internal definition of the garbage collector context (each index has one)
 
+struct RedisSearchCtx;
+
 struct GarbageCollector : public Object, public GCAPI {
   // current frequency
   float hz;

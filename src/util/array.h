@@ -19,11 +19,14 @@ enum ArrayAllocatorType {
 template <class T>
 class Array {
   T *data;
-  uint32_t len;
   uint32_t capacity;
   const ArrayAllocProcs *procs;
 
   void ctor(ArrayAllocatorType allocType);
+
+public:
+  uint32_t len;
+
   Array(ArrayAllocatorType allocType) { ctor(allocType); }
   Array() { ctor(ArrayAlloc_Default); }
 
@@ -34,8 +37,8 @@ class Array {
   int Resize(uint32_t newSize);
 
   //@@ need help in changing to funcs
-  size_t ARRAY_GETSIZE_AS() { return len / (sizeof(T)); }
-  // T ARRAY_GETARRAY_AS() { return data; }
+  size_t ARRAY_GETSIZE_AS() { return (len / (sizeof(T))); }
+  T *ARRAY_GETARRAY_AS() { return data; }
   void *ARRAY_ADD_AS() { return Add(sizeof(T)); }
-  T ARRAY_GETITEM_AS(size_t ix) (data + ix);
+  T ARRAY_GETITEM_AS(size_t ix) { return (data[ix]); }
 };

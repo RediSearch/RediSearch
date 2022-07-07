@@ -74,7 +74,6 @@ typedef uint64_t CursorId;
 
 struct CursorList : public Object {
   // Cursor lookup by ID
-  // khash_t(cursors) *lookup;
   typedef UnorderedMap<CursorId, Cursor*> CursorsMap;
   CursorsMap lookup;
 
@@ -112,7 +111,6 @@ struct CursorList : public Object {
 
   int Purge(CursorId cid);
   void Purge(const char *keyname);
-  void Free(Cursor *cursor, khiter_t khi);
 
   void ForEach(std::function<void(CursorList&, Cursor&, void *)> f, void *arg);
 
