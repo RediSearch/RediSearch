@@ -1031,83 +1031,43 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                              IndexIteratorArray *iterout, double weight,
-                                              int withSuffixTrie) {
-  RSToken *tok = &qn->verb.tok;
+                                              IndexIteratorArray *iterout, double weight) {
   if (qn->type != QN_WILDCARD_QUERY) {
-    return NULL;
-  }
-
-  // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (tok->len < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
 
+  RSToken *tok = &qn->verb.tok;
+
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
-  if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
-    TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
-    if (!it) return NULL;
-    TrieMapIterator_SetTimeout(it, q->sctx->timeout);
-    TrieMapIterator_NextFunc nextFunc = TrieMapIterator_Next;
+  // bruteforce wildcard query 
+  TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
+  TrieMapIterator_SetTimeout(it, q->sctx->timeout);
+  TrieMapIterator_NextFunc nextFunc = TrieMapIterator_NextWildcard;
 
-    if (qn->pfx.suffix) {
-      nextFunc = TrieMapIterator_NextContains;
-      if (qn->pfx.prefix) { // contains mode
-        it->mode = TM_CONTAINS_MODE;
-      } else {
-        it->mode = TM_SUFFIX_MODE;
-      }
+  // an upper limit on the number of expansions is enforced to avoid stuff like "*"
+  char *s;
+  tm_len_t sl;
+  void *ptr;
+
+  // Find all completions of the prefix
+  while (nextFunc(it, &s, &sl, &ptr) &&
+        (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+          // TODO: use NewIndexReaderGeneric
+    //NewIndexReaderGeneric(ptr, q->sctx->spec, )
+    IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
+    if (!ret) continue;
+
+    // Add the reader to the iterator array
+    its[itsSz++] = ret;
+    if (itsSz == itsCap) {
+      itsCap *= 2;
+      its = rm_realloc(its, itsCap * sizeof(*its));
     }
-
-
-    // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-    char *s;
-    tm_len_t sl;
-    void *ptr;
-
-    // Find all completions of the prefix
-    while (nextFunc(it, &s, &sl, &ptr) &&
-          (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
-            // TODO: use NewIndexReaderGeneric
-      //NewIndexReaderGeneric(ptr, q->sctx->spec, )
-      IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
-      if (!ret) continue;
-
-      // Add the reader to the iterator array
-      its[itsSz++] = ret;
-      if (itsSz == itsCap) {
-        itsCap *= 2;
-        its = rm_realloc(its, itsCap * sizeof(*its));
-      }
-    }
-    TrieMapIterator_Free(it);
-  } else {    // TAG field has suffix triemap
-    arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len,
-                                                qn->pfx.prefix, q->sctx->timeout);
-    if (!arr) return NULL;
-    for (int i = 0; i < array_len(arr); ++i) {
-      size_t iarrlen = array_len(arr);
-      for (int j = 0; j < array_len(arr[i]); ++j) {
-        size_t jarrlen = array_len(arr[i]);
-        if (itsSz >= RSGlobalConfig.maxPrefixExpansions) {
-          break;
-        }
-        IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, arr[i][j], strlen(arr[i][j]), 1);
-        if (!ret) continue;
-
-        // Add the reader to the iterator array
-        its[itsSz++] = ret;
-        if (itsSz == itsCap) {
-          itsCap *= 2;
-          its = rm_realloc(its, itsCap * sizeof(*its));
-        }
-      }
-    }
-    array_free(arr);
   }
+  TrieMapIterator_Free(it);
 
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
@@ -1122,7 +1082,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_PREFIX, qn->pfx.tok.str);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str);
 }
 
 static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
@@ -1163,6 +1123,9 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
     }
     case QN_PREFIX:
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasSuffixTrie(fs));
+
+    case QN_WILDCARD_QUERY:
+      return Query_EvalTagWildcardNode(q, idx, n, iterout, weight);
 
     case QN_LEXRANGE:
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);
@@ -1469,7 +1432,8 @@ void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren)
   if (n->type == QN_TAG) {
     for (size_t ii = 0; ii < nchildren; ++ii) {
       if (children[ii]->type == QN_TOKEN || children[ii]->type == QN_PHRASE ||
-          children[ii]->type == QN_PREFIX || children[ii]->type == QN_LEXRANGE) {
+          children[ii]->type == QN_PREFIX || children[ii]->type == QN_LEXRANGE ||
+          children[ii]->type == QN_WILDCARD_QUERY) {
         n->children = array_ensure_append(n->children, children + ii, 1, QueryNode *);
       }
     }

@@ -1100,7 +1100,7 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
         case FULL_MATCH: {
           current->state = TM_ITERSTATE_CHILDREN;
           // we've reached
-          if (__trieMapNode_isTerminal(n) && current->found) {
+          if (__trieMapNode_isTerminal(n)) {
             *ptr = it->buf;
             *len = array_len(it->buf);
             *value = n->value;
@@ -1120,7 +1120,7 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
         TrieMapNode *ch = __trieMapNode_children(n)[current->childOffset++];
 
         // Add the matching child to the stack
-        __tmi_Push(it, ch, 0, current->found);
+        __tmi_Push(it, ch, 0, false);
 
         goto next;        
       }
