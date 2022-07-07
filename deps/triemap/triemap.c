@@ -5,6 +5,7 @@
 #include "util/bsearch.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
+#include "wildcard/wildcard.h"
 
 void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
@@ -1042,6 +1043,74 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
       // node string is complete
       } else {
         current->state = TM_ITERSTATE_CHILDREN;
+      }
+    }
+
+    if (current->state == TM_ITERSTATE_CHILDREN) {
+      // push the next child
+      if (current->childOffset < current->n->numChildren) {
+        TrieMapNode *ch = __trieMapNode_children(n)[current->childOffset++];
+
+        // Add the matching child to the stack
+        __tmi_Push(it, ch, 0, current->found);
+
+        goto next;        
+      }
+    }
+  
+    __tmi_Pop(it); 
+  next:
+    continue;
+  }
+
+  return 0;
+}
+
+int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
+  if (TimedOut_WithCounter(&it->timeout, &it->timeoutCounter)) {
+    return 0;
+  }
+
+  TrieMapIterator *iter = it->matchIter;
+  if (iter) {
+    if (__fullmatch_Next(it, ptr, len, value)) {
+      return 1;
+    }
+    array_free(iter->buf);
+    array_free(iter->stack);
+    rm_free(iter);
+    it->matchIter = NULL;    //goto pop;
+  }
+
+  while (array_len(it->stack) > 0) {
+    __tmi_stackNode *current = __tmi_current(it);
+    TrieMapNode *n = current->n;
+
+    if (current->state == TM_ITERSTATE_SELF) {
+
+      it->buf = array_ensure_append_n(it->buf, current->n->str, current->n->len);
+      int match = WildcardMatchChar(it->prefix, it->prefixLen, it->buf, array_len(it->buf));
+      current->stringOffset = current->n->len;
+
+      switch (match) {
+        case NO_MATCH: {
+          __tmi_Pop(it);
+          goto next;
+        }
+        case FULL_MATCH: {
+          current->state = TM_ITERSTATE_CHILDREN;
+          // we've reached
+          if (__trieMapNode_isTerminal(n) && current->found) {
+            *ptr = it->buf;
+            *len = array_len(it->buf);
+            *value = n->value;
+            return 1;
+          }
+          break;
+        }
+        case PARTIAL_MATCH: {
+          current->state = TM_ITERSTATE_CHILDREN;
+        }
       }
     }
 

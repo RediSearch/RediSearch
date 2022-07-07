@@ -175,6 +175,10 @@ void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool inclu
                           const char *max, int maxlen, bool includeMax,
                           TrieMapRangeCallback callback, void *ctx);
 
+void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool includeMin,
+                          const char *max, int maxlen, bool includeMax,
+                          TrieMapRangeCallback callback, void *ctx);
+
 #ifdef __cplusplus
 }
 #endif
