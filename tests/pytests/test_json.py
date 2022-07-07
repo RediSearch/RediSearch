@@ -1018,11 +1018,11 @@ def testRedisCommands(env):
 
     # Test Redis RENAME
     env.execute_command('RENAME', 'dos:3', 'doc:3')
-    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc2', 'doc:3'])
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:2', 'doc:3'])
 
     # Test Redis UNLINK
     env.execute_command('UNLINK', 'doc:3')
-    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc2'])
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:2'])
 
     # Test Redis EXPIRE
     env.execute_command('EXPIRE', 'doc:2', 1)
