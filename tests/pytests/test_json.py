@@ -1003,6 +1003,8 @@ def testVector_delete(env):
 
 @no_msan
 def testRedisCommands(env):
+    env.skipOnCluster()
+
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
@@ -1018,11 +1020,11 @@ def testRedisCommands(env):
 
     # Test Redis RENAME
     env.execute_command('RENAME', 'dos:3', 'doc:3')
-    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc2', 'doc:3'])
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:2', 'doc:3'])
 
     # Test Redis UNLINK
     env.execute_command('UNLINK', 'doc:3')
-    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc2'])
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:2'])
 
     # Test Redis EXPIRE
     env.execute_command('EXPIRE', 'doc:2', 1)
