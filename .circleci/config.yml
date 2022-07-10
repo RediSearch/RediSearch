@@ -441,28 +441,6 @@ jobs:
           allowed_envs: oss-cluster
           benchmark_glob: "vecsim-ann*.yml"
 
-  benchmark-vecsim-l2-oss-standalone:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
-    steps:
-      - build-steps:
-          platform: bionic
-          run_pack: false
-      - benchmark-automation:
-          platform: bionic
-          benchmark_glob: "vecsim-l2*.yml"
-
-  benchmark-vecsim-cosine-oss-standalone:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
-    steps:
-      - build-steps:
-          platform: bionic
-          run_pack: false
-      - benchmark-automation:
-          platform: bionic
-          benchmark_glob: "vecsim-cosine*.yml"
-
   benchmark-vecsim-ann-oss-standalone-profiler:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bionic
@@ -473,40 +451,10 @@ jobs:
           run_pack: false
       - benchmark-automation:
           profile_env: "1"
-          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it 
+          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           platform: bionic
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "vecsim-ann*.yml"
-  
-  benchmark-vecsim-cosine-oss-standalone-profiler:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
-    steps:
-      - build-steps:
-          platform: bionic
-          build_params: PROFILE=1
-          run_pack: false
-      - benchmark-automation:
-          profile_env: "1"
-          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it 
-          platform: bionic
-          module_path: bin/linux-x64-release-profile/search/redisearch.so
-          benchmark_glob: "vecsim-cosine*.yml"
-  
-  benchmark-vecsim-l2-oss-standalone-profiler:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
-    steps:
-      - build-steps:
-          platform: bionic
-          build_params: PROFILE=1
-          run_pack: false
-      - benchmark-automation:
-          profile_env: "1"
-          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it 
-          platform: bionic
-          module_path: bin/linux-x64-release-profile/search/redisearch.so
-          benchmark_glob: "vecsim-l2*.yml"
 
   coverage:
     docker:
@@ -773,18 +721,6 @@ workflows:
       - benchmark-vecsim-ann-oss-standalone-profiler:
           context: common
           <<: *on-perf-and-version-tags
-      - benchmark-vecsim-l2-oss-standalone:
-          context: common
-          <<: *on-perf-and-version-tags
-      - benchmark-vecsim-l2-oss-standalone-profiler:
-          context: common
-          <<: *on-perf-and-version-tags
-      - benchmark-vecsim-cosine-oss-standalone:
-          context: common
-          <<: *on-perf-and-version-tags
-      - benchmark-vecsim-cosine-oss-standalone-profiler:
-          context: common
-          <<: *on-perf-and-version-tags
       - upload-artifacts:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"
@@ -837,14 +773,6 @@ workflows:
 
     jobs:
       - benchmark-search-oss-standalone:
-          context: common
-      - benchmark-vecsim-l2-oss-standalone:
-          context: common
-      - benchmark-vecsim-l2-oss-standalone-profiler:
-          context: common
-      - benchmark-vecsim-cosine-oss-standalone:
-          context: common
-      - benchmark-vecsim-cosine-oss-standalone-profiler:
           context: common
       - benchmark-vecsim-ann-oss-standalone:
           context: common
