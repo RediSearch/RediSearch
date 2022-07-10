@@ -1381,17 +1381,21 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
-  if (key) {
-    if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
-      // this is only possible on crdb database, enpty keys are toombstone
-      // and we should just ignore them
-      return;
-    }
+  // RMKey it is provided as best effort but in some cases it might be NULL
+  bool keyOpened = false;
+  if (!key) {
+    key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ);
+    keyOpened = true;
   }
 
+  // check type of document is support and document is not empty
   DocumentType type = getDocType(key);
   if (type == DocumentType_Unsupported) {
     return;
+  }
+
+  if (keyOpened) {
+    RedisModule_CloseKey(key);
   }
 
   if (scanner->cancelled) {
