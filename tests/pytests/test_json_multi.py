@@ -533,28 +533,28 @@ def testMultiEmptyBlankOrNone(env):
 
 
 def testconfigMultiTextOffsetDelta(env):
-    """ test ft.config `MULTI_TEXT_OFFSET_DELTA` """
+    """ test ft.config `MULTI_TEXT_SLOP` """
     
     conn = getConnectionByEnv(env)
     env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
     env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr')
 
-    # MULTI_TEXT_OFFSET_DELTA = 100 (Default)
+    # MULTI_TEXT_SLOP = 100 (Default)
     #
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  103   ,  203         ,  303
     
-    res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_OFFSET_DELTA')
+    res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '100')
     env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT').equal([1, 'doc:1'])
     if NEW_JSON_API_V2:
         env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '300').equal([0])
         env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '301').equal([1, 'doc:1'])
     
-    # MULTI_TEXT_OFFSET_DELTA = 101
-    env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_OFFSET_DELTA', '101').ok()
+    # MULTI_TEXT_SLOP = 101
+    env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_SLOP', '101').ok()
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  104   ,  205         ,  306
@@ -567,8 +567,8 @@ def testconfigMultiTextOffsetDelta(env):
         env.expect('FT.SEARCH', 'idx_category_arr_2', '@category:(science database)', 'NOCONTENT', 'SLOP', '301').equal([0])
         env.expect('FT.SEARCH', 'idx_category_arr_2', '@category:(science database)', 'NOCONTENT', 'SLOP', '302').equal([1, 'doc:1'])
 
-    # MULTI_TEXT_OFFSET_DELTA = 0
-    env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_OFFSET_DELTA', '0').ok()
+    # MULTI_TEXT_SLOP = 0
+    env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_SLOP', '0').ok()
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  4   ,    5         ,    6
@@ -581,8 +581,8 @@ def testconfigMultiTextOffsetDelta(env):
         env.expect('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '1').equal([0])
         env.expect('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '2').equal([1, 'doc:1'])
 
-    # MULTI_TEXT_OFFSET_DELTA = -1
-    env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_OFFSET_DELTA', '-1').error()
+    # MULTI_TEXT_SLOP = -1
+    env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_SLOP', '-1').error()
 
 
 def testMultiNoHighlight(env):

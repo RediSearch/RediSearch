@@ -745,7 +745,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Set RediSearch vector indexes max resize (in bytes).",
          .setValue = setVSSMaxResize,
          .getValue = getVSSMaxResize},
-         {.name = "MULTI_TEXT_OFFSET_DELTA",
+         {.name = "MULTI_TEXT_SLOP",
          .helpText = "Set RediSearch delta used to increase positional offsets between array slots for multi text values."
                       "Can control the level of seperation between phrases in different array slots (related to the SLOP parameter of ft.search command)",
          .setValue = setMultiTextOffsetDelta,
