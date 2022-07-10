@@ -135,7 +135,7 @@ struct TagIndex : public BaseIndex {
   };
 
   // Index a vector of pre-processed tags for a docId
-  size_t Index(const Tags &tags, size_t n, t_docId docId);
+  size_t Index(const Tags &tags, t_docId docId);
 
   // Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
   // Returns NULL if there is no such tag in the index.

@@ -6,14 +6,21 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef __cplusplus
-#define RS_ENUM_BITWISE_HELPER(T)   \
-  inline T operator|=(T a, int b) { \
-    return (T)((int)a | b);         \
-  }
-#else
-#define RS_ENUM_BITWISE_HELPER(T)
-#endif
+// #ifdef __cplusplus
+// #define RS_ENUM_BITWISE_HELPER(T)   \
+//   inline T operator|=(T a, int b) { \
+//     return (T)((int)a | b);         \
+//   }
+// #else
+// #define RS_ENUM_BITWISE_HELPER(T)
+// #endif
+
+//@@ Need to make this template only for enums !!
+template<class E>
+inline E operator|(E a, int b)
+{
+  return static_cast<E>(static_cast<int>(a) | b);
+}
 
 //---------------------------------------------------------------------------------------------
 
@@ -43,7 +50,7 @@ enum FieldType {
 #define IXFLDPOS_GEO INDEXTYPE_TO_POS(INDEXFLD_T_GEO)
 #define IXFLDPOS_TAG INDEXTYPE_TO_POS(INDEXFLD_T_TAG)
 
-RS_ENUM_BITWISE_HELPER(FieldType)
+// RS_ENUM_BITWISE_HELPER(FieldType)
 
 //---------------------------------------------------------------------------------------------
 
@@ -55,7 +62,7 @@ enum FieldSpecOptions {
   FieldSpec_Dynamic = 0x10
 };
 
-RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
+// RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
 
 //---------------------------------------------------------------------------------------------
 
@@ -66,7 +73,7 @@ enum TagFieldFlags {
   TagField_RemoveAccents = 0x04,
 };
 
-RS_ENUM_BITWISE_HELPER(TagFieldFlags)
+// RS_ENUM_BITWISE_HELPER(TagFieldFlags)
 
 //---------------------------------------------------------------------------------------------
 

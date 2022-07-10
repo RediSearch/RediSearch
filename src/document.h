@@ -214,7 +214,7 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   DocumentAddCompleted donecb;
   void *donecbData;
 
-  AddDocumentCtx(IndexSpec *sp, Document *base, QueryError *status);
+  AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_);
   virtual ~AddDocumentCtx();
 
   bool handlePartialUpdate(RedisSearchCtx *sctx); // can be private

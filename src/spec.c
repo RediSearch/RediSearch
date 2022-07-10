@@ -11,11 +11,11 @@
 #include "cursor.h"
 #include "tag_index.h"
 #include "redis_index.h"
+#include "numeric_index.h"
 #include "indexer.h"
 #include "alias.h"
 #include "module.h"
 #include "rmutil/rm_assert.h"
-#include "numeric_index.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -712,7 +712,7 @@ void IndexSpec::FreeInternals() {
   }
 
   if (terms) {
-    TrieType_Free(terms);
+    delete terms;
   }
   delete &docs;
 
@@ -829,17 +829,17 @@ void IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   }
 
   RedisModuleString *formatted;
-  int isKeynameOwner = 0;
+  bool isKeynameOwner = false;
   const char *ixname = NULL;
 
   if (options->flags & INDEXSPEC_LOAD_KEY_FORMATTED) {
-    formatted = options->name.rstring;
+    formatted = options->rstring;
   } else {
-    isKeynameOwner = 1;
+    isKeynameOwner = true;
     if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
-      ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
+      ixname = RedisModule_StringPtrLen(options->rstring, NULL);
     } else {
-      ixname = options->name.cstring;
+      ixname = options->cstring;
     }
     formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ixname);
   }
@@ -860,7 +860,7 @@ void IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
         RedisModule_FreeString(ctx, formatted);
       }
       formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
-      isKeynameOwner = 1;
+      isKeynameOwner = true;
       options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
     }
   } else {
@@ -870,9 +870,9 @@ void IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     this = RedisModule_ModuleTypeGetValue(options->keyp);
   }
 
-  if (!this) {
-    goto done;
-  }
+  // if (!this) {
+  //   goto done;
+  // }
   if (flags & Index_Temporary) {
     mstime_t exp = timeout * 1000;
     if (modeflags & REDISMODULE_WRITE) {
@@ -1333,11 +1333,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
-}
-
-//---------------------------------------------------------------------------------------------
-
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = IndexSpec_RdbLoad,
@@ -1364,7 +1359,6 @@ void IndexSpec::addAlias(const char *alias) {
 //---------------------------------------------------------------------------------------------
 
 void IndexSpec::delAlias(ssize_t idx) {
-  toFree = aliases[idx];
   aliases = array_del_fast(aliases, idx);
 }
 

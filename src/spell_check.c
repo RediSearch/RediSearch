@@ -56,7 +56,7 @@ void RS_Suggestions::Add(char *term, size_t len, double score, int incr) {
 
 RS_Suggestions::~RS_Suggestions() {
   //  array_free_ex(s->suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
-  TrieType_Free(suggestionsTrie);
+  delete suggestionsTrie;
 }
 
 /**
@@ -77,7 +77,7 @@ inline double SpellCheckCtx::GetScore(char *suggestion, size_t len, t_fieldMask 
 
   reader = new TermIndexReader(invidx, NULL, fieldMask, NULL, 1);
   iter = reader->NewReadIterator();
-  if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
+  if (iter->Read(&r) != INDEXREAD_EOF) {
     // we have at least one result, the suggestion is relevant.
     if (fullScoreInfo) {
       retVal = invidx->numDocs;
@@ -118,8 +118,8 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   return retVal;
 }
 
-inline void SpellCheckCtx::FindSuggestions(Trie *t, const char *term, size_t len, t_fieldMask fieldMask,
-                                           RS_Suggestions *s, int incr) {
+void SpellCheckCtx::FindSuggestions(Trie *t, const char *term, size_t len, t_fieldMask fieldMask,
+                                    RS_Suggestions *s, int incr) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;

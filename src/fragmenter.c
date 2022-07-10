@@ -19,7 +19,7 @@ Fragment *FragmentList::LastFragment() {
   if (!frags.len) {
     return NULL;
   }
-  return (Fragment *)(frags.data + (frags.len - sizeof(Fragment)));
+  return (Fragment *)(frags.ARRAY_GETARRAY_AS() + (frags.len - sizeof(Fragment)));
 }
 
 //---------------------------------------------------------------------------------------------
@@ -28,20 +28,19 @@ Fragment *FragmentList::AddFragment() {
   Fragment *frag = frags.Add(sizeof(Fragment));
   memset(frag, 0, sizeof(*frag));
   frag->fragPos = numFrags++;
-  Array_Init(&frag->termLocs);
   return frag;
 }
 
 //---------------------------------------------------------------------------------------------
 
 size_t Fragment::GetNumTerms() const {
-  return ARRAY_GETSIZE_AS(&termLocs, TermLoc);
+  return termLocs.ARRAY_GETSIZE_AS();
 }
 
 //---------------------------------------------------------------------------------------------
 
 int Fragment::HasTerm(uint32_t termId) const {
-  TermLoc *locs = ARRAY_GETARRAY_AS(&termLocs, TermLoc *);
+  TermLoc *locs = termLocs.ARRAY_GETARRAY_AS();
 
   int firstOcurrence = 1;
   // If this is the first time the term appears in the fragment, increment the
@@ -81,7 +80,7 @@ Fragment *FragmentList::AddMatchingTerm(uint32_t termId, uint32_t tokPos, const 
   curFrag->totalTokens += numToksSinceLastMatch + 1;
   numToksSinceLastMatch = 0;
 
-  TermLoc *newLoc = &curFrag->termLocs->Add(sizeof(TermLoc));
+  TermLoc *newLoc = curFrag->termLocs.Add(sizeof(TermLoc));
   newLoc->termId = termId;
   newLoc->offset = tokBuf - curFrag->buf;
   newLoc->len = tokLen;
@@ -119,35 +118,32 @@ void FragmentList::extractToken(const Token *tokInfo, const FragmentSearchTerm *
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Split a document into a list of fragments.
- * - doc is the document to split
- * - numTerms is the number of terms to search for. The terms themselves are
- *   not searched, but each Fragment needs to have this memory made available.
- *
- * Returns a list of fragments.
- */
+// Split a document into a list of fragments.
+// - doc is the document to split
+// - numTerms is the number of terms to search for. The terms themselves are
+//   not searched, but each Fragment needs to have this memory made available.
+//
+// Returns a list of fragments.
 
-void FragmentList::FragmentizeBuffer(const char *doc_, Stemmer *stemmer,
-                                     StopWordList *stopwords, const FragmentSearchTerm *terms,
-                                     size_t numTerms) {
+void FragmentList::FragmentizeBuffer(const char *doc_, Stemmer *stemmer, StopWordList *stopwords,
+                                     const FragmentSearchTerm *terms, size_t numTerms) {
   doc = doc_;
   docLen = strlen(doc_);
   SimpleTokenizer tokenizer(stemmer, stopwords, TOKENIZE_NOMODIFY);
-  tokenizer.Start(tokenizer, (char *)doc, docLen, 0);
+  tokenizer.Start((char *)doc, docLen, 0);
   Token tokInfo;
-  while (tokenizer.Next(tokenizer, &tokInfo)) {
+  while (tokenizer.Next(&tokInfo)) {
     extractToken(&tokInfo, terms, numTerms);
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void addToIov(const char *s, size_t n, Array *b) {
+static void addToIov(const char *s, size_t n, Array<iovec *> b) {
   if (n == 0 || s == NULL) {
     return;
   }
-  struct iovec *iov = b->Add(sizeof(*iov));
+  struct iovec *iov = b.Add(sizeof(*iov));
   RS_LOG_ASSERT(iov, "failed to create iov");
   iov->iov_base = (void *)s;
   iov->iov_len = n;
@@ -155,22 +151,21 @@ static void addToIov(const char *s, size_t n, Array *b) {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Writes a complete fragment as a series of IOVs.
- * - fragment is the fragment to write
- * - tags is the tags to use
- * - contextLen is any amount of context used to surround the fragment with
- * - iovs is the target buffer in which the iovs should be written
- *
- * - preamble is any prior text which may need to be written alongside the fragment.
- *    In output, it contains the first byte after the fragment+context. This may be
- *    used as the 'preamble' value for a subsequent call to this function, if the next
- *    fragment being written is after the current one.
- */
+// Writes a complete fragment as a series of IOVs.
+// - fragment is the fragment to write
+// - tags is the tags to use
+// - contextLen is any amount of context used to surround the fragment with
+// - iovs is the target buffer in which the iovs should be written
+//
+// - preamble is any prior text which may need to be written alongside the fragment.
+//    In output, it contains the first byte after the fragment+context. This may be
+//    used as the 'preamble' value for a subsequent call to this function, if the next
+//    fragment being written is after the current one.
+
 void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeTag,
-                         size_t closeLen, Array *iovs, const char **preamble) const {
-  const TermLoc *locs = ARRAY_GETARRAY_AS(&termLocs, const TermLoc *);
-  size_t nlocs = ARRAY_GETSIZE_AS(&termLocs, TermLoc);
+                         size_t closeLen, Array<iovec *> iovs, const char **preamble) const {
+  const TermLoc *locs = termLocs.ARRAY_GETARRAY_AS();
+  size_t nlocs = termLocs.ARRAY_GETSIZE_AS();
   const char *preamble_s = NULL;
 
   if (!preamble) {
@@ -209,7 +204,7 @@ void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeT
 //---------------------------------------------------------------------------------------------
 
 // Highlight matches the entire document, returning a series of IOVs
-void FragmentList::HighlightWholeDocV(const HighlightTags *tags, Array *iovs) const {
+void FragmentList::HighlightWholeDocV(const HighlightTags *tags, Array<iovec *> iovs) const {
   const Fragment *frags_ = GetFragments();
 
   if (!numFrags) {
@@ -239,16 +234,15 @@ void FragmentList::HighlightWholeDocV(const HighlightTags *tags, Array *iovs) co
 
 // Highlight matches the entire document, returning it as a freeable NUL-terminated buffer
 char *FragmentList::HighlightWholeDocS(const HighlightTags *tags) const {
-  Array iovsArr;
-  Array_Init(&iovsArr);
-  HighlightWholeDocV(tags, &iovsArr);
+  Array<iovec *> iovsArr;
+  HighlightWholeDocV(tags, iovsArr);
 
   // Calculate the length
-  struct iovec *iovs = ARRAY_GETARRAY_AS(&iovsArr, struct iovec *);
-  size_t niovs = ARRAY_GETSIZE_AS(&iovsArr, struct iovec);
+  struct iovec *iovs = *iovsArr.ARRAY_GETARRAY_AS();
+  size_t niovs = iovsArr.ARRAY_GETSIZE_AS();
   size_t docLen = 0;
-  for (size_t ii = 0; ii < niovs; ++ii) {
-    docLen += iovs[ii].iov_len;
+  for (size_t i = 0; i < niovs; ++i) {
+    docLen += iovs[i].iov_len;
   }
 
   char *docBuf = rm_malloc(docLen + 1);
@@ -304,19 +298,17 @@ static int sortByOrder(const void *pa, const void *pb) {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Add context before and after the fragment.
- * - frag is the fragment to contextualize
- * - limitBefore, limitAfter are boundaries, such that the following will be
- *   true:
- *   - limitBefore <= before <= frag->buf
- *   - limitAfter > after >= frag->buf + frag->len
- *   If limitBefore is not specified, it defaults to the beginning of the fragList's doc
- *   If limitAfter is not specified, then the limit ends after the first NUL terminator.
- */
+// Add context before and after the fragment.
+// - frag is the fragment to contextualize
+// - limitBefore, limitAfter are boundaries, such that the following will be
+//   true:
+//   - limitBefore <= before <= frag->buf
+//   - limitAfter > after >= frag->buf + frag->len
+//   If limitBefore is not specified, it defaults to the beginning of the fragList's doc
+//   If limitAfter is not specified, then the limit ends after the first NUL terminator.
+
 void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, const char *limitAfter,
                                size_t contextSize, struct iovec *before, struct iovec *after) const {
-
   if (limitBefore == NULL) {
     limitBefore = doc;
   }
@@ -377,24 +369,21 @@ void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, co
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Highlight fragments for each document.
- *
- * - contextSize is the size of the surrounding context, in estimated words,
- * for each returned fragment. The function will use this as a hint.
- *
- * - iovBufList is an array of buffers. Each element corresponds to a fragment,
- * and the fragments are always returned in order.
- *
- * - niovs If niovs is less than the number of fragments, then only the first
- * <niov> fragments are returned.
- *
- * - order is one of the HIGHLIGHT_ORDER_ constants. See their documentation
- * for more details
- *
- */
+// Highlight fragments for each document.
+//
+// - contextSize is the size of the surrounding context, in estimated words,
+// for each returned fragment. The function will use this as a hint.
+//
+// - iovBufList is an array of buffers. Each element corresponds to a fragment,
+// and the fragments are always returned in order.
+//
+// - niovs If niovs is less than the number of fragments, then only the first
+// <niov> fragments are returned.
+//
+// - order is one of the HIGHLIGHT_ORDER_ constants. See their documentation
+// for more details
 
-void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextSize, Array *iovArrList,
+void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextSize, Array<iovec *> *iovArrList,
                                       size_t niovs, int order) {
   const Fragment *frags_ = GetFragments();
   niovs = Min(niovs, numFrags);
@@ -422,7 +411,7 @@ void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextS
   size_t closeLen = tags->closeTag ? strlen(tags->closeTag) : 0;
 
   for (size_t ii = 0; ii < niovs; ++ii) {
-    Array *curArr = iovArrList + ii;
+    Array<iovec *> *curArr = iovArrList + ii;
 
     const char *beforeLimit = NULL, *afterLimit = NULL;
     const Fragment *curFrag = indexes[ii];
@@ -438,9 +427,9 @@ void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextS
 
     struct iovec before, after;
     FindContext(curFrag, beforeLimit, afterLimit, contextSize, &before, &after);
-    addToIov(before.iov_base, before.iov_len, curArr);
-    curFrag->WriteIovs(tags->openTag, openLen, tags->closeTag, closeLen, curArr, NULL);
-    addToIov(after.iov_base, after.iov_len, curArr);
+    addToIov(before.iov_base, before.iov_len, *curArr);
+    curFrag->WriteIovs(tags->openTag, openLen, tags->closeTag, closeLen, *curArr, NULL);
+    addToIov(after.iov_base, after.iov_len, *curArr);
   }
 }
 
@@ -458,16 +447,15 @@ FragmentList::~FragmentList() {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Tokenization:
- * If we have term offsets and document terms, we can skip the tokenization process.
- *
- * 1) Gather all matching terms for the documents, and get their offsets (in position)
- * 2) Sort all terms, by position
- * 3) Start reading the byte offset list, until we reach the first term of the match
- *    list, then, consume the matches until the maximum distance has been reached,
- *    noting the terms for each.
- */
+// Tokenization:
+// If we have term offsets and document terms, we can skip the tokenization process.
+//
+// 1) Gather all matching terms for the documents, and get their offsets (in position)
+// 2) Sort all terms, by position
+// 3) Start reading the byte offset list, until we reach the first term of the match
+//    list, then, consume the matches until the maximum distance has been reached,
+//    noting the terms for each.
+
 void FragmentList::FragmentizeIter(const char *doc_, size_t docLen,
                                    FragmentTermIterator *iter, int options) {
   docLen = docLen;
@@ -518,7 +506,7 @@ void FragmentTermIterator::InitOffsets(RSByteOffsetIterator *byteOffsets, RSOffs
   // Advance the offset iterator to the first offset we care about (i.e. that
   // correlates with the first byte offset)
   do {
-    curTokPos = offsetIter->Next(offsetIter->ctx, &curMatchRec);
+    curTokPos = offsetIter->Next(&curMatchRec);
   } while (byteIter->curPos > curTokPos);
 }
 
@@ -531,7 +519,7 @@ int FragmentTermIterator::Next(FragmentTerm **termInfo) {
   }
 
   if (byteIter->curPos < curTokPos) {
-    curByteOffset = RSByteOffsetIterator_Next(byteIter);
+    curByteOffset = byteIter->Next();
     // No matching term at this position.
     // printf("IterPos=%lu. LastMatchPos=%u\n", byteIter->curPos, curTokPos);
     *termInfo = NULL;
@@ -550,7 +538,7 @@ int FragmentTermIterator::Next(FragmentTerm **termInfo) {
   tmpTerm.bytePos = curByteOffset;
   *termInfo = &tmpTerm;
 
-  uint32_t nextPos = offsetIter->Next(offsetIter->ctx, &curMatchRec);
+  uint32_t nextPos = offsetIter->Next(&curMatchRec);
   if (nextPos != curTokPos) {
     curByteOffset = byteIter->Next();
   }

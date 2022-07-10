@@ -16,7 +16,7 @@ void SimpleTokenizer::Start(char *text_, size_t len_, uint32_t options_) {
   text = text_;
   options = options_;
   len = len_;
-  pos = text;
+  pos = *text;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -102,17 +102,12 @@ uint32_t SimpleTokenizer::Next(Token *t) {
     }
 
     // skip stopwords
-    if (StopWordList_Contains(stopwords, normalized, normLen)) {
+    if (stopwords->Contains(normalized, normLen)) {
       continue;
     }
 
-    *t = (Token){.tok = normalized,
-                 .tokLen = normLen,
-                 .raw = tok,
-                 .rawLen = origLen,
-                 .pos = ++lastOffset,
-                 .flags = Token_CopyStem,
-                 .phoneticsPrimary = t->phoneticsPrimary};
+    Token *t = new Token(normalized, normLen, tok, origLen, Token_CopyStem);
+    t->pos = ++lastOffset;
 
     // if we support stemming - try to stem the word
     if (!(options & TOKENIZE_NOSTEM) && stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
@@ -141,23 +136,22 @@ uint32_t SimpleTokenizer::Next(Token *t) {
 
 //---------------------------------------------------------------------------------------------
 
-void SimpleTokenizer::Reset(Stemmer *stemmer_, StopWordList *stopwords_, uint32_t opts_) {
-  stemmer = stemmer_;
-  stopwords = stopwords_;
-  options = opts_;
-  lastOffset = 0;
-  if (stopwords) {
-    // Initially this function is called when we receive it from the mempool;
-    // in which case stopwords is NULL.
-    StopWordList_Ref(stopwords);
-  }
-}
+// void SimpleTokenizer::Reset(Stemmer *stemmer_, StopWordList *stopwords_, uint32_t opts_) {
+//   stemmer = stemmer_;
+//   stopwords = stopwords_;
+//   options = opts_;
+//   lastOffset = 0;
+//   if (stopwords) {
+//     // Initially this function is called when we receive it from the mempool;
+//     // in which case stopwords is NULL.
+//     stopwords->Ref();
+//   }
+// }
 
 //---------------------------------------------------------------------------------------------
 
-SimpleTokenizer::SimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
-  Tokenizer::Reset(stemmer, stopwords, opts);
-}
+SimpleTokenizer::SimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) :
+  Tokenizer(stopwords, opts), stemmer(stemmer) {}
 
 //---------------------------------------------------------------------------------------------
 
@@ -166,70 +160,51 @@ static mempool_t *tokpoolCn_g = NULL;
 
 //---------------------------------------------------------------------------------------------
 
-static void *newLatinTokenizerAlloc() {
-  return new SimpleTokenizer(NULL, NULL, 0);
-}
-
-static void *newCnTokenizerAlloc() {
-  return new ChineseTokenizer(NULL, NULL, 0);
-}
-
-static void tokenizerFree(void *p) {
-  RSTokenizer *t = p;
-  t->Free(t);
-}
-
-//---------------------------------------------------------------------------------------------
-
 Tokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords) {
   if (language == RS_LANG_CHINESE) {
-    return GetChineseTokenizer(stemmer, stopwords);
+    return new ChineseTokenizer(stemmer, stopwords);
   } else {
-    return GetSimpleTokenizer(stemmer, stopwords);
+    return new SimpleTokenizer(stemmer, stopwords);
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-Tokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
-  if (!tokpoolCn_g) {
-    mempool_options opts = {
-        .isGlobal = 1, .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
-    tokpoolCn_g = mempool_new(&opts);
-  }
+// Tokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+//   if (!tokpoolCn_g) {
+//     mempool_options opts = {
+//         .isGlobal = 1, .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
+//     tokpoolCn_g = mempool_new(&opts);
+//   }
 
-  Tokenizer *t = mempool_get(tokpoolCn_g);
-  t->Reset(t, stemmer, stopwords, 0);
-  return t;
-}
-
-//---------------------------------------------------------------------------------------------
-
-Tokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
-  if (!tokpoolLatin_g) {
-    mempool_options opts = {
-        .isGlobal = 1, .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
-    tokpoolLatin_g = mempool_new(&opts);
-  }
-  Tokenizer *t = mempool_get(tokpoolLatin_g);
-  t->Reset(t, stemmer, stopwords, 0);
-  return t;
-}
+//   Tokenizer *t = mempool_get(tokpoolCn_g);
+//   t->Reset(stemmer, stopwords, 0);
+//   return t;
+// }
 
 //---------------------------------------------------------------------------------------------
 
-void Tokenizer_Release(Tokenizer *t) {
-  // In the future it would be nice to have an actual ID field or w/e, but for
-  // now we can just compare callback pointers
-  if (t->Next == simpleTokenizer_Next) {
-    if (t->ctx.stopwords) {
-      StopWordList_Unref(t->ctx.stopwords);
-      t->ctx.stopwords = NULL;
-    }
-    mempool_release(tokpoolLatin_g, t);
-  } else {
-    mempool_release(tokpoolCn_g, t);
-  }
-}
+// Tokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+//   if (!tokpoolLatin_g) {
+//     mempool_options opts = {
+//         .isGlobal = 1, .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
+//     tokpoolLatin_g = mempool_new(&opts);
+//   }
+//   Tokenizer *t = mempool_get(tokpoolLatin_g);
+//   t->Reset(stemmer, stopwords, 0);
+//   return t;
+// }
+
+//---------------------------------------------------------------------------------------------
+
+// void Tokenizer::Release() {
+//   // In the future it would be nice to have an actual ID field or w/e, but for
+//   // now we can just compare callback pointers
+//   if (stopwords) {
+//     stopwords->Unref();
+//     stopwords = NULL;
+//   }
+//   mempool_release(tokpoolLatin_g, this);
+// }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

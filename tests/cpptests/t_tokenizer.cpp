@@ -7,7 +7,7 @@ class TokenizerTest : public ::testing::Test {};
 
 TEST_F(TokenizerTest, testTokenize) {
   Stemmer *st = new Stemmer(SnowballStemmer, RS_LANG_ENGLISH);
-  SimpleTokenizer *tk = GetSimpleTokenizer(st, DefaultStopWordList());
+  SimpleTokenizer *tk = new SimpleTokenizer(st, DefaultStopWordList(), 0);
   char *txt = strdup("hello worlds    - - -,,, . . . -=- hello\\-world to be שלום עולם");
   const char *expected[] = {"hello", "worlds", "hello-world", "שלום", "עולם"};
   const char *stems[] = {NULL, "+world", NULL, NULL, NULL, NULL, NULL};

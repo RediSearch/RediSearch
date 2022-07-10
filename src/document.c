@@ -146,20 +146,18 @@ int AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCou
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Creates a new context used for adding documents. Once created, call
- * Document::AddToIndexes on it.
- *
- * - client is a blocked client which will be used as the context for this
- *   operation.
- * - sp is the index that this document will be added to
- * - base is the document to be index. The context will take ownership of the
- *   document's contents (but not the structure itself). Thus, you should not
- *   call Document_Free on the document after a successful return of this
- *   function.
- *
- * When done, call delete
- */
+// Creates a new context used for adding documents. Once created, call
+// Document::AddToIndexes on it.
+//
+// - client is a blocked client which will be used as the context for this
+//   operation.
+// - sp is the index that this document will be added to
+// - base is the document to be index. The context will take ownership of the
+//   document's contents (but not the structure itself). Thus, you should not
+//   call Document_Free on the document after a successful return of this
+//   function.
+//
+// When done, call delete
 
 AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) {
   stateFlags = 0;
@@ -645,27 +643,30 @@ static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key
     RSExpr e(expr, strlen(expr), status);
 
     if (status->HasError()) {
-      delete &e;
       return REDISMODULE_ERR;
     }
 
     RLookupRow row;
+    RSValue rv;
+    RLookupLoadOptions *loadopts = NULL;
+    ExprEval *evaluator = NULL;
     IndexSpecCache *spcache = sctx->spec->GetSpecCache();
     RLookup lookup_s(spcache);
     if (e.GetLookupKeys(&lookup_s, status) == EXPR_EVAL_ERR) {
       goto done;
     }
 
-    RLookupLoadOptions loadopts(sctx, dmd, status);
-    if (lookup_s.LoadDocument(&row, &loadopts) != REDISMODULE_OK) {
+    loadopts = new RLookupLoadOptions(sctx, dmd, status);
+    if (lookup_s.LoadDocument(&row, loadopts) != REDISMODULE_OK) {
       // printf("Couldn't load document!\n");
+      delete loadopts;
       goto done;
     }
 
-    RSValue rv;
-    ExprEval evaluator(status, &lookup_s, &row, &e);
-    if (evaluator.Eval(&rv) != EXPR_EVAL_OK) {
+    evaluator = new ExprEval(status, &lookup_s, &row, &e);
+    if (evaluator->Eval(&rv) != EXPR_EVAL_OK) {
       // printf("Eval not OK!!! SAD!!\n");
+      delete evaluator;
       goto done;
     }
 

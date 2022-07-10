@@ -48,8 +48,8 @@ struct Token {
   // position in the document - this is written to the inverted index
   uint32_t pos;
 
-  Token() : tok(NULL), tokLen(0), flags(0), stem(NULL), phoneticsPrimary(NULL), stemLen(0),
-            raw(NULL), rawLen(0) {}
+  Token(const char *tok = NULL, uint32_t tokLen = 0, const char *raw = NULL, uint32_t rawLen = 0, uint32_t flags = 0, char *phoneticsPrimary = NULL) :
+    tok(tok), tokLen(tokLen), flags(flags), phoneticsPrimary(phoneticsPrimary), raw(raw), rawLen(rawLen) {}
 
   ~Token() {
     rm_free(phoneticsPrimary);
@@ -70,13 +70,17 @@ struct Tokenizer {
   uint32_t lastOffset;
   uint32_t options;
 
-  Tokenizer(StopWordList *stopwords_, uint32_t opts) : stopwords(stopwords), options(opts) {}
-  virtual ~Tokenizer();
+  Tokenizer(StopWordList *stopwords, uint32_t opts) : stopwords(stopwords), options(opts) {}
+  virtual ~Tokenizer() {
+    delete stopwords;
+  }
+
+  // void Release();
 
   // read the next token. Return its position or 0 if we can't read anymore
   virtual uint32_t Next(Token *tok);
   virtual void Start(char *txt, size_t len, uint32_t options);
-  virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+  // virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -85,11 +89,11 @@ struct SimpleTokenizer : public Tokenizer {
   char **pos;
   Stemmer *stemmer;
 
-  SimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+  SimpleTokenizer(Stemmer *stemmer = NULL, StopWordList *stopwords = NULL, uint32_t opts = 0);
 
   virtual uint32_t Next(Token *tok);
   virtual void Start(char *txt, size_t len, uint32_t options);
-  virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+  // virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -101,12 +105,12 @@ struct ChineseTokenizer : public Tokenizer {
   char escapebuf[CNTOKENIZE_BUF_MAX];
   size_t nescapebuf;
 
-  ChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+  ChineseTokenizer(Stemmer *stemmer = NULL, StopWordList *stopwords = NULL, uint32_t opts = 0);
   virtual ~ChineseTokenizer();
 
   virtual uint32_t Next(Token *tok);
   virtual void Start(char *txt, size_t len, uint32_t options);
-  virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+  // virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
 
 protected:
   static void maybeFrisoInit();
@@ -137,7 +141,7 @@ protected:
  * is no longer needed, return to the pool using Tokenizer_Release()
  */
 Tokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords);
-Tokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
-Tokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
+// Tokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
+// Tokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

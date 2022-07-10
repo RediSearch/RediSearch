@@ -93,24 +93,37 @@ struct Fragment {
 
   // Score calculated from the number of matches
   float score;
-  Array termLocs;  // TermLoc
+  Array<TermLoc> termLocs;  // TermLoc
 
   size_t GetNumTerms() const;
 
   int HasTerm(uint32_t termId) const;
 
   void WriteIovs(const char *openTag, size_t openLen, const char *closeTag,
-                 size_t closeLen, Array *iovs, const char **preamble) const;
+                 size_t closeLen, Array<iovec *> iovs, const char **preamble) const;
 };
 
 struct HighlightTags {
   const char *openTag;
   const char *closeTag;
+
+  HighlightTags(HighlightSettings settings) : openTag(settings.openTag), closeTag(settings.closeTag) {}
+};
+
+#define FRAGMENT_TERM(buf_, len_, score_) \
+  { .tok = buf_, .len = len_, .score = score_ }
+/**
+ * A single term to use for searching. Used when fragmenting a buffer
+ */
+struct FragmentSearchTerm {
+  const char *tok;
+  size_t len;
+  float score;
 };
 
 struct FragmentList {
   // Array of fragments
-  Array frags<Fragment *>;
+  Array<Fragment *> frags;
 
   // Array of indexes (in frags), sorted by score
   const Fragment **sortedFrags;
@@ -145,11 +158,11 @@ struct FragmentList {
   ~FragmentList();
 
   size_t GetNumFrags() const {
-    return ARRAY_GETSIZE_AS(&frags, Fragment);
+    return frags.ARRAY_GETSIZE_AS();
   }
 
   Fragment *GetFragments() const {
-    return ARRAY_GETARRAY_AS(&frags, const Fragment *);
+    return *frags.ARRAY_GETARRAY_AS();
   }
 
   void extractToken(const Token *tokInfo, const FragmentSearchTerm *terms, size_t numTerms);
@@ -162,10 +175,10 @@ struct FragmentList {
                          const FragmentSearchTerm *terms, size_t numTerms);
   void FragmentizeIter(const char *doc_, size_t docLen, FragmentTermIterator *iter, int options);
 
-  void HighlightWholeDocV(const HighlightTags *tags, Array *iovs) const;
+  void HighlightWholeDocV(const HighlightTags *tags, Array<iovec *> iovs) const;
   char *HighlightWholeDocS(const HighlightTags *tags) const;
 
-  void HighlightFragments(const HighlightTags *tags, size_t contextSize, Array *iovBufList,
+  void HighlightFragments(const HighlightTags *tags, size_t contextSize, Array<iovec *> *iovBufList,
                           size_t niovs, int order);
 
   void FindContext(const Fragment *frag, const char *limitBefore, const char *limitAfter,
@@ -173,17 +186,6 @@ struct FragmentList {
 
   void Sort();
   void Dump() const;
-};
-
-#define FRAGMENT_TERM(buf_, len_, score_) \
-  { .tok = buf_, .len = len_, .score = score_ }
-/**
- * A single term to use for searching. Used when fragmenting a buffer
- */
-struct FragmentSearchTerm {
-  const char *tok;
-  size_t len;
-  float score;
 };
 
 #define DOCLEN_NULTERM ((size_t)-1)

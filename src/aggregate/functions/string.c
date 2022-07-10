@@ -221,7 +221,6 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
         } else {
           out = sdscatlen(out, str, sz);
         }
-        RSValue_Free(&strval);
       } else {
         size_t sz;
         const char *str = arg->StringPtrLen(&sz);
@@ -329,7 +328,7 @@ int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Que
 
   result->t = RSValue_Number;
   if (argv[0]->t != RSValue_Null) {
-    result->numval = 1;                       
+    result->numval = 1;
   } else {
     ctx->err->ClearError();
     result->numval = 0;

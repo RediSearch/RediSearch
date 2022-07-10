@@ -117,11 +117,11 @@ size_t TagIndex::Put(const char *value, size_t len, t_docId docId) {
 //---------------------------------------------------------------------------------------------
 
 // Index a vector of pre-processed tags for a docId
-size_t TagIndex::Index(const Tags &tags, size_t n, t_docId docId) {
+size_t TagIndex::Index(const Tags &tags, t_docId docId) {
   if (!values) return 0;
   size_t ret = 0;
-  for (size_t ii = 0; ii < n; ++ii) {
-    const char *tok = tags[ii];
+  for (size_t i = 0; i < array_len(tags.tags); ++i) {
+    const char *tok = tags[i];
     if (tok && *tok != '\0') {
       ret += Put(tok, strlen(tok), docId);
     }

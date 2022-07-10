@@ -1,5 +1,6 @@
 #include "geo_index.h"
 #include "index.h"
+#include "id_list.c"
 
 #include "rmutil/util.h"
 #include "rmalloc.h"
@@ -150,7 +151,7 @@ IndexIterator *GeoIndex::NewGeoRangeIterator(const GeoFilter &gf, double weight)
     return NULL;
   }
 
-  IndexIterator *ret = new IdListIterator(docIds, (t_offset)size, weight);
+  IdListIterator *ret = new IdListIterator(docIds, (t_offset)size, weight);
   rm_free(docIds);
   return ret;
 }

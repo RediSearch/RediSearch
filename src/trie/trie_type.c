@@ -24,6 +24,10 @@ Trie::Trie() {
   size = 0;
 }
 
+Trie::~Trie() {
+  delete root;
+}
+
 //---------------------------------------------------------------------------------------------
 
 int Trie::Insert(RedisModuleString *s, double score, int incr, RSPayload *payload) {
@@ -357,7 +361,6 @@ void TrieType_Free(void *value) {
 //---------------------------------------------------------------------------------------------
 
 int TrieType_Register(RedisModuleCtx *ctx) {
-
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = TrieType_RdbLoad,
                                .rdb_save = TrieType_RdbSave,

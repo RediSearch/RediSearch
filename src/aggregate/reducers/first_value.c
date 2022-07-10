@@ -22,7 +22,7 @@ struct FVReducer {
 static void *fvNewInstance(Reducer *rbase) {
   FVReducer *parent = (FVReducer *)rbase;
   BlkAlloc *ba = &parent->base.alloc;
-  fvCtx *fv = BlkAlloc_Alloc(ba, sizeof(*fv), 1024 * sizeof(*fv));  // malloc(sizeof(*ctr));
+  fvCtx *fv = ba->Alloc(sizeof(*fv), 1024 * sizeof(*fv));  // malloc(sizeof(*ctr));
   fv->retprop = parent->base.srckey;
   fv->sortprop = parent->sortprop;
   fv->ascending = parent->ascending;
@@ -40,7 +40,7 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
     return 1;
   }
 
-  RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
+  RSValue *val = srcrow->GetItem(fvx->retprop);
   if (!val) {
     fvx->value = RS_NullVal();
     return 1;
@@ -53,12 +53,12 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   fvCtx *fvx = ctx;
-  RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
+  RSValue *val = srcrow->GetItem(fvx->retprop);
   if (!val) {
     return 1;
   }
 
-  RSValue *curSortval = RLookup_GetItem(fvx->sortprop, srcrow);
+  RSValue *curSortval = srcrow->GetItem(fvx->sortprop);
   if (!curSortval) {
     curSortval = &RS_StaticNull;
   }

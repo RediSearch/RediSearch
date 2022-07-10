@@ -129,7 +129,7 @@ struct QueryNode : Object {
   virtual void Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp);
   virtual bool expandChildren() const { return false; }
 
-  typedef int (*ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
+  typedef bool (*ForEachCallback)(QueryNode *node, void *ctx);
   int ForEach(ForEachCallback callback, void *ctx, bool reverse);
 
   void SetFieldMask(t_fieldMask mask);
@@ -139,6 +139,9 @@ struct QueryNode : Object {
   virtual sds dumpsds(sds s, const IndexSpec *spec, int depth) { return sdscat(s, "<empty>"); }
 
   virtual IndexIterator *EvalNode(Query *q) { return new EmptyIterator(); }
+  virtual IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight) {
+    return NULL;
+  }
 
   IndexIterator *EvalSingleTagNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
 };
@@ -191,7 +194,7 @@ struct QueryTagNode : QueryNode {
   const char *fieldName;
   size_t len;
 
-  QueryTagNode(const char *field, size_t len_) : QueryNode(QN_TAG), fieldName(field), len(len) {}
+  QueryTagNode(const char *field, size_t len) : QueryNode(QN_TAG), fieldName(field), len(len) {}
   ~QueryTagNode();
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
@@ -215,11 +218,7 @@ struct QueryTokenNode : QueryNode {
   RSToken tok;
 
   QueryTokenNode(QueryParse *q, const char *s, size_t len, uint8_t expanded = 0, RSTokenFlags flags = 0) :
-    QueryNode(QN_TOKEN), tok(s, len, expanded, flags) {
-    if (len == (size_t)-1) {
-      len = strlen(s);
-    }
-
+    QueryNode(QN_TOKEN), tok(s, len == (size_t)-1 ? strlen(s) : len, expanded, flags) {
     if (q) q->numTokens++;
   }
 
@@ -256,7 +255,7 @@ struct QueryPrefixNode : QueryNode {
   }
 
   IndexIterator *EvalNode(Query *q);
-  IndexIterator *EvalTagPrefixNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -308,6 +307,8 @@ struct QueryGeofilterNode : QueryNode {
                      gf->lat, gf->radius, gf->unitType.ToString());
     return s;
   }
+
+  IndexIterator *Eval(Query *q, double weight);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -346,8 +347,8 @@ struct QueryLexRangeNode : QueryNode {
   }
 
   IndexIterator *EvalNode(Query *q);
-  IndexIterator *EvalTagLexRangeNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
-                                     double weight);
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
+                            double weight);
 };
 
 //---------------------------------------------------------------------------------------------

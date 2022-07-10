@@ -65,12 +65,12 @@ struct RSByteOffsetIterator {
   uint32_t endPos;
   bool valid;
 
-  // Begin iterating over the byte offsets for a given field. 
+  // Begin iterating over the byte offsets for a given field.
   // Returns REDISMODULE_ERR if the field does not exist in the current byte offset.
 
   RSByteOffsetIterator(const RSByteOffsets &offsets, uint32_t fieldId);
 
-  // Returns the next byte offset for the given position. 
+  // Returns the next byte offset for the given position.
   // The current position can be obtained using the curPos variable.
   // Returns RSBYTEOFFSET_EOF when the iterator is at the end of the token stream.
 

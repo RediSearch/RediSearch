@@ -1,4 +1,4 @@
-#include "result_processor.h"
+#include "highlight_processor.h"
 #include "fragmenter.h"
 #include "value.h"
 #include "toksep.h"
@@ -9,34 +9,13 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/**
- * Common parameters passed around for highlighting one or more fields within
- * a document. This structure exists to avoid passing these four parameters
- * discreetly (as we did in previous versiosn)
- */
-struct hlpDocContext {
-  // Byte offsets, byte-wise
-  const RSByteOffsets *byteOffsets;
+// Attempts to fragmentize a single field from its offset entries. This takes
+// the field name, gets the matching field ID, retrieves the offset iterator
+// for the field ID, and fragments the text based on the offsets. The fragmenter
+// itself is in fragmenter.{c,h}
+//
+// Returns true if the fragmentation succeeded, false otherwise.
 
-  // Index result, which contains the term offsets (word-wise)
-  const IndexResult *indexResult;
-
-  // Array used for in/out when writing fields. Optimization cache
-  Array *iovsArr;
-
-  RLookupRow *row;
-};
-
-//---------------------------------------------------------------------------------------------
-
-/**
- * Attempts to fragmentize a single field from its offset entries. This takes
- * the field name, gets the matching field ID, retrieves the offset iterator
- * for the field ID, and fragments the text based on the offsets. The fragmenter
- * itself is in fragmenter.{c,h}
- *
- * Returns true if the fragmentation succeeded, false otherwise.
- */
 static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText,
                               size_t fieldLen, const IndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
@@ -47,9 +26,9 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
   }
 
   int rc = 0;
-  var offsIter = indexResult->IterateOffsets();
+  RSOffsetIterator offsIter = indexResult->IterateOffsets();
   FragmentTermIterator fragIter;
-  RSByteOffsetIterator bytesIter(byteOffsets, fs->ftId);
+  RSByteOffsetIterator bytesIter(*byteOffsets, fs->ftId);
   if (!bytesIter.valid) {
     goto done;
   }
@@ -62,7 +41,7 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
   rc = 1;
 
 done:
-  offsIter.Free(offsIter.ctx);
+  delete &offsIter;
   return rc;
 }
 
@@ -173,7 +152,7 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
   FragmentList frags(8, 6);
 
   // Start gathering the terms
-  HighlightTags tags = fieldInfo->highlightSettings;
+  HighlightTags tags(fieldInfo->highlightSettings);
 
   // First actually generate the fragments
   size_t docLen;
@@ -200,7 +179,7 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
     return RS_StringValC(hlDoc);
   }
 
-  size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, &frags->GetNumFrags());
+  size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, frags.GetNumFrags());
   for (size_t i = 0; i < numIovArr; ++i) {
     docParams->iovsArr[i].Resize(0);
   }
@@ -209,7 +188,7 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
                            docParams->iovsArr, numIovArr, HIGHLIGHT_ORDER_SCOREPOS);
 
   // Buffer to store concatenated fragments
-  Array bufTmp = new Array(ArrayAlloc_RM);
+  Array<iovec *> bufTmp = new Array<iovec *>(ArrayAlloc_RM);
 
   for (size_t i = 0; i < numIovArr; ++i) {
     Array *curIovs = docParams->iovsArr + i;
@@ -224,7 +203,7 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
     // Duplicate spaces for the current snippet are eliminated here. We shouldn't
     // move it to the end because the delimiter itself may contain a special kind
     // of whitespace.
-    size_t newSize = stripDuplicateSpaces(bufTmp.data + lastSize, bufTmp.len - lastSize);
+    size_t newSize = stripDuplicateSpaces(bufTmp.ARRAY_GETARRAY_AS() + lastSize, bufTmp.len - lastSize);
     bufTmp.Resize(lastSize + newSize);
     bufTmp.Write(fieldInfo->summarizeSettings.separator,
                  strlen(fieldInfo->summarizeSettings.separator));
@@ -254,14 +233,14 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
 
 //---------------------------------------------------------------------------------------------
 
-static void processField(hlpDocContext *docParams, ReturnedField *spec) {
+void Highlighter::processField(hlpDocContext *docParams, ReturnedField *spec) {
   const char *fName = spec->name;
   const RSValue *fieldValue = docParams->row->GetItem(spec->lookupKey);
 
   if (fieldValue == NULL || !fieldValue->IsString()) {
     return;
   }
-  RSValue *v = summarizeField(RP_SPEC(&this), spec, fName, fieldValue, docParams,
+  RSValue *v = summarizeField(parent->sctx->spec, spec, fName, fieldValue, docParams,
                               fragmentizeOptions);
   if (v) {
     docParams->row->WriteOwnKey(spec->lookupKey, v);
@@ -271,7 +250,7 @@ static void processField(hlpDocContext *docParams, ReturnedField *spec) {
 //---------------------------------------------------------------------------------------------
 
 const IndexResult *Highlighter::getIndexResult(t_docId docId) {
-  IndexIterator *it = QITR_GetRootFilter(parent);
+  IndexIterator *it = parent->GetRootFilter();
   IndexResult *ir;
   it->Rewind();
   if (INDEXREAD_OK != it->SkipTo(docId, &ir)) {
@@ -303,10 +282,7 @@ int Highlighter::Next(SearchResult *r) {
     return RS_RESULT_OK;
   }
 
-  hlpDocContext docParams = {byteOffsets: dmd->byteOffsets,  // nl
-                             indexResult: ir,
-                             iovsArr: NULL,
-                             row: &r->rowdata};
+  hlpDocContext docParams(dmd->byteOffsets, ir, &r->rowdata);
 
   if (fields->numFields) {
     for (size_t i = 0; i < fields->numFields; ++i) {
@@ -333,22 +309,18 @@ int Highlighter::Next(SearchResult *r) {
       processField(&docParams, &spec);
     }
   }
-  for (size_t i = 0; i < numIovsArr; ++i) {
-    delete &docParams.iovsArr[i];
-  }
-  rm_free(docParams.iovsArr);
+
+  delete &docParams.iovsArr;
   return RS_RESULT_OK;
 }
 
 //---------------------------------------------------------------------------------------------
 
-Highlighter::Highlighter(const RSSearchOptions *searchopts, const FieldList *fields_,
-                           const RLookup *lookup_) {
+Highlighter::Highlighter(const RSSearchOptions *searchopts, const FieldList *fields,
+                         const RLookup *lookup) : ResultProcessor("Highlighter"), lookup(lookup), fields(fields) {
   if (searchopts->language == RS_LANG_CHINESE) {
     fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }
-  fields = fields_;
-  lookup = lookup_;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -43,6 +43,7 @@ int AliasTable::Del(const char *alias, IndexSpec *spec, int options, QueryError 
   }
 
   if (!(options & INDEXALIAS_NO_BACKREF)) {
+    toFree = spec->aliases[idx];
     spec->delAlias(idx);
   }
 

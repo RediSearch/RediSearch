@@ -301,7 +301,7 @@ NumericIndexBlockRepair::NumericIndexBlockRepair(const InvertedIndex &idx) {
 
 void NumericIndexBlockRepair::countDeleted(const NumericResult *r, const IndexBlock *blk) {
   UnorderedMap<uint64_t, size_t> &ht = blk == lastblk ? delLast : delRest;
-  RS_LOG_ASSERT(ht, "cardvals should not be NULL");
+  // RS_LOG_ASSERT(ht, "cardvals should not be NULL");
   double u = r->value;
   if (ht.contains(u)) {
     ht[u]++; // i.e. already existed

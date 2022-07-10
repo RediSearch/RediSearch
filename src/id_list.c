@@ -167,10 +167,8 @@ IdListIterator::IdListIterator(t_docId *ids, t_offset num, double weight) {
   lastDocId = 0;
   current = new VirtualResult(weight);
   current->fieldMask = RS_FIELDMASK_ALL;
-
   offset = 0;
-
-  mode = Mode::Sorted;
+  mode = IndexIteratorMode::Sorted;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

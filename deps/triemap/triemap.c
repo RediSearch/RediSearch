@@ -58,7 +58,7 @@ void TrieMapNode::AddChild(char *str_, tm_len_t offset, tm_len_t len_, void *val
   resizeChildren(1);
 
   // a newly added child must be a terminal node
-  TrieMapNode child = new TrieMapNode(str_, offset, len_, 0, value_, 1);
+  TrieMapNode child = *new TrieMapNode(str_, offset, len_, 0, value_, 1);
   *childKey(numChildren - 1) = str_[offset];
 
   children()[numChildren - 1] = &child;
@@ -367,7 +367,7 @@ TrieMapNode *TrieMapNode::MergeWithSingleChild() {
   char nstr[len + ch.len + 1];
   memcpy(nstr, str, sizeof(char) * len);
   memcpy(&nstr[len], ch.str, sizeof(char) * ch.len);
-  TrieMapNode merged = new TrieMapNode(nstr, 0, len + ch.len, ch.numChildren,
+  TrieMapNode merged = *new TrieMapNode(nstr, 0, len + ch.len, ch.numChildren,
                                        ch.value, ch.isTerminal());
 
   merged.numChildren = ch.numChildren;
@@ -623,7 +623,7 @@ static int nodecmp(const char *sa, size_t na, const char *sb, size_t nb) {
 
 static int TrieMapNode::CompareCommon(const void *h, const void *e, bool prefix) {
   const TrieMaprsbHelper term = (const TrieMaprsbHelper)h;
-  const TrieMapNode elem = (const TrieMapNode **)e;
+  const TrieMapNode elem = (const TrieMapNode)e;
   size_t ntmp;
   int rc;
   if (prefix) {
@@ -836,8 +836,8 @@ void TrieMap::IterateRange(const char *min, int minlen, bool includeMin,
 
 //---------------------------------------------------------------------------------------------
 
-// Iterate to the next matching entry in the trie. Returns 1 if we can continue,
-// or 0 if we're done and should exit
+// Iterate to the next matching entry in the trie. Returns true if we can continue,
+// or false if we're done and should exit
 
 bool TrieMapIterator::Next(char **ptr, tm_len_t *len, void **value) {
   while (stackOffset > 0) {

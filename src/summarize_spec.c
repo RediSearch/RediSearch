@@ -72,7 +72,7 @@ int FieldList::parseArgs(ArgsCursor *ac, bool isHighlight) {
   int rc = REDISMODULE_OK;
 
   ReturnedField defOpts;
-  Array fieldPtrs;
+  Array<size_t> fieldPtrs;
 
   if (ac->AdvanceIfMatch("FIELDS")) {
     if (parseFieldList(ac, &fieldPtrs) != 0) {
@@ -113,9 +113,9 @@ int FieldList::parseArgs(ArgsCursor *ac, bool isHighlight) {
   }
 
   if (fieldPtrs.len) {
-    size_t numNewPtrs = ARRAY_GETSIZE_AS(&fieldPtrs, size_t);
+    size_t numNewPtrs = fieldPtrs.ARRAY_GETSIZE_AS();
     for (size_t ii = 0; ii < numNewPtrs; ++ii) {
-      size_t ix = ARRAY_GETARRAY_AS(&fieldPtrs, size_t *)[ii];
+      size_t ix = fieldPtrs.ARRAY_GETARRAY_AS()[ii];
       ReturnedField fieldInfo = fields[ix];
       fieldInfo.setFieldSettings(&defOpts, isHighlight);
     }

@@ -21,6 +21,7 @@ struct Trie {
   size_t size;
 
   Trie();
+  ~Trie();
 
   int Delete(const char *s, size_t len);
   int Insert(RedisModuleString *s, double score, int incr, RSPayload *payload);

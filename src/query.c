@@ -163,7 +163,7 @@ void QueryTokenNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp
   bool expand = expandChildren();
 
   qexp.currentNode = &this; // @@TODO: check this up
-  expander(qexp, &tok);
+  expander(&qexp, &tok);
 
   if (!expand) return;
 
@@ -192,7 +192,7 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
   while (it.Next(&rstr, &slen, NULL, &score, &dist) &&
          (itsSz < maxExpansions || maxExpansions == -1)) {
     // Create a token for the reader
-    RSToken tok{rstr, slen};
+    RSToken tok(rstr, slen);
     if (q->sctx && q->sctx->redisCtx) {
       RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
     }
@@ -272,7 +272,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   LexRangeCtx *ctx = p;
   Query *q = ctx->q;
   RSToken tok{r, n};
-  RSQueryTerm *term = new RSQueryTerm(&tok, ctx->q->tokenId++);
+  RSQueryTerm *term = new RSQueryTerm(tok, ctx->q->tokenId++);
   IndexReader *ir = new TermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, ctx->weight);
   if (!ir) {
     delete term;
@@ -317,10 +317,10 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
   rune *rbegin = NULL, *rend = NULL;
   size_t nbegin, nend;
   if (begin) {
-    begin = strToFoldedRunes(begin, &nbegin);
+    begin = strToFoldedRunes(begin, &nbegin, false);
   }
   if (end) {
-    end = strToFoldedRunes(end, &nend);
+    end = strToFoldedRunes(end, &nend, false);
   }
 
   t->root->IterateRange(rbegin, rbegin ? nbegin : -1, includeBegin, rend,
@@ -342,7 +342,7 @@ IndexIterator *QueryFuzzyNode::EvalNode(Query *q) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, pfx.str, pfx.len, maxDist, 0, &opts); //@@ Why can it be Fuzzy and Prefix?
+  return iterateExpandedTerms(q, terms, tok.str, tok.len, maxDist, 0, &opts); //@@ Why can it be Fuzzy and Prefix?
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -509,15 +509,14 @@ IndexIterator *QueryUnionNode::EvalNode(Query *q) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexIterator *QueryLexRangeNode::EvalTagLexRangeNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
-                                                      double weight) {
+IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
+                                             double weight) {
   TrieMap *t = idx->values;
-  LexRangeCtx ctx(q, &opts, weight);
-
   if (!t) {
     return NULL;
   }
 
+  LexRangeCtx ctx(q, &opts, weight);
   ctx.cap = 8;
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
@@ -539,19 +538,15 @@ IndexIterator *QueryLexRangeNode::EvalTagLexRangeNode(Query *q, TagIndex *idx, I
 
 // Evaluate a tag prefix by expanding it with a lookup on the tag index
 
-IndexIterator *QueryPrefixNode::EvalTagPrefixNode(Query *q, TagIndex *idx,
-                                                  IndexIteratorArray *iterout, double weight) {
-  // if (type != QN_PREFX) {
-  //   return NULL;
-  // }
-
+IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
+                                           double weight) {
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (pfx.len < q->sctx->spec->minPrefix) {
+  if (tok.len < q->sctx->spec->minPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
 
-  TrieMapIterator *it = idx->values->Iterate(pfx.str, pfx.len);
+  TrieMapIterator *it = idx->values->Iterate(tok.str, tok.len);
   if (!it) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
@@ -591,42 +586,7 @@ IndexIterator *QueryPrefixNode::EvalTagPrefixNode(Query *q, TagIndex *idx,
 
 IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
                                             double weight) {
-  IndexIterator *ret = NULL;
-  switch (type) {
-    case QN_TOKEN: {
-      // ret = idx->OpenReader(q->sctx->spec, tn.str, tn.len, weight);
-      ret = EvalSingle(q, idx, iterout, weight);
-      break;
-    }
-    case QN_PREFX:
-      return EvalTagPrefixNode(q, idx, iterout, weight);
-
-    case QN_LEXRANGE:
-      return EvalTagLexRangeNode(q, idx, iterout, weight);
-
-    case QN_PHRASE: {
-      // char *terms[NumChildren()];
-      // for (size_t i = 0; i < NumChildren(); ++i) {
-      //   if (children[i]->type == QN_TOKEN) {
-      //     terms[i] = children[i]->tn.str;
-      //   } else {
-      //     terms[i] = "";
-      //   }
-      // }
-
-      // sds s = sdsjoin(terms, NumChildren(), " ");
-
-      // ret = idx->OpenReader(q->sctx->spec, s, sdslen(s), weight);
-      // sdsfree(s);
-
-      ret = EvalSingle(q, idx, iterout, weight);
-      break;
-    }
-
-    default:
-      return NULL;
-  }
-
+  IndexIterator *ret = EvalSingle(q, idx, iterout, weight);
   if (ret) {
     *array_ensure_tail(iterout, IndexIterator *) = ret;
   }
@@ -749,14 +709,9 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-Query::Query(QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx_,
-             ConcurrentSearchCtx *conc_) {
-  conc = conc_;
-  opts = opts_;
-  numTokens = ast.numTokens;
-  docTable = &sctx_->spec->docs;
-  sctx = sctx_;
-}
+Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
+             ConcurrentSearchCtx *conc) : conc(conc), opts(opts), numTokens(ast.numTokens),
+             docTable(&sctx->spec->docs), sctx(sctx) {}
 
 //---------------------------------------------------------------------------------------------
 
@@ -773,7 +728,7 @@ Query::Query(QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx_,
 
 IndexIterator *QueryAST::Iterate(const RSSearchOptions &opts, RedisSearchCtx &sctx,
                                  ConcurrentSearchCtx &conc) const {
-  Query query(*this, &opts, &sctx, conc);
+  Query query(this, &opts, &sctx, &conc);
   IndexIterator *iter = query.Eval(root);
   if (!iter) {
     // Return the dummy iterator
@@ -795,7 +750,7 @@ QueryAST::~QueryAST() {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Expand the query using a pre-registered expander. 
+ * Expand the query using a pre-registered expander.
  * Query expansion possibly modifies or adds additional search terms to the query.
  * @param q the query
  * @param expander the name of the expander
@@ -809,8 +764,8 @@ int QueryAST::Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx
   if (!root) {
     return REDISMODULE_OK;
   }
-  RSQueryExpander qexp(q, sctx, opts->language, status);
-  ExtQueryExpander *xpc = Extensions::GetQueryExpander(qexp, expander ? expander : DEFAULT_EXPANDER_NAME);
+  RSQueryExpander qexp(this, sctx, opts->language, status);
+  ExtQueryExpander *xpc = Extensions::GetQueryExpander(&qexp, expander ? expander : DEFAULT_EXPANDER_NAME);
   if (xpc && xpc->exp) {
     root->Expand(xpc->exp, qexp);
     if (xpc->ff) {
@@ -939,7 +894,7 @@ sds QueryNode::DumpChildren(sds s, const IndexSpec *spec, int depth) const {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Return a string representation of the query parse tree. 
+// Return a string representation of the query parse tree.
 // The string should be freed by the caller.
 
 char *QueryAST::DumpExplain(const IndexSpec *spec) const {
@@ -971,7 +926,7 @@ int QueryNode::ForEach(ForEachCallback callback, void *ctx, bool reverse) {
   int retVal = 1;
   while (array_len(nodes) > 0) {
     QueryNode *curr = array_pop(nodes);
-    if (!callback(curr, this, ctx)) {
+    if (!callback(curr, ctx)) {
       retVal = 0;
       break;
     }

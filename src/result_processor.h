@@ -210,21 +210,6 @@ struct ResultsLoader : public ResultProcessor {
   int Next(SearchResult *res);
 };
 
-//---------------------------------------------------------------------------------------------
-
-struct Highlighter : public ResultProcessor {
-  Highlighter(const RSSearchOptions *searchopts, const FieldList *fields, const RLookup *lookup);
-  virtual ~Highlighter();
-
-  int fragmentizeOptions;
-  const FieldList *fields;
-  const RLookup *lookup;
-
-  const IndexResult *getIndexResult(t_docId docId);
-
-  virtual int Next(SearchResult *res);
-};
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Scoring Processor

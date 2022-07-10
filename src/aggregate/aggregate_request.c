@@ -5,6 +5,7 @@
 #include "query.h"
 #include "extension.h"
 #include "result_processor.h"
+#include "highlight_processor.h"
 #include "ext/default.h"
 // #include "extension.h"
 #include "query_error.h"
