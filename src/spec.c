@@ -57,11 +57,15 @@ size_t used_memory = 0;
 //---------------------------------------------------------------------------------------------
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
+#define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
   RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
 
   size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL); // Enterprise limit
+  maxmemory = MIN_NOT_0(maxmemory, max_process_mem);
+
   size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
-  memoryLimit = (maxmemory && (maxmemory < total_system_memory)) ? maxmemory : total_system_memory;
+  memoryLimit = MIN_NOT_0(maxmemory, total_system_memory);
 
   used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
 
