@@ -1,5 +1,5 @@
 from RLTest import Env
-from common import getConnectionByEnv
+from common import *
 
 def testGeoHset(env):
   conn = getConnectionByEnv(env)
@@ -36,11 +36,15 @@ def testGeoLong(env):
 def testGeoDistanceSimple(env):
   env.skipOnCluster()
   env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo', 'hq', 'geo').ok()
-  env.expect('FT.ADD', 'idx', 'geo1', '1', 'FIELDS', 'location', '1.22,4.56', 'hq', '1.25,4.5').ok()
-  env.expect('FT.ADD', 'idx', 'geo2', '1', 'FIELDS', 'location', '1.24,4.56', 'hq', '1.25,4.5').ok()
-  env.expect('FT.ADD', 'idx', 'geo3', '1', 'FIELDS', 'location', '1.23,4.55', 'hq', '1.25,4.5').ok()
-  env.expect('FT.ADD', 'idx', 'geo4', '1', 'FIELDS', 'location', '1.23,4.57', 'hq', '1.25,4.5').ok()
+  env.expect('HSET', 'geo1', 'location', '1.22,4.56', 'hq', '1.25,4.5').equal(2)
+  env.expect('HSET', 'geo2', 'location', '1.24,4.56', 'hq', '1.25,4.5').equal(2)
+  env.expect('HSET', 'geo3', 'location', '1.23,4.55', 'hq', '1.25,4.5').equal(2)
+  env.expect('HSET', 'geo4', 'location', '1.23,4.57', 'hq', '1.25,4.5').equal(2)
+  env.expect('HSET', 'geo5', 'location', '181,4.56', 'hq', '1.25,4.5').equal(2)
+  env.expect('HSET', 'geo6', 'location', '1.23,86', 'hq', '1.25,4.5').equal(2)
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 km]', 'nocontent').equal([4, 'geo1', 'geo2', 'geo3', 'geo4'])
+  assertInfoField(env, 'idx', 'hash_indexing_failures', '2')
+
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 -10 km]').error().contains('Invalid GeoFilter radius')
   env.expect('FT.SEARCH', 'idx', '@location:[181 4.56 10 km]').error().contains('Invalid GeoFilter lat/lon')
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 86 10 km]').error().contains('Invalid GeoFilter lat/lon')
