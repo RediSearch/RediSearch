@@ -837,14 +837,21 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       fs->ftId = textId;
       if isSpecJson(sp) {
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
-          if (getPathFlags(fs->path) & PathInfoFlag_DefinedOrder) {
-            // Ordering is well undefined
-            fs->options &= ~FieldSpec_UndefinedOrder;
+          RedisModuleString *err_msg = NULL;
+          JSONPath jsonPath = pathParse(fs->path, &err_msg);
+          if (jsonPath && pathHasDefinedOrder(jsonPath)) {
+              // Ordering is well undefined
+              fs->options &= ~FieldSpec_UndefinedOrder;            
           } else {
             // Mark FieldSpec
             fs->options |= FieldSpec_UndefinedOrder;
             // Mark IndexSpec
             sp->flags |= Index_HasUndefinedOrder;
+          }
+          if (jsonPath) {
+            pathFree(jsonPath);
+          } else if (err_msg != NULL) {
+            RedisModule_FreeString(RSDummyContext, err_msg);
           }
         }
       }

@@ -47,12 +47,33 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-PathInfoFlags getPathFlags(const char *path) {
+JSONPath pathParse(const char *path, RedisModuleString **err_msg) {
   if (japi2) {
-    return japi2->getPathInfoFlags(path);
+    return japi2->pathParse(path, RSDummyContext, err_msg);
   } else {
-    return PathInfoFlag_Unknown;
+    *err_msg = NULL;
+    return NULL;
   }
+}
+
+void pathFree(JSONPath jsonpath) {
+  if (japi2) {
+    japi2->pathFree(jsonpath);
+  }
+}
+
+int pathIsStatic(JSONPath jsonpath) {
+  if (japi2) {
+    return japi2->pathIsStatic(jsonpath);
+  }
+  return false;
+}
+
+int pathHasDefinedOrder(JSONPath jsonpath) {
+  if (japi2) {
+    return japi2->pathHasDefinedOrder(jsonpath);
+  }
+  return false;
 }
 
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {

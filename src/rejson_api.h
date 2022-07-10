@@ -18,7 +18,6 @@ typedef enum JSONType {
 } JSONType;
 
 typedef enum PathInfoFlags {
-  PathInfoFlag_Unknown = 0x00,
   PathInfoFlag_Invalid = 0x01,
   PathInfoFlag_Static = 0x02,
   PathInfoFlag_DefinedOrder = 0x04,
@@ -26,6 +25,7 @@ typedef enum PathInfoFlags {
 
 typedef const void* RedisJSON;
 typedef const void* JSONResultsIterator;
+typedef const void* JSONPath;
 
 typedef struct RedisJSONAPI_V1 {
   /* RedisJSON functions */
@@ -73,7 +73,7 @@ typedef struct RedisJSONAPI_V1 {
 } RedisJSONAPI_V1;
 
 typedef struct RedisJSONAPI_V2 {
-  /* RedisJSONKey functions */
+  /* RedisJSON functions */
   RedisJSON (*openKey)(RedisModuleCtx *ctx, RedisModuleString *key_name);
   RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *path);
 
@@ -115,8 +115,17 @@ typedef struct RedisJSONAPI_V2 {
   // Return 1 if type of key is JSON
   int (*isJSON)(RedisModuleKey *redis_key);
 
-  // Return JSONPath flags
-  PathInfoFlags (*getPathInfoFlags)(const char *path);
+  // Return a parsed JSONPath
+  // Return NULL if failed to parse, and the error message in `err_msg`
+  // The caller gains ownership of `err_msg`
+  JSONPath (*pathParse)(const char *path, RedisModuleCtx *ctx, RedisModuleString **err_msg);
+
+  // Free a parsed JSONPath
+  void (*pathFree)(JSONPath);
+  
+  // Query a parsed JSONPath
+  int (*pathIsStatic)(JSONPath);
+  int (*pathHasDefinedOrder)(JSONPath);
 
 } RedisJSONAPI_V2;
 
