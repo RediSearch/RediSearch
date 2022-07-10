@@ -259,7 +259,7 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool cascadeDelete;             // remove keys when removing spec. used by temporary index
+  bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
 
   struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
@@ -277,6 +277,7 @@ typedef struct IndexSpec {
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
+typedef enum TimerOp { TimerOp_Add, TimerOp_Del } TimerOp;
 
 typedef struct SpecOpCtx {
   IndexSpec *spec;
@@ -527,6 +528,7 @@ void IndexSpec_ClearAliases(IndexSpec *sp);
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
+void Indexes_SetTempSpecsTimers(TimerOp op);
 
 //---------------------------------------------------------------------------------------------
 
