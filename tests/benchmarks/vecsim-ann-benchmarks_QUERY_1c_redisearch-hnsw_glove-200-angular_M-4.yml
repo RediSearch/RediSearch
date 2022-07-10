@@ -1,0 +1,27 @@
+version: 0.5
+name: "ann-benchmarks_QUERY_1c_redisearch-hnsw_glove-200-angular_M-4"
+metadata:
+  component: "vecsim"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+
+setups:
+  - oss-standalone
+  - oss-cluster-03-primaries
+
+dbconfig:
+  tool: ann-benchmarks
+  dataset_name: "hnsw__glove-200-angular"
+  parameters:
+    build-clients: 1
+    test-clients: 0
+  arguments: ' --algorithm redisearch-flat --dataset glove-200-angular --runs 1'
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: ann-benchmarks
+  parameters:
+    build-clients: 0
+    test-clients: 1
+  arguments: ' --algorithm redisearch-flat --dataset glove-200-angular --runs 1'
