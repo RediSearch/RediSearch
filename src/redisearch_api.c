@@ -156,7 +156,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
       if (!sp->suffix) {
         sp->suffix = NewTrie(suffixTrie_freeCallback);
         sp->flags |= Index_HasSuffixTrie;
-      }    
+      }
     }
   }
 
@@ -829,6 +829,19 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
   RWLOCK_RELEASE();
 
   return REDISEARCH_OK;
+}
+
+size_t RediSearch_Size(RSIndex* sp) {
+  size_t res = 0;
+  res += sp->docs.memsize;
+  res += sp->docs.sortablesSize;
+  res += TrieMap_MemUsage(sp->docs.dim.tm);
+  res += sp->stats.invertedSize;
+  res += sp->stats.skipIndexesSize;
+  res += sp->stats.scoreIndexesSize;
+  res += sp->stats.offsetVecsSize;
+  res += sp->stats.termsSize;
+  return res;
 }
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {

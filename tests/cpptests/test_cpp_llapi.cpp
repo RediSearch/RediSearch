@@ -371,7 +371,7 @@ TEST_F(LLApiTest, testContainsText) {
   }
   ASSERT_EQ(ii, 7);
 
-  RediSearch_ResultsIteratorFree(iter);  
+  RediSearch_ResultsIteratorFree(iter);
   RediSearch_DropIndex(index);
 }
 
@@ -1154,4 +1154,26 @@ TEST_F(LLApiTest, testScore) {
   ASSERT_EQ(REDISEARCH_OK, RediSearch_IndexOptionsSetScore(opt, 0.5));
   ASSERT_EQ(opt->score, 0.5);
   RediSearch_FreeIndexOptions(opt);
+}
+
+TEST_F(LLApiTest, testInfoSize) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding field to the index
+  RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+
+  // adding document to the index
+  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 20, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  d = RediSearch_CreateDocument(DOCID1, strlen(DOCID2), 2.0, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  ASSERT_EQ(RediSearch_Size(index), 125);
 }
