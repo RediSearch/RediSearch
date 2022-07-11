@@ -5,15 +5,15 @@ import time
 
 def testSanity(env):
     env.skipOnCluster()
-    env.expect('ft.config', 'set', 'MINPREFIX', 1).ok()
-    env.expect('ft.config', 'set', 'DEFAULT_DIALECT', 2).ok()
-    env.expect('ft.config', 'set', 'TIMEOUT', 100000).ok()
-    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
+    env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
+    env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
+    env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
+    env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
     item_qty = 10000
 
     index_list = ['idx_bf']
-    env.cmd('ft.create', 'idx_bf', 'SCHEMA', 't', 'TEXT')
-    #env.cmd('ft.create', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+    env.cmd('FT.CREATE', 'idx_bf', 'SCHEMA', 't', 'TEXT')
+    #env.cmd('FT.CREATE', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
 
     conn = getConnectionByEnv(env)
 
@@ -90,14 +90,14 @@ def testSanity(env):
         start_time = time.time()
 
     # test timeout
-    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
+    env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
+    env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
     env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
       .contains('Timeout limit was reached')
     #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
     #  .contains('Timeout limit was reached')
 
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+    env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
       .contains('Timeout limit was reached')
     #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
@@ -105,15 +105,15 @@ def testSanity(env):
 
 def testSanityTag(env):
     env.skipOnCluster()
-    env.expect('ft.config', 'set', 'MINPREFIX', 1).ok()
-    env.expect('ft.config', 'set', 'DEFAULT_DIALECT', 2).ok()
-    env.expect('ft.config', 'set', 'TIMEOUT', 100000).ok()
-    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
+    env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
+    env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
+    env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
+    env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
     item_qty = 10000
 
     index_list = ['idx_bf']
-    env.cmd('ft.create', 'idx_bf', 'SCHEMA', 't', 'TAG', 'SORTABLE')
-    #env.cmd('ft.create', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+    env.cmd('FT.CREATE', 'idx_bf', 'SCHEMA', 't', 'TAG', 'SORTABLE')
+    #env.cmd('FT.CREATE', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
 
     conn = getConnectionByEnv(env)
 
@@ -190,14 +190,14 @@ def testSanityTag(env):
         start_time = time.time()
 
     # test timeout
-    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
+    env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
+    env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
     env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
       .contains('Timeout limit was reached')
     #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
     #  .contains('Timeout limit was reached')
 
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+    env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
       .contains('Timeout limit was reached')
     #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
@@ -205,15 +205,15 @@ def testSanityTag(env):
 
 def testBenchmark(env):
     env.skipOnCluster()
-    env.expect('ft.config', 'set', 'MINPREFIX', 1).ok()
-    env.expect('ft.config', 'set', 'DEFAULT_DIALECT', 2).ok()
-    env.expect('ft.config', 'set', 'TIMEOUT', 100000).ok()
-    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
+    env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
+    env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
+    env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
+    env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
     item_qty = 1000000
 
     index_list = ['idx_bf']
-    env.cmd('ft.create', 'idx_bf', 'SCHEMA', 't', 'TEXT')
-    #env.cmd('ft.create', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+    env.cmd('FT.CREATE', 'idx_bf', 'SCHEMA', 't', 'TEXT')
+    #env.cmd('FT.CREATE', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
 
     conn = getConnectionByEnv(env)
 
@@ -255,3 +255,55 @@ def testBenchmark(env):
         print(time.time() - start_time)
         start_time = time.time()
         print('----*oo234----')
+
+
+def testBasic(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+
+  env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
+  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
+
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+  conn.execute_command('HSET', 'doc2', 't', 'jello')
+  conn.execute_command('HSET', 'doc3', 't', 'hallelujah')
+  conn.execute_command('HSET', 'doc4', 't', 'help')
+  conn.execute_command('HSET', 'doc5', 't', 'mellow')
+  conn.execute_command('HSET', 'doc6', 't', 'jellyfish')
+  conn.execute_command('HSET', 'doc7', 't', 'hello\\\'world')
+  conn.execute_command('HSET', 'doc8', 't', 'hello\\\\world')
+  conn.execute_command('HSET', 'doc9', 't', '\\\'hello')
+  conn.execute_command('HSET', 'doc10', 't', '\\\\hello')
+  conn.execute_command('HSET', 'doc11', 't', 'halloween')
+
+  env.expect('FT.DEBUG', 'dump_terms', 'idx').equal(
+      ['hello', "hello'world", 'hello\\world', 'help', 'hallelujah',
+       'halloween', 'jello', 'jellyfish', 'mellow', "'hello", '\\hello'])
+
+  env.expect('FT.SEARCH', 'idx', "w'*ell*'", 'LIMIT', 0 , 0).equal([8])
+  env.expect('FT.SEARCH', 'idx', "w'*ello'", 'LIMIT', 0 , 0).equal([4])
+
+  env.expect('FT.SEARCH', 'idx', "w'?????'").equal([2, 'doc1', ['t', 'hello'],
+                                                       'doc2', ['t', 'jello']])
+  env.expect('FT.SEARCH', 'idx', "w'?ello'").equal([2, 'doc1', ['t', 'hello'],
+                                                       'doc2', ['t', 'jello']])
+  env.expect('FT.SEARCH', 'idx', "w'?ello?'").equal([1, 'doc5', ['t', 'mellow']])
+
+  # hallelujah
+  env.expect('FT.SEARCH', 'idx', "w'hallelujah'", 'LIMIT', 0 , 0).equal([1])
+  env.expect('FT.SEARCH', 'idx', "w'ha?l*jah'", 'LIMIT', 0 , 0).equal([1])
+  env.expect('FT.SEARCH', 'idx', "w'ha*???lujah'", 'LIMIT', 0 , 0).equal([1])
+  env.expect('FT.SEARCH', 'idx', "w'?al?*?h'", 'LIMIT', 0 , 0).equal([1])
+
+  # escape \'
+  env.expect('FT.SEARCH', 'idx', "w'*\\\'*'").equal([2, 'doc7', ['t', "hello\\'world"], # *,*
+                                                        'doc9', ['t', "\\'hello"]])
+  env.expect('FT.SEARCH', 'idx', "w'*o\\\'w*'").equal([1, 'doc7', ['t', "hello\\'world"]]) # *o'w*
+
+  # escape \\
+  # parser removes the escape
+  # env.expect('FT.SEARCH', 'idx', "w'*\\\\*'").equal([2, 'doc7', ['t', "hello\\world"], # *\*
+  #                                                       'doc9', ['t', "\\hello"]])
+  # env.expect('FT.SEARCH', 'idx', "w'*o\\\\w*'").equal([1, 'doc7', ['t', "hello\\world"]]) # *o\w*

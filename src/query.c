@@ -151,6 +151,7 @@ QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
+  printf("%s\n", s);
   ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
   return ret;
 }
@@ -251,9 +252,12 @@ QueryNode *NewVerbatimNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_WILDCARD_QUERY);
   q->numTokens++;
+  printf("%s ", qt->s);
   if (qt->type == QT_TERM) {
     char *s = rm_strdupcase(qt->s, qt->len);
+    printf("%s ", s);
     size_t len = _removeEscape(s, qt->len);
+    printf("%s", s);
     ret->verb.tok = (RSToken){.str = s, .len = len, .expanded = 0, .flags = 0};
   } else {
     assert (qt->type == QT_PARAM_TERM);
@@ -261,6 +265,7 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
     ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
   }
+  printf("\n");
   return ret;
 }
 

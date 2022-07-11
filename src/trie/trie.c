@@ -1096,6 +1096,8 @@ void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
       .prefix = str[nstr - 1] == (rune)'*',
   };
 
+  // printfRune(str, nstr);
+
   wildcardIterate(n, &r);
 
   array_free(r.buf);

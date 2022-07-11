@@ -63,6 +63,13 @@ static inline void runeBufFree(runeBuf *buf) {
   }
 }
 
+static inline void printfRune(const rune *rune, size_t len) {
+  size_t newlen;
+  char *str = runesToStr(rune, len, &newlen);
+  printf("%s\n", str);
+  rm_free(str);
+}
+
 #ifdef __cplusplus
 }
 #endif
