@@ -898,8 +898,7 @@
           {
             "name": "summarize",
             "type": "pure-token",
-            "token": "SUMMARIZE",
-            "optional": true
+            "token": "SUMMARIZE"
           },
           {
             "name": "fields",
@@ -946,8 +945,7 @@
           {
             "name": "highlight",
             "type": "pure-token",
-            "token": "HIGHLIGHT",
-            "optional": true
+            "token": "HIGHLIGHT"
           },
           {
             "name": "fields",
@@ -1086,14 +1084,14 @@
         ]
       },
       {
-        "name": "PARAMS",
+        "name": "params",
         "type": "block",
         "optional": true,
         "arguments": [          
           {
             "name": "params",
             "type": "pure-token",
-            "token": "params"
+            "token": "PARAMS"
           },
           {
             "name": "nargs",
@@ -1337,17 +1335,17 @@
         ]
       },
       {
-        "name": "PARAMS",
+        "name": "params",
         "type": "block",
         "optional": true,
         "arguments": [          
           {
             "name": "params",
             "type": "pure-token",
-            "token": "params"
+            "token": "PARAMS"
           },
           {
-            "name": "NARGS",
+            "name": "nargs",
             "type": "integer"
           },
           {
