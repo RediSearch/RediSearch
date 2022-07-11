@@ -658,9 +658,9 @@ affix(A) ::= CONTAINS(B) . {
     A = NewPrefixNode_WithParams(ctx, &B, true, true);
 }
 
-verbatim(A) ::= VERBATIM(B) . {
-    A = NewVerbatimNode_WithParams(ctx, &B);
-}
+// verbatim(A) ::= VERBATIM(B) . {
+//    A = NewVerbatimNode_WithParams(ctx, &B);
+// }
 
 verbatim(A) ::= WILDCARD(B) . {
     A = NewWildcardNode_WithParams(ctx, &B);

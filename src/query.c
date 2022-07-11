@@ -210,7 +210,7 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefi
 static size_t _removeEscape(char *str, size_t len) {
   int i = 0;
   do {
-    if (str[i] == '\\') break;
+    if (str[i] == '\'') break;
   } while (++i < len && str[i] != '\0');
 
   // check if we haven't remove any backslash
@@ -218,11 +218,12 @@ static size_t _removeEscape(char *str, size_t len) {
     return len;
   }
 
-  // copy string w/o '\\'
+  // overwrite '\' before "'"
   int runner = i;
   for (; i < len && str[i] != '\0'; ++i, ++runner) {
-    if (str[i] == '\\') {
-      ++i;
+    if (str[i] == '\'') {
+      str[--runner] = str[i];    
+      continue;
     }
     // printf("%c %c\n", str[runner], str[i]);
     str[runner] = str[i];
@@ -232,32 +233,37 @@ static size_t _removeEscape(char *str, size_t len) {
   return runner;
 }
 
+/*
 QueryNode *NewVerbatimNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_VERBATIM);
   q->numTokens++;
   if (qt->type == QT_TERM) {
-    char *s = rm_strdupcase(qt->s, qt->len);
-    size_t len = _removeEscape(s, qt->len);
+    char *s = rm_malloc(qt->len);
+    memcpy(s, qt->s, qt->len);
+    // size_t len = _removeEscape(s, qt->len);
     ret->verb.tok = (RSToken){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
   } else {
     // TODO: check correct parsing
     assert (qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
-    ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
+    // ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
   }
   return ret;
 }
+*/
 
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_WILDCARD_QUERY);
   q->numTokens++;
-  printf("%s ", qt->s);
+  //printf("%s ", qt->s);
   if (qt->type == QT_TERM) {
-    char *s = rm_strdupcase(qt->s, qt->len);
-    printf("%s ", s);
+    char *s = rm_malloc(qt->len + 1);
+    memcpy(s, qt->s, qt->len);
+    s[qt->len] = '\0';
+    //printf("%s ", s);
     size_t len = _removeEscape(s, qt->len);
-    printf("%s", s);
+    //printf("%s", s);
     ret->verb.tok = (RSToken){.str = s, .len = len, .expanded = 0, .flags = 0};
   } else {
     assert (qt->type == QT_PARAM_TERM);
@@ -265,7 +271,7 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
     ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
   }
-  printf("\n");
+  //printf("\n");
   return ret;
 }
 

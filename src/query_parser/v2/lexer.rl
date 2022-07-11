@@ -292,7 +292,7 @@ main := |*
   };
 
   verbatim => {
-    int is_attr = (*(ts+1) == '$') ? 1 : 0;
+    int is_attr = (*(ts+2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 2 + is_attr);
@@ -305,7 +305,7 @@ main := |*
   };
 
   wildcard => {
-    int is_attr = (*(ts+1) == '$') ? 1 : 0;
+    int is_attr = (*(ts+2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
     tok.pos = ts-q->raw + 2;
     tok.len = te - (ts + 3 + is_attr);

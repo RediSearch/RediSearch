@@ -580,7 +580,7 @@ _eof_trans:
     tok.len = te - (ts + 2 + is_attr);
     tok.s = ts + 1 + is_attr;
     tok.numval = 0;
-    tok.pos = ts - q->raw;
+    tok.pos = ts-q->raw;
 
     RSQuery_Parse_v2(pParser, CONTAINS, tok, q);
     
@@ -592,9 +592,9 @@ _eof_trans:
 	case 33:
 /* #line 294 "lexer.rl" */
 	{te = p+1;{
-    int is_attr = (*(ts+1) == '$') ? 1 : 0;
+    int is_attr = (*(ts+2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
-    tok.pos = ts - q->raw;
+    tok.pos = ts-q->raw;
     tok.len = te - (ts + 2 + is_attr);
     tok.s = ts + 1 + is_attr;
     tok.numval = 0;
@@ -607,7 +607,7 @@ _eof_trans:
 	case 34:
 /* #line 307 "lexer.rl" */
 	{te = p+1;{
-    int is_attr = (*(ts+1) == '$') ? 1 : 0;
+    int is_attr = (*(ts+2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
     tok.pos = ts-q->raw + 2;
     tok.len = te - (ts + 3 + is_attr);
