@@ -170,12 +170,14 @@ def testMultiTagBool(env):
     waitForIndex(env, 'idx_single')
 
     # FIXME:    
-    #env.expect('FT.SEARCH', 'idx_multi', '@bar:{true}', 'NOCONTENT').equal([2, 'doc:2', 'doc:1'])
-    #env.expect('FT.SEARCH', 'idx_multi', '@bar:{false}', 'NOCONTENT').equal([2, 'doc:3', 'doc:1'])
+    # res = env.execute_command('FT.SEARCH', 'idx_multi', '@bar:{true}', 'NOCONTENT')
+    # env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))    
+    # res = env.execute_command('FT.SEARCH', 'idx_multi', '@bar:{false}', 'NOCONTENT')
+    # env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']))
 
-    env.expect('FT.SEARCH', 'idx_single', '@bar:{true}', 'NOCONTENT').equal([2, 'doc:2', 'doc:1'])
+    res = env.execute_command('FT.SEARCH', 'idx_single', '@bar:{true}', 'NOCONTENT')
+    env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
     env.expect('FT.SEARCH', 'idx_single', '@bar:{false}', 'NOCONTENT').equal([1, 'doc:3'])
-
 
 def testMultiText(env):
     """ test multiple TEXT values at root level (array of strings) """
