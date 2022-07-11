@@ -68,7 +68,6 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     target_param->type = PARAM_NONE;
     *(char**)target_value = rm_strdupcase(source->s, source->len);
     if (target_len) *target_len = strlen(target_value);
-    // printf("%s %s\n", source->s, (char*)target_value);
     return false; // done
 
   case QT_TERM_CASE:
@@ -87,9 +86,13 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     *(size_t *)target_value = (size_t)source->numval;
     return false; // done
 
-  //case QT_PARAM_WILDCARD:
-  //  type = PARAM_WILDCARD;
-  //  break;
+  case QT_WILDCARD:
+    target_param->type = PARAM_NONE;
+    *(char**)target_value = rm_calloc(1, source->len + 1);
+    memcpy(*(char**)target_value, source->s, source->len);
+    if (target_len) *target_len = source->len;
+    return false; // done
+
   case QT_PARAM_ANY:
     type = PARAM_ANY;
     break;
@@ -119,6 +122,9 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     break;
   case QT_PARAM_SIZE:
     type = PARAM_SIZE;
+    break;
+  case QT_PARAM_WILDCARD:
+    type = QT_WILDCARD;
     break;
   }
   target_param->type = type;

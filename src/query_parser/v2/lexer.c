@@ -608,7 +608,7 @@ _eof_trans:
 /* #line 307 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts+2) == '$') ? 1 : 0;
-    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
     tok.pos = ts-q->raw + 2;
     tok.len = te - (ts + 3 + is_attr);
     tok.s = ts + 2 + is_attr;

@@ -257,7 +257,7 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_WILDCARD_QUERY);
   q->numTokens++;
   //printf("%s ", qt->s);
-  if (qt->type == QT_TERM) {
+  if (qt->type == QT_WILDCARD) {
     char *s = rm_malloc(qt->len + 1);
     memcpy(s, qt->s, qt->len);
     s[qt->len] = '\0';
@@ -266,7 +266,7 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     // printf("%s", s);
     ret->verb.tok = (RSToken){.str = s, .len = qt->len, .expanded = 0, .flags = 0};
   } else {
-    assert(qt->type == QT_PARAM_TERM);
+    assert(qt->type == QT_PARAM_WILDCARD);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
     ret->params[0].type = PARAM_WILDCARD;
