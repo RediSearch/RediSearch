@@ -307,14 +307,12 @@ def searchMultiTextAuthor(env):
 
 
 def testInvalidPath(env):
-
-    env.execute_command('FT.CREATE', 'idx_with_bad_path', 'ON', 'JSON', 'SCHEMA',
-        '$.books[*.authors', 'AS', 'author', 'TEXT',
-        '$.category..', 'AS', 'category', 'TEXT')
-    waitForIndex(env, 'idx_with_bad_path')
+    """ Test invalid JSONPath """
 
     if NEW_JSON_API_V2:
-        env.expect('FT.SEARCH', 'idx_with_bad_path', '@category:(does not matter)=>{$slop:200}').error().contains("has undefined ordering")
+        env.expect('FT.CREATE', 'idx_with_bad_path', 'ON', 'JSON', 'SCHEMA',
+            '$.books[*.authors', 'AS', 'author', 'TEXT',
+            '$.category..', 'AS', 'category', 'TEXT').error().contains("Invalid JSONPath")
 
 
 def testUndefinedOrderingWithSlopAndInorder(env):

@@ -851,10 +851,11 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
           if (jsonPath) {
             pathFree(jsonPath);
           } else if (err_msg != NULL) {
-            RedisModule_Log(RSDummyContext, "warning",
-                            "invalid JSONPath '%s' in attribute '%s' in index '%s'",
+            QueryError_SetErrorFmt(status, QUERY_EINVALPATH,
+                               "Invalid JSONPath '%s' in attribute '%s' in index '%s'",
                             fs->path, fs->name, sp->name);
             RedisModule_FreeString(RSDummyContext, err_msg);
+            goto reset;
           } /* else {
             RedisModule_Log(RSDummyContext, "info",
                             "missing RedisJSON API to parse JSONPath '%s' in attribute '%s' in index '%s', assuming undefined ordering",

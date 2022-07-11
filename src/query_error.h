@@ -33,6 +33,7 @@ extern "C" {
   X(QUERY_ENODOC, "Document does not exist")                                              \
   X(QUERY_ENOOPTION, "Invalid option")                                                    \
   X(QUERY_EREDISKEYTYPE, "Invalid Redis key")                                             \
+  X(QUERY_EINVALPATH, "Invalid path")                                                     \
   X(QUERY_EINDEXEXISTS, "Index already exists")                                           \
   X(QUERY_EBADOPTION, "Option not supported for current mode")                            \
   X(QUERY_EBADORDEROPTION, "Path with undefined ordering does not support slop/inorder")  \
