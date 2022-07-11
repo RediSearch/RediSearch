@@ -130,7 +130,7 @@ doc_non_text_content = r'''{
 }
 '''
 
-def testMultiTag(env):
+def testMultiTagString(env):
     """ test multiple TAG values (array of strings) """
     conn = getConnectionByEnv(env)
     env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
@@ -156,6 +156,25 @@ def testMultiTag(env):
 
     # Not indexing array
     env.assertEqual(int(index_info(env, 'idx2')['hash_indexing_failures']), 4)
+
+def testMultiTagBool(env):
+    """ test multiple TAG values (array of Boolean) """
+
+    # Index single and multi bool values
+    env.expect('JSON.SET', 'doc:1', '$', '{"foo": {"bar": [true, true]}, "fu": {"bar": [false, true]}}').ok()
+    env.expect('JSON.SET', 'doc:2', '$', '{"foo": {"bar": [true, true]}, "fu": {"bar": [true, true]}}').ok()
+    env.expect('JSON.SET', 'doc:3', '$', '{"foo": {"bar": [false, false]}, "fu": {"bar": [false, false]}}').ok()
+    env.expect('FT.CREATE', 'idx_multi', 'ON', 'JSON', 'SCHEMA', '$..bar[*]', 'AS', 'bar', 'TAG').ok()
+    env.expect('FT.CREATE', 'idx_single', 'ON', 'JSON', 'SCHEMA', '$.foo.bar[0]', 'AS', 'bar', 'TAG').ok()
+    waitForIndex(env, 'idx_multi')
+    waitForIndex(env, 'idx_single')
+
+    # FIXME:    
+    #env.expect('FT.SEARCH', 'idx_multi', '@bar:{true}', 'NOCONTENT').equal([2, 'doc:2', 'doc:1'])
+    #env.expect('FT.SEARCH', 'idx_multi', '@bar:{false}', 'NOCONTENT').equal([2, 'doc:3', 'doc:1'])
+
+    env.expect('FT.SEARCH', 'idx_single', '@bar:{true}', 'NOCONTENT').equal([2, 'doc:2', 'doc:1'])
+    env.expect('FT.SEARCH', 'idx_single', '@bar:{false}', 'NOCONTENT').equal([1, 'doc:3'])
 
 
 def testMultiText(env):
