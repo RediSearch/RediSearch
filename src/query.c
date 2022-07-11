@@ -221,8 +221,8 @@ static size_t _removeEscape(char *str, size_t len) {
   // overwrite '\' before "'"
   int runner = i;
   for (; i < len && str[i] != '\0'; ++i, ++runner) {
-    if (str[i] == '\'') {
-      str[--runner] = str[i];    
+    if (str[i] == '\'' && str[i - 1] == '\\') {
+      str[--runner] = str[i];
       continue;
     }
     // printf("%c %c\n", str[runner], str[i]);
@@ -261,15 +261,17 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     char *s = rm_malloc(qt->len + 1);
     memcpy(s, qt->s, qt->len);
     s[qt->len] = '\0';
-    //printf("%s ", s);
-    size_t len = _removeEscape(s, qt->len);
-    //printf("%s", s);
-    ret->verb.tok = (RSToken){.str = s, .len = len, .expanded = 0, .flags = 0};
+    // printf("%s ", s);
+    //  size_t len = _removeEscape(s, qt->len);
+    // printf("%s", s);
+    ret->verb.tok = (RSToken){.str = s, .len = qt->len, .expanded = 0, .flags = 0};
   } else {
-    assert (qt->type == QT_PARAM_TERM);
+    assert(qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
-    ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
+    ret->params[0].type = PARAM_WILDCARD;
+    // qt->type = PARAM_WILDCARD;
+    // ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
   }
   //printf("\n");
   return ret;
@@ -293,13 +295,12 @@ QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist
     };
   } else {
     ret->fz.maxDist = maxDist;
-    assert (qt->type == QT_PARAM_TERM);
+    assert(qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->fz.tok.str, &ret->fz.tok.len, qt);
   }
   return ret;
 }
-
 
 QueryNode *NewPhraseNode(int exact) {
   QueryNode *ret = NewQueryNode(QN_PHRASE);
@@ -540,7 +541,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->pfx.tok.len < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
-  
+
   IndexSpec *spec = q->sctx->spec;
   Trie *t = spec->terms;
   ContainsCtx ctx = {.q = q, .opts = &qn->opts};
@@ -600,6 +601,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     return NULL;
   }
 
+  qn->verb.tok.len = _removeEscape(qn->verb.tok.str, qn->verb.tok.len);
   rune *str = NULL;
   //bool endWithStar = false;
   size_t nstr;
@@ -1048,6 +1050,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   }
   if (!idx || !idx->values) return NULL;
 
+  qn->verb.tok.len = _removeEscape(qn->verb.tok.str, qn->verb.tok.len);
   RSToken *tok = &qn->verb.tok;
 
   size_t itsSz = 0, itsCap = 8;
@@ -1333,7 +1336,6 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .status = status,
       .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
       .reqFlags = reqflags,
-      
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
@@ -1388,9 +1390,9 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
   int withChildren = 1;
   int res = REDISMODULE_OK;
   switch(n->type) {
-    case QN_WILDCARD_QUERY:
-    case QN_VERBATIM:
-      // TODO:
+    //case QN_WILDCARD_QUERY:
+    //  res = QueryNode_EvalParamsCommon(params, n, status);
+    //  break;
     case QN_GEO:
       res = GeoFilter_EvalParams(params, n, status);
       break;
@@ -1408,6 +1410,8 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
     case QN_OPTIONAL:
     case QN_IDS:
     case QN_WILDCARD:
+    case QN_WILDCARD_QUERY:
+    case QN_VERBATIM:
       res = QueryNode_EvalParamsCommon(params, n, status);
       break;
     case QN_UNION:

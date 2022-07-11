@@ -68,6 +68,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     target_param->type = PARAM_NONE;
     *(char**)target_value = rm_strdupcase(source->s, source->len);
     if (target_len) *target_len = strlen(target_value);
+    // printf("%s %s\n", source->s, (char*)target_value);
     return false; // done
 
   case QT_TERM_CASE:
@@ -86,6 +87,9 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     *(size_t *)target_value = (size_t)source->numval;
     return false; // done
 
+  //case QT_PARAM_WILDCARD:
+  //  type = PARAM_WILDCARD;
+  //  break;
   case QT_PARAM_ANY:
     type = PARAM_ANY;
     break;
@@ -136,6 +140,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     return 0;
   size_t val_len;
   const char *val = Param_DictGet(params, param->name, &val_len, status);
+  // printf("val %s\n", val);
   if (!val)
     return -1;
 
@@ -149,6 +154,12 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       *(char**)param->target = rm_strdupcase(val, val_len);
       if (param->target_len) *param->target_len = strlen(*(char**)param->target);
       return 1;
+
+    case PARAM_WILDCARD:
+      *(char**)param->target = rm_calloc(1, val_len + 1);
+      memcpy(*(char**)param->target, val, val_len);
+      if (param->target_len) *param->target_len = val_len;
+      return 1;    
 
     case PARAM_TERM_CASE:
       *(char**)param->target = rm_strdup(val);

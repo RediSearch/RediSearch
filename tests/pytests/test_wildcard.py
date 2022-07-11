@@ -303,7 +303,7 @@ def testBasic(env):
   env.expect('FT.SEARCH', 'idx', "w'?al?*?h'", 'LIMIT', 0 , 0).equal([1])
 
   # escape \'
-  env.expect('FT.SEARCH', 'idx', "w'*\\\'*'").equal([3, 'doc7', ['t', "hello\\'world"], # *'*
+  env.expect('FT.SEARCH', 'idx', "w'*\\'*'").equal([3, 'doc7', ['t', "hello\\'world"], # *'*
                                                         'doc9', ['t', "\\'hello"],
                                                         'doc11', ['t', "hello\\'"]])
   env.expect('FT.SEARCH', 'idx', "w'*o\\\'w*'").equal([1, 'doc7', ['t', "hello\\'world"]]) # *o'w*
@@ -314,7 +314,7 @@ def testBasic(env):
                                                       'doc12', ['t', 'hello\\\\']])
   env.expect('FT.SEARCH', 'idx', "w'*o\\w*'").equal([1, 'doc8', ['t', "hello\\\\world"]]) # *o\w*
 
-  '''
+
   # test with PARAMS
   # escape \'
   env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*\\\'*").equal([3, 'doc7', ['t', "hello\\'world"], # *'*
@@ -323,8 +323,8 @@ def testBasic(env):
   env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*o\\\'w*").equal([1, 'doc7', ['t', "hello\\'world"]]) # *o'w*
 
   # escape \\
-  env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*\*").equal([3, 'doc8', ['t', 'hello\\\\world'], # *\*
+  env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*\\*").equal([3, 'doc8', ['t', 'hello\\\\world'], # *\*
                                                       'doc10', ['t', '\\\\hello'],
                                                       'doc12', ['t', 'hello\\\\']])
   env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*o\w*").equal([1, 'doc8', ['t', "hello\\\\world"]]) # *o\w*
-  '''
+  ''''''
