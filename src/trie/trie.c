@@ -4,6 +4,34 @@
 #include "sparse_vector.h"
 #include "redisearch.h"
 #include "util/arr.h"
+#include "config.h"
+#include "util/timeout.h"
+
+typedef struct {
+  rune * buf;
+  TrieRangeCallback *callback;
+  void *cbctx;
+  union {
+    struct {
+      // for lexrange
+      bool includeMin;
+      bool includeMax;
+    };
+    struct {
+      // for prefix, suffix, contains
+      const rune *origStr;
+      int lenOrigStr;
+      bool prefix;
+      bool suffix;
+    };
+  };
+  // stop if reach limit
+  bool stop;
+
+  // timeout
+  struct timespec timeout;  // milliseconds until timeout
+  size_t timeoutCounter;    // counter to limit number of calls to TimedOut()  
+} RangeCtx;
 
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);

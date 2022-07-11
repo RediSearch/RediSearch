@@ -22,6 +22,9 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED_SCORE 1
 #define TRIENODE_SORTED_LEX 2
 
+typedef void (*TrieFreeCallback)(void *node);
+struct timespec;
+
 #pragma pack(1)
 typedef struct {
   uint32_t len;  // 4G payload is more than enough!!!!
