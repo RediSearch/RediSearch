@@ -65,12 +65,7 @@ $(BINDIR)/%.o: $(SRCDIR)/%.c
 	@echo Compiling $<...
 	$(SHOW)$(CC) $(CC_FLAGS) -fvisibility=hidden -c $< -o $@
 
-$(SRCDIR)/.patched:
-	cd $(ROOT)/deps/hiredis ;\
-	patch -p1 -i $(ROOT)/build/hiredis/hiredis_patch
-	touch $@
-
-$(TARGET): $(SRCDIR)/.patched $(OBJECTS)
+$(TARGET): $(OBJECTS)
 	@echo Creating $@...
 	$(SHOW)$(AR) rcs $@ $(OBJECTS)
 

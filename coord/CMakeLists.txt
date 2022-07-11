@@ -91,7 +91,7 @@ if (APPLE)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
 	set(SSL_LIBS crypto ssl)
 else()
-	set(SSL_LIBS crypt ssl)
+	set(SSL_LIBS crypto crypt ssl)
 endif()
 
 macro(MODULE_TARGET TYPE)
