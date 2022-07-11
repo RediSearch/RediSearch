@@ -58,11 +58,15 @@ size_t used_memory = 0;
 //---------------------------------------------------------------------------------------------
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
+#define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
   RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
 
   size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL); // Enterprise limit
+  maxmemory = MIN_NOT_0(maxmemory, max_process_mem);
+
   size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
-  memoryLimit = (maxmemory && (maxmemory < total_system_memory)) ? maxmemory : total_system_memory;
+  memoryLimit = MIN_NOT_0(maxmemory, total_system_memory);
 
   used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
 
@@ -1774,17 +1778,21 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
-  if (key) {
-    if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
-      // this is only possible on crdb database, enpty keys are toombstone
-      // and we should just ignore them
-      return;
-    }
+  // RMKey it is provided as best effort but in some cases it might be NULL
+  bool keyOpened = false;
+  if (!key) {
+    key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ);
+    keyOpened = true;
   }
 
+  // check type of document is support and document is not empty
   DocumentType type = getDocType(key);
   if (type == DocumentType_Unsupported) {
     return;
+  }
+
+  if (keyOpened) {
+    RedisModule_CloseKey(key);
   }
 
   if (scanner->cancelled) {
