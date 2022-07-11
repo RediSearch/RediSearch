@@ -6,6 +6,7 @@
 #include "rmutil/rm_assert.h"
 #include "util/arr.h"
 #include "config.h"
+#include "util/timeout.h"
 
 typedef struct {
   rune * buf;

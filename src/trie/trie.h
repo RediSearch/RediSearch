@@ -5,9 +5,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <time.h>
 #include "rune_util.h"
 #include "redisearch.h"
-#include "util/timeout.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
