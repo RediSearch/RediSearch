@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include "rune_util.h"
 #include "redisearch.h"
+#include "util/timeout.h"
 #ifdef __cplusplus
 extern "C" {
 #endif

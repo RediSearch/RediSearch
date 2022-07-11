@@ -5,7 +5,6 @@
 #include "redisearch.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr.h"
-#include "util/timeout.h"
 #include "config.h"
 
 typedef struct {
