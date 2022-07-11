@@ -857,7 +857,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
             RedisModule_FreeString(RSDummyContext, err_msg);
           } /* else {
             RedisModule_Log(RSDummyContext, "info",
-                            "missing RedisJSON API to parse JSONPath '%s' in attribute '%s' in index '%s', assumming undefined ordering",
+                            "missing RedisJSON API to parse JSONPath '%s' in attribute '%s' in index '%s', assuming undefined ordering",
                             fs->path, fs->name, sp->name);
           } */
         }
