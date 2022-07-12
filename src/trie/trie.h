@@ -23,6 +23,7 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED_LEX 2
 
 typedef void (*TrieFreeCallback)(void *node);
+struct timespec;
 
 #pragma pack(1)
 typedef struct {
