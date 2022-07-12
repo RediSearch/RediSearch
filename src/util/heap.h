@@ -12,7 +12,7 @@ struct Heap : Vector<T> {
   const void *udata; // user data
   int (*cmp)(const void *, const void *, const void *);
 
-  Heap(int (*cmp) (const void *, const void *, const void *udata), const void *udata);
+  Heap(const void *udata);
 
   T &_at(size_t i) { return (*this)[i]; }
   const T &_at(size_t i) const { return (*this)[i]; }

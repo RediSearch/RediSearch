@@ -18,32 +18,24 @@ struct QueryAST;
 struct QueryParse {
   const char *raw;
   size_t len;
-
-  // the token count
-  size_t numTokens;
-
-  // Index spec
-  RedisSearchCtx *sctx;
-
-  // query root
-  QueryNode *root;
-
+  size_t numTokens;     // the token count
+  RedisSearchCtx *sctx; // Index spec
+  QueryNode *root;      // query root
   const RSSearchOptions *opts;
-
   QueryError *status;
 
   QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_,
              const RSSearchOptions &opts_, QueryError *status_);
 
   QueryNode *ParseRaw();
-};
 
-#define QPCTX_ISOK(qpctx) (!(qpctx->HasError()->status))
+  bool IsOk() { return status->HasError(); }
+};
 
 //---------------------------------------------------------------------------------------------
 
 struct Query : Object {
-  ConcurrentSearchCtx *conc;
+  ConcurrentSearch *conc;
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
 
@@ -52,7 +44,7 @@ struct Query : Object {
   DocTable *docTable;
 
   Query(QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx_,
-        ConcurrentSearchCtx *conc_);
+        ConcurrentSearch *conc_);
 
   IndexIterator *Eval(QueryNode *node);
 };

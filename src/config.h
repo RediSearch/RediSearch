@@ -46,8 +46,6 @@ struct RSConfigVar {
 struct RSConfigOptions {
   RSConfigVar vars[RS_MAX_CONFIG_VARS];
   struct RSConfigOptions *next;
-
-  void AddConfigs(RSConfigOptions *dst);
 };
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,

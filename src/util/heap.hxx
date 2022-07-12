@@ -227,7 +227,7 @@ int Heap<T>::__item_get_idx(const T *item) const {
   unsigned int idx;
 
   for (idx = 0; idx < count; idx++)
-    if (0 == cmp((_at(idx), item, udata)) return idx;
+    if (0 == cmp((_at(idx), item, udata))) return idx;
 
   return -1;
 }

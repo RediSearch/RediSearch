@@ -7,7 +7,6 @@
 #include "result_processor.h"
 #include "highlight_processor.h"
 #include "ext/default.h"
-// #include "extension.h"
 #include "query_error.h"
 
 #include "util/arr.h"
@@ -807,7 +806,7 @@ int AREQ::ApplyContext(QueryError *status) {
     }
   }
 
-  conc = std::make_unique<ConcurrentSearchCtx>(sctx->redisCtx);
+  conc = std::make_unique<ConcurrentSearch>(sctx->redisCtx);
   rootiter = ast->Iterate(opts, *sctx, *conc);
   RS_LOG_ASSERT(rootiter, "QAST_Iterate failed");
 

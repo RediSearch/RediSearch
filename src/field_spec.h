@@ -6,6 +6,8 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#if 0
+
 // #ifdef __cplusplus
 // #define RS_ENUM_BITWISE_HELPER(T)   \
 //   inline T operator|=(T a, int b) { \
@@ -17,10 +19,17 @@
 
 //@@ Need to make this template only for enums !!
 template<class E>
-inline E operator|(E a, int b)
-{
-  return static_cast<E>(static_cast<int>(a) | b);
+inline size_t operator|(E a, size_t b) {
+  return static_cast<size_t>(a) | b;
 }
+
+//@@ Need to make this template only for enums !!
+template<class E>
+inline size_t operator|(E a, E b) {
+  return static_cast<size_t>(a) | static_cast<size_t>(b);
+}
+
+#endif // 0
 
 //---------------------------------------------------------------------------------------------
 
@@ -81,10 +90,12 @@ enum TagFieldFlags {
 // Each field has a unique id that's a power of two, so we can filter fields by a bit mask.
 // Each field has a type, allowing us to add non text fields in the future.
 
+#define Mask(T) unsigned int
+
 struct FieldSpec {
   char* name;
-  FieldType types : 8;
-  FieldSpecOptions options : 8;
+  Mask(FieldType) types : 8;
+  Mask(FieldSpecOptions) options : 8;
 
   // If this field is sortable, the sortable index
   int16_t sortIdx;

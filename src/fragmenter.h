@@ -4,9 +4,11 @@
 #include <stdint.h>
 #include <sys/uio.h>
 #include "util/array.h"
+#include "rmutil/vector.h"
 #include "stemmer.h"
 #include "tokenize.h"
 #include "redisearch.h"
+#include "search_options.h"
 #include "stopwords.h"
 #include "byte_offsets.h"
 
@@ -62,42 +64,29 @@ struct FragmentTermIterator {
 };
 
 struct TermLoc {
-  // Position in current fragment (bytes)
-  uint32_t offset;
+  uint32_t offset; // Position in current fragment (bytes)
+  uint16_t len;    // Length of the token. This might be a stem, so not necessarily similar to termId
+  uint16_t termId; // Index into FragmentList::terms
 
-  // Length of the token. This might be a stem, so not necessarily similar to termId
-  uint16_t len;
-
-  // Index into FragmentList::terms
-  uint16_t termId;
+  TermLoc(uint32_t offset, uint16_t len, uint16_t termId) :
+    offset(offset), len(len), termId(termId) {}
 };
 
 struct Fragment {
   const char *buf;
+
   uint32_t len;
-
-  // (token-wise) position of the last matched token
-  uint32_t lastMatchPos;
-
-  // How many tokens are in this fragment
-  uint32_t totalTokens;
-
-  // How many _matched_ tokens are in this fragment
-  uint32_t numMatches;
-
-  // Inverted ranking (from 0..n) in the score array. A lower number means a higher score
-  uint32_t scoreRank;
-
-  // Position within the array of fragments
-  uint32_t fragPos;
-
-  // Score calculated from the number of matches
-  float score;
-  Array<TermLoc> termLocs;  // TermLoc
+  uint32_t lastMatchPos;    // (token-wise) position of the last matched token
+  uint32_t totalTokens;     // How many tokens are in this fragment
+  uint32_t numMatches;      // How many _matched_ tokens are in this fragment
+  uint32_t scoreRank;       // Inverted ranking (from 0..n) in the score array. A lower number means a higher score
+  uint32_t fragPos;         // Position within the array of fragments
+  float score;              // Score calculated from the number of matches
+  Vector<TermLoc> termLocs; // TermLoc
 
   size_t GetNumTerms() const;
 
-  int HasTerm(uint32_t termId) const;
+  bool HasTerm(uint32_t termId) const;
 
   void WriteIovs(const char *openTag, size_t openLen, const char *closeTag,
                  size_t closeLen, Array<iovec *> iovs, const char **preamble) const;
@@ -110,20 +99,23 @@ struct HighlightTags {
   HighlightTags(HighlightSettings settings) : openTag(settings.openTag), closeTag(settings.closeTag) {}
 };
 
-#define FRAGMENT_TERM(buf_, len_, score_) \
-  { .tok = buf_, .len = len_, .score = score_ }
-/**
- * A single term to use for searching. Used when fragmenting a buffer
- */
+// A single term to use for searching. Used when fragmenting a buffer
 struct FragmentSearchTerm {
   const char *tok;
   size_t len;
   float score;
+
+  FragmentSearchTerm(const char *t, size_t len_ = -1, float score = 1) :
+    tok(t), len(len), score(score) {
+      if (len_ == -1) {
+        len = strlen(t);
+      }
+    }
 };
 
 struct FragmentList {
   // Array of fragments
-  Array<Fragment *> frags;
+  Vector<Fragment *> frags;
 
   // Array of indexes (in frags), sorted by score
   const Fragment **sortedFrags;
@@ -146,23 +138,17 @@ struct FragmentList {
   // Average word size. Used when determining context.
   uint8_t estAvgWordSize;
 
-  FragmentList(uint16_t maxDistance, uint8_t estWordSize) {
+  FragmentList(uint16_t maxDistance, uint8_t estWordSize) : maxDistance(maxDistance), estAvgWordSize(estWordSize) {
     doc = NULL;
     docLen = 0;
     numFrags = 0;
-    maxDistance = maxDistance;
-    estAvgWordSize = estWordSize;
     sortedFrags = NULL;
     scratchFrags = NULL;
   }
   ~FragmentList();
 
   size_t GetNumFrags() const {
-    return frags.ARRAY_GETSIZE_AS();
-  }
-
-  Fragment *GetFragments() const {
-    return *frags.ARRAY_GETARRAY_AS();
+    return frags.size();
   }
 
   void extractToken(const Token *tokInfo, const FragmentSearchTerm *terms, size_t numTerms);
@@ -192,18 +178,12 @@ struct FragmentList {
 
 #define FRAGMENTIZE_TOKLEN_EXACT 0x01
 
-/**
- * Return fragments by their score. The highest ranked fragment is returned fist
- */
+// Return fragments by their score. The highest ranked fragment is returned fist
 #define HIGHLIGHT_ORDER_SCORE 0x01
 
-/**
- * Return fragments by their order in the document. The fragment with the lowest
- * position is returned first.
- */
+// Return fragments by their order in the document. The fragment with the lowest
+// position is returned first.
 #define HIGHLIGHT_ORDER_POS 0x02
 
-/**
- * First select the highest scoring elements and then sort them by position
- */
+// First select the highest scoring elements and then sort them by position
 #define HIGHLIGHT_ORDER_SCOREPOS 0x03

@@ -40,7 +40,10 @@ struct DocumentIndexer : public Object {
   pthread_mutex_t lock;            // lock - only used when adding or removing items from the queue
   pthread_cond_t cond;             // condition - used to wait on items added to the queue
   size_t size;                     // number of items in the queue
-  ConcurrentSearchCtx concCtx;     // GIL locking. This is repopulated with the relevant key data
+
+  //@@ What type of ConcurrentSearch should be here?
+  ConcurrentSearch concCtx;        // GIL locking. This is repopulated with the relevant key data
+
   RedisModuleCtx *redisCtx;        // Context for keeping the spec key
   RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
   uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced

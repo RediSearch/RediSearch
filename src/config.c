@@ -438,18 +438,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          flags: RSCONFIGVAR_F_IMMUTABLE},
         {name: NULL}}};
 
-/**
- * Add new configuration options to the chain of already recognized options
- */
-
-void RSConfigOptions::AddConfigs(RSConfigOptions *dst) {
-  while (next != NULL) {
-    this = next; //@@ need to be fixed
-  }
-  next = dst;
-  dst->next = NULL;
-}
-
 sds RSConfig::GetInfoString() const {
   sds ss = sdsempty();
 

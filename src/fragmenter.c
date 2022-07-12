@@ -16,42 +16,40 @@
 //---------------------------------------------------------------------------------------------
 
 Fragment *FragmentList::LastFragment() {
-  if (!frags.len) {
+  if (frags.empty()) {
     return NULL;
   }
-  return (Fragment *)(frags.ARRAY_GETARRAY_AS() + (frags.len - sizeof(Fragment)));
+  return frags.back();
 }
 
 //---------------------------------------------------------------------------------------------
 
 Fragment *FragmentList::AddFragment() {
-  Fragment *frag = frags.Add(sizeof(Fragment));
+  Fragment *frag;
   memset(frag, 0, sizeof(*frag));
   frag->fragPos = numFrags++;
+  frags.push_back(frag);
   return frag;
 }
 
 //---------------------------------------------------------------------------------------------
 
 size_t Fragment::GetNumTerms() const {
-  return termLocs.ARRAY_GETSIZE_AS();
+  return termLocs.size();
 }
 
 //---------------------------------------------------------------------------------------------
 
-int Fragment::HasTerm(uint32_t termId) const {
-  TermLoc *locs = termLocs.ARRAY_GETARRAY_AS();
-
-  int firstOcurrence = 1;
+bool Fragment::HasTerm(uint32_t termId) const {
   // If this is the first time the term appears in the fragment, increment the
   // fragment's score by the term's score. Otherwise, increment it by half
   // the fragment's score. This allows for better 'blended' results.
-  for (size_t ii = 0; ii < GetNumTerms(); ii++) {
-    if (locs[ii].termId == termId) {
-      return 1;
+  for (size_t i = 0; i < GetNumTerms(); i++) {
+    if (termLocs[i].termId == termId) {
+      return true;
     }
   }
-  return 0;
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -80,10 +78,7 @@ Fragment *FragmentList::AddMatchingTerm(uint32_t termId, uint32_t tokPos, const 
   curFrag->totalTokens += numToksSinceLastMatch + 1;
   numToksSinceLastMatch = 0;
 
-  TermLoc *newLoc = curFrag->termLocs.Add(sizeof(TermLoc));
-  newLoc->termId = termId;
-  newLoc->offset = tokBuf - curFrag->buf;
-  newLoc->len = tokLen;
+  curFrag->termLocs.push_back(TermLoc(tokBuf - curFrag->buf, tokLen, termId));
 
   return curFrag;
 }
@@ -164,8 +159,7 @@ static void addToIov(const char *s, size_t n, Array<iovec *> b) {
 
 void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeTag,
                          size_t closeLen, Array<iovec *> iovs, const char **preamble) const {
-  const TermLoc *locs = termLocs.ARRAY_GETARRAY_AS();
-  size_t nlocs = termLocs.ARRAY_GETSIZE_AS();
+  size_t nlocs = termLocs.size();
   const char *preamble_s = NULL;
 
   if (!preamble) {
@@ -175,10 +169,9 @@ void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeT
     *preamble = buf;
   }
 
-  for (size_t ii = 0; ii < nlocs; ++ii) {
-    const TermLoc *curLoc = locs + ii;
-
-    size_t preambleLen = (buf + curLoc->offset) - *preamble;
+  for (size_t i = 0; i < nlocs; ++i) {
+    const TermLoc curLoc = termLocs[i];
+    size_t preambleLen = (buf + curLoc.offset) - *preamble;
 
     // Add any prior text
     if (preambleLen) {
@@ -190,14 +183,14 @@ void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeT
     }
 
     // Add the token itself
-    addToIov(buf + curLoc->offset, curLoc->len, iovs);
+    addToIov(buf + curLoc.offset, curLoc.len, iovs);
 
     // Add close tag
     if (closeLen) {
       addToIov(closeTag, closeLen, iovs);
     }
 
-    *preamble = buf + curLoc->offset + curLoc->len;
+    *preamble = buf + curLoc.offset + curLoc.len;
   }
 }
 
@@ -205,8 +198,6 @@ void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeT
 
 // Highlight matches the entire document, returning a series of IOVs
 void FragmentList::HighlightWholeDocV(const HighlightTags *tags, Array<iovec *> iovs) const {
-  const Fragment *frags_ = GetFragments();
-
   if (!numFrags) {
     // Whole doc, but no matches found
     addToIov(doc, docLen, iovs);
@@ -217,8 +208,8 @@ void FragmentList::HighlightWholeDocV(const HighlightTags *tags, Array<iovec *> 
   size_t openLen = strlen(tags->openTag);
   size_t closeLen = strlen(tags->closeTag);
 
-  for (size_t ii = 0; ii < numFrags; ++ii) {
-    const Fragment *curFrag = frags_ + ii;
+  for (size_t i = 0; i < numFrags; ++i) {
+    const Fragment *curFrag = frags[i];
     curFrag->WriteIovs(tags->openTag, openLen, tags->closeTag, closeLen, iovs, &preamble);
   }
 
@@ -276,16 +267,15 @@ void FragmentList::Sort() {
     return;
   }
 
-  const Fragment *origFrags = GetFragments();
   sortedFrags = rm_malloc(sizeof(*sortedFrags) * numFrags);
 
-  for (size_t ii = 0; ii < numFrags; ++ii) {
-    sortedFrags[ii] = origFrags + ii;
+  for (size_t i = 0; i < numFrags; ++i) {
+    sortedFrags[i] = frags[i];
   }
 
   qsort(sortedFrags, numFrags, sizeof(sortedFrags[0]), fragSortCmp);
-  for (size_t ii = 0; ii < numFrags; ++ii) {
-    ((Fragment *)sortedFrags[ii])->scoreRank = ii;
+  for (size_t i = 0; i < numFrags; ++i) {
+    ((Fragment *)sortedFrags[i])->scoreRank = i;
   }
 }
 
@@ -385,7 +375,6 @@ void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, co
 
 void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextSize, Array<iovec *> *iovArrList,
                                       size_t niovs, int order) {
-  const Fragment *frags_ = GetFragments();
   niovs = Min(niovs, numFrags);
 
   if (!scratchFrags) {
@@ -394,13 +383,13 @@ void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextS
   const Fragment **indexes = scratchFrags;
 
   if (order == HIGHLIGHT_ORDER_POS) {
-    for (size_t ii = 0; ii < niovs; ++ii) {
-      indexes[ii] = frags_ + ii;
+    for (size_t i = 0; i < niovs; ++i) {
+      indexes[i] = frags[i];
     }
   } else if (order & HIGHLIGHT_ORDER_SCORE) {
     Sort();
-    for (size_t ii = 0; ii < niovs; ++ii) {
-      indexes[ii] = sortedFrags[ii];
+    for (size_t i = 0; i < niovs; ++i) {
+      indexes[i] = sortedFrags[i];
     }
     if (order & HIGHLIGHT_ORDER_POS) {
       qsort(indexes, niovs, sizeof indexes[0], sortByOrder);
@@ -436,11 +425,6 @@ void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextS
 //---------------------------------------------------------------------------------------------
 
 FragmentList::~FragmentList() {
-  Fragment *frags_ = (Fragment *)GetFragments();
-  for (size_t ii = 0; ii < numFrags; ii++) {
-    delete &frags_[ii].termLocs;
-  }
-  delete &frags_;
   rm_free(sortedFrags);
   rm_free(scratchFrags);
 }
@@ -548,12 +532,11 @@ int FragmentTermIterator::Next(FragmentTerm **termInfo) {
 
 //---------------------------------------------------------------------------------------------
 
-// LCOV_EXCL_START debug
 void FragmentList::Dump() const {
   printf("NumFrags: %u\n", numFrags);
-  for (size_t ii = 0; ii < numFrags; ++ii) {
-    const Fragment *frag = frags.ARRAY_GETITEM_AS(ii);
-    printf("Frag[%lu]: Buf=%p, (pos=%lu), Len=%u\n", ii, frag->buf, frag->buf - doc,
+  for (size_t i = 0; i < numFrags; ++i) {
+    const Fragment *frag = frags[i];
+    printf("Frag[%lu]: Buf=%p, (pos=%lu), Len=%u\n", i, frag->buf, frag->buf - doc,
            frag->len);
     printf("  Score: %f, Rank=%u. Total Tokens=%u\n", frag->score, frag->scoreRank,
            frag->totalTokens);
@@ -563,6 +546,5 @@ void FragmentList::Dump() const {
     printf("\n");
   }
 }
-// LCOV_EXCL_STOP
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -123,8 +123,7 @@ struct TrieMapIterator : public Object {
   void Pop();
   void Free();
   bool Next(char **ptr, tm_len_t *len, void **value);
-  /* the current top of the iterator stack */
-  __tmi_stackNode *current() { return &stack[stackOffset - 1]; }
+  __tmi_stackNode *current() { return &stack[stackOffset - 1]; } // the current top of the iterator stack
 };
 
 struct TrieMap : public Object {

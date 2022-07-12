@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <float.h>
 #include <math.h>
+#include <memory>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -63,18 +64,9 @@ InvertedIndex::InvertedIndex(IndexFlags flags, int initBlock) {
 
 //---------------------------------------------------------------------------------------------
 
-IndexBlock::~IndexBlock() {
-  delete &buf;
-}
-
-//---------------------------------------------------------------------------------------------
-
 InvertedIndex::~InvertedIndex() {
   TotalIIBlocks -= size;
-  for (uint32_t i = 0; i < size; i++) {
-    blocks[i].~IndexBlock();
-  }
-  rm_free(blocks);
+  delete blocks;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -86,7 +78,7 @@ void IndexReader::SetAtEnd(bool value) {
 
 //---------------------------------------------------------------------------------------------
 
-// A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
+// A callback called from the ConcurrentSearch after regaining execution and reopening the
 // underlying term key. We check for changes in the underlying key, or possible deletion of it.
 
 void IndexReader::OnReopen(RedisModuleKey *k) {
@@ -1144,7 +1136,7 @@ int IndexBlock::Repair(DocTable &dt, IndexFlags flags, IndexBlockRepair &blockre
   BufferReader br(&buf);
   BufferWriter bw(&repair);
 
-  unique_ptr<IndexResult> res = flags == Index_StoreNumeric ? std::make_unique<NumericResult>() : std::make_unique<TermResult>(NULL, 1);
+  std::unique_ptr<IndexResult> res = std::unique_ptr<IndexResult>(flags == Index_StoreNumeric ? (IndexResult*)new NumericResult() : (IndexResult*)new TermResult(NULL, 1));
   size_t frags = 0;
   int isLastValid = 0;
 
@@ -1159,7 +1151,7 @@ int IndexBlock::Repair(DocTable &dt, IndexFlags flags, IndexBlockRepair &blockre
 
   while (!br.AtEnd()) {
     const char *bufBegin = br.Current();
-    (decoder.*(decoder.decoder))(&br, res);
+    (decoder.*(decoder.decoder))(&br, &*res);
     size_t sz = br.Current() - bufBegin;
     if (!(isFirstRes && res->docId != 0)) {
       // if we are entering this here
@@ -1195,7 +1187,7 @@ int IndexBlock::Repair(DocTable &dt, IndexFlags flags, IndexBlockRepair &blockre
         if (isLastValid) {
           bw.Write(bufBegin, sz);
         } else {
-          encoder(&bw, res->docId - lastId, res);
+          encoder(&bw, res->docId - lastId, &*res);
         }
       }
 

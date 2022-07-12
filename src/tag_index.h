@@ -2,12 +2,31 @@
 #pragma once
 
 #include "redismodule.h"
+#include "redis_index.h"
 #include "doc_table.h"
 #include "document.h"
 #include "value.h"
 #include "geo_index.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
+struct TagConcKey : ConcurrentKey<arrayof(IndexIterator*)> {
+  TagConcKey(RedisModuleKey *key, RedisModuleString *keyName, arrayof(IndexIterator*) its) :
+    ConcurrentKey(key, keyName), its(its) {}
+
+  ~TagConcKey() {
+    if (its) {
+      array_free(its);
+    }
+  }
+
+  arrayof(IndexIterator*) its;
+  uint32_t uid;
+
+  void Reopen();
+};
+
+//---------------------------------------------------------------------------------------------
 
 struct InvertedIndex;
 
@@ -141,8 +160,8 @@ struct TagIndex : public BaseIndex {
   // Returns NULL if there is no such tag in the index.
   IndexIterator *OpenReader(IndexSpec *sp, const char *value, size_t len, double weight);
 
-  void RegisterConcurrentIterators(ConcurrentSearchCtx *conc, RedisModuleKey *key,
-                                   RedisModuleString *keyname, array_t *iters);
+  void RegisterConcurrentIterators(ConcurrentSearch<TagConcKey> *conc, RedisModuleKey *key,
+                                   RedisModuleString *keyname, arrayof(IndexIterator*) iters);
 
   struct InvertedIndex *OpenIndex(const char *value, size_t len, int create);
 

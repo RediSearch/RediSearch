@@ -6,7 +6,7 @@
 #include "config.h"
 
 #include "thpool/thpool.h"
-
+#include "rmutil/vector.h"
 #include <time.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -29,7 +29,7 @@
  * We intend to switch this model to a single thread running multiple "coroutines", but for now
  * this naive implementation is good enough and will fix the search concurrency issue.
  *
- * The ConcurrentSearchCtx is part of a query, and the query calls the Tick function
+ * The ConcurrentSearch is part of a query, and the query calls the Tick function
  * for every "cycle" - meaning a processed search result. The concurrency engine will switch
  * execution to another query when the current thread has spent enough time working.
  *
@@ -38,52 +38,39 @@
  *
  */
 
-typedef void (*ConcurrentReopenCallback)(RedisModuleKey *k, void *ctx);
-
 // ConcurrentKey is a reference to a key that's being held open during concurrent execution and
 // needs to be reopened after yielding and gaining back execution.
 // See ConcurrentSearch_AddKey for more details.
 
+template <class T>
 struct ConcurrentKey {
-  ConcurrentKey(RedisModuleKey *key, RedisModuleString *keyName, int openFlags = REDISMODULE_READ);
-  virtual ~ConcurrentKey() {}
+  ConcurrentKey(RedisModuleKey *key, RedisModuleString *keyName, int openFlags = REDISMODULE_READ) :
+    key(key), keyName(keyName), keyFlags(openFlags) {}
 
   RedisModuleKey *key;
   RedisModuleString *keyName;
-  // redis key open flags
-  int keyFlags;
+  int keyFlags; // redis key open flags
 
-#if 0
-  //@@ int sharedKey;
-  ConcurrentReopenCallback cb;
-  void *privdata;
-  // A custom callback to free privdata. If NULL we don't do anything
-  void (*freePrivData)(void *);
-#endif // 0
-
-  virtual void Reopen(RedisModuleKey *k);
+  virtual void Reopen() {}
 };
 
 //---------------------------------------------------------------------------------------------
 
-struct ConcurrentSearchCtx { //@@ Should it derive from 'RedisModuleCtx'?
+template <class T> //@@ T inherits from ConcurrentKey<T>
+struct ConcurrentSearch {
   long long ticker;
   struct timespec lastTime;
   RedisModuleCtx *ctx;
-  ConcurrentKey **openKeys;
-  uint32_t numOpenKeys;
+  Vector<T> openKeys;
   bool isLocked;
 
-  ConcurrentSearchCtx(RedisModuleCtx *rctx);
-  ConcurrentSearchCtx(RedisModuleCtx *rctx, ConcurrentKey *concKey);
-  ~ConcurrentSearchCtx();
+  ConcurrentSearch(RedisModuleCtx *rctx);
+  ~ConcurrentSearch();
 
-  void AddKey(ConcurrentKey *concKey);
-  void SetKey(RedisModuleString *keyName, void *privdata);
+  void AddKey(T &&concKey);
+  void SetKey(RedisModuleString *keyName, void *privdata); //@@ check if we can remove
 
-  void InitSingle(RedisModuleCtx *rctx, int mode, ConcurrentReopenCallback cb);
-
-  int CheckTimer();
+  bool CheckTimer();
   void ResetClock();
 
   void Lock();
@@ -95,28 +82,7 @@ struct ConcurrentSearchCtx { //@@ Should it derive from 'RedisModuleCtx'?
   bool Tick();
 };
 
-//---------------------------------------------------------------------------------------------
-
-/** The maximal size of the concurrent query thread pool. Since only one thread is operational at a
- * time, it's not a problem besides memory consumption, to have much more threads than CPU cores.
- * By default the pool starts with just one thread, and scales up as needed  */
-
-/**
- * The maximum number of threads performing indexing on documents.
- * It's good to set this to approximately the number of CPUs running.
- *
- * NOTE: This is merely the *fallback* value if for some reason the number of
- * CPUs cannot be automatically determined. If you want to force the number
- * of tokenizer threads, make sure you also disable the CPU detection in the
- * source file
- */
-
-// The number of execution "ticks" per elapsed time check. This is intended to reduce the number of
-// calls to clock_gettime()
-#define CONCURRENT_TICK_CHECK 50
-
-// The timeout after which we try to switch to another query thread - in Nanoseconds
-#define CONCURRENT_TIMEOUT_NS 100000
+#include "concurrent_ctx.hxx"
 
 //---------------------------------------------------------------------------------------------
 
@@ -147,8 +113,6 @@ struct ConcurrentCmd : public Object {
 
   ConcurrentCmd(int options, ConcurrentCmdHandler handler, RedisModuleCtx *ctx,
                 RedisModuleString **argv, int argc);
-
-  void KeepRedisCtx();
 };
 
 #define CMDCTX_KEEP_RCTX 0x01

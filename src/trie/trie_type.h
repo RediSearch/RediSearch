@@ -23,7 +23,7 @@ struct Trie {
   Trie();
   ~Trie();
 
-  int Delete(const char *s, size_t len);
+  bool Delete(const char *s);
   int Insert(RedisModuleString *s, double score, int incr, RSPayload *payload);
   int InsertStringBuffer(const char *s, size_t len, double score, int incr, RSPayload *payload);
   Vector<TrieSearchResult*> Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode, int trim, int optimize);

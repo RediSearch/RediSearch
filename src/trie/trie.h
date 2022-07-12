@@ -136,14 +136,14 @@ struct TrieNode : public Object {
   float _score; // Nonterminal nodes always have a score of 0
 
   float _maxChildScore; // maximal score of any descendant of this node, used to optimize traversal
-  
+
   TriePayload *_payload; // payload of terminal node. can be NULL if nonterminal.
-  
+
   Runes _str; // string of current node
   Vector<TrieNode*> _children;
 
-  TrieNode(rune *runes, t_len offset, t_len new_len, const char *new_payload, size_t plen,
-           t_len numChildren, float score, bool terminal);
+  TrieNode(rune *runes, t_len offset = 0, t_len new_len = 0, const char *new_payload = NULL, size_t plen = 0,
+           t_len numChildren = 0, float score = 0, bool terminal = false);
   ~TrieNode();
 
   void Print(int idx, int depth); //@@ looks like nobody is using it

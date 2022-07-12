@@ -700,14 +700,14 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     // searching for node that matches the prefix of our min value
     h.r = min;
     h.n = nmin;
-    beginEqIdx = rsb_eq(_children, arrlen, sizeof(*arr), &h, rsbComparePrefix);
+    beginEqIdx = rsb_eq(_children, arrlen, sizeof(_children), &h, rsbComparePrefix);
   }
 
   if (nmax > 0) {
     // searching for node that matches the prefix of our max value
     h.r = max;
     h.n = nmax;
-    endEqIdx = rsb_eq(_children, arrlen, sizeof(*arr), &h, rsbComparePrefix);
+    endEqIdx = rsb_eq(_children, arrlen, sizeof(_children), &h, rsbComparePrefix);
   }
 
   if (beginEqIdx == endEqIdx && endEqIdx != -1) {
@@ -753,7 +753,7 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     // search for the first element which are greater then our min value
     h.r = min;
     h.n = nmin;
-    beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
+    beginIdx = rsb_gt(_children, arrlen, sizeof(_children), &h, rsbCompareExact);
   }
 
   endIdx = nmax ? arrlen - 1 : -1;
@@ -761,7 +761,7 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     // search for the first element which are less then our max value
     h.r = max;
     h.n = nmax;
-    endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
+    endIdx = rsb_lt(_children, arrlen, sizeof(_children), &h, rsbCompareExact);
   }
 
   // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx

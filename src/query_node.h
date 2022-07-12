@@ -347,8 +347,7 @@ struct QueryLexRangeNode : QueryNode {
   }
 
   IndexIterator *EvalNode(Query *q);
-  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
-                            double weight);
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
 };
 
 //---------------------------------------------------------------------------------------------

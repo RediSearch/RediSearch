@@ -53,7 +53,7 @@ struct QueryIterator {
   struct ResultProcessor *endProc;
 
   // Concurrent search context for thread switching
-  ConcurrentSearchCtx *conc;
+  ConcurrentSearch *conc;
 
   // Contains our spec
   RedisSearchCtx *sctx;

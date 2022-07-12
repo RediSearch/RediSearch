@@ -46,6 +46,7 @@ struct Buffer {
   size_t Offset() const { return offset; }
   size_t Capacity() const { return cap; }
   bool AtEnd() const { return offset >= cap; }
+  void ShrinkToSize() { Truncate(0); }
 
   size_t Truncate(size_t newlen);
   void Grow(size_t extraLen);
@@ -76,7 +77,6 @@ struct BufferReader {
   }
 
   bool AtEnd() const { return pos >= buf->offset; }
-  void ShrinkToSize() { buf->Truncate(0); }
   size_t Offset() const { return pos; }
   size_t Remaining() const { return buf->cap - pos; }
   char *Current() const { return buf->data + pos; }

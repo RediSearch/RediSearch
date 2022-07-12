@@ -768,14 +768,15 @@ void IndexSpec::FreeInternals() {
 // Free the index synchronously. Any keys associated with the index (but not the
 // documents themselves) are freed before this function returns.
 
-void IndexSpec::FreeAsync() {
+static void IndexSpec_FreeAsync(void *data) {
+  IndexSpec *spec = data;
   RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, this);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
   RedisModule_AutoMemory(threadCtx);
   RedisModule_ThreadSafeContextLock(threadCtx);
 
   Redis_DropIndex(&sctx, true, false);
-  FreeInternals();
+  spec->FreeInternals();
 
   RedisModule_ThreadSafeContextUnlock(threadCtx);
   RedisModule_FreeThreadSafeContext(threadCtx);
@@ -793,11 +794,16 @@ IndexSpec::~IndexSpec() {
     if (!cleanPool) {
       cleanPool = thpool_init(1);
     }
-    thpool_add_work(cleanPool, IndexSpec::FreeAsync, ctx);
+    thpool_add_work(cleanPool, IndexSpec_FreeAsync, this);
     return;
   }
 
   FreeInternals();
+}
+
+void IndexSpec_Free(void *ctx) {
+  IndexSpec *spec = ctx;
+  delete spec;
 }
 
 //---------------------------------------------------------------------------------------------

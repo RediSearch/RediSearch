@@ -132,7 +132,7 @@ size_t strToRunesN(const char *src, size_t slen, rune *out) {
 //---------------------------------------------------------------------------------------------
 
 int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
-  size_t minlen = MIN(na, nb);
+  size_t minlen = na < nb ? na : nb;
   for (size_t ii = 0; ii < minlen; ++ii) {
     int rc = sa[ii] - sb[ii];
     if (rc == 0) {

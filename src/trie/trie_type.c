@@ -20,7 +20,7 @@
 
 Trie::Trie() {
   Runes rs("");
-  root->ctor(rs, 0, 0, NULL, 0, 0, 0, 0);
+  root = new TrieNode(rs);
   size = 0;
 }
 
@@ -64,7 +64,7 @@ bool Trie::Delete(const char *s) {
   if (!runes || runes.len() > TRIE_INITIAL_STRING_LEN) {
     return false;
   }
-  int rc = root->Delete(runes);
+  int rc = root->Delete(runes, runes._len);
   size -= rc;
   return rc > 0;
 }
@@ -97,7 +97,7 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 // caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
 // Otherwise we return an iterator to all strings within maxDist Levenshtein distance.
 
-TrieIterator Trie::Iterate(const char *prefix, size_t len, int maxDist, int prefixMode) {
+TrieIterator *Trie::Iterate(const char *prefix, size_t len, int maxDist, int prefixMode) {
   size_t rlen;
   Runes runes(prefix, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
@@ -106,7 +106,7 @@ TrieIterator Trie::Iterate(const char *prefix, size_t len, int maxDist, int pref
   DFAFilter *fc = new DFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator it = root->Iterate(FilterFunc, StackPop, fc);
-  return it;
+  return &it;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -124,9 +124,8 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
     return Vector<TrieSearchResult *>();
   }
 
-  Heap pq(cmpEntries, NULL, num);
-
-  DFAFilter fc{runes, maxDist, prefixMode};
+  Heap<TrieSearchResult *, cmpEntries> pq(num);
+  DFAFilter fc(runes, maxDist, prefixMode);
 
   TrieIterator it = root->Iterate(FilterFunc, StackPop, &fc);
   rune *rstr;
@@ -136,7 +135,7 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
 
   TrieSearchResult *pooledEntry;
   int dist = maxDist + 1;
-  while (it->Next(&rstr, &slen, &payload, &score, &dist)) {
+  while (it.Next(&rstr, &slen, &payload, &score, &dist)) {
     if (pooledEntry == NULL) {
       pooledEntry->str = NULL;
       pooledEntry->payload = NULL;
@@ -144,7 +143,7 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
     }
     TrieSearchResult *ent = pooledEntry;
 
-    ent->score = slen > 0 && slen == rlen && memcmp(runes, rstr, slen) == 0 ? INT_MAX : score;
+    ent->score = slen > 0 && slen == runes._len && memcmp(runes, rstr, slen) == 0 ? INT_MAX : score;
 
     if (maxDist > 0) {
       // factor the distance into the score
@@ -155,32 +154,32 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
       ent->score /= sqrt(1 + (slen >= len ? slen - len : len - slen));
     }
 
-    if (heap_count(pq) < heap_size(pq)) {
+    if (pq.count() < pq.size()) {
       ent->str = runesToStr(rstr, slen, &ent->len);
       ent->payload = payload.data;
       ent->plen = payload.len;
-      heap_offerx(pq, ent);
+      pq.offerx(ent);
       pooledEntry = NULL;
 
-      if (heap_count(pq) == heap_size(pq)) {
-        TrieSearchResult *qe = heap_peek(pq);
-        it->minScore = qe->score;
+      if (pq.count() == pq.size()) {
+        TrieSearchResult *qe = pq.peek();
+        it.minScore = qe->score;
       }
 
     } else {
-      if (ent->score >= it->minScore) {
-        pooledEntry = heap_poll(pq);
+      if (ent->score >= it.minScore) {
+        pooledEntry = pq.poll();
         rm_free(pooledEntry->str);
         pooledEntry->str = NULL;
         ent->str = runesToStr(rstr, slen, &ent->len);
         ent->payload = payload.data;
         ent->plen = payload.len;
-        heap_offerx(pq, ent);
+        pq.offerx(ent);
 
         // get the new minimal score
-        TrieSearchResult *qe = heap_peek(pq);
-        if (qe->score > it->minScore) {
-          it->minScore = qe->score;
+        TrieSearchResult *qe = pq.peek();
+        if (qe->score > it.minScore) {
+          it.minScore = qe->score;
         }
 
       } else {
@@ -197,10 +196,10 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
   //        it->nodesSkipped));
 
   // put the results from the heap on a vector to return
-  size_t n = MIN(heap_count(pq), num);
+  size_t n = MIN(pq.count, num);
   Vector<TrieSearchResult *> ret(n);
   for (int i = 0; i < n; ++i) {
-    TrieSearchResult *h = heap_poll(pq);
+    TrieSearchResult *h = pq.poll(pq);
     ret[n - i - 1] = h;
   }
 
@@ -209,12 +208,11 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
     float maxScore = 0;
     int i;
     for (i = 0; i < n; ++i) {
-      TrieSearchResult *h;
-      ret->Get(i, &h);
+      TrieSearchResult *h = ret.front();
 
       if (maxScore && h->score < maxScore / SCORE_TRIM_FACTOR) {
         // TODO: Fix trimming the vector
-        ret->top = i;
+        // ret.top = i;
         break;
       }
       maxScore = MAX(maxScore, h->score);
@@ -244,7 +242,7 @@ bool Trie::RandomKey(char **str, t_len *len, double *score) {
 
   // TODO: deduce steps from cardinality properly
   TrieNode *n =
-      root->RandomWalk(2 + rand() % 8 + (int)round(logb(1 + size)), &rstr, &rlen);
+      root->RandomWalk(2 + rand() % 8 + (int)round(logb(1 + size)), rstr, rlen);
   if (!n) {
     return false;
   }
@@ -252,7 +250,7 @@ bool Trie::RandomKey(char **str, t_len *len, double *score) {
   *str = runesToStr(rstr, rlen, &sz);
   *len = sz;
 
-  *score = n->score;
+  *score = n->_score;
   return true;
 }
 
@@ -310,13 +308,13 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
   int count = 0;
   if (tree->root) {
-    TrieIterator *it = tree->root->Iterate(NULL, NULL, NULL);
+    TrieIterator it = tree->root->Iterate(NULL, NULL, NULL);
     rune *rstr;
     t_len len;
     float score;
     RSPayload payload;
 
-    while (it->Next(&rstr, &len, &payload, &score, NULL)) {
+    while (it.Next(&rstr, &len, &payload, &score, NULL)) {
       size_t slen = 0;
       char *s = runesToStr(rstr, len, &slen);
       RedisModule_SaveStringBuffer(rdb, s, slen + 1);
@@ -339,7 +337,6 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
       RedisModule_Log(ctx, "warning", "Trie: saving %zd nodes actually iterated only %zd nodes",
                       tree->size, count);
     }
-    delete it;
   }
 }
 

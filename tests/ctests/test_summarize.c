@@ -48,23 +48,18 @@ static char *getFile(const char *name) {
   return buf;
 }
 
-#define SIMPLE_TERM(s) FRAGMENT_TERM(s, strlen(s), 1)
-#define SCORED_TERM(s, score) FRAGMENT_TERM(s, strlen(s), score)
-
 int testFragmentize() {
   char *lorem = getFile(GENESIS_FILE);
-  const FragmentSearchTerm terms[] = {SCORED_TERM("adam", 1.5), SCORED_TERM("eve", 2),
-                                      SIMPLE_TERM("good"),      SIMPLE_TERM("woman"),
-                                      SCORED_TERM("man", 0.7),  SIMPLE_TERM("earth"),
-                                      SCORED_TERM("evil", 1.3)};
+  const FragmentSearchTerm terms[] = {FragmentSearchTerm("adam", 1.5), FragmentSearchTerm("eve", 2),
+                                      FragmentSearchTerm("good"),      FragmentSearchTerm("woman"),
+                                      FragmentSearchTerm("man", 0.7),  FragmentSearchTerm("earth"),
+                                      FragmentSearchTerm("evil", 1.3)};
   size_t nterms = sizeof(terms) / sizeof(terms[0]);
   FragmentList fragList(8, 6);
 
   // Fragmentize
   fragList.FragmentizeBuffer(lorem, NULL, DefaultStopWordList(), terms, nterms);
   size_t nfrags = fragList.GetNumFrags();
-  const Fragment *allFrags = fragList.GetFragments();
-  ASSERT(allFrags != NULL);
   ASSERT(nfrags != 0);
 
   HighlightTags tags = {.openTag = "<i>", .closeTag = "</i>"};

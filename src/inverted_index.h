@@ -22,8 +22,6 @@ struct IndexBlockRepair;
 // A single block of data in the index. The index is basically a list of blocks we iterate
 
 struct IndexBlock {
-  ~IndexBlock();
-
   t_docId firstId;
   t_docId lastId;
   Buffer buf;

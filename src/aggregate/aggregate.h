@@ -94,7 +94,7 @@ struct AREQ : public Object {
   std::unique_ptr<RedisSearchCtx> sctx;
 
   // Resumable context
-  std::unique_ptr<ConcurrentSearchCtx> conc;
+  std::unique_ptr<ConcurrentSearch> conc;
 
   // Context for iterating over the queries themselves
   std::unique_ptr<QueryIterator> qiter;
@@ -144,7 +144,7 @@ struct AREQ : public Object {
   int parseGroupby(ArgsCursor *ac, QueryError *status);
   int handleApplyOrFilter(ArgsCursor *ac, bool isApply, QueryError *status);
   int handleLoad(ArgsCursor *ac, QueryError *status);
-  
+
   ResultProcessor *RP() { return qiter->endProc; }
   ResultProcessor *pushRP(ResultProcessor *rp, ResultProcessor *rpUpstream);
   ResultProcessor *getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstream, QueryError *status);
@@ -172,7 +172,7 @@ struct Group {
   // Contains the selected 'out' values used by the reducers output functions
   RLookupRow rowdata;
 
-  // Contains the actual per-reducer data for the group, in an accumulating fashion 
+  // Contains the actual per-reducer data for the group, in an accumulating fashion
   // (e.g. how many records seen, and so on). This is created by Reducer::NewInstance()
   void *accumdata[0];
 
@@ -218,7 +218,7 @@ struct Grouper : ResultProcessor {
                      uint64_t hval, RLookupRow *res);
 
   size_t numReducers() const;
-  
+
   virtual int Next(SearchResult &res);
   int Yield(SearchResult &res);
 

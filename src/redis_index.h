@@ -9,10 +9,21 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+struct TermIndexReaderConcKey : public ConcurrentKey<TermIndexReader> {
+  TermIndexReader *reader;
+
+  TermIndexReaderConcKey(RedisModuleKey *key, RedisModuleString *keyName, TermIndexReader *reader) :
+    ConcurrentKey(key, keyName), reader(reader) {}
+
+  void Reopen() {
+    reader->OnReopen(key);
+  }
+};
+
 // Open an inverted index reader on a redis DMA string, for a specific term.
 // If singleWordMode is set to 1, we do not load the skip index, only the score index
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
-                              int singleWordMode, t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
+                              int singleWordMode, t_fieldMask fieldMask, TermIndexReaderConcKey *csx,
                               double weight);
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
@@ -29,6 +40,7 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
 #define TERM_KEY_PREFIX "ft:"
 #define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
 #define SCOREINDEX_KEY_FORMAT "ss:%s/%.*s"
+#define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
 #define INVERTED_INDEX_ENCVER 1
 #define INVERTED_INDEX_NOFREQFLAG_VER 0
@@ -62,4 +74,3 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx);
 unsigned long InvertedIndex_MemUsage(const void *value);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-

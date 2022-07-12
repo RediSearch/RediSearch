@@ -69,7 +69,7 @@ uint32_t MergeHashTable::Hash(const KHTableEntry *ent) {
 // Boilerplate dict entry allocator
 KHTableEntry *MergeHashTable::Alloc(void *ctx) {
   BlkAlloc b = ctx;
-  return b->Alloc(sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
+  return b.Alloc(sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -333,18 +333,18 @@ static void doAssignIds(AddDocumentCtx *cur, RedisSearchCtx *ctx) {
       continue;
     }
 
-    RSDocumentMetadata *md = &spec->docs->Get(cur->doc.docId);
+    RSDocumentMetadata *md = spec->docs.Get(cur->doc.docId);
     md->maxFreq = cur->fwIdx->maxFreq;
     md->len = cur->fwIdx->totalFreq;
 
     if (cur->sv) {
-      &spec->docs->SetSortingVector(cur->doc.docId, cur->sv);
+      spec->docs.SetSortingVector(cur->doc.docId, cur->sv);
       cur->sv = NULL;
     }
 
     if (cur->byteOffsets) {
       cur->offsetsWriter.Move(cur->byteOffsets);
-      &spec->docs->SetByteOffsets(cur->doc.docId, cur->byteOffsets);
+      spec->docs.SetByteOffsets(cur->doc.docId, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
   }
@@ -376,7 +376,7 @@ static void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx 
         activeBulks[numActiveBulks++] = bulk;
       }
 
-      if (IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
+      if (bulk->Add(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         cur->stateFlags |= ACTX_F_ERRORED;
       }
       cur->stateFlags |= ACTX_F_OTHERINDEXED;
@@ -386,28 +386,28 @@ static void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx 
   // Flush it!
   for (size_t ii = 0; ii < numActiveBulks; ++ii) {
     IndexBulkData *cur = activeBulks[ii];
-    IndexerBulkCleanup(cur, sctx);
+    cur->Cleanup(sctx);
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-struct DocumentIndexerConcurrentKey : public ConcurrentKey {
+struct DocumentIndexerConcurrentKey : public ConcurrentKey<RedisSearchCtx> {
   RedisSearchCtx sctx;
 
   DocumentIndexerConcurrentKey(RedisModuleKey *key, RedisModuleString *keyName) :
-    ConcurrentKey(key, keyName, REDISMODULE_READ | REDISMODULE_WRITE) {
+    ConcurrentKey<RedisSearchCtx>(key, keyName, REDISMODULE_READ | REDISMODULE_WRITE) {
   }
 
-  virtual void Reopen(RedisModuleKey *k) {
+  void Reopen() {
     // we do not allow empty indexes when loading an existing index
-    if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
-        RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
+    if (key == NULL || RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY ||
+        RedisModule_ModuleTypeGetType(key) != IndexSpecType) {
       sctx.spec = NULL;
       return;
     }
 
-    sctx.spec = RedisModule_ModuleTypeGetValue(k);
+    sctx.spec = RedisModule_ModuleTypeGetValue(key);
     if (sctx.spec->uniqueId != sctx.specId) {
       sctx.spec = NULL;
     }
@@ -429,6 +429,7 @@ struct DocumentIndexerConcurrentKey : public ConcurrentKey {
 void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
   AddDocumentCtx *parentMap[MAX_BULK_DOCS] = {0};
   AddDocumentCtx *firstZeroId = aCtx;
+  Document *doc = NULL;
 
   if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
     // Document is complete or errored. No need for further processing.
@@ -449,7 +450,7 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
 
   const int isBlocked = aCtx->IsBlockable();
 
-  RedisSearchCtx sctx;
+  RedisSearchCtx *sctx = NULL;
   if (isBlocked) {
     // Force a context at this point:
     if (!isDbSelected) {
@@ -459,51 +460,48 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
       isDbSelected = true;
     }
 
-    sctx.redisCtx = redisCtx;
-    sctx.specId = specId;
-    concCtx.SetKey(specKeyName, &sctx);
+    sctx->redisCtx = redisCtx;
+    sctx->specId = specId;
+    concCtx.SetKey(specKeyName, sctx);
     concCtx.ResetClock();
     concCtx.Lock();
   } else {
-    sctx = *aCtx->client.sctx;
+    sctx = aCtx->client.sctx;
   }
 
-  if (!sctx.spec) {
+  if (!sctx->spec) {
     aCtx->status.SetCode(QUERY_ENOINDEX);
     aCtx->stateFlags |= ACTX_F_ERRORED;
     goto cleanup;
   }
 
-  Document *doc = &aCtx->doc;
+  doc = &aCtx->doc;
 
-  /**
-   * Document ID assignment:
-   * In order to hold the GIL for as short a time as possible, we assign
-   * document IDs in bulk. We begin using the first document ID that is assumed
-   * to be zero.
-   *
-   * When merging multiple document IDs, the merge stage scans through the chain
-   * of proposed documents and selects the first document in the chain missing an
-   * ID - the subsequent documents should also all be missing IDs. If none of
-   * the documents are missing IDs then the firstZeroId document is NULL and
-   * no ID assignment takes place.
-   *
-   * Assigning IDs in bulk speeds up indexing of smaller documents by about 10% overall.
-   */
-
+  // Document ID assignment:
+  // In order to hold the GIL for as short a time as possible, we assign
+  // document IDs in bulk. We begin using the first document ID that is assumed
+  // to be zero.
+  //
+  // When merging multiple document IDs, the merge stage scans through the chain
+  // of proposed documents and selects the first document in the chain missing an
+  // ID - the subsequent documents should also all be missing IDs. If none of
+  // the documents are missing IDs then the firstZeroId document is NULL and
+  // no ID assignment takes place.
+  //
+  // Assigning IDs in bulk speeds up indexing of smaller documents by about 10% overall.
   if (firstZeroId != NULL && firstZeroId->doc.docId == 0) {
-    doAssignIds(firstZeroId, &sctx);
+    doAssignIds(firstZeroId, sctx);
   }
 
   // Handle FULLTEXT indexes
   if (useTermHt) {
-    writeMergedEntries(aCtx, &sctx, &mergeHt, parentMap);
+    writeMergedEntries(aCtx, sctx, &mergeHt, parentMap);
   } else if (aCtx->fwIdx && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
-    writeCurEntries(aCtx, &sctx);
+    writeCurEntries(aCtx, sctx);
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
-    IndexBulkData::indexBulkFields(aCtx, &sctx);
+    IndexBulkData::indexBulkFields(aCtx, sctx);
   }
 
 cleanup:
@@ -553,9 +551,9 @@ static void *DocumentIndexer::_main(void *self_) {
   try {
     self->main();
   } catch (Error &x) {
-    RS_LOG_ASSERT(0, "DocumentIndexer thread exception: %s", x.what());
+    throw Error("DocumentIndexer thread exception: %s", x.what());
   } catch (...) {
-    RS_LOG_ASSERT(0, "DocumentIndexer thread exception");
+    throw Error("DocumentIndexer thread exception");
   }
 }
 
@@ -628,7 +626,7 @@ DocumentIndexer::DocumentIndexer(IndexSpec *spec) {
   specId = spec->uniqueId;
   specKeyName = RedisModule_CreateStringPrintf(redisCtx, INDEX_SPEC_KEY_FMT, spec->name);
 
-  concCtx = *new ConcurrentSearchCtx(redisCtx, REDISMODULE_READ | REDISMODULE_WRITE);
+  concCtx = *new ConcurrentSearch(redisCtx, REDISMODULE_READ | REDISMODULE_WRITE);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -638,7 +636,6 @@ DocumentIndexer::~DocumentIndexer() {
     pthread_cond_destroy(&cond);
     pthread_mutex_destroy(&lock);
   }
-  delete &concCtx;
   RedisModule_FreeString(redisCtx, specKeyName);
   mergeHt.Clear();
   // KHTable_Free(&mergeHt);

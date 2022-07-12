@@ -451,7 +451,7 @@ IndexIterator *QueryNumericNode::EvalNode(Query *q) {
     return NULL;
   }
 
-  return new NumericFilterIterator(q->sctx, nf, q->conc);
+  return NewNumericFilterIterator(q->sctx, nf, q->conc);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -710,7 +710,7 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-             ConcurrentSearchCtx *conc) : conc(conc), opts(opts), numTokens(ast.numTokens),
+             ConcurrentSearch *conc) : conc(conc), opts(opts), numTokens(ast.numTokens),
              docTable(&sctx->spec->docs), sctx(sctx) {}
 
 //---------------------------------------------------------------------------------------------
@@ -727,7 +727,7 @@ Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
  */
 
 IndexIterator *QueryAST::Iterate(const RSSearchOptions &opts, RedisSearchCtx &sctx,
-                                 ConcurrentSearchCtx &conc) const {
+                                 ConcurrentSearch &conc) const {
   Query query(this, &opts, &sctx, &conc);
   IndexIterator *iter = query.Eval(root);
   if (!iter) {

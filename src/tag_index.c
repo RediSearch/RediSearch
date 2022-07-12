@@ -131,36 +131,21 @@ size_t TagIndex::Index(const Tags &tags, t_docId docId) {
 
 //---------------------------------------------------------------------------------------------
 
-struct TagConc {
-  ~TagConc() {
-    if (its) {
-      array_free(its);
-    }
-  }
-
-  arrayof(IndexIterator*) its;
-  uint32_t uid;
-};
-
-//---------------------------------------------------------------------------------------------
-
-static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
-  TagConc *ctx = privdata;
-  IndexIterator **its = ctx->its;
+void TagConcKey::Reopen() {
   TagIndex *idx = NULL;
   size_t nits = array_len(its);
   // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
-  if (k == NULL || RedisModule_ModuleTypeGetType(k) != TagIndexType ||
-      (idx = RedisModule_ModuleTypeGetValue(k))->uniqueId != ctx->uid) {
-    for (size_t ii = 0; ii < nits; ++ii) {
-      its[ii]->Abort();
+  if (key == NULL || RedisModule_ModuleTypeGetType(key) != TagIndexType ||
+      (idx = RedisModule_ModuleTypeGetValue(key))->uniqueId != uid) {
+    for (size_t i = 0; i < nits; ++i) {
+      its[i]->Abort();
     }
     return;
   }
 
   // If the key is valid, we just reset the reader's buffer reader to the current block pointer
-  for (size_t ii = 0; ii < nits; ++ii) {
-    IndexReader *ir = its[ii]->ir;
+  for (size_t i = 0; i < nits; ++i) {
+    IndexReader *ir = its[i]->ir;
 
     // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
     if (ir->gcMarker == ir->idx->gcMarker) {
@@ -186,14 +171,9 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
 //---------------------------------------------------------------------------------------------
 
-void TagIndex::RegisterConcurrentIterators(ConcurrentSearchCtx *conc,
-    RedisModuleKey *key, RedisModuleString *keyname, array_t *iters) {
-  // TagConc *tctx = rm_calloc(1, sizeof(*tctx));
-  // tctx->uid = uniqueId;
-  // tctx->its = (IndexIterator **)iters;
-  ConcurrentKey *concKey(key, keyname, REDISMODULE_READ);
-  conc->AddKey(concKey);
-  // conc->AddKey(key, REDISMODULE_READ, keyname, TagReader_OnReopen, tctx, concCtxFree);
+void TagIndex::RegisterConcurrentIterators(ConcurrentSearch<TagConcKey> *conc, RedisModuleKey *key,
+                                           RedisModuleString *keyname, arrayof(IndexIterator*) iters) {
+  conc->AddKey(TagConcKey(key, keyname, iters));
 }
 
 //---------------------------------------------------------------------------------------------
@@ -360,6 +340,10 @@ size_t TagIndex_MemUsage(const void *value) {
   while (it->Next(&str, &slen, &ptr)) {
     sz += slen + InvertedIndex_MemUsage((InvertedIndex *)ptr);
   }
+
+  delete it;
+  delete idx;
+
   return sz;
 }
 

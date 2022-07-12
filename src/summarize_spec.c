@@ -12,7 +12,7 @@
  * SUMMARISE [FIELDS {num} {field} …] [LEN {len}] [FRAGS {num}]
  */
 
-int FieldList::parseFieldList(ArgsCursor *ac, Array<size_t> *fieldPtrs) {
+int FieldList::parseFieldList(ArgsCursor *ac, Vector<size_t> fieldPtrs) {
   ArgsCursor fieldArgs;
   if (ac->GetVarArgs(&fieldArgs) != AC_OK) {
     return -1;
@@ -22,7 +22,7 @@ int FieldList::parseFieldList(ArgsCursor *ac, Array<size_t> *fieldPtrs) {
     const char *name = fieldArgs.GetStringNC(NULL);
     ReturnedField *fieldInfo = GetCreateField(name);
     size_t ix = fieldInfo - fields;
-    fieldPtrs.Write(&ix, sizeof(size_t));
+    fieldPtrs.push_back(ix);
   }
 
   return 0;
@@ -72,10 +72,10 @@ int FieldList::parseArgs(ArgsCursor *ac, bool isHighlight) {
   int rc = REDISMODULE_OK;
 
   ReturnedField defOpts;
-  Array<size_t> fieldPtrs;
+  Vector<size_t> fieldPtrs;
 
   if (ac->AdvanceIfMatch("FIELDS")) {
-    if (parseFieldList(ac, &fieldPtrs) != 0) {
+    if (parseFieldList(ac, fieldPtrs) != 0) {
       rc = REDISMODULE_ERR;
       goto done;
     }
@@ -112,10 +112,9 @@ int FieldList::parseArgs(ArgsCursor *ac, bool isHighlight) {
     }
   }
 
-  if (fieldPtrs.len) {
-    size_t numNewPtrs = fieldPtrs.ARRAY_GETSIZE_AS();
-    for (size_t ii = 0; ii < numNewPtrs; ++ii) {
-      size_t ix = fieldPtrs.ARRAY_GETARRAY_AS()[ii];
+  if (!fieldPtrs.empty()) {
+    for (size_t i = 0; i < fieldPtrs.size(); ++i) {
+      size_t ix = fieldPtrs[i];
       ReturnedField fieldInfo = fields[ix];
       fieldInfo.setFieldSettings(&defOpts, isHighlight);
     }

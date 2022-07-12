@@ -549,7 +549,7 @@ void ForkGC::checkLastBlock(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inverte
 
     // we need to remove it from changedBlocks
     MSG_RepairedBlock *rb = idxData->changedBlocks + info->nblocksRepaired - 1;
-    rb->blk.~IndexBlock();
+    delete &rb->blk;
     info->nblocksRepaired--;
 
     // Then add it to newBlocklist if newBlocklist is not NULL.
@@ -575,7 +575,7 @@ void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inv
   checkLastBlock(idxData, info, idx);
   for (size_t i = 0; i < info->nblocksRepaired; ++i) {
     MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
-    idx->blocks[blockModified->oldix].~IndexBlock();
+    delete &idx->blocks[blockModified->oldix];
   }
   for (size_t i = 0; i < idxData->numDelBlocks; ++i) {
     // Blocks that were deleted entirely:

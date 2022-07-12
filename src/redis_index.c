@@ -392,18 +392,8 @@ end:
 
 //---------------------------------------------------------------------------------------------
 
-struct TermIndexReaderConcurrentKey : public ConcurrentKey {
-  TermIndexReader *reader;
-
-  TermIndexReaderConcurrentKey(TermIndexReader *reader) : ConcurrentKey(), reader(reader) {}
-
-  void Reopen() {
-    reader->OnReopen(key);
-  }
-};
-
 IndexReader *Redis_OpenReader(RedisSearchCtx *sctx, RSQueryTerm *term, DocTable *dt,
-                              int singleWordMode, t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
+                              int singleWordMode, t_fieldMask fieldMask, TermIndexReaderConcKey *csx,
                               double weight) {
 
   RedisModuleString *termKey = sctx->TermKey(term->str, term->len);
@@ -433,9 +423,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *sctx, RSQueryTerm *term, DocTable 
 
   IndexReader *reader = new TermIndexReader(idx, sctx->spec, fieldMask, term, weight);
   if (csx) {
-    auto conckey = new TermIndexReaderConcurrentKey(termkey, reader);
-    csx->AddKey(k, REDISMODULE_READ, termKey, IndexReader_OnReopen, reader, NULL);
-    csx->AddKey(k, termKey, REDISMODULE_READ);
+    csx->AddKey(TermIndexReaderConcKey(k, termkey, reader));
   }
   RedisModule_FreeString(sctx->redisCtx, termKey);
   return reader;
@@ -588,7 +576,6 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
 
 //---------------------------------------------------------------------------------------------
 
-#define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
 RedisModuleString *RedisSearchCtx::NumericIndexKey(const char *field) {
   return RedisModule_CreateStringPrintf(redisCtx, NUMERICINDEX_KEY_FMT, spec->name, field);

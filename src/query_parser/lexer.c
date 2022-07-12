@@ -312,7 +312,7 @@ _eof_trans:
     tok.len = te - ts;
     tok.s = ts+1;
     RSQuery_Parse(pParser, ARROW, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -325,7 +325,7 @@ _eof_trans:
     tok.len = te-ts;
     tok.numval = *ts == '-' ? -INFINITY : INFINITY;
     RSQuery_Parse(pParser, NUMBER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -335,7 +335,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, QUOTE, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -345,7 +345,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, OR, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -355,7 +355,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, LP, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -365,7 +365,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, RP, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -375,7 +375,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, LB, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -385,7 +385,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, RB, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -395,7 +395,7 @@ _eof_trans:
 	{te = p+1;{
      tok.pos = ts-raw;
      RSQuery_Parse(pParser, COLON, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
    }}
@@ -405,7 +405,7 @@ _eof_trans:
 	{te = p+1;{
      tok.pos = ts-raw;
      RSQuery_Parse(pParser, SEMICOLON, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
    }}
@@ -415,7 +415,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, TILDE, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -425,7 +425,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, STAR, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -435,7 +435,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, PERCENT, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -445,7 +445,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, LSQB, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -455,7 +455,7 @@ _eof_trans:
 	{te = p+1;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, RSQB, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -482,7 +482,7 @@ _eof_trans:
 
     RSQuery_Parse(pParser, PREFIX, tok, q);
 
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -496,7 +496,7 @@ _eof_trans:
     tok.numval = strtod(tok.s, &ne);
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, NUMBER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
 
@@ -507,7 +507,7 @@ _eof_trans:
 	{te = p;p--;{
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, MINUS, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -528,7 +528,7 @@ _eof_trans:
     } else {
       RSQuery_Parse(pParser, STOPWORD, tok, q);
     }
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }}
@@ -542,7 +542,7 @@ _eof_trans:
     tok.numval = strtod(tok.s, &ne);
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, NUMBER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
 
@@ -559,7 +559,7 @@ _eof_trans:
     tok.numval = strtod(tok.s, &ne);
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, NUMBER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
 
@@ -571,7 +571,7 @@ _eof_trans:
     tok.len = te - (ts + 1);
     tok.s = ts+1;
     RSQuery_Parse(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }
@@ -582,7 +582,7 @@ _eof_trans:
     tok.len = te - (ts + 1);
     tok.s = ts+1;
     RSQuery_Parse(pParser, ATTRIBUTE, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }
@@ -594,7 +594,7 @@ _eof_trans:
     tok.len = te-ts;
     tok.numval = *ts == '-' ? -INFINITY : INFINITY;
     RSQuery_Parse(pParser, NUMBER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }
@@ -603,7 +603,7 @@ _eof_trans:
 	{{p = ((te))-1;}
     tok.pos = ts-raw;
     RSQuery_Parse(pParser, MINUS, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }
@@ -619,7 +619,7 @@ _eof_trans:
     } else {
       RSQuery_Parse(pParser, STOPWORD, tok, q);
     }
-    if (!QPCTX_ISOK(q)) {
+    if (!q->IsOk()) {
       {p++; goto _out; }
     }
   }
@@ -663,11 +663,11 @@ _again:
 
 /* #line 256 "lexer.rl" */
 
-  if (QPCTX_ISOK(q)) {
+  if (q->IsOk()) {
     RSQuery_Parse(pParser, 0, tok, q);
   }
   RSQuery_ParseFree(pParser, rm_free);
-  if (!QPCTX_ISOK(q) && root) {
+  if (!q->IsOk() && root) {
     QueryNode_Free(root);
     root = NULL;
   }

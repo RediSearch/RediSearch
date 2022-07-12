@@ -375,7 +375,6 @@ void CursorList::Purge(const char *lookupName) {
 
 CursorList::~CursorList() {
   GCInternal(true);
-  delete &lookup;
 
   if (infos) {
     for (size_t i = 0; i < cursorCount; ++i) {
@@ -383,8 +382,6 @@ CursorList::~CursorList() {
     }
     rm_free(infos);
   }
-
-  delete &idle;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
