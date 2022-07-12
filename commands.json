@@ -1317,8 +1317,7 @@
           {
             "name": "withcursor",
             "type": "pure-token",
-            "token": "WITHCURSOR",
-            "optional": true
+            "token": "WITHCURSOR"
           },
           {
             "name": "read_size",
