@@ -73,6 +73,7 @@ typedef struct RedisJSONAPI_V1 {
 } RedisJSONAPI_V1;
 
 typedef struct RedisJSONAPI_V2 {
+  RedisJSONAPI_V1 v1; 
   // Return a parsed JSONPath
   // Return NULL if failed to parse, and the error message in `err_msg`
   // The caller gains ownership of `err_msg`
