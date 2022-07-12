@@ -284,6 +284,8 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
+export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)
+
 #----------------------------------------------------------------------------------------------
 
 HAVE_MARCH_OPTS:=$(shell $(MK)/cc-have-opts)
@@ -300,6 +302,10 @@ CMAKE_FLAGS=\
 	-DOS=$(OS) \
 	-DOSNICK=$(OSNICK) \
 	-DARCH=$(ARCH)
+
+ifeq ($(OS),macos)
+CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
+endif
 
 CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_COV) \
 	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
