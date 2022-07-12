@@ -284,7 +284,7 @@ commands:
       - run:
           name: Run CI benchmarks on aws for envs << parameters.allowed_envs >>
           timeout: 60m
-          no_output_timeout: 20m
+          no_output_timeout: 40m
           command: |
             ROOT="$PWD"
             cd tests/benchmarks
