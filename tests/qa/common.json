@@ -6,7 +6,7 @@
     "email_recipients": "s5i1u4h5a8c8w2d7@redislabs.slack.com",
     "sut_environments": [],
     "tools_environment": {},
-    "modules_version": "{{SEARCH_SEMANTIC_VERSION}}",
+    "modules_version": "{{SEARCH_VERSION}}",
     "search_vecsim": {{SEARCH_VECSIM}},
     "test_names_modules": [
       "{{SEARCH_TEST_NAME}}"
