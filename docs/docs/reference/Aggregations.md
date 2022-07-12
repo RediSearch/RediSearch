@@ -203,8 +203,9 @@ REDUCE COUNT_DISTINCT 1 {property}
 
 Count the number of distinct values for `property`. 
 
-!!! note
-    The reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.
+{{% alert title="Note" color="info" %}}
+The reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.
+{{% /alert %}}
 
 #### COUNT_DISTINCTISH
 
@@ -218,8 +219,9 @@ REDUCE COUNT_DISTINCTISH 1 {property}
 
 Same as COUNT_DISTINCT - but provide an approximation instead of an exact count, at the expense of less memory and CPU in big groups. 
 
-!!! note
-    The reducer uses [HyperLogLog](https://en.wikipedia.org/wiki/HyperLogLog) counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case. 
+{{% alert title="Note" color="info" %}}
+The reducer uses [HyperLogLog](https://en.wikipedia.org/wiki/HyperLogLog) counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case. 
+{{% /alert %}}
 
 #### SUM
 

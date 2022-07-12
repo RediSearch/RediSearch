@@ -15,6 +15,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		Argument variables:
 		OSNICK=nick        Get binaries for given `nick`
 		BRANCH=name        Use given branch
+		HDT=1              Download JSON/HDT
 		REPO_PATH=dir      Get binary artifacts from given repo `dir`
 		BINROOT=dir        On Build, place module .so in `dir`/RedisJSON
 		BUILD=0            Do not build if unable to download
@@ -80,8 +81,13 @@ else
 	platform="${os}-${nick}-${arch}"
 fi
 
-MOD_S3_URL="http://redismodules.s3.amazonaws.com/rejson/snapshots"
-MOD_RAMP="rejson.${platform}.$BRANCH.zip"
+if [[ $HDT == 1 ]]; then
+	STEM=rejson-hdt
+else
+	STEM=rejson
+fi
+MOD_S3_URL="http://redismodules.s3.amazonaws.com/${STEM}/snapshots"
+MOD_RAMP="${STEM}.${platform}.$BRANCH.zip"
 
 DEST_REJSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
 

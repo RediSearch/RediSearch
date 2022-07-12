@@ -374,3 +374,21 @@ void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "Enabled diskless replication");
   }
 }
+
+void RoleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  switch(subevent) {
+  case REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER:
+    Indexes_SetTempSpecsTimers(TimerOp_Add);
+    break;
+  case REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA:
+    Indexes_SetTempSpecsTimers(TimerOp_Del);
+    break;
+  }
+}
+
+void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx) {
+  int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplicationRoleChanged, RoleChangeCallback);
+  RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
+  RedisModule_Log(ctx, "notice", "Enabled role change notification");
+}
