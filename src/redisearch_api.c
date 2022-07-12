@@ -831,7 +831,7 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
   return REDISEARCH_OK;
 }
 
-size_t RediSearch_Size(RSIndex* sp) {
+size_t RediSearch_MemUsage(RSIndex* sp) {
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;

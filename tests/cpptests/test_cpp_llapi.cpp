@@ -1164,7 +1164,7 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  ASSERT_EQ(RediSearch_Size(index), 0);
+  ASSERT_EQ(RediSearch_MemUsage(index), 0);
 
   // adding document to the index
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
@@ -1172,14 +1172,14 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_Size(index), 113);
+  ASSERT_EQ(RediSearch_MemUsage(index), 113);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_Size(index), 125);
+  ASSERT_EQ(RediSearch_MemUsage(index), 253);
 
   RediSearch_DropIndex(index);
 }
