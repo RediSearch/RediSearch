@@ -1176,4 +1176,6 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_SpecAddDocument(index, d);
 
   ASSERT_EQ(RediSearch_Size(index), 125);
+
+  RediSearch_DropIndex(index);
 }
