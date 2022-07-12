@@ -834,4 +834,3 @@ def testNullValue(env):
     check_index_with_null(env, 'idx_sortable')
     check_index_with_null(env, 'idx_separator')
     check_index_with_null(env, 'idx_casesensitive')
-
