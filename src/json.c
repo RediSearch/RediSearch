@@ -7,15 +7,15 @@
 #include <string.h>
 
 // REJSON APIs
-RedisJSONAPI_V1 *japi = NULL;
-RedisJSONAPI_V2 *japi2 = NULL;
+RedisJSONAPI *japi = NULL;
+int japi_ver = 0;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
                          RedisModuleModuleChange *ei) {
   REDISMODULE_NOT_USED(e);
-  if (sub != REDISMODULE_SUBEVENT_MODULE_LOADED || japi || japi2 || strcmp(ei->module_name, "ReJSON"))
+  if (sub != REDISMODULE_SUBEVENT_MODULE_LOADED || japi || strcmp(ei->module_name, "ReJSON"))
     return;
   // If RedisJSON module is loaded after RediSearch need to get the API exported by RedisJSON
 
@@ -27,15 +27,18 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 //---------------------------------------------------------------------------------------------
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
-    japi2 = RedisModule_GetSharedAPI(ctx, "RedisJSON_V2");
-    if (japi2) {
-      RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V2 API");
-    }
-    japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V1");
+    japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V2");
     if (japi) {
-      RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V1 API");
+      japi_ver = 2;
+      RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V2 API");
+    } else {
+      japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V1");
+      if (japi) {
+        japi_ver = 1;
+        RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V1 API");
+      }
     }
-    if (japi || japi2) {
+    if (japi) {
       return 1;
     }
     if (subscribeToModuleChange) {
@@ -48,8 +51,8 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 JSONPath pathParse(const char *path, RedisModuleString **err_msg) {
-  if (japi2) {
-    return japi2->pathParse(path, RSDummyContext, err_msg);
+  if (japi_ver >= 2) {
+    return japi->pathParse(path, RSDummyContext, err_msg);
   } else {
     *err_msg = NULL;
     return NULL;
@@ -57,21 +60,21 @@ JSONPath pathParse(const char *path, RedisModuleString **err_msg) {
 }
 
 void pathFree(JSONPath jsonpath) {
-  if (japi2) {
-    japi2->pathFree(jsonpath);
+  if (japi_ver >= 2) {
+    japi->pathFree(jsonpath);
   }
 }
 
 int pathIsStatic(JSONPath jsonpath) {
-  if (japi2) {
-    return japi2->pathIsStatic(jsonpath);
+  if (japi_ver >= 2) {
+    return japi->pathIsStatic(jsonpath);
   }
   return false;
 }
 
 int pathHasDefinedOrder(JSONPath jsonpath) {
-  if (japi2) {
-    return japi2->pathHasDefinedOrder(jsonpath);
+  if (japi_ver >= 2) {
+    return japi->pathHasDefinedOrder(jsonpath);
   }
   return false;
 }

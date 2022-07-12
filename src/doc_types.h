@@ -4,7 +4,7 @@
 #include "redismodule.h"
 #include "json.h"
 
-extern RedisJSONAPI_V1 *japi;
+extern RedisJSONAPI *japi;
 extern RedisModuleCtx *RSDummyContext;
 
 #ifdef __cplusplus
