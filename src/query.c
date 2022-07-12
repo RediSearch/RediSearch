@@ -596,18 +596,13 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   Trie *t = spec->terms;
   ContainsCtx ctx = {.q = q, .opts = &qn->opts};
 
-  if (!t) {
+  if (!t || !qn->verb.tok.str) {
     return NULL;
   }
 
   qn->verb.tok.len = _removeEscape(qn->verb.tok.str, qn->verb.tok.len);
-  rune *str = NULL;
-  //bool endWithStar = false;
   size_t nstr;
-  if (qn->verb.tok.str) {
-    str = strToFoldedRunes(qn->verb.tok.str, &nstr);
-    //endWithStar = qn->verb.tok.str[qn->verb.tok.len - 1] == '*';
-  }
+  rune *str = strToFoldedRunes(qn->verb.tok.str, &nstr);
 
   ctx.cap = 8;
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);

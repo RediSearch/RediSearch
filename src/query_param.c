@@ -124,7 +124,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     type = PARAM_SIZE;
     break;
   case QT_PARAM_WILDCARD:
-    type = QT_WILDCARD;
+    type = PARAM_WILDCARD;
     break;
   }
   target_param->type = type;
