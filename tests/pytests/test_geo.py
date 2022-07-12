@@ -51,8 +51,7 @@ def testGeoDistanceSimple(env):
   # querying for invalid value fails with a message
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 -10 km]').error().contains('Invalid GeoFilter radius')
   env.expect('FT.SEARCH', 'idx', '@location:[181 4.56 10 km]').error().contains('Invalid GeoFilter lat/lon')
-  env.expect('FT.SEARCH', 'idx', '@location:[1.23 86 10 km]').error().contains('Invalid GeoFilter lat/lon')
-
+  env.expect('FT.SEARCH', 'idx', '@location:[1.23 86 10 km]').equal([0])
   # test profile
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   res = ['Iterators profile', ['Type', 'GEO', 'Term', '1.23,4.55 - 1.24,4.56', 'Counter', 4, 'Size', 4]]

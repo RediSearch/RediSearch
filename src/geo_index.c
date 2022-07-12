@@ -214,7 +214,7 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status) {
   }
 
   // validate lat/lon
-  if (gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN || gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN) {
+  if (gf->lat > 90 || gf->lat < -90 || gf->lon > 180 || gf->lon < -180) {
     QERR_MKSYNTAXERR(status, "Invalid GeoFilter lat/lon");
     return 0;
   }
