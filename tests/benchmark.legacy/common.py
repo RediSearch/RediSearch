@@ -1,4 +1,7 @@
-from collections import Iterable
+try:
+    from collections.abc import Iterable
+except ImportError:
+    from collections import Iterable
 import time
 
 def getConnectionByEnv(env):

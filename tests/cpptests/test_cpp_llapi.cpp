@@ -1174,7 +1174,7 @@ TEST_F(LLApiTest, testInfoSize) {
 
   ASSERT_EQ(RediSearch_Size(index), 113);
 
-  d = RediSearch_CreateDocument(DOCID1, strlen(DOCID2), 2.0, NULL);
+  d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
