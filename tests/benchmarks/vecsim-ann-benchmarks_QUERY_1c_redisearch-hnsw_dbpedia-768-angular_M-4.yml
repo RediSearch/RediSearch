@@ -12,11 +12,11 @@ setups:
 
 dbconfig:
   tool: ann-benchmarks
-  dataset_name: "hnsw__gist-960-euclidean__M4"
+  dataset_name: "hnsw__dbpedia-768-angular__M4"
   parameters:
     build-clients: 1
     test-clients: 0
-  arguments: ' --algorithm redisearch-hnsw --dataset gist-960-euclidean --run-group M-4 --runs 1'
+  arguments: ' --algorithm redisearch-hnsw --dataset dbpedia-768 --run-group M-4 --runs 1'
 
 clientconfig:
   benchmark_type: "read-only"
@@ -24,4 +24,4 @@ clientconfig:
   parameters:
     build-clients: 0
     test-clients: 1
-  arguments: ' --algorithm redisearch-hnsw --dataset gist-960-euclidean --run-group M-4 --runs 1'
+  arguments: ' --algorithm redisearch-hnsw --dataset dbpedia-768 --run-group M-4 --runs 1'
