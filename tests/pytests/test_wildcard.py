@@ -262,9 +262,10 @@ def testBasic(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
-  env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
-  env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
+  env.expect('FT.CONFIG', 'SET', 'MINPREFIX', 1).ok()
+  env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', 2).ok()
+  env.expect('FT.CONFIG', 'SET', 'TIMEOUT', 100000).ok()
+  env.expect('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false').ok()
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
 
@@ -309,10 +310,10 @@ def testBasic(env):
   env.expect('FT.SEARCH', 'idx', "w'*o\\\'w*'").equal([1, 'doc7', ['t', "hello\\'world"]]) # *o'w*
 
   # escape \\
-  env.expect('FT.SEARCH', 'idx', "w'*\\*'").equal([3, 'doc8', ['t', 'hello\\\\world'], # *\*
+  env.expect('FT.SEARCH', 'idx', "w'*\\\\*'").equal([3, 'doc8', ['t', 'hello\\\\world'], # *\*
                                                       'doc10', ['t', '\\\\hello'],
                                                       'doc12', ['t', 'hello\\\\']])
-  env.expect('FT.SEARCH', 'idx', "w'*o\\w*'").equal([1, 'doc8', ['t', "hello\\\\world"]]) # *o\w*
+  env.expect('FT.SEARCH', 'idx', "w'*o\\\\w*'").equal([1, 'doc8', ['t', "hello\\\\world"]]) # *o\w*
 
 
   # test with PARAMS
@@ -323,8 +324,34 @@ def testBasic(env):
   env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*o\\\'w*").equal([1, 'doc7', ['t', "hello\\'world"]]) # *o'w*
 
   # escape \\
-  env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*\\*").equal([3, 'doc8', ['t', 'hello\\\\world'], # *\*
+  env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*\\\\*").equal([3, 'doc8', ['t', 'hello\\\\world'], # *\*
                                                       'doc10', ['t', '\\\\hello'],
                                                       'doc12', ['t', 'hello\\\\']])
-  env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*o\w*").equal([1, 'doc8', ['t', "hello\\\\world"]]) # *o\w*
-  ''''''
+  env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*o\\\\w*").equal([1, 'doc8', ['t', "hello\\\\world"]]) # *o\w*
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'he?lo'")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - he?lo")
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'h*?*o'")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - h*?*o")
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'h\\*?*o'")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - h*?*o")
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'\\h*?*o'")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - h*?*o")
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'\\'h*?*o'")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - 'h*?*o")
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'\\\\h*?*o'")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - \h*?*o")
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\\\w*'")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - *o\\w*")
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\'w*'")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - *o'w*")
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\\'w*'")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - *o'w*")

@@ -209,7 +209,7 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefi
 static size_t _removeEscape(char *str, size_t len) {
   int i = 0;
   do {
-    if (str[i] == '\'') break;
+    if (str[i] == '\\') break;
   } while (++i < len && str[i] != '\0');
 
   // check if we haven't remove any backslash
@@ -217,12 +217,11 @@ static size_t _removeEscape(char *str, size_t len) {
     return len;
   }
 
-  // overwrite '\' before "'"
+  // skip '\'
   int runner = i;
   for (; i < len && str[i] != '\0'; ++i, ++runner) {
-    if (str[i] == '\'' && str[i - 1] == '\\') {
-      str[--runner] = str[i];
-      continue;
+    if (str[i] == '\\') {
+      ++i;
     }
     // printf("%c %c\n", str[runner], str[i]);
     str[runner] = str[i];
