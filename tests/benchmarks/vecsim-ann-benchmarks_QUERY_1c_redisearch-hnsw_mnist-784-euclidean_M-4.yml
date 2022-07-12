@@ -14,7 +14,7 @@ setups:
 
 dbconfig:
   tool: ann-benchmarks
-  dataset_name: "hnsw__mnist-784-euclidean__M4"
+  dataset_name: "hnsw__mnist-784-euclidean_M-4"
   parameters:
     build-clients: 1
     test-clients: 0
