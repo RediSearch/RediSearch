@@ -1056,10 +1056,9 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
-  // bruteforce wildcard query 
+  // brute force wildcard query 
   TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
   TrieMapIterator_SetTimeout(it, q->sctx->timeout);
-  TrieMapIterator_NextFunc nextFunc = TrieMapIterator_NextWildcard;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   char *s;
@@ -1067,7 +1066,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   void *ptr;
 
   // Find all completions of the prefix
-  while (nextFunc(it, &s, &sl, &ptr) &&
+  while (TrieMapIterator_NextWildcard(it, &s, &sl, &ptr) &&
         (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
           // TODO: use NewIndexReaderGeneric
     //NewIndexReaderGeneric(ptr, q->sctx->spec, )

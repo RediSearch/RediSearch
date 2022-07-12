@@ -1071,35 +1071,30 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
     return 0;
   }
 
-  TrieMapIterator *iter = it->matchIter;
-  if (iter) {
-    if (__fullmatch_Next(it, ptr, len, value)) {
-      return 1;
-    }
-    array_free(iter->buf);
-    array_free(iter->stack);
-    rm_free(iter);
-    it->matchIter = NULL;    //goto pop;
-  }
-
   while (array_len(it->stack) > 0) {
     __tmi_stackNode *current = __tmi_current(it);
     TrieMapNode *n = current->n;
 
     if (current->state == TM_ITERSTATE_SELF) {
-
+      // update buffer with current node chars
       it->buf = array_ensure_append_n(it->buf, current->n->str, current->n->len);
-      int match = WildcardMatchChar(it->prefix, it->prefixLen, it->buf, array_len(it->buf));
       current->stringOffset = current->n->len;
+      current->state = TM_ITERSTATE_CHILDREN;
 
+      // check if current buffer is a match
+      int match = current->found ? FULL_MATCH : 
+                  WildcardMatchChar(it->prefix, it->prefixLen, it->buf, array_len(it->buf));
       switch (match) {
         case NO_MATCH: {
           __tmi_Pop(it);
           goto next;
         }
         case FULL_MATCH: {
-          current->state = TM_ITERSTATE_CHILDREN;
-          // we've reached
+          // if query string ends with *, all following children are a match
+          if (it->buf[array_len(it->buf) - 1] == '*') {
+            current->found = true;
+          }
+          // current node is a term and should be returned
           if (__trieMapNode_isTerminal(n)) {
             *ptr = it->buf;
             *len = array_len(it->buf);
@@ -1108,9 +1103,7 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
           }
           break;
         }
-        case PARTIAL_MATCH: {
-          current->state = TM_ITERSTATE_CHILDREN;
-        }
+        case PARTIAL_MATCH: break;
       }
     }
 
@@ -1120,7 +1113,7 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
         TrieMapNode *ch = __trieMapNode_children(n)[current->childOffset++];
 
         // Add the matching child to the stack
-        __tmi_Push(it, ch, 0, false);
+        __tmi_Push(it, ch, 0, current->found);
 
         goto next;        
       }
