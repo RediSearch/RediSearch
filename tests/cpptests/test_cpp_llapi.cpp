@@ -1181,5 +1181,21 @@ TEST_F(LLApiTest, testInfoSize) {
 
   ASSERT_EQ(RediSearch_MemUsage(index), 253);
 
+  // test MemUsage after deleting docs
+  int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
+  ASSERT_EQ(REDISMODULE_OK, ret);
+  ASSERT_EQ(RediSearch_MemUsage(index), 125);
+  RSGlobalConfig.forkGcCleanThreshold = 0;
+  index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
+  ASSERT_EQ(RediSearch_MemUsage(index), 114);
+
+  ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
+  ASSERT_EQ(REDISMODULE_OK, ret);
+  ASSERT_EQ(RediSearch_MemUsage(index), 15);
+  index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
+  ASSERT_EQ(RediSearch_MemUsage(index), 2);
+  // we have 2 left over b/c of the offset vector size which we cannot clean
+  // since the data is not maintained
+
   RediSearch_DropIndex(index);
 }
