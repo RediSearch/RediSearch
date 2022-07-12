@@ -20,7 +20,7 @@ dbconfig:
     test-clients: 0
   arguments: ' --algorithm redisearch-hnsw --dataset glove-200-angular --run-group M-4 --runs 1'
   check:
-      keyspacelen: 1000000
+      keyspacelen: 1183514
 
 clientconfig:
   benchmark_type: "read-only"
