@@ -125,6 +125,8 @@ typedef enum {
   TM_PREFIX_MODE = 0,
   TM_CONTAINS_MODE = 1,
   TM_SUFFIX_MODE = 2,
+  TM_WILDCARD_MODE = 3,
+  TM_WILDCARD_FIXED_LEN_MODE = 4,
 } tm_iter_mode;
 
 typedef struct TrieMapIterator{

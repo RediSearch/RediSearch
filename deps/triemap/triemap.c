@@ -1076,6 +1076,13 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
     TrieMapNode *n = current->n;
 
     if (current->state == TM_ITERSTATE_SELF) {
+      // term string len is longer that fixed query len, trim search branch
+      if (it->mode == TM_WILDCARD_FIXED_LEN_MODE &&
+          (array_len(it->buf) + current->n->len > it->prefixLen)) {
+        __tmi_Pop(it);
+        goto next;
+      }
+
       // update buffer with current node chars
       it->buf = array_ensure_append_n(it->buf, current->n->str, current->n->len);
       current->stringOffset = current->n->len;
@@ -1093,6 +1100,9 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
           // if query string ends with *, all following children are a match
           if (it->buf[array_len(it->buf) - 1] == '*') {
             current->found = true;
+          }
+          if (it->mode == TM_WILDCARD_FIXED_LEN_MODE) {
+            __tmi_Pop(it);
           }
           // current node is a term and should be returned
           if (__trieMapNode_isTerminal(n)) {

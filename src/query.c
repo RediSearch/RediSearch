@@ -151,7 +151,6 @@ QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
-  printf("%s\n", s);
   ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
   return ret;
 }
@@ -1059,6 +1058,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   // brute force wildcard query 
   TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
   TrieMapIterator_SetTimeout(it, q->sctx->timeout);
+  it->mode = strchr(tok->str, '*') ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   char *s;
