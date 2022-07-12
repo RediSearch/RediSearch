@@ -165,7 +165,7 @@ def testSpellCheckBadFormat():
     env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE').raiseError()
     env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', 0).raiseError()
     env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', -1).raiseError()
-    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', 101).raiseError()
+    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', 5).raiseError()
 
 
 def testSpellCheckNoneExistingDicts():
