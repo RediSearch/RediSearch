@@ -491,3 +491,29 @@ def test_MOD_3540(env):
     env.assertEqual(res, [10, '9'])
   else:
     env.assertEqual(res, [10, '9', '8', '7'])
+
+def test_MAX_LIMIT(env):
+  # check server does not freeze when MAX argument for SORTBY is less than 10
+  conn = getConnectionByEnv(env)
+  env.expect('ft.config', 'set', 'TIMEOUT', 100000).ok()
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  for i in range(20):
+    conn.execute_command('HSET', i, 't', i)
+  
+  res10 =  [20, '9', '8', '7', '6', '5', '4', '3', '2', '19', '18']
+  res5 =  [20, '9', '8', '7', '6', '5']
+
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'NOCONTENT').equal(res10)
+
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '5', 'LIMIT', 0, 10, 'NOCONTENT').equal(res10)
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '10', 'LIMIT', 0, 5, 'NOCONTENT').equal(res5)
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '0', 'LIMIT', 0, 10, 'NOCONTENT').equal(res10)
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '10', 'LIMIT', 0, 0, 'NOCONTENT').equal([20])
+
+  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 10, 'NOCONTENT', 'SORTBY', 't', 'DESC', 'MAX', '5').equal(res5)
+  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 5, 'NOCONTENT', 'SORTBY', 't', 'DESC', 'MAX', '10').equal(res10)
+  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 10, 'NOCONTENT', 'SORTBY', 't', 'DESC', 'MAX', '0').equal([20])
+  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0, 'NOCONTENT', 'SORTBY', 't', 'DESC', 'MAX', '10').error()\
+            .contains('SORTBY MAX after LIMIT 0 is not allowed')
+

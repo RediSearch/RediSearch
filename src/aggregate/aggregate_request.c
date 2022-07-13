@@ -330,6 +330,10 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   // MAX is not included in the normal SORTBY arglist.. so we need to switch
   // back to `ac`
   if (AC_AdvanceIfMatch(ac, "MAX")) {
+    if (arng->isLimited == 1 && arng->limit == 0) {
+      QERR_MKBADARGS_FMT(status, "SORTBY MAX after LIMIT 0 is not allowed");
+      goto err;
+    }
     unsigned mx = 0;
     if ((rv = AC_GetUnsigned(ac, &mx, 0) != AC_OK)) {
       QERR_MKBADARGS_AC(status, "MAX", rv);
