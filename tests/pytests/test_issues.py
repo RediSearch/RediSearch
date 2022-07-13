@@ -478,3 +478,16 @@ def test_MOD_3372(env):
     env.expect('FT.EXPLAINCLI', 'idx', 'foo', 'verbatim').equal(['foo', ''])
     env.expect('FT.EXPLAINCLI', 'non-exist', 'foo').error().equal('non-exist: no such index')
 
+def test_MOD_3540(env):
+  # check server does not freeze when MAX argument for SORTBY is less than 10
+  conn = getConnectionByEnv(env)
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  for i in range(10):
+    conn.execute_command('HSET', i, 't', i)
+  
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '1', 'NOCONTENT')
+  if not env.isCluster():
+    env.assertEqual(res, [10, '9'])
+  else:
+    env.assertEqual(res, [10, '9', '8', '7'])
