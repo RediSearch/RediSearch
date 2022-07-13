@@ -495,7 +495,6 @@ def test_MOD_3540(env):
 def test_MAX_LIMIT(env):
   # check server does not freeze when MAX argument for SORTBY is less than 10
   conn = getConnectionByEnv(env)
-  env.expect('ft.config', 'set', 'TIMEOUT', 100000).ok()
 
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   for i in range(20):
