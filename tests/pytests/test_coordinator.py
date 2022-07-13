@@ -70,7 +70,7 @@ def test_curly_brackets(env):
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', 1, '__key').equal([1, ['__key', 'foo{bar}']])
 
 def test_MOD_3540(env):
-    # crash when using SORTBY MAX
+    # check server does not crash when MAX argument for SORTBY is greater than 10
     SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
 
