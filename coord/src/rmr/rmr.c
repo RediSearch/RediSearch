@@ -19,6 +19,7 @@
 #include "cluster.h"
 #include "chan.h"
 #include "rq.h"
+#include "rmutil/rm_assert.h"
 
 extern int redisMajorVesion;
 
@@ -194,6 +195,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
       RedisModuleBlockedClient *bc = ctx->redisCtx;
+      RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
       RedisModule_UnblockClient(bc, ctx);
     }
   }
@@ -275,6 +277,7 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->redisCtx;
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mrctx);
     // printf("could not send single command. hande fail please\n");
   }
@@ -306,6 +309,7 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->redisCtx;
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mrctx);
     // printf("could not send single command. hande fail please\n");
   }
@@ -330,6 +334,7 @@ int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block
         ctx->redisCtx, unblockHandler, timeoutHandler,
         redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
         timeout_g);
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->redisCtx);
   }
   rc->ctx = ctx;
   rc->f = reducer;
@@ -362,6 +367,7 @@ int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, boo
                                                 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB
                                                 : freePrivDataCB_V5,
                                             timeout_g);
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->redisCtx);
   }
 
   rc->cb = uvMapRequest;
@@ -382,6 +388,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
       ctx->redisCtx, unblockHandler, timeoutHandler,
       redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
       timeout_g);
+  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->redisCtx);
 
   rc->cb = uvMapRequest;
   RQ_Push(rq_g, requestCb, rc);
