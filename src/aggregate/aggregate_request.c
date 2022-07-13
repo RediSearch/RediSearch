@@ -336,6 +336,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
       goto err;
     }
     arng->limit = mx;
+    arng->isLimited = 1;
   }
 
   arng->sortAscMap = ascMap;
