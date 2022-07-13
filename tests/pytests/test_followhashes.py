@@ -540,6 +540,8 @@ def testRestore(env):
     env.expect('RESTORE', 'doc1', 0, dump)
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
 
+@skip
+# TODO fix flaky
 def testExpire(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')

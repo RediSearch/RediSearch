@@ -837,6 +837,7 @@ def testNullValue(env):
 
 @no_msan
 @skip
+# TODO fix flaky
 def testRedisCommands(env):
     env.skipOnCluster()
 
