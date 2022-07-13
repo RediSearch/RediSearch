@@ -4,6 +4,7 @@
 #include "sparse_vector.h"
 #include "redisearch.h"
 #include "util/arr.h"
+#include "util/timeout.h"
 
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);

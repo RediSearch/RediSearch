@@ -835,3 +835,34 @@ def testNullValue(env):
     check_index_with_null(env, 'idx_separator')
     check_index_with_null(env, 'idx_casesensitive')
 
+@no_msan
+@skip
+# TODO fix flaky
+def testRedisCommands(env):
+    env.skipOnCluster()
+
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
+    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # Test Redis COPY
+    env.execute_command('COPY', 'doc:1', 'doc:2')
+    env.execute_command('COPY', 'doc:2', 'dos:3')
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
+
+    # Test Redis DEL
+    env.execute_command('DEL', 'doc:1')
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:2'])
+
+    # Test Redis RENAME
+    env.execute_command('RENAME', 'dos:3', 'doc:3')
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:2', 'doc:3'])
+
+    # Test Redis UNLINK
+    env.execute_command('UNLINK', 'doc:3')
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:2'])
+
+    # Test Redis EXPIRE
+    env.execute_command('EXPIRE', 'doc:2', 1)
+    time.sleep(1.1)
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([0])

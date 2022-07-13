@@ -149,7 +149,6 @@ def testDelReuse():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh', 'RETURN', '1', 'v').equal(res)
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     for i in range(n_vec):
         vector = np.random.rand(1, vec_size).astype(np.float32)
@@ -1127,16 +1126,16 @@ def test_system_memory_limits():
     # Index initial size exceeded limits
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index initial capacity {system_memory} exceeded server limit')
     currIdx+=1
 
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory, 'BLOCK_SIZE', 100).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index initial capacity {system_memory} exceeded server limit')
     currIdx+=1
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', system_memory).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index block size {system_memory} exceeded server limit')
     currIdx+=1
 
     # Block size with no configuration limits fails
@@ -1162,19 +1161,21 @@ def test_redis_memory_limits():
     maxmemory = used_memory * 5
     conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
 
-    # Index initial size exceeded new limits
+    # Index initial capacity exceeded new limits
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', maxmemory).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index initial capacity {maxmemory} exceeded server limit')
     currIdx+=1
 
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', maxmemory, 'BLOCK_SIZE', 100).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index initial capacity {maxmemory} exceeded server limit')
     currIdx+=1
+
+    # Block size
     env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
                'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', maxmemory).error().contains(
-               'Vector index size exceeded server limit')
+               f'Vector index block size {maxmemory} exceeded server limit')
     currIdx+=1
 
     # Block size with new limits fail
@@ -1266,10 +1267,10 @@ def test_rdb_memory_limit():
 
     # succeed to create indexes with no limits
     env.expect('FT.CREATE', 'idx-flat', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
-               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+               'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', block_size, 'BLOCK_SIZE', block_size).ok()
     # TODO: add block size to HNSW index for testing change in block size when block size is available
     env.expect('FT.CREATE', 'idx-hnsw', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-               'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 1000000).ok()
+               'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', block_size).ok()
     # sets memory limit
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', maxmemory))
 
@@ -1287,3 +1288,57 @@ def test_rdb_memory_limit():
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
+
+def test_timeout_reached():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    nshards = env.shardsCount
+
+    vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 80000 * nshards)]
+    hybrid_modes = ['HYBRID_BATCHES', 'HYBRID_ADHOC_BF']
+    dim = 10
+
+    for algo, n_vec in vecsim_algorithms_and_sizes:
+        # succeed to create indexes with no limits
+        query_vec = load_vectors_to_redis(env, n_vec, 0, dim)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, '8', 'TYPE', 'FLOAT32',
+                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec, 't', 'TEXT').ok()
+        waitForIndex(env, 'idx')
+
+        # STANDART KNN
+        # run query with no timeout. should succeed.
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                   'TIMEOUT', 0)
+        env.assertEqual(res[0], n_vec)
+        # run query with 1 milisecond timeout. should fail.
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                   'TIMEOUT', 1)
+        env.assertEqual(res[0], 0)
+
+        # HYBRID MODES
+        # Todo: uncomment when hybrid optional arguments is merged, in the meantime arrange manually settings
+        #  that will test both modes.
+        for i in range(int(n_vec/20)):
+            vector = np.random.rand(1, dim).astype(np.float32)
+            conn.execute_command('HSET', n_vec+i, 'vector', vector.tobytes(), 't', 'dummy')
+        prefix = "_" if env.isCluster() else ""
+        for mode in hybrid_modes:
+            # to trigger ad-hoc BF, use a filter that is passed by a ~5% of the vectors, and for batches use a filter
+            # that is passed by ~95% of the vectors.
+            hybrid_query_filter = "dummy" if mode == 'HYBRID_ADHOC_BF' else '-dummy'
+            n_res = int(n_vec/20) if mode == 'HYBRID_ADHOC_BF' else n_vec
+            res = conn.execute_command('FT.SEARCH', 'idx', f'({hybrid_query_filter})=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_res,
+                                       'PARAMS', 4, 'K', n_res, 'vec_param', query_vec.tobytes(),
+                                       'TIMEOUT', 0)
+            env.assertEqual(res[0], n_res)
+            env.assertEqual(env.cmd(prefix + "FT.DEBUG", "VECSIM_INFO", "idx", "vector")[-1], mode)
+
+            res = conn.execute_command('FT.SEARCH', 'idx', f'({hybrid_query_filter})=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_res,
+                                       'PARAMS', 4, 'K', n_res, 'vec_param', query_vec.tobytes(),
+                                       'TIMEOUT', 1)
+            env.assertEqual(res[0], 0)
+            env.assertEqual(env.cmd(prefix + "FT.DEBUG", "VECSIM_INFO", "idx", "vector")[-1], mode)
+
+        conn.flushall()

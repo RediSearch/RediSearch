@@ -10,6 +10,7 @@
 #include "extension.h"
 #include "profile.h"
 #include "config.h"
+#include "util/timeout.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -335,6 +336,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
       goto err;
     }
     arng->limit = mx;
+    arng->isLimited = 1;
   }
 
   arng->sortAscMap = ascMap;
@@ -715,6 +717,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
+  req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
   return req;
 }
 
@@ -781,6 +784,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       goto error;
     }
   }
+
+  // Set timeout for the query
+  updateTimeout(&req->timeoutTime, req->reqTimeout);
+
   return REDISMODULE_OK;
 
 error:
@@ -819,6 +826,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
+  sctx->timeout = req->timeoutTime;
   req->sctx = sctx;
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
@@ -870,6 +878,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
+
+  TimedOut_WithStatus(&req->timeoutTime, status);
+
   if (QueryError_HasError(status))
     return REDISMODULE_ERR;
   if (IsProfile(req)) {

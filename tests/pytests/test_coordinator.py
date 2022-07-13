@@ -33,3 +33,46 @@ def test_required_fields(env):
     # Field is not in Rlookup, will not load
     env.expect('ft.search', 'idx', 'hello', 'nocontent', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', None])
 
+
+def check_info_commandstats(env, cmd):
+    res = env.execute_command('INFO', 'COMMANDSTATS')
+    env.assertGreater(res['cmdstat_' + cmd]['usec'], res['cmdstat__' + cmd]['usec'])
+
+def testCommandStatsOnRedis(env):
+    # This test checks the total time spent on the Coordinator is greater then
+    # on a single shard 
+    SkipOnNonCluster(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
+    # _FT.CREATE is not called. No option to test
+
+    for i in range(100):
+        conn.execute_command('HSET', i, 't', 'Hello world!')
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 0).equal([100])
+    check_info_commandstats(env, 'FT.SEARCH')
+
+    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([3])
+    check_info_commandstats(env, 'FT.AGGREGATE')
+
+    conn.execute_command('FT.INFO', 'idx')
+    check_info_commandstats(env, 'FT.INFO')
+
+def test_curly_brackets(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
+
+    conn.execute_command('HSET', 'foo{bar}', 't', 'Hello world!')
+    env.expect('ft.search', 'idx', 'hello').equal([1, 'foo{bar}', ['t', 'Hello world!']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', 1, '__key').equal([1, ['__key', 'foo{bar}']])
+
+def test_MOD_3540(env):
+    # check server does not crash when MAX argument for SORTBY is greater than 10
+    SkipOnNonCluster(env)
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    for i in range(100):
+        conn.execute_command('HSET', i, 't', i)
+    
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '20')

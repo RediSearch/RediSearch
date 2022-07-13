@@ -209,11 +209,13 @@ int synonymUpdateFanOutReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   if (count != 1) {
     RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *)ctx;
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mc);
     return REDISMODULE_OK;
   }
   if (MRReply_Type(replies[0]) != MR_REPLY_INTEGER) {
     RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *)ctx;
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mc);
     return REDISMODULE_OK;
   }
@@ -707,16 +709,7 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
     return res;
   }
   res->id = MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
-  // if the id contains curly braces, get rid of them now
-  if (res->id) {
-    MRKey mk;
-    MRKey_Parse(&mk, res->id, res->idLen);
-    res->idLen = mk.baseLen;
-    res->id = (char *)mk.base;
-    if (mk.shardLen) {
-      res->id[res->idLen] = '\0';
-    }
-  } else {  // this usually means an invalid result
+  if (!res->id) {
     return res;
   }
   // parse socre
@@ -1167,6 +1160,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // got no replies - this means timeout
   if (count == 0 || req->limit < 0) {
     int res = RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mc);
     RedisModule_FreeThreadSafeContext(ctx);
     MR_requestCompleted();
@@ -1176,6 +1170,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   if (MRReply_Type(*replies) == MR_REPLY_ERROR) {
     int res = MR_ReplyWithMRReply(ctx, *replies);
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mc);
     RedisModule_FreeThreadSafeContext(ctx);
     MR_requestCompleted();
@@ -1251,6 +1246,7 @@ cleanup:
   }
 
   searchRequestCtx_Free(req);
+  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
   RedisModule_UnblockClient(bc, mc);
   RedisModule_FreeThreadSafeContext(ctx);
   MR_requestCompleted();
@@ -1652,6 +1648,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
     RedisModule_ReplyWithError(clientCtx, QueryError_GetError(&status));
     QueryError_ClearError(&status);
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, NULL);
     RedisModule_FreeThreadSafeContext(clientCtx);
     return REDISMODULE_OK;
@@ -1733,6 +1730,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
+  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, bc);
   ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
 
   return REDISMODULE_OK;

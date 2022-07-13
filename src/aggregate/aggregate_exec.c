@@ -233,7 +233,16 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
     size_t resultFactor = getResultsFactor(req);
-    size_t reqResults = req->qiter.totalResults > reqOffset ? req->qiter.totalResults - reqOffset : 0;
+    
+    size_t reqResults;
+    if (reqLimit + reqOffset <= RSGlobalConfig.maxSearchResults) {
+    	reqResults = req->qiter.totalResults > reqOffset ?
+                   req->qiter.totalResults - reqOffset : 0;
+    } else {
+    	reqResults = RSGlobalConfig.maxSearchResults > reqOffset ?
+                   RSGlobalConfig.maxSearchResults - reqOffset : 0;
+    }
+
     resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
   }
 
@@ -327,12 +336,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
     goto done;
   }
-
-  // Save time when query was initiated
-  if (!(*r)->reqTimeout) {
-    (*r)->reqTimeout = RSGlobalConfig.queryTimeoutMS;
-  }
-  updateTimeout(&(*r)->timeoutTime, (*r)->reqTimeout);
 
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
@@ -515,7 +518,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
     req->initClock = clock();
   }
 
-  // update timeout for cursor
+  // update timeout for current cursor read
   if (req->qiter.rootProc->type != RP_NETWORK) {
     updateTimeout(&req->timeoutTime, req->reqTimeout);
     updateRPIndexTimeout(req->qiter.rootProc, req->timeoutTime);
