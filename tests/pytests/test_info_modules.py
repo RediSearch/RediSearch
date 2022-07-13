@@ -74,6 +74,8 @@ def testInfoModulesAlter(env):
   env.expect('FT.CREATE', idx1, 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
   env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX').ok()
 
+  waitForIndex(env, idx1)
+
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 
@@ -97,6 +99,9 @@ def testInfoModulesDrop(env):
                                           'body', 'TEXT',
                                           'id', 'NUMERIC', 'NOINDEX').ok()
 
+  waitForIndex(env, idx1)
+  waitForIndex(env, idx2)
+
   env.expect('FT.DROP', idx2).ok()
 
   info = info_modules_to_dict(conn)
@@ -115,6 +120,8 @@ def testInfoModulesAfterReload(env):
                                           'body', 'TAG', 'NOINDEX').ok()
 
   for _ in env.retry_with_rdb_reload():
+    waitForIndex(env, idx1)
+    
     info = info_modules_to_dict(conn)
     env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 
