@@ -836,6 +836,8 @@ def testNullValue(env):
     check_index_with_null(env, 'idx_casesensitive')
 
 @no_msan
+@skip
+# TODO fix flaky
 def testRedisCommands(env):
     env.skipOnCluster()
 
