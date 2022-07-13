@@ -516,4 +516,3 @@ def test_MAX_LIMIT(env):
   env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 10, 'NOCONTENT', 'SORTBY', 't', 'DESC', 'MAX', '0').equal([20])
   env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0, 'NOCONTENT', 'SORTBY', 't', 'DESC', 'MAX', '10').error()\
             .contains('SORTBY MAX after LIMIT 0 is not allowed')
-
