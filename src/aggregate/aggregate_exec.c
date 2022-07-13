@@ -337,12 +337,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
-  // Save time when query was initiated
-  if (!(*r)->reqTimeout) {
-    (*r)->reqTimeout = RSGlobalConfig.queryTimeoutMS;
-  }
-  updateTimeout(&(*r)->timeoutTime, (*r)->reqTimeout);
-
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
   // ctx is always assigned after ApplyContext
@@ -524,7 +518,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
     req->initClock = clock();
   }
 
-  // update timeout for cursor
+  // update timeout for current cursor read
   if (req->qiter.rootProc->type != RP_NETWORK) {
     updateTimeout(&req->timeoutTime, req->reqTimeout);
     updateRPIndexTimeout(req->qiter.rootProc, req->timeoutTime);
