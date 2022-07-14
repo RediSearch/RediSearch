@@ -292,6 +292,8 @@ done:
   req->qiter.totalResults = 0;
   if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
     RedisModule_ReplySetArrayLength(outctx, nelem);
+  } else {
+    RS_LOG_ASSERT(resultsLen == nelem, "Precalculated number of replies must be equal to actual number");
   }
 }
 
