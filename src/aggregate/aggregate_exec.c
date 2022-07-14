@@ -260,6 +260,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
     RedisModule_ReplyWithArray(outctx, 1);
     QueryError_ReplyAndClear(outctx, req->qiter.err);
+    nelem++;
   } else {
     RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
   }
