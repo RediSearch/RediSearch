@@ -55,7 +55,8 @@ static RSValue *quantileFinalize(Reducer *r, void *ctx) {
 //---------------------------------------------------------------------------------------------
 
 static void quantileFreeInstance(Reducer *unused, void *p) {
-  QS_Free(p); //@@ how do I free it if it's not really QS (?)
+  QuantStream *qs = p;
+  delete qs;
 }
 
 //---------------------------------------------------------------------------------------------

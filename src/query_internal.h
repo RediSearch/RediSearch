@@ -6,6 +6,7 @@
 #include "numeric_filter.h"
 #include "geo_index.h"
 #include "search_options.h"
+#include "result_processor.h"
 
 #include <stdlib.h>
 
@@ -35,7 +36,7 @@ struct QueryParse {
 //---------------------------------------------------------------------------------------------
 
 struct Query : Object {
-  ConcurrentSearch *conc;
+  QueryConcurrentSearch *conc;
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
 
@@ -43,8 +44,7 @@ struct Query : Object {
   uint32_t tokenId;
   DocTable *docTable;
 
-  Query(QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx_,
-        ConcurrentSearch *conc_);
+  Query(QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx, QueryConcurrentSearch *conc);
 
   IndexIterator *Eval(QueryNode *node);
 };

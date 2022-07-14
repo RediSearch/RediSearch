@@ -392,30 +392,6 @@ static void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx 
 
 //---------------------------------------------------------------------------------------------
 
-struct DocumentIndexerConcurrentKey : public ConcurrentKey<RedisSearchCtx> {
-  RedisSearchCtx sctx;
-
-  DocumentIndexerConcurrentKey(RedisModuleKey *key, RedisModuleString *keyName) :
-    ConcurrentKey<RedisSearchCtx>(key, keyName, REDISMODULE_READ | REDISMODULE_WRITE) {
-  }
-
-  void Reopen() {
-    // we do not allow empty indexes when loading an existing index
-    if (key == NULL || RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY ||
-        RedisModule_ModuleTypeGetType(key) != IndexSpecType) {
-      sctx.spec = NULL;
-      return;
-    }
-
-    sctx.spec = RedisModule_ModuleTypeGetValue(key);
-    if (sctx.spec->uniqueId != sctx.specId) {
-      sctx.spec = NULL;
-    }
-  }
-};
-
-//---------------------------------------------------------------------------------------------
-
 // Routines for the merged hash table
 #define ACTX_IS_INDEXED(actx)                                           \
   (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
@@ -429,6 +405,7 @@ struct DocumentIndexerConcurrentKey : public ConcurrentKey<RedisSearchCtx> {
 void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
   AddDocumentCtx *parentMap[MAX_BULK_DOCS] = {0};
   AddDocumentCtx *firstZeroId = aCtx;
+  RedisSearchCtx sctx{redisCtx, specId};
   Document *doc = NULL;
 
   if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
@@ -450,7 +427,6 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
 
   const int isBlocked = aCtx->IsBlockable();
 
-  RedisSearchCtx *sctx = NULL;
   if (isBlocked) {
     // Force a context at this point:
     if (!isDbSelected) {
@@ -460,16 +436,14 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
       isDbSelected = true;
     }
 
-    sctx->redisCtx = redisCtx;
-    sctx->specId = specId;
-    concCtx.SetKey(specKeyName, sctx);
+    concCtx.AddKey(DocumentIndexerConcurrentKey(specKeyName, sctx));
     concCtx.ResetClock();
     concCtx.Lock();
   } else {
-    sctx = aCtx->client.sctx;
+    sctx = *aCtx->client.sctx;
   }
 
-  if (!sctx->spec) {
+  if (!sctx.spec) {
     aCtx->status.SetCode(QUERY_ENOINDEX);
     aCtx->stateFlags |= ACTX_F_ERRORED;
     goto cleanup;
@@ -490,18 +464,18 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
   //
   // Assigning IDs in bulk speeds up indexing of smaller documents by about 10% overall.
   if (firstZeroId != NULL && firstZeroId->doc.docId == 0) {
-    doAssignIds(firstZeroId, sctx);
+    doAssignIds(firstZeroId, &sctx);
   }
 
   // Handle FULLTEXT indexes
   if (useTermHt) {
-    writeMergedEntries(aCtx, sctx, &mergeHt, parentMap);
+    writeMergedEntries(aCtx, &sctx, &mergeHt, parentMap);
   } else if (aCtx->fwIdx && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
-    writeCurEntries(aCtx, sctx);
+    writeCurEntries(aCtx, &sctx);
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
-    IndexBulkData::indexBulkFields(aCtx, sctx);
+    IndexBulkData::indexBulkFields(aCtx, &sctx);
   }
 
 cleanup:
@@ -603,8 +577,10 @@ int DocumentIndexer::Add(AddDocumentCtx *aCtx) {
 // thread. This does not insert it into the list of threads, though
 // todo: remove the withIndexThread var once we switch to threadpool
 
-DocumentIndexer::DocumentIndexer(IndexSpec *spec) {
-  mergeHt = new MergeHashTable(alloc, 4096);
+DocumentIndexer::DocumentIndexer(IndexSpec *spec) :
+    redisCtx(RedisModule_GetThreadSafeContext(NULL)),
+    concCtx(redisCtx),
+    mergeHt(MergeHashTable(&alloc, 4096)) {
   size = 0;
   isDbSelected = false;
   refcount = 1;
@@ -622,11 +598,8 @@ DocumentIndexer::DocumentIndexer(IndexSpec *spec) {
   }
 
   next = NULL;
-  redisCtx = RedisModule_GetThreadSafeContext(NULL);
   specId = spec->uniqueId;
   specKeyName = RedisModule_CreateStringPrintf(redisCtx, INDEX_SPEC_KEY_FMT, spec->name);
-
-  concCtx = *new ConcurrentSearch(redisCtx, REDISMODULE_READ | REDISMODULE_WRITE);
 }
 
 //---------------------------------------------------------------------------------------------

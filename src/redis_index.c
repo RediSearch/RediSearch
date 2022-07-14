@@ -191,11 +191,11 @@ RedisSearchCtx::ctor(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) 
 
 //---------------------------------------------------------------------------------------------
 
-RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx) {
+RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, IndexSpecId id) {
   redisCtx = ctx;
   key_ = NULL;
   spec = NULL;
-  specId = 1;
+  specId = id;
 }
 
 RedisSearchCtx(RedisModuleCtx *ctx, struct IndexSpec *spec_) {

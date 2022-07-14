@@ -18,7 +18,7 @@ KHASH_SET_INIT_INT64(khid);
 RDCRCountDistinct::Data *RDCRCountDistinct::NewInstance(Reducer *r) {
   Data *dd = alloc.Alloc(sizeof(*ctr), INSTANCE_BLOCK_NUM * sizeof(*ctr));
   count = 0;
-  dedup = kh_init(khid);
+  // dedup = kh_init(khid);
   srckey = r->srckey;
   return dd;
 }
@@ -50,16 +50,16 @@ RSValue *RDCRCountDistinct::Finalize(Data *dd) {
 
 //---------------------------------------------------------------------------------------------
 
-void RDCRCountDistinct::FreeInstance(Data *dd) {
-  // we only destroy the hash table. The object itself is allocated from a block and needs no freeing
-  kh_destroy(khid, dd->dedup);
-}
+// void RDCRCountDistinct::FreeInstance(Data *dd) {
+//   // we only destroy the hash table. The object itself is allocated from a block and needs no freeing
+//   // kh_destroy(khid, dd->dedup);
+// }
 
 //---------------------------------------------------------------------------------------------
 
 RDCRCountDistinct::RDCRCountDistinct(const ReducerOptions *options) {
   if (!options->GetKey(&srckey)) {
-    throw Error("RDCRCountDistinct: no key found")
+    throw Error("RDCRCountDistinct: no key found");
 
   }
   reducerId = REDUCER_T_DISTINCT;
@@ -68,7 +68,6 @@ RDCRCountDistinct::RDCRCountDistinct(const ReducerOptions *options) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define HLL_PRECISION_BITS 8
-
 
 //---------------------------------------------------------------------------------------------
 
@@ -251,7 +250,7 @@ void RDCRHLLSum::FreeInstance(Data *dd) {
 
 RDCRHLLSum::RDCRHLLSum(const ReducerOptions *options) {
   if (!options->GetKey(&srckey)) {
-    throw Error("RDCRHLLSum: no key found")
+    throw Error("RDCRHLLSum: no key found");
   }
   reducerId = REDUCER_T_HLLSUM;
 }

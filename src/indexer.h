@@ -30,27 +30,49 @@ struct MergeHashTable : KHTable {
   virtual int Compare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h);
   virtual uint32_t Hash(const KHTableEntry *ent);
   virtual KHTableEntry *Alloc(void *ctx);
+
+  MergeHashTable(void *allocator, size_t estSize) : KHTable(allocator, estSize) {}
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct DocumentIndexerConcurrentKey : public ConcurrentKey<RedisSearchCtx> {
+  RedisSearchCtx sctx;
+
+  DocumentIndexerConcurrentKey(RedisModuleString *keyName, RedisSearchCtx sctx, RedisModuleKey *key = NULL) :
+    ConcurrentKey<RedisSearchCtx>(key, keyName, REDISMODULE_READ | REDISMODULE_WRITE), sctx(sctx) {}
+
+  void Reopen() {
+    // we do not allow empty indexes when loading an existing index
+    if (key == NULL || RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY ||
+        RedisModule_ModuleTypeGetType(key) != IndexSpecType) {
+      sctx.spec = NULL;
+      return;
+    }
+
+    sctx.spec = RedisModule_ModuleTypeGetValue(key);
+    if (sctx.spec->uniqueId != sctx.specId) {
+      sctx.spec = NULL;
+    }
+  }
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct DocumentIndexer : public Object {
-  AddDocumentCtx *head;            // first item in the queue
-  AddDocumentCtx *tail;            // last item in the queue
-  pthread_mutex_t lock;            // lock - only used when adding or removing items from the queue
-  pthread_cond_t cond;             // condition - used to wait on items added to the queue
-  size_t size;                     // number of items in the queue
-
-  //@@ What type of ConcurrentSearch should be here?
-  ConcurrentSearch concCtx;        // GIL locking. This is repopulated with the relevant key data
-
-  RedisModuleCtx *redisCtx;        // Context for keeping the spec key
-  RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
-  uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced
+  AddDocumentCtx *head;                                   // first item in the queue
+  AddDocumentCtx *tail;                                   // last item in the queue
+  pthread_mutex_t lock;                                   // lock - only used when adding or removing items from the queue
+  pthread_cond_t cond;                                    // condition - used to wait on items added to the queue
+  size_t size;                                            // number of items in the queue
+  ConcurrentSearch<DocumentIndexerConcurrentKey> concCtx; // GIL locking. This is repopulated with the relevant key data
+  RedisModuleCtx *redisCtx;                               // Context for keeping the spec key
+  RedisModuleString *specKeyName;                         // Cached, used for opening/closing the spec key
+  IndexSpecId specId;                                     // Unique spec ID. Used to verify we haven't been replaced
   bool isDbSelected;
-  struct DocumentIndexer *next;    // Next structure in the indexer list
+  struct DocumentIndexer *next;                           // Next structure in the indexer list
   BlkAlloc alloc;
-  MergeHashTable mergeHt;          // Hashtable and block allocator for merging
+  MergeHashTable mergeHt;                                 // Hashtable and block allocator for merging
   int options;
   pthread_t thr;
   size_t refcount;

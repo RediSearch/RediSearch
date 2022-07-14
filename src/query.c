@@ -709,9 +709,8 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-             ConcurrentSearch *conc) : conc(conc), opts(opts), numTokens(ast.numTokens),
-             docTable(&sctx->spec->docs), sctx(sctx) {}
+Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx, QueryConcurrentSearch *conc) :
+  conc(conc), opts(opts), numTokens(ast.numTokens), docTable(&sctx->spec->docs), sctx(sctx) {}
 
 //---------------------------------------------------------------------------------------------
 
@@ -727,7 +726,7 @@ Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
  */
 
 IndexIterator *QueryAST::Iterate(const RSSearchOptions &opts, RedisSearchCtx &sctx,
-                                 ConcurrentSearch &conc) const {
+                                 QueryConcurrentSearch &conc) const {
   Query query(this, &opts, &sctx, &conc);
   IndexIterator *iter = query.Eval(root);
   if (!iter) {

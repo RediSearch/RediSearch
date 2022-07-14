@@ -94,7 +94,7 @@ struct AREQ : public Object {
   std::unique_ptr<RedisSearchCtx> sctx;
 
   // Resumable context
-  std::unique_ptr<ConcurrentSearch> conc;
+  std::unique_ptr<QueryConcurrentSearch> conc;
 
   // Context for iterating over the queries themselves
   std::unique_ptr<QueryIterator> qiter;
@@ -225,10 +225,10 @@ struct Grouper : ResultProcessor {
   void AddReducer(Reducer *r, RLookupKey *dstkey);
   ResultProcessor *GetRP();
 
-  void writeGroupValues(const Group *gr, SearchResult *r) const;
+  void writeGroupValues(const Group *gr, SearchResult &r) const;
 
   void invokeReducers(RLookupRow *srcrow);
-  void invokeGroupReducers(Group *gr, RLookupRow *srcrow);
+  void invokeGroupReducers(Group *gr, RLookupRow &srcrow);
 };
 
 //---------------------------------------------------------------------------------------------

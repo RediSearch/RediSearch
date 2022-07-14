@@ -76,7 +76,7 @@ int RPIndexIterator::Next(SearchResult *res) {
 
   // Read from the root filter until we have a valid result
   while (true) {
-    rc = it->Read(it->ctx, &r); //@@ What should replace it->ctx?
+    rc = it->Read(&r); //@@ What should replace it->ctx?
     // This means we are done!
     if (rc == INDEXREAD_EOF) {
       return RS_RESULT_EOF;
@@ -355,8 +355,9 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
 //---------------------------------------------------------------------------------------------
 
 static void srDtor(void *p) {
+  SearchResult *sr = p;
   if (p) {
-    SearchResult_Destroy(p);
+    delete sr;
     rm_free(p);
   }
 }

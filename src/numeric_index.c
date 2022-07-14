@@ -348,7 +348,7 @@ RedisModuleType *NumericIndexType = NULL;
 
 //---------------------------------------------------------------------------------------------
 
-static RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
+RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name, field);
 }
 

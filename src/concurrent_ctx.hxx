@@ -27,12 +27,10 @@
 
 template <class T>
 void ConcurrentSearch<T>::CloseKeys() {
-  size_t sz = openKeys.size();
-  for (size_t i = 0; i < sz; i++) {
-    ConcurrentKey<T> *kx = openKeys[i];
-    if (kx->key) {
-      RedisModule_CloseKey(kx->key);
-      kx->key = NULL;
+  for (size_t i = 0; i < concKeys.size(); i++) {
+    if (concKeys[i].key) {
+      RedisModule_CloseKey(concKeys[i].key);
+      concKeys[i].key = NULL;
     }
   }
 }
@@ -41,12 +39,9 @@ void ConcurrentSearch<T>::CloseKeys() {
 
 template <class T>
 void ConcurrentSearch<T>::ReopenKeys() {
-  size_t sz = openKeys.size();
-  for (size_t i = 0; i < sz; i++) {
-    ConcurrentKey<T> *kx = openKeys[i];
-    kx->key = RedisModule_OpenKey(ctx, kx->keyName, kx->keyFlags);
-    // if the key is marked as shared, make sure it isn't now
-    kx->Reopen();
+  for (size_t i = 0; i < concKeys.size(); i++) {
+    concKeys[i].key = RedisModule_OpenKey(ctx, concKeys[i].keyName, concKeys[i].keyFlags);
+    concKeys[i].Reopen();
   }
 }
 
@@ -108,19 +103,12 @@ ConcurrentSearch<T>::ConcurrentSearch(RedisModuleCtx *rctx) {
 template <class T>
 ConcurrentSearch<T>::~ConcurrentSearch() {
   // Release the monitored open keys
-  for (size_t i = 0; i < openKeys.size(); i++) {
-    ConcurrentKey<T> *concKey = openKeys[i];
-    RedisModule_FreeString(ctx, concKey->keyName);
-
-    if (concKey->key) {
-      RedisModule_CloseKey(concKey->key);
-      concKey->key = NULL;
-    }
-
-    delete concKey;
+  for (size_t i = 0; i < concKeys.size(); i++) {
+    RedisModule_FreeString(ctx, concKeys[i].keyName);
   }
 
-  delete openKeys;
+  CloseKeys();
+  delete ctx;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -141,23 +129,8 @@ ConcurrentSearch<T>::~ConcurrentSearch() {
 
 template <class T>
 void ConcurrentSearch<T>::AddKey(T &&key) {
-  openKeys.empalace_back(std::move(key));
-  //RedisModule_RetainString(ctx, concKey->keyName); //@@ TODO: ensure valid
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Replace the key at a given position. The context must not be locked. It
-// is assumed that the callback for the key remains the same
-// - redisCtx is the redis module context which owns this key
-// - keyName is the name of the new key
-// - pos is the position at which the key resides (usually 0)
-// - arg is the new arg to be passed to the callback
-
-template <class T>
-void ConcurrentSearch<T>::SetKey(RedisModuleString *keyName, void *privdata) {
-  openKeys[0]->keyName = keyName;
-  openKeys[0]->privdata = privdata; //@@ Can we remove privdata from ConcurrentKey?
+  concKeys.emplace_back(std::move(key));
+  //RedisModule_RetainString(ctx, concKeys[0].keyName); //@@ TODO: ensure valid
 }
 
 //---------------------------------------------------------------------------------------------

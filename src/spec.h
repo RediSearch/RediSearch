@@ -159,6 +159,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 struct DocumentIndexer;
 
+typedef uint64_t IndexSpecId;
+
 //---------------------------------------------------------------------------------------------
 
 struct IndexSpecFmtStrings {
@@ -191,6 +193,8 @@ struct BaseIndex : Object {
 
 class IndexSpec {
 public:
+  typedef IndexSpecId Id;
+
   char *name;
   FieldSpec *fields;
   int numFields;
@@ -211,7 +215,7 @@ public:
 
   SynonymMap *smap;
 
-  uint64_t uniqueId;
+  Id uniqueId;
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
@@ -225,21 +229,16 @@ public:
   char **aliases; // Aliases to self-remove when the index is deleted
   struct DocumentIndexer *indexer;
 
+  static IndexSpec *Load(RedisModuleCtx *ctx, const char *name, int openWrite);
+  static IndexSpec *LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+
   void ctor(const char *name);
-  void Load(RedisModuleCtx *ctx, const char *name, int openWrite);
-  void LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
   void Parse(const char *name, const char **argv, int argc, QueryError *status);
   void ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                       RedisModuleString **argv, int argc, QueryError *status);
 
   IndexSpec(const char *name) {
     ctor(name);
-  }
-  IndexSpec(RedisModuleCtx *ctx, const char *name, int openWrite) {
-    Load(ctx, name, openWrite);
-  }
-  IndexSpec(RedisModuleCtx *ctx, IndexLoadOptions *options) {
-    LoadEx(ctx, options);
   }
   IndexSpec(const char *name, const char **argv, int argc, QueryError *status) {
     Parse(name, argv, argc, status);

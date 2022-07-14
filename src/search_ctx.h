@@ -15,17 +15,17 @@
 #endif
 
 struct AddDocumentOptions;
+typedef uint64_t IndexSpecId;
 
 // Context passed to all redis related search handling functions
 struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
-  struct IndexSpec *spec;
-  // uint32_t refcount;
-  uint64_t specId;  // Unique id of the spec; used when refreshing
+  IndexSpec *spec;
+  IndexSpecId specId;  // Unique id of the spec; used when refreshing
 
-  RedisSearchCtx(RedisModuleCtx *ctx);
-  RedisSearchCtx(RedisModuleCtx *ctx, IndexSpec *spec);
+  RedisSearchCtx(RedisModuleCtx *ctx, IndexSpecId specId);
+  RedisSearchCtx(RedisModuleCtx *ctx, const IndexSpec &spec);
   RedisSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
   RedisSearchCtx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
   RedisSearchCtx(const RedisSearchCtx &sctx);

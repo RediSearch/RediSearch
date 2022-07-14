@@ -2,6 +2,8 @@
 #pragma once
 
 #include "redisearch.h"
+#include "redis_index.h"
+#include "tag_index.h"
 #include "sortable.h"
 #include "value.h"
 #include "concurrent_ctx.h"
@@ -45,32 +47,23 @@ enum QITRState {
 
 //---------------------------------------------------------------------------------------------
 
+struct QueryConcurrentSearch {
+  union {
+    ConcurrentSearch<TagConcKey> *tag;
+    ConcurrentSearch<TermIndexReaderConcKey> *term;
+  };
+};
+
 struct QueryIterator {
-  // First processor
-  struct ResultProcessor *rootProc;
-
-  // Last processor
-  struct ResultProcessor *endProc;
-
-  // Concurrent search context for thread switching
-  ConcurrentSearch *conc;
-
-  // Contains our spec
-  RedisSearchCtx *sctx;
-
-  // the minimal score applicable for a result. It can be used to optimize the scorers
-  double minScore;
-
-  // the total results found in the query, incremented by the root processors and decremented by
-  // others who might disqualify results
-  uint32_t totalResults;
-
-  // Object which contains the error
-  QueryError *err;
-
-  // the state - used for aborting queries
-  QITRState state;
-
+  struct ResultProcessor *rootProc; // First processor
+  struct ResultProcessor *endProc;  // Last processor
+  QueryConcurrentSearch *conc;      // Concurrent search context for thread switching
+  RedisSearchCtx *sctx;             // Contains our spec
+  double minScore;                  // the minimal score applicable for a result. It can be used to optimize the scorers
+  uint32_t totalResults;            // the total results found in the query, incremented by the root processors and decremented by
+                                    // others who might disqualify results
+  QueryError *err;                  // Object which contains the error
+  QITRState state;                  // the state - used for aborting queries
   struct timespec startTime;
 
   void Cleanup();
@@ -139,14 +132,9 @@ enum RPStatus {
 // Result processor structure. This should be "Subclassed" by the actual implementations
 
 struct ResultProcessor : public Object {
-  // Reference to the parent structure
-  QueryIterator *parent;
-
-  // Previous result processor in the chain
-  struct ResultProcessor *upstream;
-
-  // For debugging purposes
-  const char *name;
+  QueryIterator *parent;             // Reference to the parent structure
+  struct ResultProcessor *upstream;  // Previous result processor in the chain
+  const char *name;                  // For debugging purposes
 
   // Populates the result pointed to by `res`. The existing data of `res` is not read,
   // so it is the responsibility of the caller to ensure that there

@@ -9,27 +9,14 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#define kh_set(kname, hash, key, val)   \
-  ({                                    \
-    int ret;                            \
-    k = kh_put(kname, hash, key, &ret); \
-    kh_value(hash, k) = val;            \
-    ret;                                \
-  })
-
-//static const int khid = 33;
-//KHASH_MAP_INIT_INT64(khid, Group *);
-
 #define GROUP_BYTESIZE(parent) (sizeof(Group) + (sizeof(void *) * (parent)->numReducers()))
 #define GROUPS_PER_BLOCK 1024
-#define GROUPER_NSRCKEYS(g) ((g)->nkeys)
 
 //---------------------------------------------------------------------------------------------
 
 // Create a new group. groupvals is the key of the group. This will be the
 // number of field arguments passed to GROUPBY, e.g.
 // GROUPBY 2 @foo @bar will have a `groupvals` of `{"foo", "bar"}`.
-//
 // These will be placed in the output row.
 
 Group::Group(Grouper &grouper, const arrayof(RSValue*) groupvals, size_t ngrpvals) {
@@ -38,8 +25,8 @@ Group::Group(Grouper &grouper, const arrayof(RSValue*) groupvals, size_t ngrpval
   Group *group = grouper.groupsAlloc.Alloc(elemSize, GROUPS_PER_BLOCK * elemSize);
   memset(group, 0, elemSize);
 
-  for (size_t ii = 0; ii < numReducers; ++ii) {
-    accumdata[ii] = grouper.reducers[ii]->NewInstance(grouper.reducers[ii]);
+  for (size_t i = 0; i < numReducers; ++i) {
+    accumdata[i] = grouper.reducers[i]->NewInstance();
   }
 
   // Initialize the row data!
@@ -67,25 +54,25 @@ void Grouper::writeGroupValues(const Group *gr, SearchResult &r) const {
 //---------------------------------------------------------------------------------------------
 
 int Grouper::Yield(SearchResult &r) {
-  while (iter != kh_end(groups)) {
-    if (!kh_exist(groups, iter)) {
+  while (iter != groups.end()) {
+    if (!groups.contains(iter->first)) {
       iter++;
       continue;
     }
 
-    Group *gr = kh_value(groups, iter);
+    Group *gr = iter->second;
     // no reducers; just a terminal GROUPBY...
 
     if (!numReducers()) {
-      writeGroupValues(gr, r);
+      writeGroupValues(gr, &r);
     }
     // else...
-    for (size_t ii = 0; ii < numReducers(); ++ii) {
-      Reducer *rd = reducers[ii];
-      RSValue *v = rd->Finalize(rd, gr->accumdata[ii]);
+    for (size_t i = 0; i < numReducers(); ++i) {
+      Reducer *rd = reducers[i];
+      RSValue *v = rd->Finalize();
       if (v) {
-        r->rowdata.WriteOwnKey(rd->dstkey, v);
-        writeGroupValues(gr, r);
+        r.rowdata.WriteOwnKey(rd->dstkey, v);
+        writeGroupValues(gr, &r);
       } else {
         // FIXME!
         // Error! Couldn't get value? Handle me here!
@@ -103,8 +90,8 @@ int Grouper::Yield(SearchResult &r) {
 
 void Grouper::invokeGroupReducers(Group *gr, RLookupRow &srcrow) {
   size_t nreducers = numReducers();
-  for (size_t ii = 0; ii < nreducers; ii++) {
-    reducers[ii]->Add(reducers[ii], gr->accumdata[ii], srcrow);
+  for (size_t i = 0; i < nreducers; i++) {
+    reducers[i]->Add(reducers[i], gr->accumdata[i], srcrow);
   }
 }
 
@@ -116,10 +103,9 @@ void Grouper::invokeGroupReducers(Group *gr, RLookupRow &srcrow) {
  *
  * @param g the grouper
  * @param xarr the array of 'x' values - i.e. the raw results received from the
- *  upstream result processor. The number of results can be found via
- *  the `GROUPER_NSRCKEYS(g)` macro
+ *  upstream result processor.
  * @param xpos the current position in xarr
- * @param xlen cached value of GROUPER_NSRCKEYS
+ * @param xlen cached value of nkeys
  * @param ypos if xarr[xpos] is an array, this is the current position within
  *  the array
  * @param hval current X-wise hash value. Note that members of the same Y array
@@ -134,13 +120,11 @@ void Grouper::extractGroups(const RSValue **xarr, size_t xpos, size_t xlen, size
     Group *group = NULL;
 
     // Get or create the group
-    khiter_t k = kh_get(khid, groups, hval);  // first have to get ieter
-    auto k = groups.find(hval);
-    if (k == groups.end()) {                // k will be equal to kh_end if key not present
+    if (!groups.contains(hval)) {
       group = new Group(*this, xarr, xlen);
-      kh_set(khid, groups, hval, group);
+      groups.insert({ hval, group });
     } else {
-      group = kh_value(groups, k);
+      group = groups[hval];
     }
 
     // send the result to the group and its reducers
@@ -185,7 +169,6 @@ void Grouper::extractGroups(const RSValue **xarr, size_t xpos, size_t xlen, size
 
 void Grouper::invokeReducers(RLookupRow &srcrow) {
   uint64_t hval = 0;
-  size_t nkeys = GROUPER_NSRCKEYS(this);
   const RSValue *groupvals[nkeys];
 
   for (size_t ii = 0; ii < nkeys; ++ii) {
@@ -205,15 +188,14 @@ int Grouper::Next(SearchResult &res) {
   if (_yield) return Yield(res);
 
   int rc;
-  while ((rc = upstream->Next(res)) == RS_RESULT_OK) {
-    invokeReducers(&res->rowdata);
-    res->Clear();
+  while ((rc = upstream->Next(&res)) == RS_RESULT_OK) {
+    invokeReducers(&res.rowdata);
+    res.Clear();
   }
   if (rc != RS_RESULT_EOF) return rc;
 
   _yield = true;
-  parent->totalResults = kh_size(groups);
-  iter = kh_begin(khid);
+  parent->totalResults = groups.size();
   return Yield(res);
 }
 
@@ -225,31 +207,16 @@ static void cleanCallback(void *ptr, void *arg) {
   // Call the reducer's FreeInstance
   for (size_t ii = 0; ii < parent->numReducers(); ++ii) {
     Reducer *rr = parent->reducers[ii];
-    if (rr->FreeInstance) {
-      rr->FreeInstance(rr, group->accumdata[ii]);
-    }
+    rr->FreeInstance();
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
 Grouper::~Grouper() {
-  for (khiter_t it = kh_begin(groups); it != kh_end(groups); ++it) {
-    if (!kh_exist(groups, it)) {
-      continue;
-    }
-    Group *gr = kh_value(groups, it);
-    gr->rowdata.Cleanup();
-  }
-  kh_destroy(khid, groups);
   groupsAlloc.FreeAll(cleanCallback, this, GROUP_BYTESIZE(this));
 
-  for (size_t i = 0; i < numReducers(); i++) {
-    delete reducers[i];
-  }
-  if (reducers) {
-    array_free(reducers);
-  }
+  delete reducers;
   rm_free(srckeys);
   rm_free(dstkeys);
 }
@@ -290,18 +257,14 @@ Grouper::~Grouper() {
  */
 
 Grouper::Grouper(const RLookupKey **srckeys_, const RLookupKey **dstkeys_, size_t nkeys) : ResultProcessor("Grouper") {
-  groups = kh_init(khid);
-
   srckeys = rm_calloc(nkeys, sizeof(*srckeys));
   dstkeys = rm_calloc(nkeys, sizeof(*dstkeys));
   nkeys = nkeys;
-  for (size_t ii = 0; ii < nkeys; ++ii) {
-    srckeys[ii] = srckeys_[ii];
-    dstkeys[ii] = dstkeys_[ii];
+  for (size_t i = 0; i < nkeys; ++i) {
+    srckeys[i] = srckeys_[i];
+    dstkeys[i] = dstkeys_[i];
   }
   _yield = false;
-
-  //name = "Grouper";
 }
 
 //---------------------------------------------------------------------------------------------

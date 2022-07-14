@@ -512,10 +512,10 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
       {AC_MKUNFLAG(SPEC_NOFREQS_STR, &flags, Index_StoreFreqs)},
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &flags, Index_WideSchema)},
       // For compatibility
-      {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-      {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-      {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-      {.name = NULL}};
+      {name: "NOSCOREIDX", type: AC_ARGTYPE_BOOLFLAG, target: &dummy},
+      {name: SPEC_TEMPORARY_STR, type: AC_ARGTYPE_LLONG, target: &timeout},
+      {name: SPEC_STOPWORDS_STR, type: AC_ARGTYPE_SUBARGS, target: &acStopwords},
+      {name: NULL}};
 
   ACArgSpec *errarg = NULL;
   int rc = ac.ParseArgSpec(argopts, &errarg);
@@ -827,7 +827,8 @@ void IndexSpec::FreeSync() {
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
+IndexSpec *IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
+  IndexSpec *ret = NULL;
   int modeflags = REDISMODULE_READ | REDISMODULE_WRITE;
 
   if (options->flags & INDEXSPEC_LOAD_WRITEABLE) {
@@ -860,12 +861,12 @@ void IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     if ((options->flags & INDEXSPEC_LOAD_NOALIAS) || ixname == NULL) {
       goto done;  // doesn't exist.
     }
-    IndexSpec *aliasTarget = this = IndexAlias::Get(ixname);
+    IndexSpec *aliasTarget = ret = IndexAlias::Get(ixname);
     if (aliasTarget && (options->flags & INDEXSPEC_LOAD_KEYLESS) == 0) {
       if (isKeynameOwner) {
         RedisModule_FreeString(ctx, formatted);
       }
-      formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
+      formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ret->name);
       isKeynameOwner = true;
       options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
     }
@@ -873,19 +874,19 @@ void IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     if (RedisModule_ModuleTypeGetType(options->keyp) != IndexSpecType) {
       goto done;
     }
-    this = RedisModule_ModuleTypeGetValue(options->keyp);
+    ret = RedisModule_ModuleTypeGetValue(options->keyp);
   }
 
-  // if (!this) {
-  //   goto done;
-  // }
-  if (flags & Index_Temporary) {
-    mstime_t exp = timeout * 1000;
+  if (!ret) {
+    goto done;
+  }
+  if (ret->flags & Index_Temporary) {
+    mstime_t exp = ret->timeout * 1000;
     if (modeflags & REDISMODULE_WRITE) {
       RedisModule_SetExpire(options->keyp, exp);
     } else {
       RedisModuleKey *temp = RedisModule_OpenKey(ctx, formatted, REDISMODULE_WRITE);
-      RedisModule_SetExpire(temp, timeout * 1000);
+      RedisModule_SetExpire(temp, ret->timeout * 1000);
       RedisModule_CloseKey(temp);
     }
   }
@@ -898,18 +899,22 @@ done:
     RedisModule_CloseKey(options->keyp);
     options->keyp = NULL;
   }
+  return ret;
 }
 
 //---------------------------------------------------------------------------------------------
 
-/* Load the spec from the saved version */
-void IndexSpec::Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
+// Load the spec from the saved version
+
+IndexSpec *IndexSpec::Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
   IndexLoadOptions lopts(openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0, name);
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
-  LoadEx(ctx, &lopts);
+  return IndexSpec::LoadEx(ctx, &lopts);
 }
 
 //---------------------------------------------------------------------------------------------
+
+RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field);
 
 // Returns a string suitable for indexes. This saves on string creation/destruction
 

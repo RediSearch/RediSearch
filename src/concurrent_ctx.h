@@ -61,14 +61,13 @@ struct ConcurrentSearch {
   long long ticker;
   struct timespec lastTime;
   RedisModuleCtx *ctx;
-  Vector<T> openKeys;
+  Vector<T> concKeys;
   bool isLocked;
 
   ConcurrentSearch(RedisModuleCtx *rctx);
   ~ConcurrentSearch();
 
-  void AddKey(T &&concKey);
-  void SetKey(RedisModuleString *keyName, void *privdata); //@@ check if we can remove
+  void AddKey(T &&concKeys);
 
   bool CheckTimer();
   void ResetClock();
