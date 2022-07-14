@@ -74,8 +74,6 @@ def testInfoModulesAlter(env):
   env.expect('FT.CREATE', idx1, 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
   env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX').ok()
 
-  waitForIndex(env, idx1)
-
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 
@@ -85,6 +83,7 @@ def testInfoModulesAlter(env):
 
   # idx1Info = info['search_info_' + idx1]
   # env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
+
 
 def testInfoModulesDrop(env):
   conn = env.getConnection()
@@ -99,9 +98,6 @@ def testInfoModulesDrop(env):
                                           'body', 'TEXT',
                                           'id', 'NUMERIC', 'NOINDEX').ok()
 
-  waitForIndex(env, idx1)
-  waitForIndex(env, idx2)
-
   env.expect('FT.DROP', idx2).ok()
 
   info = info_modules_to_dict(conn)
@@ -110,6 +106,7 @@ def testInfoModulesDrop(env):
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(fieldsInfo['search_fields_text'], 'Text=2,Sortable=1')
   env.assertFalse('search_fields_numeric' in fieldsInfo) # no numeric fields since we removed idx2
+
 
 def testInfoModulesAfterReload(env):
   conn = env.getConnection()
