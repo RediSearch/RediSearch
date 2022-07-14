@@ -27,7 +27,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type);
 
 JSONPath pathParse(const char *path, RedisModuleString **err_msg);
 void pathFree(JSONPath jsonpath);
-int pathIsStatic(JSONPath jsonpath);
+int pathIsSingle(JSONPath jsonpath);
 int pathHasDefinedOrder(JSONPath jsonpath);
 
 #ifdef __cplusplus

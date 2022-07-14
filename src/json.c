@@ -65,9 +65,9 @@ void pathFree(JSONPath jsonpath) {
   }
 }
 
-int pathIsStatic(JSONPath jsonpath) {
+int pathIsSingle(JSONPath jsonpath) {
   if (japi_ver >= 2) {
-    return japi->pathIsStatic(jsonpath);
+    return japi->pathIsSingle(jsonpath);
   }
   return false;
 }

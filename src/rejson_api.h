@@ -82,7 +82,7 @@ typedef struct RedisJSONAPI {
   void (*pathFree)(JSONPath);
   
   // Query a parsed JSONPath
-  int (*pathIsStatic)(JSONPath);
+  int (*pathIsSingle)(JSONPath);
   int (*pathHasDefinedOrder)(JSONPath);
 
 } RedisJSONAPI;
