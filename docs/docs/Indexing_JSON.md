@@ -1,12 +1,11 @@
 ---
-title: "Indexing JSON documents"
-linkTitle: "Indexing JSON"
-weight: 8
-description: >
-    Indexing and searching JSON documents
+title: Index and search JSON documents
+linkTitle: Index JSON
+weight: 2
+description: Index and search JSON documents
 ---
 
-In addition to indexing Redis hashes, RediSearch also indexes JSON. To index JSON, you must use the RedisJSON module.
+In addition to indexing Redis hashes, RediSearch also indexes JSON. To index JSON, you must use the [RedisJSON](/docs/stack/json/) module.
 
 ## Prerequisites
 
@@ -16,13 +15,13 @@ What do you need to start indexing JSON documents?
 - RediSearch 2.2 or later
 - RedisJSON 2.0 or later
 
-## How to index JSON documents
+## Create index with JSON schema
 
 This section shows how to create an index.
 
 You can now specify `ON JSON` to inform RediSearch that you want to index JSON documents.
 
-For the `SCHEMA`, you can provide JSONPath expressions.
+For the `SCHEMA`, you can provide [JSONPath](/docs/stack/json/path) expressions.
 The result of each `JSON Path` expression is indexed and associated with a logical name (`attribute`).
 This attribute (previously called `field`) is used in the query.
 
@@ -34,12 +33,14 @@ And here's a concrete example:
 
     FT.CREATE userIdx ON JSON SCHEMA $.user.name AS name TEXT $.user.tag AS country TAG
 
-## Adding a JSON document to the index
+Note: The attribute  is optional in [`FT.CREATE`](/commands/ft.create), but [`FT.SEARCH`](/commands/ft.search) and  [`FT.AGGREGATE`](/commands/ft.aggregate) queries require attribute modifiers. You should also avoid using JSON Path expressions, which are not fully supported by the query parser.
+
+## Add JSON documents to the index
 
 As soon as the index is created, any pre-existing JSON document, or any new JSON document added or modified, is
 automatically indexed.
 
-You can use any write command from the RedisJSON module (`JSON.SET`, `JSON.ARRAPPEND`, etc.).
+You can use any write command from the RedisJSON module ([`JSON.SET`](/commands/json.set/), [`JSON.ARRAPPEND`](/commands/json.arrappend/), etc.).
 
 This example uses the following JSON document:
 
@@ -47,23 +48,23 @@ This example uses the following JSON document:
 {
   "user": {
     "name": "John Smith",
-    "tag": "foo,bar",
+    "tag": "apprentice,knight",
     "hp": "1000",
     "dmg": "150"
   }
 }
 ```
 
-Use `JSON.SET` to store the document in the database:
+Use [`JSON.SET`](/commands/json.set/) to store the document in the database:
 
-    JSON.SET myDoc $ '{"user":{"name":"John Smith","tag":"foo,bar","hp":1000, "dmg":150}}'
+    JSON.SET myDoc $ '{"user":{"name":"John Smith","tag":"apprentice,knight","hp":1000, "dmg":150}}'
 
-Because indexing is synchronous, the document will be visible on the index as soon as the `JSON.SET` command returns.
-Any subsequent query matching the indexed content will return the document.
+Because indexing is synchronous, the document will be visible on the index as soon as the [`JSON.SET`](/commands/json.set/) command returns.
+Any subsequent query that matches the indexed content will return the document.
 
-## Searching
+## Search the index
 
-To search for documents, use the `FT.SEARCH` commands.
+To search for documents, use the [`FT.SEARCH`](/commands/ft.search/) commands.
 You can search any attribute mentioned in the SCHEMA.
 
 Following our example, find the user called `John`:
@@ -73,12 +74,45 @@ FT.SEARCH userIdx '@name:(John)'
 1) (integer) 1
 2) "myDoc"
 3) 1) "$"
-   2) "{\"user\":{\"name\":\"John Smith\",\"tag\":\"foo,bar\",\"hp\":1000,\"dmg\":150}}"
+   2) "{\"user\":{\"name\":\"John Smith\",\"tag\":\"apprentice,knight\",\"hp\":1000,\"dmg\":150}}"
+```
+
+## Index JSON arrays with tags
+
+It is possible to index scalar string and boolean values in JSON arrays by using the wildcard operator in the JSON Path. For example if you were indexing blog posts you might have a field called `tags` which is an array of tags that apply to the blog post.
+
+```JSON
+{
+   "title":"Using RedisJson is Easy and Fun",
+   "tags":["redis","json","redisjson"]
+}
+```
+
+You can apply an index to the `tags` field by specifying the JSON Path `$.tags.*` in your schema creation:
+
+```bash
+FT.CREATE blog-idx ON JSON PREFIX 1 Blog: SCHEMA $.tags.* AS tags TAG
+```
+
+You would then set a blog post as you would any other JSON document:
+
+```bash
+JSON.SET Blog:1 . '{"title":"Using RedisJson is Easy and Fun", "tags":["redis","json","redisjson"]}'
+```
+
+And finally you can search using the typical tag searching syntax:
+
+```bash
+127.0.0.1:6379> FT.SEARCH blog-idx "@tags:{redis}"
+1) (integer) 1
+2) "Blog:1"
+3) 1) "$"
+   2) "{\"title\":\"Using RedisJson is Easy and Fun\",\"tags\":[\"redis\",\"json\",\"redisjson\"]}"
 ```
 
 ## Field projection
 
-`FT.SEARCH` returns the whole document by default.
+[`FT.SEARCH`](/commands/ft.search/) returns the whole document by default.
 
 You can also return only a specific attribute (`name` for example):
 
@@ -90,7 +124,7 @@ FT.SEARCH userIdx '@name:(John)' RETURN 1 name
    2) "\"John Smith\""
 ```
 
-### Projecting using JSON Path expressions
+### Projecting with JSON Path
 
 The `RETURN` parameter also accepts a `JSON Path expression` which lets you extract any part of the JSON document.
 
@@ -119,7 +153,8 @@ FT.SEARCH userIdx '@name:(John)' RETURN 3 $.user.hp AS hitpoints
 ### Highlighting
 
 You can highlight any attribute as soon as it is indexed using the TEXT type.
-For FT.SEARCH, you have to explicitly set the attribute in the `RETURN` and the `HIGHLIGHT` parameters.
+
+For [`FT.SEARCH`](/commands/ft.search/), you have to explicitly set the attribute in the `RETURN` and the `HIGHLIGHT` parameters.
 
 ```
 FT.SEARCH userIdx '@name:(John)' RETURN 1 name HIGHLIGHT FIELDS 1 name TAGS '<b>' '</b>'
@@ -131,26 +166,30 @@ FT.SEARCH userIdx '@name:(John)' RETURN 1 name HIGHLIGHT FIELDS 1 name TAGS '<b>
 
 ## Aggregation with JSON Path expression
 
-[Aggregation](/redisearch/reference/aggregations) is a powerful feature. You can use it to generate statistics or build facet queries.
+[Aggregation](/docs/stack/search/reference/aggregations) is a powerful feature. You can use it to generate statistics or build facet queries.
 The LOAD parameter accepts JSON Path expressions. Any value (even not indexed) can be used in the pipeline.
 
 This example loads two numeric values from the JSON document applying a simple operation.
 
-```
+```sql
 FT.AGGREGATE userIdx '*' LOAD 6 $.user.hp AS hp $.user.dmg AS dmg APPLY '@hp-@dmg' AS points
 1) (integer) 1
-2) 1) "point"
-   2) "850"
+2) 1) "hp"
+   2) "1000"
+   3) "dmg"
+   4) "150"
+   5) "points"
+   6) "850"
 ```
 
-## Current indexing limitations
+## Indexing limitations
 
-### JSON arrays can only be indexed in a TAG field.
+### JSON arrays can only be indexed in a TAG field
 
 It is only possible to index an array of strings or booleans in a TAG field.
 Other types (numeric, geo, null) are not supported.
 
-### It is not possible to index JSON objects.
+### Cannot index JSON objects
 
 To be indexed, a JSONPath expression must return a single scalar value (string or number).
 
@@ -195,21 +234,22 @@ FT.SEARCH orgIdx "suite 250"
    2) "{\"name\":\"Headquarters\",\"address\":[\"Suite 250\",\"Mountain View\"],\"cp\":\"CA 94040\"}"
 ```
 
-### Index JSON strings and numbers as TEXT and NUMERIC
+### JSON schema field types
 
-- You can only index JSON strings as TEXT, TAG, or GEO (using the right syntax).
+- You can only index JSON strings as TEXT, TAG, or GEO (using the correct syntax).
 - You can only index JSON numbers as NUMERIC.
-- Boolean and NULL values are ignored.
+- JSON booleans can only be indexed as TAG.
+- NULL values are ignored.
 
-### SORTABLE not supported on TAG
+### TAG not SORTABLE
 
 ```SQL
 FT.CREATE orgIdx ON JSON SCHEMA $.cp[0] AS cp TAG SORTABLE
 (error) On JSON, cannot set tag field to sortable - cp
 ```
 
-With hashes, you can use SORTABLE (as a side effect) to improve the performance of FT.AGGREGATE on TAGs.
-This is possible because the value in the hash is a string, such as "foo,bar".
+With hashes, you can use `SORTABLE` (as a side effect) to improve the performance of [`FT.AGGREGATE`](/commands/ft.aggregate/) on TAGs.
+This is possible because the value in the hash is a string, such as "apprentice,knight".
 
 With JSON, you can index an array of strings.
 Because there is no valid single textual representation of those values,
