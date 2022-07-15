@@ -1,10 +1,11 @@
 import json
+from typing import Any, Callable
+
+from RLTest import Env
+from RLTest.env import Query
 
 from common import *
 from includes import *
-
-# NEW_MODULE = module_version_at_least(env, 2.0.12)
-NEW_JSON_API_V2 = os.getenv('NEW_JSON_API_V2', '0') == '1'
 
 doc1_content = r'''{
     "name": "wonderbar",
@@ -130,6 +131,37 @@ doc_non_text_content = r'''{
 }
 '''
 
+def module_ver_filter(env, module_name, ver_filter):
+    info = env.getConnection().info()
+    for module in info['modules']:
+        if module['name'] == module_name:
+            ver = int(module['ver'])
+            return ver_filter(ver)
+    return False
+
+def has_json_api_v2(env):
+    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver >= 20200 else False)
+
+class ConditionalExpected:
+    
+    def __init__(self, env, cond):
+        self.env = env
+        self.cond_val = cond(env)
+        self.query = None
+
+    def call(self, *query):
+        self.query = query
+        return self
+
+    def expect_when(self, cond_val, func: Callable[[Query], Any]):
+        if cond_val == self.cond_val:
+            func(self.env.expect(*self.query))
+        return self
+
+def expect_undef_order(query : Query):
+    query.error().contains("has undefined ordering")
+
+
 def testMultiTagString(env):
     """ test multiple TAG values (array of strings) """
     conn = getConnectionByEnv(env)
@@ -248,16 +280,34 @@ def testMultiTextNested(env):
 def searchMultiTextCategory(env):
     """ helper function for searching multi-value attributes """
 
+    cond = ConditionalExpected(env, has_json_api_v2)
+    def expect_0(q):
+        q.equal([0])
+        
+    def expect_1(q):
+        q.equal([1, 'doc:1'])
+
     for idx in ['idx_category_arr', 'idx_category_arr_author_flat']:
         env.debugPrint(idx, force=True)
-        if NEW_JSON_API_V2:
-            env.expect('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '98').equal([0])
-            env.expect('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '99').equal([1, 'doc:1'])
-            env.expect('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '99', 'INORDER').equal([0])
-            env.expect('FT.SEARCH', idx, '@category:(database programming)=>{$slop:99}', 'NOCONTENT', 'SLOP', '1').equal([1, 'doc:1'])
-            env.expect('FT.SEARCH', idx, '@category:(database programming)=>{$slop:100; $inorder:true}', 'NOCONTENT').equal([0])
-            env.expect('FT.SEARCH', idx, '@category:(database programming)=>{$slop:100; $inorder:false}', 'NOCONTENT').equal([1, 'doc:1'])
-        
+        cond.call('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '98') \
+        .expect_when(True,  expect_0) \
+        .expect_when(False, expect_undef_order)
+        cond.call('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '99') \
+            .expect_when(True,  expect_1) \
+            .expect_when(False, expect_undef_order)
+        cond.call('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '99', 'INORDER') \
+            .expect_when(True,  expect_0) \
+            .expect_when(False, expect_undef_order)
+        cond.call('FT.SEARCH', idx, '@category:(database programming)=>{$slop:99}', 'NOCONTENT', 'SLOP', '1') \
+            .expect_when(True,  expect_1) \
+            .expect_when(False, expect_undef_order)
+        cond.call('FT.SEARCH', idx, '@category:(database programming)=>{$slop:100; $inorder:true}', 'NOCONTENT') \
+            .expect_when(True,  expect_0) \
+            .expect_when(False, expect_undef_order)
+        cond.call('FT.SEARCH', idx, '@category:(database programming)=>{$slop:100; $inorder:false}', 'NOCONTENT') \
+            .expect_when(True,  expect_1) \
+            .expect_when(False, expect_undef_order)
+
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
         res = env.execute_command('FT.SEARCH', idx, '@category:(database)', 'NOCONTENT')
         env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:1', 'doc:2']), message="A " + idx)
@@ -302,20 +352,26 @@ def searchMultiTextAuthor(env):
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
 
-    if NEW_JSON_API_V2:
-        env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200; $inorder:false}', 'NOCONTENT').equal([1, 'doc:1'])
-        env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200}', 'NOCONTENT').equal([1, 'doc:1'])
-        env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$inorder:false}', 'NOCONTENT').equal([1, 'doc:1'])
-
+    cond = ConditionalExpected(env, has_json_api_v2)
+    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200; $inorder:false}', 'NOCONTENT') \
+        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
+        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
+    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200}', 'NOCONTENT') \
+        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
+        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
+    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$inorder:false}', 'NOCONTENT') \
+        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
+        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
 
 def testInvalidPath(env):
     """ Test invalid JSONPath """
 
-    if NEW_JSON_API_V2:
-        env.expect('FT.CREATE', 'idx_with_bad_path', 'ON', 'JSON', 'SCHEMA',
-            '$.books[*.authors', 'AS', 'author', 'TEXT',
-            '$.category..', 'AS', 'category', 'TEXT').error().contains("Invalid JSONPath")
-
+    cond = ConditionalExpected(env, has_json_api_v2)
+    cond.call('FT.CREATE', 'idx_with_bad_path', 'ON', 'JSON', 'SCHEMA',
+                           '$.books[*.authors', 'AS', 'author', 'TEXT',
+                           '$.category..', 'AS', 'category', 'TEXT') \
+    .expect_when(True, lambda q: q.error().contains("Invalid JSONPath")) \
+    .expect_when(False, lambda q: q.ok())
 
 def testUndefinedOrderingWithSlopAndInorder(env):
     """ Test that query attributes `slop` and `inorder` cannot be used when order is not well defined """
@@ -325,17 +381,30 @@ def testUndefinedOrderingWithSlopAndInorder(env):
         '$.books[*].authors', 'AS', 'author', 'TEXT',
         '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr_author_flat')
-    if NEW_JSON_API_V2:
-        env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)=>{$slop:200}').equal([0])
-        env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)=>{$inorder:false}').equal([0])
-        env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)=>{$inorder:true}').equal([0])
+    
+    cond = ConditionalExpected(env, has_json_api_v2)
+    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)=>{$slop:200}') \
+        .expect_when(True, lambda q: q.equal([0])) \
+        .expect_when(False, expect_undef_order)
+    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)=>{$inorder:false}') \
+        .expect_when(True, lambda q: q.equal([0])) \
+        .expect_when(False, expect_undef_order)
+    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)=>{$inorder:true}') \
+        .expect_when(True, lambda q: q.equal([0])) \
+        .expect_when(False, expect_undef_order)
+
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$slop:200}').error().contains("has undefined ordering")
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:false}').error().contains("has undefined ordering")
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:true}').error().contains("has undefined ordering")
 
-    if NEW_JSON_API_V2:
-        env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)', 'SLOP', '200').equal([0])
-        env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)', 'INORDER').equal([0])
+    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)', 'SLOP', '200') \
+        .expect_when(True, lambda q: q.equal([0])) \
+        .expect_when(False, expect_undef_order)
+    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)', 'INORDER') \
+        .expect_when(True, lambda q: q.equal([0])) \
+        .expect_when(False, expect_undef_order)
+
+
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'SLOP', '200').error().contains("has undefined ordering")
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'INORDER').error().contains("has undefined ordering")
 
@@ -580,9 +649,14 @@ def testconfigMultiTextOffsetDelta(env):
     res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '100')
     env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT').equal([1, 'doc:1'])
-    if NEW_JSON_API_V2:
-        env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '300').equal([0])
-        env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '301').equal([1, 'doc:1'])
+    
+    cond = ConditionalExpected(env, has_json_api_v2)
+    cond.call('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '300') \
+        .expect_when(True, lambda q: q.equal([0])) \
+        .expect_when(False, expect_undef_order)
+    cond.call('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '301') \
+        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
+        .expect_when(False, expect_undef_order)
     
     # MULTI_TEXT_SLOP = 101
     env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_SLOP', '101').ok()
@@ -591,12 +665,21 @@ def testconfigMultiTextOffsetDelta(env):
     #   1                2        3      ,  104   ,  205         ,  306
     env.execute_command('FT.CREATE', 'idx_category_arr_2', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr_2')
-    if NEW_JSON_API_V2:
-        env.expect('FT.SEARCH', 'idx_category_arr_2', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '303').equal([0])
-        env.expect('FT.SEARCH', 'idx_category_arr_2', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '304').equal([1, 'doc:1'])
-    
-        env.expect('FT.SEARCH', 'idx_category_arr_2', '@category:(science database)', 'NOCONTENT', 'SLOP', '301').equal([0])
-        env.expect('FT.SEARCH', 'idx_category_arr_2', '@category:(science database)', 'NOCONTENT', 'SLOP', '302').equal([1, 'doc:1'])
+
+    cond = ConditionalExpected(env, has_json_api_v2)
+    cond.call('FT.SEARCH', 'idx_category_arr_2', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '303') \
+        .expect_when(True, lambda q: q.equal([0])) \
+        .expect_when(False, expect_undef_order)
+    cond.call('FT.SEARCH', 'idx_category_arr_2', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '304') \
+        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
+        .expect_when(False, expect_undef_order)
+
+    cond.call('FT.SEARCH', 'idx_category_arr_2', '@category:(science database)', 'NOCONTENT', 'SLOP', '301') \
+        .expect_when(True, lambda q: q.equal([0])) \
+        .expect_when(False, expect_undef_order)
+    cond.call('FT.SEARCH', 'idx_category_arr_2', '@category:(science database)', 'NOCONTENT', 'SLOP', '302') \
+        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
+        .expect_when(False, expect_undef_order)
 
     # MULTI_TEXT_SLOP = 0
     env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_SLOP', '0').ok()
@@ -605,12 +688,20 @@ def testconfigMultiTextOffsetDelta(env):
     #   1                2        3      ,  4   ,    5         ,    6
     env.execute_command('FT.CREATE', 'idx_category_arr_3', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr_3')
-    if NEW_JSON_API_V2:
-        env.expect('FT.SEARCH', 'idx_category_arr_3', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '3').equal([0])
-        env.expect('FT.SEARCH', 'idx_category_arr_3', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '4').equal([1, 'doc:1'])
+    
+    cond.call('FT.SEARCH', 'idx_category_arr_3', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '3') \
+        .expect_when(True, lambda q: q.equal([0])) \
+        .expect_when(False, expect_undef_order)
+    cond.call('FT.SEARCH', 'idx_category_arr_3', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '4') \
+        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
+        .expect_when(False, expect_undef_order)
 
-        env.expect('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '1').equal([0])
-        env.expect('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '2').equal([1, 'doc:1'])
+    cond.call('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '1') \
+        .expect_when(True, lambda q: q.equal([0])) \
+        .expect_when(False, expect_undef_order)
+    cond.call('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '2') \
+        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
+        .expect_when(False, expect_undef_order)
 
     # MULTI_TEXT_SLOP = -1
     env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_SLOP', '-1').error()
