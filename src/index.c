@@ -689,7 +689,38 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
   if (!*it1) return -1;
   if (!*it2) return 1;
 
-  return (int)((*it1)->NumEstimated((*it1)->ctx) - (*it2)->NumEstimated((*it2)->ctx));
+  double factor1 = 1;
+  double factor2 = 1;
+  enum iteratorType it_1_type = (*it1)->type;
+  enum iteratorType it_2_type = (*it2)->type;
+  /*
+  if (it_1_type == it_2_type) {
+    // continue to NumEstimated
+  } else if (it_1_type == UNION_ITERATOR) { // move unions to the end 
+    return 1;
+  } else if (it_2_type == UNION_ITERATOR) {
+    return -1;
+  } else if (it_1_type == INTERSECT_ITERATOR) { // move intersects to the beginning 
+    return -1;
+  } else if (it_2_type == INTERSECT_ITERATOR) {
+    return 1;
+  }*/
+
+  /* option 2 */
+  if (it_1_type == UNION_ITERATOR) {
+    factor1 = ((UnionIterator *)*it1)->num;
+  }
+  if (it_2_type == UNION_ITERATOR) {
+    factor2 = ((UnionIterator *)*it2)->num;
+  }
+  if (it_1_type == INTERSECT_ITERATOR) {
+    factor1 = 1 / ((UnionIterator *)*it1)->num;
+  }
+  if (it_2_type == INTERSECT_ITERATOR) {
+    factor2 = 1 / ((UnionIterator *)*it2)->num;
+  }
+
+  return (int)((*it1)->NumEstimated((*it1)->ctx) * factor1 - (*it2)->NumEstimated((*it2)->ctx) * factor2);
 }
 
 static void II_SortChildren(IntersectIterator *ctx) {
