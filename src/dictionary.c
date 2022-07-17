@@ -61,7 +61,7 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   for (int i = 0; i < len; ++i) {
     size_t len;
     const char *val = RedisModule_StringPtrLen(values[i], &len);
-    valuesDeleted += t->Delete((char *)val, len);
+    valuesDeleted += t->Delete((char *)val);
   }
 
   if (t->size == 0) {
@@ -97,7 +97,7 @@ bool Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
   }
 
   delete it.ctx;
-  
+
   RedisModule_CloseKey(k);
 
   return true;

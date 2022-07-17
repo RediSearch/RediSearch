@@ -647,9 +647,10 @@ size_t weightedRandom(double weights[], size_t len) {
 
 //---------------------------------------------------------------------------------------------
 
-/* Get a random term from the index spec using weighted random. Weighted random is done by
- * sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
- * should be enough. Returns NULL if the index is empty */
+// Get a random term from the index spec using weighted random. Weighted random is done by
+// sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
+// should be enough. Returns NULL if the index is empty
+
 char *IndexSpec::GetRandomTerm(size_t sampleSize) {
 
   if (sampleSize > terms->size) {

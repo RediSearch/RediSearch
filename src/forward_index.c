@@ -8,8 +8,12 @@
 #include <stdio.h>
 #include <sys/param.h>
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #define ENTRIES_PER_BLOCK 32
 #define TERM_BLOCK_SIZE 128
+
+//---------------------------------------------------------------------------------------------
 
 static int khtCompare(const KHTableEntry *entBase, const void *s, size_t n, uint32_t h) {
   khIdxEntry *ee = (khIdxEntry *)entBase;
@@ -27,17 +31,18 @@ static uint32_t khtHash(const KHTableEntry *entBase) {
   return ((khIdxEntry *)entBase)->ent.hash;
 }
 
-static KHTableEntry *allocBucketEntry(void *ptr) {
-  BlkAlloc *alloc = ptr;
-  void *p = alloc->Alloc(sizeof(khIdxEntry), ENTRIES_PER_BLOCK * sizeof(khIdxEntry));
-  return p;
+static KHTableEntry *allocBucketEntry(BlkAlloc *alloc) {
+  return alloc->Alloc(sizeof(khIdxEntry), ENTRIES_PER_BLOCK * sizeof(khIdxEntry));
 }
 
 static uint32_t hashKey(const void *s, size_t n) {
   return rs_fnv_32a_buf((void *)s, n, 0);
 }
 
+//---------------------------------------------------------------------------------------------
+
 #define CHARS_PER_TERM 5
+
 static size_t estimtateTermCount(const Document *doc) {
   size_t nChars = 0;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
@@ -47,6 +52,8 @@ static size_t estimtateTermCount(const Document *doc) {
   }
   return nChars / CHARS_PER_TERM;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void ForwardIndex::InitCommon(Document *doc, uint32_t idxFlags_) {
   idxFlags = idxFlags_;
@@ -62,6 +69,8 @@ void ForwardIndex::InitCommon(Document *doc, uint32_t idxFlags_) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 ForwardIndex::ForwardIndex(Document *doc, uint32_t idxFlags_) {
   static const KHTableProcs procs = {
       Compare: khtCompare,
@@ -75,11 +84,14 @@ ForwardIndex::ForwardIndex(Document *doc, uint32_t idxFlags_) {
   totalFreq = 0;
 
   KHTable_Init(hits, &procs, &entries, termCount);
+
   mempool_options options = { alloc: new VarintVectorWriter(), free: ~VarintVectorWriter(), initialCap: termCount};
   vvwPool = mempool_new(&options);
 
   InitCommon(doc, idxFlags_);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void clearEntry(void *elem, void *pool) {
   khIdxEntry *ent = elem;
@@ -89,6 +101,8 @@ static void clearEntry(void *elem, void *pool) {
     fwEnt->vw = NULL;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 void ForwardIndex::Reset(Document *doc, uint32_t idxFlags_) {
   terms.Clear(NULL, NULL, 0);
@@ -101,9 +115,13 @@ void ForwardIndex::Reset(Document *doc, uint32_t idxFlags_) {
   InitCommon(doc, idxFlags_);
 }
 
-inline int ForwardIndex::hasOffsets() const {
-  return (idxFlags & Index_StoreTermOffsets);
+//---------------------------------------------------------------------------------------------
+
+int ForwardIndex::hasOffsets() const {
+  return idxFlags & Index_StoreTermOffsets;
 }
+
+//---------------------------------------------------------------------------------------------
 
 ForwardIndex::~ForwardIndex() {
   entries.FreeAll(clearEntry, vvwPool, sizeof(khIdxEntry));
@@ -116,6 +134,8 @@ ForwardIndex::~ForwardIndex() {
   smap = NULL;
 }
 
+//---------------------------------------------------------------------------------------------
+
 char *ForwardIndex::copyTempString(const char *s, size_t n) {
   char *dst = terms.Alloc(n + 1, MAX(n + 1, TERM_BLOCK_SIZE));
   memcpy(dst, s, n);
@@ -123,10 +143,54 @@ char *ForwardIndex::copyTempString(const char *s, size_t n) {
   return dst;
 }
 
+//---------------------------------------------------------------------------------------------
+
+ForwardIndexEntry::ForwardIndexEntry(ForwardIndex &idx, const char *tok, size_t tokLen, float fieldScore,
+    t_fieldId fieldId, int options) {
+  fieldMask = 0;
+  next = NULL;
+  if (options & TOKOPT_F_COPYSTR) {
+    term = idx.copyTempString(tok, tokLen);
+  } else {
+    term = tok;
+  }
+
+  len = tokLen;
+  freq = 0;
+
+  if (idx.hasOffsets()) {
+    vw = mempool_get(vvwPool);
+    // printf("Got VVW=%p\n", h->vw);
+    h->vw->Reset();
+  } else {
+    h->vw = NULL;
+  }
+
+  h->fieldMask |= ((t_fieldMask)1) << fieldId;
+  float score = (float)fieldScore;
+
+  // stem tokens get lower score
+  if (options & TOKOPT_F_STEM) {
+    score *= STEM_TOKEN_FACTOR;
+  }
+  h->freq += MAX(1, (uint32_t)score);
+  maxFreq = MAX(h->freq, maxFreq);
+  totalFreq += h->freq;
+  if (h->vw) {
+    h->vw->Write(pos);
+  }
+
+  // LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
+}
+
+//---------------------------------------------------------------------------------------------
+
 khIdxEntry *ForwardIndex::makeEntry(const char *s, size_t n, uint32_t h, int *isNew) {
   KHTableEntry *bb = KHTable_GetEntry(hits, s, n, h, isNew);
   return (khIdxEntry *)bb;
 }
+
+//---------------------------------------------------------------------------------------------
 
 #define TOKOPT_F_STEM 0x01
 #define TOKOPT_F_COPYSTR 0x02
@@ -182,9 +246,12 @@ void ForwardIndex::HandleToken(const char *tok, size_t tokLen, uint32_t pos,
   // LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
 }
 
+//---------------------------------------------------------------------------------------------
+
 // void ForwardIndex::NormalizeFreq(ForwardIndexEntry *e) {
 //   e->freq = e->freq / maxFreq;
 // }
+
 static int ForwardIndexTokenizerCtx::TokenFunc(const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
   int options = 0;
@@ -228,6 +295,8 @@ static int ForwardIndexTokenizerCtx::TokenFunc(const Token *tokInfo) {
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Find an existing entry within the index
 ForwardIndexEntry *ForwardIndex::Find(const char *s, size_t n, uint32_t hash) {
   KHTableEntry *baseEnt = KHTable_GetEntry(hits, s, n, hash, NULL);
@@ -239,6 +308,8 @@ ForwardIndexEntry *ForwardIndex::Find(const char *s, size_t n, uint32_t hash) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 ForwardIndexIterator ForwardIndex::Iterate() {
   ForwardIndexIterator iter;
   iter.hits = hits;
@@ -247,6 +318,8 @@ ForwardIndexIterator ForwardIndex::Iterate() {
   // khTable_Dump(iter.hits);
   return iter;
 }
+
+//---------------------------------------------------------------------------------------------
 
 ForwardIndexEntry *ForwardIndexIterator::Next() {
   KHTable *table = hits;
@@ -266,3 +339,5 @@ ForwardIndexEntry *ForwardIndexIterator::Next() {
   khIdxEntry *bEnt = (khIdxEntry *)ret;
   return &bEnt->ent;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

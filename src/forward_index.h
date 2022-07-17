@@ -12,7 +12,10 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct ForwardIndexEntry {
+struct ForwardIndexEntry : Object {
+  ForwardIndexEntry();
+  ~ForwardIndexEntry();
+
   struct ForwardIndexEntry *next;
   t_docId docId;
 
@@ -45,8 +48,9 @@ struct ForwardIndexIterator {
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
-struct ForwardIndex {
-  KHTable *hits;
+struct ForwardIndex : Object {
+  //KHTable *hits;
+  UnorderedMap<std::string, ForwardIndexEntry> hits;
   uint32_t maxFreq;
   uint32_t totalFreq;
   uint32_t idxFlags;
@@ -54,7 +58,7 @@ struct ForwardIndex {
   SynonymMap *smap;
   BlkAlloc terms;
   BlkAlloc entries;
-  mempool_t *vvwPool;
+  MemPool vvwPool;
 
   ForwardIndex(Document *doc, uint32_t idxFlags_);
   ~ForwardIndex();

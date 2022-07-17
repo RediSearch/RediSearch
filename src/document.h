@@ -60,6 +60,7 @@ struct Document : Object {
   uint32_t flags;
 
   Document(RedisModuleString *docKey, double score, RSLanguage lang);
+  Document() {}
   ~Document();
 
   int ReplyFields(RedisModuleCtx *ctx);

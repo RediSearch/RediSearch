@@ -137,7 +137,7 @@ struct RSValue : public Object {
   void MakeOwnReference(RSValue *src);
   void MakeRStringOwner();
 
-  void MakePersistent();
+  RSValue *MakePersistent();
 
   RSValue *ArrayItem(uint32_t index) const;
   uint32_t ArrayLen() const;
@@ -236,7 +236,7 @@ inline bool RSValue::IsNull() const {
 // A volatile string usually comes from a block allocator and is not freed in RSVAlue_Free, so just
 // discarding the pointer here is "safe"
 
-inline void RSValue::MakePersistent() {
+RSValue *RSValue::MakePersistent() {
   if (t == RSValue_String && strval.stype == RSString_Volatile) {
     strval.str = rm_strndup(strval.str, strval.len);
     strval.stype = RSString_Malloc;
@@ -245,6 +245,7 @@ inline void RSValue::MakePersistent() {
       arrval.vals[i]->MakePersistent();
     }
   }
+  return this;
 }
 
 // Copies a string using the default mechanism. Returns the copied value

@@ -146,7 +146,7 @@ static ExtScoringFunction *Extensions::GetScoringFunction(ScoringFunctionArgs *f
 
 // ExpandToken allows the user to add an expansion of the token in the query, that will be
 // union-merged with the given token in query time.
-// str is the expanded string, len is its length, and flags is a 32 bit flag mask that 
+// str is the expanded string, len is its length, and flags is a 32 bit flag mask that
 // can be used by the extension to set private information on the token.
 
 // The implementation of the actual query expansion. This function either turns the current node
@@ -177,13 +177,13 @@ void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flag
 //---------------------------------------------------------------------------------------------
 
 // Expand the token with a multi-word phrase, where all terms are intersected.
-// toks is an array with num its len, each member of it is a null terminated string. 
-// If replace is set to 1, we replace the original token with the new phrase. 
+// toks is an array with num its len, each member of it is a null terminated string.
+// If replace is set to 1, we replace the original token with the new phrase.
 // If exact is 1 the expanded phrase is an exact match phrase.
 
-// The implementation of the actual query expansion. 
-// Either turn the current node into a union node with the original token node and new 
-// token node as children. Or if it is already a union node (in consecutive calls), 
+// The implementation of the actual query expansion.
+// Either turn the current node into a union node with the original token node and new
+// token node as children. Or if it is already a union node (in consecutive calls),
 // it just adds a new token node as a child to it.
 
 void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTokenFlags flags,
@@ -234,9 +234,9 @@ static ExtQueryExpander *Extensions::GetQueryExpander(RSQueryExpander *ctx, cons
   ExtQueryExpander *p = queryExpanders_g->Find((char *)name, strlen(name));
 
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
-    ctx->ExpandToken = RSQueryExpander::ExpandToken;
-    ctx->SetPayload = RSQueryExpander::SetPayload;
-    ctx->ExpandTokenWithPhrase = RSQueryExpander::ExpandTokenWithPhrase;
+    // ctx->ExpandToken = RSQueryExpander::ExpandToken;
+    // ctx->SetPayload = RSQueryExpander::SetPayload;
+    // ctx->ExpandTokenWithPhrase = RSQueryExpander::ExpandTokenWithPhrase;
     ctx->privdata = p->privdata;
     return p;
   }
