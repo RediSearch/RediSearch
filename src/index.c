@@ -714,10 +714,10 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
     factor2 = ((UnionIterator *)*it2)->num;
   }
   if (it_1_type == INTERSECT_ITERATOR) {
-    factor1 = 1 / ((UnionIterator *)*it1)->num;
+    factor1 = 1 / MAX(1, ((UnionIterator *)*it1)->num);
   }
   if (it_2_type == INTERSECT_ITERATOR) {
-    factor2 = 1 / ((UnionIterator *)*it2)->num;
+    factor2 = 1 / MAX(1, ((UnionIterator *)*it2)->num);
   }
 
   return (int)((*it1)->NumEstimated((*it1)->ctx) * factor1 - (*it2)->NumEstimated((*it2)->ctx) * factor2);
