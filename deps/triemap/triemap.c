@@ -1075,14 +1075,17 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
     __tmi_stackNode *current = __tmi_current(it);
     TrieMapNode *n = current->n;
 
-    if (current->state == TM_ITERSTATE_SELF) {
-      // term string len is longer that fixed query len, trim search branch
-      if (it->mode == TM_WILDCARD_FIXED_LEN_MODE &&
-          (array_len(it->buf) + current->n->len > it->prefixLen)) {
+    // term string len is equal or longer than fixed query len, trim search branch
+    // children nodes have at least 1 char
+    if (it->mode == TM_WILDCARD_FIXED_LEN_MODE) {
+      int currentNodeLen = current->state == TM_ITERSTATE_SELF ? current->n->len : 1;
+      if (array_len(it->buf) + currentNodeLen > it->prefixLen) {
         __tmi_Pop(it);
         goto next;
       }
+    }
 
+    if (current->state == TM_ITERSTATE_SELF) {
       // update buffer with current node chars
       it->buf = array_ensure_append_n(it->buf, current->n->str, current->n->len);
       current->stringOffset = current->n->len;
@@ -1090,7 +1093,7 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
 
       // check if current buffer is a match
       int match = current->found ? FULL_MATCH : 
-                  WildcardMatchChar(it->prefix, it->prefixLen, it->buf, array_len(it->buf));
+                  Wildcard_MatchChar(it->prefix, it->prefixLen, it->buf, array_len(it->buf));
       switch (match) {
         case NO_MATCH: {
           __tmi_Pop(it);
@@ -1101,15 +1104,17 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
           if (it->buf[array_len(it->buf) - 1] == '*') {
             current->found = true;
           }
-          if (it->mode == TM_WILDCARD_FIXED_LEN_MODE) {
-            __tmi_Pop(it);
-          }
           // current node is a term and should be returned
           if (__trieMapNode_isTerminal(n)) {
             *ptr = it->buf;
             *len = array_len(it->buf);
             *value = n->value;
             return 1;
+          }
+          // fixed length therefore no more results are possible 
+          if (it->mode == TM_WILDCARD_FIXED_LEN_MODE) {
+            __tmi_Pop(it);
+            goto next;
           }
           break;
         }

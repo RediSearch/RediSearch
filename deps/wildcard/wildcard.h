@@ -5,7 +5,7 @@
  *                 C++ Wildcard Pattern Matching Library               *
  *                                                                     *
  * Author: Arash Partow (2001)                                         *
- * URL: https://www.partow.net/programming/wildcardmatching/index.html *
+ * URL: https://www.partow.net/programming/WildcardMatching/index.html *
  *                                                                     *
  * Copyright notice:                                                   *
  * Free use of the C++ Wildcard Pattern Matching Library is permitted  *
@@ -28,5 +28,7 @@ typedef enum {
   NO_MATCH = 2,
 } match_t;
 
-match_t WildcardMatchChar(const char *pattern, size_t p_len, const char *str, size_t str_len);
-match_t WildcardMatchRune(const rune *pattern, size_t p_len, const rune *str, size_t str_len);
+match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, size_t str_len);
+match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, size_t str_len);
+void Wildcard_TrimPattern(char *pattern, size_t p_len);
+size_t Wildcard_RemoveEscape(char *str, size_t len);

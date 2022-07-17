@@ -1053,7 +1053,7 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
   // printStats("append");
   TrieNode **children = __trieNode_children(n);
 
-  match_t match = WildcardMatchRune(r->origStr, r->lenOrigStr, r->buf, array_len(r->buf));
+  match_t match = Wildcard_MatchRune(r->origStr, r->lenOrigStr, r->buf, array_len(r->buf));
 
   switch (match) {
     case NO_MATCH:

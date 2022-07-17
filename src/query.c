@@ -26,6 +26,7 @@
 #include "query_internal.h"
 #include "aggregate/aggregate.h"
 #include "suffix.h"
+#include "wildcard/wildcard.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -204,31 +205,6 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefi
     QueryNode_SetParam(q, &ret->params[0], &ret->pfx.tok.str, &ret->pfx.tok.len, qt);
   }
   return ret;
-}
-
-static size_t _removeEscape(char *str, size_t len) {
-  int i = 0;
-  do {
-    if (str[i] == '\\') break;
-  } while (++i < len && str[i] != '\0');
-
-  // check if we haven't remove any backslash
-  if (i == len) {
-    return len;
-  }
-
-  // skip '\'
-  int runner = i;
-  for (; i < len && str[i] != '\0'; ++i, ++runner) {
-    if (str[i] == '\\') {
-      ++i;
-    }
-    // printf("%c %c\n", str[runner], str[i]);
-    str[runner] = str[i];
-  }
-
-  str[runner] = '\0';
-  return runner;
 }
 
 /*
@@ -599,7 +575,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     return NULL;
   }
 
-  qn->verb.tok.len = _removeEscape(qn->verb.tok.str, qn->verb.tok.len);
+  qn->verb.tok.len = Wildcard_RemoveEscape(qn->verb.tok.str, qn->verb.tok.len);
   size_t nstr;
   rune *str = strToFoldedRunes(qn->verb.tok.str, &nstr);
 
@@ -1043,7 +1019,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   }
   if (!idx || !idx->values) return NULL;
 
-  qn->verb.tok.len = _removeEscape(qn->verb.tok.str, qn->verb.tok.len);
+  qn->verb.tok.len = Wildcard_RemoveEscape(qn->verb.tok.str, qn->verb.tok.len);
   RSToken *tok = &qn->verb.tok;
 
   size_t itsSz = 0, itsCap = 8;
