@@ -30,5 +30,6 @@ typedef enum {
 
 match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, size_t str_len);
 match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, size_t str_len);
-void Wildcard_TrimPattern(char *pattern, size_t p_len);
+size_t Wildcard_TrimPattern(char *pattern, size_t p_len);
 size_t Wildcard_RemoveEscape(char *str, size_t len);
+int Wildcard_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen);

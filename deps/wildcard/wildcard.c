@@ -23,7 +23,7 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
       } else if (c == '*') {
         while ((pattern_end != pattern_itr) && (*pattern_itr == '*')) {
           ++pattern_itr;
-        }        
+        }
         const char d = *pattern_itr;
         while ((str_end != str_itr) && !(d == *str_itr || d == '?')) {
           ++str_itr;
@@ -68,7 +68,7 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
       } else if (c == '*') {
         while ((pattern_end != pattern_itr) && (*pattern_itr == '*')) {
           ++pattern_itr;
-        }        
+        }
         const rune d = *pattern_itr;
         while ((str_end != str_itr) && !(d == *str_itr || d == '?')) {
           ++str_itr;
@@ -93,23 +93,28 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
   return FULL_MATCH;
 }
 
-void Wildcard_TrimPattern(char *pattern, size_t p_len) {
-  size_t runner = 1;
-  for (int i = 0; i < p_len; ++i, ++runner) {
+size_t Wildcard_TrimPattern(char *pattern, size_t p_len) {
+  size_t i = 0;
+  size_t runner = 0;
+
+  while (i < p_len) {
     if (pattern[i] == '*') {
       // skip following starts
-      if (pattern[i + 1] == '*') {
+      while (pattern[i + 1] == '*') {
         ++i;
-        continue;
+        //continue;
       }
       // swap ? and *
       if (pattern[i + 1] == '?') {
-        pattern[i] == '?';
-        pattern[i + 1] == '*';
+        pattern[i] = '?';
+        pattern[i + 1] = '*';
       }
     }
-    pattern[runner] = pattern[i];
+    pattern[runner++] = pattern[i++];
   }
+
+  pattern[runner] = '\0';
+  return runner;
 }
 
 size_t Wildcard_RemoveEscape(char *str, size_t len) {
@@ -125,14 +130,40 @@ size_t Wildcard_RemoveEscape(char *str, size_t len) {
 
   // skip '\'
   int runner = i;
-  for (; i < len && str[i] != '\0'; ++i, ++runner) {
+  for (; i < len; ++i, ++runner) {
     if (str[i] == '\\') {
       ++i;
     }
     // printf("%c %c\n", str[runner], str[i]);
     str[runner] = str[i];
+    if (str[runner] == '\0') {
+      break;
+    }
   }
 
   str[runner] = '\0';
+  return runner;
+}
+
+int Wildcard_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
+  int runner = 0;
+  int i = 0;
+  int init = 0;
+  while (i < len) {
+    if (str[i] != '*') {
+      tokenIdx[runner] = i;
+      init = 1;
+    }
+    while (i < len && str[i] != '*') {
+      ++i;
+    }
+    if (init) {
+      tokenLen[runner] = i - tokenIdx[runner]; // TODO: check
+      ++runner;
+    }
+    while (str[i] == '*') {
+      ++i;
+    }
+  }
   return runner;
 }
