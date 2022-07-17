@@ -1,7 +1,11 @@
 #include "suffix.h"
 #include "rmutil/rm_assert.h"
 #include "config.h"
+#include "wildcard/wildcard.h"
+#include "config.h"
+
 #include <string.h>
+#include <strings.h>
 
 typedef struct suffixData {
   // int wordExists; // exact match to string exists already
@@ -277,6 +281,74 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
     TrieMapIterator_Free(it);
     return arr;
   }
+}
+
+static arrayof(char*) _checkCountWildcard(TrieMap *trie, const char *str, uint32_t slen, size_t idx, size_t idxlen, struct timespec timeout) {
+  int prefix = str[idx + idxlen] == '*';
+  TrieMapIterator *it = TrieMap_Iterate(trie, &str[idx], idxlen + prefix);
+  if (!it) return NULL;
+  TrieMapIterator_SetTimeout(it, timeout);
+  // If there is no '*`, the length is known which can be used for optimization
+  it->mode = prefix ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
+
+  char *s;
+  tm_len_t sl;
+  suffixData *nodeData;;
+  arrayof(char*) resArray = NULL;
+
+  while (TrieMapIterator_NextWildcard(it, &s, &sl, (void **)&nodeData)) {
+    for (int i = 0; i < array_len(nodeData->array); ++i) {
+      if (array_len(resArray) > RSGlobalConfig.maxPrefixExpansions) {
+        goto end;
+      }
+      if (Wildcard_MatchChar(str, slen, nodeData->array[i], strlen(nodeData->array[i])) == FULL_MATCH) {
+        resArray = array_ensure_append_1(resArray, nodeData->array[i]);
+      }
+    }
+  }
+
+end:
+  TrieMapIterator_Free(it);
+
+  return resArray;
+}
+
+
+arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *str, uint32_t len,
+                                              struct timespec timeout) {
+  arrayof(char*) arr = NULL;
+  suffixData *data = NULL;
+
+  size_t idx[len];
+  size_t lens[len];
+  int tokens = Wildcard_StarBreak(str, len, idx, lens);
+  int useIdx = REDISEARCH_UNINITIALIZED;
+
+  // TODO: consider optimization. 
+  // (1) if pattern doesn't end with *, take last token?
+  // (2) 1st iteration w/o wildcard then choose best? risky
+
+  for (int i = 0; i < tokens; ++i) {
+    // token is too short
+    if (lens[i] < MIN_SUFFIX) {
+      continue;
+    }
+
+    arrayof(char*) temp = _checkCountWildcard(trie, str, len, idx[i], lens[i], timeout);
+    if (!arr || array_len(temp) < array_len(arr)) {
+      array_free(arr);
+      arr = temp;
+    } else {
+      array_free(temp);
+    }
+
+    // token does not have hits
+    if (array_len(arr) == 0) {
+      array_free(arr);
+      return NULL;
+    }
+  }
+  return arr;
 }
 
 void suffixTrieMap_freeCallback(void *payload) {

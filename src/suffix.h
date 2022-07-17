@@ -32,6 +32,9 @@ void suffixTrieMap_freeCallback(void *payload);
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
                                         bool prefix, struct timespec timeout);
 
+arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *str, uint32_t len,
+                                               struct timespec timeout);
+
 #ifdef __cplusplus
 }
 #endif

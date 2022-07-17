@@ -1025,33 +1025,56 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
-  // brute force wildcard query 
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
-  TrieMapIterator_SetTimeout(it, q->sctx->timeout);
-  // If there is no '*`, the length is known which can be used for optimization
-  it->mode = strchr(tok->str, '*') ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
+  if (!idx->suffix) {
+    // brute force wildcard query 
+    TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
+    TrieMapIterator_SetTimeout(it, q->sctx->timeout);
+    // If there is no '*`, the length is known which can be used for optimization
+    it->mode = strchr(tok->str, '*') ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
 
-  // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-  char *s;
-  tm_len_t sl;
-  void *ptr;
+    // an upper limit on the number of expansions is enforced to avoid stuff like "*"
+    char *s;
+    tm_len_t sl;
+    void *ptr;
 
-  // Find all completions of the prefix
-  while (TrieMapIterator_NextWildcard(it, &s, &sl, &ptr) &&
-        (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
-          // TODO: use NewIndexReaderGeneric
-    //NewIndexReaderGeneric(ptr, q->sctx->spec, )
-    IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
-    if (!ret) continue;
+    // Find all completions of the prefix
+    while (TrieMapIterator_NextWildcard(it, &s, &sl, &ptr) &&
+          (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+            // TODO: use NewIndexReaderGeneric
+      //NewIndexReaderGeneric(ptr, q->sctx->spec, )
+      IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
+      if (!ret) continue;
 
-    // Add the reader to the iterator array
-    its[itsSz++] = ret;
-    if (itsSz == itsCap) {
-      itsCap *= 2;
-      its = rm_realloc(its, itsCap * sizeof(*its));
+      // Add the reader to the iterator array
+      its[itsSz++] = ret;
+      if (itsSz == itsCap) {
+        itsCap *= 2;
+        its = rm_realloc(its, itsCap * sizeof(*its));
+      }
     }
+    TrieMapIterator_Free(it);
+  } else {
+    // with suffix
+    arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
+                                                        q->sctx->timeout);
+    if (!arr) return NULL;
+    printf("** %d **\n", array_len(arr));
+    for (int i = 0; i < array_len(arr); ++i) {
+      if (itsSz >= RSGlobalConfig.maxPrefixExpansions) {
+        break;
+      }
+      IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, arr[i], strlen(arr[i]), 1);
+      if (!ret) continue;
+
+        // Add the reader to the iterator array
+      its[itsSz++] = ret;
+      if (itsSz == itsCap) {
+        itsCap *= 2;
+        its = rm_realloc(its, itsCap * sizeof(*its));
+      }
+    }
+    array_free(arr);
   }
-  TrieMapIterator_Free(it);
 
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
