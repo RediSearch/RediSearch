@@ -128,31 +128,35 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   runeBufFree(&buf);
 }
 
-static int processSuffixData(suffixData *data, TrieSuffixCallback callback, void *ctx) {
+static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {
+  //TrieSuffixCallback callback, void *ctx) {
   if (!data) {
     return REDISMODULE_OK;
   }
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
-    if (callback(array[i], strlen(array[i]), ctx) != REDISMODULE_OK) {
+    if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx) != REDISMODULE_OK) {
       return REDISEARCH_ERR;
     }
   }
   return REDISMODULE_OK;
 }
 
-static int recursiveAdd(TrieNode *node, TrieSuffixCallback callback, void *ctx) {
+static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
+//TrieSuffixCallback callback, void *ctx) {
   if (node->payload) {
     size_t rlen;
     // printf("nodestr %s len %d rlen %ld", runesToStr(node->str, node->len, &rlen), node->len, rlen);
     suffixData *data = Suffix_GetData(node);
-    processSuffixData(data, callback, ctx);
+    if (processSuffixData(data, sufCtx) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
   }
   if (node->numChildren) {
     TrieNode **children = __trieNode_children(node);
     for (int i = 0; i < node->numChildren; ++i) {
       // printf("child %d ", i);
-      if (recursiveAdd(children[i], callback, ctx) != REDISMODULE_OK) {
+      if (recursiveAdd(children[i], sufCtx) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     }
@@ -160,23 +164,26 @@ static int recursiveAdd(TrieNode *node, TrieSuffixCallback callback, void *ctx) 
   return REDISMODULE_OK;
 }
 
-void Suffix_IterateContains(TrieNode *n, const rune *str, size_t nstr, bool prefix,
-                            TrieSuffixCallback callback, void *ctx) {
-  if (prefix) {
+void Suffix_IterateContains(SuffixCtx *sufCtx) {
+  //TrieNode *n, const rune *str, size_t nstr, bool prefix,
+  //                          TrieSuffixCallback callback, void *ctx) {
+  if (sufCtx->type == SUFFIX_TYPE_CONTAINS) {
     // get string from node and children
-    TrieNode *node = TrieNode_Get(n, str, nstr, 0, NULL);
+    TrieNode *node = TrieNode_Get(sufCtx->root, sufCtx->rune, sufCtx->runelen, 0, NULL);
     if (!node) {
       return;
     }
-    recursiveAdd(node, callback, ctx);
-  } else {
+    recursiveAdd(node, sufCtx);
+  } else if (sufCtx->type == SUFFIX_TYPE_SUFFIX) {
     // exact match. Get strings from a single node
-    TrieNode *node = TrieNode_Get(n, str, nstr, 1, NULL);
+    TrieNode *node = TrieNode_Get(sufCtx->root, sufCtx->rune, sufCtx->runelen, 1, NULL);
     suffixData *data = Suffix_GetData(node);
     if (data) {
-      processSuffixData(data, callback, ctx);
+      processSuffixData(data, sufCtx);
     }
-  }                              
+  } else { // SUFFIX_TYPE_WILDCARD
+
+  }
 }
 
 void suffixTrie_freeCallback(void *payload) {
@@ -316,38 +323,22 @@ end:
 
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *str, uint32_t len,
                                               struct timespec timeout) {
-  arrayof(char*) arr = NULL;
-  suffixData *data = NULL;
-
   size_t idx[len];
   size_t lens[len];
-  int tokens = Wildcard_StarBreak(str, len, idx, lens);
-  int useIdx = REDISEARCH_UNINITIALIZED;
+  int useIdx = Wildcard_StarBreak(str, len, idx, lens);
 
-  // TODO: consider optimization. 
-  // (1) if pattern doesn't end with *, take last token?
-  // (2) 1st iteration w/o wildcard then choose best? risky
-
-  for (int i = 0; i < tokens; ++i) {
-    // token is too short
-    if (lens[i] < MIN_SUFFIX) {
-      continue;
-    }
-
-    arrayof(char*) temp = _checkCountWildcard(trie, str, len, idx[i], lens[i], timeout);
-    if (!arr || array_len(temp) < array_len(arr)) {
-      array_free(arr);
-      arr = temp;
-    } else {
-      array_free(temp);
-    }
-
-    // token does not have hits
-    if (array_len(arr) == 0) {
-      array_free(arr);
-      return NULL;
-    }
+  if (useIdx == -1) {
+    return NULL;
   }
+
+  arrayof(char*) arr = _checkCountWildcard(trie, str, len, idx[useIdx], lens[useIdx], timeout);
+
+  // token does not have hits
+  if (array_len(arr) == 0) {
+    array_free(arr);
+    return NULL;
+  }
+
   return arr;
 }
 

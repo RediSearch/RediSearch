@@ -3,6 +3,8 @@
 
 #include "wildcard.h"
 
+#define MIN_SUFFIX 2 // redefine
+
 match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, size_t str_len) {
   const char *pattern_end = pattern + p_len;
   const char *str_end = str + str_len;
@@ -146,6 +148,59 @@ size_t Wildcard_RemoveEscape(char *str, size_t len) {
 }
 
 int Wildcard_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
+  int runner = 0;
+  int i = 0;
+  int init = 0;
+  while (i < len) {
+    if (str[i] != '*') {
+      tokenIdx[runner] = i;
+      init = 1;
+    }
+    while (i < len && str[i] != '*') {
+      ++i;
+    }
+    if (init) {
+      tokenLen[runner] = i - tokenIdx[runner]; // TODO: check
+      ++runner;
+    }
+    while (str[i] == '*') {
+      ++i;
+    }
+  }
+
+  // choose best option
+  int score = INT32_MIN;
+  int retidx = -1;
+  for (int i = 0; i < runner; ++i) {
+    if (tokenLen[i] < MIN_SUFFIX) {
+      continue;
+    }
+
+    // long string are likely to have less results
+    int curScore = tokenLen[i];
+
+    // iterating all children is demanding
+    if (str[tokenIdx[i] + tokenLen[i]] == '*') {
+      curScore -= 5;
+    }
+
+    // this branching is heavy
+    for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
+      if (str[j] == '?') {
+        --score;
+      }
+    }
+
+    if (curScore >= score) {
+      score = curScore;
+      retidx = i;
+    }
+  }
+
+  return retidx;
+}
+
+int Wildcard_StarBreak_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
   int runner = 0;
   int i = 0;
   int init = 0;

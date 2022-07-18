@@ -9,17 +9,32 @@ extern "C" {
 
 #define MIN_SUFFIX 2
 
+typedef enum {
+    SUFFIX_TYPE_SUFFIX = 0,
+    SUFFIX_TYPE_CONTAINS = 1,
+    SUFFIX_TYPE_WILDCARD = 2,    
+} SuffixType;
+
 /***********************************************************/
 /*****************        Trie          ********************/
 /***********************************************************/
+typedef struct SuffixCtx {
+    TrieNode *root;
+    const rune *rune;
+    size_t runelen;
+    const char *cstr;
+    size_t cstrlen;
+    SuffixType type;
+    TrieSuffixCallback *callback;
+    void *cbCtx;
+} SuffixCtx;
+
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
 
 void suffixTrie_freeCallback(void *data);
 
-void Suffix_IterateContains(TrieNode *n, const rune *str, size_t nstr, bool prefix,
-                              TrieSuffixCallback callback, void *ctx);
-
+void Suffix_IterateContains(SuffixCtx *sufCtx);
 
 /***********************************************************/
 /*****************        TrieMap       ********************/

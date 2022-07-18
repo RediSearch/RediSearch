@@ -539,8 +539,15 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     // all modifier fields are supported
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-    Suffix_IterateContains(spec->suffix->root, str, nstr, qn->pfx.prefix,
-                           suffixIterCb, &ctx);
+      SuffixCtx sufCtx = {
+        .root = spec->suffix->root,
+        .rune = str,
+        .runelen = nstr,
+        .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
+        .callback = suffixIterCb,
+        .cbCtx = &ctx,
+      };
+      Suffix_IterateContains(&sufCtx);
     } else {
       QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
@@ -570,32 +577,42 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   IndexSpec *spec = q->sctx->spec;
   Trie *t = spec->terms;
   ContainsCtx ctx = {.q = q, .opts = &qn->opts};
+  RSToken *token = &qn->verb.tok;
 
-  if (!t || !qn->verb.tok.str) {
+  if (!t || !token->str) {
     return NULL;
   }
 
-  qn->verb.tok.len = Wildcard_RemoveEscape(qn->verb.tok.str, qn->verb.tok.len);
+  qn->verb.tok.len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
-  rune *str = strToFoldedRunes(qn->verb.tok.str, &nstr);
+  rune *str = strToFoldedRunes(token->str, &nstr);
 
   ctx.cap = 8;
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
   // spec support contains queries
-  //if (spec->suffix) {
-  //  // all modifier fields are supported
-  //  if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
-  //     (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-  //  Suffix_IterateContains(spec->suffix->root, str, nstr, qn->verb.prefix,
-  //                         suffixIterCb, &ctx);
-  //  } else {
-  //    QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
-  //  }
-  //} else {
-  TrieNode_IterateWildcard(t->root, str, nstr, rangeIterCb, &ctx, &q->sctx->timeout);
-  //}
+  if (spec->suffix) {
+    // all modifier fields are supported
+    if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
+       (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
+      SuffixCtx sufCtx = {
+        .root = spec->suffix->root,
+        .rune = str,
+        .runelen = nstr,
+        .cstr = token->str,
+        .cstrlen = token->len,
+        .type = SUFFIX_TYPE_WILDCARD,
+        .callback = suffixIterCb,
+        .cbCtx = &ctx,
+      };
+      Suffix_IterateContains(&sufCtx);
+    } else {
+      QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+    }
+  } else {
+    TrieNode_IterateWildcard(t->root, str, nstr, rangeIterCb, &ctx, &q->sctx->timeout);
+  }
 
   rm_free(str);
   if (!ctx.its || ctx.nits == 0) {
