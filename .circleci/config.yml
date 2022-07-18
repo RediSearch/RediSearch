@@ -599,7 +599,11 @@ workflows:
   default-flow:
     jobs:
       - build-linux-debian:
-          name: build
+          # name: build
+          name: build-with-redis-<<matrix.redis_version>>
+          matrix:
+            parameters:
+              redis_version: ["6.0", "7", "unstable"]
           <<: *not-on-integ-branch
       - build-platforms:
           <<: *on-integ-and-version-tags
