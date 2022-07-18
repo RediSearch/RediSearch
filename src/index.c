@@ -693,30 +693,19 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
   double factor2 = 1;
   enum iteratorType it_1_type = (*it1)->type;
   enum iteratorType it_2_type = (*it2)->type;
-  /*
-  if (it_1_type == it_2_type) {
-    // continue to NumEstimated
-  } else if (it_1_type == UNION_ITERATOR) { // move unions to the end 
-    return 1;
-  } else if (it_2_type == UNION_ITERATOR) {
-    return -1;
-  } else if (it_1_type == INTERSECT_ITERATOR) { // move intersects to the beginning 
-    return -1;
-  } else if (it_2_type == INTERSECT_ITERATOR) {
-    return 1;
-  }*/
 
-  /* option 2 */
+  /* on UNION iterator, we multiply the estimate by the number of children
+   * since we iterate each read over all children.
+   * on INTERSECT iterator, we divide the estimate by the number of children
+   * since we skip as soon as a number does not in all iterators */
   if (it_1_type == UNION_ITERATOR) {
     factor1 = ((UnionIterator *)*it1)->num;
+  } else if (it_1_type == INTERSECT_ITERATOR) {
+    factor1 = 1 / MAX(1, ((UnionIterator *)*it1)->num);
   }
   if (it_2_type == UNION_ITERATOR) {
     factor2 = ((UnionIterator *)*it2)->num;
-  }
-  if (it_1_type == INTERSECT_ITERATOR) {
-    factor1 = 1 / MAX(1, ((UnionIterator *)*it1)->num);
-  }
-  if (it_2_type == INTERSECT_ITERATOR) {
+  } else if (it_2_type == INTERSECT_ITERATOR) {
     factor2 = 1 / MAX(1, ((UnionIterator *)*it2)->num);
   }
 
