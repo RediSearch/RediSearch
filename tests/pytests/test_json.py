@@ -1010,9 +1010,14 @@ def testRedisCommands(env):
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
 
     # Test Redis COPY
-    env.execute_command('COPY', 'doc:1', 'doc:2')
-    env.execute_command('COPY', 'doc:2', 'dos:3')
+    if not server_version_at_least(env, "6.2.0"):
+        env.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+        env.execute_command('JSON.SET', 'dos:3', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+    else:
+        env.execute_command('COPY', 'doc:1', 'doc:2')
+        env.execute_command('COPY', 'doc:2', 'dos:3')
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
+
 
     # Test Redis DEL
     env.execute_command('DEL', 'doc:1')
