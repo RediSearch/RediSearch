@@ -156,60 +156,73 @@ int test_trimPattern() {
   return 0;
 }
 
-//int i = 0;
-int _testMatch(char *pattern, char *str, match_t expected) {
-  match_t actual = Wildcard_MatchChar(pattern, strlen(pattern), str, strlen(str));
-  //printf("%d %s\n", i++, str);
+int i = 0;
+int _testMatch(char *pattern, char *str, match_t expected, int testWildcard) {
+  printf("%d %s\n", i++, str);
+  match_t actual = Glob_MatchChar(pattern, strlen(pattern), str, strlen(str), 0);
+  if (testWildcard) {
+    ASSERT_EQUAL(actual, Wildcard_MatchChar(pattern, strlen(pattern), str, strlen(str)));
+  }
   ASSERT_EQUAL(expected, actual);
   return 0;
 }
 
 int test_match() {
   // no wildcard
-  _testMatch("foo", "foo", FULL_MATCH);
-  _testMatch("foo", "fo", PARTIAL_MATCH);
-  _testMatch("foo", "fooo", NO_MATCH);
-  _testMatch("foo", "bar", NO_MATCH);
+  _testMatch("foo", "foo", FULL_MATCH, 1);
+  _testMatch("foo", "fo", PARTIAL_MATCH, 1);
+  _testMatch("foo", "fooo", NO_MATCH, 1);
+  _testMatch("foo", "bar", NO_MATCH, 1);
 
   // ? at end
-  _testMatch("fo?", "foo", FULL_MATCH);
-  _testMatch("fo?", "fo", PARTIAL_MATCH);
-  _testMatch("fo?", "fooo", NO_MATCH);
-  _testMatch("fo?", "bar", NO_MATCH);
+  _testMatch("fo?", "foo", FULL_MATCH, 1);
+  _testMatch("fo?", "fo", PARTIAL_MATCH, 1);
+  _testMatch("fo?", "fooo", NO_MATCH, 1);
+  _testMatch("fo?", "bar", NO_MATCH, 1);
 
   // ? at beginning
-  _testMatch("?oo", "foo", FULL_MATCH);
-  _testMatch("?oo", "fo", PARTIAL_MATCH);
-  _testMatch("?oo", "fooo", NO_MATCH);
-  _testMatch("?oo", "bar", NO_MATCH);
+  _testMatch("?oo", "foo", FULL_MATCH, 1);
+  _testMatch("?oo", "fo", PARTIAL_MATCH, 1);
+  _testMatch("?oo", "fooo", NO_MATCH, 1);
+  _testMatch("?oo", "bar", NO_MATCH, 1);
 
   // * at end
-  _testMatch("fo*", "foo", FULL_MATCH);
-  _testMatch("fo*", "fo", FULL_MATCH);
-  _testMatch("fo*", "fooo", FULL_MATCH);
-  _testMatch("fo*", "bar", NO_MATCH);
+  _testMatch("fo*", "foo", FULL_MATCH, 1);
+  _testMatch("fo*", "fo", FULL_MATCH, 1);
+  _testMatch("fo*", "fooo", FULL_MATCH, 1);
+  _testMatch("fo*", "bar", NO_MATCH, 1);
 
   // * at beginning - at least partial match
-  _testMatch("*oo", "foo", FULL_MATCH);
-  _testMatch("*oo", "fo", PARTIAL_MATCH);
-  _testMatch("*oo", "fooo", FULL_MATCH);
-  _testMatch("*oo", "bar", PARTIAL_MATCH);
+  _testMatch("*oo", "foo", FULL_MATCH, 1);
+  _testMatch("*oo", "fo", PARTIAL_MATCH, 1);
+  _testMatch("*oo", "fooo", FULL_MATCH, 1);
+  _testMatch("*oo", "bar", PARTIAL_MATCH, 1);
 
   // mix
-  _testMatch("f?o*bar", "foobar", FULL_MATCH);
-  _testMatch("f?o*bar", "fobar", NO_MATCH);
-  _testMatch("f?o*bar", "fooooobar", FULL_MATCH);
-  _testMatch("f?o*bar", "barfoo", NO_MATCH);
-  _testMatch("f?o*bar", "bar", NO_MATCH);
-  _testMatch("*f?o*bar", "bar", PARTIAL_MATCH);
+  _testMatch("f?o*bar", "foobar", FULL_MATCH, 1);
+  _testMatch("f?o*bar", "fobar", NO_MATCH, 1);
+  _testMatch("f?o*bar", "fooooobar", FULL_MATCH, 1);
+  _testMatch("f?o*bar", "barfoo", NO_MATCH, 1);
+  _testMatch("f?o*bar", "bar", NO_MATCH, 1);
+  _testMatch("*f?o*bar", "bar", PARTIAL_MATCH, 1);
 
+  // glob style
+  _testMatch("[a-h][j-p][j-p]", "foo", FULL_MATCH, 0);
+  _testMatch("[a-h][j-p][j-p]", "bar", NO_MATCH, 0);
+  _testMatch("[a-h][j-p][j-p]", "foobar", NO_MATCH, 0);
+  _testMatch("[a-h][j-p][j-p]*", "foobar", FULL_MATCH, 0);
+  _testMatch("[a-h][j-p][j-p]???", "foobar", FULL_MATCH, 0);
+  _testMatch("[a-h][j-p][j-p]???", "fooba", PARTIAL_MATCH, 0);
+  _testMatch("[a-h][j-p][j-p]??", "foobar", NO_MATCH, 0);
+  _testMatch("*[a-h][j-p][j-p]", "foobar", PARTIAL_MATCH, 0);
+  _testMatch("*[a-h][j-p][j-p]", "barfoo", FULL_MATCH, 0);
   return 0;
 }
 
 TEST_MAIN({
   RMUTil_InitAlloc();
-  TESTFUNC(test_StarBreak);
-  TESTFUNC(test_removeEscape);
-  TESTFUNC(test_trimPattern);
+  //TESTFUNC(test_StarBreak);
+  //TESTFUNC(test_removeEscape);
+  //TESTFUNC(test_trimPattern);
   TESTFUNC(test_match); 
 });

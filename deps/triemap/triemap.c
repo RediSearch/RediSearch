@@ -1093,7 +1093,8 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
 
       // check if current buffer is a match
       int match = current->found ? FULL_MATCH : 
-                  Wildcard_MatchChar(it->prefix, it->prefixLen, it->buf, array_len(it->buf));
+                  //Wildcard_MatchChar(it->prefix, it->prefixLen, it->buf, array_len(it->buf));
+                  Glob_MatchChar(it->prefix, it->prefixLen, it->buf, array_len(it->buf), 0);
       switch (match) {
         case NO_MATCH: {
           __tmi_Pop(it);

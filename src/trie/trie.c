@@ -1063,7 +1063,7 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
         if (__trieNode_isTerminal(n)) {
           r->callback(r->buf, array_len(r->buf), r->cbctx);
         }
-        // no 'break;' as we continue to look for matches on children similar to PARTIAL_MATCH
+        // fall-through. look for additional matches on children
       }
     }
     case PARTIAL_MATCH: {

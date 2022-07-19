@@ -45,3 +45,7 @@ size_t Wildcard_RemoveEscape(char *str, size_t len);
 
 /* Breaks wildcard at '*'s. Used with SuffixTrie to find best token to get hits */
 int Wildcard_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
+
+
+int Glob_MatchChar(const char *pattern, int patternLen,
+        const char *string, int stringLen, int nocase);

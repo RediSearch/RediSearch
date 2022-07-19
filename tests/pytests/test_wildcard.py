@@ -174,52 +174,58 @@ def testBenchmark(env):
   env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
   env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
-  item_qty = 1000000
+  item_qty = 100000
 
   index_list = ['idx_bf']
-  env.cmd('FT.CREATE', 'idx_bf', 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', 'idx_bf', 'SCHEMA', 't', 'TAG')
   #env.cmd('FT.CREATE', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
 
   conn = getConnectionByEnv(env)
 
-  start = time.time()
+  start_time = time.time()
   pl = conn.pipeline()
   for i in range(item_qty):
-    pl.execute_command('HSET', 'doc%d' % i, 't', 'foo321%dbar312' % i)
-    pl.execute_command('HSET', 'doc%d' % (i + item_qty), 't', 'fooo321%dbar311' % i)
-    pl.execute_command('HSET', 'doc%d' % (i + item_qty * 2), 't', 'foooo312%dbar312' % i)
-    pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo31%dbar312' % i)
+    pl.execute_command('HSET', 'doc%d' % i, 't', 'foo%d' % i)
+    pl.execute_command('HSET', 'doc%d' % (i + item_qty), 't', 'fooo%d' % i)
+    pl.execute_command('HSET', 'doc%d' % (i + item_qty * 2), 't', 'foooo%d' % i)
+    pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
     pl.execute()
+  print(time.time() - start_time)
 
   print('----*ooo1*----')
-
-  for i in range(1):
-    #prefix
+  #input('stop')
+  for _ in range(5):
     start_time = time.time()
-    env.expect('ft.search', index_list[i], "*ooo3*", 'LIMIT', 0 , 0).equal([2222])
+    for _ in range(100):
+      for i in range(1):
+        #prefix
+        #start_time = time.time()
+        #env.expect('ft.search', index_list[i], "*ooo3*", 'LIMIT', 0 , 0).equal([2222])
+        #print(time.time() - start_time)
+        #start_time = time.time()
+        env.cmd('ft.search', index_list[i], "@t:{w'f*o**o3??34'}", 'LIMIT', 0 , 0)
+        #print(time.time() - start_time)
+        #start_time = time.time()
+        #print('----*ooo1*----')
+    #
+        #env.expect('ft.search', index_list[i], "*555*", 'LIMIT', 0 , 0).equal([76])
+        #print(time.time() - start_time)
+        #start_time = time.time()
+        env.cmd('ft.search', index_list[i], "@t:{w'f?o*55*5?*'}", 'LIMIT', 0 , 0)
+        env.cmd('ft.search', index_list[i], "@t:{w'?f?*5*5?*'}", 'LIMIT', 0 , 0)
+        #print(time.time() - start_time)
+        #start_time = time.time()
+        #print('----*555*----')
+    #
+        ## suffix
+        #env.expect('ft.search', index_list[i], '*oo2*34', 'LIMIT', 0 , 0).equal([3])
+        #print(time.time() - start_time)
+        #start_time = time.time()
+        env.cmd('ft.search', index_list[i], "@t:{w'*oo2*34'}", 'LIMIT', 0 , 0)
+        #print(time.time() - start_time)
+        #start_time = time.time()
+        #print('----*oo234----')
     print(time.time() - start_time)
-    start_time = time.time()
-    env.expect('ft.search', index_list[i], "w'*o**o3*'", 'LIMIT', 0 , 0).equal([2222])
-    print(time.time() - start_time)
-    start_time = time.time()
-    print('----*ooo1*----')
-
-    env.expect('ft.search', index_list[i], "*555*", 'LIMIT', 0 , 0).equal([76])
-    print(time.time() - start_time)
-    start_time = time.time()
-    env.expect('ft.search', index_list[i], "w'*55*5*'", 'LIMIT', 0 , 0).equal([76])
-    print(time.time() - start_time)
-    start_time = time.time()
-    print('----*555*----')
-
-    # suffix
-    env.expect('ft.search', index_list[i], '*oo2*34', 'LIMIT', 0 , 0).equal([3])
-    print(time.time() - start_time)
-    start_time = time.time()
-    env.expect('ft.search', index_list[i], "w'*oo2*34'", 'LIMIT', 0 , 0).equal([3])
-    print(time.time() - start_time)
-    start_time = time.time()
-    print('----*oo234----')
 
 
 def testBasic(env):
