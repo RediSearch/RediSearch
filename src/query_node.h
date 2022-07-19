@@ -52,9 +52,6 @@ typedef enum {
   /* Vector */
   QN_VECTOR,
 
-  /* Verbatim */
-  QN_VERBATIM,
-
   /* Wildcard */
   QN_WILDCARD_QUERY,
 

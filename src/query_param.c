@@ -146,7 +146,6 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     return 0;
   size_t val_len;
   const char *val = Param_DictGet(params, param->name, &val_len, status);
-  // printf("val %s\n", val);
   if (!val)
     return -1;
 

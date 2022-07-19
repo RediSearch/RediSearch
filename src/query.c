@@ -95,7 +95,6 @@ void QueryNode_Free(QueryNode *n) {
       QueryVectorNode_Free(&n->vn);
       break;
     case QN_WILDCARD_QUERY:
-    case QN_VERBATIM:
       QueryTokenNode_Free(&n->verb.tok);
       break;
     case QN_WILDCARD:
@@ -230,24 +229,17 @@ QueryNode *NewVerbatimNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_WILDCARD_QUERY);
   q->numTokens++;
-  //printf("%s ", qt->s);
   if (qt->type == QT_WILDCARD) {
     char *s = rm_malloc(qt->len + 1);
     memcpy(s, qt->s, qt->len);
     s[qt->len] = '\0';
-    // printf("%s ", s);
-    //  size_t len = _removeEscape(s, qt->len);
-    // printf("%s", s);
     ret->verb.tok = (RSToken){.str = s, .len = qt->len, .expanded = 0, .flags = 0};
   } else {
     assert(qt->type == QT_PARAM_WILDCARD);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
     ret->params[0].type = PARAM_WILDCARD;
-    // qt->type = PARAM_WILDCARD;
-    // ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
   }
-  //printf("\n");
   return ret;
 }
 
@@ -583,19 +575,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  // spec support contains queries
-  //if (spec->suffix) {
-  //  // all modifier fields are supported
-  //  if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
-  //     (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-  //  Suffix_IterateContains(spec->suffix->root, str, nstr, qn->verb.prefix,
-  //                         suffixIterCb, &ctx);
-  //  } else {
-  //    QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
-  //  }
-  //} else {
   TrieNode_IterateWildcard(t->root, str, nstr, rangeIterCb, &ctx, &q->sctx->timeout);
-  //}
 
   rm_free(str);
   if (!ctx.its || ctx.nits == 0) {
@@ -957,8 +937,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     // Find all completions of the prefix
     while (nextFunc(it, &s, &sl, &ptr) &&
           (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
-            // TODO: use NewIndexReaderGeneric
-      //NewIndexReaderGeneric(ptr, q->sctx->spec, )
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
       if (!ret) continue;
 
@@ -1039,8 +1017,6 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   // Find all completions of the prefix
   while (TrieMapIterator_NextWildcard(it, &s, &sl, &ptr) &&
         (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
-          // TODO: use NewIndexReaderGeneric
-    //NewIndexReaderGeneric(ptr, q->sctx->spec, )
     IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
     if (!ret) continue;
 
@@ -1239,8 +1215,6 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalWildcardNode(q, n);
     case QN_WILDCARD_QUERY:
       return Query_EvalWildcardQueryNode(q,n);
-    case QN_VERBATIM:
-      //TODO:
     case QN_NULL:
       return NewEmptyIterator();
   }
@@ -1360,9 +1334,6 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
   int withChildren = 1;
   int res = REDISMODULE_OK;
   switch(n->type) {
-    //case QN_WILDCARD_QUERY:
-    //  res = QueryNode_EvalParamsCommon(params, n, status);
-    //  break;
     case QN_GEO:
       res = GeoFilter_EvalParams(params, n, status);
       break;
@@ -1381,7 +1352,6 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
     case QN_IDS:
     case QN_WILDCARD:
     case QN_WILDCARD_QUERY:
-    case QN_VERBATIM:
       res = QueryNode_EvalParamsCommon(params, n, status);
       break;
     case QN_UNION:
@@ -1605,8 +1575,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscatprintf(s, "FUZZY{%s}\n", qs->fz.tok.str);
       return s;
     case QN_WILDCARD_QUERY:
-    case QN_VERBATIM:
-      //TODO:
+      s = sdscatprintf(s, "WILDCARD{%s}\n", qs->verb.tok.str);
     case QN_NULL:
       s = sdscat(s, "<empty>");
   }

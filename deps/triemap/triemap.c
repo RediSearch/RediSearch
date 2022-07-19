@@ -1005,10 +1005,6 @@ end:
 }
 
 int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
-  if (TimedOut_WithCounter(&it->timeout, &it->timeoutCounter)) {
-    return 0;
-  }
-
   TrieMapIterator *iter = it->matchIter;
   if (iter) {
     if (__fullmatch_Next(it, ptr, len, value)) {
@@ -1021,6 +1017,10 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
   }
 
   while (array_len(it->stack) > 0) {
+    if (TimedOut_WithCounter(&it->timeout, &it->timeoutCounter)) {
+     return 0;
+    }
+
     __tmi_stackNode *current = __tmi_current(it);
     TrieMapNode *n = current->n;
     int match = 0;
@@ -1067,11 +1067,11 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
 }
 
 int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
-  if (TimedOut_WithCounter(&it->timeout, &it->timeoutCounter)) {
-    return 0;
-  }
-
   while (array_len(it->stack) > 0) {
+    if (TimedOut_WithCounter(&it->timeout, &it->timeoutCounter)) {
+      return 0;
+    }
+
     __tmi_stackNode *current = __tmi_current(it);
     TrieMapNode *n = current->n;
 
@@ -1104,7 +1104,7 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
           if (it->buf[array_len(it->buf) - 1] == '*') {
             current->found = true;
           }
-          // current node is a term and should be returned
+          // current node is terminal and should be returned
           if (__trieMapNode_isTerminal(n)) {
             *ptr = it->buf;
             *len = array_len(it->buf);
