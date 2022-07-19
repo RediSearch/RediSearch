@@ -40,7 +40,7 @@ Note: The attribute  is optional in [`FT.CREATE`](/commands/ft.create), but [`FT
 As soon as the index is created, any pre-existing JSON document, or any new JSON document added or modified, is
 automatically indexed.
 
-You can use any write command from the RedisJSON module ([`JSON.SET`](/commands/json.set/), [`JSON.ARRAPPEND`](/commands/json.arrappend/), etc.).
+You can use any write command from the RedisJSON module `JSON.SET`, `JSON.ARRAPPEND`, etc.).
 
 This example uses the following JSON document:
 
@@ -55,16 +55,16 @@ This example uses the following JSON document:
 }
 ```
 
-Use [`JSON.SET`](/commands/json.set/) to store the document in the database:
+Use `JSON.SET` to store the document in the database:
 
     JSON.SET myDoc $ '{"user":{"name":"John Smith","tag":"apprentice,knight","hp":1000, "dmg":150}}'
 
-Because indexing is synchronous, the document will be visible on the index as soon as the [`JSON.SET`](/commands/json.set/) command returns.
+Because indexing is synchronous, the document will be visible on the index as soon as the `JSON.SET` command returns.
 Any subsequent query that matches the indexed content will return the document.
 
 ## Search the index
 
-To search for documents, use the [`FT.SEARCH`](/commands/ft.search/) commands.
+To search for documents, use the `FT.SEARCH` commands.
 You can search any attribute mentioned in the SCHEMA.
 
 Following our example, find the user called `John`:
@@ -112,7 +112,7 @@ And finally you can search using the typical tag searching syntax:
 
 ## Field projection
 
-[`FT.SEARCH`](/commands/ft.search/) returns the whole document by default.
+`FT.SEARCH` returns the whole document by default.
 
 You can also return only a specific attribute (`name` for example):
 
