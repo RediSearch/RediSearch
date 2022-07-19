@@ -96,3 +96,13 @@ size_t strToRunesN(const char *src, size_t slen, rune *out) {
   }
   return nout;
 }
+
+const rune *runechr(const rune *r, size_t len) {
+  size_t i = 0;
+  for (; i < len; ++i) {
+    if (r[i] == (rune)'*') {
+      break;
+    }
+  }
+  return i == len ? NULL : r + i;
+}

@@ -20,11 +20,18 @@ typedef struct {
       bool includeMax;
     };
     struct {
-      // for prefix, suffix, contains
+      // for prefix, suffix, contains, wild card
       const rune *origStr;
       int lenOrigStr;
       bool prefix;
-      bool suffix;
+      union {
+        struct {
+          bool suffix;
+        };
+        struct {
+          bool containsStars;
+        };
+      };
     };
   };
   // stop if reach limit
@@ -1072,6 +1079,9 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
       }
     }
     case PARTIAL_MATCH: {
+      if (!r->containsStars && array_len(r->buf) >= r->lenOrigStr) {
+        break;
+      }
       TrieNode **children = __trieNode_children(n);
       for (t_len i = 0; i < n->numChildren && r->stop == 0; ++i) {
         wildcardIterate(children[i], r);
@@ -1094,6 +1104,7 @@ void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
       .buf = array_new(rune, TRIE_INITIAL_STRING_LEN),
       // if last char is '*', we return all following terms
       .prefix = str[nstr - 1] == (rune)'*',
+      .containsStars = !!runechr(str, '*'),
   };
 
   // printfRune(str, nstr);

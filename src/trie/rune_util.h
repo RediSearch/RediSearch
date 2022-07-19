@@ -38,6 +38,9 @@ rune *strToRunes(const char *str, size_t *len);
 /* Decode a string to a rune in-place */
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
 
+/* similar to strchr */
+const rune *runechr(const rune *r, size_t len);
+
 static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
   /**
    * Assumption: the number of bytes in a utf8 string is always greater than the
