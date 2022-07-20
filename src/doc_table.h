@@ -74,7 +74,7 @@ typedef struct {
 #define DMD_Incref(md)                                                       \
   if (md) {                                                                  \
     RS_LOG_ASSERT(md->ref_count < (1 << 16), "overflow of dmd ref_count");   \
-    ++md->ref_count;                                                         \
+    __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED);                                                         \
   }
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
@@ -180,7 +180,7 @@ void DMD_Free(RSDocumentMetadata *);
 
 /* Decrement the refcount of the DMD object, freeing it if we're the last reference */
 static inline void DMD_Decref(RSDocumentMetadata *dmd) {
-  if (dmd && !--dmd->ref_count) {
+  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
     DMD_Free(dmd);
   }
 }

@@ -94,15 +94,16 @@ typedef struct RSDocumentMetadata_s {
   /* The maximum frequency of any term in the index, used to normalize frequencies */
   uint32_t maxFreq : 24;
 
+  /* Document flags  */
+  RSDocumentFlags flags : 8;
+
   /* The total weighted number of tokens in the document, weighted by field weights */
   uint32_t len : 24;
 
-  /* Document flags  */
-  RSDocumentFlags flags : 8;
   // Type of source document. Hash or JSON.
   DocumentType type : 8;
 
-  uint32_t ref_count : 16;
+  uint16_t ref_count;
 
   struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */

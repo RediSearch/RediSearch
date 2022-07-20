@@ -1040,6 +1040,11 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     FieldsGlobalStats_UpdateStats(spec->fields + i, 1);
   }
 
+  spec->spcache = rm_calloc(1, sizeof(*spec->spcache));
+  if (pthread_mutex_init(&spec->spcache->lock, NULL)) {
+    goto failure;
+  }
+
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
@@ -1069,16 +1074,18 @@ void Spec_AddToDict(const IndexSpec *sp) {
 }
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
-  if (!spec->spcache) {
-    ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
+  pthread_mutex_lock(&spec->spcache->lock);
+  if (spec->spcache->refcount == 0) {
+    IndexSpec_BuildSpecCache(spec);
   }
 
-  spec->spcache->refcount++;
+  spec->spcache->refcount++; // ???
+  pthread_mutex_unlock(&spec->spcache->lock);
   return spec->spcache;
 }
 
 IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
-  IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
+  IndexSpecCache *ret = spec->spcache;
   ret->nfields = spec->numFields;
   ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
   ret->refcount = 1;
@@ -1096,10 +1103,7 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   return ret;
 }
 
-void IndexSpecCache_Decref(IndexSpecCache *c) {
-  if (--c->refcount) {
-    return;
-  }
+void IndexSpecCache_Free(IndexSpecCache *c) {
   for (size_t ii = 0; ii < c->nfields; ++ii) {
     if (c->fields[ii].name != c->fields[ii].path) {
       rm_free(c->fields[ii].name);
@@ -1107,7 +1111,14 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
     rm_free(c->fields[ii].path);
   }
   rm_free(c->fields);
-  rm_free(c);
+}
+
+void IndexSpecCache_Decref(IndexSpecCache *c) {
+  pthread_mutex_lock(&c->lock);
+  if (!(--c->refcount)) {
+    IndexSpecCache_Free(c);
+  }
+  pthread_mutex_unlock(&c->lock);
 }
 
 /// given an array of random weights, return the a weighted random selection, as the index in the
@@ -1211,7 +1222,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free fields cache data
   if (spec->spcache) {
-    IndexSpecCache_Decref(spec->spcache);
+    IndexSpecCache_Free(spec->spcache);
+    rm_free(spec->spcache);
     spec->spcache = NULL;
   }
   // Free fields formatted names

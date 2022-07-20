@@ -315,6 +315,7 @@ typedef struct IndexSpecCache {
   FieldSpec *fields;
   size_t nfields;
   size_t refcount;
+  pthread_mutex_t lock;
 } IndexSpecCache;
 
 /**
