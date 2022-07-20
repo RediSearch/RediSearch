@@ -35,25 +35,25 @@ typedef struct {
 typedef struct {
   IndexIterator base;
   VecSimIndex *index;
-  size_t dimension;                // index dimension
-  VecSimType vecType;              // index data type
-  VecSimMetric indexMetric;        // index distance metric
+  size_t dimension;                 // index dimension
+  VecSimType vecType;               // index data type
+  VecSimMetric indexMetric;         // index distance metric
   KNNVectorQuery query;
-  VecSimQueryParams runtimeParams; // Evaluated runtime params.
+  VecSimQueryParams runtimeParams;  // Evaluated runtime params.
   IndexIterator *child;
   VecSimSearchMode searchMode;
-  bool resultsPrepared;            // Indicates if the results were already processed
-                                   // (should occur in the first call to Read)
+  bool resultsPrepared;             // Indicates if the results were already processed
+                                    // (should occur in the first call to Read)
   VecSimQueryResult_List list;
   VecSimQueryResult_Iterator *iter;
   t_docId lastDocId;
-  RSIndexResult **returnedResults; // Save the pointers to be freed in clean-up.
-  char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
-  heap_t *topResults;              // Sorted by score (max heap).
-  //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
+  RSIndexResult **returnedResults;  // Save the pointers to be freed in clean-up.
+  char *scoreField;                 // To use by the sorter, for distinguishing between different vector fields.
+  heap_t *topResults;               // Sorted by score (max heap).
+  //heap_t *orderedResults;         // Sorted by id (min heap) - for future use.
   size_t numIterations;
-  bool ignoreScores;               // Ignore the document scores, only vector score matters.
-  TimeoutCtx timeoutCtx;           // Timeout parameters
+  bool ignoreScores;                // Ignore the document scores, only vector score matters.
+  TimeoutCtx timeoutCtx;            // Timeout parameters
 } HybridIterator;
 
 #ifdef __cplusplus
