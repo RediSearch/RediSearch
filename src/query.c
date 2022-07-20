@@ -31,6 +31,12 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+RSToken::RSToken(const rune *r, size_t n) {
+  str = runesToStr(r, n, &len);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 //---------------------------------------------------------------------------------------------
@@ -246,7 +252,7 @@ IndexIterator *QueryPrefixNode::EvalNode(Query *q) {
 
 //---------------------------------------------------------------------------------------------
 
-struct LexRangeCtx {
+struct LexRange {
   IndexIterator **its;
   size_t nits;
   size_t cap;
@@ -254,11 +260,11 @@ struct LexRangeCtx {
   QueryNodeOptions *opts;
   double weight;
 
-  LexRangeCtx(Query q, QueryNodeOptions *opts, double weight = 0) :
+  LexRange(Query q, QueryNodeOptions *opts, double weight = 0) :
     q(&q), opts(opts), weight(weight) {}
 };
 
-static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
+static void rangeItersAddIterator(LexRange *range, IndexReader *ir) {
   ctx->its[ctx->nits++] = ir->NewReadIterator();
   if (ctx->nits == ctx->cap) {
     ctx->cap *= 2;
@@ -268,9 +274,8 @@ static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
 
 //---------------------------------------------------------------------------------------------
 
-static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
-  LexRangeCtx *ctx = p;
-  Query *q = ctx->q;
+static void rangeIterCbStrs(const char *r, size_t n, LexRange *range, void *invidx) {
+  Query *q = range->q;
   RSToken tok{r, n};
   RSQueryTerm *term = new RSQueryTerm(tok, ctx->q->tokenId++);
   IndexReader *ir = new TermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, ctx->weight);
@@ -284,14 +289,12 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
 
 //---------------------------------------------------------------------------------------------
 
-static void rangeIterCb(const rune *r, size_t n, void *p) {
-  LexRangeCtx *ctx = p;
-  Query *q = ctx->q;
+static void rangeIterCb(const rune *r, size_t n, LexRange *range) {
+  Query *q = range->q;
   RSToken tok{r, n};
-  RSQueryTerm *term = new RSQueryTerm(tok, ctx->q->tokenId++);
+  RSQueryTerm *term = new RSQueryTerm(tok, range->q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
-  rm_free(tok.str);
   if (!ir) {
     delete term;
     return;
@@ -304,7 +307,7 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
 
 IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
   Trie *t = q->sctx->spec->terms;
-  LexRangeCtx ctx(*q, &opts);
+  LexRange range(*q, &opts);
 
   if (!t) {
     return NULL;
@@ -516,21 +519,20 @@ IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexItera
     return NULL;
   }
 
-  LexRangeCtx ctx(q, &opts, weight);
-  ctx.cap = 8;
-  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
-  ctx.nits = 0;
+  LexRange range(q, &opts, weight);
+  range.cap = 8;
+  range.its = rm_malloc(sizeof(*range.its) * range.cap);
+  range.nits = 0;
 
   const char *begin_ = begin, *end_ = end;
   int nbegin = begin_ ? strlen(begin_) : -1, nend = end_ ? strlen(end_) : -1;
 
-  t->IterateRange(begin_, nbegin, includeBegin, end_, nend, includeEnd,
-                  rangeIterCbStrs, &ctx);
-  if (ctx.nits == 0) {
-    rm_free(ctx.its);
+  t->IterateRange(begin_, nbegin, includeBegin, end_, nend, includeEnd, rangeIterCbStrs, &range);
+  if (range.nits == 0) {
+    rm_free(ranse.its);
     return NULL;
   } else {
-    return new UnionIterator(ctx.its, ctx.nits, q->docTable, 1, opts.weight);
+    return new UnionIterator(range.its, range.nits, q->docTable, 1, opts.weight);
   }
 }
 

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <functional>
 
 typedef uint16_t tm_len_t;
 
@@ -13,14 +14,15 @@ typedef uint16_t tm_len_t;
 #define TM_NODE_SORTED 0x04
 #define TRIE_INITIAL_STRING_LEN 255
 
-// This special pointer is returned when TrieMap::Find cannot find anything */
+// This special pointer is returned when TrieMap::Find cannot find anything
 extern void *TRIEMAP_NOTFOUND;
 typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
-typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
+//typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
+typedef std::function<void(const char *min, size_t minlen, void *ctx, void *val)> TrieMapRangeCallback;
 
 struct TrieMapRangeCtx {
   char *buf;
-  TrieMapRangeCallback *callback;
+  TrieMapRangeCallback callback;
   void *cbctx;
   bool includeMin;
   bool includeMax;

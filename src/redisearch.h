@@ -136,9 +136,7 @@ struct RSToken {
   RSToken(const char *str, size_t len, uint8_t expanded = 1, RSTokenFlags flags = 31) :
     str(str ? rm_strdup(str) : NULL), len(len), expanded(expanded), flags(flags) {}
 
-  RSToken(const rune *r, size_t n) {
-      str = runesToStr(r, n, &len);
-  }
+  RSToken(const rune *r, size_t n);
 
   ~RSToken() {
     if (str) rm_free(str);
