@@ -2,10 +2,13 @@
 
 #include "redisearch.h"
 #include "result_processor.h"
-#include "triemap/triemap.h"
-#include "util/block_alloc.h"
 #include "query_error.h"
+#include "triemap/triemap.h"
 #include "hll/hll.h"
+#include "util/block_alloc.h"
+#include "util/quantile.h"
+
+#include <unordered_set>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -55,7 +58,10 @@ struct Reducer : public Object {
   virtual Reducer() {}
 
   // Frees the global reducer struct (this object)
-  virtual ~Reducer() {}
+  virtual ~Reducer() {
+    delete srckey;
+    delete dstkey;
+  }
 
   // Passes a result through the reducer. The reducer can then store the
   // results internally until it can be outputted in `dstrow`.
@@ -96,55 +102,102 @@ struct RDCRCount : public Reducer {
 
   struct Data {
     size_t count;
-  };
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct RDCRSum : public Reducer {
   RDCRSum(const ReducerOptions *);
+
+  struct Data {
+    double total;
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
+};
+
+struct RDCRAvg : public Reducer {
+  RDCRAvg(const ReducerOptions *);
+
+  struct Data {
+    size_t count;
+    double total;
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct RDCRToList : public Reducer {
   RDCRToList(const ReducerOptions *);
+
+  struct Data {
+    TrieMap values;
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct RDCRMin : public Reducer {
   RDCRMin(const ReducerOptions *);
-};
 
-//---------------------------------------------------------------------------------------------
+  struct Data {
+    double val;
+    size_t numMatches;
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
+};
 
 struct RDCRMax : public Reducer {
   RDCRMax(const ReducerOptions *);
+
+  struct Data {
+    double val;
+    size_t numMatches;
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
 };
-
-//---------------------------------------------------------------------------------------------
-
-struct RDCRAvg : public Reducer {
-  RDCRAvg(const ReducerOptions *);
-};
-
 //---------------------------------------------------------------------------------------------
 
 struct RDCRCountDistinct : public Reducer {
   RDCRCountDistinct(const ReducerOptions *);
 
   struct Data {
-    size_t count;
-    const RLookupKey *srckey;
-    //@@khash_t(khid) * dedup;
+    std::unordered_set<uint64_t> dedup; //@@
   };
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct RDCRQuantile : public Reducer {
   RDCRQuantile(const ReducerOptions *);
+
+  double pct;
+  unsigned resolution;
+
+  struct Data {
+    QuantStream *qs;
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
 };
 
 //---------------------------------------------------------------------------------------------
@@ -153,24 +206,53 @@ struct RDCRStdDev : public Reducer {
   RDCRStdDev(const ReducerOptions *);
 
   struct Data {
-    const RLookupKey *srckey;
     size_t n;
     double oldM, newM, oldS, newS;
 
     void Add(double d);
-  };
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct RDCRFirstValue : public Reducer {
   RDCRFirstValue(const ReducerOptions *);
+  ~RDCRFirstValue();
+  
+  bool ascending;
+
+  struct Data {
+    const RLookupKey *sortprop;  // The key to sort by
+    RSValue *value;              // Value to return
+    RSValue *sortval;            // Top sorted value
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
+
+  // private
+  int sort(const RLookupRow *srcrow);
+  int noSort(const RLookupRow *srcrow);
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct RDCRRandomSample : public Reducer {
   RDCRRandomSample(const ReducerOptions *);
+  ~RDCRRandomSample();
+
+  size_t len;
+
+  struct Data {
+    size_t seen;  // how many items we've seen
+    RSValue *samplesArray;
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
 };
 
 //---------------------------------------------------------------------------------------------
@@ -186,6 +268,15 @@ struct RDCRHLLCommon : public Reducer {
 
 struct RDCRCountDistinctish : public RDCRHLLCommon {
   RDCRCountDistinctish(const ReducerOptions *);
+
+  struct Data {
+    std::unordered_set<uint64_t> dedup;
+    struct HLL hll;
+    const RLookupKey *key;
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
 };
 
 struct RDCRHLL : public RDCRHLLCommon {
@@ -196,13 +287,16 @@ struct RDCRHLL : public RDCRHLLCommon {
 
 struct RDCRHLLSum : public Reducer {
   RDCRHLLSum(const ReducerOptions *);
+  ~RDCRHLLSum();
 
   struct Data {
-    const RLookupKey *srckey;
     struct HLL hll;
 
     int Add(const char *buf);
-  };
+  } data;
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
 };
 
 //---------------------------------------------------------------------------------------------

@@ -25,10 +25,6 @@ Group::Group(Grouper &grouper, const arrayof(RSValue*) groupvals, size_t ngrpval
   Group *group = grouper.groupsAlloc.Alloc(elemSize, GROUPS_PER_BLOCK * elemSize);
   memset(group, 0, elemSize);
 
-  for (size_t i = 0; i < numReducers; ++i) {
-    accumdata[i] = grouper.reducers[i]->NewInstance();
-  }
-
   // Initialize the row data!
   for (size_t ii = 0; ii < ngrpvals; ++ii) {
     const RLookupKey *dstkey = grouper.dstkeys[ii];
@@ -64,7 +60,7 @@ int Grouper::Yield(SearchResult &r) {
     // no reducers; just a terminal GROUPBY...
 
     if (!numReducers()) {
-      writeGroupValues(gr, &r);
+      writeGroupValues(gr, r);
     }
     // else...
     for (size_t i = 0; i < numReducers(); ++i) {
@@ -72,7 +68,7 @@ int Grouper::Yield(SearchResult &r) {
       RSValue *v = rd->Finalize();
       if (v) {
         r.rowdata.WriteOwnKey(rd->dstkey, v);
-        writeGroupValues(gr, &r);
+        writeGroupValues(gr, r);
       } else {
         // FIXME!
         // Error! Couldn't get value? Handle me here!
@@ -91,7 +87,7 @@ int Grouper::Yield(SearchResult &r) {
 void Grouper::invokeGroupReducers(Group *gr, RLookupRow &srcrow) {
   size_t nreducers = numReducers();
   for (size_t i = 0; i < nreducers; i++) {
-    reducers[i]->Add(reducers[i], gr->accumdata[i], srcrow);
+    reducers[i]->Add(&srcrow);
   }
 }
 
@@ -128,7 +124,7 @@ void Grouper::extractGroups(const RSValue **xarr, size_t xpos, size_t xlen, size
     }
 
     // send the result to the group and its reducers
-    invokeGroupReducers(group, res);
+    invokeGroupReducers(group, *res);
     return;
   }
 
@@ -173,13 +169,13 @@ void Grouper::invokeReducers(RLookupRow &srcrow) {
 
   for (size_t ii = 0; ii < nkeys; ++ii) {
     const RLookupKey *srckey = srckeys[ii];
-    RSValue *v = srcrow->GetItem(srckey);
+    RSValue *v = srcrow.GetItem(srckey);
     if (v == NULL) {
       v = RS_NullVal();
     }
     groupvals[ii] = v;
   }
-  extractGroups(groupvals, 0, nkeys, 0, 0, srcrow);
+  extractGroups(groupvals, 0, nkeys, 0, 0, &srcrow);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -189,7 +185,7 @@ int Grouper::Next(SearchResult &res) {
 
   int rc;
   while ((rc = upstream->Next(&res)) == RS_RESULT_OK) {
-    invokeReducers(&res.rowdata);
+    invokeReducers(res.rowdata);
     res.Clear();
   }
   if (rc != RS_RESULT_EOF) return rc;
@@ -205,9 +201,8 @@ static void cleanCallback(void *ptr, void *arg) {
   Group *group = ptr;
   Grouper *parent = arg;
   // Call the reducer's FreeInstance
-  for (size_t ii = 0; ii < parent->numReducers(); ++ii) {
-    Reducer *rr = parent->reducers[ii];
-    rr->FreeInstance();
+  for (size_t i = 0; i < parent->numReducers(); ++i) {
+    delete parent->reducers[i];
   }
 }
 
@@ -273,8 +268,8 @@ Grouper::Grouper(const RLookupKey **srckeys_, const RLookupKey **dstkeys_, size_
 // processed by the grouper.
 
 void Grouper::AddReducer(Reducer *r, RLookupKey *dstkey) {
-  arrayof(Reducer*) *rpp = array_ensure_tail(&reducers, Reducer*);
-  *rpp = r;
+  // arrayof(Reducer*) *rpp = array_ensure_tail(&reducers, Reducer*);
+  // *rpp = r;
   r->dstkey = dstkey;
 }
 

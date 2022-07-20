@@ -4,6 +4,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef 0
 #define BLOCK_SIZE 1024 * sizeof(devCtx)
 
 //---------------------------------------------------------------------------------------------
@@ -14,6 +15,7 @@ RDCRStdDev::Data *RDCRStdDev::NewInstance() {
   dd->srckey = srckey;
   return dd;
 }
+#endif
 
 //---------------------------------------------------------------------------------------------
 
@@ -35,20 +37,20 @@ void RDCRStdDev::Data::Add(double d) {
 
 //---------------------------------------------------------------------------------------------
 
-int RDCRStdDev::Add(Data *dd, const RLookupRow *srcrow) {
+int RDCRStdDev::Add(const RLookupRow *srcrow) {
   double d;
-  RSValue *v = srcrow->GetItem(dd->srckey);
+  RSValue *v = srcrow->GetItem(srckey);
   if (v) {
     if (v->t != RSValue_Array) {
       if (v->ToNumber(&d)) {
-        dd->Add(d);
+        data.Add(d);
       }
     } else {
       uint32_t sz = v->ArrayLen();
       for (uint32_t i = 0; i < sz; i++) {
         RSValue *v1 = v->ArrayItem(i);
         if (v1->ToNumber(&d)) {
-          dd->Add(d);
+          data.Add(d);
         }
       }
     }
@@ -58,8 +60,8 @@ int RDCRStdDev::Add(Data *dd, const RLookupRow *srcrow) {
 
 //---------------------------------------------------------------------------------------------
 
-RSValue *RDCRStdDev::Finalize(Data *dd) {
-  double variance = ((dd->n > 1) ? newS / (n - 1) : 0.0);
+RSValue *RDCRStdDev::Finalize() {
+  double variance = ((data.n > 1) ? data.newS / (data.n - 1) : 0.0);
   double stddev = sqrt(variance);
   return RS_NumVal(stddev);
 }
@@ -68,7 +70,7 @@ RSValue *RDCRStdDev::Finalize(Data *dd) {
 
 RDCRStdDev::RDCRStdDev(const ReducerOptions *options) {
   if (!options->GetKey(&srckey)) {
-    throw Error("RDCRStdDev: no key found")
+    throw Error("RDCRStdDev: no key found");
   }
   reducerId = REDUCER_T_STDDEV;
 }

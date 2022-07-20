@@ -3,41 +3,51 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct {
+#ifdef 0
+struct SumReducer : public Reducer {
+  bool isAvg;
   size_t count;
   double total;
-} sumCtx;
 
-typedef struct {
-  Reducer base;
-  int isAvg;
-  const RLookupKey *srckey;
-} SumReducer;
+  SumReducer(bool avg);
 
-#define BLOCK_SIZE 32 * sizeof(sumCtx)
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
+};
 
-//---------------------------------------------------------------------------------------------
+// //---------------------------------------------------------------------------------------------
 
-static void *sumNewInstance(Reducer *r) {
-  sumCtx *ctx = BlkAlloc_Alloc(&r->alloc, sizeof(*ctx), BLOCK_SIZE);
-  ctx->count = 0;
-  ctx->total = 0;
-  return ctx;
+SumReducer::SumReducer(bool avg) {
+  isAvg = avg;
+  count = 0;
+  total = 0;
 }
+#endif //0
 
 //---------------------------------------------------------------------------------------------
 
-static int sumAdd(Reducer *baseparent, void *instance, const RLookupRow *row) {
-  sumCtx *ctr = instance;
-  const SumReducer *parent = (const SumReducer *)baseparent;
-  ctr->count++;
-  const RSValue *v = RLookup_GetItem(parent->srckey, row);
+int RDCRSum::Add(const RLookupRow *srcrow) {
+  const RSValue *v = srcrow->GetItem(srckey);
   if (v && v->t == RSValue_Number) {
-    ctr->total += v->numval;
+    data.total += v->numval;
   } else {  // try to convert value to number
     double d = 0;
     if (v->ToNumber(&d)) {
-      ctr->total += d;
+      data.total += d;
+    }
+  }
+  return 1;
+}
+
+int RDCRAvg::Add(const RLookupRow *srcrow) {
+  data.count++;
+  const RSValue *v = srcrow->GetItem(srckey);
+  if (v && v->t == RSValue_Number) {
+    data.total += v->numval;
+  } else {  // try to convert value to number
+    double d = 0;
+    if (v->ToNumber(&d)) {
+      data.total += d;
     }
   }
   return 1;
@@ -45,46 +55,37 @@ static int sumAdd(Reducer *baseparent, void *instance, const RLookupRow *row) {
 
 //---------------------------------------------------------------------------------------------
 
-static RSValue *sumFinalize(Reducer *baseparent, void *instance) {
-  sumCtx *ctr = instance;
-  SumReducer *parent = (SumReducer *)baseparent;
+RSValue *RDCRSum::Finalize() {
+  return RS_NumVal(data.total);
+}
+
+RSValue *RDCRAvg::Finalize() {
   double v = 0;
-  if (parent->isAvg) {
-    if (ctr->count) {
-      v = ctr->total / ctr->count;
-    }
-  } else {
-    v = ctr->total;
+  if (data.count) {
+    v = data.total / data.count;
   }
+
   return RS_NumVal(v);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static Reducer *newReducerCommon(const ReducerOptions *options, int isAvg) {
-  SumReducer *r = rm_calloc(1, sizeof(*r));
-  if (!options->GetKey(&r->srckey)) {
-    rm_free(r);
-    return NULL;
+RDCRSum::RDCRSum(const ReducerOptions *options) {
+  if (!options->GetKey(&srckey)) {
+    throw Error("RDCRSum: no key found");
+
   }
-  r->base.NewInstance = sumNewInstance;
-  r->base.Add = sumAdd;
-  r->base.Finalize = sumFinalize;
-  r->base.Free = Reducer_GenericFree;
-  r->isAvg = isAvg;
-  return &r->base;
+  reducerId = REDUCER_T_SUM;
 }
 
 //---------------------------------------------------------------------------------------------
 
-Reducer *RDCRSum_New(const ReducerOptions *options) {
-  return newReducerCommon(options, 0);
-}
+RDCRAvg::RDCRAvg(const ReducerOptions *options) {
+  if (!options->GetKey(&srckey)) {
+    throw Error("RDCRAvg: no key found");
 
-//---------------------------------------------------------------------------------------------
-
-Reducer *RDCRAvg_New(const ReducerOptions *options) {
-  return newReducerCommon(options, 1);
+  }
+  reducerId = REDUCER_T_AVG;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

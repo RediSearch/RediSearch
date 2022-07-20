@@ -22,7 +22,7 @@ struct RSExprParseCtx {
 //---------------------------------------------------------------------------------------------
 
 // A token in the process of parsing a query.
-// Unlike the document tokenizer,  it works iteratively and is not callback based.
+// Unlike the document tokenizer, it works iteratively and is not callback based.
 
 struct RSExprToken {
   const char *s;

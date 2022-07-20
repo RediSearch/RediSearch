@@ -3,6 +3,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef 0
 typedef struct {
   Reducer base;
   size_t len;
@@ -23,81 +24,67 @@ static void *sampleNewInstance(Reducer *base) {
   ctx->samplesArray = RSValue::NewArray(NULL, r->len, 0);
   return ctx;
 }
+#endif //0
 
 //---------------------------------------------------------------------------------------------
 
-static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
-  RSMPLReducer *r = (RSMPLReducer *)rbase;
-  rsmplCtx *sc = ctx;
-  RSValue *v = srcrow->GetItem(rbase->srckey);
+int RDCRRandomSample::Add(const RLookupRow *srcrow) {
+  RSValue *v = srcrow->GetItem(srckey);
   if (!v) {
     return 1;
   }
 
-  if (sc->seen < r->len) {
-    RSVALUE_ARRELEM(sc->samplesArray, sc->seen) = v->IncrRef();
-    RSVALUE_ARRLEN(sc->samplesArray)++;
-    assert(RSVALUE_ARRLEN(sc->samplesArray) <= r->len);
+  if (data.seen < len) {
+    RSVALUE_ARRELEM(data.samplesArray, data.seen) = v->IncrRef();
+    RSVALUE_ARRLEN(data.samplesArray)++;
+    assert(RSVALUE_ARRLEN(data.samplesArray) <= len);
   } else {
-    size_t i = rand() % (sc->seen + 1);
-    if (i < r->len) {
-      RSVALUE_REPLACE(&RSVALUE_ARRELEM(sc->samplesArray, i), v);
+    size_t i = rand() % (data.seen + 1);
+    if (i < len) {
+      RSVALUE_REPLACE(&RSVALUE_ARRELEM(data.samplesArray, i), v);
     }
   }
-  sc->seen++;
+  data.seen++;
   return 1;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
-  rsmplCtx *sc = ctx;
-  RSMPLReducer *r = (RSMPLReducer *)rbase;
-  size_t len = MIN(r->len, sc->seen);
-  RSValue *ret = sc->samplesArray;
-  sc->samplesArray = NULL;
+RSValue *RDCRRandomSample::Finalize() {
+  RSValue *ret = data.samplesArray;
+  data.samplesArray = NULL;
   return ret;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void sampleFreeInstance(Reducer *rbase, void *p) {
-  rsmplCtx *sc = p;
-  RSMPLReducer *r = (RSMPLReducer *)rbase;
-  if (sc->samplesArray) {
-    sc->samplesArray->Decref();
-  }
+RDCRRandomSample::~RDCRRandomSample() {
+  delete data.samplesArray;
 }
 
 //---------------------------------------------------------------------------------------------
 
-Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
-  RSMPLReducer *ret = rm_calloc(1, sizeof(*ret));
-  if (!ReducerOptions_GetKey(options, &ret->base.srckey)) {
-    rm_free(ret);
-    return NULL;
+RDCRRandomSample::RDCRRandomSample(const ReducerOptions *options) {
+  if (!options->GetKey(&srckey)) {
+    throw Error("RDCRRandomSample: no key found");
   }
+
   // Get the number of samples..
   unsigned samplesize;
-  int rc = AC_GetUnsigned(options->args, &samplesize, 0);
+  int rc = options->args->GetUnsigned(&samplesize, 0);
   if (rc != AC_OK) {
     QERR_MKBADARGS_AC(options->status, "<sample size>", rc);
-    rm_free(ret);
-    return NULL;
+    throw Error("RDCRRandomSample: Bad arguments");
   }
   if (samplesize > MAX_SAMPLE_SIZE) {
     QERR_MKBADARGS_FMT(options->status, "Sample size too large");
-    rm_free(ret);
-    return NULL;
+    throw Error("RDCRRandomSample: Sample size too large");
   }
-  ret->len = samplesize;
-  Reducer *rbase = &ret->base;
-  rbase->Add = sampleAdd;
-  rbase->Finalize = sampleFinalize;
-  rbase->Free = Reducer_GenericFree;
-  rbase->FreeInstance = sampleFreeInstance;
-  rbase->NewInstance = sampleNewInstance;
-  return rbase;
+
+  len = samplesize;
+  data.seen = 0;
+  data.samplesArray = RSValue::NewArray(NULL, len, 0);
+  //@@ reducerId = ?;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
