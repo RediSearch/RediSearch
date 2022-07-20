@@ -533,7 +533,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric);
+  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
   ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
   ctx->spec->stats.numRecords += rv.numRecords;
   return 0;

@@ -29,7 +29,7 @@ TEST_F(RangeTest, testRangeTree) {
 
   for (size_t i = 0; i < 50000; i++) {
 
-    NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000));
+    NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000), false);
   }
   ASSERT_EQ(t->numRanges, 12);
   ASSERT_EQ(t->numEntries, 50000);
@@ -71,7 +71,7 @@ TEST_F(RangeTest, testRangeIterator) {
     double value = (double)(1 + prng() % (N / 5));
     lookup[docId] = value;
     // printf("Adding %d > %f\n", docId, value);
-    NumericRangeTree_Add(t, docId, value);
+    NumericRangeTree_Add(t, docId, value, false);
   }
 
   for (size_t i = 0; i < 5; i++) {

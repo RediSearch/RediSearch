@@ -325,11 +325,11 @@ NumericRangeTree *NewNumericRangeTree() {
   return ret;
 }
 
-NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
+NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti) {
 
-  // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
-  // from it
-  if (docId <= t->lastDocId) {
+  if (!isMulti && docId <= t->lastDocId) {
+    // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
+    // from it
     return (NRN_AddRv){0, 0, 0};
   }
   t->lastDocId = docId;
@@ -700,7 +700,7 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   // now push them in order into the tree
   for (size_t i = 0; i < numEntries; i++) {
-    NumericRangeTree_Add(t, entries[i].docId, entries[i].value);
+    NumericRangeTree_Add(t, entries[i].docId, entries[i].value, false);
   }
   array_free(entries);
   return t;

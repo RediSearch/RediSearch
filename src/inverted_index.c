@@ -226,32 +226,35 @@ ENCODER(encodeRawDocIdsOnly) {
 
 #define NUM_TINYENC_MASK 0x07  // This flag is set if the number is 'tiny'
 
+#define NUM_ENCODING_COMMON_TYPE_TINY           0
+#define NUM_ENCODING_COMMON_TYPE_FLOAT          1
+#define NUM_ENCODING_COMMON_TYPE_POSITIVE_INT   2
+#define NUM_ENCODING_COMMON_TYPE_NEG_INT        3
+
 typedef struct {
-  uint8_t deltaEncoding : 2;
-  uint8_t zero : 2;
-  uint8_t valueByteCount : 3;
-  uint8_t sign : 1;
+  uint8_t deltaEncoding : 3;
+  uint8_t type : 2;
+  uint8_t valueByteCount : 3; //1 to 8 (encoded as 0-7)
 } NumEncodingInt;
 
 typedef struct {
-  uint8_t deltaEncoding : 2;
-  uint8_t zero : 1;
-  uint8_t isTiny : 1;
-  uint8_t tinyValue : 4;
+  uint8_t deltaEncoding : 3;
+  uint8_t type : 2;
+  uint8_t tinyValue : 3;
 } NumEncodingTiny;
 
 typedef struct {
   uint8_t deltaEncoding : 2;
-  uint8_t isFloat : 1;  // Always set to 1
+  uint8_t type : 2;
   uint8_t isInf : 1;    // -INFINITY has the 'sign' bit set too
   uint8_t sign : 1;
   uint8_t isDouble : 1;  // Read 8 bytes rather than 4
 } NumEncodingFloat;
 
 typedef struct {
-  uint8_t deltaEncoding : 2;
-  uint8_t isFloat : 1;
-  uint8_t specific : 5;
+  uint8_t deltaEncoding : 3;
+  uint8_t type : 2; //(tiny, float, posint, negint)
+  uint8_t specific : 3;
 } NumEncodingCommon;
 
 typedef union {
@@ -273,18 +276,18 @@ static void dumpBits(uint64_t value, size_t numBits, FILE *fp) {
 static void dumpEncoding(EncodingHeader header, FILE *fp) {
   fprintf(fp, "DeltaBytes: %u\n", header.encCommon.deltaEncoding + 1);
   fprintf(fp, "Type: ");
-  if (header.encCommon.isFloat) {
+  if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_FLOAT) {
     fprintf(fp, " FLOAT\n");
     fprintf(fp, "  SubType: %s\n", header.encFloat.isDouble ? "Double" : "Float");
     fprintf(fp, "  INF: %s\n", header.encFloat.isInf ? "Yes" : "No");
     fprintf(fp, "  Sign: %c\n", header.encFloat.sign ? '-' : '+');
-  } else if (header.encTiny.isTiny) {
+  } else if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_TINY) {
     fprintf(fp, " TINY\n");
     fprintf(fp, "  Value: %u\n", header.encTiny.tinyValue);
   } else {
     fprintf(fp, " INT\n");
     fprintf(fp, "  Size: %u\n", header.encInt.valueByteCount + 1);
-    fprintf(fp, "  Sign: %c\n", header.encInt.sign ? '-' : '+');
+    fprintf(fp, "  Sign: %c\n", header.encCommon.type == NUM_ENCODING_COMMON_TYPE_NEG_INT ? '-' : '+');
   }
 }
 
@@ -313,7 +316,7 @@ ENCODER(encodeNumeric) {
   if ((double)tinyNum == realVal) {
     // Number is small enough to fit?
     header.encTiny.tinyValue = tinyNum;
-    header.encTiny.isTiny = 1;
+    header.encCommon.type = NUM_ENCODING_COMMON_TYPE_TINY;
 
   } else if ((double)(uint64_t)absVal == absVal) {
     // Is a whole number
@@ -321,7 +324,9 @@ ENCODER(encodeNumeric) {
     NumEncodingInt *encInt = &header.encInt;
 
     if (realVal < 0) {
-      encInt->sign = 1;
+      encInt->type = NUM_ENCODING_COMMON_TYPE_NEG_INT;
+    } else {
+      encInt->type = NUM_ENCODING_COMMON_TYPE_POSITIVE_INT;
     }
 
     size_t numValueBytes = 0;
@@ -333,7 +338,7 @@ ENCODER(encodeNumeric) {
     encInt->valueByteCount = numValueBytes - 1;
 
   } else if (!isfinite(realVal)) {
-    header.encCommon.isFloat = 1;
+    header.encCommon.type = NUM_ENCODING_COMMON_TYPE_FLOAT;
     header.encFloat.isInf = 1;
     if (realVal == -INFINITY) {
       header.encFloat.sign = 1;
@@ -351,7 +356,7 @@ ENCODER(encodeNumeric) {
       encFloat->isDouble = 1;
     }
 
-    encFloat->isFloat = 1;
+    encFloat->type = NUM_ENCODING_COMMON_TYPE_FLOAT;
     if (realVal < 0) {
       encFloat->sign = 1;
     }
@@ -430,9 +435,17 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry) {
 
-  // do not allow the same document to be written to the same index twice.
-  // this can happen with duplicate tags for example
-  if (idx->lastId && idx->lastId == docId) return 0;
+  int same_doc = 0;
+  if (idx->lastId && idx->lastId == docId) {
+    if (encoder != encodeNumeric) {
+      // do not allow the same document to be written to the same index twice.
+      // this can happen with duplicate tags for example
+      return 0;
+    } else {
+      // for numeric it is allowed (to support multi values)
+      same_doc = 1;
+    }
+  }
 
   t_docId delta = 0;
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
@@ -466,8 +479,10 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 
   idx->lastId = docId;
   blk->lastId = docId;
-  ++blk->numDocs;
-  ++idx->numDocs;
+  if (!same_doc) {
+    ++blk->numDocs;
+    ++idx->numDocs;
+  }
 
   return ret;
 }
@@ -629,7 +644,7 @@ DECODER(readNumeric) {
   res->docId = 0;
   Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding + 1);
 
-  if (header.encCommon.isFloat) {
+  if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_FLOAT) {
     if (header.encFloat.isInf) {
       res->num.value = INFINITY;
     } else if (header.encFloat.isDouble) {
@@ -642,16 +657,15 @@ DECODER(readNumeric) {
     if (header.encFloat.sign) {
       res->num.value = -res->num.value;
     }
-  } else if (header.encTiny.isTiny) {
+  } else if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_TINY) {
     // Is embedded into the header
     res->num.value = header.encTiny.tinyValue;
-
   } else {
     // Is a whole number
     uint64_t num = 0;
     Buffer_Read(br, &num, header.encInt.valueByteCount + 1);
     res->num.value = num;
-    if (header.encInt.sign) {
+    if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_NEG_INT) {
       res->num.value = -res->num.value;
     }
   }

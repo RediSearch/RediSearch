@@ -120,7 +120,7 @@ NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
 NumericRangeTree *NewNumericRangeTree();
 
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
-NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
+NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti);
 
 /* Remove a node containing a range with value.
    Returns 1 if node was found, 0 otherwise */
