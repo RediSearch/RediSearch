@@ -150,6 +150,7 @@ ForwardIndexEntry::ForwardIndexEntry(ForwardIndex &idx, const char *tok, size_t 
   fieldMask = 0;
   next = NULL;
   if (options & TOKOPT_F_COPYSTR) {
+    term = idx.terms.Alloc(tok, tokLen);
     term = idx.copyTempString(tok, tokLen);
   } else {
     term = tok;

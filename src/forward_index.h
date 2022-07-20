@@ -56,8 +56,8 @@ struct ForwardIndex : Object {
   uint32_t idxFlags;
   Stemmer *stemmer;
   SynonymMap *smap;
-  BlkAlloc terms;
-  BlkAlloc entries;
+  StringBlkAlloc terms;
+  //BlkAlloc entries;
   MemPool vvwPool;
 
   ForwardIndex(Document *doc, uint32_t idxFlags_);

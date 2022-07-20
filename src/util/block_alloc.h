@@ -4,6 +4,47 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+struct Foo {
+  Foo(char *s, int n);
+};
+
+BlkAlloc<Foo> pool;
+
+pool.Alloc(Foo{"sdF", 3})
+Foo *foo = new (pool) Foo{"sdF", 3};
+
+struct BlkAllocBase {
+  struct Block {
+    struct Block *next;
+    size_t numUsed;
+    size_t capacity;
+    char data[0] __attribute__((aligned(16)));
+  };
+
+  Block *root;
+  Block *last;
+
+  // Available blocks - used when recycling the allocator
+  Block *avail;
+
+BlkAllocBase() : root(NULL), last(NULL), avail(NULL) {}
+~BlkAllocBase();
+
+};
+
+template <class T>
+struct BlkAlloc {
+  T *Alloc(T &&);
+};
+
+template <size_t BlockSize>
+struct StringBlkAlloc {
+  ~StringBlkAlloc(); // FreeAll
+  void Clear();
+
+  char *Alloc(const char *str, size_t len);
+};
+
 struct BlkAlloc {
   struct Block {
     struct Block *next;
