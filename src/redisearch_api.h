@@ -344,6 +344,8 @@ MODULE_API_FUNC(double, RediSearch_ResultsIteratorGetScore)(const RSResultsItera
 
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* options, int policy);
 
+MODULE_API_FUNC(size_t, RediSearch_MemUsage)(RSIndex* sp);
+
 /**
  * Return an info struct
  * @param sp the index
@@ -408,6 +410,7 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
   X(IterateQueryWithDialect)         \
   X(ResultsIteratorGetScore)         \
   X(IndexOptionsSetGCPolicy)         \
+  X(MemUsage)                        \
   X(IndexInfo)                       \
   X(IndexInfoFree)                   \
   X(SetCriteriaTesterThreshold)

@@ -20,11 +20,18 @@ typedef struct {
       bool includeMax;
     };
     struct {
-      // for prefix, suffix, contains
+      // for prefix, suffix, contains, wild card
       const rune *origStr;
       int lenOrigStr;
       bool prefix;
-      bool suffix;
+      union {
+        struct {
+          bool suffix;
+        };
+        struct {
+          bool containsStars;
+        };
+      };
     };
   };
   // stop if reach limit
@@ -958,11 +965,6 @@ done:
   array_free(r.buf);
 }
 
-/*
-#define printStats(stage)                               \
-str = runesToStr(r->buf, array_len(r->buf), &len);   \
-printf("%s:%s %ld\n", stage, str, len);
-*/
 #define trimOne(n, r)  if (n->len) array_trimm_len(r->buf, 1)
 
 // check next char on node or children
@@ -984,7 +986,6 @@ static void containsNext(TrieNode *n, t_len localOffset, t_len globalOffset, Ran
 static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, RangeCtx *r) {
   size_t len;
   char *str;
-  // printStats("start");
 
   // No match
   if ((n->numChildren == 0 && r->lenOrigStr - globalOffset > n->len) || r->stop) {
@@ -999,8 +1000,6 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
   if (n->len != 0) { // not root
     r->buf = array_ensure_append(r->buf, &n->str[localOffset], 1, rune);
   }
-  // printStats("append");
-  TrieNode **children = __trieNode_children(n);
 
   // next char matches
   if (n->str[localOffset] == r->origStr[globalOffset]) {
@@ -1033,7 +1032,6 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
   if (!globalOffset) {
     containsNext(n, localOffset + 1, 0, r);
   }
-  // printStats("return");
   trimOne(n, r);
   return;
 }
@@ -1050,11 +1048,8 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
   if (n->len != 0) { // not root
     r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
   }
-  // printStats("append");
-  TrieNode **children = __trieNode_children(n);
 
   match_t match = Wildcard_MatchRune(r->origStr, r->lenOrigStr, r->buf, array_len(r->buf));
-
   switch (match) {
     case NO_MATCH:
       break;;
@@ -1068,10 +1063,13 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
         if (__trieNode_isTerminal(n)) {
           r->callback(r->buf, array_len(r->buf), r->cbctx);
         }
-        // we continue to look for matches on children similar to PARTIAL_MATCH
+        // no 'break;' as we continue to look for matches on children similar to PARTIAL_MATCH
       }
     }
     case PARTIAL_MATCH: {
+      if (!r->containsStars && array_len(r->buf) >= r->lenOrigStr) {
+        break;
+      }
       TrieNode **children = __trieNode_children(n);
       for (t_len i = 0; i < n->numChildren && r->stop == 0; ++i) {
         wildcardIterate(children[i], r);
@@ -1094,6 +1092,7 @@ void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
       .buf = array_new(rune, TRIE_INITIAL_STRING_LEN),
       // if last char is '*', we return all following terms
       .prefix = str[nstr - 1] == (rune)'*',
+      .containsStars = !!runechr(str, '*'),
   };
 
   // printfRune(str, nstr);
