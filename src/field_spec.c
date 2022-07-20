@@ -1,4 +1,5 @@
 #include "field_spec.h"
+#include "indexer.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
@@ -33,4 +34,18 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
 void FieldSpec_SetSortable(FieldSpec* fs) {
   RS_LOG_ASSERT(!(fs->options & FieldSpec_Dynamic), "dynamic fields cannot be sortable");
   fs->options |= FieldSpec_Sortable;
+}
+
+const char *FieldSpec_GetTypeNames(int idx) {
+  switch (idx) {
+  case IXFLDPOS_FULLTEXT: return SPEC_TEXT_STR;
+  case IXFLDPOS_TAG:      return SPEC_TAG_STR;
+  case IXFLDPOS_NUMERIC:  return SPEC_NUMERIC_STR;
+  case IXFLDPOS_GEO:      return SPEC_GEO_STR;
+  case IXFLDPOS_VECTOR:   return SPEC_VECTOR_STR;
+
+  default:
+    RS_LOG_ASSERT(0, "oops");
+    break;
+  }
 }
