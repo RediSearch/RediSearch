@@ -117,6 +117,10 @@ typedef struct FieldSpec {
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
+/**
+ * Convert field type given by integer to the name type in string form.
+ */
+const char *FieldSpec_GetTypeNames(int idx);
 
 RSValueType fieldTypeToValueType(FieldType ft);
 

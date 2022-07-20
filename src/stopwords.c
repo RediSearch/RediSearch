@@ -198,6 +198,30 @@ void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
   TrieMapIterator_Free(it);
 }
 
+#ifdef FTINFO_FOR_INFO_MODULES
+void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
+  if (sl == NULL) {
+    return;
+  }
+
+  TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
+  char *str;
+  tm_len_t len;
+  void *ptr;
+  bool first = true;
+  arrayof(char) stopwords = array_new(char, 512);
+  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
+    stopwords = array_ensure_append_1(stopwords, "\"");
+    stopwords = array_ensure_append_n(stopwords, str, len);
+    stopwords = array_ensure_append_n(stopwords, "\",", 2);
+  }
+  stopwords[array_len(stopwords)-1] = '\0';
+  RedisModule_InfoAddFieldCString(ctx, "stop_words", stopwords);
+  array_free(stopwords);
+  TrieMapIterator_Free(it);
+}
+#endif
+
 char **GetStopWordsList(struct StopWordList *sl, size_t *size) {
   *size = sl->m->cardinality;
   if (*size == 0) {
