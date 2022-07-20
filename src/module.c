@@ -17,6 +17,7 @@
 #include "rmutil/args.h"
 #include "spec.h"
 #include "util/logging.h"
+#include "util/thpool/pools.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -918,6 +919,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(NumericIndexType_Register, ctx);
 
+  RM_TRY(ThreadPools_CreatePools, 10, 1);
+
 #ifndef RS_COORDINATOR
 // on a none coordinator version (for RS light/lite) we want to raise cross slot if
 // the index and the document do not go to the same shard
@@ -1090,6 +1093,7 @@ void RediSearch_CleanupModule(void) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+  ThreadPools_Destroy();
 
   // free global structures
   Extensions_Free();

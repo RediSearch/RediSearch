@@ -5,9 +5,12 @@
 #include "cursor.h"
 #include "rmutil/util.h"
 #include "util/timeout.h"
+#include "util/thpool/pools.h"
 #include "score_explain.h"
 #include "commands.h"
 #include "profile.h"
+
+#define THREADS 1
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -306,6 +309,20 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
   AREQ_Free(req);
 }
 
+typedef struct { AREQ *r; RedisModuleBlockedClient *bc; } RCtx;
+void AREQ_Execute_ctx(RCtx *rctx) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(rctx->bc);
+  rctx->r->sctx->redisCtx = ctx;
+  AREQ_Execute(rctx->r, ctx);
+  if(RedisModule_BlockedClientMeasureTimeEnd) {
+    // report block client end time
+    RedisModule_BlockedClientMeasureTimeEnd(rctx->bc);
+  }
+  RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_UnblockClient(rctx->bc, NULL);
+  rm_free(rctx);
+}
+
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
                         QueryError *status, AREQ **r) {
 
@@ -422,7 +439,19 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (IsProfile(r)) {
       RedisModule_ReplyWithArray(ctx, 2);
     }
-    AREQ_Execute(r, ctx);
+    if(THREADS) {
+      RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+      if(RedisModule_BlockedClientMeasureTimeStart) {
+        // report block client start time
+        RedisModule_BlockedClientMeasureTimeStart(bc);
+      }
+      RCtx *rctx = rm_malloc(sizeof(RCtx));
+      rctx->r = r;
+      rctx->bc = bc;
+      ThreadPools_AddWorkReader(AREQ_Execute_ctx, rctx);
+    } else {
+      AREQ_Execute(r, ctx);
+    }
   }
   return REDISMODULE_OK;
 

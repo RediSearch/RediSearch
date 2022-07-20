@@ -88,6 +88,7 @@ file(GLOB RS_SRC
     "src/query_parser/v1/*.c"
     "src/query_parser/v2/*.c"
     "src/util/*.c"
+    "src/util/thpool/*.c"
     "src/trie/*.c"
     ${RS_DEBUG_SRC}
 
