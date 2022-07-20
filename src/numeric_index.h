@@ -167,9 +167,9 @@ struct NumericUnion : public Object {
 
 //---------------------------------------------------------------------------------------------
 
-struct NumericUnionConcKey : ConcurrentKey<NumericUnion> {
+struct NumericUnionConcKey : ConcurrentKey {
   NumericUnionConcKey(RedisModuleKey *key, RedisModuleString *keyName, const NumericRangeTree &t, IndexIterator *it) :
-    ConcurrentKey<NumericUnion>(key, keyName), nu(it, t.revisionId) {}
+    ConcurrentKey(key, keyName), nu(it, t.revisionId) {}
 
   NumericUnion nu;
 
@@ -193,7 +193,7 @@ struct NumericUnionConcKey : ConcurrentKey<NumericUnion> {
 extern RedisModuleType *NumericIndexType;
 
 struct IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearch<NumericUnionConcKey> *csx);
+                                               ConcurrentSearch *csx);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);

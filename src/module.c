@@ -52,6 +52,7 @@ pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   t_docId docId;
   size_t mdlen;
+  const char *md;
 
   // nosave must be at place 4 and we must have at least 7 fields
   if (argc != 4) {
@@ -61,7 +62,7 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_AutoMemory(ctx);
 
-  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, "Unknown Index name");
     goto cleanup;
@@ -74,7 +75,7 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  const char *md = RedisModule_StringPtrLen(argv[3], &mdlen);
+  md = RedisModule_StringPtrLen(argv[3], &mdlen);
   if (sp->docs.SetPayload(docId, md, mdlen) == 0) {
     RedisModule_ReplyWithError(ctx, "Could not set payload ¯\\_(ツ)_/¯");
     goto cleanup;
@@ -137,14 +138,14 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
+  RedisSearchCtx *sctx = new RedisSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
   Document doc(argv[2], 0, DEFAULT_LANGUAGE);
 
-  if (&sctx->spec->docs->GetIdR(argv[2]) == 0 ||
+  if (sctx->spec->docs.GetIdR(argv[2]) == 0 ||
       doc.LoadAllFields(ctx) == REDISMODULE_ERR) {
     RedisModule_ReplyWithNull(ctx);
   } else {
@@ -166,7 +167,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx(ctx, argv[1], true);
+  RedisSearchCtx *sctx = new RedisSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -177,7 +178,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   const char **includeDict = NULL, **excludeDict = NULL;
   try {
-    QueryAST qast(sctx, &opts, rawQuery, len, &status);
+    QueryAST qast = *new QueryAST(*sctx, opts, rawQuery, len, &status);
 
     includeDict = array_new(const char *, DICT_INITIAL_SIZE);
     excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
@@ -291,7 +292,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
   if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
-  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -360,8 +361,10 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
+  TagIndex *idx = NULL;
+
   RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
+  RedisSearchCtx *sctx = new RedisSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -378,7 +381,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  TagIndex *idx = TagIndex::Open(sctx, TagIndex::FormatName(sctx, field), 0, NULL);
+  idx = TagIndex::Open(sctx, TagIndex::FormatName(sctx, field), 0, NULL);
   if (!idx) {
     RedisModule_ReplyWithArray(ctx, 0);
     goto cleanup;
@@ -474,7 +477,7 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   RedisModule_AutoMemory(ctx);
 
-  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -501,7 +504,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplicateVerbatim(ctx);
 
   RedisModule_AutoMemory(ctx);
-  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -529,7 +532,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) return RedisModule_WrongArity(ctx);
 
-  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
@@ -550,7 +553,7 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, long long id,
                              RedisModuleString **synonyms, size_t size, bool checkIdSanity) {
-  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(indexName, NULL), 0);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(indexName, NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
@@ -636,7 +639,7 @@ int SynForceUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
-  IndexSpec *sp = new IndexSpec(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
@@ -679,7 +682,7 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   const char *ixname = ac.GetStringNC(NULL);
-  IndexSpec *sp = new IndexSpec(ctx, ixname, 1);
+  IndexSpec *sp = IndexSpec::Load(ctx, ixname, 1);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
@@ -710,7 +713,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   ac.InitRString(argv + 1, argc - 1);
   uint32_t flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING;
   IndexLoadOptions loadOpts(flags, argv[2]);
-  IndexSpec *sptmp(ctx, &loadOpts);
+  IndexSpec *sptmp = IndexSpec::LoadEx(ctx, &loadOpts);
   if (!sptmp) {
     error->SetError(QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
     return REDISMODULE_ERR;
@@ -743,7 +746,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
   uint32_t flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING;
   IndexLoadOptions lOpts(flags, argv[1]);
-  IndexSpec *sp(ctx, &lOpts);
+  IndexSpec *sp = IndexSpec::LoadEx(ctx, &lOpts);
 
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
@@ -768,7 +771,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   QueryError status;
   uint32_t flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING;
   IndexLoadOptions lOpts(flags, argv[1]);
-  IndexSpec *spOrig = new IndexSpec(ctx, &lOpts);
+  IndexSpec *spOrig = IndexSpec::LoadEx(ctx, &lOpts);
 
   if (spOrig) {
     if (IndexAlias::Del(RedisModule_StringPtrLen(argv[1], NULL), spOrig, 0, &status) !=

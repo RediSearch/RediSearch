@@ -332,14 +332,13 @@ static IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTre
 
   // We create a  union iterator, advancing a union on all the selected range,
   // treating them as one consecutive range
-  IndexIterator **its = rm_calloc(n, sizeof(IndexIterator *));
+  Vector<IndexIterator *> its;
 
   for (size_t i = 0; i < n; i++) {
-    NumericRange rng = v[i];
-    its[i] = NewNumericRangeIterator(sp, &rng, f);
+    its.push_back(NewNumericRangeIterator(sp, &v[i], f));
   }
 
-  return new UnionIterator(its, n, NULL, 1, 1);
+  return new UnionIterator(its, NULL, 1, 1);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -378,8 +377,7 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
 
 //---------------------------------------------------------------------------------------------
 
-IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                        ConcurrentSearch<NumericUnionConcKey> *csx) {
+IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt, ConcurrentSearch *csx) {
   RedisModuleString *s = ctx->spec->GetFormattedKeyByName(flt->fieldName, INDEXFLD_T_NUMERIC);
   if (!s) {
     return NULL;

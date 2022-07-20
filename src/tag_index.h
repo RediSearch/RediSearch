@@ -10,7 +10,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct TagConcKey : ConcurrentKey<arrayof(IndexIterator*)> {
+struct TagConcKey : ConcurrentKey {
   TagConcKey(RedisModuleKey *key, RedisModuleString *keyName, arrayof(IndexIterator*) its) :
     ConcurrentKey(key, keyName), its(its) {}
 
@@ -160,7 +160,7 @@ struct TagIndex : public BaseIndex {
   // Returns NULL if there is no such tag in the index.
   IndexIterator *OpenReader(IndexSpec *sp, const char *value, size_t len, double weight);
 
-  void RegisterConcurrentIterators(ConcurrentSearch<TagConcKey> *conc, RedisModuleKey *key,
+  void RegisterConcurrentIterators(ConcurrentSearch *conc, RedisModuleKey *key,
                                    RedisModuleString *keyname, arrayof(IndexIterator*) iters);
 
   struct InvertedIndex *OpenIndex(const char *value, size_t len, int create);

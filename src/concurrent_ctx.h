@@ -42,7 +42,6 @@
 // needs to be reopened after yielding and gaining back execution.
 // See ConcurrentSearch_AddKey for more details.
 
-template <class T>
 struct ConcurrentKey {
   ConcurrentKey(RedisModuleKey *key, RedisModuleString *keyName, int openFlags = REDISMODULE_READ) :
     key(key), keyName(keyName), keyFlags(openFlags) {}
@@ -51,23 +50,22 @@ struct ConcurrentKey {
   RedisModuleString *keyName;
   int keyFlags; // redis key open flags
 
-  virtual void Reopen() {}
+  virtual void Reopen() = 0;
 };
 
 //---------------------------------------------------------------------------------------------
 
-template <class T> //@@ T inherits from ConcurrentKey<T>
 struct ConcurrentSearch {
   long long ticker;
   struct timespec lastTime;
   RedisModuleCtx *ctx;
-  Vector<T> concKeys;
+  Vector<ConcurrentKey> concKeys;
   bool isLocked;
 
   ConcurrentSearch(RedisModuleCtx *rctx);
   ~ConcurrentSearch();
 
-  void AddKey(T &&concKeys);
+  void AddKey(ConcurrentKey &&concKeys);
 
   bool CheckTimer();
   void ResetClock();

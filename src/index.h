@@ -19,18 +19,15 @@
 
 class UnionIterator : public IndexIterator {
 public:
-  UnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit, double weight);
-  ~UnionIterator();
+  UnionIterator(Vector<IndexIterator *> its, DocTable *dt, int quickExit, double weight);
 
   // We maintain two iterator arrays. One is the original iterator list, and
   // the other is the list of currently active iterators. When an iterator
   // reaches EOF, it is set to NULL in the `its` list, but is still retained in
   // the `origits` list, for the purpose of supporting things like Rewind() and Free().
 
-  IndexIterator **its;
-  IndexIterator **origits;
-  uint32_t num;
-  uint32_t norig;
+  Vector<IndexIterator *> its;
+  Vector<IndexIterator *> origits;
   uint32_t currIt;
   t_docId minDocId;
 
@@ -64,13 +61,11 @@ public:
 
 class UnionCriteriaTester : public IndexCriteriaTester {
 public:
-  UnionCriteriaTester(IndexCriteriaTester **testers, int ntesters);
-  ~UnionCriteriaTester();
+  UnionCriteriaTester(Vector<IndexCriteriaTester*> testers);
 
-  IndexCriteriaTester **children;
-  int nchildren;
+  Vector<IndexCriteriaTester*> children;
 
-  int Test(t_docId id);
+  bool Test(t_docId id);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -82,20 +77,19 @@ public:
 
 class IntersectIterator : public IndexIterator {
 public:
-  IntersectIterator(IndexIterator **its, size_t num, DocTable *dt, t_fieldMask fieldMask,
+  IntersectIterator(Vector<IndexIterator *> its, DocTable *dt, t_fieldMask fieldMask,
                     int maxSlop, int inOrder, double weight);
   ~IntersectIterator();
 
-  IndexIterator **its;
+  Vector<IndexIterator *> its;
   IndexIterator *bestIt;
-  IndexCriteriaTester **testers;
+  Vector<IndexCriteriaTester *> testers;
   t_docId *docIds;
   int *rcs;
-  unsigned num;
   size_t len;
   int maxSlop;
   int inOrder;
-  t_docId lastDocId; // last read docId from any child
+  t_docId lastDocId;   // last read docId from any child
   t_docId lastFoundId; // last id that was found on all children
 
   DocTable *docTable;
@@ -126,12 +120,11 @@ public:
 
 class IICriteriaTester : public IndexCriteriaTester {
 public:
-  IICriteriaTester(IndexCriteriaTester **testers);
-  ~IICriteriaTester();
+  IICriteriaTester(Vector<IndexCriteriaTester *> testers);
 
-  IndexCriteriaTester **children;
+  Vector<IndexCriteriaTester *> children;
 
-  int Test(t_docId id);
+  bool Test(t_docId id);
 };
 
 

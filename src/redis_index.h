@@ -9,7 +9,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct TermIndexReaderConcKey : public ConcurrentKey<TermIndexReader> {
+struct TermIndexReaderConcKey : public ConcurrentKey {
   TermIndexReader *reader;
 
   TermIndexReaderConcKey(RedisModuleKey *key, RedisModuleString *keyName, TermIndexReader *reader) :
@@ -23,7 +23,7 @@ struct TermIndexReaderConcKey : public ConcurrentKey<TermIndexReader> {
 // Open an inverted index reader on a redis DMA string, for a specific term.
 // If singleWordMode is set to 1, we do not load the skip index, only the score index
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
-                              int singleWordMode, t_fieldMask fieldMask, TermIndexReaderConcKey *csx,
+                              int singleWordMode, t_fieldMask fieldMask, ConcurrentSearch *csx,
                               double weight);
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,

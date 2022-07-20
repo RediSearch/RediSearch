@@ -253,8 +253,8 @@ void VirtualResult::Print(int depth) const {
 
 //---------------------------------------------------------------------------------------------
 
-RSQueryTerm::RSQueryTerm(const RSToken &tok, int id) : id(id), idf(1.0), flags(tok->flags),
-  str(tok->str ? rm_strndup(tok->str, tok->len) : NULL), len(tok->len) {
+RSQueryTerm::RSQueryTerm(const RSToken &tok, int id) : id(id), idf(1.0), flags(tok.flags),
+  str(tok.str ? rm_strndup(tok.str, tok.len) : NULL), len(tok.len) {
 }
 
 //---------------------------------------------------------------------------------------------

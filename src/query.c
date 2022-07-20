@@ -7,6 +7,7 @@
 #include "redis_index.h"
 #include "tokenize.h"
 #include "tag_index.h"
+#include "id_list.h"
 #include "err.h"
 #include "concurrent_ctx.h"
 #include "numeric_index.h"
@@ -222,7 +223,7 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
     rm_free(its);
     return NULL;
   }
-  return new UnionIterator(its, itsSz, q->docTable, 1, opts->weight);
+  return new UnionIterator(its, q->docTable, 1, opts->weight);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -254,8 +255,8 @@ struct LexRangeCtx {
   QueryNodeOptions *opts;
   double weight;
 
-  LexRangeCtx(Query q, QueryNodeOptions *opts, double weight = 0) :
-    q(&q), opts(opts), weight(weight) {}
+  LexRangeCtx(Query *q, QueryNodeOptions *opts, double weight = 0) :
+    q(q), opts(opts), weight(weight) {}
 };
 
 static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
@@ -304,7 +305,7 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
 
 IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
   Trie *t = q->sctx->spec->terms;
-  LexRangeCtx ctx(*q, &opts);
+  LexRangeCtx ctx(q, &opts);
 
   if (!t) {
     return NULL;
@@ -329,7 +330,7 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
     rm_free(ctx.its);
     return NULL;
   } else {
-    return new UnionIterator(ctx.its, ctx.nits, q->docTable, 1, opts.weight);
+    return new UnionIterator(ctx.its, q->docTable, 1, opts.weight);
   }
 }
 
@@ -464,7 +465,7 @@ IndexIterator *QueryGeofilterNode::Eval(Query *q, double weight) {
   }
 
   GeoIndex gi(q->sctx, fs);
-  return new GeoRangeIterator(&gi, gf, weight);
+  return gi.NewGeoRangeIterator(*gf, weight);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -504,7 +505,7 @@ IndexIterator *QueryUnionNode::EvalNode(Query *q) {
     return ret;
   }
 
-  return new UnionIterator(iters, n, q->docTable, 0, opts.weight);
+  return new UnionIterator(iters, q->docTable, 0, opts.weight);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -530,7 +531,7 @@ IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexItera
     rm_free(ctx.its);
     return NULL;
   } else {
-    return new UnionIterator(ctx.its, ctx.nits, q->docTable, 1, opts.weight);
+    return new UnionIterator(ctx.its, q->docTable, 1, opts.weight);
   }
 }
 
@@ -579,7 +580,7 @@ IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIterato
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  return new UnionIterator(its, itsSz, q->docTable, 1, weight);
+  return new UnionIterator(its, q->docTable, 1, weight);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -596,14 +597,10 @@ IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIterat
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryTagNode::EvalNode(Query *q) {
-  // if (qn->type != QN_TAG) {
-  //   return NULL;
-  // }
-  QueryTagNode *node = &tag;
   RedisModuleKey *k = NULL;
   size_t n = 0;
-  const FieldSpec *fs =
-      q->sctx->spec->GetFieldCase(node->fieldName, strlen(node->fieldName));
+  const FieldSpec *fs = q->sctx->spec->GetFieldCase(fieldName, strlen(fieldName));
+
   if (!fs) {
     return NULL;
   }
@@ -611,6 +608,7 @@ IndexIterator *QueryTagNode::EvalNode(Query *q) {
   TagIndex *idx = TagIndex::Open(q->sctx, kstr, 0, &k);
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
+  Vector<IndexIterator *> iters;
 
   if (!idx) {
     goto done;
@@ -630,15 +628,13 @@ IndexIterator *QueryTagNode::EvalNode(Query *q) {
   }
 
   // recursively eval the children
-  IndexIterator **iters = rm_calloc(NumChildren(), sizeof(IndexIterator *));
   for (size_t i = 0; i < NumChildren(); i++) {
-    IndexIterator *it =
-        children[i]->EvalSingleTagNode(q, idx, &total_its, opts.weight);
+    IndexIterator *it = children[i]->EvalSingleTagNode(q, idx, &total_its, opts.weight);
     if (it) {
-      iters[n++] = it;
+      iters.push_back(it);
     }
   }
-  if (n == 0) {
+  if (iters.empty()) {
     goto done;
   }
 
@@ -651,7 +647,7 @@ IndexIterator *QueryTagNode::EvalNode(Query *q) {
     }
   }
 
-  ret = new UnionIterator(iters, n, q->docTable, 0, opts.weight);
+  ret = new UnionIterator(iters, q->docTable, 0, opts.weight);
 
 done:
   if (k) {
@@ -709,7 +705,7 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx, QueryConcurrentSearch *conc) :
+Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx, ConcurrentSearch *conc) :
   conc(conc), opts(opts), numTokens(ast.numTokens), docTable(&sctx->spec->docs), sctx(sctx) {}
 
 //---------------------------------------------------------------------------------------------
@@ -726,7 +722,7 @@ Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx, Q
  */
 
 IndexIterator *QueryAST::Iterate(const RSSearchOptions &opts, RedisSearchCtx &sctx,
-                                 QueryConcurrentSearch &conc) const {
+                                 ConcurrentSearch &conc) const {
   Query query(this, &opts, &sctx, &conc);
   IndexIterator *iter = query.Eval(root);
   if (!iter) {
