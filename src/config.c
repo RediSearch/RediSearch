@@ -747,9 +747,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getVSSMaxResize},
          {.name = "MULTI_TEXT_SLOP",
          .helpText = "Set RediSearch delta used to increase positional offsets between array slots for multi text values."
-                      "Can control the level of seperation between phrases in different array slots (related to the SLOP parameter of ft.search command)",
+                      "Can control the level of separation between phrases in different array slots (related to the SLOP parameter of ft.search command)",
          .setValue = setMultiTextOffsetDelta,
-         .getValue = getMultiTextOffsetDelta},
+         .getValue = getMultiTextOffsetDelta,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

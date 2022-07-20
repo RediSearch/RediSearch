@@ -840,7 +840,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
           RedisModuleString *err_msg;
           JSONPath jsonPath = pathParse(fs->path, &err_msg);
           if (jsonPath && pathHasDefinedOrder(jsonPath)) {
-            // Ordering is well undefined
+            // Ordering is well defined
             fs->options &= ~FieldSpec_UndefinedOrder;
           } else {
             // Mark FieldSpec

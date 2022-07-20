@@ -368,7 +368,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len);
 const char *DocumentField_GetArrayValueCStr(const DocumentField *df, size_t *len, size_t index);
 
 /* return the sum of all c string lenths in array */
-size_t DocumentField_GetArrayValueCStrLen(const DocumentField *df);
+size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df);
 
 // Document add functions:
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

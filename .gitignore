@@ -24,3 +24,5 @@ callgrind.out.*
 **/.ipynb_checkpoints/
 /tests/pytests/logs/
 /1/
+build/
+cmake-build-debug/

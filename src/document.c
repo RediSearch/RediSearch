@@ -933,7 +933,7 @@ const char *DocumentField_GetArrayValueCStr(const DocumentField *df, size_t *len
   return NULL;
 }
 
-size_t DocumentField_GetArrayValueCStrLen(const DocumentField *df) {
+size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df) {
   RS_LOG_ASSERT(df->unionType == FLD_VAR_T_ARRAY, "must be array");
   size_t len = 0;
   for (size_t i = 0; i < df->arrayLen; ++i) {

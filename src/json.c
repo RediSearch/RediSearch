@@ -62,12 +62,18 @@ JSONPath pathParse(const char *path, RedisModuleString **err_msg) {
 void pathFree(JSONPath jsonpath) {
   if (japi_ver >= 2) {
     japi->pathFree(jsonpath);
+  } else {
+    // Should not attempt to free none-null path when the required API to parse is not available
+    assert(jsonpath != NULL);
   }
 }
 
 int pathIsSingle(JSONPath jsonpath) {
   if (japi_ver >= 2) {
     return japi->pathIsSingle(jsonpath);
+  } else {
+    // Should not use none-null path when the required API to parse is not available
+    assert(jsonpath != NULL);
   }
   return false;
 }
@@ -75,6 +81,9 @@ int pathIsSingle(JSONPath jsonpath) {
 int pathHasDefinedOrder(JSONPath jsonpath) {
   if (japi_ver >= 2) {
     return japi->pathHasDefinedOrder(jsonpath);
+  } else {
+    // Should not use none-null path when the required API to parse is not available
+    assert(jsonpath != NULL);
   }
   return false;
 }
