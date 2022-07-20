@@ -4,91 +4,102 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef enum { Minmax_Min = 1, Minmax_Max = 2 } MinmaxMode;
+#ifdef 0
+enum MinMaxMode { Minmax_Min = 1, Minmax_Max = 2 };
 
-typedef struct {
-  const RLookupKey *srckey;
+struct MinMaxReducer : public Reducer {
+  MinMaxMode mode;
   double val;
-  MinmaxMode mode;
   size_t numMatches;
-} minmaxCtx;
 
-typedef struct {
-  Reducer base;
-  MinmaxMode mode;
-} MinmaxReducer;
+  MinMaxReducer(MinMaxMode mode_);
+
+  int Add(const RLookupRow *srcrow);
+  RSValue *Finalize();
+};
 
 //---------------------------------------------------------------------------------------------
 
-static void *minmaxNewInstance(Reducer *rbase) {
-  MinmaxReducer *r = (MinmaxReducer *)rbase;
-  minmaxCtx *m = BlkAlloc_Alloc(&rbase->alloc, sizeof(*m), 1024);
-  m->mode = r->mode;
-  m->srckey = r->base.srckey;
-  m->numMatches = 0;
-  if (m->mode == Minmax_Min) {
-    m->val = DBL_MAX;
-  } else if (m->mode == Minmax_Max) {
-    m->val = DBL_MIN;
+MinMaxReducer::MinMaxReducer(MinMaxMode mode_) {
+  numMatches = 0;
+  mode = mode_;
+
+  if (mode == Minmax_Min) {
+    val = DBL_MAX;
+  } else if (mode == Minmax_Max) {
+    val = DBL_MIN;
   } else {
-    m->val = 0;
+    val = 0;
   }
-  return m;
 }
+#endif //0
 
 //---------------------------------------------------------------------------------------------
 
-static int minmaxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
-  minmaxCtx *m = ctx;
+int RDCRMin::Add(const RLookupRow *srcrow) {
   double val;
-  RSValue *v = RLookup_GetItem(m->srckey, srcrow);
+  RSValue *v = srcrow->GetItem(srckey);
   if (!v->ToNumber(&val)) {
     return 1;
   }
 
-  if (m->mode == Minmax_Max && val > m->val) {
-    m->val = val;
-  } else if (m->mode == Minmax_Min && val < m->val) {
-    m->val = val;
+  if (val < data.val) {
+    data.val = val;
   }
 
-  m->numMatches++;
+  data.numMatches++;
+  return 1;
+}
+
+int RDCRMax::Add(const RLookupRow *srcrow) {
+  double val;
+  RSValue *v = srcrow->GetItem(srckey);
+  if (!v->ToNumber(&val)) {
+    return 1;
+  }
+
+  if (val > data.val) {
+    data.val = val;
+  }
+
+  data.numMatches++;
   return 1;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static RSValue *minmaxFinalize(Reducer *parent, void *instance) {
-  minmaxCtx *ctx = instance;
-  return RS_NumVal(ctx->numMatches ? ctx->val : 0);
+RSValue *RDCRMin::Finalize() {
+  return RS_NumVal(data.numMatches ? data.val : 0);
+}
+
+RSValue *RDCRMax::Finalize() {
+  return RS_NumVal(data.numMatches ? data.val : 0);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static Reducer *newMinMax(const ReducerOptions *options, MinmaxMode mode) {
-  MinmaxReducer *r = rm_calloc(1, sizeof(*r));
-  if (!options->GetKey(&r->base.srckey)) {
-    rm_free(r);
-    return NULL;
+RDCRMin::RDCRMin(const ReducerOptions *options) {
+  if (!options->GetKey(&srckey)) {
+    throw Error("RDCRMin: no key found");
   }
-  r->base.NewInstance = minmaxNewInstance;
-  r->base.Add = minmaxAdd;
-  r->base.Finalize = minmaxFinalize;
-  r->base.Free = Reducer_GenericFree;
-  r->mode = mode;
-  return &r->base;
+
+  data.numMatches = 0;
+  data.val = DBL_MIN;
+
+  reducerId = REDUCER_T_MIN;
 }
 
 //---------------------------------------------------------------------------------------------
 
-Reducer *RDCRMin_New(const ReducerOptions *options) {
-  return newMinMax(options, Minmax_Min);
-}
+RDCRMax::RDCRMax(const ReducerOptions *options) {
+  if (!options->GetKey(&srckey)) {
+    throw Error("RDCRMax: no key found");
+  }
 
-//---------------------------------------------------------------------------------------------
+  data.numMatches = 0;
+  data.val = DBL_MAX;
 
-Reducer *RDCRMax_New(const ReducerOptions *options) {
-  return newMinMax(options, Minmax_Max);
+  reducerId = REDUCER_T_MAX;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

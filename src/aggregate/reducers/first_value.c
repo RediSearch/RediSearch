@@ -3,8 +3,9 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef 0
 struct fvCtx {
-  const RLookupKey *retprop;   // The key to return
+  const RLookupKey *srckey;   // The key to return
   const RLookupKey *sortprop;  // The key to sort by
   RSValue *value;              // Value to return
   RSValue *sortval;            // Top sorted value
@@ -23,7 +24,7 @@ static void *fvNewInstance(Reducer *rbase) {
   FVReducer *parent = (FVReducer *)rbase;
   BlkAlloc *ba = &parent->base.alloc;
   fvCtx *fv = ba->Alloc(sizeof(*fv), 1024 * sizeof(*fv));  // malloc(sizeof(*ctr));
-  fv->retprop = parent->base.srckey;
+  fv->srckey = parent->base.srckey;
   fv->sortprop = parent->sortprop;
   fv->ascending = parent->ascending;
 
@@ -32,50 +33,50 @@ static void *fvNewInstance(Reducer *rbase) {
   return fv;
 }
 
+#endif //0
+
 //---------------------------------------------------------------------------------------------
 
-static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
-  fvCtx *fvx = ctx;
-  if (fvx->value) {
+int RDCRFirstValue::noSort(const RLookupRow *srcrow) {
+  if (data.value) {
     return 1;
   }
 
-  RSValue *val = srcrow->GetItem(fvx->retprop);
+  RSValue *val = srcrow->GetItem(srckey);
   if (!val) {
-    fvx->value = RS_NullVal();
+    data.value = RS_NullVal();
     return 1;
   }
-  fvx->value = val->IncrRef();
+  data.value = val->IncrRef();
   return 1;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
-  fvCtx *fvx = ctx;
-  RSValue *val = srcrow->GetItem(fvx->retprop);
+int RDCRFirstValue::sort(const RLookupRow *srcrow) {
+  RSValue *val = srcrow->GetItem(srckey);
   if (!val) {
     return 1;
   }
 
-  RSValue *curSortval = srcrow->GetItem(fvx->sortprop);
+  RSValue *curSortval = srcrow->GetItem(data.sortprop);
   if (!curSortval) {
     curSortval = &RS_StaticNull;
   }
 
-  if (!fvx->sortval) {
+  if (!data.sortval) {
     // No current value: assign value and continue
-    fvx->value = val->IncrRef();
-    fvx->sortval = curSortval->IncrRef();
+    data.value = val->IncrRef();
+    data.sortval = curSortval->IncrRef();
     return 1;
   }
 
-  int rc = (fvx->ascending ? -1 : 1) * RSValue::Cmp(curSortval, fvx->sortval, NULL);
-  int isnull = fvx->sortval->IsNull();
+  int rc = (ascending ? -1 : 1) * RSValue::Cmp(curSortval, data.sortval, NULL);
+  int isnull = data.sortval->IsNull();
 
-  if (!fvx->value || (!isnull && rc > 0) || (isnull && rc < 0)) {
-    RSVALUE_REPLACE(&fvx->sortval, curSortval);
-    RSVALUE_REPLACE(&fvx->value, val);
+  if (!data.value || (!isnull && rc > 0) || (isnull && rc < 0)) {
+    RSVALUE_REPLACE(&data.sortval, curSortval);
+    RSVALUE_REPLACE(&data.value, val);
   }
 
   return 1;
@@ -83,56 +84,56 @@ static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 //---------------------------------------------------------------------------------------------
 
-static RSValue *fvFinalize(Reducer *parent, void *ctx) {
-  fvCtx *fvx = ctx;
-  return fvx->value->IncrRef();
+int RDCRFirstValue::Add(const RLookupRow *srcrow) {
+  if (data.sortprop) {
+    sort(srcrow);
+  }
+  else {
+    noSort(srcrow);
+  }
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void fvFreeInstance(Reducer *parent, void *p) {
-  fvCtx *fvx = p;
-  RSVALUE_CLEARVAR(fvx->value);
-  RSVALUE_CLEARVAR(fvx->sortval);
+RSValue *RDCRFirstValue::Finalize() {
+  return data.value->IncrRef();
 }
 
 //---------------------------------------------------------------------------------------------
 
-Reducer *RDCRFirstValue_New(const ReducerOptions *options) {
-  FVReducer *fvr = rm_calloc(1, sizeof(*fvr));
-  fvr->ascending = 1;
+RDCRFirstValue::~RDCRFirstValue() {
+  RSVALUE_CLEARVAR(data.value);
+  RSVALUE_CLEARVAR(data.sortval);
+}
 
-  if (!options->GetKey(&fvr->base.srckey)) {
-    rm_free(fvr);
-    return NULL;
+//---------------------------------------------------------------------------------------------
+
+RDCRFirstValue::RDCRFirstValue(const ReducerOptions *options) {
+  ascending = true;
+
+  if (!options->GetKey(&srckey)) {
+    throw Error("RDCRFirstValue: no key found");
   }
 
   if (options->args->AdvanceIfMatch("BY")) {
     // Get the next field...
-    if (!options->GetKey(&fvr->sortprop)) {
-      rm_free(fvr);
-      return NULL;
+    if (!options->GetKey(&data.sortprop)) {
+      throw Error("RDCRFirstValue: no sort by found");
     }
     if (options->args->AdvanceIfMatch("ASC")) {
-      fvr->ascending = 1;
+      ascending = true;
     } else if (options->args->AdvanceIfMatch("DESC")) {
-      fvr->ascending = 0;
+      ascending = false;
     }
   }
 
   if (!options->EnsureArgsConsumed()) {
-    rm_free(fvr);
-    return NULL;
+    throw Error("RDCRFirstValue: args not consumed");
   }
 
-  Reducer *rbase = &fvr->base;
-
-  rbase->Add = fvr->sortprop ? fvAdd_sort : fvAdd_noSort;
-  rbase->Finalize = fvFinalize;
-  rbase->Free = Reducer_GenericFree;
-  rbase->FreeInstance = fvFreeInstance;
-  rbase->NewInstance = fvNewInstance;
-  return rbase;
+  data.value = NULL;
+  data.sortval = NULL;
+  //@@ reducerId = ?;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

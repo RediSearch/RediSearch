@@ -8,6 +8,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef 0
 #define INSTANCE_BLOCK_NUM 1024
 
 static const int khid = 35;
@@ -22,46 +23,38 @@ RDCRCountDistinct::Data *RDCRCountDistinct::NewInstance(Reducer *r) {
   srckey = r->srckey;
   return dd;
 }
+#endif //0
 
 //---------------------------------------------------------------------------------------------
 
-int RDCRCountDistinct::Add(Data *dd, const RLookupRow *srcrow) {
-  const RSValue *val = srcrow->GetItem(ctr->srckey);
+int RDCRCountDistinct::Add(const RLookupRow *srcrow) {
+  const RSValue *val = srcrow->GetItem(srckey);
   if (!val || val->t == RSValue_Null) {
     return 1;
   }
 
   uint64_t hval = val->Hash(0);
+  auto got = data.dedup.find(hval);
 
-  khiter_t k = kh_get(khid, ctr->dedup, hval);  // first have to get ieter
-  if (k == kh_end(ctr->dedup)) {
-    ctr->count++;
-    int ret;
-    kh_put(khid, dd->dedup, hval, &ret);
+  if (got == data.dedup.end()) {
+    data.dedup.insert(hval);//@@ What for? we use just the size of dedup
   }
   return 1;
 }
 
 //---------------------------------------------------------------------------------------------
 
-RSValue *RDCRCountDistinct::Finalize(Data *dd) {
-  return RS_NumVal(dd->count);
+RSValue *RDCRCountDistinct::Finalize() {
+  return RS_NumVal(data.dedup.size());
 }
-
-//---------------------------------------------------------------------------------------------
-
-// void RDCRCountDistinct::FreeInstance(Data *dd) {
-//   // we only destroy the hash table. The object itself is allocated from a block and needs no freeing
-//   // kh_destroy(khid, dd->dedup);
-// }
 
 //---------------------------------------------------------------------------------------------
 
 RDCRCountDistinct::RDCRCountDistinct(const ReducerOptions *options) {
   if (!options->GetKey(&srckey)) {
     throw Error("RDCRCountDistinct: no key found");
-
   }
+
   reducerId = REDUCER_T_DISTINCT;
 }
 
@@ -81,8 +74,7 @@ static void *distinctishNewInstance(Reducer *parent) {
 
 //---------------------------------------------------------------------------------------------
 
-static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *srcrow) {
-  distinctishCounter *ctr = instance;
+int RDCRCountDistinctish::Add(const RLookupRow *srcrow) {
   const RSValue *val = srcrow->GetItem(ctr->key);
   if (!val || val->t == RSValue_Null) {
     return 1;
@@ -90,22 +82,14 @@ static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *src
 
   uint64_t hval = RSValue_Hash(val, 0x5f61767a);
   uint32_t val32 = (uint32_t)hval ^ (uint32_t)(hval >> 32);
-  hll_add_hash(&ctr->hll, val32);
+  hll_add_hash(&data.hll, val32);
   return 1;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static RSValue *distinctishFinalize(Reducer *parent, void *instance) {
-  distinctishCounter *ctr = instance;
-  return RS_NumVal((uint64_t)hll_count(&ctr->hll));
-}
-
-//---------------------------------------------------------------------------------------------
-
-static void distinctishFreeInstance(Reducer *r, void *p) {
-  distinctishCounter *ctr = p;
-  hll_destroy(&ctr->hll);
+RSValue *RDCRCountDistinctish::Finalize() {
+  return RS_NumVal((uint64_t)hll_count(&hll));
 }
 
 //---------------------------------------------------------------------------------------------
@@ -133,10 +117,9 @@ static RSValue *hllFinalize(Reducer *parent, void *ctx) {
 }
 
 //---------------------------------------------------------------------------------------------
-
-static Reducer *newHllCommon(const ReducerOptions *options, int isRaw) {
-  Reducer *r = rm_calloc(1, sizeof(*r));
-  if (!options->GetKey(&r->srckey)) {
+#ifdef 0
+Reducer *newHllCommon(const ReducerOptions *options) {
+  if (!options->GetKey(&srckey)) {
     rm_free(r);
     return NULL;
   }
@@ -154,23 +137,29 @@ static Reducer *newHllCommon(const ReducerOptions *options, int isRaw) {
   }
   return r;
 }
+#endif
 
 //---------------------------------------------------------------------------------------------
 
-Reducer *RDCRCountDistinctish_New(const ReducerOptions *options) {
-  return newHllCommon(options, 0);
+RDCRCountDistinctish::RDCRCountDistinctish(const ReducerOptions *options) {
+    if (!options->GetKey(&srckey)) {
+    throw Error("RDCRCountDistinctish: no key found");
+  }
+  reducerId = REDUCER_T_DISTINCTISH;
 }
 
 //---------------------------------------------------------------------------------------------
 
+#ifdef 0
 Reducer *RDCRHLL_New(const ReducerOptions *options) {
   return newHllCommon(options, 1);
 }
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 int RDCRHLLSum::Add(Data *dd, const RLookupRow *srcrow) {
-  const RSValue *val = srcrow->GetItem(dd->srckey);
+  const RSValue *val = srcrow->GetItem(srckey);
   if (val == NULL || !val->IsString()) {
     // Not a string!
     return 0;
@@ -180,12 +169,13 @@ int RDCRHLLSum::Add(Data *dd, const RLookupRow *srcrow) {
   const char *buf = val->StringPtrLen(&len);
   //@@ Verify!
 
-  return dd->Add(buf);
+  return data.Add(buf);
 }
 
 //---------------------------------------------------------------------------------------------
 
-int RDCRHLLSum::Data::Add(const char *buf, size_t len) {
+int RDCRHLLSum::Data::Add(const char *buf) {
+  size_t len = strlen(buf);
   const HLLSerializedHeader *hdr = (const void *)buf;
 
   // Need at least the header size
@@ -226,12 +216,13 @@ int RDCRHLLSum::Data::Add(const char *buf, size_t len) {
 
 //---------------------------------------------------------------------------------------------
 
-RSValue *RDCRHLLSum::Finalize(Data *dd) {
-  return RS_NumVal(dd->hll.bits ? (uint64_t)hll_count(&dd->hll) : 0);
+RSValue *RDCRHLLSum::Finalize() {
+  return RS_NumVal(data.hll.bits ? (uint64_t)hll_count(&data.hll) : 0);
 }
 
 //---------------------------------------------------------------------------------------------
 
+#ifdef 0
 RDCRHLLSum::Data *RDCRHLLSum::NewInstance() {
   Data *dd = alloc.Alloc(sizeof(*dd), 1024 * sizeof(*ctr));
   dd->hll.bits = 0;
@@ -239,11 +230,12 @@ RDCRHLLSum::Data *RDCRHLLSum::NewInstance() {
   dd->srckey = srckey;
   return dd;
 }
+#endif //0
 
 //---------------------------------------------------------------------------------------------
 
-void RDCRHLLSum::FreeInstance(Data *dd) {
-  hll_destroy(&dd->hll);
+RDCRHLLSum::~RDCRHLLSum() {
+  hll_destroy(&data.hll);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -253,6 +245,8 @@ RDCRHLLSum::RDCRHLLSum(const ReducerOptions *options) {
     throw Error("RDCRHLLSum: no key found");
   }
   reducerId = REDUCER_T_HLLSUM;
+  data.hll.bits = 0;
+  data.hll.registers = NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -47,7 +47,7 @@ struct QueryAST : public Object {
   void SetGlobalFilters(t_docId *ids, size_t nids);
 
   IndexIterator *Iterate(const RSSearchOptions &options, RedisSearchCtx &sctx,
-                         QueryConcurrentSearch &conc) const;
+                         ConcurrentSearch &conc) const;
 
   int Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx &sctx,
              QueryError *status);

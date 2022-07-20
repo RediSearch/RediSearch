@@ -125,7 +125,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   headLen += estWordSize;  // Because we trim off a word when finding the toksep
   headLen = Min(headLen, *docLen);
 
-  Array bufTmp = new Array(ArrayAlloc_RM);
+  Array<char*> bufTmp = new Array(ArrayAlloc_RM);
 
   bufTmp.Write(docStr, headLen);
   headLen = stripDuplicateSpaces(bufTmp.data, headLen);

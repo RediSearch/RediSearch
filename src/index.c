@@ -30,10 +30,10 @@ t_docId UnionIterator::LastDocId() const {
 //---------------------------------------------------------------------------------------------
 
 void UnionIterator::SyncIterList() {
-  num = norig;
-  memcpy(its, origits, sizeof(*its) * norig);
-  for (size_t ii = 0; ii < num; ++ii) {
-    its[ii]->minId = 0;
+  its = origits;
+  // memcpy(its, origits, sizeof(*its) * origits.size());
+  for (size_t i = 0; i < its.size(); ++i) {
+    its[i]->minId = 0;
   }
 }
 
@@ -46,8 +46,9 @@ size_t UnionIterator::RemoveExhausted(size_t badix) {
   // source: its + 8 + 1
   // destination: its + 8
   // number: it->len (10) - (8) - 1 == 1
-  memmove(its + badix, its + badix + 1, sizeof(*its) * (num - badix - 1));
-  num--;
+
+  // memmove(its + badix, its + badix + 1, sizeof(*its) * (num - badix - 1));
+  its.erase(its.begin() + badix);
   // Repeat the same index again, because we have a new iterator at the same position
   return badix - 1;
 }
@@ -56,7 +57,7 @@ size_t UnionIterator::RemoveExhausted(size_t badix) {
 
 void UnionIterator::Abort() {
   IITER_SET_EOF(this);
-  for (int i = 0; i < num; i++) {
+  for (int i = 0; i < its.size(); i++) {
     if (its[i]) {
       its[i]->Abort();
     }
@@ -73,7 +74,7 @@ void UnionIterator::Rewind() {
   SyncIterList();
 
   // rewind all child iterators
-  for (size_t i = 0; i < num; i++) {
+  for (size_t i = 0; i < its.size(); i++) {
     its[i]->minId = 0;
     its[i]->Rewind();
   }
@@ -81,29 +82,26 @@ void UnionIterator::Rewind() {
 
 //---------------------------------------------------------------------------------------------
 
-UnionIterator::UnionIterator(IndexIterator **its, int num_, DocTable *dt, int quickExit, double weight_) {
-  origits = its;
+UnionIterator::UnionIterator(Vector<IndexIterator *> its_, DocTable *dt, int quickExit, double weight_) {
+  origits = its_;
   weight = weight_;
-  num = num_;
-  norig = num;
   IITER_CLEAR_EOF(this);
-  current = new UnionResult(num, weight);
+  current = new UnionResult(its_.size(), weight);
   len = 0;
   quickExit = quickExit;
-  its = rm_calloc(num, sizeof(*its));
   nexpected = 0;
   currIt = 0;
 
-  mode = Mode::Sorted;
+  mode = IndexIteratorMode::Sorted;
   _Read = &UnionIterator::ReadSorted;
 
   SyncIterList();
 
   //@@ caveat here
-  for (size_t i = 0; i < num; ++i) {
-    nexpected += its[i]->NumEstimated();
-    if (its[i]->mode == Mode::Unsorted) {
-      mode = Mode::Unsorted;
+  for (size_t i = 0; i < its_.size(); ++i) {
+    nexpected += its_[i]->NumEstimated();
+    if (its_[i]->mode == IndexIteratorMode::Unsorted) {
+      mode = IndexIteratorMode::Unsorted;
       _Read = &UnionIterator::ReadUnsorted;
     }
   }
@@ -112,10 +110,10 @@ UnionIterator::UnionIterator(IndexIterator **its, int num_, DocTable *dt, int qu
   // this code is normally (and should be) dead.
   // i.e. the deepest-most IndexIterator does not have a CT
   //      so it will always eventually return NULL CT
-  if (mode == Mode::Sorted && nexpected >= maxresultsSorted) {
+  if (mode == IndexIteratorMode::Sorted && nexpected >= maxresultsSorted) {
     // make sure all the children support CriteriaTester
     bool ctSupported = true;
-    for (int i = 0; i < num; ++i) {
+    for (int i = 0; i < origits.size(); ++i) {
       IndexCriteriaTester *tester = origits[i]->GetCriteriaTester();
       if (!tester) {
         ctSupported = false;
@@ -132,50 +130,34 @@ UnionIterator::UnionIterator(IndexIterator **its, int num_, DocTable *dt, int qu
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-int UnionCriteriaTester::Test(t_docId id) {
-  for (int i = 0; i < nchildren; ++i) {
+bool UnionCriteriaTester::Test(t_docId id) {
+  for (int i = 0; i < children.size(); ++i) {
     if (children[i]->Test(id)) {
-      return 1;
+      return true;
     }
   }
-  return 0;
-}
-
-//---------------------------------------------------------------------------------------------
-
-UnionCriteriaTester::~UnionCriteriaTester() {
-  for (int i = 0; i < nchildren; ++i) {
-    if (children[i]) {
-      delete children[i];
-    }
-  }
-  rm_free(children);
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
 
 IndexCriteriaTester *UnionIterator::GetCriteriaTester() {
-  IndexCriteriaTester **testers = rm_calloc(num, sizeof(IndexCriteriaTester *));
-  for (size_t i = 0; i < num; ++i) {
+  Vector<IndexCriteriaTester *> testers; // = rm_calloc(num, sizeof(IndexCriteriaTester *));
+  for (size_t i = 0; i < origits.size(); ++i) {
     IndexCriteriaTester *tester = origits[i]->GetCriteriaTester();
     if (!tester) {
-      for (size_t j = 0; j < i; j++) {
-        delete testers[j];
-      }
-      rm_free(testers);
+      delete tester;
       return NULL;
     }
 	  testers[i] = tester;
   }
-  return new UnionCriteriaTester(testers, num);
+  return new UnionCriteriaTester(testers);
 }
 
 //---------------------------------------------------------------------------------------------
 
-UnionCriteriaTester::UnionCriteriaTester(IndexCriteriaTester **testers, int ntesters) {
-  children = testers;
-  nchildren = ntesters;
-}
+UnionCriteriaTester::UnionCriteriaTester(Vector<IndexCriteriaTester *> testers) :
+  children(testers) {}
 
 //---------------------------------------------------------------------------------------------
 
@@ -187,7 +169,7 @@ size_t UnionIterator::NumEstimated() {
 
 int UnionIterator::ReadUnsorted(IndexResult **hit) {
   IndexResult *res = NULL;
-  while (currIt < num) {
+  while (currIt < origits.size()) {
     int rc = origits[currIt]->Read(&res);
     if (rc == INDEXREAD_OK) {
       *hit = res;
@@ -202,7 +184,7 @@ int UnionIterator::ReadUnsorted(IndexResult **hit) {
 
 int UnionIterator::ReadSorted(IndexResult **hit) {
   // nothing to do
-  if (num == 0 || !IITER_HAS_NEXT(this)) {
+  if (its.empty() || !IITER_HAS_NEXT(this)) {
     IITER_SET_EOF(this);
     return INDEXREAD_EOF;
   }
@@ -216,7 +198,7 @@ int UnionIterator::ReadSorted(IndexResult **hit) {
     IndexIterator *minIt = NULL;
     numActive = 0;
     int rc = INDEXREAD_EOF;
-    unsigned nits = num;
+    unsigned nits = its.size();
 
     for (unsigned i = 0; i < nits; i++) {
       IndexIterator *it = its[i];
@@ -240,7 +222,7 @@ int UnionIterator::ReadSorted(IndexResult **hit) {
       } else {
         // Remove this from the active list
         i = RemoveExhausted(i);
-        nits = num;
+        nits = its.size();
         continue;
       }
 
@@ -267,16 +249,14 @@ int UnionIterator::ReadSorted(IndexResult **hit) {
 
 //---------------------------------------------------------------------------------------------
 
-/**
-Skip to the given docId, or one place after it
-@param ctx IndexReader context
-@param docId docId to seek to
-@param hit an index hit we put our reads into
-@return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF if at EOF
-*/
+// Skip to the given docId, or one place after it
+// @param ctx IndexReader context
+// @param docId docId to seek to
+// @param hit an index hit we put our reads into
+// @return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF if at EOF
 
 int UnionIterator::SkipTo(t_docId docId, IndexResult **hit) {
-  RS_LOG_ASSERT(mode != Mode::Sorted, "union iterator mode is not MODE_SORTED");
+  RS_LOG_ASSERT(mode != IndexIteratorMode::Sorted, "union iterator mode is not MODE_SORTED");
 
   // printf("UI %p skipto %d\n", this, docId);
 
@@ -300,7 +280,7 @@ int UnionIterator::SkipTo(t_docId docId, IndexResult **hit) {
   IndexResult *res;
   IndexResult *minResult = NULL;
   // skip all iterators to docId
-  unsigned xnum = num;
+  unsigned xnum = its.size();
   for (unsigned i = 0; i < xnum; i++) {
     it = its[i];
     // this happens for non existent words
@@ -310,7 +290,7 @@ int UnionIterator::SkipTo(t_docId docId, IndexResult **hit) {
     if (it->minId < docId) {
       if ((rc = it->SkipTo(docId, &res)) == INDEXREAD_EOF) {
         i = RemoveExhausted(i);
-        xnum = num;
+        xnum = its.size();
         continue;
       }
       if (res) {
@@ -370,20 +350,6 @@ int UnionIterator::SkipTo(t_docId docId, IndexResult **hit) {
 
 //---------------------------------------------------------------------------------------------
 
-UnionIterator::~UnionIterator() {
-  for (int i = 0; i < norig; i++) {
-    IndexIterator *it = origits[i];
-    if (it) {
-      delete it;
-    }
-  }
-
-  rm_free(its);
-  rm_free(origits);
-}
-
-//---------------------------------------------------------------------------------------------
-
 size_t UnionIterator::Len() {
   return len;
 }
@@ -391,33 +357,17 @@ size_t UnionIterator::Len() {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IntersectIterator::~IntersectIterator() {
-  for (int i = 0; i < num; i++) {
-    if (its[i] != NULL) {
-      delete its[i];
-    }
-    // IndexResult_Free(&ui->currentHits[i]);
-  }
-
-  for (int i = 0; i < array_len(testers); i++) {
-    if (testers[i]) {
-      delete testers[i];
-    }
-  }
   if (bestIt) {
     delete bestIt;
   }
-
   rm_free(docIds);
-  rm_free(its);
-  //IndexResult_Free(current);
-  array_free(testers);
 }
 
 //---------------------------------------------------------------------------------------------
 
 void IntersectIterator::Abort() {
   isValid = 0;
-  for (int i = 0; i < num; i++) {
+  for (int i = 0; i < its.size(); i++) {
     if (its[i]) {
       its[i]->Abort();
     }
@@ -425,11 +375,11 @@ void IntersectIterator::Abort() {
 }
 
 void IntersectIterator::Rewind() {
-  isValid = 1;
+  isValid = true;
   lastDocId = 0;
 
   // rewind all child iterators
-  for (int i = 0; i < num; i++) {
+  for (int i = 0; i < its.size(); i++) {
     docIds[i] = 0;
     if (its[i]) {
       its[i]->Rewind();
@@ -447,21 +397,14 @@ void IntersectIterator::SortChildren() {
   // 3. If all or any of the iterators are sorted, then remove the
   //    unsorted iterators from the equation, simply adding them to the tester list
 
-  IndexIterator **unsortedIts = NULL;
-  IndexIterator **sortedIts = rm_malloc(sizeof(IndexIterator *) * num);
-  size_t sortedItsSize = 0;
-  for (size_t i = 0; i < num; ++i) {
+  Vector<IndexIterator *> unsortedIts;
+  Vector<IndexIterator *> sortedIts;
+  for (size_t i = 0; i < its.size(); ++i) {
     IndexIterator *curit = its[i];
 
     if (!curit) {
       // If the current iterator is empty, then the entire
       // query will fail; just free all the iterators and call it good
-      if (sortedIts) {
-        rm_free(sortedIts);
-      }
-      if (unsortedIts) {
-        array_free(unsortedIts);
-      }
       bestIt = NULL;
       return;
     }
@@ -472,46 +415,44 @@ void IntersectIterator::SortChildren() {
       bestIt = curit;
     }
 
-    if (curit->mode == Mode::Unsorted) {
-      unsortedIts = array_ensure_append(unsortedIts, &curit, 1, IndexIterator *);
+    if (curit->mode == IndexIteratorMode::Unsorted) {
+      unsortedIts.push_back(curit);
     } else {
-      sortedIts[sortedItsSize++] = curit;
+      sortedIts.push_back(curit);
     }
   }
 
-  if (unsortedIts) {
-    if (array_len(unsortedIts) == num) {
-      mode = Mode::Unsorted;
+  if (!unsortedIts.empty()) {
+    if (unsortedIts.size() == its.size()) {
+      mode = IndexIteratorMode::Unsorted;
       _Read = &IntersectIterator::ReadUnsorted;
-      num = 1;
-      its[0] = bestIt;
+      its.clear();
+      its.push_back(bestIt);
       // The other iterators are also stored in unsortedIts
       // and because we know that there are no sorted iterators
     }
 
-    for (size_t ii = 0; ii < array_len(unsortedIts); ++ii) {
-      IndexIterator *cur = unsortedIts[ii];
-      if (mode == Mode::Unsorted && bestIt == cur) {
+    for (size_t i = 0; i < unsortedIts.size(); ++i) {
+      IndexIterator *cur = unsortedIts[i];
+      if (mode == IndexIteratorMode::Unsorted && bestIt == cur) {
         continue;
       }
       IndexCriteriaTester *tester = cur->GetCriteriaTester();
-      testers = array_ensure_append(testers, &tester, 1, IndexCriteriaTester *);
+      testers.push_back(tester);
       delete cur;
     }
   } else {
     bestIt = NULL;
   }
 
-  rm_free(its);
+  delete &its;
   its = sortedIts;
-  num = sortedItsSize;
-  array_free(unsortedIts);
 }
 
 //---------------------------------------------------------------------------------------------
 
-IntersectIterator::IntersectIterator(IndexIterator **its_, size_t num_, DocTable *dt,
-                                     t_fieldMask fieldMask_, int maxSlop_, int inOrder_, double weight_) {
+IntersectIterator::IntersectIterator(Vector<IndexIterator *> its, DocTable *dt, t_fieldMask fieldMask_,
+                                     int maxSlop_, int inOrder_, double weight_) : its(its){
   // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
   IntersectIterator *ctx = rm_calloc(1, sizeof(*ctx));
   lastDocId = 0;
@@ -521,14 +462,12 @@ IntersectIterator::IntersectIterator(IndexIterator **its_, size_t num_, DocTable
   inOrder = inOrder_;
   fieldMask = fieldMask_;
   weight = weight_;
-  docIds = rm_calloc(num_, sizeof(t_docId));
+  docIds = rm_calloc(its.size(), sizeof(t_docId));
   docTable = dt;
   nexpected = UINT32_MAX;
 
   isValid = 1;
-  current = new IntersectResult(num, weight);
-  its = its_;
-  num = num_;
+  current = new IntersectResult(its.size(), weight);
 
   SortChildren();
 }
@@ -546,7 +485,7 @@ int IntersectIterator::SkipTo(t_docId docId, IndexResult **hit) {
 
   int rc = INDEXREAD_EOF;
   // skip all iterators to docId
-  for (int i = 0; i < num; i++) {
+  for (int i = 0; i < its.size(); i++) {
     IndexIterator *it = its[i];
 
     if (!it || !IITER_HAS_NEXT(it)) return INDEXREAD_EOF;
@@ -581,7 +520,7 @@ int IntersectIterator::SkipTo(t_docId docId, IndexResult **hit) {
   // unless we got an EOF - we put the current record into hit
 
   // if the requested id was found on all children - we return OK
-  if (nfound == num) {
+  if (nfound == its.size()) {
     // printf("Skipto %d hit @%d\n", docId, current->docId);
 
     // Update the last found id
@@ -615,7 +554,7 @@ int IntersectIterator::ReadUnsorted(IndexResult **hit) {
       return rc;
     }
     int isMatch = 1;
-    for (size_t i = 0; i < array_len(testers); ++i) {
+    for (size_t i = 0; i < testers.size(); ++i) {
       if (!testers[i]->Test(res->docId)) {
         isMatch = 0;
         break;
@@ -631,42 +570,32 @@ int IntersectIterator::ReadUnsorted(IndexResult **hit) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IICriteriaTester::IICriteriaTester(IndexCriteriaTester **testers) {
-  children = testers;
-}
+IICriteriaTester::IICriteriaTester(Vector<IndexCriteriaTester *> testers) : children(testers) {}
 
-int IICriteriaTester::Test(t_docId id) {
-  for (size_t i = 0; i < array_len(children); ++i) {
+//---------------------------------------------------------------------------------------------
+
+bool IICriteriaTester::Test(t_docId id) {
+  for (size_t i = 0; i < children.size(); ++i) {
     if (!children[i]->Test(id)) {
-      return 0;
+      return false;
     }
   }
-  return 1;
-}
-
-IICriteriaTester::~IICriteriaTester() {
-  for (size_t i = 0; i < array_len(children); ++i) {
-    delete children[i];
-  }
-  array_free(children);
+  return true;
 }
 
 //---------------------------------------------------------------------------------------------
 
 IndexCriteriaTester *IntersectIterator::GetCriteriaTester() {
-  for (size_t i = 0; i < num; ++i) {
+  for (size_t i = 0; i < its.size(); ++i) {
     IndexCriteriaTester *tester = NULL;
     if (its[i]) {
       tester = its[i]->GetCriteriaTester();
     }
     if (!tester) {
-      for (int j = 0; j < i; j++) {
-        delete testers[j];
-      }
-      array_free(testers);
+      delete &testers;
       return NULL;
     }
-    testers = array_ensure_append(testers, tester, 1, IndexCriteriaTester *);
+    testers.push_back(tester);
   }
   IICriteriaTester *it = new IICriteriaTester(testers);
   testers = NULL;
@@ -682,7 +611,7 @@ size_t IntersectIterator::NumEstimated() {
 //---------------------------------------------------------------------------------------------
 
 int IntersectIterator::ReadSorted(IndexResult **hit) {
-  if (num == 0) return INDEXREAD_EOF;
+  if (its.empty()) return INDEXREAD_EOF;
 
   int nh = 0;
   int i = 0;
@@ -691,7 +620,7 @@ int IntersectIterator::ReadSorted(IndexResult **hit) {
     nh = 0;
     result().Reset();
 
-    for (i = 0; i < num; i++) {
+    for (i = 0; i < its.size(); i++) {
       IndexIterator *it = its[i];
 
       if (!it) goto eof;
@@ -724,7 +653,7 @@ int IntersectIterator::ReadSorted(IndexResult **hit) {
       }
     }
 
-    if (nh == num) {
+    if (nh == its.size()) {
       // printf("II %p HIT @ %d\n", this, current->docId);
       // sum up all hits
       if (hit != NULL) {
@@ -795,7 +724,7 @@ NotIterator::~NotIterator() {
   if (childCT) {
     delete childCT;
   }
-  deletet current;
+  delete current;
 }
 
 // If we have a match - return NOTFOUND. If we don't or we're at the end - return OK
@@ -978,9 +907,9 @@ NotIterator::NotIterator(IndexIterator *it, t_docId maxDocId_, double weight_) {
   weight = weight_;
 
   _Read = &NotIterator::ReadSorted;
-  mode = Mode::Sorted;
+  mode = IndexIteratorMode::Sorted;
 
-  if (child && child->mode == Mode::Unsorted) {
+  if (child && child->mode == IndexIteratorMode::Unsorted) {
     childCT = child->GetCriteriaTester();
     RS_LOG_ASSERT(childCT, "childCT should not be NULL");
     _Read = &NotIterator::ReadUnsorted;
@@ -1157,9 +1086,9 @@ OptionalIterator::OptionalIterator(IndexIterator *it, t_docId maxDocId_, double 
   nextRealId = 0;
 
   _Read = &OptionalIterator::ReadSorted;
-  mode = Mode::Sorted;
+  mode = IndexIteratorMode::Sorted;
 
-  if (child && child->mode == Mode::Unsorted) {
+  if (child && child->mode == IndexIteratorMode::Unsorted) {
     childCT = child->GetCriteriaTester();
     RS_LOG_ASSERT(childCT, "childCT should not be NULL");
     _Read = &OptionalIterator::ReadUnsorted;

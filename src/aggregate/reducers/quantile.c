@@ -1,9 +1,9 @@
 
 #include "aggregate/reducer.h"
-#include "util/quantile.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef 0
 typedef struct {
   Reducer base;
   double pct;
@@ -14,29 +14,28 @@ typedef struct {
 
 static void *quantileNewInstance(Reducer *parent) {
   QTLReducer *qt = (QTLReducer *)parent;
-  return NewQuantileStream(&qt->pct, 0, qt->resolution);
+  return new QuantileStream(&qt->pct, 0, qt->resolution);
 }
+#endif
 
 //---------------------------------------------------------------------------------------------
 
-static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
+int RDCRQuantile::Add(const RLookupRow *row) {
   double d;
-  QTLReducer *qt = (QTLReducer *)rbase;
-  QuantStream *qs = ctx;
-  RSValue *v = row->GetItem(rbase->srckey);
+  RSValue *v = row->GetItem(srckey);
   if (!v) {
     return 1;
   }
 
   if (v->t != RSValue_Array) {
     if (v->ToNumber(&d)) {
-      qs->Insert(d);
+      data.qs->Insert(d);
     }
   } else {
-    uint32_t sz = RSValue_ArrayLen(v);
+    uint32_t sz = v->ArrayLen();
     for (uint32_t i = 0; i < sz; i++) {
       if (v->ArrayItem(i)->ToNumber(&d)) {
-        qs->Insert(d);
+        data.qs->Insert(d);
       }
     }
   }
@@ -45,64 +44,48 @@ static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
 
 //---------------------------------------------------------------------------------------------
 
-static RSValue *quantileFinalize(Reducer *r, void *ctx) {
-  QuantStream *qs = ctx;
-  QTLReducer *qt = (QTLReducer *)r;
-  double value = qs->Query(qt->pct);
+RSValue *RDCRQuantile::Finalize() {
+  double value = data.qs->Query(pct);
   return RS_NumVal(value);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void quantileFreeInstance(Reducer *unused, void *p) {
-  QuantStream *qs = p;
-  delete qs;
-}
+RDCRQuantile::RDCRQuantile(const ReducerOptions *options) {
+  resolution = 500;  // Fixed, i guess?
 
-//---------------------------------------------------------------------------------------------
-
-Reducer *RDCRQuantile_New(const ReducerOptions *options) {
-  QTLReducer *r = rm_calloc(1, sizeof(*r));
-  r->resolution = 500;  // Fixed, i guess?
-
-  if (!ReducerOptions_GetKey(options, &r->base.srckey)) {
-    goto error;
+  if (!options->GetKey(&srckey)) {
+    throw Error("RDCRQuantile: no key found");
   }
+
   int rv;
-  if ((rv = options->args->GetDouble(&r->pct, 0)) != AC_OK) {
+  if ((rv = options->args->GetDouble(&pct, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(options->status, options->name, rv);
-    goto error;
+    throw Error("RDCRQuantile: Bad arguments");
   }
-  if (!(r->pct >= 0 && r->pct <= 1.0)) {
+  if (!(pct >= 0 && pct <= 1.0)) {
     QERR_MKBADARGS_FMT(options->status, "Percentage must be between 0.0 and 1.0");
-    goto error;
+    throw Error("Percentage must be between 0.0 and 1.0");
   }
 
-  if (!AC_IsAtEnd(options->args)) {
-    if ((rv = AC_GetUnsigned(options->args, &r->resolution, 0)) != AC_OK) {
+  if (!options->args->IsAtEnd()) {
+    if ((rv = options->args->GetUnsigned(&resolution, 0)) != AC_OK) {
       QERR_MKBADARGS_AC(options->status, "<resolution>", rv);
-      goto error;
+      throw Error("RDCRQuantile: Bad arguments");
     }
-    if (r->resolution < 1 || r->resolution > MAX_SAMPLE_SIZE) {
+    if (resolution < 1 || resolution > MAX_SAMPLE_SIZE) {
       QERR_MKBADARGS_FMT(options->status, "Invalid resolution");
-      goto error;
+      throw Error("RDCRQuantile: Invalid resolution");
     }
   }
 
-  if (!ReducerOpts_EnsureArgsConsumed(options)) {
-    goto error;
+  if (!options->EnsureArgsConsumed()) {
+    throw Error("RDCRQuantile: ");
   }
 
-  r->base.NewInstance = quantileNewInstance;
-  r->base.Add = quantileAdd;
-  r->base.Free = Reducer_GenericFree;
-  r->base.FreeInstance = quantileFreeInstance;
-  r->base.Finalize = quantileFinalize;
-  return &r->base;
+  data.qs = new QuantStream(&pct, 0, resolution);
 
-error:
-  rm_free(r);
-  return NULL;
+  reducerId = REDUCER_T_QUANTILE;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

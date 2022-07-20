@@ -47,17 +47,10 @@ enum QITRState {
 
 //---------------------------------------------------------------------------------------------
 
-struct QueryConcurrentSearch {
-  union {
-    ConcurrentSearch<TagConcKey> *tag;
-    ConcurrentSearch<TermIndexReaderConcKey> *term;
-  };
-};
-
 struct QueryIterator {
   struct ResultProcessor *rootProc; // First processor
   struct ResultProcessor *endProc;  // Last processor
-  QueryConcurrentSearch *conc;      // Concurrent search context for thread switching
+  ConcurrentSearch *conc;           // Concurrent search context for thread switching
   RedisSearchCtx *sctx;             // Contains our spec
   double minScore;                  // the minimal score applicable for a result. It can be used to optimize the scorers
   uint32_t totalResults;            // the total results found in the query, incremented by the root processors and decremented by

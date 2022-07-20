@@ -94,7 +94,7 @@ struct AREQ : public Object {
   std::unique_ptr<RedisSearchCtx> sctx;
 
   // Resumable context
-  std::unique_ptr<QueryConcurrentSearch> conc;
+  std::unique_ptr<ConcurrentSearch> conc;
 
   // Context for iterating over the queries themselves
   std::unique_ptr<QueryIterator> qiter;
@@ -172,10 +172,6 @@ struct Group {
   // Contains the selected 'out' values used by the reducers output functions
   RLookupRow rowdata;
 
-  // Contains the actual per-reducer data for the group, in an accumulating fashion
-  // (e.g. how many records seen, and so on). This is created by Reducer::NewInstance()
-  void *accumdata[0];
-
   Group(Grouper &grouper, const RSValue **groupvals, size_t ngrpvals);
 
   void invokeReducers(RLookupRow *srcrow);
@@ -227,7 +223,7 @@ struct Grouper : ResultProcessor {
 
   void writeGroupValues(const Group *gr, SearchResult &r) const;
 
-  void invokeReducers(RLookupRow *srcrow);
+  void invokeReducers(RLookupRow &srcrow);
   void invokeGroupReducers(Group *gr, RLookupRow &srcrow);
 };
 

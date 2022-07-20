@@ -392,9 +392,8 @@ end:
 
 //---------------------------------------------------------------------------------------------
 
-IndexReader *Redis_OpenReader(RedisSearchCtx *sctx, RSQueryTerm *term, DocTable *dt,
-                              int singleWordMode, t_fieldMask fieldMask, TermIndexReaderConcKey *csx,
-                              double weight) {
+IndexReader *Redis_OpenReader(RedisSearchCtx *sctx, RSQueryTerm *term, DocTable *dt, int singleWordMode,
+                              t_fieldMask fieldMask, ConcurrentSearch *csx, double weight) {
 
   RedisModuleString *termKey = sctx->TermKey(term->str, term->len);
   InvertedIndex *idx = NULL;
