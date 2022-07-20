@@ -39,7 +39,7 @@ rune *strToRunes(const char *str, size_t *len);
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
 
 /* similar to strchr */
-const rune *runechr(const rune *r, size_t len);
+const rune *runechr(const rune *r, size_t len, rune c);
 
 static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
   /**

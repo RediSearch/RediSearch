@@ -186,6 +186,44 @@ void Suffix_IterateContains(SuffixCtx *sufCtx) {
   }
 }
 
+void Suffix_CB_Wildcard(SuffixCtx *sufCtx, ) {
+  char *s;
+  tm_len_t sl;
+  suffixData *nodeData;;
+  arrayof(char*) resArray = NULL;
+
+  while (TrieMapIterator_NextWildcard(it, &s, &sl, (void **)&nodeData)) {
+    for (int i = 0; i < array_len(nodeData->array); ++i) {
+      if (array_len(resArray) > RSGlobalConfig.maxPrefixExpansions) {
+        goto end;
+      }
+      if (Wildcard_MatchChar(str, slen, nodeData->array[i], strlen(nodeData->array[i])) == FULL_MATCH) {
+        resArray = array_ensure_append_1(resArray, nodeData->array[i]);
+      }
+    }
+  }
+}
+
+void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
+  size_t idx[sufCtx->cstrlen];
+  size_t lens[sufCtx->cstrlen];
+  //int useIdx = Wildcard_StarBreak(sufCtx->cstr, sufCtx->cstrlen, idx, lens);
+  int useIdx = Wildcard_StarBreak_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
+
+  rune *token = sufCtx->rune + idx[useIdx];
+  size_t toklen = lens[useIdx];
+  if (token[toklen] == (rune)'*') {
+    toklen++;
+  }
+  token[toklen] = (rune)'\0';
+
+  TrieNode_IterateWildcard(sufCtx->root, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout);
+}
+
+
+
+
+
 void suffixTrie_freeCallback(void *payload) {
   suffixData *data = payload;
   array_free(data->array);

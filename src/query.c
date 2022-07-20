@@ -538,6 +538,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
         .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
         .callback = suffixIterCb,
         .cbCtx = &ctx,
+
       };
       Suffix_IterateContains(&sufCtx);
     } else {
@@ -583,6 +584,8 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
+  printf("String: %s \n",token->str);
+
   // spec support contains queries
   if (spec->suffix) {
     // all modifier fields are supported
@@ -595,10 +598,11 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         .cstr = token->str,
         .cstrlen = token->len,
         .type = SUFFIX_TYPE_WILDCARD,
-        .callback = suffixIterCb,
+        .callback = (TrieRangeCallback*)suffixIterCb, // the difference is weather the function receives char or rune
         .cbCtx = &ctx,
+        .timeout = &q->sctx->timeout,
       };
-      Suffix_IterateContains(&sufCtx);
+      Suffix_IterateWildcard(&sufCtx);
     } else {
       QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
@@ -671,6 +675,26 @@ static int rangeIterCb(const rune *r, size_t n, void *p) {
 }
 
 static int suffixIterCb(const char *s, size_t n, void *p) {
+  LexRangeCtx *ctx = p;
+  if (ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
+    return REDISEARCH_ERR;
+  }
+  QueryEvalCtx *q = ctx->q;
+  RSToken tok = {.str = (char *)s, .len = n};
+  RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
+  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
+                                     q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+  // rm_free(tok.str);
+  if (!ir) {
+    Term_Free(term);
+    return REDISEARCH_OK;
+  }
+
+  rangeItersAddIterator(ctx, ir);
+  return REDISEARCH_OK;
+}
+
+static int wildcardIterCb(void *s, size_t n, void *p) {
   LexRangeCtx *ctx = p;
   if (ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
     return REDISEARCH_ERR;

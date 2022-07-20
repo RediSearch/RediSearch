@@ -20,13 +20,14 @@ typedef enum {
 /***********************************************************/
 typedef struct SuffixCtx {
     TrieNode *root;
-    const rune *rune;
+    rune *rune;
     size_t runelen;
     const char *cstr;
     size_t cstrlen;
     SuffixType type;
-    TrieSuffixCallback *callback;
+    TrieRangeCallback *callback;
     void *cbCtx;
+    struct timespec *timeout;
 } SuffixCtx;
 
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
@@ -35,6 +36,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
 void suffixTrie_freeCallback(void *data);
 
 void Suffix_IterateContains(SuffixCtx *sufCtx);
+void Suffix_IterateWildcard(SuffixCtx *sufCtx);
 
 /***********************************************************/
 /*****************        TrieMap       ********************/
