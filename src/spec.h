@@ -83,18 +83,6 @@ struct DocumentIndexer;
        .len = &dummy2,                                                      \
        .type = AC_ARGTYPE_STRING},
 
-/**
- * If wishing to represent field types positionally, use this
- * enum. Since field types are a bitmask, it's pointless to waste
- * space like this
- */
-
-static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
-                                      [IXFLDPOS_NUMERIC] = SPEC_NUMERIC_STR,
-                                      [IXFLDPOS_GEO] = SPEC_GEO_STR,
-                                      [IXFLDPOS_TAG] = SPEC_TAG_STR,
-                                      [IXFLDPOS_VECTOR] = SPEC_VECTOR_STR};
-
 // TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
