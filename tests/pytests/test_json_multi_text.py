@@ -189,10 +189,10 @@ def testMultiText(env):
     """ test multiple TEXT values at root level (array of strings) """
     
     conn = getConnectionByEnv(env)
-    env.expect('JSON.SET', 'doc:1', '$', json.dumps(json.loads(doc1_content)['category'])).ok()
-    env.expect('JSON.SET', 'doc:2', '$', json.dumps(json.loads(doc2_content)['category'])).ok()
-    env.expect('JSON.SET', 'doc:3', '$', json.dumps(json.loads(doc3_content)['category'])).ok()
-    env.expect('JSON.SET', 'doc:4', '$', json.dumps(json.loads(doc4_content)['category'])).ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(json.loads(doc1_content)['category']))
+    conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps(json.loads(doc2_content)['category']))
+    conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps(json.loads(doc3_content)['category']))
+    conn.execute_command('JSON.SET', 'doc:4', '$', json.dumps(json.loads(doc4_content)['category']))
 
     # Index multi flat values
     env.execute_command('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.[*]', 'AS', 'category', 'TEXT')
@@ -424,7 +424,7 @@ def testMultiNonText(env):
         idx = 'idx{}'.format(i+1)
         env.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'TEXT')
         waitForIndex(env, idx)
-        env.expect('JSON.SET', doc, '$', json.dumps(v)).ok()
+        conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
         res_failures = 0 if i+1 <= 5 else 1
         env.assertEqual(int(index_info(env, idx)['hash_indexing_failures']), res_failures, message=str(i))
     
@@ -483,11 +483,11 @@ def testMultiSortRoot(env):
     
     # docs with array of strings
     for i, gag in enumerate(gag_arr):
-        env.expect('JSON.SET', 'multi:doc:{}'.format(i+1), '$', json.dumps(gag)).ok()
+        conn.execute_command('JSON.SET', 'multi:doc:{}'.format(i+1), '$', json.dumps(gag))
     
     # docs with a single string
     for i, gag in enumerate(gag_arr):
-        env.expect('JSON.SET', 'single:doc:{}'.format(i+1), '$', json.dumps(gag[0])).ok()
+        conn.execute_command('JSON.SET', 'single:doc:{}'.format(i+1), '$', json.dumps(gag[0]))
 
     sortMulti(env, text_cmd_args, tag_cmd_args)
 
@@ -511,11 +511,11 @@ def testMultiSortNested(env):
     
     # docs with array of strings
     for i, gag in enumerate(gag_arr):
-        env.expect('JSON.SET', 'multi:doc:{}'.format(i+1), '$', json.dumps({ "chalkboard": gag})).ok()
+        conn.execute_command('JSON.SET', 'multi:doc:{}'.format(i+1), '$', json.dumps({ "chalkboard": gag}))
     
     # docs with a single string
     for i, gag in enumerate(gag_arr):
-        env.expect('JSON.SET', 'single:doc:{}'.format(i+1), '$', json.dumps({ "chalkboard": gag[0]})).ok()
+        conn.execute_command('JSON.SET', 'single:doc:{}'.format(i+1), '$', json.dumps({ "chalkboard": gag[0]}))
 
     sortMulti(env, text_cmd_args, tag_cmd_args)
 
@@ -598,8 +598,8 @@ def testMultiEmptyBlankOrNone(env):
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'TEXT')
     
     for i, val in enumerate(values):
-        env.expect('JSON.SET', 'doc:{}'.format(i+1), '$', json.dumps({ "val": val})).ok()
-    env.expect('JSON.SET', 'doc', '$', json.dumps({"val": ["haha"]})).ok()
+        conn.execute_command('JSON.SET', 'doc:{}'.format(i+1), '$', json.dumps({ "val": val}))
+    conn.execute_command('JSON.SET', 'doc', '$', json.dumps({"val": ["haha"]}))
     env.expect('FT.SEARCH', 'idx', '@val:(haha)', 'NOCONTENT', 'SORTBY', 'val', 'ASC').equal([1, 'doc'])
 
     env.assertEqual(env.execute_command('FT.SEARCH', 'idx', '*', 'NOCONTENT')[0], len(values) + 1)
