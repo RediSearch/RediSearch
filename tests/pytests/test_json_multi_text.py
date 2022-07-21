@@ -138,10 +138,10 @@ def expect_undef_order(query : Query):
 def testMultiTagString(env):
     """ test multiple TAG values (array of strings) """
     conn = getConnectionByEnv(env)
-    env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
-    env.expect('JSON.SET', 'doc:2', '$', doc2_content).ok()
-    env.expect('JSON.SET', 'doc:3', '$', doc3_content).ok()
-    env.expect('JSON.SET', 'doc:4', '$', doc4_content).ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
+    conn.execute_command('JSON.SET', 'doc:2', '$', doc2_content)
+    conn.execute_command('JSON.SET', 'doc:3', '$', doc3_content)
+    conn.execute_command('JSON.SET', 'doc:4', '$', doc4_content)
 
     # Index multi flat values
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.category[*]', 'AS', 'category', 'TAG').ok()
@@ -165,10 +165,11 @@ def testMultiTagString(env):
 def testMultiTagBool(env):
     """ test multiple TAG values (array of Boolean) """
 
+    conn = getConnectionByEnv(env)
     # Index single and multi bool values
-    env.expect('JSON.SET', 'doc:1', '$', '{"foo": {"bar": [true, true]}, "fu": {"bar": [false, true]}}').ok()
-    env.expect('JSON.SET', 'doc:2', '$', '{"foo": {"bar": [true, true]}, "fu": {"bar": [true, true]}}').ok()
-    env.expect('JSON.SET', 'doc:3', '$', '{"foo": {"bar": [false, false]}, "fu": {"bar": [false, false]}}').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', '{"foo": {"bar": [true, true]}, "fu": {"bar": [false, true]}}')
+    conn.execute_command('JSON.SET', 'doc:2', '$', '{"foo": {"bar": [true, true]}, "fu": {"bar": [true, true]}}')
+    conn.execute_command('JSON.SET', 'doc:3', '$', '{"foo": {"bar": [false, false]}, "fu": {"bar": [false, false]}}')
     env.expect('FT.CREATE', 'idx_multi', 'ON', 'JSON', 'SCHEMA', '$..bar[*]', 'AS', 'bar', 'TAG').ok()
     env.expect('FT.CREATE', 'idx_single', 'ON', 'JSON', 'SCHEMA', '$.foo.bar[0]', 'AS', 'bar', 'TAG').ok()
     waitForIndex(env, 'idx_multi')
@@ -212,10 +213,10 @@ def testMultiTextNested(env):
     """ test multiple TEXT values at inner level (array of strings) """
 
     conn = getConnectionByEnv(env)
-    env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
-    env.expect('JSON.SET', 'doc:2', '$', doc2_content).ok()
-    env.expect('JSON.SET', 'doc:3', '$', doc3_content).ok()
-    env.expect('JSON.SET', 'doc:4', '$', doc4_content).ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
+    conn.execute_command('JSON.SET', 'doc:2', '$', doc2_content)
+    conn.execute_command('JSON.SET', 'doc:3', '$', doc3_content)
+    conn.execute_command('JSON.SET', 'doc:4', '$', doc4_content)
 
     # Index multi flat values
     env.execute_command('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.category[*]', 'AS', 'category', 'TEXT')
@@ -446,7 +447,7 @@ def testMultiNonTextNested(env):
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr TEXT
     for (i,v) in enumerate(non_text_dict.values()):
         env.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'TEXT')
-    env.expect('JSON.SET', 'doc:1', '$', doc_non_text_content).ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_text_content)
     
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_text_dict.values()):
@@ -608,7 +609,7 @@ def testconfigMultiTextOffsetDelta(env):
     """ test ft.config `MULTI_TEXT_SLOP` """
     
     conn = getConnectionByEnv(env)
-    env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
     env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr')
 
