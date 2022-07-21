@@ -1,5 +1,5 @@
 version: 0.2
-name: "search-wildcard-sortby-text-desc-ycsb-hash-100k-docs"
+name: "wildcard-sortby-text-asc"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5
@@ -18,4 +18,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH ycsb * LIMIT 0 0 SORTBY field1 DESC'"
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH ycsb * LIMIT 0 0 SORTBY field1 ASC'"

@@ -1,5 +1,5 @@
 version: 0.2
-name: "search-wildcard-nosorting-ycsb-hash-100k-docs"
+name: "search-wildcard-nosorting"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5
