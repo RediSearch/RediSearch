@@ -889,7 +889,7 @@ TEST_F(LLApiTest, testGetters) {
   RediSearch_FreeDocument(d);
 
   RediSearch_FreeIndexOptions(opt);
-  RediSearch_DropIndex(index);  
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testInfo) {
@@ -929,7 +929,7 @@ TEST_F(LLApiTest, testInfo) {
 
   // test invalid option
   RSIdxInfo info = { .version = 0 };
-  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);  
+  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);
 
   info = { .version = RS_INFO_CURRENT_VERSION };
   ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_OK);
@@ -983,7 +983,7 @@ TEST_F(LLApiTest, testInfo) {
   RediSearch_IndexInfoFree(&info);
 
   RediSearch_FreeIndexOptions(opt);
-  RediSearch_DropIndex(index);  
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testLanguage) {
@@ -1013,4 +1013,48 @@ TEST_F(LLApiTest, testScore) {
   ASSERT_EQ(REDISEARCH_OK, RediSearch_IndexOptionsSetScore(opt, 0.5));
   ASSERT_EQ(opt->score, 0.5);
   RediSearch_FreeIndexOptions(opt);
+}
+
+TEST_F(LLApiTest, testInfoSize) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding field to the index
+  RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+
+  ASSERT_EQ(RediSearch_MemUsage(index), 0);
+
+  // adding document to the index
+  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 20, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  ASSERT_EQ(RediSearch_MemUsage(index), 129);
+
+  d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  ASSERT_EQ(RediSearch_MemUsage(index), 285);
+
+  // test MemUsage after deleting docs
+  int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
+  ASSERT_EQ(REDISMODULE_OK, ret);
+  ASSERT_EQ(RediSearch_MemUsage(index), 141);
+  RSGlobalConfig.forkGcCleanThreshold = 0;
+  index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
+  ASSERT_EQ(RediSearch_MemUsage(index), 133);
+
+  ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
+  ASSERT_EQ(REDISMODULE_OK, ret);
+  ASSERT_EQ(RediSearch_MemUsage(index), 18);
+  index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
+  ASSERT_EQ(RediSearch_MemUsage(index), 9);
+  // we have 2 left over b/c of the offset vector size which we cannot clean
+  // since the data is not maintained
+
+  RediSearch_DropIndex(index);
 }

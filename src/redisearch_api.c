@@ -98,7 +98,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
   RWLOCK_ACQUIRE_WRITE();
 
-  // TODO: add a function which can take both path and name 
+  // TODO: add a function which can take both path and name
   FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
   int numTypes = 0;
 
@@ -184,12 +184,12 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
 RSDoc* RediSearch_CreateDocument2(const void* docKey, size_t len, IndexSpec* sp,
                                   double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
-  
-  RSLanguage language = lang ? RSLanguage_Find(lang, 0) : 
+
+  RSLanguage language = lang ? RSLanguage_Find(lang, 0) :
              (sp && sp->rule) ? sp->rule->lang_default : DEFAULT_LANGUAGE;
   double docScore = !isnan(score) ? score :
              (sp && sp->rule) ? sp->rule->score_default : DEFAULT_SCORE;
-  
+
   Document* ret = rm_calloc(1, sizeof(*ret));
   Document_Init(ret, docKeyStr, docScore, language, DocumentType_Hash);
   Document_MakeStringsOwner(ret);
@@ -244,7 +244,7 @@ void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, doubl
   }
 }
 
-int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname, 
+int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
                                     double lat, double lon, unsigned as) {
   if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
     // out of range
@@ -774,6 +774,19 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
   RWLOCK_RELEASE();
 
   return REDISEARCH_OK;
+}
+
+size_t RediSearch_MemUsage(RSIndex* sp) {
+  size_t res = 0;
+  res += sp->docs.memsize;
+  res += sp->docs.sortablesSize;
+  res += TrieMap_MemUsage(sp->docs.dim.tm);
+  res += sp->stats.invertedSize;
+  res += sp->stats.skipIndexesSize;
+  res += sp->stats.scoreIndexesSize;
+  res += sp->stats.offsetVecsSize;
+  res += sp->stats.termsSize;
+  return res;
 }
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {
