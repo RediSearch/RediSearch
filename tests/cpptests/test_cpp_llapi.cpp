@@ -190,7 +190,7 @@ TEST_F(LLApiTest, testAddDocumentGeoField) {
 
   // lat > MAX_LAT
   qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 100, 0.123455, 10, RS_GEO_DISTANCE_M);
-  iter = RediSearch_GetResultsIterator(qn, index);  ASSERT_FALSE(iter);
+  iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_FALSE(iter);
 
   // lon > MAX_LON
