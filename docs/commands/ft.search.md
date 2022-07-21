@@ -89,7 +89,7 @@ Searches the index with a textual query, returning either documents or just ids.
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
 {{% alert title="Expiration of hashes during a search query" color="info" %}}
-If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash will not be returned.
+If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the key will return as null.
 {{% /alert %}}
 
 @examples
