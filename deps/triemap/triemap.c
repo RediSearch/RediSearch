@@ -5,6 +5,7 @@
 #include "util/bsearch.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
+#include "wildcard/wildcard.h"
 
 void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
@@ -1004,10 +1005,6 @@ end:
 }
 
 int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
-  if (TimedOut_WithCounter(&it->timeout, &it->timeoutCounter)) {
-    return 0;
-  }
-
   TrieMapIterator *iter = it->matchIter;
   if (iter) {
     if (__fullmatch_Next(it, ptr, len, value)) {
@@ -1020,6 +1017,10 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
   }
 
   while (array_len(it->stack) > 0) {
+    if (TimedOut_WithCounter(&it->timeout, &it->timeoutCounter)) {
+     return 0;
+    }
+
     __tmi_stackNode *current = __tmi_current(it);
     TrieMapNode *n = current->n;
     int match = 0;
@@ -1042,6 +1043,82 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
       // node string is complete
       } else {
         current->state = TM_ITERSTATE_CHILDREN;
+      }
+    }
+
+    if (current->state == TM_ITERSTATE_CHILDREN) {
+      // push the next child
+      if (current->childOffset < current->n->numChildren) {
+        TrieMapNode *ch = __trieMapNode_children(n)[current->childOffset++];
+
+        // Add the matching child to the stack
+        __tmi_Push(it, ch, 0, current->found);
+
+        goto next;        
+      }
+    }
+  
+    __tmi_Pop(it); 
+  next:
+    continue;
+  }
+
+  return 0;
+}
+
+int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
+  while (array_len(it->stack) > 0) {
+    if (TimedOut_WithCounter(&it->timeout, &it->timeoutCounter)) {
+      return 0;
+    }
+
+    __tmi_stackNode *current = __tmi_current(it);
+    TrieMapNode *n = current->n;
+
+    // term string len is equal or longer than fixed query len, trim search branch
+    // children nodes have at least 1 char
+    if (it->mode == TM_WILDCARD_FIXED_LEN_MODE) {
+      int currentNodeLen = current->state == TM_ITERSTATE_SELF ? current->n->len : 1;
+      if (array_len(it->buf) + currentNodeLen > it->prefixLen) {
+        __tmi_Pop(it);
+        goto next;
+      }
+    }
+
+    if (current->state == TM_ITERSTATE_SELF) {
+      // update buffer with current node chars
+      it->buf = array_ensure_append_n(it->buf, current->n->str, current->n->len);
+      current->stringOffset = current->n->len;
+      current->state = TM_ITERSTATE_CHILDREN;
+
+      // check if current buffer is a match
+      int match = current->found ? FULL_MATCH : 
+                  Wildcard_MatchChar(it->prefix, it->prefixLen, it->buf, array_len(it->buf));
+      switch (match) {
+        case NO_MATCH: {
+          __tmi_Pop(it);
+          goto next;
+        }
+        case FULL_MATCH: {
+          // if query string ends with *, all following children are a match
+          if (it->buf[array_len(it->buf) - 1] == '*') {
+            current->found = true;
+          }
+          // current node is terminal and should be returned
+          if (__trieMapNode_isTerminal(n)) {
+            *ptr = it->buf;
+            *len = array_len(it->buf);
+            *value = n->value;
+            return 1;
+          }
+          // fixed length therefore no more results are possible 
+          if (it->mode == TM_WILDCARD_FIXED_LEN_MODE) {
+            __tmi_Pop(it);
+            goto next;
+          }
+          break;
+        }
+        case PARTIAL_MATCH: break;
       }
     }
 
