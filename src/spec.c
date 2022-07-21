@@ -789,8 +789,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
   }
 
   if (sp->spcache) {
+    pthread_mutex_lock(&sp->spcache_lock);
     IndexSpecCache_Decref(sp->spcache);
     sp->spcache = NULL;
+    pthread_mutex_unlock(&sp->spcache_lock);
   }
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->sortables->len;
@@ -1040,8 +1042,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     FieldsGlobalStats_UpdateStats(spec->fields + i, 1);
   }
 
-  spec->spcache = rm_calloc(1, sizeof(*spec->spcache));
-  if (pthread_mutex_init(&spec->spcache->lock, NULL)) {
+  if (pthread_mutex_init(&spec->spcache_lock, NULL)) {
     goto failure;
   }
 
@@ -1074,18 +1075,21 @@ void Spec_AddToDict(const IndexSpec *sp) {
 }
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
-  pthread_mutex_lock(&spec->spcache->lock);
-  if (spec->spcache->refcount == 0) {
-    IndexSpec_BuildSpecCache(spec);
+  if (!spec->spcache) {
+    pthread_mutex_lock(&spec->spcache_lock);
+    // Check again if no one already made the cache
+    if (!spec->spcache) {
+      ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
+    }
+    pthread_mutex_unlock(&spec->spcache_lock);
   }
 
-  spec->spcache->refcount++; // ???
-  pthread_mutex_unlock(&spec->spcache->lock);
+  __atomic_fetch_add(&spec->spcache->refcount, 1, __ATOMIC_RELAXED);
   return spec->spcache;
 }
 
 IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
-  IndexSpecCache *ret = spec->spcache;
+  IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
   ret->nfields = spec->numFields;
   ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
   ret->refcount = 1;
@@ -1111,14 +1115,13 @@ void IndexSpecCache_Free(IndexSpecCache *c) {
     rm_free(c->fields[ii].path);
   }
   rm_free(c->fields);
+  rm_free(c);
 }
 
 void IndexSpecCache_Decref(IndexSpecCache *c) {
-  pthread_mutex_lock(&c->lock);
-  if (!(--c->refcount)) {
+  if (!__atomic_sub_fetch(&c->refcount, 1, __ATOMIC_RELAXED)) {
     IndexSpecCache_Free(c);
   }
-  pthread_mutex_unlock(&c->lock);
 }
 
 /// given an array of random weights, return the a weighted random selection, as the index in the
@@ -1222,10 +1225,12 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free fields cache data
   if (spec->spcache) {
-    IndexSpecCache_Free(spec->spcache);
-    rm_free(spec->spcache);
+    pthread_mutex_lock(&spec->spcache_lock);
+    IndexSpecCache_Decref(spec->spcache);
     spec->spcache = NULL;
+    pthread_mutex_unlock(&spec->spcache_lock);
   }
+  pthread_mutex_destroy(&spec->spcache_lock);
   // Free fields formatted names
   if (spec->indexStrs) {
     for (size_t ii = 0; ii < spec->numFields; ++ii) {
