@@ -1,17 +1,25 @@
 #pragma once
 
 #include <stdlib.h>
+#include <list>
+#include <utility>
+#include "rmutil/vector.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct Foo {
-  Foo(char *s, int n);
+// Foo *foo = pool.Alloc(Foo{"sdF", 3})
+// Foo *foo = new (pool) Foo{"sdF", 3};
+
+/*
+struct BlkAllocObject {
+  void *operator new(Pool *, size_t size);
+}
+struct Foo : BlkAllocObject {
+  Foo(char *p, size_t n);
 };
+*/
 
-BlkAlloc<Foo> pool;
-
-pool.Alloc(Foo{"sdF", 3})
-Foo *foo = new (pool) Foo{"sdF", 3};
+//---------------------------------------------------------------------------------------------
 
 struct BlkAllocBase {
   struct Block {
@@ -21,29 +29,60 @@ struct BlkAllocBase {
     char data[0] __attribute__((aligned(16)));
   };
 
+  size_t block_size;
   Block *root;
   Block *last;
 
   // Available blocks - used when recycling the allocator
-  Block *avail;
+  Block* avail;
 
-BlkAllocBase() : root(NULL), last(NULL), avail(NULL) {}
-~BlkAllocBase();
+  BlkAllocBase(size_t blockSize) : block_size(blockSize), root(NULL), last(NULL), avail(NULL) {}
+  ~BlkAllocBase();
 
+  virtual void Clear();
+
+protected:
+  struct Block *getNewBlock();
 };
+
+//---------------------------------------------------------------------------------------------
 
 template <class T>
 struct BlkAlloc {
-  T *Alloc(T &&);
+  BlkAlloc(size_t numElem) : num_elem(numElem) {}
+
+  size_t num_elem;
+  std::list<Vector<T>> used, avail;
+
+  T *Alloc(T &&obj) {
+    if (used.empty() || used.back().size() == used.back().capacity()) {
+      used.emplace_back(Vector<T>{});
+      used.back().reserve(num_elem);
+    }
+
+    used.back().emplace_back(std::move(obj));
+    return &used.back().back();
+  }
+
+  void Clear() {
+    for (auto v: used) {
+      v.clear();
+    }
+  }
 };
 
-template <size_t BlockSize>
-struct StringBlkAlloc {
-  ~StringBlkAlloc(); // FreeAll
-  void Clear();
+//---------------------------------------------------------------------------------------------
 
-  char *Alloc(const char *str, size_t len);
+struct StringBlkAlloc : BlkAllocBase {
+  StringBlkAlloc(size_t blockSize) : BlkAllocBase(blockSize) {}
+
+  // gets non-null terminated string, copies into pool, returns pointer from pool
+  char *strncpy(const char *str, size_t len);
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+#if 0
 
 struct BlkAlloc {
   struct Block {
@@ -89,7 +128,6 @@ protected:
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
 
 template <class T>
 struct DumbBlockPool {

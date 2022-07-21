@@ -185,6 +185,7 @@ AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) 
     fwIdx = new ForwardIndex(&doc, sp->flags);
   }
 
+  //@@TODO encapsulate within ForwardIndex
   if (sp->smap) {
     // we get a read only copy of the synonym map for accessing in the index thread with out worring
     // about thready safe issues
@@ -393,7 +394,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       curOffsetWriter = &aCtx->offsetsWriter;
     }
 
-    ForwardIndexTokenizerCtx tokCtx(aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
+    ForwardIndexTokenizer tokenizer(aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
 
     uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
     if (fs->IsNoStem()) {
@@ -407,7 +408,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     Token tok;
     uint32_t newTokPos;
     while (0 != (newTokPos = aCtx->tokenizer->Next(&tok))) {
-      tokCtx.TokenFunc(&tok);
+      tokenizer.tokenize(&tok);
     }
     uint32_t lastTokPos = aCtx->tokenizer->lastOffset;
 
