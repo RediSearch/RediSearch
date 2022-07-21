@@ -1048,8 +1048,8 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   }
   if (!idx || !idx->values) return NULL;
 
-  qn->verb.tok.len = Wildcard_RemoveEscape(qn->verb.tok.str, qn->verb.tok.len);
   RSToken *tok = &qn->verb.tok;
+  tok->len = Wildcard_RemoveEscape(tok->str, tok->len);
 
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));

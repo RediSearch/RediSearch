@@ -99,37 +99,37 @@ def testSanityTag(env):
 
   for i in range(2):
     #prefix
-    # env.expect('ft.search', index_list[i], "@t:{w'f*'}", 'LIMIT', 0 , 0).equal([40000] if i == 0 else [0])
-    # env.expect('ft.search', index_list[i], "@t:{w'foo*'}", 'LIMIT', 0 , 0).equal([40000])
-    # env.expect('ft.search', index_list[i], "@t:{w'foo1*'}", 'LIMIT', 0 , 0).equal([1111])
-    # env.expect('ft.search', index_list[i], "@t:{w'*ooo1*'}", 'LIMIT', 0 , 0).equal([2222])
-# 
-    # # contains
-    # env.expect('ft.search', index_list[i], "@t:{w'*oo*'}", 'LIMIT', 0 , 0).equal([40000])
-    # # 55xx & x55x & xx55 - 555x - x555 
-    # env.expect('ft.search', index_list[i], "@t:{w'*55*'}", 'LIMIT', 0 , 0).equal([1120])
-    # # 555x & x555 - 5555
-    # env.expect('ft.search', index_list[i], "@t:{w'*555*'}", 'LIMIT', 0 , 0).equal([76])
-    # env.expect('ft.search', index_list[i], "@t:{w'*o55*'}", 'LIMIT', 0 , 0).equal([444])
-    # env.expect('ft.search', index_list[i], "@t:{w'*oo55*'}", 'LIMIT', 0 , 0).equal([333])
-    # env.expect('ft.search', index_list[i], "@t:{w'*oo555*'}", 'LIMIT', 0 , 0).equal([33])
+    env.expect('ft.search', index_list[i], "@t:{w'f*'}", 'LIMIT', 0 , 0).equal([40000] if i == 0 else [0])
+    env.expect('ft.search', index_list[i], "@t:{w'foo*'}", 'LIMIT', 0 , 0).equal([40000])
+    env.expect('ft.search', index_list[i], "@t:{w'foo1*'}", 'LIMIT', 0 , 0).equal([1111])
+    env.expect('ft.search', index_list[i], "@t:{w'*ooo1*'}", 'LIMIT', 0 , 0).equal([2222])
+
+    # contains
+    env.expect('ft.search', index_list[i], "@t:{w'*oo*'}", 'LIMIT', 0 , 0).equal([40000])
+    # 55xx & x55x & xx55 - 555x - x555 
+    env.expect('ft.search', index_list[i], "@t:{w'*55*'}", 'LIMIT', 0 , 0).equal([1120])
+    # 555x & x555 - 5555
+    env.expect('ft.search', index_list[i], "@t:{w'*555*'}", 'LIMIT', 0 , 0).equal([76])
+    env.expect('ft.search', index_list[i], "@t:{w'*o55*'}", 'LIMIT', 0 , 0).equal([444])
+    env.expect('ft.search', index_list[i], "@t:{w'*oo55*'}", 'LIMIT', 0 , 0).equal([333])
+    env.expect('ft.search', index_list[i], "@t:{w'*oo555*'}", 'LIMIT', 0 , 0).equal([33])
 
     # 23xx & x23x & xx23 - 2323
-    env.expect('ft.search', index_list[i], '*23*', 'LIMIT', 0 , 0).equal([1196])
+    env.expect('ft.search', index_list[i], "@t:{w'*23*'}", 'LIMIT', 0 , 0).equal([1196])
     # 234x & x234
     start = time.time()
-    env.expect('ft.search', index_list[i], '*234*', 'LIMIT', 0 , 0).equal([80])
+    env.expect('ft.search', index_list[i], "@t:{w'*234*'}", 'LIMIT', 0 , 0).equal([80])
     print (time.time() - start)
     start = time.time()
-    env.expect('ft.search', index_list[i], '*o23*', 'LIMIT', 0 , 0).equal([444])
+    env.expect('ft.search', index_list[i], "@t:{w'*o23*'}", 'LIMIT', 0 , 0).equal([444])
     print (time.time() - start)
-    env.expect('ft.search', index_list[i], '*oo23*', 'LIMIT', 0 , 0).equal([333])
-    env.expect('ft.search', index_list[i], '*oo234*', 'LIMIT', 0 , 0).equal([33])
+    env.expect('ft.search', index_list[i], "@t:{w'*oo23*'}", 'LIMIT', 0 , 0).equal([333])
+    env.expect('ft.search', index_list[i], "@t:{w'*oo234*'}", 'LIMIT', 0 , 0).equal([33])
 
     # suffix
-    # env.expect('ft.search', index_list[i], "@t:{w'*oo234'}", 'LIMIT', 0 , 0).equal([3])
-    # env.expect('ft.search', index_list[i], "@t:{w'*234'}", 'LIMIT', 0 , 0).equal([40])
-    # env.expect('ft.search', index_list[i], "@t:{w'*13'}", 'LIMIT', 0 , 0).equal([400])
+    env.expect('ft.search', index_list[i], "@t:{w'*oo234'}", 'LIMIT', 0 , 0).equal([3])
+    env.expect('ft.search', index_list[i], "@t:{w'*234'}", 'LIMIT', 0 , 0).equal([40])
+    env.expect('ft.search', index_list[i], "@t:{w'*13'}", 'LIMIT', 0 , 0).equal([400])
     env.expect('ft.search', index_list[i], "@t:{w'*oo234?'}", 'LIMIT', 0 , 0).equal([30])
     env.expect('ft.search', index_list[i], "@t:{w'*234?'}", 'LIMIT', 0 , 0).equal([40])
     env.expect('ft.search', index_list[i], "@t:{w'*13?'}", 'LIMIT', 0 , 0).equal([400])

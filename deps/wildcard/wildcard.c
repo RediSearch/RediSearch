@@ -187,7 +187,7 @@ int Wildcard_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *to
     // this branching is heavy
     for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
       if (str[j] == '?') {
-        --score;
+        --curScore;
       }
     }
 
