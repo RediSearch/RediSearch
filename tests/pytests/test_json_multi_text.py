@@ -246,9 +246,8 @@ def testMultiTextNested(env):
     res = env.execute_command('FT.SEARCH', 'idx_book',
         '(@name:(design*) -@category:(cloud)) | '
         '(@name:(Kubernetes*) @category:(cloud))',
-        'NOCONTENT')
-    env.assertListEqual(res, [2, 'doc:3', 'doc:1'], message='idx_book')
-
+        'NOCONTENT', 'WITHSCORES')
+    env.assertListEqual(res, [2, 'doc:3', '1.5', 'doc:1', '0.66666666666666663'], message='idx_book')
 
 def searchMultiTextCategory(env):
     """ helper function for searching multi-value attributes """
