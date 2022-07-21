@@ -32,6 +32,7 @@
 %left PREFIX SUFFIX CONTAINS.
 %left PERCENT.
 %left ATTRIBUTE.
+%left VERBATIM WILDCARD.
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
@@ -154,6 +155,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type contains { QueryNode * } 
 %destructor contains { QueryNode_Free($$); }
+
+%type verbatim { QueryNode * }
+%destructor verbatim { QueryNode_Free($$); }
 
 %type termlist { QueryNode * }
 %destructor termlist { QueryNode_Free($$); }
@@ -575,6 +579,10 @@ text_expr(A) ::= affix(B) . [PREFIX]  {
 A = B;
 }
 
+text_expr(A) ::= verbatim(B) . [VERBATIM]  {
+A = B;
+}
+
 text_expr(A) ::= STOPWORD . [STOPWORD] {
   A = NULL;
 }
@@ -648,6 +656,14 @@ affix(A) ::= SUFFIX(B) . {
 
 affix(A) ::= CONTAINS(B) . {
     A = NewPrefixNode_WithParams(ctx, &B, true, true);
+}
+
+// verbatim(A) ::= VERBATIM(B) . {
+//    A = NewVerbatimNode_WithParams(ctx, &B);
+// }
+
+verbatim(A) ::= WILDCARD(B) . {
+    A = NewWildcardNode_WithParams(ctx, &B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -742,6 +758,11 @@ tag_list(A) ::= affix(B) . [TAGLIST] {
     QueryNode_AddChild(A, B);
 }
 
+tag_list(A) ::= verbatim(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, B);
+}
+
 tag_list(A) ::= termlist(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
@@ -762,6 +783,11 @@ tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
+    QueryNode_AddChild(B, C);
+    A = B;
+}
+
+tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
     QueryNode_AddChild(B, C);
     A = B;
 }

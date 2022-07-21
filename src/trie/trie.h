@@ -244,6 +244,9 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includ
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout);
 
+void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout);
+
 #ifdef __cplusplus
 }
 #endif
