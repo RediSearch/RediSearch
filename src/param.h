@@ -18,6 +18,7 @@ typedef enum {
   PARAM_GEO_COORD,
   PARAM_GEO_UNIT,
   PARAM_VEC,
+  PARAM_WILDCARD,
 } ParamType;
 
 typedef struct Param {

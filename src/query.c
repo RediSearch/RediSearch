@@ -26,6 +26,7 @@
 #include "query_internal.h"
 #include "aggregate/aggregate.h"
 #include "suffix.h"
+#include "wildcard/wildcard.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -92,6 +93,9 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_VECTOR:
       QueryVectorNode_Free(&n->vn);
+      break;
+    case QN_WILDCARD_QUERY:
+      QueryTokenNode_Free(&n->verb.tok);
       break;
     case QN_WILDCARD:
     case QN_IDS:
@@ -202,6 +206,43 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefi
   return ret;
 }
 
+/*
+QueryNode *NewVerbatimNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
+  QueryNode *ret = NewQueryNode(QN_VERBATIM);
+  q->numTokens++;
+  if (qt->type == QT_TERM) {
+    char *s = rm_malloc(qt->len);
+    memcpy(s, qt->s, qt->len);
+    // size_t len = _removeEscape(s, qt->len);
+    ret->verb.tok = (RSToken){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
+  } else {
+    // TODO: check correct parsing
+    assert (qt->type == QT_PARAM_TERM);
+    QueryNode_InitParams(ret, 1);
+    QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
+    // ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
+  }
+  return ret;
+}
+*/
+
+QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
+  QueryNode *ret = NewQueryNode(QN_WILDCARD_QUERY);
+  q->numTokens++;
+  if (qt->type == QT_WILDCARD) {
+    char *s = rm_malloc(qt->len + 1);
+    memcpy(s, qt->s, qt->len);
+    s[qt->len] = '\0';
+    ret->verb.tok = (RSToken){.str = s, .len = qt->len, .expanded = 0, .flags = 0};
+  } else {
+    assert(qt->type == QT_PARAM_WILDCARD);
+    QueryNode_InitParams(ret, 1);
+    QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
+    ret->params[0].type = PARAM_WILDCARD;
+  }
+  return ret;
+}
+
 QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist) {
   QueryNode *ret = NewQueryNode(QN_FUZZY);
   q->numTokens++;
@@ -220,13 +261,12 @@ QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist
     };
   } else {
     ret->fz.maxDist = maxDist;
-    assert (qt->type == QT_PARAM_TERM);
+    assert(qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->fz.tok.str, &ret->fz.tok.len, qt);
   }
   return ret;
 }
-
 
 QueryNode *NewPhraseNode(int exact) {
   QueryNode *ret = NewQueryNode(QN_PHRASE);
@@ -467,7 +507,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->pfx.tok.len < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
-  
+
   IndexSpec *spec = q->sctx->spec;
   Trie *t = spec->terms;
   ContainsCtx ctx = {.q = q, .opts = &qn->opts};
@@ -509,6 +549,41 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
                             QN_PREFIX, qn->pfx.tok.str);
+  }
+}
+
+/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+ * of them.
+ * Used for Prefix, Contains and suffix nodes.
+*/
+static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn) {
+  RS_LOG_ASSERT(qn->type == QN_WILDCARD_QUERY, "query node type should be wildcard query");
+  
+  IndexSpec *spec = q->sctx->spec;
+  Trie *t = spec->terms;
+  ContainsCtx ctx = {.q = q, .opts = &qn->opts};
+
+  if (!t || !qn->verb.tok.str) {
+    return NULL;
+  }
+
+  qn->verb.tok.len = Wildcard_RemoveEscape(qn->verb.tok.str, qn->verb.tok.len);
+  size_t nstr;
+  rune *str = strToFoldedRunes(qn->verb.tok.str, &nstr);
+
+  ctx.cap = 8;
+  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
+  ctx.nits = 0;
+
+  TrieNode_IterateWildcard(t->root, str, nstr, rangeIterCb, &ctx, &q->sctx->timeout);
+
+  rm_free(str);
+  if (!ctx.its || ctx.nits == 0) {
+    rm_free(ctx.its);
+    return NULL;
+  } else {
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
+                            QN_WILDCARD_QUERY, qn->verb.tok.str);
   }
 }
 
@@ -840,9 +915,9 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
     TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
+    if (!it) return NULL;
     TrieMapIterator_SetTimeout(it, q->sctx->timeout);
     TrieMapIterator_NextFunc nextFunc = TrieMapIterator_Next;
-    if (!it) return NULL;
 
     if (qn->pfx.suffix) {
       nextFunc = TrieMapIterator_NextContains;
@@ -862,8 +937,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     // Find all completions of the prefix
     while (nextFunc(it, &s, &sl, &ptr) &&
           (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
-            // TODO: use NewIndexReaderGeneric
-      //NewIndexReaderGeneric(ptr, q->sctx->spec, )
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
       if (!ret) continue;
 
@@ -916,6 +989,62 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_PREFIX, qn->pfx.tok.str);
 }
 
+/* Evaluate a tag prefix by expanding it with a lookup on the tag index */
+static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
+                                              IndexIteratorArray *iterout, double weight) {
+  if (qn->type != QN_WILDCARD_QUERY) {
+    return NULL;
+  }
+  if (!idx || !idx->values) return NULL;
+
+  qn->verb.tok.len = Wildcard_RemoveEscape(qn->verb.tok.str, qn->verb.tok.len);
+  RSToken *tok = &qn->verb.tok;
+
+  size_t itsSz = 0, itsCap = 8;
+  IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
+
+  // brute force wildcard query 
+  TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
+  TrieMapIterator_SetTimeout(it, q->sctx->timeout);
+  // If there is no '*`, the length is known which can be used for optimization
+  it->mode = strchr(tok->str, '*') ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
+
+  // an upper limit on the number of expansions is enforced to avoid stuff like "*"
+  char *s;
+  tm_len_t sl;
+  void *ptr;
+
+  // Find all completions of the prefix
+  while (TrieMapIterator_NextWildcard(it, &s, &sl, &ptr) &&
+        (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+    IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
+    if (!ret) continue;
+
+    // Add the reader to the iterator array
+    its[itsSz++] = ret;
+    if (itsSz == itsCap) {
+      itsCap *= 2;
+      its = rm_realloc(its, itsCap * sizeof(*its));
+    }
+  }
+  TrieMapIterator_Free(it);
+
+  // printf("Expanded %d terms!\n", itsSz);
+  if (itsSz == 0) {
+    rm_free(its);
+    return NULL;
+  }
+  if (itsSz == 1) {
+    // TODO:
+    IndexIterator *iter = its[0];
+    rm_free(its);
+    return iter;
+  }
+
+  *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str);
+}
+
 static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   char *p = str;
   if (caseSensitive) {
@@ -954,6 +1083,9 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
     }
     case QN_PREFIX:
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasSuffixTrie(fs));
+
+    case QN_WILDCARD_QUERY:
+      return Query_EvalTagWildcardNode(q, idx, n, iterout, weight);
 
     case QN_LEXRANGE:
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);
@@ -1081,6 +1213,8 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalIdFilterNode(q, &n->fn);
     case QN_WILDCARD:
       return Query_EvalWildcardNode(q, n);
+    case QN_WILDCARD_QUERY:
+      return Query_EvalWildcardQueryNode(q,n);
     case QN_NULL:
       return NewEmptyIterator();
   }
@@ -1146,7 +1280,6 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .status = status,
       .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
       .reqFlags = reqflags,
-      
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
@@ -1218,6 +1351,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
     case QN_OPTIONAL:
     case QN_IDS:
     case QN_WILDCARD:
+    case QN_WILDCARD_QUERY:
       res = QueryNode_EvalParamsCommon(params, n, status);
       break;
     case QN_UNION:
@@ -1253,7 +1387,8 @@ void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren)
   if (n->type == QN_TAG) {
     for (size_t ii = 0; ii < nchildren; ++ii) {
       if (children[ii]->type == QN_TOKEN || children[ii]->type == QN_PHRASE ||
-          children[ii]->type == QN_PREFIX || children[ii]->type == QN_LEXRANGE) {
+          children[ii]->type == QN_PREFIX || children[ii]->type == QN_LEXRANGE ||
+          children[ii]->type == QN_WILDCARD_QUERY) {
         n->children = array_ensure_append(n->children, children + ii, 1, QueryNode *);
       }
     }
@@ -1439,7 +1574,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_FUZZY:
       s = sdscatprintf(s, "FUZZY{%s}\n", qs->fz.tok.str);
       return s;
-
+    case QN_WILDCARD_QUERY:
+      s = sdscatprintf(s, "WILDCARD{%s}\n", qs->verb.tok.str);
     case QN_NULL:
       s = sdscat(s, "<empty>");
   }
