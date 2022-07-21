@@ -25,7 +25,7 @@ typedef struct SuffixCtx {
     const char *cstr;
     size_t cstrlen;
     SuffixType type;
-    TrieRangeCallback *callback;
+    TrieSuffixCallback *callback;
     void *cbCtx;
     struct timespec *timeout;
 } SuffixCtx;

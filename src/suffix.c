@@ -135,7 +135,7 @@ static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {
   }
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
-    if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx) != REDISMODULE_OK) {
+    if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
       return REDISEARCH_ERR;
     }
   }
@@ -186,22 +186,31 @@ void Suffix_IterateContains(SuffixCtx *sufCtx) {
   }
 }
 
-void Suffix_CB_Wildcard(SuffixCtx *sufCtx, ) {
-  char *s;
-  tm_len_t sl;
-  suffixData *nodeData;;
-  arrayof(char*) resArray = NULL;
 
-  while (TrieMapIterator_NextWildcard(it, &s, &sl, (void **)&nodeData)) {
-    for (int i = 0; i < array_len(nodeData->array); ++i) {
-      if (array_len(resArray) > RSGlobalConfig.maxPrefixExpansions) {
-        goto end;
-      }
-      if (Wildcard_MatchChar(str, slen, nodeData->array[i], strlen(nodeData->array[i])) == FULL_MATCH) {
-        resArray = array_ensure_append_1(resArray, nodeData->array[i]);
+
+static int processSuffixData_Wildcard(suffixData *data, SuffixCtx *sufCtx) {
+  //TrieSuffixCallback callback, void *ctx) {
+  if (!data) {
+    return REDISMODULE_OK;
+  }
+  arrayof(char *) array = data->array;
+  for (int i = 0; i < array_len(array); ++i) {
+    if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
+            == FULL_MATCH) {
+      if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
+        return REDISEARCH_ERR;
       }
     }
   }
+  return REDISMODULE_OK;
+}
+
+
+void Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
+  SuffixCtx *sufCtx = p;
+  TriePayload *pl = payload;
+
+  processSuffixData_Wildcard(pl->data, sufCtx);
 }
 
 void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
@@ -210,8 +219,14 @@ void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   //int useIdx = Wildcard_StarBreak(sufCtx->cstr, sufCtx->cstrlen, idx, lens);
   int useIdx = Wildcard_StarBreak_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
 
+  if (useIdx == -1) {
+    return;
+  }
+
   rune *token = sufCtx->rune + idx[useIdx];
   size_t toklen = lens[useIdx];
+  printf("%ld ", toklen);
+  printfRune(token, toklen);
   if (token[toklen] == (rune)'*') {
     toklen++;
   }
@@ -219,6 +234,7 @@ void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
 
   TrieNode_IterateWildcard(sufCtx->root, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout);
 }
+
 
 
 

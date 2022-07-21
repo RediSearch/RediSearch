@@ -205,20 +205,50 @@ int Wildcard_StarBreak_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   int i = 0;
   int init = 0;
   while (i < len) {
-    if (str[i] != '*') {
+    if (str[i] != (rune)'*') {
       tokenIdx[runner] = i;
       init = 1;
     }
-    while (i < len && str[i] != '*') {
+    while (i < len && str[i] != (rune)'*') {
       ++i;
     }
     if (init) {
       tokenLen[runner] = i - tokenIdx[runner]; // TODO: check
       ++runner;
     }
-    while (str[i] == '*') {
+    while (str[i] == (rune)'*') {
       ++i;
     }
   }
-  return runner;
+
+  // choose best option
+  int score = INT32_MIN;
+  int retidx = -1;
+  for (int i = 0; i < runner; ++i) {
+    if (tokenLen[i] < MIN_SUFFIX) {
+      continue;
+    }
+
+    // long string are likely to have less results
+    int curScore = tokenLen[i];
+
+    // iterating all children is demanding
+    if (str[tokenIdx[i] + tokenLen[i]] == (rune)'*') {
+      curScore -= 5;
+    }
+
+    // this branching is heavy
+    for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
+      if (str[j] == (rune)'?') {
+        --score;
+      }
+    }
+
+    if (curScore >= score) {
+      score = curScore;
+      retidx = i;
+    }
+  }
+
+  return retidx;
 }

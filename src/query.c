@@ -493,8 +493,8 @@ typedef struct {
   double weight;
 } ContainsCtx;
 
-static int rangeIterCb(const rune *r, size_t n, void *p);
-static int suffixIterCb(const char *s, size_t n, void *p);
+static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
+static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
@@ -536,7 +536,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
         .rune = str,
         .runelen = nstr,
         .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
-        .callback = suffixIterCb,
+        .callback = charIterCb,
         .cbCtx = &ctx,
 
       };
@@ -547,7 +547,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   } else {
 
     TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
-                           rangeIterCb, &ctx, &q->sctx->timeout);
+                           runeIterCb, &ctx, &q->sctx->timeout);
   }
 
   rm_free(str);
@@ -598,7 +598,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         .cstr = token->str,
         .cstrlen = token->len,
         .type = SUFFIX_TYPE_WILDCARD,
-        .callback = (TrieRangeCallback*)suffixIterCb, // the difference is weather the function receives char or rune
+        .callback = charIterCb, // the difference is weather the function receives char or rune
         .cbCtx = &ctx,
         .timeout = &q->sctx->timeout,
       };
@@ -607,7 +607,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
       QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
-    TrieNode_IterateWildcard(t->root, str, nstr, rangeIterCb, &ctx, &q->sctx->timeout);
+    TrieNode_IterateWildcard(t->root, str, nstr, runeIterCb, &ctx, &q->sctx->timeout);
   }
 
   rm_free(str);
@@ -637,7 +637,7 @@ static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
   }
 }
 
-static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
+static void runeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   LexRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   RSToken tok = {0};
@@ -653,7 +653,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   rangeItersAddIterator(ctx, ir);
 }
 
-static int rangeIterCb(const rune *r, size_t n, void *p) {
+static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   LexRangeCtx *ctx = p;
   if (!RS_IsMock && ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
     return REDISEARCH_ERR;
@@ -674,7 +674,7 @@ static int rangeIterCb(const rune *r, size_t n, void *p) {
   return REDISEARCH_OK;
 }
 
-static int suffixIterCb(const char *s, size_t n, void *p) {
+static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   LexRangeCtx *ctx = p;
   if (ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
     return REDISEARCH_ERR;
@@ -694,7 +694,7 @@ static int suffixIterCb(const char *s, size_t n, void *p) {
   return REDISEARCH_OK;
 }
 
-static int wildcardIterCb(void *s, size_t n, void *p) {
+static int wildcardIterCb(void *s, size_t n, void *p, void *payload) {
   LexRangeCtx *ctx = p;
   if (ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
     return REDISEARCH_ERR;
@@ -736,7 +736,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   }
 
   TrieNode_IterateRange(t->root, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
-                        end ? nend : -1, lx->lxrng.includeEnd, rangeIterCb, &ctx);
+                        end ? nend : -1, lx->lxrng.includeEnd, runeIterCb, &ctx);
   rm_free(begin);
   rm_free(end);
   if (!ctx.its || ctx.nits == 0) {
@@ -939,7 +939,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
 
   TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
-                       rangeIterCbStrs, &ctx);
+                       runeIterCbStrs, &ctx);
   if (ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
