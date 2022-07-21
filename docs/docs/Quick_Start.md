@@ -12,19 +12,25 @@ There are several ways to set up a Redis database with the RediSearch module ena
 
 ### Redis Cloud
 
-RediSearch is available on all Redis Cloud managed services.  Redis Cloud Essentials offers a completely free managed database with up to 30MB.
+RediSearch is available on all Redis Cloud managed services. A Redis Cloud Fixed subscription offers a completely free managed database with up to 30MB.
 
 [Create a free Redis Cloud account here](https://redis.com/try-free/) and select **Redis Stack** as your database type. For more detailed instructions, see the [Redis Stack and modules quick start](https://docs.redis.com/latest/modules/modules-quickstart/#set-up-a-redis-cloud-database).
 
 ### Run with Docker
 
+To run RediSearch with Docker, use the `redis-stack-server` Docker image:
+
 ```sh
-$ docker run -p 6379:6379 redis/redis-stack-server:latest
+$ docker run -d --name redis-stack-server -p 6379:6379 redis/redis-stack-server:latest
 ```
+
+For more information about running Redis Stack in a Docker container, see [Run Redis Stack on Docker](/docs/stack/get-started/install/docker/).
 
 ### Download binaries
 
-1. Download the pre-compiled version from the [Redis download center](https://redis.com/download-center/modules/).
+To download and run RediSearch from a precompiled binary:
+
+1. Download a precompiled version of RediSearch from the [Redis download center](https://redis.com/download-center/modules/).
 
 1. Run Redis with RediSearch:
 
@@ -34,7 +40,9 @@ $ docker run -p 6379:6379 redis/redis-stack-server:latest
 
 ### Build from source
 
-1. Clone the git repository (make sure you include the `--recursive` option to properly clone submodules):
+To build and run RediSearch from the source code:
+
+1. Clone the [RediSearch repository](https://github.com/RediSearch/RediSearch) (make sure you include the `--recursive` option to properly clone submodules):
 
     ```sh
     $ git clone --recursive https://github.com/RediSearch/RediSearch.git
@@ -67,16 +75,20 @@ For more elaborate build instructions, see the [Development page](/docs/stack/se
 
 ## Create an index
 
-Create an index with fields and weights (default weight is 1.0):
+Use the `FT.CREATE` command to create an index with fields and weights (default weight is 1.0):
 
 ```sh
 127.0.0.1:6379> FT.CREATE myIdx ON HASH PREFIX 1 doc: SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
 OK
 ```
 
+Any existing hash documents that have a key prefixed with `doc:` are automatically added to the index at this time.
+
 ## Add documents
 
-Add a document to the index:
+After you create the index, any new hash documents with the `doc:` prefix are automatically indexed upon creation.
+
+Use the `HSET` command to create a new [hash](/docs/manual/data-types/#hashes) document and add it to the index:
 
 ```sh
 127.0.0.1:6379> HSET doc:1 title "hello world" body "lorem ipsum" url "http://redis.io"
@@ -84,6 +96,8 @@ Add a document to the index:
 ```
 
 ## Search the index
+
+To search the index for documents that contain specific words, use the `FT.SEARCH` command:
 
 ```sh
 127.0.0.1:6379> FT.SEARCH myIdx "hello world" LIMIT 0 10
@@ -98,13 +112,22 @@ Add a document to the index:
 ```
 
 {{% alert title="Note" color="info" %}}
-Input is expected to be valid UTF-8 or ASCII. The engine cannot handle wide character unicode at the moment.
+`FT.SEARCH` expects valid UTF-8 or ASCII as input. The engine cannot handle wide character unicode.
 {{% /alert %}}
 
 ## Drop the index
 
+To remove the index without deleting the associated hash documents, run `FT.DROPINDEX` without the `DD` option:
+
 ```sh
 127.0.0.1:6379> FT.DROPINDEX myIdx
+OK
+```
+
+To delete the index and all indexed hash documents, add the `DD` option to the command:
+
+```sh
+127.0.0.1:6379> FT.DROPINDEX myIdx DD
 OK
 ```
 
@@ -114,7 +137,7 @@ Add an [auto-complete](/docs/stack/search/design/overview/#auto-completion) sugg
 
 ```sh
 127.0.0.1:6379> FT.SUGADD autocomplete "hello world" 100
-OK
+(integer) 1
 ```
 
 Test auto-complete suggestions with `FT.SUGGET`:
@@ -123,3 +146,9 @@ Test auto-complete suggestions with `FT.SUGGET`:
 127.0.0.1:6379> FT.SUGGET autocomplete "he"
 1) "hello world"
 ```
+
+## Index JSON documents
+
+In addition to Redis hashes, you can index and search JSON documents if your database has both RediSearch and [RedisJSON](/docs/stack/json) enabled. If you have a Redis Stack database, it automatically includes both modules.
+
+To learn how to use RediSearch with JSON documents, see [Indexing JSON documents](/docs/stack/search/indexing_json).
