@@ -819,7 +819,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
   KNNVectorQuery top_k_query = {.vector = vec, .vecLen = d, .k = 10, .order = BY_SCORE};
-  VecSimQueryParams queryParams = {0};
+  VecSimQueryParams queryParams = {{0}};
 
   // Create invalid intersection iterator (with a child iterator which is NULL).
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
