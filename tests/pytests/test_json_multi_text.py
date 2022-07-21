@@ -608,6 +608,7 @@ def testMultiEmptyBlankOrNone(env):
 def testconfigMultiTextOffsetDelta(env):
     """ test ft.config `MULTI_TEXT_SLOP` """
     
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
     env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
