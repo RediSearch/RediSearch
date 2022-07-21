@@ -1092,7 +1092,7 @@ void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
       .buf = array_new(rune, TRIE_INITIAL_STRING_LEN),
       // if last char is '*', we return all following terms
       .prefix = str[nstr - 1] == (rune)'*',
-      .containsStars = !!runechr(str, nstr, '*'),
+      .containsStars = !!runenchr(str, nstr, '*'),
   };
 
   // printfRune(str, nstr);

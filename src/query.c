@@ -576,7 +576,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     return NULL;
   }
 
-  qn->verb.tok.len = Wildcard_RemoveEscape(token->str, token->len);
+  token->len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
   rune *str = strToFoldedRunes(token->str, &nstr);
 
@@ -937,7 +937,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
 
   TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
-                       runeIterCbStrs, &ctx);
+                       rangeIterCbStrs, &ctx);
   if (ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;

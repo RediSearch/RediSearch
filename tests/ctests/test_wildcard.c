@@ -209,7 +209,7 @@ int test_match() {
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(test_StarBreak);
-  //TESTFUNC(test_removeEscape);
-  //TESTFUNC(test_trimPattern);
-  //TESTFUNC(test_match); 
+  TESTFUNC(test_removeEscape);
+  TESTFUNC(test_trimPattern);
+  TESTFUNC(test_match); 
 });
