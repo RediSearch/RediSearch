@@ -64,6 +64,8 @@ QueryNode *NewNumericNode(QueryParam *p);
 QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec);
 QueryNode *NewTagNode(const char *tag, size_t len);
+QueryNode *NewVerbatimNode_WithParams(QueryParseCtx *q, QueryToken *qt);
+QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 
 QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 void QueryNode_InitParams(QueryNode *n, size_t num);
