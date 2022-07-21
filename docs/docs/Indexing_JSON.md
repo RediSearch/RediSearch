@@ -2,18 +2,20 @@
 title: Index and search JSON documents
 linkTitle: Index JSON
 weight: 2
-description: Index and search JSON documents
+description: How to index and search JSON documents
 ---
 
 In addition to indexing Redis hashes, RediSearch also indexes JSON. To index JSON, you must use the [RedisJSON](/docs/stack/json/) module.
 
 ## Prerequisites
 
-What do you need to start indexing JSON documents?
+Before you can index and search JSON documents, you need a database with either:
 
-- Redis 6.x or later
-- RediSearch 2.2 or later
-- RedisJSON 2.0 or later
+- Redis Stack, which automatically includes RediSearch and RedisJSON
+
+- Redis v6.x or later and the following modules installed and enabled:
+   - RediSearch v2.2 or later
+   - RedisJSON v2.0 or later
 
 ## Create index with JSON schema
 
@@ -33,7 +35,7 @@ And here's a concrete example:
 
     FT.CREATE userIdx ON JSON SCHEMA $.user.name AS name TEXT $.user.tag AS country TAG
 
-Note: The attribute  is optional in [`FT.CREATE`](/commands/ft.create), but [`FT.SEARCH`](/commands/ft.search) and  [`FT.AGGREGATE`](/commands/ft.aggregate) queries require attribute modifiers. You should also avoid using JSON Path expressions, which are not fully supported by the query parser.
+Note: The attribute  is optional in `FT.CREATE`, but `FT.SEARCH` and  `FT.AGGREGATE` queries require attribute modifiers. You should also avoid using JSON Path expressions, which are not fully supported by the query parser.
 
 ## Add JSON documents to the index
 
@@ -154,7 +156,7 @@ FT.SEARCH userIdx '@name:(John)' RETURN 3 $.user.hp AS hitpoints
 
 You can highlight any attribute as soon as it is indexed using the TEXT type.
 
-For [`FT.SEARCH`](/commands/ft.search/), you have to explicitly set the attribute in the `RETURN` and the `HIGHLIGHT` parameters.
+For `FT.SEARCH`, you have to explicitly set the attribute in the `RETURN` and the `HIGHLIGHT` parameters.
 
 ```
 FT.SEARCH userIdx '@name:(John)' RETURN 1 name HIGHLIGHT FIELDS 1 name TAGS '<b>' '</b>'
@@ -164,10 +166,10 @@ FT.SEARCH userIdx '@name:(John)' RETURN 1 name HIGHLIGHT FIELDS 1 name TAGS '<b>
    2) "\"<b>John</b> Smith\""
 ```
 
-## Aggregation with JSON Path expression
+## Aggregate with JSONPath
 
 [Aggregation](/docs/stack/search/reference/aggregations) is a powerful feature. You can use it to generate statistics or build facet queries.
-The LOAD parameter accepts JSON Path expressions. Any value (even not indexed) can be used in the pipeline.
+The LOAD parameter accepts JSONPath expressions. Any value (even not indexed) can be used in the pipeline.
 
 This example loads two numeric values from the JSON document applying a simple operation.
 
@@ -182,12 +184,17 @@ FT.AGGREGATE userIdx '*' LOAD 6 $.user.hp AS hp $.user.dmg AS dmg APPLY '@hp-@dm
    6) "850"
 ```
 
-## Indexing limitations
+## Index limitations
 
-### JSON arrays can only be indexed in a TAG field
+### Schema fields
 
-It is only possible to index an array of strings or booleans in a TAG field.
-Other types (numeric, geo, null) are not supported.
+You can only index:
+
+- JSON strings as TEXT, TAG, or GEO (using the correct syntax).
+- JSON numbers as NUMERIC.
+- JSON booleans as TAG.
+- NULL values are ignored.
+- JSON array of strings or booleans in a TAG field. Other types (numeric, geo, null) are not supported.
 
 ### Cannot index JSON objects
 
@@ -234,21 +241,14 @@ FT.SEARCH orgIdx "suite 250"
    2) "{\"name\":\"Headquarters\",\"address\":[\"Suite 250\",\"Mountain View\"],\"cp\":\"CA 94040\"}"
 ```
 
-### JSON schema field types
-
-- You can only index JSON strings as TEXT, TAG, or GEO (using the correct syntax).
-- You can only index JSON numbers as NUMERIC.
-- JSON booleans can only be indexed as TAG.
-- NULL values are ignored.
-
-### TAG not SORTABLE
+### TAG not sortable
 
 ```SQL
 FT.CREATE orgIdx ON JSON SCHEMA $.cp[0] AS cp TAG SORTABLE
 (error) On JSON, cannot set tag field to sortable - cp
 ```
 
-With hashes, you can use `SORTABLE` (as a side effect) to improve the performance of [`FT.AGGREGATE`](/commands/ft.aggregate/) on TAGs.
+With hashes, you can use `SORTABLE` (as a side effect) to improve the performance of `FT.AGGREGATE` on TAGs.
 This is possible because the value in the hash is a string, such as "apprentice,knight".
 
 With JSON, you can index an array of strings.
