@@ -584,8 +584,6 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  printf("String: %s \n",token->str);
-
   // spec support contains queries
   if (spec->suffix) {
     // all modifier fields are supported
@@ -637,7 +635,7 @@ static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
   }
 }
 
-static void runeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
+static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   LexRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   RSToken tok = {0};
@@ -1086,7 +1084,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
     arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
                                                         q->sctx->timeout);
     if (!arr) return NULL;
-    printf("** %d **\n", array_len(arr));
+
     for (int i = 0; i < array_len(arr); ++i) {
       if (itsSz >= RSGlobalConfig.maxPrefixExpansions) {
         break;
@@ -1104,7 +1102,6 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
     array_free(arr);
   }
 
-  // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
     rm_free(its);
     return NULL;
@@ -1698,7 +1695,6 @@ char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec) {
 
 void QAST_Print(const QueryAST *ast, const IndexSpec *spec) {
   sds s = QueryNode_DumpSds(sdsnew(""), spec, ast->root, 0);
-  printf("%s\n", s);
   sdsfree(s);
 }
 

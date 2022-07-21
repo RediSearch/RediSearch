@@ -1101,4 +1101,3 @@ void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
 
   array_free(r.buf);
 }
-

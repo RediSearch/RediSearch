@@ -225,8 +225,6 @@ void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
 
   rune *token = sufCtx->rune + idx[useIdx];
   size_t toklen = lens[useIdx];
-  printf("%ld ", toklen);
-  printfRune(token, toklen);
   if (token[toklen] == (rune)'*') {
     toklen++;
   }
@@ -234,11 +232,6 @@ void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
 
   TrieNode_IterateWildcard(sufCtx->root, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout);
 }
-
-
-
-
-
 
 void suffixTrie_freeCallback(void *payload) {
   suffixData *data = payload;
