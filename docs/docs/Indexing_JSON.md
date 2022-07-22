@@ -33,8 +33,10 @@ FT.CREATE {index_name} ON JSON SCHEMA {json_path} AS {attribute} {type}
 
 Create a JSON index:
 
+New index:
+
 ```sql
-FT.CREATE userIdx ON JSON SCHEMA $.user.name AS name TEXT $.user.tag AS country TAG
+FT.CREATE itemIdx ON JSON PREFIX 1 item: SCHEMA $.name AS name TEXT $.description as description TEXT $.price AS price NUMERIC
 ```
 
 Note: The `attribute` is optional for `FT.CREATE`.
@@ -46,23 +48,56 @@ automatically indexed.
 
 You can use any write command from the RedisJSON module `JSON.SET`, `JSON.ARRAPPEND`, etc.).
 
-This example uses the following JSON document:
+This example uses the following JSON documents:
 
-```JSON
+Item 1:
+
+```json
 {
-  "user": {
-    "name": "John Smith",
-    "tag": "apprentice,knight",
-    "hp": "1000",
-    "dmg": "150"
-  }
+  "name": "Noise-cancelling Bluetooth headphones",
+  "description": "Wireless Bluetooth headphones with noise-cancelling technology",
+  "connection": {
+    "wireless": true,
+    "type": "Bluetooth"
+  },
+  "price": 99.98,
+  "stock": 25,
+  "colors": [
+    "black",
+    "silver"
+  ]
+}
+```
+
+Item 2:
+
+```json
+{
+  "name": "Wireless earbuds",
+  "description": "Wireless Bluetooth in-ear headphones",
+  "connection": {
+    "wireless": true,
+    "type": "Bluetooth"
+  },
+  "price": 64.99,
+  "stock": 17,
+  "colors": [
+    "black",
+    "white"
+  ]
 }
 ```
 
 Use `JSON.SET` to store the document in the database:
 
+
+New example:
+
 ```sql
-JSON.SET myDoc $ '{"user":{"name":"John Smith","tag":"apprentice,knight","hp":1000, "dmg":150}}'
+> JSON.SET item:1 $ '{"name":"Noise-cancelling Bluetooth headphones","description":"Wireless Bluetooth headphones with noise-cancelling technology","connection":{"wireless":true,"type":"Bluetooth"},"price":99.98,"stock":25,"colors":["black","silver"]}'
+"OK"
+> JSON.SET item:2 $ '{"name":"Wireless earbuds","description":"Wireless Bluetooth in-ear headphones","connection":{"wireless":true,"type":"Bluetooth"},"price":64.99,"stock":17,"colors":["black","white"]}'
+"OK"
 ```
 
 Because indexing is synchronous, the document will be visible on the index as soon as the `JSON.SET` command returns.
@@ -73,49 +108,103 @@ Any subsequent query that matches the indexed content will return the document.
 To search for documents, use the `FT.SEARCH` command.
 You can search any attribute defined in the SCHEMA.
 
-Following our example, find the user called `John`:
+
+Search for items with the word "earbuds" in the name:
 
 ```sql
-FT.SEARCH userIdx '@name:(John)'
-1) (integer) 1
-2) "myDoc"
+> FT.SEARCH itemIdx '@name:(earbuds)'
+1) "1"
+2) "item:2"
 3) 1) "$"
-   2) "{\"user\":{\"name\":\"John Smith\",\"tag\":\"apprentice,knight\",\"hp\":1000,\"dmg\":150}}"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"]}"
 ```
+
+Search for all items that include "bluetooth" and "headphones" in the description:
+
+```sql
+> FT.SEARCH itemIdx '@description:(bluetooth headphones)'
+1) "2"
+2) "item:1"
+3) 1) "$"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"]}"
+4) "item:2"
+5) 1) "$"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"]}"
+```
+
+Search for items with a price less than 70:
+
+```sql
+> FT.SEARCH itemIdx '@description:(bluetooth headphones) @price:[0 70]'
+1) "1"
+2) "item:2"
+3) 1) "$"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"]}"
+```
+
+For information about search queries, see [Search query syntax](/docs/stack/search/reference/query_syntax).
 
 Note: `FT.SEARCH` and  `FT.AGGREGATE` queries require `attribute` modifiers. Don't use JSONPath expressions in queries because the query parser doesn't fully support them.
 
 ## Index JSON arrays
 
-It is possible to index scalar string and boolean values in JSON arrays by using the wildcard operator in the JSON Path. For example if you were indexing blog posts you might have a field called `tags` which is an array of tags that apply to the blog post.
+It is possible to index scalar string and boolean values in JSON arrays by using the wildcard operator in the JSON Path.
 
-```JSON
-{
-   "title":"Using RedisJson is Easy and Fun",
-   "tags":["redis","json","redisjson"]
-}
-```
+You can apply an index to the `colors` field by specifying the JSON Path `$.colors.*` in your schema creation:
 
-You can apply an index to the `tags` field by specifying the JSON Path `$.tags.*` in your schema creation:
+New index:
 
 ```sql
-FT.CREATE blog-idx ON JSON PREFIX 1 Blog: SCHEMA $.tags.* AS tags TAG
+FT.CREATE itemIdx2 ON JSON PREFIX 1 item: SCHEMA $.colors.* AS colors TAG $.name AS name TEXT $.description as description TEXT
 ```
 
-You would then set a blog post as you would any other JSON document:
+Search for headphones available in the color silver:
 
 ```sql
-JSON.SET Blog:1 . '{"title":"Using RedisJson is Easy and Fun", "tags":["redis","json","redisjson"]}'
-```
-
-And finally you can search using the typical tag searching syntax:
-
-```sql
-127.0.0.1:6379> FT.SEARCH blog-idx "@tags:{redis}"
-1) (integer) 1
-2) "Blog:1"
+127.0.0.1:6379> FT.SEARCH itemIdx2 "@colors:{silver} (@name:(headphones)|@description:(headphones))"
+1) "1"
+2) "item:1"
 3) 1) "$"
-   2) "{\"title\":\"Using RedisJson is Easy and Fun\",\"tags\":[\"redis\",\"json\",\"redisjson\"]}"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"]}"
+```
+
+## Index JSON objects
+
+You cannot index JSON objects. If the JSONPath expression returns an object, it will be ignored.
+
+If you want to index the contents of a JSON object, you need to index the individual elements within the object in separate attributes.
+
+To index the `customer-reviews` JSON object, define the `rating` and `review` fields as separate attributes when you create the index:
+
+```sql
+> FT.CREATE itemIdx3 ON JSON SCHEMA $.connection.wireless AS wireless TAG $.connection.type AS connectionType TEXT
+"OK"
+```
+
+Search for items with the wireless tag set to `true`:
+
+```sql
+> FT.SEARCH itemIdx3 '@wireless:{true}'
+1) "2"
+2) "item:2"
+3) 1) "$"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"]}"
+4) "item:1"
+5) 1) "$"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"]}"
+```
+
+Search for items with a Bluetooth connection type:
+
+```sql
+> FT.SEARCH itemIdx3 '@connectionType:(bluetooth)'
+1) "2"
+2) "item:1"
+3) 1) "$"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"]}"
+4) "item:2"
+5) 1) "$"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"]}"
 ```
 
 ## Field projection
@@ -124,54 +213,96 @@ And finally you can search using the typical tag searching syntax:
 
 ### Project with attribute name
 
-This example only returns the `name` attribute:
+This example only returns the `name` and `price` of each set of headphones:
 
 ```sql
-FT.SEARCH userIdx '@name:(John)' RETURN 1 name
-1) (integer) 1
-2) "myDoc"
+> FT.SEARCH itemIdx '@description:(headphones)' RETURN 2 name price
+1) "2"
+2) "item:1"
 3) 1) "name"
-   2) "\"John Smith\""
+   2) "Noise-cancelling Bluetooth headphones"
+   3) "price"
+   4) "99.98"
+4) "item:2"
+5) 1) "name"
+   2) "Wireless earbuds"
+   3) "price"
+   4) "64.99"
 ```
 
 ### Project with JSONPath
 
 The `RETURN` parameter also accepts a JSONPath expression which lets you extract any part of the JSON document.
 
-The following example returns the result of the JSONPath expression `$.user.hp`.
+The following example returns the result of the JSONPath expression `$.stock`.
 
 ```sql
-FT.SEARCH userIdx '@name:(John)' RETURN 1 $.user.hp
-1) (integer) 1
-2) "myDoc"
-3) 1) "$.user.hp"
-   2) "1000"
+> FT.SEARCH itemIdx '@description:(headphones)' RETURN 3 name price $.stock
+1) "2"
+2) "item:1"
+3) 1) "name"
+   2) "Noise-cancelling Bluetooth headphones"
+   3) "price"
+   4) "99.98"
+   5) "$.stock"
+   6) "25"
+4) "item:2"
+5) 1) "name"
+   2) "Wireless earbuds"
+   3) "price"
+   4) "64.99"
+   5) "$.stock"
+   6) "17"
 ```
 
-Note that the property name is the JSON expression itself: `3) 1) "$.user.hp"`
+Note that the property name is the JSON expression itself: `3) 1) "$.stock"`
 
 Using the `AS` option, you can also alias the returned property.
 
 ```sql
-FT.SEARCH userIdx '@name:(John)' RETURN 3 $.user.hp AS hitpoints
-1) (integer) 1
-2) "myDoc"
-3) 1) "hitpoints"
-   2) "1000"
+> FT.SEARCH itemIdx '@description:(headphones)' RETURN 5 name price $.stock AS stock
+1) "2"
+2) "item:1"
+3) 1) "name"
+   2) "Noise-cancelling Bluetooth headphones"
+   3) "price"
+   4) "99.98"
+   5) "stock"
+   6) "25"
+4) "item:2"
+5) 1) "name"
+   2) "Wireless earbuds"
+   3) "price"
+   4) "64.99"
+   5) "stock"
+   6) "17"
 ```
 
 ### Highlighting
 
-You can highlight any attribute as soon as it is indexed using the TEXT type.
+You can [highlight](/docs/stack/search/reference/highlight/) any attribute as soon as it is indexed using the TEXT type.
 
 For `FT.SEARCH`, you have to explicitly set the attribute in the `RETURN` and the `HIGHLIGHT` parameters.
 
+Highlight the word "bluetooth" with bold HTML tags in item names and descriptions:
+
 ```sql
-FT.SEARCH userIdx '@name:(John)' RETURN 1 name HIGHLIGHT FIELDS 1 name TAGS '<b>' '</b>'
-1) (integer) 1
-2) "myDoc"
+> FT.SEARCH itemIdx '(@name:(bluetooth))|(@description:(bluetooth))' RETURN 3 name description price HIGHLIGHT FIELDS 2 name description TAGS '<b>' '</b>'
+1) "2"
+2) "item:1"
 3) 1) "name"
-   2) "\"<b>John</b> Smith\""
+   2) "Noise-cancelling <b>Bluetooth</b> headphones"
+   3) "description"
+   4) "Wireless <b>Bluetooth</b> headphones with noise-cancelling technology"
+   5) "price"
+   6) "99.98"
+4) "item:2"
+5) 1) "name"
+   2) "Wireless earbuds"
+   3) "description"
+   4) "Wireless <b>Bluetooth</b> in-ear headphones"
+   5) "price"
+   6) "64.99"
 ```
 
 ## Aggregate with JSONPath
@@ -180,88 +311,49 @@ You can use [aggregation](/docs/stack/search/reference/aggregations) to generate
 
 The `LOAD` parameter accepts JSONPath expressions. You can use any value in the pipeline, even if the value is not indexed.
 
-This example loads two numeric values from the JSON document and applies a simple operation:
+This example calculates a 10% price discount and sorts the items from least expensive to most expensive:
 
 ```sql
-FT.AGGREGATE userIdx '*' LOAD 6 $.user.hp AS hp $.user.dmg AS dmg APPLY '@hp-@dmg' AS points
-1) (integer) 1
-2) 1) "hp"
-   2) "1000"
-   3) "dmg"
-   4) "150"
-   5) "points"
-   6) "850"
+> FT.AGGREGATE itemIdx '*' LOAD 4 name $.price AS originalPrice APPLY '@originalPrice - (@originalPrice * 0.10)' AS salePrice SORTBY 2 @salePrice ASC
+1) "2"
+2) 1) "name"
+   2) "Wireless earbuds"
+   3) "originalPrice"
+   4) "64.99"
+   5) "salePrice"
+   6) "58.491"
+3) 1) "name"
+   2) "Noise-cancelling Bluetooth headphones"
+   3) "originalPrice"
+   4) "99.98"
+   5) "salePrice"
+   6) "89.982"
 ```
 
 ## Index limitations
 
-### JSON scalars
+### Schema mapping
 
-You can only index:
+During index creation, you need to map the JSON elements to `SCHEMA` fields as follows:
 
-- JSON strings as TEXT, TAG, or GEO (using the correct syntax).
-- JSON numbers as NUMERIC.
-- JSON booleans as TAG.
+- Strings as TEXT, TAG, or GEO.
+- Numbers as NUMERIC.
+- Booleans as TAG.
+- JSON array of strings or booleans in a TAG field. Other types (NUMERIC, GEO, NULL) are not supported.
+- You cannot index JSON objects. Index the individual elements as separate attributes instead.
 - NULL values are ignored.
-
-### JSON arrays
-
-You can only index a JSON array of strings or booleans in a TAG field. Other types (numeric, geo, null) are not supported.
-
-### JSON objects
-
-You cannot index JSON objects. If the JSONPath expression returns an object, it will be ignored.
-
-However it is possible to index the strings in separated attributes.
-
-Given the following JSON document:
-
-```JSON
-{
-  "name": "Headquarters",
-  "address": [
-    "Suite 250",
-    "Mountain View"
-  ],
-  "cp": "CA 94040"
-}
-```
-
-Before you can index the array under the `address` key, you have to create two fields:
-
-```SQL
-FT.CREATE orgIdx ON JSON SCHEMA $.address[0] AS a1 TEXT $.address[1] AS a2 TEXT
-OK
-```
-
-Create and index the document:
-
-```SQL
-JSON.SET org:1 $ '{"name": "Headquarters","address": ["Suite 250","Mountain View"],"cp": "CA 94040"}'
-OK
-```
-
-Search in the address:
-
-```SQL
-FT.SEARCH orgIdx "suite 250"
-1) (integer) 1
-2) "org:1"
-3) 1) "$"
-   2) "{\"name\":\"Headquarters\",\"address\":[\"Suite 250\",\"Mountain View\"],\"cp\":\"CA 94040\"}"
-```
 
 ### TAG not sortable
 
 If you create an index for JSON documents, you cannot sort on a `TAG` field:
 
-```SQL
-FT.CREATE orgIdx ON JSON SCHEMA $.cp[0] AS cp TAG SORTABLE
-(error) On JSON, cannot set tag field to sortable - cp
+```sql
+> FT.CREATE itemIdx4 ON JSON PREFIX 1 item: SCHEMA $.colors.* AS colors TAG SORTABLE
+"On JSON, cannot set tag field to sortable - colors"
 ```
 
 With hashes, you can use `SORTABLE` (as a side effect) to improve the performance of `FT.AGGREGATE` on `TAG`fields.
-This is possible because the value in the hash is a string, such as "apprentice,knight".
+This is possible because the value in the hash is a string, such as "black,white,silver".
 
 However with JSON, you can index an array of strings.
 Because there is no valid single textual representation of those values,
