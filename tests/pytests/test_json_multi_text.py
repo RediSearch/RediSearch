@@ -247,8 +247,8 @@ def testMultiTextNested(env):
     res = env.execute_command('FT.SEARCH', 'idx_book',
         '(@name:(design*) -@category:(cloud)) | '
         '(@name:(Kubernetes*) @category:(cloud))',
-        'NOCONTENT', 'WITHSCORES')
-    env.assertListEqual(res, [2, 'doc:3', '1.5', 'doc:1', '0.66666666666666663'], message='idx_book')
+        'NOCONTENT')
+    env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']), message='idx_book')
 
 def searchMultiTextCategory(env):
     """ helper function for searching multi-value attributes """
@@ -609,6 +609,9 @@ def testconfigMultiTextOffsetDelta(env):
     """ test ft.config `MULTI_TEXT_SLOP` """
     
     env.skipOnCluster()
+    if env.env == 'existing-env':
+        env.skip()
+
     conn = getConnectionByEnv(env)
     conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
     env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
@@ -637,9 +640,12 @@ def testconfigMultiTextOffsetDelta(env):
     
     # MULTI_TEXT_SLOP = 101
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 101')
+    res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_SLOP')
+    env.assertEqual(res[0][1], '101')
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  104   ,  205         ,  306
+    conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
     env.execute_command('FT.CREATE', 'idx_category_arr_2', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr_2')
 
@@ -660,9 +666,12 @@ def testconfigMultiTextOffsetDelta(env):
 
     # MULTI_TEXT_SLOP = 0
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 0')
+    res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_SLOP')
+    env.assertEqual(res[0][1], '0')
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  4   ,    5         ,    6
+    conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
     env.execute_command('FT.CREATE', 'idx_category_arr_3', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr_3')
     
