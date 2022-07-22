@@ -23,6 +23,7 @@
 #include "dictionary.h"
 #include "doc_types.h"
 #include "rdb.h"
+#include "commands.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -57,11 +58,15 @@ size_t used_memory = 0;
 //---------------------------------------------------------------------------------------------
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
+#define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
   RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
 
   size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL); // Enterprise limit
+  maxmemory = MIN_NOT_0(maxmemory, max_process_mem);
+
   size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
-  memoryLimit = (maxmemory && (maxmemory < total_system_memory)) ? maxmemory : total_system_memory;
+  memoryLimit = MIN_NOT_0(maxmemory, total_system_memory);
 
   used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
 
@@ -214,13 +219,24 @@ static void IndexSpec_SetTimeoutTimer(IndexSpec *sp) {
   sp->isTimerSet = true;
 }
 
-static void Indexes_SetTempSpecsTimers() {
+static void IndexSpec_ResetTimeoutTimer(IndexSpec *sp) {
+  if (sp->isTimerSet) {
+    RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL);
+  }
+  sp->timerId = 0;
+  sp->isTimerSet = false;
+}
+
+void Indexes_SetTempSpecsTimers(TimerOp op) {
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     IndexSpec *sp = dictGetVal(entry);
     if (sp->flags & Index_Temporary) {
-      IndexSpec_SetTimeoutTimer(sp);
+      switch (op) {
+        case TimerOp_Add: IndexSpec_SetTimeoutTimer(sp);    break;
+        case TimerOp_Del: IndexSpec_ResetTimeoutTimer(sp);  break;
+      }
     }
   }
   dictReleaseIterator(iter);
@@ -267,8 +283,8 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     IndexSpec_OnCreate(sp);
   }
 
-  // set timout on temporary index
-  if (sp->flags & Index_Temporary) {
+  // set timeout for temporary index on master
+  if ((sp->flags & Index_Temporary) && IsMaster()) {
     IndexSpec_SetTimeoutTimer(sp);
   }
 
@@ -1252,16 +1268,22 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_FreeTask(IndexSpec *spec) {
+// called on master shard for temporary indexes and deletes all documents by defaults
+static void IndexSpec_FreeTask(char *specName) {
 #ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Freeing index %s in background", spec->name);
+  RedisModule_Log(NULL, "notice", "Freeing index %s in background", specName);
 #endif
   RedisModule_ThreadSafeContextLock(RSDummyContext);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
-  Redis_DropIndex(&sctx, spec->cascadeDelete);
+  // pass FT.DROPINDEX with "DD" flag to slef.
+  RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", specName, "DD");
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
 
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+
+  rm_free(specName);
 }
 
 void IndexSpec_LegacyFree(void *spec) {
@@ -1272,34 +1294,15 @@ void IndexSpec_LegacyFree(void *spec) {
 
 void IndexSpec_Free(IndexSpec *spec) {
   if (spec->flags & Index_Temporary) {
-    // we are taking the index to a background thread to be released.
-    // before we do it we need to delete it from the index dictionary
-    // to prevent it from been freed again.c
-    dictDelete(specDict_g, spec->name);
     if (spec->isTimerSet) {
       RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
       spec->isTimerSet = false;
     }
-    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, spec);
+    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
     return;
   }
 
   IndexSpec_FreeInternals(spec);
-}
-
-//---------------------------------------------------------------------------------------------
-
-void IndexSpec_FreeSync(IndexSpec *spec) {
-  //  todo:
-  //  mark I think we only need IndexSpec_FreeInternals, this is called only from the
-  //  LLAPI and there is no need to drop keys cause its out of the key space.
-  //  Let me know what you think
-
-  //   Need a context for this:
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
-
-  //@@ TODO: this is called by llapi, provide an explicit argument for cascasedelete
-  Redis_DropIndex(&sctx, false);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1479,8 +1482,6 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
-
-  sp->cascadeDelete = true;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
@@ -1777,17 +1778,21 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
-  if (key) {
-    if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
-      // this is only possible on crdb database, enpty keys are toombstone
-      // and we should just ignore them
-      return;
-    }
+  // RMKey it is provided as best effort but in some cases it might be NULL
+  bool keyOpened = false;
+  if (!key) {
+    key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ);
+    keyOpened = true;
   }
 
+  // check type of document is support and document is not empty
   DocumentType type = getDocType(key);
   if (type == DocumentType_Unsupported) {
     return;
+  }
+
+  if (keyOpened) {
+    RedisModule_CloseKey(key);
   }
 
   if (scanner->cancelled) {
@@ -1834,7 +1839,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
 end:
   if (!scanner->cancelled && scanner->global) {
-    Indexes_SetTempSpecsTimers();
+    Indexes_SetTempSpecsTimers(TimerOp_Add);
   }
 
   IndexesScanner_Free(scanner);
@@ -2178,8 +2183,6 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   sp->indexer = NewIndexer(sp);
 
   sp->scan_in_progress = false;
-
-  sp->cascadeDelete = true;
 
   IndexSpec *oldSpec = dictFetchValue(specDict_g, sp->name);
   if (oldSpec) {

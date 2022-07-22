@@ -9,7 +9,7 @@
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redis.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 
-<img src="https://oss.redis.com/redisearch/img/logo.svg" alt="logo" width="300"/>
+<img src="https://redis.io/docs/stack/search/img/logo.svg" alt="logo" width="300"/>
 
 ## Overview
 
@@ -31,12 +31,12 @@ To try RediSearch, either use the RediSearch Docker image, or [create a free Red
 
 ### Docker image
 
-The [RediSearch Docker image](https://hub.docker.com/r/redislabs/redisearch/) makes it easy to try RediSearch.
+The [Redis Stack Docker image](https://hub.docker.com/r/redis/redis-stack-server/) makes it easy to try RediSearch.
 
 To create a local RediSearch container, run:
 
 ```sh
-$ docker run -p 6379:6379 redislabs/redisearch:latest
+$ docker run -p 6379:6379 redis/redis-stack-server:latest
 ```
 
 To connect to this instance, run:
@@ -47,11 +47,11 @@ $ redis-cli
 
 ## Documentation
 
-The [RediSearch documentation](https://oss.redis.com/redisearch/) provides a complete overview of RediSearch. Helpful sections include:
+The [RediSearch documentation](https://redis.io/docs/stack/search/) provides a complete overview of RediSearch. Helpful sections include:
 
-* The [RediSearch quick start](https://oss.redis.com/redisearch/Quick_Start/)
-* The [RediSearch command reference](https://oss.redis.com/redisearch/Commands/)
-* References on features such as [aggregations](https://oss.redis.com/redisearch/Aggregations/), [highlights](https://oss.redis.com/redisearch/Highlight/), [stemming](https://oss.redis.com/redisearch/Stemming/), and [spelling correction](https://oss.redis.com/redisearch/Spellcheck/).
+* The [RediSearch quick start](https://redis.io/docs/stack/search/Quick_Start/)
+* The [RediSearch command reference](https://redis.io/docs/stack/search/Commands/)
+* References on features such as [aggregations](https://redis.io/docs/stack/search/reference/aggregations), [highlights](https://redis.io/docs/stack/search/reference/highlight/), [stemming](https://redis.io/docs/stack/search/reference/stemming/), and [spelling correction](https://redis.io/docs/stack/search/reference/spellcheck/).
 
 ## Mailing list and forum
 
@@ -74,6 +74,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 | Java | [redis-om-spring][redis-om-spring-url] | [Redis][redis-om-spring-author] | BSD-3-Clause | [![redis-om-spring-stars]][redis-om-spring-url] |
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
 | Go | [redisearch-go][redisearch-go-url] | [Redis][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
+| Go | [rueidis][rueidis-url] | [Rueian][rueidis-author] | Apache-2.0 | [![rueidis-stars]][rueidis-url] |
 | JavaScript | [Redis-om][redis-om-node-url] | [Redis][redis-om-node-author] | BSD-3-Clause | [![redis-om-node-stars]][redis-om-node-url] |
 | TypeScript | [Node-Redis][node-redis-url] | [Redis][node-redis-author] | MIT | [![node-redis-stars]][node-redis-url]|
 | TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
@@ -121,6 +122,10 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redisearch-go-url]: https://github.com/RediSearch/redisearch-go
 [redisearch-go-author]: https://redis.com
 [redisearch-go-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-go.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[rueidis-url]: https://github.com/rueian/rueidis
+[rueidis-author]: https://github.com/rueian
+[rueidis-stars]: https://img.shields.io/github/stars/rueian/rueidis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redis-om-node-url]: https://github.com/redis/redis-om-node
 [redis-om-node-author]: https://redis.com
@@ -174,9 +179,9 @@ You can use any standard Redis client library to run RediSearch commands, but it
 * Field weighting
 * Complex boolean queries with AND, OR, and NOT operators
 * Prefix matching, fuzzy matching, and exact-phrase queries
-* Support for [double-metaphone phonetic matching](https://oss.redis.com/redisearch/Phonetic_Matching/)
+* Support for [double-metaphone phonetic matching](https://redis.io/docs/stack/search/reference/phonetic_matching/)
 * Auto-complete suggestions (with fuzzy prefix suggestions)
-* Stemming-based query expansion in [many languages](https://oss.redis.com/redisearch/Stemming/) (using [Snowball](http://snowballstem.org/))
+* Stemming-based query expansion in [many languages](https://redis.io/docs/stack/search/reference/stemming/) (using [Snowball](http://snowballstem.org/))
 * Support for Chinese-language tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
 * Numeric filters and ranges
 * Geospatial searches using [Redis geospatial indexing](/commands/georadius)

@@ -22,6 +22,7 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | Java | [Spring LettuceMod][lettucemod-url] | [Redis][lettucemod-author] | Apache-2.0 | [![lettucemod-stars]][lettucemod-url]|
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
 | Go | [redisearch-go][redisearch-go-url] | [Redis][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
+| Go | [rueidis][rueidis-url] | [Rueian][rueidis-author] | Apache-2.0 | [![rueidis-stars]][rueidis-url] |
 | JavaScript | [Redis-om][redis-om-node-url] | [Redis][redis-om-node-author] | BSD-3-Clause | [![redis-om-node-stars]][redis-om-node-url] |
 | TypeScript | [Node-Redis][node-redis-url] | [Redis][node-redis-author] | MIT | [![node-redis-stars]][node-redis-url]|
 | TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
@@ -62,6 +63,10 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redisearch-go-url]: https://github.com/RediSearch/redisearch-go
 [redisearch-go-author]: https://redis.com
 [redisearch-go-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-go.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[rueidis-url]: https://github.com/rueian/rueidis
+[rueidis-author]: https://github.com/rueian
+[rueidis-stars]: https://img.shields.io/github/stars/rueian/rueidis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [node-redis-url]: https://github.com/redis/node-redis
 [node-redis-author]: https://github.com/redis
