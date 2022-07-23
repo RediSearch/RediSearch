@@ -121,7 +121,8 @@ ConcurrentSearch::~ConcurrentSearch() {
 // for notification, and private callback data. if freePrivDataCallback is provided, we will call it
 // when the context is freed to release the private data. If NULL is passed, we do nothing
 
-void ConcurrentSearch::AddKey(ConcurrentKey &&key) {
+template <class ConcurrentKey1>
+void ConcurrentSearch::AddKey(ConcurrentKey1 &&key) {
   concKeys.emplace_back(std::move(key));
   //RedisModule_RetainString(ctx, concKeys[0].keyName); //@@ TODO: ensure valid
 }

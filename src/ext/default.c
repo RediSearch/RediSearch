@@ -422,7 +422,7 @@ void StemmerExpanderFree(void *p) {
 int PhoneticExpand(RSQueryExpander *ctx, RSToken *token) {
   char *primary = NULL;
 
-  PhoneticManagerCtx::ExpandPhonetics(token->str, token->len, &primary, NULL);
+  PhoneticManager::ExpandPhonetics(token->str, token->len, &primary, NULL);
 
   if (primary) {
     ctx->ExpandToken(ctx, primary, strlen(primary), 0x0);

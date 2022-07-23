@@ -18,6 +18,7 @@ struct AddDocumentOptions;
 typedef uint64_t IndexSpecId;
 
 // Context passed to all redis related search handling functions
+
 struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;

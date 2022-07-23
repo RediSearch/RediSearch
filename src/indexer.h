@@ -26,13 +26,14 @@ struct FieldIndexerData {
 
 //---------------------------------------------------------------------------------------------
 
-struct MergeHashTable : KHTable {
-  virtual int Compare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h);
-  virtual uint32_t Hash(const KHTableEntry *ent);
-  virtual KHTableEntry *Alloc(void *ctx);
+struct MergeMapEntry {
+  ForwardIndexEntry *head;  // First document containing the term
+  ForwardIndexEntry *tail;  // Last document containing the term
 
-  MergeHashTable(void *allocator, size_t estSize) : KHTable(allocator, estSize) {}
+  size_t MergeMapEntry::countMerged() const;
 };
+
+typedef UnorderedMap<std::string, MergeMapEntry*> MergeMap;
 
 //---------------------------------------------------------------------------------------------
 
@@ -60,43 +61,41 @@ struct DocumentIndexerConcurrentKey : public ConcurrentKey {
 //---------------------------------------------------------------------------------------------
 
 struct DocumentIndexer : public Object {
-  AddDocumentCtx *head;            // first item in the queue
-  AddDocumentCtx *tail;            // last item in the queue
+  List<AddDocumentCtx*> addQueue;
+
+  pthread_t thr;
   pthread_mutex_t lock;            // lock - only used when adding or removing items from the queue
   pthread_cond_t cond;             // condition - used to wait on items added to the queue
-  size_t size;                     // number of items in the queue
+
   ConcurrentSearch concCtx;        // GIL locking. This is repopulated with the relevant key data
   RedisModuleCtx *redisCtx;        // Context for keeping the spec key
   RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key
   IndexSpecId specId;              // Unique spec ID. Used to verify we haven't been replaced
-  bool isDbSelected;
-  struct DocumentIndexer *next;    // Next structure in the indexer list
-  BlkAlloc alloc;
-  MergeHashTable mergeHt;          // Hashtable and block allocator for merging
-  int options;
-  pthread_t thr;
-  size_t refcount;
 
-  DocumentIndexer(IndexSpec *spec);
+  //struct DocumentIndexer *next;    // Next structure in the indexer list
+
+  BlkAlloc<MergeMapEntry> mergePool;
+  MergeMap mergeMap;               // Hashtable and block allocator for merging
+
+  unsigned int options;
+  bool isDbSelected;
+
+  DocumentIndexer(IndexSpec &spec);
   ~DocumentIndexer();
 
-  static DocumentIndexer *Copy(DocumentIndexer *indexer);
-  void Free();
-  void Process(AddDocumentCtx *aCtx);
+  void Add(AddDocumentCtx *aCtx);
 
-  int Add(AddDocumentCtx *aCtx);
+  void Process(AddDocumentCtx *aCtx);
+  AddDocumentCtx *merge(AddDocumentCtx *actx, AddDocumentCtx **parentMap);
 
   void main();
   static void *_main(void *self);
 
+  void Stop();
   bool ShouldStop() const { return options & INDEXER_STOPPED; }
 
-  int writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, KHTable *ht, AddDocumentCtx **parentMap);
-  void writeCurEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx);
-
-// private:
-  size_t Decref();
-  size_t Incref();
+  void writeEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx);
+  int writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, AddDocumentCtx **parentMap);
 };
 
 //---------------------------------------------------------------------------------------------

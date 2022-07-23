@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <vector>
+#include <list>
 
 #if 1
 
@@ -17,6 +18,14 @@ public:
   Vector() {}
   Vector(size_t size) : Super(size) {}
   Vector(Super &&v) : Super(v) {}
+};
+
+template <class T>
+class List : public std::list<T, rm_allocator<T>> {
+  typedef std::list<T, rm_allocator<T>> Super;
+
+public:
+  List() {}
 };
 
 #else

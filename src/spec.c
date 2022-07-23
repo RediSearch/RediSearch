@@ -225,7 +225,7 @@ IndexSpec::IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     RedisModule_SetExpire(k, timeout * 1000);
   }
   // Create the indexer
-  indexer = new DocumentIndexer(this);
+  indexer = std::make_shared<DocumentIndexer>(*this);
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(this);
   }
@@ -705,8 +705,8 @@ void IndexSpec::FreeWithKey(RedisModuleCtx *ctx) {
 //---------------------------------------------------------------------------------------------
 
 void IndexSpec::FreeInternals() {
-  if (indexer) {
-    delete indexer;
+  if (!!indexer) {
+    indexer->Stop();
   }
   if (gc) {
     gc->Stop();
@@ -1300,7 +1300,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       RS_LOG_ASSERT(rc == REDISMODULE_OK, "adding alias to index failed");
     }
   }
-  sp->indexer = new DocumentIndexer(sp);
+  sp->indexer = std::make_shared<DocumentIndexer>(*sp);
   return sp;
 }
 

@@ -45,12 +45,13 @@
 struct ConcurrentKey {
   ConcurrentKey(RedisModuleKey *key, RedisModuleString *keyName, int openFlags = REDISMODULE_READ) :
     key(key), keyName(keyName), keyFlags(openFlags) {}
+  //ConcurrentKey(ConcurrentKey &&k) : key(k.key), keyName(k.keyName), keyFlags(k.openFlags) {}
 
   RedisModuleKey *key;
   RedisModuleString *keyName;
   int keyFlags; // redis key open flags
 
-  virtual void Reopen() = 0;
+  virtual void Reopen(); // @@@ TODO restore = 0;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -59,13 +60,14 @@ struct ConcurrentSearch {
   long long ticker;
   struct timespec lastTime;
   RedisModuleCtx *ctx;
-  Vector<ConcurrentKey> concKeys;
+  Vector<ConcurrentKey> concKeys; //@@@ TODO Vector<std::unique_ptr<ConcurrentKey>>
   bool isLocked;
 
   ConcurrentSearch(RedisModuleCtx *rctx);
   ~ConcurrentSearch();
 
-  void AddKey(ConcurrentKey &&concKeys);
+  template <class ConcurrentKey1>
+  void AddKey(ConcurrentKey1 &&concKeys);
 
   bool CheckTimer();
   void ResetClock();

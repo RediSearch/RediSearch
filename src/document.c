@@ -166,7 +166,6 @@ AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) 
   docFlags = 0;
   client.bc = NULL;
   next = NULL;
-  specFlags = sp->flags;
   indexer = sp->indexer;
   RS_LOG_ASSERT(sp->indexer, "No indexer");
   indexer->Incref();

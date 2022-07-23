@@ -41,7 +41,7 @@ inline t_fieldMask ReadVarintFieldMask(BufferReader &b) {
 
 //---------------------------------------------------------------------------------------------
 
-struct VarintVectorWriter : MemPoolObject<VarintVectorWriter> {
+struct VarintVectorWriter {
   Buffer buf;
   size_t nmemb;  // how many members we've put in
   uint32_t lastValue;

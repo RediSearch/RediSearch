@@ -12,23 +12,21 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static void Indexer_FreeInternal(DocumentIndexer *indexer);
-
-static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
-                            const ForwardIndexEntry &entry) {
+void IndexSpec::writeIndexEntry(InvertedIndex *idx, const ForwardIndexEntry &entry) {
+  IndexEncoder encoder = InvertedIndex::GetEncoder(flags);
   size_t sz = idx->WriteForwardIndexEntry(encoder, entry);
 
   // Update index statistics:
 
   // Number of additional bytes
-  spec->stats.invertedSize += sz;
+  stats.invertedSize += sz;
   // Number of records
-  spec->stats.numRecords++;
+  stats.numRecords++;
 
-  /* Record the space saved for offset vectors */
-  if (spec->flags & Index_StoreTermOffsets) {
-    spec->stats.offsetVecsSize += entry.vw->GetByteLength();
-    spec->stats.offsetVecRecords += entry.vw->GetCount();
+  // Record the space saved for offset vectors
+  if (flags & Index_StoreTermOffsets) {
+    stats.offsetVecsSize += entry.vw->GetByteLength();
+    stats.offsetVecRecords += entry.vw->GetCount();
   }
 }
 
@@ -40,45 +38,14 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder en
 // Effectively limits the maximum number of documents whose terms can be merged
 #define MAX_BULK_DOCS 1024
 
-// Entry for the merged dictionary
-struct mergedEntry {
-  KHTableEntry base;        // Base structure
-  ForwardIndexEntry *head;  // First document containing the term
-  ForwardIndexEntry *tail;  // Last document containing the term
-};
-
-//---------------------------------------------------------------------------------------------
-
-// Boilerplate hashtable compare function
-int MergeHashTable::Compare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h) {
-  mergedEntry *e = (mergedEntry *)ent;
-  // 0 return value means "true"
-  return !(e->head->hash == h && e->head->len == n && memcmp(e->head->term, s, n) == 0);
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Boilerplate hash retrieval function. Used for rebalancing the table
-uint32_t MergeHashTable::Hash(const KHTableEntry *ent) {
-  mergedEntry *e = (mergedEntry *)ent;
-  return e->head->hash;
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Boilerplate dict entry allocator
-KHTableEntry *MergeHashTable::Alloc(void *ctx) {
-  BlkAlloc b = ctx;
-  return b.Alloc(sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
-}
-
 //---------------------------------------------------------------------------------------------
 
 // This function used for debugging, and returns how many items are actually in the list
-static size_t countMerged(mergedEntry *ent) {
+
+size_t MergeMapEntry::countMerged() const {
   size_t n = 0;
-  for (ForwardIndexEntry *cur = ent->head; cur; cur = cur->next) {
-    n++;
+  for (ForwardIndexEntry *cur = head; cur; cur = cur->next) {
+    ++n;
   }
   return n;
 }
@@ -92,42 +59,35 @@ static size_t countMerged(mergedEntry *ent) {
 // This wil be used when actually assigning document IDs later on, so that we
 // don't need to seek the document list again for it.
 
-static AddDocumentCtx *doMerge(AddDocumentCtx *aCtx, KHTable *ht, AddDocumentCtx **parentMap) {
-  // Counter is to make sure we don't block the CPU if there are many many items
-  // in the queue, though in reality the number of iterations is also limited
-  // by MAX_DOCID_ENTRIES
+AddDocumentCtx *DocumentIndexer::merge(AddDocumentCtx *aCtx, AddDocumentCtx **parentMap) {
+  // Make sure we don't block the CPU if there are many many items in the queue, 
+  // though in reality the number of iterations is also limited by MAX_DOCID_ENTRIES
   size_t counter = 0;
 
-  // Current index within the parentMap, this is assigned as the placeholder
-  // doc ID value
+  // Current index within the parentMap, this is assigned as the placeholder doc ID value
   size_t curIdIdx = 0;
 
   AddDocumentCtx *cur = aCtx;
   AddDocumentCtx *firstZeroId = NULL;
 
   while (cur && ++counter < 1000 && curIdIdx < MAX_BULK_DOCS) {
-
     ForwardIndexIterator it = cur->fwIdx->Iterate();
     ForwardIndexEntry *entry = it.Next();
-
     while (entry) {
-      // Because we don't have the actual document ID at this point, the document
-      // ID field will be used here to point to an index in the parentMap
-      // that will contain the parent. The parent itself will contain the
-      // document ID when assigned (when the lock is held).
+      // Because we don't have the actual document ID at this point, the document ID field will be used 
+      // here to point to an index in the parentMap that will contain the parent. 
+      // The parent itself will contain the document ID when assigned (when the lock is held).
       entry->docId = curIdIdx;
 
-      // Get the entry for it.
-      int isNew = 0;
-      mergedEntry *mergedEnt =
-          (mergedEntry *)KHTable_GetEntry(ht, entry->term, entry->len, entry->hash, &isNew);
-
-      if (isNew) {
-        mergedEnt->head = mergedEnt->tail = entry;
-
+      // Get the entry for it
+      std::string key{entry->term, entry->len};
+      auto marge_it = mergeMap.find(key);
+      if (marge_it == mergeMap.end()) {
+        MergeMapEntry *val = mergePool.Alloc(MergeMapEntry{entry, entry});
+        mergeMap.emplace(key, val);
       } else {
-        mergedEnt->tail->next = entry;
-        mergedEnt->tail = entry;
+        marge_it->second->tail->next = entry;
+        marge_it->second->tail = entry;
       }
 
       entry->next = NULL;
@@ -135,8 +95,7 @@ static AddDocumentCtx *doMerge(AddDocumentCtx *aCtx, KHTable *ht, AddDocumentCtx
     }
 
     // Set the document's text status as indexed. This is not strictly true,
-    // but it means that there is no more index interaction with this specific
-    // document.
+    // but it means that there is no more index interaction with this specific document.
     cur->stateFlags |= ACTX_F_TEXTINDEXED;
     parentMap[curIdIdx++] = cur;
     if (firstZeroId == NULL && cur->doc.docId == 0) {
@@ -155,42 +114,33 @@ static AddDocumentCtx *doMerge(AddDocumentCtx *aCtx, KHTable *ht, AddDocumentCtx
 // AddDocumentCtx which contains the document itself, which by this time should
 // have been assigned an ID via makeDocumentId()
 
-int DocumentIndexer::writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-                                        KHTable *ht, AddDocumentCtx **parentMap) {
+int DocumentIndexer::writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sctx, AddDocumentCtx **parentMap) {
+  IndexSpec *spec = sctx->spec;
+  int isBlocked = aCtx->IsBlockable();
 
-  IndexEncoder encoder = InvertedIndex::GetEncoder(ctx->spec->flags);
-  const int isBlocked = aCtx->IsBlockable();
-
-  // This is used as a cache layer, so that we don't need to derefernce the
-  // AddDocumentCtx each time.
+  // This is used as a cache layer, so that we don't need to derefernce the AddDocumentCtx each time
   uint32_t docIdMap[MAX_BULK_DOCS] = {0};
 
-  // Iterate over all the entries
-  for (uint32_t curBucketIdx = 0; curBucketIdx < ht->numBuckets; curBucketIdx++) {
-    for (KHTableEntry *entp = ht->buckets[curBucketIdx]; entp; entp = entp->next) {
-      mergedEntry *merged = (mergedEntry *)entp;
-
-      // Open the inverted index:
+  for (auto it: mergeMap) {
+      MergeMapEntry *merged = it.second;
       ForwardIndexEntry *fwent = merged->head;
 
-      // Add the term to the prefix trie. This only needs to be done once per term
-      ctx->spec->AddTerm(fwent->term, fwent->len);
+      // Add the term to the prefix trie. This only needs to be done once per term.
+      spec->AddTerm(fwent->term, fwent->len);
 
       RedisModuleKey *idxKey = NULL;
-      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &idxKey);
-
+      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, fwent->term, fwent->len, 1, &idxKey);
       if (invidx == NULL) {
         continue;
       }
 
       for (; fwent != NULL; fwent = fwent->next) {
         // Get the Doc ID for this entry.
-        // Note that we cache the lookup result itself, since accessing the
-        // parent each time causes some memory access overhead. This saves
-        // about 3% overall.
+        // Note that lookup result is cached, since accessing the parent each time causes some memory access overhead.
+        // This saves about 3% overall.
         uint32_t docId = docIdMap[fwent->docId];
         if (docId == 0) {
-          // Meaning the entry is not yet in the cache.
+          // Meaning the entry is not yet in the cache
           AddDocumentCtx *parent = parentMap[fwent->docId];
           if ((parent->stateFlags & ACTX_F_ERRORED) || parent->doc.docId == 0) {
             // Has an error, or for some reason it doesn't have a document ID(!? is this possible)
@@ -203,18 +153,17 @@ int DocumentIndexer::writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ct
 
         // Finally assign the document ID to the entry
         fwent->docId = docId;
-        writeIndexEntry(ctx->spec, invidx, encoder, *fwent);
+        spec->writeIndexEntry(invidx, *fwent);
       }
 
       if (idxKey) {
         RedisModule_CloseKey(idxKey);
       }
 
-      if (isBlocked && concCtx.Tick() && ctx->spec == NULL) {
+      if (isBlocked && concCtx.Tick() && spec == NULL) {
         aCtx->status.SetError(QUERY_ENOINDEX, NULL);
         return -1;
       }
-    }
   }
   return 0;
 }
@@ -226,30 +175,30 @@ int DocumentIndexer::writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ct
 // In this case it's simpler to forego building the merged dictionary because there is
 // nothing to merge.
 
-void DocumentIndexer::writeCurEntries(AddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
-  RS_LOG_ASSERT(ctx, "ctx shound not be NULL");
+void DocumentIndexer::writeEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  RS_LOG_ASSERT(sctx, "ctx shound not be NULL");
 
+  IndexSpec *spec = sctx->spec;
   ForwardIndexIterator it = aCtx->fwIdx->Iterate();
   ForwardIndexEntry *entry = it.Next();
-  IndexEncoder encoder = InvertedIndex::GetEncoder(aCtx->specFlags);
   const int isBlocked = aCtx->IsBlockable();
 
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
-    ctx->spec->AddTerm(entry->term, entry->len);
+    spec->AddTerm(entry->term, entry->len);
 
-    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
+    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
       entry->docId = aCtx->doc.docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      writeIndexEntry(ctx->spec, invidx, encoder, *entry);
+      spec->writeIndexEntry(invidx, *entry);
     }
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
 
     entry = it.Next();
-    if (isBlocked && concCtx.Tick() && ctx->spec == NULL) {
+    if (isBlocked && concCtx.Tick() && spec == NULL) {
       aCtx->status.SetError(QUERY_ENOINDEX, NULL);
       return;
     }
@@ -276,19 +225,17 @@ static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
 
 // Assigns a document ID to a single document
 
-static int makeDocumentId(AddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
-                          QueryError *status) {
+int AddDocumentCtx::makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryError *status) {
   IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
-  Document *doc = &aCtx->doc;
   if (replace) {
-    RSDocumentMetadata *dmd = table->PopR(doc->docKey);
+    RSDocumentMetadata *dmd = table->PopR(doc.docKey);
     if (dmd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
-      aCtx->oldMd = dmd;
+      oldMd = dmd;
       if (dmd->flags & Document_HasOnDemandDeletable) {
-        // Delete all on-demand fields.. this means geo,but could mean other things..
+        // Delete all on-demand fields.. this means geo, but could mean other things..
         handleReplaceDelete(sctx, dmd->id);
       }
       if (sctx->spec->gc) {
@@ -298,13 +245,12 @@ static int makeDocumentId(AddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replac
   }
 
   size_t n;
-  const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
+  const char *s = RedisModule_StringPtrLen(doc.docKey, &n);
 
-  doc->docId =
-    table->Put(s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize);
-  if (doc->docId == 0) {
+  doc.docId = table->Put(s, n, doc.score, docFlags, doc.payload, doc.payloadSize);
+  if (doc.docId == 0) {
     status->SetError(QUERY_EDOCEXISTS, NULL);
-    return -1;
+    return -1; //@@TODO: throw on error
   }
   ++spec->stats.numDocuments;
 
@@ -319,15 +265,17 @@ static int makeDocumentId(AddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replac
  *
  * This function also sets the document's sorting vector, if present.
  */
-static void doAssignIds(AddDocumentCtx *cur, RedisSearchCtx *ctx) {
+
+void AddDocumentCtx::doAssignIds(RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
+  AddDocumentCtx *cur = this;
   for (; cur; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
       continue;
     }
 
     RS_LOG_ASSERT(!cur->doc.docId, "docId must be 0");
-    int rv = makeDocumentId(cur, ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+    int rv = cur->makeDocumentId(ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
     if (rv != 0) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;
@@ -352,7 +300,7 @@ static void doAssignIds(AddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
   IndexBulkData bData[SPEC_MAX_FIELDS] = {{{NULL}}};
   IndexBulkData *activeBulks[SPEC_MAX_FIELDS];
@@ -392,10 +340,9 @@ static void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx 
 
 //---------------------------------------------------------------------------------------------
 
-// Routines for the merged hash table
-#define ACTX_IS_INDEXED(actx)                                           \
-  (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
-   (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
+bool AddDocumentCtx::IsIndexed() const {
+  return (stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED);
+}
 
 //---------------------------------------------------------------------------------------------
 
@@ -406,27 +353,26 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
   AddDocumentCtx *parentMap[MAX_BULK_DOCS] = {0};
   AddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx sctx{redisCtx, specId};
-  Document *doc = NULL;
+  //Document &doc = &aCtx->doc;
 
-  if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
+  if (aCtx->IsIndexed() || aCtx->stateFlags & ACTX_F_ERRORED) {
     // Document is complete or errored. No need for further processing.
     if (!(aCtx->stateFlags & ACTX_F_EMPTY)) {
       return;
     }
   }
 
-  bool useTermHt = size > 1 && !(aCtx->stateFlags & ACTX_F_TEXTINDEXED);
-  if (useTermHt) {
-    firstZeroId = doMerge(aCtx, &mergeHt, parentMap);
+  bool useTermMap = addQueue.size() > 1 && !(aCtx->stateFlags & ACTX_F_TEXTINDEXED);
+  if (useTermMap) {
+    firstZeroId = merge(aCtx, parentMap);
     if (firstZeroId && firstZeroId->stateFlags & ACTX_F_ERRORED) {
-      // Don't treat an errored ctx as being the head of a new ID chain. It's
-      // likely that subsequent entries do indeed have IDs.
+      // Don't treat an errored ctx as being the head of a new ID chain.
+      // It's likely that subsequent entries do indeed have IDs.
       firstZeroId = NULL;
     }
   }
 
   const int isBlocked = aCtx->IsBlockable();
-
   if (isBlocked) {
     // Force a context at this point:
     if (!isDbSelected) {
@@ -449,8 +395,6 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
     goto cleanup;
   }
 
-  doc = &aCtx->doc;
-
   // Document ID assignment:
   // In order to hold the GIL for as short a time as possible, we assign
   // document IDs in bulk. We begin using the first document ID that is assumed
@@ -463,15 +407,15 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
   // no ID assignment takes place.
   //
   // Assigning IDs in bulk speeds up indexing of smaller documents by about 10% overall.
-  if (firstZeroId != NULL && firstZeroId->doc.docId == 0) {
-    doAssignIds(firstZeroId, &sctx);
+  if (firstZeroId && firstZeroId->doc.docId == 0) {
+    firstZeroId->doAssignIds(&sctx);
   }
 
   // Handle FULLTEXT indexes
-  if (useTermHt) {
-    writeMergedEntries(aCtx, &sctx, &mergeHt, parentMap);
+  if (useTermMap) {
+    writeMergedEntries(aCtx, &sctx, parentMap);
   } else if (aCtx->fwIdx && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
-    writeCurEntries(aCtx, &sctx);
+    writeEntries(aCtx, &sctx);
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
@@ -482,9 +426,9 @@ cleanup:
   if (isBlocked) {
     concCtx.Unlock();
   }
-  if (useTermHt) {
-    alloc.Clear(NULL, NULL, 0);
-    mergeHt.Clear();
+  if (useTermMap) {
+    mergeMap.clear();
+    mergePool.Clear();
   }
 }
 
@@ -493,29 +437,25 @@ cleanup:
 void DocumentIndexer::main() {
   pthread_mutex_lock(&lock);
   while (!ShouldStop()) {
-    while (head == NULL && !ShouldStop()) {
-      pthread_cond_wait(&cond, &lock);
+    while (addQueue.empty() && !ShouldStop()) {
+      pthread_cond_wait(&cond, &lock); // @@TODO: use pthread_cond_timedwait()
     }
 
-    AddDocumentCtx *cur = head;
-    if (cur == NULL) {
+    if (addQueue.empty()) {
       RS_LOG_ASSERT(ShouldStop(), "indexer was stopped");
-      pthread_mutex_unlock(&lock);
       break;
     }
 
-    size--;
+    AddDocumentCtx *add = addQueue.back();
+    addQueue.pop_back();
 
-    if ((head = cur->next) == NULL) {
-      tail = NULL;
-    }
     pthread_mutex_unlock(&lock);
-    Process(cur);
-    cur->Finish();
+    Process(add);
+    add->Finish();
     pthread_mutex_lock(&lock);
   }
 
-  delete this;
+  pthread_mutex_unlock(&lock);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -534,29 +474,19 @@ static void *DocumentIndexer::_main(void *self_) {
 //---------------------------------------------------------------------------------------------
 
 // Add a document to the indexing queue. If successful, the indexer now takes
-// ownership of the document context (until it DocumentAddCtx_Finish).
+// ownership of the document context (until it DocumentAddCtx::Finish).
 
-int DocumentIndexer::Add(AddDocumentCtx *aCtx) {
+void DocumentIndexer::Add(AddDocumentCtx *aCtx) {
   if (!aCtx->IsBlockable() || !!(options & INDEXER_THREADLESS)) {
     Process(aCtx);
     aCtx->Finish();
-    return 0;
+    return;
   }
 
   pthread_mutex_lock(&lock);
-
-  if (tail) {
-    tail->next = aCtx;
-    tail = aCtx;
-  } else {
-    head = tail = aCtx;
-  }
-
+  addQueue.push_back(aCtx);
   pthread_cond_signal(&cond);
   pthread_mutex_unlock(&lock);
-
-  size++;
-  return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -577,16 +507,13 @@ int DocumentIndexer::Add(AddDocumentCtx *aCtx) {
 // thread. This does not insert it into the list of threads, though
 // todo: remove the withIndexThread var once we switch to threadpool
 
-DocumentIndexer::DocumentIndexer(IndexSpec *spec) :
+DocumentIndexer::DocumentIndexer(IndexSpec &spec) :
     redisCtx(RedisModule_GetThreadSafeContext(NULL)),
     concCtx(redisCtx),
-    mergeHt(MergeHashTable(&alloc, 4096)) {
-  size = 0;
+    mergePool(TERMS_PER_BLOCK) {
   isDbSelected = false;
-  refcount = 1;
-  head = tail = NULL;
   options = 0;
-  if (!!(spec->flags & Index_Temporary) || !RSGlobalConfig.concurrentMode) {
+  if (!!(spec.flags & Index_Temporary) || !RSGlobalConfig.concurrentMode) {
     options |= INDEXER_THREADLESS;
   }
 
@@ -597,52 +524,28 @@ DocumentIndexer::DocumentIndexer(IndexSpec *spec) :
     pthread_detach(thr);
   }
 
-  next = NULL;
-  specId = spec->uniqueId;
-  specKeyName = RedisModule_CreateStringPrintf(redisCtx, INDEX_SPEC_KEY_FMT, spec->name);
+  //next = NULL;
+  specId = spec.uniqueId;
+  specKeyName = RedisModule_CreateStringPrintf(redisCtx, INDEX_SPEC_KEY_FMT, spec.name);
+}
+
+//---------------------------------------------------------------------------------------------
+
+// @@TODO: review termination logic (SyncStop?)
+void DocumentIndexer::Stop() {
+  options |= INDEXER_STOPPED;
 }
 
 //---------------------------------------------------------------------------------------------
 
 DocumentIndexer::~DocumentIndexer() {
+  options |= INDEXER_STOPPED;
   if (!(options & INDEXER_THREADLESS)) {
     pthread_cond_destroy(&cond);
     pthread_mutex_destroy(&lock);
   }
   RedisModule_FreeString(redisCtx, specKeyName);
-  mergeHt.Clear();
-  // KHTable_Free(&mergeHt);
-  alloc.FreeAll(NULL, 0, 0);
   RedisModule_FreeThreadSafeContext(redisCtx);
-}
-
-//---------------------------------------------------------------------------------------------
-
-size_t DocumentIndexer::Decref() {
-  size_t ret = __sync_sub_and_fetch(&refcount, 1);
-  if (!ret) {
-    pthread_mutex_lock(&lock);
-    options |= INDEXER_STOPPED;
-    pthread_cond_signal(&cond);
-    pthread_mutex_unlock(&lock);
-  }
-  return ret;
-}
-
-//---------------------------------------------------------------------------------------------
-
-size_t DocumentIndexer::Incref() {
-  return ++refcount;
-}
-
-//---------------------------------------------------------------------------------------------
-
-void DocumentIndexer::Free() {
-  if (options & INDEXER_THREADLESS) {
-    delete this;
-  } else {
-    Decref();
-  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

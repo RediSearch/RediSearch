@@ -173,7 +173,7 @@ struct AddDocumentPool : MemPool {
 
 struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   struct AddDocumentCtx *next;  // Next context in the queue
-  Document doc;                   // Document which is being indexed
+  Document doc;                 // Document which is being indexed
 
   union {
     RedisModuleBlockedClient *bc;  // Client
@@ -183,14 +183,14 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
 
-  struct DocumentIndexer *indexer;
+  std::shared_ptr<DocumentIndexer> indexer;
 
-  // Sorting vector for the document. If the document has sortable fields, they
-  // are added to here as well
+  // Sorting vector for the document. 
+  // If the document has sortable fields, they are added to here as well.
   RSSortingVector *sv;
 
-  // Byte offsets for highlighting. If term offsets are stored, this contains
-  // the field byte offset for each term.
+  // Byte offsets for highlighting. 
+  // If term offsets are stored, this contains the field byte offset for each term.
   RSByteOffsets *byteOffsets;
   ByteOffsetWriter offsetsWriter;
 
@@ -209,7 +209,6 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   struct FieldIndexerData *fdatas;
   QueryError status;     // Error message is placed here if there is an error during processing
   uint32_t totalTokens;  // Number of tokens, used for offset vector
-  uint32_t specFlags;    // Cached index flags
   uint8_t options;       // Indexing options - i.e. DOCUMENT_ADD_xxx
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
@@ -219,6 +218,8 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   virtual ~AddDocumentCtx();
 
   bool handlePartialUpdate(RedisSearchCtx *sctx); // can be private
+  int makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryError *status);
+  void doAssignIds(RedisSearchCtx *ctx);
 
   void Submit(RedisSearchCtx *sctx, uint32_t options);
 
@@ -226,6 +227,7 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   int AddToIndexes();
 
   bool IsBlockable() const { return !(stateFlags & ACTX_F_NOBLOCK); }
+  bool IsIndexed() const;
 
   void UpdateNoIndex(RedisSearchCtx *sctx);
   bool ReplaceMerge(RedisSearchCtx *sctx);

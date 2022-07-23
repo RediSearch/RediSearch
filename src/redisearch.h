@@ -104,6 +104,7 @@ struct RSDocumentMetadata : Object {
   DLLIST2_node llnode;
   uint32_t ref_count;
 
+  RSDocumentMetadata();
   ~RSDocumentMetadata();
 
   const char *KeyPtrLen(size_t *len) const;

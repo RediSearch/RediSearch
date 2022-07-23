@@ -191,8 +191,7 @@ struct BaseIndex : Object {
   virtual ~BaseIndex() {}
 };
 
-class IndexSpec {
-public:
+struct IndexSpec : Object {
   typedef IndexSpecId Id;
 
   char *name;
@@ -227,7 +226,7 @@ public:
   RSGetValueCallback getValue;
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
-  struct DocumentIndexer *indexer;
+  std::shared_ptr<DocumentIndexer> indexer;
 
   static IndexSpec *Load(RedisModuleCtx *ctx, const char *name, int openWrite);
   static IndexSpec *LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
@@ -300,6 +299,8 @@ public:
   RedisModuleString *GetFormattedKeyByName(const char *s, FieldType forType);
 
   t_fieldMask ParseFieldMask(RedisModuleString **argv, int argc); //@@ nobody is using it
+
+  void writeIndexEntry(struct InvertedIndex *idx, const struct ForwardIndexEntry &entry);
 };
 
 //---------------------------------------------------------------------------------------------

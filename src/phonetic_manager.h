@@ -5,7 +5,7 @@
 
 #define PHONETIC_PREFIX '<'
 
-struct PhoneticManagerCtx {
+struct PhoneticManager {
   char* algorithm;
   //RSLanguage language; // not currently used
 

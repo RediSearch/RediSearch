@@ -26,8 +26,8 @@ public:
   // reaches EOF, it is set to NULL in the `its` list, but is still retained in
   // the `origits` list, for the purpose of supporting things like Rewind() and Free().
 
-  Vector<IndexIterator *> its;
-  Vector<IndexIterator *> origits;
+  Vector<IndexIterator*> its;
+  Vector<IndexIterator*> origits;
   uint32_t currIt;
   t_docId minDocId;
 

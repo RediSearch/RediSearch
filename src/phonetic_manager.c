@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include "rmalloc.h"
 
-static void PhoneticManager_AddPrefix(char** phoneticTerm) {
+void PhoneticManager::AddPrefix(char** phoneticTerm) {
   if (!phoneticTerm || !(*phoneticTerm)) {
     return;
   }
@@ -14,9 +14,9 @@ static void PhoneticManager_AddPrefix(char** phoneticTerm) {
   *phoneticTerm[0] = PHONETIC_PREFIX;
 }
 
-//@@ Should it be static func of PhoneticManagerCtx?
-static void PhoneticManagerCtx::ExpandPhonetics(const char* term, size_t len,
-                                         char** primary, char** secondary) {
+//@@ Should it be static func of PhoneticManager?
+void PhoneticManager::ExpandPhonetics(const char* term, size_t len,
+                                      char** primary, char** secondary) {
   // currently ctx is irrelevant we support only one universal algorithm for all 4 languages
   // this phonetic manager was built for future thinking and easily add more algorithms
   char bufTmp[len + 1];
