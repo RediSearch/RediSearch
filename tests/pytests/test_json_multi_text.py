@@ -573,13 +573,15 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
                         env.execute_command('FT.SEARCH', 'idx2_multi_tag', *tag_arg),
                         message = '{} arg {}'.format(3, i))
 
-    # Check that order and scores are the same
-    for i, text_arg in enumerate(text_cmd_args):
-        text_arg.append('WITHSCORES')
-        # Multi TEXT with single TEXT
-        env.assertEqual(trim_in_list('multi:', env.execute_command('FT.SEARCH', 'idx1_multi_text', *text_arg)),
-                        trim_in_list('single:', env.execute_command('FT.SEARCH', 'idx1_single_text', *text_arg)),
-                        message = '{} arg {}'.format(1, i))
+    if not env.isCluster():
+        # (skip this comparison in cluster since score is affected by the numer of shards/distribution of keys across shards)
+        # Check that order and scores are the same
+        for i, text_arg in enumerate(text_cmd_args):
+            text_arg.append('WITHSCORES')
+            # Multi TEXT with single TEXT
+            env.assertEqual(trim_in_list('multi:', env.execute_command('FT.SEARCH', 'idx1_multi_text', *text_arg)),
+                            trim_in_list('single:', env.execute_command('FT.SEARCH', 'idx1_single_text', *text_arg)),
+                            message = '{} arg {}'.format(1, i))
 
 
 def testMultiEmptyBlankOrNone(env):
