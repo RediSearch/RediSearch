@@ -164,7 +164,7 @@ static int JSON_getFloat32(RedisJSON json, float *val) {
 //   }
 // }
 
-int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struct DocumentField *df) {
+int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df) {
   VecSimType type;
   size_t dim;
   typedef int (*getJSONElementFunc)(RedisJSON, void *);
@@ -181,7 +181,9 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
       break;
     default: return REDISMODULE_ERR;
   }
-  if (japi->len(arrIter) != dim) {
+  size_t arrLen;
+  japi->getLen(arr, &arrLen);
+  if (arrLen != dim) {
     return REDISMODULE_ERR;
   }
 
@@ -208,11 +210,11 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
   }
   df->strlen = fs->vectorOpts.expBlobSize;
 
-  RedisJSON json;
   unsigned char step = VecSimType_sizeof(type);
   char *offset = df->strval;
-  // At this point iterator length matches blob length
-  while ((json = japi->next(arrIter))) {
+  // At this point array length matches blob length
+  for (int i = 0; i < arrLen; ++i) {
+    RedisJSON json = japi->getAt(arr, i);
     if (getElement(json, offset) != REDISMODULE_OK) {
       rm_free(df->strval);
       return REDISMODULE_ERR;
@@ -223,14 +225,43 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, JSONResultsIterator arrIter, struc
   return REDISMODULE_OK;
 }
 
-int JSON_StoreTextInDocField(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
+typedef enum {
+  ITERABLE_ITER = 0,
+  ITERABLE_ARRAY = 1
+} JSONIterableType;
+
+// An adapter for iterator operations, such as `next`, over an underlying container/collection or iterator
+typedef struct {
+  JSONIterableType type;
+  union {
+    JSONResultsIterator iter;
+    struct {
+      RedisJSON arr;
+      size_t index;
+    } array;
+  };
+} JSONIterable;
+
+RedisJSON JSONIterable_Next(JSONIterable *iterable) {
+  switch (iterable->type) {
+    case ITERABLE_ITER:
+      return japi->next(iterable->iter);
+    
+    case ITERABLE_ARRAY:
+      return japi->getAt(iterable->array.arr, iterable->array.index++);
+
+    default:
+      return NULL;
+  }
+}
+
+int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df) {
   df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
-  
   int i = 0, nulls = 0;
   size_t strlen;
   RedisJSON json;
   const char *str;
-  while ((json = japi->next(jsonIter))) {
+  while ((json = JSONIterable_Next(iterable))) {
     JSONType jsonType = japi->getType(json);
     if (jsonType == JSONType_String) {
       japi->getString(json, &str, &strlen);
@@ -255,6 +286,21 @@ error:
   rm_free(df->multiVal);
   df->arrayLen = 0;
   return REDISMODULE_ERR;
+}
+
+int JSON_StoreTextInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
+  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
+                                      .iter = jsonIter};
+  return JSON_StoreTextInDocField(len, &iter, df);
+}
+
+int JSON_StoreTextInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
+  size_t len;
+  japi->getLen(arr, &len);
+  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
+                                      .array.arr = arr,
+                                      .array.index = 0};
+  return JSON_StoreTextInDocField(len, &iter, df);
 }
 
 int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df) {
@@ -295,15 +341,11 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       break;
     case JSONType_Array:
       if (fs->types == INDEXFLD_T_FULLTEXT || fs->types == INDEXFLD_T_VECTOR) {
-        // Flattening the array to go over it with iterator api
-        // (using a path which is rooted at the current array)
-        JSONResultsIterator arrIter = japi->get(json, "$.[*]");
         if (fs->types == INDEXFLD_T_FULLTEXT) {
-          rv = JSON_StoreTextInDocField(japi->len(arrIter), arrIter, df);
+          rv = JSON_StoreTextInDocFieldFromArr(json, df);          
         } else {
-          rv = JSON_StoreVectorInDocField(fs, arrIter, df);
+          rv = JSON_StoreVectorInDocField(fs, json, df);
         }
-        japi->freeIter(arrIter);
       } else {
         rv = REDISMODULE_ERR;  
       }
@@ -363,7 +405,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     rv = JSON_StoreTagsInDocField(len, jsonIter, df);
   } else if (fs->types == INDEXFLD_T_FULLTEXT) {
     // Handling multiple values as Text
-    rv = JSON_StoreTextInDocField(len, jsonIter, df);
+    rv = JSON_StoreTextInDocFieldFromIter(len, jsonIter, df);
   } else {
     rv = REDISMODULE_ERR;
   }
