@@ -15,6 +15,8 @@
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
 
+void  *NewEmptyIterator(void);
+
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
     RediSearch_Initialize();
@@ -192,6 +194,15 @@ TEST_F(LLApiTest, testAddDocumentGeoField) {
   qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 100, 0.123455, 10, RS_GEO_DISTANCE_M);
   iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_FALSE(iter);
+
+  // 90 > lat > 85
+  // we receive an EOF iterator  
+  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 87, 0.123455, 10, RS_GEO_DISTANCE_M);
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+  RediSearch_ResultsIteratorFree(iter);
 
   // lon > MAX_LON
   qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 200, 10, RS_GEO_DISTANCE_M);
