@@ -15,8 +15,6 @@
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
 
-void  *NewEmptyIterator(void);
-
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
     RediSearch_Initialize();
