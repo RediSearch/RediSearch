@@ -467,7 +467,6 @@ end:
   return resArray;
 }
 
-
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *str, uint32_t len,
                                               struct timespec timeout) {
   size_t idx[len];

@@ -692,26 +692,6 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   return REDISEARCH_OK;
 }
 
-static int wildcardIterCb(void *s, size_t n, void *p, void *payload) {
-  LexRangeCtx *ctx = p;
-  if (ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
-    return REDISEARCH_ERR;
-  }
-  QueryEvalCtx *q = ctx->q;
-  RSToken tok = {.str = (char *)s, .len = n};
-  RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                     q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
-  // rm_free(tok.str);
-  if (!ir) {
-    Term_Free(term);
-    return REDISEARCH_OK;
-  }
-
-  rangeItersAddIterator(ctx, ir);
-  return REDISEARCH_OK;
-}
-
 static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   Trie *t = q->sctx->spec->terms;
   LexRangeCtx ctx = {.q = q, .opts = &lx->opts};
