@@ -608,9 +608,8 @@ def testMultiEmptyBlankOrNone(env):
 
 
 def testconfigMultiTextOffsetDelta(env):
-    """ test ft.config `MULTI_TEXT_SLOP` """
+    """ test default ft.config `MULTI_TEXT_SLOP` """
     
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
 
@@ -640,6 +639,13 @@ def testconfigMultiTextOffsetDelta(env):
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
     
+def testconfigMultiTextOffsetDeltaSlop101(env):
+    """ test ft.config `MULTI_TEXT_SLOP` 101 """
+
+    if env.env == 'existing-env':
+        env.skip()
+    conn = getConnectionByEnv(env)
+
     # MULTI_TEXT_SLOP = 101
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 101')
     res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_SLOP')
@@ -666,6 +672,13 @@ def testconfigMultiTextOffsetDelta(env):
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
 
+def testconfigMultiTextOffsetDeltaSlop0(env):
+    """ test ft.config `MULTI_TEXT_SLOP` 0 """
+
+    if env.env == 'existing-env':
+        env.skip()
+    conn = getConnectionByEnv(env)
+
     # MULTI_TEXT_SLOP = 0
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 0')
     res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_SLOP')
@@ -677,6 +690,7 @@ def testconfigMultiTextOffsetDelta(env):
     env.execute_command('FT.CREATE', 'idx_category_arr_3', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr_3')
     
+    cond = ConditionalExpected(env, has_json_api_v2)
     cond.call('FT.SEARCH', 'idx_category_arr_3', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '3') \
         .expect_when(True, lambda q: q.equal([0])) \
         .expect_when(False, expect_undef_order)
@@ -690,6 +704,13 @@ def testconfigMultiTextOffsetDelta(env):
     cond.call('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '2') \
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
+
+def testconfigMultiTextOffsetDeltaSlopNeg(env):
+    """ test ft.config `MULTI_TEXT_SLOP` -1 """
+
+    if env.env == 'existing-env':
+        env.skip()
+    conn = getConnectionByEnv(env)
 
     # MULTI_TEXT_SLOP = -1
     err_msg = None
