@@ -97,6 +97,7 @@ file(GLOB RS_SRC
     "deps/base64/*.c"
     "deps/thpool/*.c"
     "deps/triemap/*.c"
+    "deps/wildcard/*.c"
     "deps/geohash/*.c")
 
 add_library(rscore OBJECT ${RS_SRC})
