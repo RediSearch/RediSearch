@@ -610,6 +610,7 @@ def testMultiEmptyBlankOrNone(env):
 def testconfigMultiTextOffsetDelta(env):
     """ test default ft.config `MULTI_TEXT_SLOP` """
     
+    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
 
@@ -642,6 +643,7 @@ def testconfigMultiTextOffsetDelta(env):
 def testconfigMultiTextOffsetDeltaSlop101(env):
     """ test ft.config `MULTI_TEXT_SLOP` 101 """
 
+    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
@@ -675,6 +677,7 @@ def testconfigMultiTextOffsetDeltaSlop101(env):
 def testconfigMultiTextOffsetDeltaSlop0(env):
     """ test ft.config `MULTI_TEXT_SLOP` 0 """
 
+    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
@@ -708,6 +711,7 @@ def testconfigMultiTextOffsetDeltaSlop0(env):
 def testconfigMultiTextOffsetDeltaSlopNeg(env):
     """ test ft.config `MULTI_TEXT_SLOP` -1 """
 
+    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
