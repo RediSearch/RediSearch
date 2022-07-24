@@ -1063,8 +1063,10 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
     // with suffix
     arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
                                                         q->sctx->timeout);
-    if (!arr) return NULL;
-
+    if (!arr) {
+      rm_free(its);     
+      return NULL;
+    }
     for (int i = 0; i < array_len(arr); ++i) {
       if (itsSz >= RSGlobalConfig.maxPrefixExpansions) {
         break;
