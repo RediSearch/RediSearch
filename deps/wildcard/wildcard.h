@@ -44,7 +44,3 @@ size_t Wildcard_TrimPattern(char *pattern, size_t p_len);
 
 /* Removes '\\' */
 size_t Wildcard_RemoveEscape(char *str, size_t len);
-
-/* Breaks wildcard at '*'s. Used with SuffixTrie to find best token to get hits */
-int Wildcard_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
-int Wildcard_StarBreak_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen);

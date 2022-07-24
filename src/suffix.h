@@ -30,6 +30,7 @@ typedef struct SuffixCtx {
     struct timespec *timeout;
 } SuffixCtx;
 
+
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
 
@@ -37,6 +38,7 @@ void suffixTrie_freeCallback(void *data);
 
 void Suffix_IterateContains(SuffixCtx *sufCtx);
 void Suffix_IterateWildcard(SuffixCtx *sufCtx);
+
 
 /***********************************************************/
 /*****************        TrieMap       ********************/
@@ -51,6 +53,10 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
 
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *str, uint32_t len,
                                                struct timespec timeout);
+
+/* Breaks wildcard at '*'s and find the best token to get iterate the suffix trie  */
+int Suffix_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
+int Suffix_StarBreak_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
 
 #ifdef __cplusplus
 }

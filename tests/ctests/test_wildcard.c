@@ -1,5 +1,6 @@
 
 #include "wildcard/wildcard.h"
+#include "suffix.h"
 #include "rmutil/alloc.h"
 #include "test_util.h"
 
@@ -12,7 +13,7 @@ int _testStarBreak(char *str, int slen, char **resArray, int reslen) {
   size_t tokenIdx[8];
   size_t tokenLen[8];
 
-  int len = Wildcard_StarBreak(str, slen, tokenIdx, tokenLen);
+  int len = Suffix_StarBreak(str, slen, tokenIdx, tokenLen);
   ASSERT_EQUAL(len, reslen);
   for (int i = 0; i < reslen; ++i) {
     // printf("%s %ld\n", &str[tokenIdx[i]], tokenLen[i]);

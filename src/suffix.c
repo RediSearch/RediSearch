@@ -143,10 +143,8 @@ static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {
 }
 
 static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
-//TrieSuffixCallback callback, void *ctx) {
   if (node->payload) {
     size_t rlen;
-    // printf("nodestr %s len %d rlen %ld", runesToStr(node->str, node->len, &rlen), node->len, rlen);
     suffixData *data = Suffix_GetData(node);
     if (processSuffixData(data, sufCtx) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
@@ -155,7 +153,6 @@ static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
   if (node->numChildren) {
     TrieNode **children = __trieNode_children(node);
     for (int i = 0; i < node->numChildren; ++i) {
-      // printf("child %d ", i);
       if (recursiveAdd(children[i], sufCtx) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
@@ -165,8 +162,6 @@ static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
 }
 
 void Suffix_IterateContains(SuffixCtx *sufCtx) {
-  //TrieNode *n, const rune *str, size_t nstr, bool prefix,
-  //                          TrieSuffixCallback callback, void *ctx) {
   if (sufCtx->type == SUFFIX_TYPE_CONTAINS) {
     // get string from node and children
     TrieNode *node = TrieNode_Get(sufCtx->root, sufCtx->rune, sufCtx->runelen, 0, NULL);
@@ -181,15 +176,122 @@ void Suffix_IterateContains(SuffixCtx *sufCtx) {
     if (data) {
       processSuffixData(data, sufCtx);
     }
-  } else { // SUFFIX_TYPE_WILDCARD
-
   }
 }
 
 
+/***********************************************************************************
+*                                    Wildcard                                      *
+************************************************************************************/
+
+/* Breaks wildcard at '*'s and find the best token to get iterate the suffix trie  */
+int Suffix_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
+  int runner = 0;
+  int i = 0;
+  int init = 0;
+  while (i < len) {
+    if (str[i] != '*') {
+      tokenIdx[runner] = i;
+      init = 1;
+    }
+    while (i < len && str[i] != '*') {
+      ++i;
+    }
+    if (init) {
+      tokenLen[runner] = i - tokenIdx[runner];
+      ++runner;
+    }
+    while (str[i] == '*') {
+      ++i;
+    }
+  }
+
+  // choose best option
+  int score = INT32_MIN;
+  int retidx = -1;
+  for (int i = 0; i < runner; ++i) {
+    if (tokenLen[i] < MIN_SUFFIX) {
+      continue;
+    }
+
+    // long string are likely to have less results
+    int curScore = tokenLen[i];
+
+    // iterating all children is demanding
+    if (str[tokenIdx[i] + tokenLen[i]] == '*') {
+      curScore -= 5;
+    }
+
+    // this branching is heavy
+    for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
+      if (str[j] == '?') {
+        --curScore;
+      }
+    }
+
+    if (curScore >= score) {
+      score = curScore;
+      retidx = i;
+    }
+  }
+
+  return retidx;
+}
+
+int Suffix_StarBreak_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
+  int runner = 0;
+  int i = 0;
+  int init = 0;
+  while (i < len) {
+    if (str[i] != (rune)'*') {
+      tokenIdx[runner] = i;
+      init = 1;
+    }
+    while (i < len && str[i] != (rune)'*') {
+      ++i;
+    }
+    if (init) {
+      tokenLen[runner] = i - tokenIdx[runner];
+      ++runner;
+    }
+    while (str[i] == (rune)'*') {
+      ++i;
+    }
+  }
+
+  // choose best option
+  int score = INT32_MIN;
+  int retidx = -1;
+  for (int i = 0; i < runner; ++i) {
+    if (tokenLen[i] < MIN_SUFFIX) {
+      continue;
+    }
+
+    // long string are likely to have less results
+    int curScore = tokenLen[i];
+
+    // iterating all children is demanding
+    if (str[tokenIdx[i] + tokenLen[i]] == (rune)'*') {
+      curScore -= 5;
+    }
+
+    // this branching is heavy
+    for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
+      if (str[j] == (rune)'?') {
+        --score;
+      }
+    }
+
+    if (curScore >= score) {
+      score = curScore;
+      retidx = i;
+    }
+  }
+
+  return retidx;
+}
 
 static int processSuffixData_Wildcard(suffixData *data, SuffixCtx *sufCtx) {
-  //TrieSuffixCallback callback, void *ctx) {
   if (!data) {
     return REDISMODULE_OK;
   }
@@ -205,19 +307,17 @@ static int processSuffixData_Wildcard(suffixData *data, SuffixCtx *sufCtx) {
   return REDISMODULE_OK;
 }
 
-
-void Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
+int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
   SuffixCtx *sufCtx = p;
   TriePayload *pl = payload;
 
-  processSuffixData_Wildcard(pl->data, sufCtx);
+  return processSuffixData_Wildcard((void *)pl->data, sufCtx);
 }
 
 void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   size_t idx[sufCtx->cstrlen];
   size_t lens[sufCtx->cstrlen];
-  //int useIdx = Wildcard_StarBreak(sufCtx->cstr, sufCtx->cstrlen, idx, lens);
-  int useIdx = Wildcard_StarBreak_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
+  int useIdx = Suffix_StarBreak_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
 
   if (useIdx == -1) {
     return;
@@ -372,7 +472,7 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *str, ui
                                               struct timespec timeout) {
   size_t idx[len];
   size_t lens[len];
-  int useIdx = Wildcard_StarBreak(str, len, idx, lens);
+  int useIdx = Suffix_StarBreak(str, len, idx, lens);
 
   if (useIdx == -1) {
     return NULL;
