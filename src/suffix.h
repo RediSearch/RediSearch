@@ -55,8 +55,8 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *str, ui
                                                struct timespec timeout);
 
 /* Breaks wildcard at '*'s and find the best token to get iterate the suffix trie  */
-int Suffix_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
-int Suffix_StarBreak_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
+int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
+int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
 
 #ifdef __cplusplus
 }

@@ -185,7 +185,7 @@ void Suffix_IterateContains(SuffixCtx *sufCtx) {
 ************************************************************************************/
 
 /* Breaks wildcard at '*'s and find the best token to get iterate the suffix trie  */
-int Suffix_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
+int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
   int runner = 0;
   int i = 0;
   int init = 0;
@@ -239,7 +239,7 @@ int Suffix_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *toke
   return retidx;
 }
 
-int Suffix_StarBreak_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
+int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
   int runner = 0;
   int i = 0;
   int init = 0;
@@ -319,7 +319,7 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
 void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   size_t idx[sufCtx->cstrlen];
   size_t lens[sufCtx->cstrlen];
-  int useIdx = Suffix_StarBreak_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
+  int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
 
   if (useIdx == -1) {
     return;
@@ -439,7 +439,7 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
   }
 }
 
-static arrayof(char*) _checkCountWildcard(TrieMap *trie, const char *str, uint32_t slen, size_t idx, size_t idxlen, struct timespec timeout) {
+static arrayof(char*) _getWildcardArray(TrieMap *trie, const char *str, uint32_t slen, size_t idx, size_t idxlen, struct timespec timeout) {
   int prefix = str[idx + idxlen] == '*';
   TrieMapIterator *it = TrieMap_Iterate(trie, &str[idx], idxlen + prefix);
   if (!it) return NULL;
@@ -473,13 +473,13 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *str, ui
                                               struct timespec timeout) {
   size_t idx[len];
   size_t lens[len];
-  int useIdx = Suffix_StarBreak(str, len, idx, lens);
-
+  // find best token
+  int useIdx = Suffix_ChooseToken(str, len, idx, lens);
   if (useIdx == -1) {
     return NULL;
   }
 
-  arrayof(char*) arr = _checkCountWildcard(trie, str, len, idx[useIdx], lens[useIdx], timeout);
+  arrayof(char*) arr = _getWildcardArray(trie, str, len, idx[useIdx], lens[useIdx], timeout);
 
   // token does not have hits
   if (array_len(arr) == 0) {
