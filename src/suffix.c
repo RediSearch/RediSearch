@@ -214,8 +214,9 @@ int Suffix_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *toke
       continue;
     }
 
-    // long string are likely to have less results
-    int curScore = tokenLen[i];
+    // 1. long string are likely to have less results
+    // 2. tokens at end of pattern are likely to be more relevant
+    int curScore = tokenLen[i] + i;
 
     // iterating all children is demanding
     if (str[tokenIdx[i] + tokenLen[i]] == '*') {
@@ -267,8 +268,9 @@ int Suffix_StarBreak_rune(const rune *str, size_t len, size_t *tokenIdx, size_t 
       continue;
     }
 
-    // long string are likely to have less results
-    int curScore = tokenLen[i];
+    // 1. long string are likely to have less results
+    // 2. tokens at end of pattern are likely to be more relevant
+    int curScore = tokenLen[i] + 1;
 
     // iterating all children is demanding
     if (str[tokenIdx[i] + tokenLen[i]] == (rune)'*') {
