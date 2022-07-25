@@ -20,7 +20,7 @@ dbconfig:
           - fieldcount: 10
           - fieldsize: 100
   - init_commands:
-      - '"FT.CREATE" "ycsb_hash" "SCHEMA" "field1" "TEXT" "SORTABLE" "field2" "TEXT" "SORTABLE" "field3" "TEXT" "SORTABLE" "field4" "TEXT" "SORTABLE" "field5" "TEXT" "SORTABLE" "field6" "TEXT" "SORTABLE" "field7" "TEXT" "SORTABLE" "field8" "TEXT" "SORTABLE" "field9" "TEXT" "SORTABLE" "field10" "TEXT" "SORTABLE"'
+      - '"FT.CREATE" "ycsb" "SCHEMA" "field1" "TEXT" "SORTABLE" "field2" "TEXT" "SORTABLE" "field3" "TEXT" "SORTABLE" "field4" "TEXT" "SORTABLE" "field5" "TEXT" "SORTABLE" "field6" "TEXT" "SORTABLE" "field7" "TEXT" "SORTABLE" "field8" "TEXT" "SORTABLE" "field9" "TEXT" "SORTABLE" "field10" "TEXT" "SORTABLE"'
   - dataset_load_timeout_secs: 180
   - check:
       keyspacelen: 100000
@@ -28,4 +28,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH ycsb_hash * LIMIT 0 0'"
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH ycsb * LIMIT 0 0'"
