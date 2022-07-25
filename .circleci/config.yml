@@ -392,7 +392,7 @@ jobs:
 
   benchmark-search-oss-standalone:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
           platform: bionic
@@ -403,7 +403,7 @@ jobs:
 
   benchmark-search-oss-cluster:
     docker:
-      - image: redisfab/rmbuilder:6.2.7-x64-bionic
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
           platform: bionic
@@ -416,7 +416,7 @@ jobs:
 
   benchmark-search-oss-standalone-profiler:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
           platform: bionic
