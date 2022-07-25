@@ -188,6 +188,12 @@
             ]
           },
           {
+            "name": "withsuffixtrie",
+            "type": "pure-token",
+            "token": "WITHSUFFIXTRIE",
+            "optional": true
+          },
+          {
             "name": "sortable",
             "type": "block",
             "optional": true,
