@@ -606,11 +606,15 @@ def testMultiEmptyBlankOrNone(env):
 
     env.assertEqual(env.execute_command('FT.SEARCH', 'idx', '*', 'NOCONTENT')[0], len(values) + 1)
 
+def getFtConfigCmd(env):
+    if not env.isCluster():
+        return "FT.CONFIG"
+    else:
+        return "_FT.CONFIG"
 
 def testconfigMultiTextOffsetDelta(env):
     """ test default ft.config `MULTI_TEXT_SLOP` """
     
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
 
@@ -619,7 +623,7 @@ def testconfigMultiTextOffsetDelta(env):
     env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr')
 
-    env.expect('FT.CONFIG', 'SET', 'MULTI_TEXT_SLOP', '101').error().contains("Not modifiable at runtime")
+    env.expect(getFtConfigCmd(env), 'SET', 'MULTI_TEXT_SLOP', '101').error().contains("Not modifiable at runtime")
 
     
     # MULTI_TEXT_SLOP = 100 (Default)
@@ -628,7 +632,7 @@ def testconfigMultiTextOffsetDelta(env):
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  103   ,  203         ,  303
     
-    res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_SLOP')
+    res = env.execute_command(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '100')
     env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT').equal([1, 'doc:1'])
     
@@ -639,18 +643,17 @@ def testconfigMultiTextOffsetDelta(env):
     cond.call('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '301') \
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
-    
+
 def testconfigMultiTextOffsetDeltaSlop101(env):
     """ test ft.config `MULTI_TEXT_SLOP` 101 """
 
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
 
     # MULTI_TEXT_SLOP = 101
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 101')
-    res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_SLOP')
+    res = env.execute_command(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '101')
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
@@ -677,14 +680,13 @@ def testconfigMultiTextOffsetDeltaSlop101(env):
 def testconfigMultiTextOffsetDeltaSlop0(env):
     """ test ft.config `MULTI_TEXT_SLOP` 0 """
 
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
 
     # MULTI_TEXT_SLOP = 0
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 0')
-    res = env.execute_command('FT.CONFIG', 'GET', 'MULTI_TEXT_SLOP')
+    res = env.execute_command(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '0')
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
@@ -711,7 +713,6 @@ def testconfigMultiTextOffsetDeltaSlop0(env):
 def testconfigMultiTextOffsetDeltaSlopNeg(env):
     """ test ft.config `MULTI_TEXT_SLOP` -1 """
 
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
