@@ -114,14 +114,9 @@ AGGPlan::AGGPlan() {
 const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseStep *end,
                                       PLN_StepType type) const {
   if (!begin) {
-    //begin = DLLIST_ITEM(steps.next, PLN_BaseStep, llnodePln);
     begin = steps.first();
   }
-  /*if (!end) {
-    end = DLLIST_ITEM(&steps, PLN_BaseStep, llnodePln);
-  }*/
-  //for (const PLN_BaseStep *bstp = begin; bstp != end;
-  //     bstp = DLLIST_ITEM(bstp->llnodePln.next, PLN_BaseStep, llnodePln)) {
+
   for (const PLN_BaseStep *bstp = begin; bstp != end; bstp = bstp->list_node.next) {
     if (bstp->type == type) {
       return bstp;

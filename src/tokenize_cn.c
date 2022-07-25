@@ -223,13 +223,6 @@ ChineseTokenizer::~ChineseTokenizer() {
 
 //---------------------------------------------------------------------------------------------
 
-void ChineseTokenizer::Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) { //@@ do we need all the params?
-  // Nothing to do here
-  lastOffset = 0;
-}
-
-//---------------------------------------------------------------------------------------------
-
 ChineseTokenizer::ChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) :
   Tokenizer(stopwords, opts) {
 

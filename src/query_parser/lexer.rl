@@ -209,7 +209,7 @@ main := |*
     tok.s = ts;
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    if (!StopWordList_Contains(q->opts->stopwords, tok.s, tok.len)) {
+    if (!q->opts->stopwords->Contains(tok.s, tok.len)) {
       RSQuery_Parse(pParser, TERM, tok, q);
     } else {
       RSQuery_Parse(pParser, STOPWORD, tok, q);

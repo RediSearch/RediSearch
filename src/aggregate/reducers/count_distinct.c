@@ -8,7 +8,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef 0
+#if 0
 #define INSTANCE_BLOCK_NUM 1024
 
 static const int khid = 35;
@@ -80,7 +80,7 @@ int RDCRCountDistinctish::Add(const RLookupRow *srcrow) {
     return 1;
   }
 
-  uint64_t hval = RSValue_Hash(val, 0x5f61767a);
+  uint64_t hval = val->Hash(0x5f61767a);
   uint32_t val32 = (uint32_t)hval ^ (uint32_t)(hval >> 32);
   hll_add_hash(&data.hll, val32);
   return 1;
@@ -117,7 +117,8 @@ static RSValue *hllFinalize(Reducer *parent, void *ctx) {
 }
 
 //---------------------------------------------------------------------------------------------
-#ifdef 0
+
+#if 0
 Reducer *newHllCommon(const ReducerOptions *options) {
   if (!options->GetKey(&srckey)) {
     rm_free(r);
@@ -150,7 +151,7 @@ RDCRCountDistinctish::RDCRCountDistinctish(const ReducerOptions *options) {
 
 //---------------------------------------------------------------------------------------------
 
-#ifdef 0
+#if 0
 Reducer *RDCRHLL_New(const ReducerOptions *options) {
   return newHllCommon(options, 1);
 }
@@ -158,7 +159,7 @@ Reducer *RDCRHLL_New(const ReducerOptions *options) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-int RDCRHLLSum::Add(Data *dd, const RLookupRow *srcrow) {
+int RDCRHLLSum::Add(const RLookupRow *srcrow) {
   const RSValue *val = srcrow->GetItem(srckey);
   if (val == NULL || !val->IsString()) {
     // Not a string!
@@ -222,7 +223,7 @@ RSValue *RDCRHLLSum::Finalize() {
 
 //---------------------------------------------------------------------------------------------
 
-#ifdef 0
+#if 0
 RDCRHLLSum::Data *RDCRHLLSum::NewInstance() {
   Data *dd = alloc.Alloc(sizeof(*dd), 1024 * sizeof(*ctr));
   dd->hll.bits = 0;

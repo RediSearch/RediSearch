@@ -168,7 +168,6 @@ AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) 
   next = NULL;
   indexer = sp->indexer;
   RS_LOG_ASSERT(sp->indexer, "No indexer");
-  indexer->Incref();
 
   // Assign the document:
   if (SetDocument(sp, b, doc.numFields) != 0) {
@@ -201,7 +200,6 @@ AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) 
 
 static void doReplyFinish(AddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
   aCtx->donecb(aCtx, ctx, aCtx->donecbData);
-  aCtx->indexer->Decref();
   delete aCtx;
 }
 
@@ -407,7 +405,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     Token tok;
     uint32_t newTokPos;
     while (0 != (newTokPos = aCtx->tokenizer->Next(&tok))) {
-      tokenizer.tokenize(&tok);
+      tokenizer.tokenize(tok);
     }
     uint32_t lastTokPos = aCtx->tokenizer->lastOffset;
 
@@ -602,11 +600,6 @@ static int Document::AddToIndexes(AddDocumentCtx *aCtx) {
         goto cleanup;
       }
     }
-  }
-
-  if (aCtx->indexer->Add(aCtx) != 0) {
-    ourRv = REDISMODULE_ERR;
-    goto cleanup;
   }
 
 cleanup:

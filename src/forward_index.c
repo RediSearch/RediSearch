@@ -99,14 +99,14 @@ ForwardIndexEntry::ForwardIndexEntry(ForwardIndex &idx, const char *tok, size_t 
   len = tokLen;
   freq = 0;
 
-  vw = idx.hasOffsets() ? idx.vvw_pool.Alloc() : NULL;
+  vw = idx.hasOffsets() ? idx.vvw_pool.Alloc(VarintVectorWriter()) : NULL;
 }
 
 //---------------------------------------------------------------------------------------------
 
 void ForwardIndex::HandleToken(const char *tok, size_t tokLen, uint32_t pos,
                                float fieldScore, t_fieldId fieldId, int options) {
-  ForwardIndexEntry *h = entries.Alloc(*this, tok, tokLen, fieldScore, options);
+  ForwardIndexEntry *h = entries.Alloc(ForwardIndexEntry(*this, tok, tokLen, fieldScore, fieldId, options));
   h->fieldMask |= ((t_fieldMask)1) << fieldId;
   float score = (float)fieldScore;
 

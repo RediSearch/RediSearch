@@ -86,8 +86,8 @@ int Extensions::RegisterQueryExpander(const char *alias, RSQueryTokenExpander ex
 int Extensions::Load(const char *name, RSExtensionInitFunc func) {
   // bind the callbacks in the context
   RSExtensionCtx ctx = {
-      .RegisterScoringFunction = RegisterScoringFunction,
-      .RegisterQueryExpander = RegisterQueryExpander,
+      RegisterScoringFunction: RegisterScoringFunction,
+      RegisterQueryExpander: RegisterQueryExpander,
   };
 
   return func(&ctx);
@@ -129,10 +129,10 @@ int Extensions::LoadDynamic(const char *path, char **errMsg) {
 static ExtScoringFunction *Extensions::GetScoringFunction(ScoringFunctionArgs *fnargs, const char *name) {
   if (!scorers_g) return NULL;
 
-  /* lookup the scorer by name (case sensitive) */
+  // lookup the scorer by name (case sensitive)
   ExtScoringFunction *p = scorers_g->Find((char *)name, strlen(name));
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
-    /* if no ctx was given, we just return the scorer */
+    // if no ctx was given, we just return the scorer
     if (fnargs) {
       fnargs->extdata = p->privdata;
       fnargs->GetSlop = IndexResult::MinOffsetDelta;
@@ -200,7 +200,7 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
   if (replace) {
     delete qn;
 
-    currentNode = ph;
+    currentNode = &ph;
   } else {
 
     // Replace current node with a new union node if needed
@@ -209,7 +209,7 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
 
       // Append current node to the new union node as a child
       un->AddChild(qn);
-      currentNode = un;
+      currentNode = &un;
     }
     // Now the current node must be a union node - so we just add a new token node to it
     currentNode->AddChild(ph);

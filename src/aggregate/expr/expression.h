@@ -195,7 +195,7 @@ struct ExprEval {
   const SearchResult *res;
   const RLookupRow *srcrow;
   const RSExpr *root;
-  BlkAlloc stralloc; // Optional. YNOT?
+  StringBlkAlloc stralloc; // Optional. YNOT?
 
   ExprEval(QueryError *err, RLookup *lookup, RLookupRow *srcrow, RSExpr *root, SearchResult *res = NULL) :
   err(err), lookup(lookup), srcrow(srcrow), root(root), res(res) {}

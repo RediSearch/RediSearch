@@ -178,7 +178,7 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
     }
   }
 
-  qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), RS_Suggestion::Compare);
+  qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), (__compar_fn_t) RS_Suggestion::_Compare);
 
   if (array_len(suggestions) == 0) {
     // no results found, we return an empty array

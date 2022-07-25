@@ -724,8 +724,8 @@ Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx, C
  */
 
 IndexIterator *QueryAST::Iterate(const RSSearchOptions &opts, RedisSearchCtx &sctx,
-                                 ConcurrentSearch &conc) const {
-  Query query(this, &opts, &sctx, &conc);
+                                 ConcurrentSearch *conc) const {
+  Query query(this, &opts, &sctx, conc);
   IndexIterator *iter = query.Eval(root);
   if (!iter) {
     // Return the dummy iterator

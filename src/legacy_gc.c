@@ -61,7 +61,7 @@ void GarbageCollector::updateStats(RedisSearchCtx *sctx, size_t recordsRemoved, 
 
 size_t GarbageCollector::CollectRandomTerm(RedisModuleCtx *ctx, int *status) {
   RedisModuleKey *idxKey = NULL;
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)keyName, false);
+  RedisSearchCtx *sctx = new RedisSearchCtx(ctx, (RedisModuleString *)keyName, false);
   size_t totalRemoved = 0;
   size_t totalCollected = 0;
   if (!sctx || sctx->spec->uniqueId != specUniqueId) {
@@ -188,7 +188,7 @@ static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) 
 //---------------------------------------------------------------------------------------------
 
 size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)keyName, false);
+  RedisSearchCtx *sctx = new RedisSearchCtx(ctx, (RedisModuleString *)keyName, false);
   if (!sctx || sctx->spec->uniqueId != specUniqueId) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s", RedisModule_StringPtrLen(keyName, NULL));
     *status = SPEC_STATUS_INVALID;
@@ -266,7 +266,7 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
   size_t totalRemoved = 0;
   RedisModuleKey *idxKey = NULL;
   arrayof(FieldSpec*) numericFields = NULL;
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)keyName, false);
+  RedisSearchCtx *sctx = new RedisSearchCtx(ctx, (RedisModuleString *)keyName, false);
   if (!sctx || sctx->spec->uniqueId != specUniqueId) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(keyName, NULL));

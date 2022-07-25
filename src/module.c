@@ -13,7 +13,7 @@
 #include "rmalloc.h"
 #include "cursor.h"
 #include "version.h"
-#include "debug_commads.h"
+#include "debug_commands.h"
 #include "spell_check.h"
 #include "dictionary.h"
 #include "suggest.h"
@@ -966,12 +966,12 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     }
     invoked = 1;
     delete RSCursors;
-    Extensions_Free();
+    // Extensions_Free();
     FunctionRegistry_Free();
-    mempool_free_global();
+    // mempool_free_global();
     ConcurrentSearch_ThreadPoolDestroy();
     GC::ThreadPoolDestroy();
-    IndexAlias_DestroyGlobal();
+    // IndexAlias_DestroyGlobal();
     RedisModule_FreeThreadSafeContext(RSDummyContext);
   }
 }

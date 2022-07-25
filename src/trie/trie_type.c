@@ -64,7 +64,7 @@ bool Trie::Delete(const char *s) {
   if (!runes || runes.len() > TRIE_INITIAL_STRING_LEN) {
     return false;
   }
-  int rc = root->Delete(runes, runes._len);
+  int rc = root->Delete(&runes, runes._len);
   size -= rc;
   return rc > 0;
 }
@@ -103,10 +103,9 @@ TrieIterator *Trie::Iterate(const char *prefix, size_t len, int maxDist, int pre
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     return NULL;
   }
-  DFAFilter *fc = new DFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter *fc = new DFAFilter(runes, maxDist, prefixMode);
 
-  TrieIterator it = root->Iterate(FilterFunc, StackPop, fc);
-  return &it;
+  return &root->Iterate(FilterFunc, StackPop, fc);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -186,17 +185,10 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
         pooledEntry = ent;
       }
     }
-
-    // dist = maxDist + 3;
   }
 
-  // printf("Nodes consumed: %d/%d (%.02f%%)\n", it->nodesConsumed,
-  //        it->nodesConsumed + it->nodesSkipped,
-  //        100.0 * (float)(it->nodesConsumed) / (float)(it->nodesConsumed +
-  //        it->nodesSkipped));
-
   // put the results from the heap on a vector to return
-  size_t n = MIN(pq.count, num);
+  size_t n = MIN(pq.count(), num);
   Vector<TrieSearchResult *> ret(n);
   for (int i = 0; i < n; ++i) {
     TrieSearchResult *h = pq.poll(pq);
@@ -241,8 +233,7 @@ bool Trie::RandomKey(char **str, t_len *len, double *score) {
   t_len rlen;
 
   // TODO: deduce steps from cardinality properly
-  TrieNode *n =
-      root->RandomWalk(2 + rand() % 8 + (int)round(logb(1 + size)), rstr, rlen);
+  TrieNode *n = root->RandomWalk(2 + rand() % 8 + (int)round(logb(1 + size)), rstr);
   if (!n) {
     return false;
   }

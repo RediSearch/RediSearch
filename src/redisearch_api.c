@@ -30,24 +30,24 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   if (!options) {
     options = &opts_s;
   }
-  IndexSpec* spec = new IndexSpec(name);
-  spec->MakeKeyless();
-  spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
-  if (!spec->indexer) {
-    spec->indexer = NewIndexer(spec);
+  IndexSpec spec(name);
+  spec.MakeKeyless();
+  spec.flags |= Index_Temporary;  // temporary is so that we will not use threads!!
+  if (!spec.indexer) {
+    spec.indexer = new DocumentIndexer(spec);
   }
 
-  spec->getValue = options->gvcb;
-  spec->getValueCtx = options->gvcbData;
-  spec->minPrefix = 0;
-  spec->maxPrefixExpansions = -1;
+  spec.getValue = options->gvcb;
+  spec.getValueCtx = options->gvcbData;
+  spec.minPrefix = 0;
+  spec.maxPrefixExpansions = -1;
   if (options->flags & RSIDXOPT_DOCTBLSIZE_UNLIMITED) {
-    spec->docs.maxSize = DOCID_MAX;
+    spec.docs.maxSize = DOCID_MAX;
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
-    spec->StartGCFromSpec(GC_DEFAULT_HZ, options->gcPolicy);
+    spec.StartGCFromSpec(GC_DEFAULT_HZ, options->gcPolicy);
   }
-  return spec;
+  return &spec;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -164,11 +164,11 @@ void RediSearch_FreeDocument(RSDoc* doc) {
 int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RWLOCK_ACQUIRE_WRITE();
   int rc = REDISMODULE_OK;
-  t_docId id = &sp->docs->GetId(docKey, len);
+  t_docId id = sp->docs.GetId(docKey, len);
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    if (&sp->docs->Delete(docKey, len)) {
+    if (sp->docs.Delete(docKey, len)) {
       // Delete returns true/false, not RM_{OK,ERR}
       sp->stats.numDocuments--;
     } else {
@@ -230,7 +230,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
   RedisSearchCtx sctx(NULL, sp);
-  int exists = !!&sp->docs->GetIdR(d->docKey);
+  int exists = !!sp->docs.GetIdR(d->docKey);
   if (exists) {
     if (options & REDISEARCH_ADD_REPLACE) {
       options |= DOCUMENT_ADD_REPLACE;
@@ -267,8 +267,9 @@ QueryTokenNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName,
 
 QueryNumericNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
                                                int includeMax, int includeMin) {
-  QueryNumericNode* ret = new NumericFilter(min, max, includeMin, includeMax);
-  ret->nf->fieldName = rm_strdup(field);
+  NumericFilter* nf = new NumericFilter(min, max, includeMin, includeMax);
+  nf->fieldName = rm_strdup(field);
+  QueryNumericNode *ret(nf);
   ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
   return ret;
 }
@@ -376,6 +377,7 @@ struct QueryInput {
       const char* qs;
       size_t n;
     } s;
+
     QueryNode* qn;
   } u;
 };
@@ -386,32 +388,30 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   // here we only take the read lock and we will free it when the iterator will be freed
   RWLOCK_ACQUIRE_READ();
 
-  RedisSearchCtx sctx(sp);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options;
   QueryError status;
+  ExtScoringFunction* scoreCtx = NULL;
 
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
 
   if (input->qtype == QUERY_INPUT_STRING) {
-    if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, &status) !=
-        REDISMODULE_OK) {
-      goto end;
-    }
+    it->qast = *new QueryAST(sctx, options, input->u.s.qs, input->u.s.n, &status);
   } else {
     it->qast.root = input->u.qn;
   }
 
-  if (QAST_Expand(&it->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
+  if (it->qast.Expand(NULL, &options, sctx, &status) != REDISMODULE_OK) {
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL);
+  it->internal = it->qast.Iterate(options, sctx, NULL);
   if (!it->internal) {
     goto end;
   }
 
   sp->GetStats(&it->scargs.indexStats);
-  ExtScoringFunction* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
+  scoreCtx = Extensions::GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;
@@ -436,13 +436,14 @@ end:
 //---------------------------------------------------------------------------------------------
 
 int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
-  return &sp->docs->GetId(docKey, len) != 0;
+  return sp->docs.GetId(docKey, len) != 0;
 }
 
 //---------------------------------------------------------------------------------------------
 
 RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
-  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {s, .n = n}}};
+  QueryInput input = {qtype: QUERY_INPUT_STRING,
+                      u: {s: {s, n}}};
   return handleIterCommon(sp, &input, error);
 }
 
@@ -456,7 +457,7 @@ RS_ApiIter* RediSearch_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
 //---------------------------------------------------------------------------------------------
 
 void RediSearch_QueryNodeFree(QueryNode* qn) {
-  QueryNode_Free(qn);
+  delete qn;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -468,8 +469,8 @@ int RediSearch_QueryNodeType(QueryNode* qn) {
 //---------------------------------------------------------------------------------------------
 
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
-  while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
-    const RSDocumentMetadata* md = &sp->docs->Get(iter->res->docId);
+  while (iter->internal->Read(&iter->res) != INDEXREAD_EOF) {
+    const RSDocumentMetadata* md = sp->docs.Get(iter->res->docId);
     if (md == NULL || ((md)->flags & Document_Deleted)) {
       continue;
     }
@@ -492,14 +493,14 @@ double RediSearch_ResultsIteratorGetScore(const RS_ApiIter* it) {
 
 void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
-    iter->internal->Free(iter->internal);
+    delete iter->internal;
   } else {
     printf("Not freeing internal iterator. internal iterator is null\n");
   }
   if (iter->scorerFree) {
     iter->scorerFree(iter->scargs.extdata);
   }
-  QAST_Destroy(&iter->qast);
+  delete &iter->qast;
   rm_free(iter);
 
   RWLOCK_RELEASE();

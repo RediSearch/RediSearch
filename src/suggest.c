@@ -147,7 +147,7 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
   size_t len;
   const char *str = RedisModule_StringPtrLen(argv[2], &len);
-  return RedisModule_ReplyWithLongLong(ctx, trie->Delete(str, len));
+  return RedisModule_ReplyWithLongLong(ctx, trie->Delete(str));
 }
 
 /*

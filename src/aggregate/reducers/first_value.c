@@ -3,7 +3,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef 0
+#if 0
 struct fvCtx {
   const RLookupKey *srckey;   // The key to return
   const RLookupKey *sortprop;  // The key to sort by

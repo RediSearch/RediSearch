@@ -42,15 +42,15 @@ mempool_t::mempool_t(size_t initialCap, size_t maxCap, bool isGlobal) {
     globalPools_g.numPools++;
     globalPools_g.pools =
         rm_realloc(globalPools_g.pools, sizeof(*globalPools_g.pools) * globalPools_g.numPools);
-    globalPools_g.pools[globalPools_g.numPools - 1] = p;
+    globalPools_g.pools[globalPools_g.numPools - 1] = this;
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
 void *mempool_t::get() {
-  if (p->top > 0) {
-    return p->entries[--p->top];
+  if (top > 0) {
+    return entries[--top];
   }
   return alloc();
 }

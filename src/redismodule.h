@@ -150,7 +150,6 @@ typedef uint64_t RedisModuleTimerID;
 typedef long long mstime_t;
 
 /* Incomplete structures for compiler checks but opaque access. */
-#ifndef __cplusplus
 typedef struct RedisModuleCtx RedisModuleCtx;
 typedef struct RedisModuleKey RedisModuleKey;
 typedef struct RedisModuleString RedisModuleString;
@@ -164,21 +163,6 @@ typedef struct RedisModuleDict RedisModuleDict;
 typedef struct RedisModuleDictIter RedisModuleDictIter;
 typedef struct RedisModuleCommandFilterCtx RedisModuleCommandFilterCtx;
 typedef struct RedisModuleCommandFilter RedisModuleCommandFilter;
-#else
-struct RedisModuleCtx;
-struct RedisModuleKey;
-struct RedisModuleString;
-struct RedisModuleCallReply;
-struct RedisModuleIO;
-struct RedisModuleType;
-struct RedisModuleDigest;
-struct RedisModuleBlockedClient;
-struct RedisModuleClusterInfo;
-struct RedisModuleDict;
-struct RedisModuleDictIter;
-struct RedisModuleCommandFilterCtx;
-struct RedisModuleCommandFilter;
-#endif
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -336,7 +320,8 @@ struct RedisModuleTypeMethods {
     X(RedisModuleString *, DictNext, (RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr)) \
     X(RedisModuleString *, DictPrev, (RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr)) \
     X(int, DictCompareC, (RedisModuleDictIter *di, const char *op, void *key, size_t keylen)) \
-    X(int, DictCompare, (RedisModuleDictIter *di, const char *op, RedisModuleString *key))
+    X(int, DictCompare, (RedisModuleDictIter *di, const char *op, RedisModuleString *key)) \
+    X(int, GetServerVersion, ())
 
 /* Experimental APIs */
 

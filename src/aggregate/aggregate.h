@@ -190,7 +190,7 @@ struct Grouper : ResultProcessor {
   GroupsMap groups;
 
   // Backing store for the groups themselves
-  BlkAlloc groupsAlloc;
+  BlkAlloc<Group> groupsAlloc;
 
   // Keys to group by. Both srckeys and dstkeys are used because different lookups
   // are employed. The srckeys are the lookup keys for the properties as they

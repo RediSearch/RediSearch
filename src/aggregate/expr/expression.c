@@ -277,7 +277,7 @@ int RSExpr::GetLookupKeys(RLookup *lookup, QueryError *err) {
 // Allocate some memory for a function that can be freed automatically when the execution is done
 
 void *ExprEval::UnalignedAlloc(size_t sz) {
-  return stralloc.Alloc(sz, MAX(sz, 1024));
+  return stralloc.strncpy(sz, MAX(sz, 1024));
 }
 
 //---------------------------------------------------------------------------------------------

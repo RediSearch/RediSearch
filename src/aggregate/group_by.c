@@ -22,16 +22,13 @@
 Group::Group(Grouper &grouper, const arrayof(RSValue*) groupvals, size_t ngrpvals) {
   size_t numReducers = array_len(grouper.reducers);
   size_t elemSize = GROUP_BYTESIZE(&grouper);
-  Group *group = grouper.groupsAlloc.Alloc(elemSize, GROUPS_PER_BLOCK * elemSize);
+  Group *group = grouper.groupsAlloc.Alloc(Group(grouper, groupvals, ngrpvals));
   memset(group, 0, elemSize);
 
   // Initialize the row data!
   for (size_t ii = 0; ii < ngrpvals; ++ii) {
     const RLookupKey *dstkey = grouper.dstkeys[ii];
     rowdata.WriteKey(dstkey, (RSValue *)groupvals[ii]);
-    // printf("Write: %s => ", dstkey->name);
-    // RSValue_Print(groupvals[ii]);
-    // printf("\n");
   }
 }
 
@@ -209,7 +206,7 @@ static void cleanCallback(void *ptr, void *arg) {
 //---------------------------------------------------------------------------------------------
 
 Grouper::~Grouper() {
-  groupsAlloc.FreeAll(cleanCallback, this, GROUP_BYTESIZE(this));
+  groupsAlloc.Clear();
 
   delete reducers;
   rm_free(srckeys);
@@ -251,7 +248,8 @@ Grouper::~Grouper() {
  * should write their data using `lksrc` as a reference point.
  */
 
-Grouper::Grouper(const RLookupKey **srckeys_, const RLookupKey **dstkeys_, size_t nkeys) : ResultProcessor("Grouper") {
+Grouper::Grouper(const RLookupKey **srckeys_, const RLookupKey **dstkeys_, size_t nkeys) : ResultProcessor("Grouper"),
+  groupsAlloc(GROUPS_PER_BLOCK) {
   srckeys = rm_calloc(nkeys, sizeof(*srckeys));
   dstkeys = rm_calloc(nkeys, sizeof(*dstkeys));
   nkeys = nkeys;
