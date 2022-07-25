@@ -14,17 +14,18 @@ We support a simple syntax for complex queries with the following rules:
 * Exact phrases are wrapped in quotes, e.g `"hello world"`.
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
 * NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. As of version 0.19.3, purely negative queries (i.e. `-foo` or `-@title:(foo|bar)`) are supported.
-* Prefix matches (all terms starting with a prefix) are expressed with a `*`. For performance reasons, a minimum prefix length is enforced (2 by default, but is configurable)
+* Prefix/Infix/Suffix matches (all terms starting/containing/ending with a term) are expressed with a `*`. For performance reasons, a minimum term length is enforced (2 by default, but is configurable).
+* Wildcard pattern matches: `w'foo*bar?'`.
 * A special "wildcard query" that returns all results in the index - `*` (cannot be combined with anything else).
 * Selection of specific fields using the syntax `hello @field:world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
-* Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`
+* Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`.
 * Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tag fields|/Tags].
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher.
 * Fuzzy matching on terms (as of v1.2.0): `%hello%` means all terms with Levenshtein distance of 1 from it.
 * An expression in a query can be wrapped in parentheses to disambiguate, e.g. `(hello|hella) (world|werld)`.
-* Query attributes can be applied to individual clauses, e.g. `(foo bar) => { $weight: 2.0; $slop: 1; $inorder: false; }`
-* Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
+* Query attributes can be applied to individual clauses, e.g. `(foo bar) => { $weight: 2.0; $slop: 1; $inorder: false; }`.
+* Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`.
 
 ## Pure negative queries
 
@@ -148,6 +149,39 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
 4. Currently, there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap.
 
+## Infix/Suffix matching
+
+Since version v2.6.0, the dictionary can be used for infix (contains) or suffix queries by appending `*` to the token. For example:
+
+```
+*sun* *ing 
+```
+
+These queries are CPU intensive as they require iteration over the the whole dictionary.
+
+Note: all notes about prefix searches apply to infix/suffix queries.
+
+### Using a Suffix Trie
+
+A suffix-trie maintains a list of terms which match the suffix. Adding a Suffix-Trie to a field by using `WITHSUFFIXTRIE` keyword, will assist in creating infix and suffix queries more efficiently as it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
+
+On suffix queries, the list of terms from the suffix term node will be use to create a union. On infix queries, the suffix terms is use as prefix on the trie, and all terms, from all matching nodes are used to create a union.
+
+## Wildcard matching
+
+Since version v2.6.0, the dictionary can be used for wildcard matching queries with 2 parameters.
+
+* `?` - for any single character
+* `*` - for any character repeating zero or more times
+
+An example for the syntax is `w'foo*bar?'`.
+
+### Using a Suffix Trie
+
+A suffix-trie maintains a list of terms which match the suffix. Adding a Suffix-Trie to a field by using `WITHSUFFIXTRIE` keyword, will assist in creating wildcard matching queries more efficiently as it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
+
+With suffix trie, the wildcard pattern is broken into tokens at every `*` character. A heuristic is used to choose the token with the least terms and each terms is matched with the wildcard pattern.
+
 ## Fuzzy matching
 
 As of v1.2.0, the dictionary of all terms in the index can also be used to perform [Fuzzy Matching](https://en.wikipedia.org/wiki/Approximate_string_matching). Fuzzy matches are performed based on [Levenshtein distance](https://en.wikipedia.org/wiki/Levenshtein_distance) (LD). Fuzzy matching on a term is performed by surrounding the term with '%', for example:
@@ -228,13 +262,21 @@ The supported attributes are:
 
         @title:"hello world" @body:(foo bar) @category:(articles|biographies)
 
-* Prefix Queries:
+* Prefix/Infix/Suffix Queries:
 
         hello worl*
 
-        hel* worl*
+        hel* *worl
 
-        hello -worl*
+        hello -*worl*
+
+* Wildcard Matching Qureies:
+
+        w'foo??bar??baz'
+
+        w'???????'
+
+        w'hello*world'
 
 * Numeric Filtering - products named "tv" with a price range of 200-500:
 
