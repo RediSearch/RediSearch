@@ -392,6 +392,17 @@ jobs:
 
   benchmark-search-oss-standalone:
     docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+    steps:
+      - build-steps:
+          platform: bionic
+          run_pack: false
+      - benchmark-automation:
+          platform: bionic
+          benchmark_glob: "search*.yml"
+
+  benchmark-search-oss-cluster:
+    docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bionic
     steps:
       - build-steps:
@@ -400,6 +411,8 @@ jobs:
       - benchmark-automation:
           platform: bionic
           benchmark_glob: "search*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
 
   benchmark-search-oss-standalone-profiler:
     docker:
@@ -667,6 +680,9 @@ workflows:
       - valgrind-memcheck:
           <<: *never
       - benchmark-search-oss-standalone:
+          context: common
+          <<: *on-perf-and-version-tags
+      - benchmark-search-oss-cluster:
           context: common
           <<: *on-perf-and-version-tags
       - benchmark-search-oss-standalone-profiler:

@@ -1,4 +1,4 @@
-name: "ftsb-10M-nyc_taxis-hashes-load"
+name: "ftsb-1M-nyc_taxis-hashes-load"
 description: "
              nyc_taxis [details here](https://github.com/RediSearch/ftsb/blob/master/docs/nyc_taxis-benchmark/description.md), 
              benchmark focused on write performance, making usage of TLC Trip Record Data that contains the rides that have been performed in yellow taxis in New York in 2015. 
