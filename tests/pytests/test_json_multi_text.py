@@ -649,10 +649,10 @@ def testconfigMultiTextOffsetDeltaSlop101(env):
 
     if env.env == 'existing-env':
         env.skip()
-    conn = getConnectionByEnv(env)
-
+    
     # MULTI_TEXT_SLOP = 101
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 101')
+    conn = getConnectionByEnv(env)
     res = env.execute_command(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '101')
     # Offsets:
@@ -682,10 +682,10 @@ def testconfigMultiTextOffsetDeltaSlop0(env):
 
     if env.env == 'existing-env':
         env.skip()
-    conn = getConnectionByEnv(env)
-
+    
     # MULTI_TEXT_SLOP = 0
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 0')
+    conn = getConnectionByEnv(env)
     res = env.execute_command(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '0')
     # Offsets:
@@ -715,8 +715,7 @@ def testconfigMultiTextOffsetDeltaSlopNeg(env):
 
     if env.env == 'existing-env':
         env.skip()
-    conn = getConnectionByEnv(env)
-
+    
     # MULTI_TEXT_SLOP = -1
     err_msg = None
     try:
@@ -727,6 +726,7 @@ def testconfigMultiTextOffsetDeltaSlopNeg(env):
             err_msg = 'module init should fail due to invalid module configuration'
 
     env.assertIsNotNone(err_msg)
+    env = Env()
 
 
 def testMultiNoHighlight(env):
