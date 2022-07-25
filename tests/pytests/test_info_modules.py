@@ -117,8 +117,6 @@ def testInfoModulesAfterReload(env):
                                           'body', 'TAG', 'NOINDEX').ok()
 
   for _ in env.retry_with_rdb_reload():
-    waitForIndex(env, idx1)
-    
     info = info_modules_to_dict(conn)
     env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 

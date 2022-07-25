@@ -1187,7 +1187,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free fields data
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
-      FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
       if (spec->fields[i].name != spec->fields[i].path) {
         rm_free(spec->fields[i].name);
       }
@@ -1257,6 +1256,12 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->stopwords) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
+  }
+  // Reset fields stats
+  if (spec->fields != NULL) {
+    for (size_t i = 0; i < spec->numFields; i++) {
+      FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
+    }
   }
   // Free unlinked index spec on a second thread
   if (RSGlobalConfig.freeResourcesThread == false) {
