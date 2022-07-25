@@ -302,3 +302,22 @@ def testBasic(env):
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\\'w*'")
   env.assertEqual(res[1][3][1][3], "WILDCARD - *o'w*")
+
+def testLowerUpperCase(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+
+  env.expect('FT.CONFIG', 'SET', 'MINPREFIX', 1).ok()
+  env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', 2).ok()
+  env.expect('FT.CONFIG', 'SET', 'TIMEOUT', 100000).ok()
+  env.expect('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false').ok()
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
+
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+  conn.execute_command('HSET', 'doc2', 't', 'HELLO')
+  conn.execute_command('HSET', 'doc3', 't', 'help')
+  conn.execute_command('HSET', 'doc4', 't', 'HELP')
+
+  env.expect('FT.SEARCH', 'idx', "w'*el*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
+  env.expect('FT.SEARCH', 'idx', "w'*EL*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
