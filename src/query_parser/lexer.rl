@@ -259,7 +259,7 @@ QueryNode *QueryParse::ParseRaw() {
   }
   RSQuery_ParseFree(pParser, rm_free);
   if (!q->IsOk() && root) {
-    QueryNode_Free(root);
+    delete root;
     root = NULL;
   }
   return root;

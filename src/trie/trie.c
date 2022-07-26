@@ -89,29 +89,27 @@ void TrieNode::MergeWithSingleChild() {
   if (isTerminal() || _children.size() != 1) {
     return this;
   }
-  TrieNode &ch = *_children[0];
+  TrieNode *ch = _children[0];
 
-  // cleanup current node state
-  if (_payload != NULL) {
-    delete _payload;
-  }
-
-  size_t nlen = _len + ch._len;
-  rune nstr[nlen + 1];
-  memcpy(nstr, &_str[0], sizeof(rune) * _len);
-  memcpy(&nstr[_len], &ch._str[0], sizeof(rune) * ch._len);
-  nstr[nlen] = 0;
-  _str.copy(nstr, nlen);
+  Runes runes = _str;
+  runes.append(ch->_str, ch->_len);
+  // _str += ch->_str;
+  // size_t nlen = _len + ch->_len;
+  // rune nstr[nlen + 1];
+  // memcpy(nstr, &_str[0], sizeof(rune) * _len);
+  // memcpy(&nstr[_len], ch->_str[0], sizeof(rune) * ch->_len);
+  // nstr[nlen] = 0;
+  // _str.copy(nstr, nlen);
 
   // copy state from child
-  _score = ch._score;
-  _payload = ch._payload;
-  _maxChildScore = ch._maxChildScore;
-  _flags = ch._flags;
-  _children.swap(ch._children);
+  _score = ch->_score;
+  if (_payload != NULL) delete _payload;
+  _payload = ch->_payload;
+  _maxChildScore = ch->_maxChildScore;
+  _flags = ch->_flags;
+  _children.swap(ch->_children);
 
-  // delete child
-  delete &ch;
+  delete ch;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -374,230 +372,44 @@ void TrieNode::sortChildren() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Push a new trie node on the iterator's stack
-
-void TrieIterator::Push(TrieNode *node, int skipped) {
-  if (stackOffset < TRIE_INITIAL_STRING_LEN - 1) {
-    StackNode &sn = stack[stackOffset++];
-    sn.childOffset = 0;
-    sn.stringOffset = 0;
-    sn.isSkipped = skipped;
-    sn.n = node;
-    sn.state = ITERSTATE_SELF;
-  }
-}
-
-//---------------------------------------------------------------------------------------------
-
-// pop a node from the iterator's stcak
-void TrieIterator::Pop() {
-  if (stackOffset > 0) {
-    StackNode &curr = current();
-    if (popCallback) {
-      popCallback(ctx, curr.stringOffset);
-    }
-
-    bufOffset -= curr.stringOffset;
-    --stackOffset;
-  }
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Single step iteration, feeding the given filter/automaton with the next character
-
-TrieIterator::StepResult TrieIterator::Step(void *matchCtx) {
-  if (stackOffset == 0) {
-    return __STEP_STOP;
-  }
-
-  StackNode &curr = current();
-
-  int matched = 0;
-  // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child
-  // offset %d/%d\n",
-  //        bufOffset, buf, current, current->n->_len, current->n->str,
-  //        current->n->score, current->state, current->stringOffset,
-  //        current->n->_len,
-  //        current->childOffset, current->n->numChildren);
-  switch (curr.state) {
-    case ITERSTATE_MATCH:
-      Pop();
-      goto next;
-
-    case ITERSTATE_SELF:
-      if (curr.stringOffset < curr.n->_len) {
-        // get the current rune to feed the filter
-        rune b = curr.n->_str[curr.stringOffset];
-
-        if (filter) {
-          // run the next character in the filter
-          FilterCode rc = filter(b, ctx, &matched, matchCtx);
-
-          // if we should stop...
-          if (rc == F_STOP) {
-            // match stop - change the state to MATCH and return
-            if (matched) {
-              curr.state = ITERSTATE_MATCH;
-              return __STEP_MATCH;
-            }
-            // normal stop - just pop and continue
-            Pop();
-            goto next;
-          }
-        }
-
-        // advance the buffer offset and character offset
-        buf[bufOffset++] = b;
-        curr.stringOffset++;
-
-        // if we don't have a filter, a "match" is when we reach the end of the
-        // node
-        if (!filter) {
-          if (curr.n->_len > 0 && curr.stringOffset == curr.n->_len &&
-              curr.n->isTerminal() && !curr.n->isDeleted()) {
-            matched = 1;
-          }
-        }
-
-        return matched ? __STEP_MATCH : __STEP_CONT;
-      } else {
-        // switch to "children mode"
-        curr.state = ITERSTATE_CHILDREN;
-      }
-
-    case ITERSTATE_CHILDREN:
-    default:
-      if (curr.n->_sortmode != TRIENODE_SORTED_SCORE) {
-        curr.n->sortChildren();
-      }
-      // push the next child
-      if (curr.childOffset < curr.n->_children.size()) {
-        TrieNode *ch = curr.n->_children[curr.childOffset++];
-        if (ch->_maxChildScore >= minScore || ch->_score >= minScore) {
-          Push(ch, 0);
-          nodesConsumed++;
-        } else {
-          //Push(ch, 1);
-          nodesSkipped++;
-        }
-      } else {
-        // at the end of the node - pop and go up
-        Pop();
-      }
-  }
-
-next:
-  return __STEP_CONT;
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Iterate the tree with a step filter, which tells the iterator whether to continue down the trie
-// or not. This can be a levenshtein automaton, a regex automaton, etc.
-// NULL filter means just continue iterating the entire trie. ctx is the filter's context.
-
-TrieIterator TrieNode::Iterate(StepFilter f, StackPopCallback pf, void *ctx) {
-  return TrieIterator(this, f, pf, ctx);
-}
-
-//---------------------------------------------------------------------------------------------
-
-TrieIterator::TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, void *ctx) :
-    filter(f), popCallback(pf), ctx(ctx), minScore(0) {
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Iterate to the next matching entry in the trie.
-// Returns true if we can continue, or false if we're done and should exit.
-
-bool TrieIterator::Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx) {
-  StepResult rc;
-  while ((rc = Step(matchCtx)) != __STEP_STOP) {
-    if (rc == __STEP_MATCH) {
-      StackNode &sn = current();
-
-      if (sn.n->isTerminal() && sn.n->_len == sn.stringOffset && !sn.n->isDeleted()) {
-        *ptr = buf;
-        *len = bufOffset;
-        *score = sn.n->_score;
-        if (payload != NULL) {
-          if (sn.n->_payload != NULL) {
-            payload->data = sn.n->_payload->data;
-            payload->len = sn.n->_payload->len;
-          } else {
-            payload->data = NULL;
-            payload->len = 0;
-          }
-        }
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-TrieNode *TrieNode::RandomWalk(int minSteps, rune *&str, t_len &len) {
+TrieNode *TrieNode::RandomWalk(int minSteps, Runes &runes) {
   // create an iteration stack we walk up and down
   minSteps = MAX(minSteps, 4);
 
-  size_t stackCap = minSteps;
-  size_t stackSz = 1;
-  TrieNode **stack;
-  stack[0] = this;
+  // create an iteration stack we walk up and down
+  Vector<TrieNode*> stack;
+  stack.push_back(this);
+
   TrieNode *res;
 
-  int bufCap = len;
-
   int steps = 0;
-
-  while (steps < minSteps || !stack[stackSz-1]->isTerminal()) {
-    res = stack[stackSz - 1]; //@@ need to be fixed
+  while (steps < minSteps || !stack.back()->isTerminal()) {
+    res = stack.back();
 
     // select the next step - -1 means walk back up one level
     int rnd = (rand() % (res->_children.size() + 1)) - 1;
     if (rnd == -1) {
       // we can't walk up the top level
-      if (stackSz > 1) {
+      if (stack.size() > 1) {
         steps++;
-        stackSz--;
-
-        bufCap -= res->_len;
+        stack.pop_back();
       }
       continue;
     }
+
     // Push a child on the stack
     TrieNode *child = res->_children[rnd];
-    stack[stackSz++] = child;
-
+    stack.push_back(child);
+    res = child;
     steps++;
-    if (stackSz == stackCap) {
-      stackCap += minSteps;
-      stack = rm_realloc(stack, stackCap * sizeof(TrieNode *));
-    }
-
-    bufCap += child->_len;
   }
 
   // Return the node at the top of the stack
+  res = stack.back();
 
-  res = stack[stackSz - 1]; //@@ need to be fixed
-
-  // build the string by walking the stack and copying all node strings
-  rune *buf;
-
-  t_len bufSize = 0;
-  for (size_t i = 0; i < stackSz; i++) {
-    memcpy(&buf[bufSize], &stack[i]->_str[0], sizeof(rune) * stack[i]->_len);
-    bufSize += stack[i]->_len;
+  for (auto n1: stack) {
+    runes.append(n1->_str, n1->_len);
   }
-
-  str = buf;
-  len = bufSize;
 
   return res;
 }

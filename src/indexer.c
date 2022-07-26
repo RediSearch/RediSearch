@@ -60,7 +60,7 @@ size_t MergeMapEntry::countMerged() const {
 // don't need to seek the document list again for it.
 
 AddDocumentCtx *DocumentIndexer::merge(AddDocumentCtx *aCtx, AddDocumentCtx **parentMap) {
-  // Make sure we don't block the CPU if there are many many items in the queue, 
+  // Make sure we don't block the CPU if there are many many items in the queue,
   // though in reality the number of iterations is also limited by MAX_DOCID_ENTRIES
   size_t counter = 0;
 
@@ -74,8 +74,8 @@ AddDocumentCtx *DocumentIndexer::merge(AddDocumentCtx *aCtx, AddDocumentCtx **pa
     ForwardIndexIterator it = cur->fwIdx->Iterate();
     ForwardIndexEntry *entry = it.Next();
     while (entry) {
-      // Because we don't have the actual document ID at this point, the document ID field will be used 
-      // here to point to an index in the parentMap that will contain the parent. 
+      // Because we don't have the actual document ID at this point, the document ID field will be used
+      // here to point to an index in the parentMap that will contain the parent.
       // The parent itself will contain the document ID when assigned (when the lock is held).
       entry->docId = curIdIdx;
 
@@ -434,19 +434,39 @@ cleanup:
 
 //---------------------------------------------------------------------------------------------
 
+class Thread {
+  virtual int main() { return 0; }
+  void stop(bool wait);
+  int join();
+};
+
+template <class T>
+class QThread: Thread {
+
+};
+
+class MyThread : Thread {
+  virtual int main() { /* my logic */ return 0; }
+};
+
 void DocumentIndexer::main() {
+  _stopped = false;
   pthread_mutex_lock(&lock);
   while (!ShouldStop()) {
     while (addQueue.empty() && !ShouldStop()) {
       pthread_cond_wait(&cond, &lock); // @@TODO: use pthread_cond_timedwait()
     }
 
-    if (addQueue.empty()) {
+    if (ShouldStop()) {
       RS_LOG_ASSERT(ShouldStop(), "indexer was stopped");
       break;
     }
 
-    AddDocumentCtx *add = addQueue.back();
+    if (addQueue.empty()) {
+      break;
+    }
+
+    AddDocumentCtx *add = addQueue.back(); //@@@TODO: pull from front
     addQueue.pop_back();
 
     pthread_mutex_unlock(&lock);
@@ -456,6 +476,7 @@ void DocumentIndexer::main() {
   }
 
   pthread_mutex_unlock(&lock);
+  _stopped = true;
 }
 
 //---------------------------------------------------------------------------------------------

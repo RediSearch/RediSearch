@@ -217,8 +217,8 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       fullScoreInfo = true;
     }
 
-    SpellCheckCtx scCtx(sctx, includeDict, excludeDict, distance, fullScoreInfo);
-    scCtx.Reply(&qast);
+    SpellChecker speller(sctx, includeDict, excludeDict, distance, fullScoreInfo);
+    speller.Reply(&qast);
   } catch (Error &x) {
     RedisModule_ReplyWithError(ctx, x.what());
   }

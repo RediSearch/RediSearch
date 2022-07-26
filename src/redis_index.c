@@ -60,7 +60,7 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   idx->size = actualSize;
   if (idx->size == 0) {
-    InvertedIndex_AddBlock(idx, 0);
+    idx->AddBlock(0);
   } else {
     idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   }
@@ -87,7 +87,7 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
 
   for (uint32_t i = 0; i < idx->size; i++) {
     IndexBlock &blk = idx->blocks[i];
-    if (blk->numDocs == 0) {
+    if (blk.numDocs == 0) {
       continue;
     }
     RedisModule_SaveUnsigned(rdb, blk.firstId);
@@ -179,10 +179,10 @@ RedisModuleString *RedisSearchCtx::ScoreIndexKeyName(const char *term, size_t le
 
 //---------------------------------------------------------------------------------------------
 
-RedisSearchCtx::ctor(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
+void RedisSearchCtx::ctor(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   redisCtx = ctx;
   IndexLoadOptions loadOpts(0, indexName);
-  spec = new IndexSpec(ctx, &loadOpts);
+  spec = IndexSpec::LoadEx(ctx, &loadOpts);
   key_ = loadOpts.keyp;
   if (!spec) {
     throw Error("Index %s does not exist", indexName);
@@ -198,7 +198,7 @@ RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, IndexSpecId id) {
   specId = id;
 }
 
-RedisSearchCtx(RedisModuleCtx *ctx, struct IndexSpec *spec_) {
+RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, const IndexSpec *spec_) {
   redisCtx = ctx;
   key_ = NULL;
   spec = spec_;
@@ -214,7 +214,7 @@ RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName
 }
 
 RedisSearchCtx::RedisSearchCtx(const RedisSearchCtx &sctx) {
-  redisCtx = sctx.ctx;
+  redisCtx = sctx.redisCtx;
   key_ = NULL;
   spec = sctx.spec;
   specId = sctx.specId;
@@ -239,12 +239,6 @@ void RedisSearchCtx::Refresh(RedisModuleString *keyName) {
 
 //---------------------------------------------------------------------------------------------
 
-RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx) {
-  redisCtx = ctx;
-}
-
-//---------------------------------------------------------------------------------------------
-
 RedisSearchCtx::~RedisSearchCtx() {
   if (key_) {
     RedisModule_CloseKey(key_);
@@ -257,7 +251,7 @@ RedisSearchCtx::~RedisSearchCtx() {
 // It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
 
 const char *Redis_SelectRandomTermByIndex(RedisSearchCtx *ctx, size_t *tlen) {
-  RedisModuleString *pf = ctx->TermKey("", 0);
+  RedisModuleString *pf = ctx->TermKeyName("", 0);
   size_t pflen;
   const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
 
@@ -311,9 +305,7 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
       }
       char *term = kstr + offset;
       *tlen = len - offset;
-      // printf("Found index %s and term %sm len %zd\n", idx, term, *tlen);
-      IndexSpec *sp = new IndexSpec(ctx->redisCtx, idx, 1);
-      // printf("Spec: %p\n", sp);
+      IndexSpec *sp = IndexSpec::Load(ctx->redisCtx, idx, 1);
 
       if (sp == NULL) {
         continue;
@@ -330,11 +322,12 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
 
 static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *termKey, int write) {
   if (ctx->spec->keysDict.contains(termKey)) {
-    BaseIndex *index = ctx->spec->keysDict[keyName];
+    InvertedIndex *val = NULL;
+    BaseIndex *index = ctx->spec->keysDict[termKey];
     try {
-      InvertedIndex *val = dynamic_cast<NumericRangeTree*>(index);
+      val = dynamic_cast<InvertedIndex *>(index);
     } catch (std::bad_cast) {
-      ASSERT("error: invalid index type...")
+      throw Error("error: invalid index type...");
     }
     return val;
   }
@@ -352,10 +345,10 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *sctx, const char *term, size_t len,
                                          int write, RedisModuleKey **keyp) {
-  RedisModuleString *termKey = sctx->TermKey(term, len);
+  RedisModuleString *termKey = sctx->TermKeyName(term, len);
   InvertedIndex *idx = NULL;
 
-  if (!sctx->spec->keysDict) {
+  if (sctx->spec->keysDict.empty()) {
     RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, termKey,
                                             REDISMODULE_READ | (write ? REDISMODULE_WRITE : 0));
 
@@ -395,11 +388,12 @@ end:
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *sctx, RSQueryTerm *term, DocTable *dt, int singleWordMode,
                               t_fieldMask fieldMask, ConcurrentSearch *csx, double weight) {
-
-  RedisModuleString *termKey = sctx->TermKey(term->str, term->len);
+  RedisModuleString *termKey = sctx->TermKeyName(term->str, term->len);
   InvertedIndex *idx = NULL;
   RedisModuleKey *k = NULL;
-  if (!sctx->spec->keysDict) {
+  IndexReader *reader = NULL;
+
+  if (sctx->spec->keysDict.empty()) {
     k = RedisModule_OpenKey(sctx->redisCtx, termKey, REDISMODULE_READ);
 
     // we do not allow empty indexes when loading an existing index
@@ -421,9 +415,9 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *sctx, RSQueryTerm *term, DocTable 
     goto err;
   }
 
-  IndexReader *reader = new TermIndexReader(idx, sctx->spec, fieldMask, term, weight);
+  reader = new TermIndexReader(idx, sctx->spec, fieldMask, term, weight);
   if (csx) {
-    csx->AddKey(TermIndexReaderConcKey(k, termkey, reader));
+    csx->AddKey(TermIndexReaderConcKey(k, termKey, reader));
   }
   RedisModule_FreeString(sctx->redisCtx, termKey);
   return reader;
@@ -493,7 +487,7 @@ end:
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
   // extract the term from the key
   RedisSearchCtx *sctx = opaque;
-  RedisModuleString *pf = sctx->TermKey("", 0);
+  RedisModuleString *pf = sctx->TermKeyName("", 0);
   size_t pflen, len;
   RedisModule_StringPtrLen(pf, &pflen);
 
@@ -501,8 +495,8 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   k += pflen;
   // char *term = rm_strndup(k, len - pflen);
 
-  RedisModuleString *sck = fmtRedisScoreIndexKey(sctx, k, len - pflen);
-  RedisModuleString *sik = fmtRedisSkipIndexKey(sctx, k, len - pflen);
+  RedisModuleString *sck = sctx->ScoreIndexKeyName(k, len - pflen);
+  RedisModuleString *sik = sctx->SkipIndexKeyName(k, len - pflen);
 
   RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
 
@@ -543,7 +537,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
   TrieIterator *it = ctx->spec->terms->Iterate("", 0, 0, 1);
   while (it->Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
-    RedisModuleString *keyName = ctx->TermKey(res, strlen(res));
+    RedisModuleString *keyName = ctx->TermKeyName(res, strlen(res));
     Redis_DropScanHandler(ctx->redisCtx, keyName, ctx);
     RedisModule_FreeString(ctx->redisCtx, keyName);
   }
@@ -572,13 +566,6 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
         RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
   }
   return deleted ? REDISMODULE_OK : REDISMODULE_ERR;
-}
-
-//---------------------------------------------------------------------------------------------
-
-
-RedisModuleString *RedisSearchCtx::NumericIndexKey(const char *field) {
-  return RedisModule_CreateStringPrintf(redisCtx, NUMERICINDEX_KEY_FMT, spec->name, field);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

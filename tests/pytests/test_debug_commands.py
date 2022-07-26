@@ -197,6 +197,6 @@ class TestDebugCommandsLogAssert(object):
         self.env.expect('FT.DEBUG', 'LogAssert').error()
         logfile = open(self.env.logDir + '/' + logfile_name, "r")
         for line in logfile:
-            if (str(line).__contains__('(7 == 42) failed on /home/ariel/redis/RediSearch/src/debug_commads.c:LogAssert')):
+            if (str(line).__contains__('(7 == 42) failed on /home/ariel/redis/RediSearch/src/debug_commands.c:LogAssert')):
                 result = True
         self.env.assertEqual(result, True)

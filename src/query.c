@@ -184,7 +184,7 @@ void QueryTokenNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp
 static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *str,
                                            size_t len, int maxDist, int prefixMode,
                                            QueryNodeOptions *opts) {
-  TrieIterator it = terms->Iterate(str, len, maxDist, prefixMode);
+  TrieIterator *it = terms->Iterate(str, len, maxDist, prefixMode);
 
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
@@ -196,7 +196,7 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
-  while (it.Next(&rstr, &slen, NULL, &score, &dist) &&
+  while (it->Next(&rstr, &slen, NULL, &score, &dist) &&
          (itsSz < maxExpansions || maxExpansions == -1)) {
     // Create a token for the reader
     RSToken tok(rstr, slen);
@@ -223,7 +223,7 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
     }
   }
 
-  delete it.ctx;
+  delete it->ctx;
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
     rm_free(its);
@@ -253,55 +253,37 @@ IndexIterator *QueryPrefixNode::EvalNode(Query *q) {
 
 //---------------------------------------------------------------------------------------------
 
-struct LexRange {
-  IndexIterator **its;
-  size_t nits;
-  size_t cap;
-  Query *q;
-  QueryNodeOptions *opts;
-  double weight;
-
-  LexRange(Query q, QueryNodeOptions *opts, double weight = 0) :
-    q(&q), opts(opts), weight(weight) {}
-};
-
-static void rangeItersAddIterator(LexRange *range, IndexReader *ir) {
-  ctx->its[ctx->nits++] = ir->NewReadIterator();
-  if (ctx->nits == ctx->cap) {
-    ctx->cap *= 2;
-    ctx->its = rm_realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
-  }
+void LexRange::rangeItersAddIterator(IndexReader *ir) {
+  its.push_back(ir->NewReadIterator());
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void rangeIterCbStrs(const char *r, size_t n, LexRange *range, void *invidx) {
-  Query *q = range->q;
+void LexRange::rangeIterCbStrs(const char *r, size_t n, void *invidx) {
   RSToken tok{r, n};
-  RSQueryTerm *term = new RSQueryTerm(tok, ctx->q->tokenId++);
-  IndexReader *ir = new TermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, ctx->weight);
+  RSQueryTerm *term = new RSQueryTerm(tok, q->tokenId++);
+  IndexReader *ir = new TermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, weight);
   if (!ir) {
     delete term;
     return;
   }
 
-  rangeItersAddIterator(ctx, ir);
+  rangeItersAddIterator(ir);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void rangeIterCb(const rune *r, size_t n, LexRange *range) {
-  Query *q = range->q;
+void LexRange::rangeIterCb(const rune *r, size_t n) {
   RSToken tok{r, n};
-  RSQueryTerm *term = new RSQueryTerm(tok, range->q->tokenId++);
+  RSQueryTerm *term = new RSQueryTerm(tok, q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                     q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+                                     q->opts->fieldmask & opts->fieldMask, q->conc, 1);
   if (!ir) {
     delete term;
     return;
   }
 
-  rangeItersAddIterator(ctx, ir);
+  rangeItersAddIterator(ir);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -314,10 +296,6 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
     return NULL;
   }
 
-  ctx.cap = 8;
-  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
-  ctx.nits = 0;
-
   rune *rbegin = NULL, *rend = NULL;
   size_t nbegin, nend;
   if (begin) {
@@ -328,12 +306,11 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
   }
 
   t->root->IterateRange(rbegin, rbegin ? nbegin : -1, includeBegin, rend,
-                        rend ? nend : -1, includeEnd, rangeIterCb, &ctx);
-  if (!ctx.its || ctx.nits == 0) {
-    rm_free(ctx.its);
+                        rend ? nend : -1, includeEnd, rangeIterCb, &range);
+  if (range.its.empty()) {
     return NULL;
   } else {
-    return new UnionIterator(ctx.its, q->docTable, 1, opts.weight);
+    return new UnionIterator(range.its, q->docTable, 1, opts.weight);
   }
 }
 
@@ -365,16 +342,16 @@ IndexIterator *QueryPhraseNode::EvalNode(Query *q) {
   }
 
   // recursively eval the children
-  IndexIterator **iters = rm_calloc(NumChildren(), sizeof(IndexIterator *));
-  for (size_t ii = 0; ii < NumChildren(); ++ii) {
-    children[ii]->opts.fieldMask &= opts.fieldMask;
-    iters[ii] = children[ii]->EvalNode(q);
+  Vector<IndexIterator *> iters;// = rm_calloc(NumChildren(), sizeof(IndexIterator *));
+  for (size_t i = 0; i < NumChildren(); ++i) {
+    children[i]->opts.fieldMask &= opts.fieldMask;
+    iters.push_back(children[i]->EvalNode(q));
   }
-  IndexIterator *ret;
 
+  IndexIterator *ret;
   if (exact) {
-    ret = new IntersectIterator(iters, NumChildren(), q->docTable,
-                                EFFECTIVE_FIELDMASK(q, this), 0, 1, opts.weight);
+    ret = new IntersectIterator(iters, q->docTable, EFFECTIVE_FIELDMASK(q, this),
+                                0, 1, opts.weight);
   } else {
     // Let the query node override the slop/order parameters
     int slop = opts.maxSlop;
@@ -390,8 +367,8 @@ IndexIterator *QueryPhraseNode::EvalNode(Query *q) {
       slop = __INT_MAX__;
     }
 
-    ret = new IntersectIterator(iters, NumChildren(), q->docTable,
-                                EFFECTIVE_FIELDMASK(q, this), slop, inOrder, opts.weight);
+    ret = new IntersectIterator(iters, q->docTable, EFFECTIVE_FIELDMASK(q, this),
+                                slop, inOrder, opts.weight);
   }
   return ret;
 }
@@ -521,19 +498,14 @@ IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexItera
   }
 
   LexRange range(q, &opts, weight);
-  range.cap = 8;
-  range.its = rm_malloc(sizeof(*range.its) * range.cap);
-  range.nits = 0;
-
   const char *begin_ = begin, *end_ = end;
   int nbegin = begin_ ? strlen(begin_) : -1, nend = end_ ? strlen(end_) : -1;
 
   t->IterateRange(begin_, nbegin, includeBegin, end_, nend, includeEnd, rangeIterCbStrs, &range);
-  if (range.nits == 0) {
-    rm_free(ranse.its);
+  if (range.its.empty()) {
     return NULL;
   } else {
-    return new UnionIterator(range.its, range.nits, q->docTable, 1, opts.weight);
+    return new UnionIterator(range.its, q->docTable, 1, opts.weight);
   }
 }
 

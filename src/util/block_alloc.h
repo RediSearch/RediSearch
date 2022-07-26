@@ -138,9 +138,9 @@ struct DumbBlockPool {
     size_t capacity;
     char data[0] __attribute__((aligned(16)));
 
-	Block(size_t items) : used(0), capacity(itms), next(NULL) {}
+	  Block(size_t items) : used(0), capacity(itms), next(NULL) {}
 
-    void reset() } {
+    void reset() {
       used = 0;
 	  next = NULL;
     }

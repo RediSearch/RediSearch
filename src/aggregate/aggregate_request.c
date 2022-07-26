@@ -807,7 +807,7 @@ int AREQ::ApplyContext(QueryError *status) {
   }
 
   conc = std::make_unique<ConcurrentSearch>(sctx->redisCtx);
-  rootiter = ast->Iterate(opts, *sctx, *conc);
+  rootiter = ast->Iterate(opts, *sctx, conc);
   RS_LOG_ASSERT(rootiter, "QAST_Iterate failed");
 
   return REDISMODULE_OK;

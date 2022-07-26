@@ -26,7 +26,7 @@ struct RedisSearchCtx {
   IndexSpecId specId;  // Unique id of the spec; used when refreshing
 
   RedisSearchCtx(RedisModuleCtx *ctx, IndexSpecId specId);
-  RedisSearchCtx(RedisModuleCtx *ctx, const IndexSpec &spec);
+  RedisSearchCtx(RedisModuleCtx *ctx, const IndexSpec *spec_);
   RedisSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
   RedisSearchCtx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
   RedisSearchCtx(const RedisSearchCtx &sctx);
@@ -38,7 +38,8 @@ struct RedisSearchCtx {
 
   RedisModuleString *TermKeyName(const char *term, size_t len);
   RedisModuleString *SkipIndexKeyName(const char *term, size_t len);
-  RedisModuleString *NumericIndexKeyName(const char *field);
+  RedisModuleString *ScoreIndexKeyName(const char *term, size_t len);
+  RedisModuleString *NumericIndexKey(const char *field);
 
   int AddDocument(RedisModuleString *name, const AddDocumentOptions *opts, QueryError *status);
 };

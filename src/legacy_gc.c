@@ -13,7 +13,7 @@
 
 #include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
-#include "tests/time_sample.h"
+#include "time_sample.h"
 
 #include <math.h>
 #include <sys/param.h>
@@ -64,6 +64,10 @@ size_t GarbageCollector::CollectRandomTerm(RedisModuleCtx *ctx, int *status) {
   RedisSearchCtx *sctx = new RedisSearchCtx(ctx, (RedisModuleString *)keyName, false);
   size_t totalRemoved = 0;
   size_t totalCollected = 0;
+  TimeSample ts;
+  char *term;
+  InvertedIndex *idx = NULL;
+
   if (!sctx || sctx->spec->uniqueId != specUniqueId) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(keyName, NULL));
@@ -71,22 +75,22 @@ size_t GarbageCollector::CollectRandomTerm(RedisModuleCtx *ctx, int *status) {
     goto end;
   }
   // Select a weighted random term
-  TimeSample ts;
-  char *term = sctx->spec->GetRandomTerm(20);
+  term = sctx->spec->GetRandomTerm(20);
   // if the index is empty we won't get anything here
   if (!term) {
     goto end;
   }
   RedisModule_Log(ctx, "debug", "Garbage collecting for term '%s'", term);
   // Open the term's index
-  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
+  idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
   if (idx) {
     int blockNum = 0;
     do {
-      IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize};
+      IndexBlockRepair params;
+      params.limit = RSGlobalConfig.gcScanSize;
       ts.Start();
       // repair 100 blocks at once
-      blockNum = idx->Repair(&sctx->spec->docs, blockNum, &params);
+      blockNum = idx->Repair(&sctx->spec->docs, blockNum, params);
       ts.End();
       RedisModule_Log(ctx, "debug", "Repair took %lldns", ts.DurationNS());
       /// update the statistics with the the number of records deleted
@@ -99,7 +103,7 @@ size_t GarbageCollector::CollectRandomTerm(RedisModuleCtx *ctx, int *status) {
       // After each iteration we yield execution
       // First we close the relevant keys we're touching
       RedisModule_CloseKey(idxKey);
-      sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)keyName);
+      sctx->Refresh((RedisModuleString *)keyName);
       // sctx null --> means it was deleted and we need to stop right now
       if (!sctx || sctx->spec->uniqueId != specUniqueId) {
         *status = SPEC_STATUS_INVALID;
@@ -189,37 +193,42 @@ static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) 
 
 size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
   RedisSearchCtx *sctx = new RedisSearchCtx(ctx, (RedisModuleString *)keyName, false);
+  RedisModuleString *keyName = NULL;
+  TagIndex *indexTag = NULL;
+  IndexSpec *spec = NULL;
+  RedisModuleKey *idxKey = NULL;
+  InvertedIndex *iv;
+  tm_len_t len;
+  char *randomKey = NULL;
+  size_t totalRemoved = 0;
+  int blockNum = 0;
+
   if (!sctx || sctx->spec->uniqueId != specUniqueId) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s", RedisModule_StringPtrLen(keyName, NULL));
     *status = SPEC_STATUS_INVALID;
     goto end;
   }
 
-  IndexSpec *spec = sctx->spec;
-  RedisModuleString *keyName = getRandomFieldByType(spec, INDEXFLD_T_TAG);
+  spec = sctx->spec;
+  keyName = getRandomFieldByType(spec, INDEXFLD_T_TAG);
   if (!keyName) {
     goto end;
   }
 
-  RedisModuleKey *idxKey = NULL;
-  TagIndex *indexTag = TagIndex::Open(sctx, keyName, false, &idxKey);
+  indexTag = TagIndex::Open(sctx, keyName, false, &idxKey);
   if (!indexTag) {
     goto end;
   }
 
-  InvertedIndex *iv;
-  tm_len_t len;
-  char *randomKey = NULL;
-  if (!indexTag->values->RandomKey(&randomKey, &len, (void **)&iv)) {
+  if (!indexTag->values->RandomKey(randomKey, &len, (void **)&iv)) {
     goto end;
   }
 
-  size_t totalRemoved = 0;
-  int blockNum = 0;
   for (;;) {
     // repair 100 blocks at once
-    IndexRepairParams params = {limit: RSGlobalConfig.gcScanSize, arg: NULL};
-    blockNum = iv->Repair(&sctx->spec->docs, blockNum, &params);
+    IndexBlockRepair params;
+    params.limit = RSGlobalConfig.gcScanSize;
+    blockNum = iv->Repair(&sctx->spec->docs, blockNum, params);
     /// update the statistics with the the number of records deleted
     totalRemoved += params.docsCollected;
     updateStats(sctx, params.docsCollected, params.bytesCollected);
@@ -229,7 +238,7 @@ size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
     // After each iteration we yield execution
     // First we close the relevant keys we're touching
     RedisModule_CloseKey(idxKey);
-    sctx = sctx.Refresh((RedisModuleString *)keyName);
+    sctx->Refresh((RedisModuleString *)keyName);
     // sctx null --> means it was deleted and we need to stop right now
     if (!sctx || sctx->spec->uniqueId != specUniqueId) {
       *status = SPEC_STATUS_INVALID;
@@ -267,16 +276,23 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
   RedisModuleKey *idxKey = NULL;
   arrayof(FieldSpec*) numericFields = NULL;
   RedisSearchCtx *sctx = new RedisSearchCtx(ctx, (RedisModuleString *)keyName, false);
+  IndexSpec *spec = NULL;
+  int randomIndex;
+  NumericFieldGC *num_gc = NULL;
+  RedisModuleString *keyName = NULL;
+  NumericRangeTree *rt = NULL;
+  NumericRangeNode *nextNode = NULL;
+  int blockNum = 0;
+
   if (!sctx || sctx->spec->uniqueId != specUniqueId) {
     RedisModule_Log(ctx, "warning", "No index spec for GC %s",
                     RedisModule_StringPtrLen(keyName, NULL));
     *status = SPEC_STATUS_INVALID;
     goto end;
   }
-  IndexSpec *spec = sctx->spec;
-  // find all the numeric fields
-  numericFields = spec->getFieldsByType(INDEXFLD_T_NUMERIC);
 
+  spec = sctx->spec;
+  numericFields = spec->getFieldsByType(INDEXFLD_T_NUMERIC);  // find all the numeric fields
   if (array_len(numericFields) == 0) {
     goto end;
   }
@@ -298,12 +314,12 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
   }
 
   // choose random numeric gc ctx
-  int randomIndex = rand() % array_len(numericGC);
-  NumericFieldGC *num_gc = numericGC[randomIndex];
+  randomIndex = rand() % array_len(numericGC);
+  num_gc = numericGC[randomIndex];
 
   // open the relevent numeric index to check that our pointer is valid
-  RedisModuleString *keyName = spec->GetFormattedKey(numericFields[randomIndex], INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+  keyName = spec->GetFormattedKey(numericFields[randomIndex], INDEXFLD_T_NUMERIC);
+  rt = OpenNumericIndex(sctx, keyName, &idxKey);
   if (idxKey) RedisModule_CloseKey(idxKey);
 
   if (num_gc->rt != rt || num_gc->revisionId != num_gc->rt->revisionId) {
@@ -315,13 +331,12 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
     num_gc = numericGC[randomIndex];
   }
 
-  NumericRangeNode *nextNode = NextGcNode(num_gc);
-
-  int blockNum = 0;
+  nextNode = NextGcNode(num_gc);
   for (;;) {
-    IndexRepairParams params = { limit: RSGlobalConfig.gcScanSize, arg: nextNode->range };
+    IndexBlockRepair params;// = { limit: RSGlobalConfig.gcScanSize, arg: nextNode->range };
+    params.limit = RSGlobalConfig.gcScanSize;
     // repair 100 blocks at once
-    blockNum = nextNode->range->entries.Repair(&sctx->spec->docs, blockNum, &params);
+    blockNum = nextNode->range->entries.Repair(&sctx->spec->docs, blockNum, params);
     /// update the statistics with the the number of records deleted
     num_gc->rt->numEntries -= params.docsCollected;
     totalRemoved += params.docsCollected;
@@ -329,7 +344,7 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
     // blockNum 0 means error or we've finished
     if (!blockNum) break;
 
-    sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)keyName);
+    sctx->Refresh((RedisModuleString *)keyName);
     // sctx null --> means it was deleted and we need to stop right now
     if (!sctx || sctx->spec->uniqueId != specUniqueId) {
       *status = SPEC_STATUS_INVALID;
@@ -361,6 +376,7 @@ bool GarbageCollector::PeriodicCallback(RedisModuleCtx *ctx) {
   int status = SPEC_STATUS_OK;
   RedisModule_AutoMemory(ctx);
   RedisModule_ThreadSafeContextLock(ctx);
+  size_t totalRemoved = 0;
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not reloading
   if (rdbPossiblyLoading) {
@@ -372,8 +388,6 @@ bool GarbageCollector::PeriodicCallback(RedisModuleCtx *ctx) {
       rdbPossiblyLoading = 0;
     }
   }
-
-  size_t totalRemoved = 0;
 
   totalRemoved += CollectRandomTerm(ctx, &status);
   totalRemoved += CollectNumericIndex(ctx, &status);
@@ -392,7 +406,6 @@ bool GarbageCollector::PeriodicCallback(RedisModuleCtx *ctx) {
   }
 
 end:
-
   RedisModule_ThreadSafeContextUnlock(ctx);
 
   return status == SPEC_STATUS_OK;
@@ -443,7 +456,7 @@ void GarbageCollector::RenderStats(RedisModuleCtx *ctx) {
   REPLY_KVNUM(n, "bytes_collected", stats.totalCollected);
   REPLY_KVNUM(n, "effectiv_cycles_rate",
               (double)stats.effectiveCycles /
-                  (double)(stats.numCycles ? stats.numCycles : 1));
+              (double)(stats.numCycles ? stats.numCycles : 1));
 
   RedisModule_ReplySetArrayLength(ctx, n);
 }

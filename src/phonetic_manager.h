@@ -10,4 +10,5 @@ struct PhoneticManager {
   //RSLanguage language; // not currently used
 
   static void ExpandPhonetics(const char* term, size_t len, char** primary, char** secondary);
+  static void AddPrefix(char** phoneticTerm);
 };

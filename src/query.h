@@ -67,6 +67,22 @@ struct QueryAST : public Object {
 
 //---------------------------------------------------------------------------------------------
 
+struct LexRange {
+  Vector<IndexIterator *> its;
+  Query *q;
+  QueryNodeOptions *opts;
+  double weight;
+
+  LexRange(Query q, QueryNodeOptions *opts, double weight = 0) :
+    q(&q), opts(opts), weight(weight) {}
+
+  void rangeItersAddIterator(IndexReader *ir);
+  void rangeIterCbStrs(const char *r, size_t n, void *invidx);
+  void rangeIterCb(const rune *r, size_t n);
+};
+
+//---------------------------------------------------------------------------------------------
+
 /*
 // This structure can be used to set global properties for the entire query.
 

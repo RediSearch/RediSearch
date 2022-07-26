@@ -20,10 +20,10 @@ rune runeFold(rune r);
 // Convert a rune string to utf-8 characters
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
-rune *strToFoldedRunes(const char *str, size_t *len, bool &dynamic, rune *buf = NULL);
+rune *strToFoldedRunes(const char *str, size_t *len, bool dynamic, rune *buf = NULL);
 
 // Convert a utf-8 string to constant width runes
-rune *strToRunes(const char *str, size_t *len, bool &dynamic, rune *buf = NULL);
+rune *strToRunes(const char *str, size_t *len, bool dynamic, rune *buf = NULL);
 
 // Decode a string to a rune in-place
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
@@ -66,6 +66,15 @@ struct Runes {
     memcpy(_runes, runes, len);
     _runes[len] = '\0';
     _len = len;
+  }
+
+  void append(Runes str, size_t len) {
+    size_t nlen = _len + len;
+    rune nstr[nlen + 1];
+    memcpy(nstr, &_runes[0], sizeof(rune) * _len);
+    memcpy(&nstr[_len], str[0], sizeof(rune) * len);
+    nstr[nlen] = 0;
+    copy(*nstr, nlen);
   }
 
   void copy(const Runes &runes) { copy(_runes, _len); }

@@ -915,8 +915,6 @@ IndexSpec *IndexSpec::Load(RedisModuleCtx *ctx, const char *name, int openWrite)
 
 //---------------------------------------------------------------------------------------------
 
-RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field);
-
 // Returns a string suitable for indexes. This saves on string creation/destruction
 
 RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec *fs, FieldType forType) {
@@ -925,13 +923,12 @@ RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec *fs, FieldType for
   }
 
   size_t typeix = INDEXTYPE_TO_POS(forType);
-
   RedisModuleString *ret = indexStrs[fs->index].types[typeix];
   if (!ret) {
-    RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = this};
+    RedisSearchCtx sctx(RSDummyContext, this);
     switch (forType) {
       case INDEXFLD_T_NUMERIC:
-        ret = fmtRedisNumericIndexKey(&sctx, fs->name);
+        ret = sctx.NumericIndexKey(fs->name);
         break;
       case INDEXFLD_T_TAG:
         ret = TagIndex::FormatName(&sctx, fs->name);

@@ -3,8 +3,7 @@
 #include "dictionary.h"
 #include <stdbool.h>
 
-/** Forward declaration **/
-static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int RS_Suggestions::Compare(const RS_Suggestion **val1, const RS_Suggestion **val2) {
   if ((*val1)->score > (*val2)->score) {
@@ -16,29 +15,33 @@ static int RS_Suggestions::Compare(const RS_Suggestion **val1, const RS_Suggesti
   return 0;
 }
 
-RS_Suggestion::RS_Suggestion(char *suggestion, size_t len, double score) :
-  suggestion(suggestion), len(len), score(score) {
+//---------------------------------------------------------------------------------------------
+
+RS_Suggestion::RS_Suggestion(rune *ru, t_len ru_len, double score) :
+    score(score) {
+  suggestion = runesToStr(ru, ru_len, &len);
 }
+
+//---------------------------------------------------------------------------------------------
 
 RS_Suggestion::~RS_Suggestion() {
   rm_free(suggestion);
 }
 
-RS_Suggestions::RS_Suggestions() {
-  suggestionsTrie = new Trie();
-}
+//---------------------------------------------------------------------------------------------
 
 void RS_Suggestions::Add(char *term, size_t len, double score, int incr) {
   double currScore;
-  bool isExists = SpellCheck_IsTermExistsInTrie(suggestionsTrie, term, len, &currScore);
+  bool isExists = SpellChecker::IsTermExistsInTrie(&suggestionsTrie, term, len, &currScore);
   if (score == 0) {
-    /** we can not add zero score so we set it to -1 instead :\ **/
+    // we can not add zero score so we set it to -1 instead
     score = -1;
   }
 
   if (!incr) {
     if (!isExists) {
-      suggestionsTrie->InsertStringBuffer(term, len, score, incr, NULL);
+      //@@@TODO: term is coming from rule and InsertStringBuffer will convert it back to rune
+      suggestionsTrie.InsertStringBuffer(term, len, score, incr, NULL);
     }
     return;
   }
@@ -51,19 +54,18 @@ void RS_Suggestions::Add(char *term, size_t len, double score, int incr) {
     incr = 0;
   }
 
-  suggestionsTrie->InsertStringBuffer(term, len, score, incr, NULL);
+  //@@@TODO: term is coming from rule and InsertStringBuffer will convert it back to rune
+  suggestionsTrie.InsertStringBuffer(term, len, score, incr, NULL);
 }
 
-RS_Suggestions::~RS_Suggestions() {
-  //  array_free_ex(s->suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
-  delete suggestionsTrie;
-}
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Return the score for the given suggestion (number between 0 to 1).
  * In case the suggestion should not be added return -1.
  */
-inline double SpellCheckCtx::GetScore(char *suggestion, size_t len, t_fieldMask fieldMask) {
+
+double SpellChecker::GetScore(char *suggestion, size_t len, t_fieldMask fieldMask) {
   RedisModuleKey *keyp = NULL;
   IndexReader *reader = NULL;
   IndexIterator *iter = NULL;
@@ -96,69 +98,69 @@ end:
   return retVal;
 }
 
-static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore) {
+//---------------------------------------------------------------------------------------------
+
+bool SpellChecker::IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
   int dist = 0;
   bool retVal = false;
-  TrieIterator *it = &t->Iterate(term, len, 0, 0);
+  TrieIterator<DFAFilter> it = t->Iterate(term, len, 0, 0);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return retVal;
   }
-  if (it->Next(&rstr, &slen, NULL, &score, &dist)) {
+  if (it.Next(&rstr, &slen, NULL, &score, &dist)) {
     retVal = true;
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   if (outScore) {
     *outScore = score;
   }
   return retVal;
 }
 
-void SpellCheckCtx::FindSuggestions(Trie *t, const char *term, size_t len, t_fieldMask fieldMask,
-                                    RS_Suggestions *s, int incr) {
+//---------------------------------------------------------------------------------------------
+
+void SpellChecker::FindSuggestions(Trie *t, const char *term, size_t len, t_fieldMask fieldMask,
+                                    RS_Suggestions &suggestions, int incr) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
   int dist = 0;
   size_t suggestionLen;
 
-  TrieIterator *it = &t->Iterate(term, len, (int)distance, 0);
+  TrieIterator<DFAFilter> it = t->Iterate(term, len, (int)distance, 0);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return;
   }
-  while (it->Next(&rstr, &slen, NULL, &score, &dist)) {
+  while (it.Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &suggestionLen);
     double score;
     if ((score = GetScore(res, suggestionLen, fieldMask)) != -1) {
-      s->Add(res, suggestionLen, score, incr);
+      suggestions.Add(res, suggestionLen, score, incr);
     }
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
 }
 
-RS_Suggestion **RS_Suggestions::GetSuggestions() {
-  TrieIterator iter = suggestionsTrie->Iterate("", 0, 0, 1);
-  RS_Suggestion **ret = array_new(RS_Suggestion *, suggestionsTrie->size);
+//---------------------------------------------------------------------------------------------
+
+arrayof(RS_Suggestion*) RS_Suggestions::GetSuggestions() {
+  TrieIterator<DFAFilter> iter = suggestionsTrie.Iterate("", 0, 0, 1);
+  arrayof(RS_Suggestion*) ret = array_new(RS_Suggestion *, suggestionsTrie.size);
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
   int dist = 0;
-  size_t termLen;
   while (iter.Next(&rstr, &slen, NULL, &score, &dist)) {
-    char *res = runesToStr(rstr, slen, &termLen);
-    ret = array_append(ret, new RS_Suggestion(res, termLen, score));
+    ret = array_append(ret, new RS_Suggestion(rstr, slen, score));
   }
-  DFAFilter_Free(iter.ctx);
-  rm_free(iter.ctx);
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, uint64_t totalDocNumber) {
 #define TERM "TERM"
@@ -166,7 +168,7 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
   RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
 
-  RS_Suggestion **suggestions = GetSuggestions();
+  arrayof(RS_Suggestion*) suggestions = GetSuggestions();
 
   for (int i = 0; i < array_len(suggestions); ++i) {
     if (suggestions[i]->score == -1) {
@@ -195,10 +197,12 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
   array_free_ex(suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
 }
 
-inline bool SpellCheckCtx::ReplyTermSuggestions(char *term, size_t len, t_fieldMask fieldMask) {
+//---------------------------------------------------------------------------------------------
+
+inline bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMask fieldMask) {
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
-  if (SpellCheck_IsTermExistsInTrie(sctx->spec->terms, term, len, NULL)) {
+  if (SpellChecker::IsTermExistsInTrie(sctx->spec->terms, term, len, NULL)) {
     if (fullScoreInfo) {
       // if a full score info is requested we need to send information that
       // we found the term as is on the index
@@ -222,14 +226,14 @@ inline bool SpellCheckCtx::ReplyTermSuggestions(char *term, size_t len, t_fieldM
     if (t == NULL) {
       continue;
     }
-    if (SpellCheck_IsTermExistsInTrie(t, term, len, NULL)) {
+    if (SpellChecker::IsTermExistsInTrie(t, term, len, NULL)) {
       RedisModule_CloseKey(k);
       return false;
     }
     RedisModule_CloseKey(k);
   }
 
-  RS_Suggestions *s = new RS_Suggestions();
+  RS_Suggestions s;
 
   FindSuggestions(sctx->spec->terms, term, len, fieldMask, s, 1);
 
@@ -247,12 +251,14 @@ inline bool SpellCheckCtx::ReplyTermSuggestions(char *term, size_t len, t_fieldM
     RedisModule_CloseKey(k);
   }
 
-  s->SendReplyOnTerm(sctx->redisCtx, term, len, (!fullScoreInfo) ? sctx->spec->docs.size - 1 : 0);
+  s.SendReplyOnTerm(sctx->redisCtx, term, len, (!fullScoreInfo) ? sctx->spec->docs.size - 1 : 0);
 
   return true;
 }
 
-inline bool SpellCheckCtx::CheckDictExistence(const char *dict) {
+//---------------------------------------------------------------------------------------------
+
+inline bool SpellChecker::CheckDictExistence(const char *dict) {
 #define BUFF_SIZE 1000
   RedisModuleKey *k = NULL;
   Trie *t = SpellCheck_OpenDict(sctx->redisCtx, dict, REDISMODULE_READ, &k);
@@ -266,7 +272,9 @@ inline bool SpellCheckCtx::CheckDictExistence(const char *dict) {
   return true;
 }
 
-inline bool SpellCheckCtx::CheckTermDictsExistance() {
+//---------------------------------------------------------------------------------------------
+
+inline bool SpellChecker::CheckTermDictsExistance() {
   for (int i = 0; i < array_len(includeDict); ++i) {
     if (!CheckDictExistence(includeDict[i])) {
       return false;
@@ -282,19 +290,22 @@ inline bool SpellCheckCtx::CheckTermDictsExistance() {
   return true;
 }
 
-static int forEachCallback(QueryNode *n, void *arg) {
-  SpellCheckCtx *scCtx = arg;
-  if (n->type == QN_TOKEN) {
+//---------------------------------------------------------------------------------------------
+
+static int forEachCallback(QueryNode *n, SpellChecker *self) {
+    if (n->type == QN_TOKEN) {
     QueryTokenNode *tn = dynamic_cast<QueryTokenNode*>(n);
-    if (scCtx->ReplyTermSuggestions(tn->tok.str, tn->tok.len, tn->opts.fieldMask)) {
-      scCtx->results++;
+    if (self->ReplyTermSuggestions(tn->tok.str, tn->tok.len, tn->opts.fieldMask)) {
+      self->results++;
     }
   }
 
   return true;
 }
 
-void SpellCheckCtx::Reply(QueryAST *q) {
+//---------------------------------------------------------------------------------------------
+
+void SpellChecker::Reply(QueryAST *q) {
   if (!CheckTermDictsExistance()) {
     return;
   }
@@ -310,3 +321,5 @@ void SpellCheckCtx::Reply(QueryAST *q) {
 
   RedisModule_ReplySetArrayLength(sctx->redisCtx, results + (fullScoreInfo ? 1 : 0));
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

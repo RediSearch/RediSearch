@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <functional>
+#include <rmutil/vector.h>
 
 typedef uint16_t tm_len_t;
 
@@ -42,25 +43,18 @@ struct TrieMaprsbHelper {
  */
 //@@ Make Template
 struct TrieMapNode : public Object {
-  // the string length of this node. can be 0
-  tm_len_t len;
-  // the number of child nodes
-  tm_len_t numChildren : 9;
-
-  uint8_t flags : 7;
-
+  uint8_t flags;
   void *value;
-
-  // the string of the current node
-  char str[];
+  std::string str;               // the string of the current node
+  Vector<TrieMapNode*> _children;
 
   TrieMapNode(char *str_, tm_len_t offset, tm_len_t len_, tm_len_t numChildren,
               void *value_, bool terminal);
 
-  bool Add(char *str_, tm_len_t len_, void *value_, TrieMapReplaceFunc cb);
-  void *Find(char *str_, tm_len_t len_);
-  int Delete(char *str_, tm_len_t len_, void (*freeCB)(void *));
-  TrieMapNode *RandomWalk(int minSteps, char **str_, tm_len_t *len_);
+  bool Add(char *str_, tm_len_t len, void *value_, TrieMapReplaceFunc cb);
+  void *Find(std::string str_, tm_len_t len);
+  bool Delete(char *str_, tm_len_t len);
+  TrieMapNode *RandomWalk(int minSteps, std::string &newstr);
   TrieMapNode *FindNode(char *str_, tm_len_t len_, tm_len_t *poffset);
   size_t MemUsage();
 
@@ -70,11 +64,13 @@ struct TrieMapNode : public Object {
   // Get a pointer to the children array of a node. This is not an actual member
   // of the node for memory saving reasons
   TrieMapNode **children() {
-    return ((void *)this + sizeof(TrieMapNode) + (len + 1) + numChildren);
+    return ((void *)this + sizeof(TrieMapNode) + (str.length() + 1) + _children.size());
   }
 
+  //std::string childKey(tm_len_t c) { //@@ Is that the child or the str of the child?
   char *childKey(tm_len_t c) {
-    return (char *)this + sizeof(TrieMapNode) + len + 1 + c;
+    return (char *)this + sizeof(TrieMapNode) + str.length() + 1 + c;
+    //return _children[c]->str;
   }
 
   bool isTerminal() { return flags & TM_NODE_TERMINAL; }
@@ -84,8 +80,7 @@ struct TrieMapNode : public Object {
   void AddChild(char *str_, tm_len_t offset, tm_len_t len_, void *value_);
   void Split(tm_len_t offset);
   void sortChildren();
-  void resizeChildren(int offset);
-  void optimizeChildren(void (*freeCB)(void *));
+  void optimizeChildren();
   void rangeIterateSubTree(TrieMapRangeCtx *r);
 
   static size_t Sizeof(tm_len_t numChildren, tm_len_t slen);
@@ -135,11 +130,11 @@ struct TrieMap : public Object {
   TrieMap();
   ~TrieMap();
 
-  bool Add(char *str_, tm_len_t len_, void *value, TrieMapReplaceFunc cb);
-  void *Find(char *str_, tm_len_t len_);
-  int Delete(char *str_, tm_len_t len_, void (*freeCB)(void *));
+  bool Add(char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
+  void *Find(char *str, tm_len_t len);
+  int Delete(char *str, tm_len_t len);
   void Free(void (*freeCB)(void *));
-  int RandomKey(char **str, tm_len_t *len_, void **ptr);
+  bool RandomKey(std::string str, tm_len_t *len_, void **ptr);
   void *RandomValueByPrefix(const char *prefix, tm_len_t pflen);
   size_t MemUsage();
 

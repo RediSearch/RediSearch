@@ -25,6 +25,12 @@ typedef uint16_t t_len;
 
 //---------------------------------------------------------------------------------------------
 
+#define ITERSTATE_SELF 0
+#define ITERSTATE_CHILDREN 1
+#define ITERSTATE_MATCH 2
+
+//---------------------------------------------------------------------------------------------
+
 #pragma pack(1)
 struct TriePayload : Object {
   uint32_t len;  // 4G payload is more than enough
@@ -66,11 +72,13 @@ struct TrieNode;
 
 // trie iterator stack node. for internal use only
 struct StackNode {
+  StackNode();
+
   int state;
   TrieNode *n;
   t_len stringOffset;
   t_len childOffset;
-  int isSkipped;
+  bool skipped;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -89,6 +97,7 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 
 // Opaque trie iterator type
 
+template <class T>
 struct TrieIterator : public Object {
   rune buf[TRIE_INITIAL_STRING_LEN + 1];
   t_len bufOffset;
@@ -100,9 +109,9 @@ struct TrieIterator : public Object {
   int nodesConsumed;
   int nodesSkipped;
   StackPopCallback popCallback;
-  void *ctx;
+  T ctx;
 
-  TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, void *ctx);
+  TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, T &&obj);
   ~TrieIterator();
 
   void Push(TrieNode *node, int skipped);
@@ -156,9 +165,10 @@ struct TrieNode : public Object {
 
   bool Delete(rune *runes, t_len len);
 
-  TrieIterator Iterate(StepFilter f, StackPopCallback pf, void *ctx);
+  template <class T>
+  TrieIterator<T> Iterate(StepFilter f, StackPopCallback pf, T &&obj);
 
-  TrieNode *RandomWalk(int minSteps, rune *&str, t_len &len);
+  TrieNode *RandomWalk(int minSteps, Runes &runes);
   void MergeWithSingleChild();
 
   void sortChildren();
@@ -180,8 +190,6 @@ struct TrieNode : public Object {
 
 //---------------------------------------------------------------------------------------------
 
-#define ITERSTATE_SELF 0
-#define ITERSTATE_CHILDREN 1
-#define ITERSTATE_MATCH 2
+#include "trie_iter.hxx"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

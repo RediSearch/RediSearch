@@ -14,7 +14,6 @@ void PhoneticManager::AddPrefix(char** phoneticTerm) {
   *phoneticTerm[0] = PHONETIC_PREFIX;
 }
 
-//@@ Should it be static func of PhoneticManager?
 void PhoneticManager::ExpandPhonetics(const char* term, size_t len,
                                       char** primary, char** secondary) {
   // currently ctx is irrelevant we support only one universal algorithm for all 4 languages
@@ -23,6 +22,6 @@ void PhoneticManager::ExpandPhonetics(const char* term, size_t len,
   bufTmp[len] = 0;
   memcpy(bufTmp, term, len);
   DoubleMetaphone(bufTmp, primary, secondary);
-  PhoneticManager_AddPrefix(primary);
-  PhoneticManager_AddPrefix(secondary);
+  PhoneticManager::AddPrefix(secondary);
+  PhoneticManager::AddPrefix(primary);
 }

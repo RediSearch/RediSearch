@@ -28,7 +28,8 @@ struct Trie {
   int InsertStringBuffer(const char *s, size_t len, double score, int incr, RSPayload *payload);
   Vector<TrieSearchResult*> Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode, int trim, int optimize);
 
-  TrieIterator *Iterate(const char *prefix, size_t len, int maxDist, int prefixMode);
+  template <class T>
+  TrieIterator<T> *Iterate(const char *prefix, size_t len, int maxDist, int prefixMode);
 
   bool RandomKey(char **str, t_len *len, double *score);
 };
