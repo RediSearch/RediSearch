@@ -712,7 +712,9 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
     loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
   }
   // if loadinging the document has failed, we return an empty array
+  RedisModule_ThreadSafeContextLock(NULL);
   RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts);
+  RedisModule_ThreadSafeContextUnlock(NULL);
   return RS_RESULT_OK;
 }
 
