@@ -10,7 +10,7 @@ setups:
 dbconfig:
   - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/redis-benchmark/datasets/nyc_taxis_1M.rdb"
   - init_commands:
-      - '"FT.CREATE" "nyc1" "SCHEMA" "pickup_location_long_lat" "GEO" "dropoff_location_long_lat" "GEO"'
+      - '"FT.CREATE" "nyc" "SCHEMA" "pickup_location_long_lat" "GEO" "dropoff_location_long_lat" "GEO"'
   - dataset_load_timeout_secs: 180
   - check:
       keyspacelen: 1000000
