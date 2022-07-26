@@ -9,7 +9,7 @@ type: docs
 [![Github](https://img.shields.io/static/v1?label=&message=repository&color=5961FF&logo=github)](https://github.com/RediSearch/RediSearch/)
 
 
-RediSearch is a [source-available](https://github.com/RediSearch/RediSearch/blob/master/LICENSE) Redis module that enables querying, secondary indexing, and full-text search for Redis. These features enable multi-field queries, [aggregation](/docs/stack/search/reference/aggregations), exact phrase matching, and [numeric filtering](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query) for text queries.
+RediSearch is a [source-available](https://github.com/RediSearch/RediSearch/blob/master/LICENSE) Redis module that enables querying, secondary indexing, and full-text search for Redis. These features enable multi-field queries, [aggregation](/docs/stack/search/reference/aggregations), exact phrase matching, [numeric filtering](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query), and [geo filtering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) for text queries.
 
 ## Quick links
   - [Quick start guide](/redisearch/quick_start)
@@ -40,13 +40,12 @@ RediSearch supports the following features:
 * Unicode support (UTF-8 input required)
 * Retrieval of full document contents or only their IDs
 * Document deletion and updating with index garbage collection
-* Partial and conditional document updates
 
 For more information about RediSearch features, see the [feature reference](/docs/stack/search/reference) pages.
 
 ## JSON documents
 
-When combined with the [RedisJSON](/docs/stack/json) module, which is automatically included with Redis Stack, RediSearch can index and query JSON documents.
+When combined with the [RedisJSON](/docs/stack/json) module, which is included with Redis Stack, RediSearch can index and query JSON documents.
 
 To learn how to use RediSearch with JSON documents, see [Indexing JSON documents](/docs/stack/search/indexing_json).
 
