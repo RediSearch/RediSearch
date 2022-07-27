@@ -262,7 +262,7 @@ The supported attributes are:
 
         @title:"hello world" @body:(foo bar) @category:(articles|biographies)
 
-* Prefix/Infix/Suffix Queries:
+* Prefix/Infix/Suffix queries:
 
         hello worl*
 
