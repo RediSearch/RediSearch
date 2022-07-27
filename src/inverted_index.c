@@ -234,17 +234,17 @@ ENCODER(encodeRawDocIdsOnly) {
 typedef struct {
   uint8_t deltaEncoding : 3;
   uint8_t type : 2;
-  uint8_t valueByteCount : 3; //1 to 8 (encoded as 0-7)
+  uint8_t valueByteCount : 3; //1 to 8 (encoded as 0-7, since value 0 is represented as tiny)
 } NumEncodingInt;
 
 typedef struct {
   uint8_t deltaEncoding : 3;
   uint8_t type : 2;
-  uint8_t tinyValue : 3;
+  uint8_t tinyValue : 3;  // corresponds to NUM_TINYENC_MASK
 } NumEncodingTiny;
 
 typedef struct {
-  uint8_t deltaEncoding : 2;
+  uint8_t deltaEncoding : 3;
   uint8_t type : 2;
   uint8_t isInf : 1;    // -INFINITY has the 'sign' bit set too
   uint8_t sign : 1;
@@ -456,7 +456,8 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
           INDEX_BLOCK_SIZE_DOCID_ONLY;
 
   // see if we need to grow the current block
-  if (blk->numDocs >= blockSize) {
+  if (!same_doc && blk->numDocs >= blockSize) {
+    // If same doc can span more than a single block - need to adjust IndexReader_SkipToBlock
     blk = InvertedIndex_AddBlock(idx, docId);
   } else if (blk->numDocs == 0) {
     blk->firstId = blk->lastId = docId;

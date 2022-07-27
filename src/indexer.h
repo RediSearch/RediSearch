@@ -8,12 +8,28 @@
 #include "util/arr.h"
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
-  double numeric;  // i.e. the numeric value of the field
-  const char *geoSlon;
-  const char *geoSlat;
-  char **tags;
-  const void *vector;
-  size_t vecLen;
+  int count;
+  union {
+    // Single value
+    double numeric;  // i.e. the numeric value of the field
+    struct {
+      const char *geoSlon;
+      const char *geoSlat;
+    };
+    char **tags;
+    struct {
+      const void *vector;
+      size_t vecLen;
+    };
+
+    // Multi value
+    array_t arrNumeric;
+    struct {
+      array_t arrGeoSlon;
+      array_t arrGeoSlat;
+    };
+  };
+
 } FieldIndexerData;
 
 typedef struct DocumentIndexer {

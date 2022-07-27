@@ -6,7 +6,7 @@ from includes import *
 doc1_content = [
     {
         "name": "top1",
-        "seq": [1],
+        "seq": [1, 5],
         "nested1":
         [
             {
@@ -78,19 +78,20 @@ doc1_content = [
 
 
 
-def testTagNumeric(env):
+def testNumeric(env):
     """ Test multi numeric values (an array of numeric values or multiple numeric values) """
 
+    conn = getConnectionByEnv(env)
     # TODO: FIXME: Remove debug config
     env.expect('FT.CONFIG', 'SET', 'TIMEOUT', 0).ok()
 
-    env.expect('JSON.SET', 'doc:1', '$', json.dumps(doc1_content)).ok()
-    
     #env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..seq[*]', 'AS', 'seq', 'NUMERIC').ok()
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$[0].seq[0]', 'AS', 'seq', 'NUMERIC').ok()
-    waitForIndex(env, 'idx1')
+
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
+    
 
     res1 = [1, 'doc:1']
-    env.expect('FT.SEARCH', 'idx1', '@seq:[0 5]', 'NOCONTENT').equal(res1)
+    env.expect('FT.SEARCH', 'idx1', '@seq:[3 6]', 'NOCONTENT').equal(res1)
 
 
