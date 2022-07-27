@@ -11,6 +11,8 @@ import RLTest
 
 from includes import *
 
+BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
+
 
 class TimeLimit(object):
     """
