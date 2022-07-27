@@ -1,7 +1,7 @@
 ---
 title: "Configuration Parameters"
 linkTitle: "Configuration"
-weight: 2
+weight: 3
 description: >
     RediSearch supports multiple module configuration parameters. Some of these parameters can only be set at load-time, while other parameters can be set either on load-time or on run-time.
 ---
