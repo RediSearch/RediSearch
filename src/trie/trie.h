@@ -23,6 +23,7 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED_LEX 2
 
 typedef void (*TrieFreeCallback)(void *node);
+struct timespec;
 
 #pragma pack(1)
 typedef struct {
@@ -241,6 +242,9 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includ
  * @param ctx data to be passed to the callback
  */
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout);
+
+void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout);
 
 #ifdef __cplusplus

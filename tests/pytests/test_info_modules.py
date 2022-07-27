@@ -38,7 +38,7 @@ def testInfoModulesBasic(env):
 
   env.expect('FT.CREATE', idx3, 'SCHEMA', 'vec_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
                                           'vec_hnsw', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
-                                          'INITIAL_CAP', '1000000', 'M', '40', 'EF_CONSTRUCTION', '250', 'EF_RUNTIME', '20').ok()
+                                          'INITIAL_CAP', '10000', 'M', '40', 'EF_CONSTRUCTION', '250', 'EF_RUNTIME', '20').ok()
 
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '3')
@@ -84,6 +84,7 @@ def testInfoModulesAlter(env):
   # idx1Info = info['search_info_' + idx1]
   # env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
 
+
 def testInfoModulesDrop(env):
   conn = env.getConnection()
   idx1 = 'idx1'
@@ -105,6 +106,7 @@ def testInfoModulesDrop(env):
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(fieldsInfo['search_fields_text'], 'Text=2,Sortable=1')
   env.assertFalse('search_fields_numeric' in fieldsInfo) # no numeric fields since we removed idx2
+
 
 def testInfoModulesAfterReload(env):
   conn = env.getConnection()

@@ -22,9 +22,9 @@ Return value has an array with two elements:
 
 @array-reply - with the first @array-reply identical to the reply of FT.SEARCH and FT.AGGREGATE and a second @array-reply with information of time used to create the query and time and count of calls of iterators and result-processors.
 
-!!! tip
-    To reduce the size of the output, use `NOCONTENT` or `LIMIT 0 0` to reduce results reply or `LIMITED` to not reply with details of `reader iterators` inside builtin-unions such as `fuzzy` or `prefix`.
-
+{{% alert title="Tip" color="info" %}}
+To reduce the size of the output, use `NOCONTENT` or `LIMIT 0 0` to reduce results reply or `LIMITED` to not reply with details of `reader iterators` inside builtin-unions such as `fuzzy` or `prefix`.
+{{% /alert %}}
 
 @examples
 

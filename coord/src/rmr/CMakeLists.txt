@@ -9,4 +9,8 @@ file(GLOB RMR_SRC
 include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${root}/src)
 
+if (APPLE)
+	include_directories(${LIBSSL_DIR}/include)
+endif()
+
 add_library(rmr OBJECT ${RMR_SRC})

@@ -26,3 +26,4 @@ callgrind.out.*
 /1/
 build/
 cmake-build-debug/
+CMakeCache.txt

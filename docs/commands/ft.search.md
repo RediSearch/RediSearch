@@ -20,14 +20,14 @@ Searches the index with a textual query, returning either documents or just ids.
 - **NOSTOPWORDS**: If set, we do not filter stopwords from the query.
 - **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances
-- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.ADD).
+- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see `FT.CREATE`).
   the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
   right after the id and score and /or payload if requested. This is usually not needed by users, and
   exists for distributed search coordination purposes.
 
 - **FILTER numeric_attribute min max**: If set, and numeric_attribute is defined as a numeric attribute in
-  FT.CREATE, we will limit results to those having numeric values ranging between min and max.
+  `FT.CREATE`, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges.
   Multiple numeric filters for different attributes are supported in one query.
 - **GEOFILTER {geo_attribute} {lon} {lat} {radius} m|km|mi|ft**: If set, we filter the results to a given radius
@@ -58,7 +58,7 @@ Searches the index with a textual query, returning either documents or just ids.
   If querying documents in Chinese, this should be set to `chinese` in order to
   properly tokenize the query terms.
   Defaults to English. If an unsupported language is sent, the command returns an error.
-  See FT.ADD for the list of languages.
+  See `FT.CREATE` for the list of languages.
 
 - **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](/redisearch/reference/extensions).
 - **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](/redisearch/reference/extensions).
@@ -71,8 +71,9 @@ Searches the index with a textual query, returning either documents or just ids.
 - **LIMIT first num**: Limit the results to
   the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
 
-!!! tip
-    `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
+{{% alert title="Tip" color="info" %}}
+`LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
+{{% /alert %}}
 
 - **TIMEOUT {milliseconds}**: If set, we will override the timeout parameter of the module.
 
@@ -86,8 +87,9 @@ Searches the index with a textual query, returning either documents or just ids.
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
-!!! note "Expiration of hashes during a search query"
-    If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash will not be returned.
+{{% alert title="Expiration of hashes during a search query" color="info" %}}
+If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash will not be returned.
+{{% /alert %}}
 
 @examples
 
@@ -149,5 +151,6 @@ Searching for books with semantically similar "title" to "Planet Earth", Return 
 FT.SEARCH books-idx "*=>[KNN 10 @title_embedding $query_vec AS title_score]" PARAMS 2 query_vec <"Planet Earth" embedding BLOB> SORTBY title_score DIALECT 2
 ```
 
-!!! tip "More examples"
-    For more details and query examples, see [query syntax](/redisearch/reference/query_syntax).
+{{% alert title="More examples" color="info" %}}
+For more details and query examples, see [query syntax](/redisearch/reference/query_syntax).
+{{% /alert %}}
