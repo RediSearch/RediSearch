@@ -161,7 +161,7 @@ These queries are CPU intensive as they require iteration over the the whole dic
 
 Note: all notes about prefix searches apply to infix/suffix queries.
 
-### Using a Suffix Trie
+### Using a suffix trie
 
 A suffix-trie maintains a list of terms which match the suffix. Adding a Suffix-Trie to a field by using `WITHSUFFIXTRIE` keyword, will assist in creating infix and suffix queries more efficiently as it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
 
