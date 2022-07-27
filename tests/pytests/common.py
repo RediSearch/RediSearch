@@ -260,7 +260,7 @@ def module_ver_filter(env, module_name, ver_filter):
     return False
 
 def has_json_api_v2(env):
-    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver == 20200 else False)
+    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver >= 20200 else False)
 
 class ConditionalExpected:
     
