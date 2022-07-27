@@ -174,7 +174,7 @@ Since version v2.6.0, the dictionary can be used for wildcard matching queries w
 * `?` - for any single character
 * `*` - for any character repeating zero or more times
 
-An example for the syntax is `w'foo*bar?'`.
+An example of the syntax is `w'foo*bar?'`.
 
 ### Using a Suffix Trie
 
