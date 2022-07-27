@@ -98,10 +98,12 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 // Otherwise we return an iterator to all strings within maxDist Levenshtein distance.
 
 TrieIterator<DFAFilter> Trie::Iterate(const char *prefix, size_t len, int maxDist, int prefixMode) {
+  //@@@TODO: we don't use len argument!
   size_t rlen;
   Runes runes(prefix, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
-    return NULL;
+    Runes empty;
+    return TrieIterator<DFAFilter>(DFAFilter(empty, maxDist, prefixMode));
   }
 
   return root->Iterate(FilterFunc, StackPop, DFAFilter(runes, maxDist, prefixMode));

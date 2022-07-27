@@ -4,7 +4,7 @@
 
 template <class T>
 void TrieIterator<T>::Push(TrieNode *node, int skipped) {
-    stack.push_back(new StackNode(skipped, node));
+    stack.emplace_back(StackNode{skipped, node});
 }
 
 //---------------------------------------------------------------------------------------------
@@ -15,12 +15,10 @@ template <class T>
 void TrieIterator<T>::Pop() {
     if (!stack.empty()) {
         StackNode &curr = current();
-        if (popCallback) {
-            popCallback(ctx, curr.stringOffset);
-        }
+        ctx.StackPop(curr.stringOffset);
 
-    bufOffset -= curr.stringOffset;
-    stack.pop_back();
+        bufOffset -= curr.stringOffset;
+        stack.pop_back();
     }
 }
 
@@ -29,7 +27,7 @@ void TrieIterator<T>::Pop() {
 // Single step iteration, feeding the given filter/automaton with the next character
 
 template <class T>
-TrieIterator<T>::StepResult TrieIterator<T>::Step(void *matchCtx) {
+TrieIterator<T>::StepResult TrieIterator<T>::Step(int *match) {
   if (stack.empty()) {
     return __STEP_STOP;
   }
@@ -46,21 +44,19 @@ TrieIterator<T>::StepResult TrieIterator<T>::Step(void *matchCtx) {
         // get the current rune to feed the filter
         rune b = curr.n->_str[curr.stringOffset];
 
-        if (filter) {
-          // run the next character in the filter
-          FilterCode rc = filter(b, ctx, &matched, matchCtx);
+        // run the next character in the filter
+        FilterCode rc = ctx.Filter(b, &matched, match);
 
-          // if we should stop...
-          if (rc == F_STOP) {
-            // match stop - change the state to MATCH and return
-            if (matched) {
-              curr.state = ITERSTATE_MATCH;
-              return __STEP_MATCH;
-            }
-            // normal stop - just pop and continue
-            Pop();
-            goto next;
+        // if we should stop...
+        if (rc == F_STOP) {
+          // match stop - change the state to MATCH and return
+          if (matched) {
+            curr.state = ITERSTATE_MATCH;
+            return __STEP_MATCH;
           }
+          // normal stop - just pop and continue
+          Pop();
+          goto next;
         }
 
         // advance the buffer offset and character offset
@@ -116,6 +112,13 @@ next:
 template <class T>
 TrieIterator<T> TrieNode::Iterate(StepFilter f, StackPopCallback pf, T &&obj) {
   return TrieIterator<T>{this, f, pf, std::move(obj)};
+}
+
+//---------------------------------------------------------------------------------------------
+
+template <class T>
+TrieIterator<T>::TrieIterator(T &&obj) :
+    filter(NULL), popCallback(NULL), minScore(0), ctx(std::move(obj)) {
 }
 
 //---------------------------------------------------------------------------------------------

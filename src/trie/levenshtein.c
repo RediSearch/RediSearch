@@ -81,7 +81,7 @@ bool SparseAutomaton::CanMatch(const SparseVector &v) const {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-DFANode::DFANode(int distance, SparseVector&& state) : 
+DFANode::DFANode(int distance, SparseVector&& state) :
   distance(distance), fallback(NULL), v(std::move(state)) {
 }
 
@@ -176,13 +176,13 @@ void DFANode::build(SparseAutomaton &a, DFACache &cache) {
 // Create DFA filter using Levenshtein automaton, for the given string and maximum distance.
 // If prefixMode is true, match prefixes within given distance, then continue onwards to all suffixes.
 
-DFAFilter::DFAFilter(Runes &runes, int maxDist, bool prefixMode) : 
+DFAFilter::DFAFilter(Runes &runes, int maxDist, bool prefixMode) :
     a(runes, maxDist), prefixMode(prefixMode) {
 
   cache.reserve(8);
   stack.reserve(8);
   distStack.reserve(8);
-  
+
   SparseVector v = a.Start();
   DFANode *dr = new DFANode(0, std::move(v));
   cache.put(dr);
@@ -194,15 +194,17 @@ DFAFilter::DFAFilter(Runes &runes, int maxDist, bool prefixMode) :
 
 //---------------------------------------------------------------------------------------------
 
-FilterCode FilterFunc(rune b, DFAFilter *fc, int *matched, void *matchCtx) {
-  DFANode *dn = fc->stack.back();
-  int minDist = fc->distStack.back();
+// A callback function for the DFA Filter, passed to the Trie iterator
+
+FilterCode DFAFilter::Filter(rune b, int *matched, int *match) {
+  DFANode *dn = stack.back();
+  int minDist = distStack.back();
 
   // a null node means we're in prefix mode, and we're done matching our prefix
   if (dn == NULL) {
     *matched = 1;
-    fc->stack.push_back(NULL);
-    fc->distStack.push_back(minDist);
+    stack.push_back(NULL);
+    distStack.push_back(minDist);
     return F_CONTINUE;
   }
 
@@ -233,12 +235,12 @@ FilterCode FilterFunc(rune b, DFAFilter *fc, int *matched, void *matchCtx) {
       }
       //    if (fc->prefixMode) next = NULL;
     }
-    fc->stack.push_back(next);
-    fc->distStack.push_back(MIN(next->distance, minDist));
+    stack.push_back(next);
+    distStack.push_back(MIN(next->distance, minDist));
     return F_CONTINUE;
-  } else if (fc->prefixMode && *matched) {
-    fc->stack.push_back(NULL);
-    fc->distStack.push_back(minDist);
+  } else if (prefixMode && *matched) {
+    stack.push_back(NULL);
+    distStack.push_back(minDist);
     return F_CONTINUE;
   }
 
@@ -247,10 +249,13 @@ FilterCode FilterFunc(rune b, DFAFilter *fc, int *matched, void *matchCtx) {
 
 //---------------------------------------------------------------------------------------------
 
-void StackPop(DFAFilter *fc, int numLevels) {
+// A stack-pop callback, passed to the trie iterator.
+// It's called when we reach a dead end and need to rewind the stack of the filter.
+
+void DFAFilter::StackPop(int numLevels) {
   for (int i = 0; i < numLevels; ++i) {
-    fc->stack.pop_back();
-    fc->distStack.pop_back();
+    stack.pop_back();
+    distStack.pop_back();
   }
 }
 

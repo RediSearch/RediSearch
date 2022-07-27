@@ -64,11 +64,10 @@ static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, si
 
   size_t sz = 0;
   char *p = (char *)val->StringPtrLen(&sz);
-  char *np = ctx->UnalignedAlloc(sz + 1);
+  char *np = ctx->Strndup(p, sz);
   for (size_t i = 0; i < sz; i++) {
-    np[i] = tolower(p[i]);
+    np[i] = tolower(np[i]);
   }
-  np[sz] = '\0';
   result->SetConstString(np, sz);
   return EXPR_EVAL_OK;
 }
@@ -88,11 +87,10 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, si
 
   size_t sz = 0;
   char *p = (char *)val->StringPtrLen(&sz);
-  char *np = ctx->UnalignedAlloc(sz + 1);
+  char *np = ctx->Strndup(p, sz);
   for (size_t i = 0; i < sz; i++) {
-    np[i] = toupper(p[i]);
+    np[i] = toupper(np[i]);
   }
-  np[sz] = '\0';
   result->SetConstString(np, sz);
   return EXPR_EVAL_OK;
 }

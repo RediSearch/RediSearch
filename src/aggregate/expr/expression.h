@@ -198,11 +198,10 @@ struct ExprEval {
   StringBlkAlloc stralloc; // Optional. YNOT?
 
   ExprEval(QueryError *err, RLookup *lookup, RLookupRow *srcrow, RSExpr *root, SearchResult *res = NULL) :
-  err(err), lookup(lookup), srcrow(srcrow), root(root), res(res) {}
+    err(err), lookup(lookup), srcrow(srcrow), root(root), res(res), stralloc(1024) {}
 
   int Eval(RSValue *result);
 
-  void *UnalignedAlloc(size_t n);
   char *Strndup(const char *s, size_t n);
 
   void Cleanup();

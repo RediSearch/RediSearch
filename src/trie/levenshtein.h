@@ -78,21 +78,17 @@ struct DFANode : Object {
 
 struct DFAFilter : Object {
 	DFAFilter(Runes &runes, int maxDist, bool prefixMode);
-    
-    DFACache cache; // cache of DFA states, allowing re-use of states
-    Vector<DFANode*> stack; // stack of states leading up to the current state. NOTE: null nodes are allowed.
-    Vector<int> distStack; // stack of minimal distance for each state, used for prefix matching
-    
-    bool prefixMode; // whether the filter works in prefix mode
 
-    SparseAutomaton a;
+  DFACache cache; // cache of DFA states, allowing re-use of states
+  Vector<DFANode*> stack; // stack of states leading up to the current state. NOTE: null nodes are allowed.
+  Vector<int> distStack; // stack of minimal distance for each state, used for prefix matching
+
+  bool prefixMode; // whether the filter works in prefix mode
+
+  SparseAutomaton a;
+
+  FilterCode Filter(rune b, int *matched, int *match);
+  void StackPop(int numLevels);
 };
-
-// A callback function for the DFA Filter, passed to the Trie iterator
-FilterCode FilterFunc(rune b, DFAFilter *filter, int *matched, void *matchCtx);
-
-// A stack-pop callback, passed to the trie iterator.
-// It's called when we reach a dead end and need to rewind the stack of the filter.
-void StackPop(DFAFilter *filter, int numLevels);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

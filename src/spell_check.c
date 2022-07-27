@@ -5,7 +5,9 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int RS_Suggestions::Compare(const RS_Suggestion **val1, const RS_Suggestion **val2) {
+// int RS_Suggestions::Compare(const RS_Suggestion **val1, const RS_Suggestion **val2) {
+
+static int Compare(const RS_Suggestion **val1, const RS_Suggestion **val2) {
   if ((*val1)->score > (*val2)->score) {
     return -1;
   }
@@ -107,8 +109,8 @@ bool SpellChecker::IsTermExistsInTrie(Trie *t, const char *term, size_t len, dou
   int dist = 0;
   bool retVal = false;
   TrieIterator<DFAFilter> it = t->Iterate(term, len, 0, 0);
-  // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
-  if (it == NULL) {
+  // TrieIterator can be empty when rune length exceed TRIE_MAX_PREFIX
+  if (!it) {
     return retVal;
   }
   if (it.Next(&rstr, &slen, NULL, &score, &dist)) {
@@ -131,8 +133,8 @@ void SpellChecker::FindSuggestions(Trie *t, const char *term, size_t len, t_fiel
   size_t suggestionLen;
 
   TrieIterator<DFAFilter> it = t->Iterate(term, len, (int)distance, 0);
-  // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
-  if (it == NULL) {
+  // TrieIterator can be empty when rune length exceed TRIE_MAX_PREFIX
+  if (!it) {
     return;
   }
   while (it.Next(&rstr, &slen, NULL, &score, &dist)) {
@@ -149,15 +151,15 @@ void SpellChecker::FindSuggestions(Trie *t, const char *term, size_t len, t_fiel
 
 arrayof(RS_Suggestion*) RS_Suggestions::GetSuggestions() {
   TrieIterator<DFAFilter> iter = suggestionsTrie.Iterate("", 0, 0, 1);
-  arrayof(RS_Suggestion*) ret = array_new(RS_Suggestion *, suggestionsTrie.size);
+  arrayof(RS_Suggestion*) suggestions = array_new(RS_Suggestion*, suggestionsTrie.size);
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
   int dist = 0;
   while (iter.Next(&rstr, &slen, NULL, &score, &dist)) {
-    ret = array_append(ret, new RS_Suggestion(rstr, slen, score));
+    suggestions = array_append(suggestions, new RS_Suggestion(rstr, slen, score));
   }
-  return ret;
+  return suggestions;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -180,7 +182,7 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
     }
   }
 
-  qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), (__compar_fn_t) RS_Suggestion::_Compare);
+  qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion*), (__compar_fn_t) Compare);
 
   if (array_len(suggestions) == 0) {
     // no results found, we return an empty array
@@ -194,7 +196,10 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
     }
   }
 
-  array_free_ex(suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
+  for (int i = 0; i < array_len(suggestions); ++i) {
+    delete suggestions[i];
+  }
+  array_free(suggestions);
 }
 
 //---------------------------------------------------------------------------------------------

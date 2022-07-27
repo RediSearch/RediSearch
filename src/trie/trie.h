@@ -103,7 +103,7 @@ struct TrieIterator : public Object {
   rune buf[TRIE_INITIAL_STRING_LEN + 1];
   t_len bufOffset;
 
-  Vector<StackNode*> stack;
+  Vector<StackNode> stack;
   StepFilter filter;
   float minScore;
   int nodesConsumed;
@@ -111,14 +111,17 @@ struct TrieIterator : public Object {
   StackPopCallback popCallback;
   T ctx;
 
+  TrieIterator(T &&obj); // empty iterator
   TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, T &&obj);
   ~TrieIterator();
 
   void Push(TrieNode *node, int skipped);
   void Pop();
 
+  bool operator!() const { return !stack.empty(); }
+
   // current top of iterator stack
-  StackNode &current() { return *stack.back(); }
+  StackNode &current() { return stack.back(); }
 
   enum StepResult {
     __STEP_STOP = 0, // Stop the iteration
@@ -126,7 +129,7 @@ struct TrieIterator : public Object {
     __STEP_MATCH = 3 // Match found, return the state to the user but continue afterwards
   };
 
-  StepResult Step(void *matchCtx);
+  StepResult Step(int *match);
   bool Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx);
 };
 

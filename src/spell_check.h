@@ -17,12 +17,6 @@ struct RS_Suggestion : Object {
 
   RS_Suggestion(rune *ru, t_len ru_len, double score);
   ~RS_Suggestion();
-
-  static int _Compare(const RS_Suggestion **val1, const RS_Suggestion **val2);
-
-  int Compare(const RS_Suggestion **val) const {
-    return _Compare(&this, val);
-  }
 };
 
 //---------------------------------------------------------------------------------------------

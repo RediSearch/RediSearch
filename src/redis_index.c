@@ -534,15 +534,13 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
   int dist = 0;
   size_t termLen;
 
-  TrieIterator *it = ctx->spec->terms->Iterate("", 0, 0, 1);
+  TrieIterator<DFAFilter> it = ctx->spec->terms->Iterate("", 0, 0, 1);
   while (it->Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModuleString *keyName = ctx->TermKeyName(res, strlen(res));
     Redis_DropScanHandler(ctx->redisCtx, keyName, ctx);
     RedisModule_FreeString(ctx->redisCtx, keyName);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx->spec->numFields; i++) {
