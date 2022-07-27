@@ -45,7 +45,7 @@ See [Index limitations](#index-limitations) for more details about JSON index `S
 
 ## Add JSON documents
 
-After you create an index, RediSearch automatically indexes any existing, modified, or newly created JSON documents stored in the database.
+After you create an index, RediSearch automatically indexes any existing, modified, or newly created JSON documents stored in the database. For existing documents, indexing runs asynchronously in the background, so it can take some time before the document is available. Modified and newly created documents are indexed synchronously, so the document will be available by the time the add or modify command finishes.
 
 You can use any RedisJSON write command, such as `JSON.SET` and `JSON.ARRAPPEND`, to create or modify JSON documents.
 
@@ -98,7 +98,7 @@ Use `JSON.SET` to store these documents in the database:
 "OK"
 ```
 
-Because indexing is synchronous, the document will be available on the index as soon as the `JSON.SET` command returns.
+Because indexing is synchronous in this case, the document will be available on the index as soon as the `JSON.SET` command returns.
 Any subsequent queries that match the indexed content will return the document.
 
 ## Search the index
@@ -409,7 +409,7 @@ During index creation, you need to map the JSON elements to `SCHEMA` fields as f
 - Strings as `TEXT`, `TAG`, or `GEO`.
 - Numbers as `NUMERIC`.
 - Booleans as `TAG`.
-- JSON array of strings or booleans in a `TAG` field. Other types (`NUMERIC`, `GEO`, `NULL`) are not supported.
+- JSON array of strings in a `TAG` field. Other types (`NUMERIC`, `GEO`, `NULL`) are not supported.
 - You cannot index JSON objects. Index the individual elements as separate attributes instead.
 - `NULL` values are ignored.
 
