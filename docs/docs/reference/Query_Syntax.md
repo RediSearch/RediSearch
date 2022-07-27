@@ -270,7 +270,7 @@ The supported attributes are:
 
         hello -*worl*
 
-* Wildcard Matching Qureies:
+* Wildcard matching queries:
 
         w'foo??bar??baz'
 
