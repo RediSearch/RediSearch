@@ -298,7 +298,6 @@ commands:
             export MAX_PROFILERS=3
             redisbench-admin run-remote \
               --module_path $(cat $ROOT/bin/REJSON_PATH) \
-              --required-module ReJSON \
               --module_path $ROOT/<< parameters.module_path >> \
               --github_actor << parameters.github_actor >> \
               --github_repo $CIRCLE_PROJECT_REPONAME \
