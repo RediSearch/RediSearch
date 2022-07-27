@@ -178,7 +178,7 @@ An example for the syntax is `w'foo*bar?'`.
 
 ### Using a Suffix Trie
 
-A suffix-trie maintains a list of terms which match the suffix. Adding a Suffix-Trie to a field by using `WITHSUFFIXTRIE` keyword, will assist in creating wildcard matching queries more efficiently as it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
+A suffix trie maintains a list of terms which match the suffix. If you add a suffix trie to a field using the `WITHSUFFIXTRIE` keyword, you can create more efficient wildcard matching queries because it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
 
 With suffix trie, the wildcard pattern is broken into tokens at every `*` character. A heuristic is used to choose the token with the least terms and each terms is matched with the wildcard pattern.
 
