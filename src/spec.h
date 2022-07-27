@@ -113,6 +113,7 @@ typedef struct {
   size_t termsSize;
   size_t indexingFailures;
   size_t vectorIndexSize;
+  double totalIndexTime;
 } IndexStats;
 
 typedef enum {

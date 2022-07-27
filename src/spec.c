@@ -26,6 +26,7 @@
 #include "commands.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
+#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000.0)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -2487,6 +2488,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
+  clock_t startDocTime  = clock();
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
@@ -2520,6 +2523,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);
+
+  clock_t totalDocTime = clock() - startDocTime;
+  spec->stats.totalIndexTime += totalDocTime / CLOCKS_PER_MILLISEC;
+
   return REDISMODULE_OK;
 }
 

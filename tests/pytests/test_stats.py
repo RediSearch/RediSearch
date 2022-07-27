@@ -240,3 +240,17 @@ def testDocTableInfo(env):
     env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(int(d['doc_table_size_mb']), 0)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
+
+def testInfoIndexingTime(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
+
+    d = ft_info_to_dict(env, 'idx')
+    env.assertEqual(int(d['total_indexing_time']), 0)
+
+    conn.execute_command('HSET', 'a', 'txt', 'hello world')
+    
+    d = ft_info_to_dict(env, 'idx')
+    env.assertGreater(float(d['total_indexing_time']), 0)
