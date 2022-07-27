@@ -208,17 +208,23 @@ Now you can do full text search for light colored headphones:
       ]
    }
    ```
-   may match values in various ordering, depending on the specific implementation of the JSONPath library being used.
+   may match values in various ordering, depending on the specific implementation of the JSONPath library being used. 
+   
+   Since `SLOP` and `INORDER` consider relative ordering among the indexed values, and results may change in future releases, therefore an error will be returned.
 
-- When JSONPath leads to multiple values: String values are indexed, `null` values are skipped, and any other value type is causing an indexing failure
+- When JSONPath leads to multiple values:
+  - String values are indexed
+  - `null` values are skipped
+  - Any other value type is causing an indexing failure
+  
 - `SORTBY` is only sorting by the first value
 - No `HIGHLIGHT` support
 - `RETURN` of a Schema attribute, whose JSONPath leads to multiple values, returns only the first value (as a JSON String)
-- If a JSONPath is specified by the `RETURN` instead of a Schema attribute, all values are returned (as a JSON String)
+- If a JSONPath is specified by the `RETURN`, instead of a Schema attribute, all values are returned (as a JSON String)
 
 ### Handling phrases in different array slots:
-When indexing, a predefined delta is used to increase positional offsets between array slots for multi text values. It controls the level of separation between phrases in different array slots (related to the `SLOP` parameter of `FT.SEARCH`)
-This predefined value is set by `RediSearch` configuration parameter `MULTI_TEXT_SLOP` (at module load-time)
+When indexing, a predefined delta is used to increase positional offsets between array slots for multi text values. This delta controls the level of separation between phrases in different array slots (related to the `SLOP` parameter of `FT.SEARCH`).
+This predefined value is set by `RediSearch` configuration parameter `MULTI_TEXT_SLOP` (at module load-time). The default value is 100.
 
 
 
