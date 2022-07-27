@@ -157,7 +157,7 @@ Since version v2.6.0, the dictionary can be used for infix (contains) or suffix 
 *sun* *ing 
 ```
 
-These queries are CPU intensive as they require iteration over the the whole dictionary.
+These queries are CPU intensive because they require iteration over the whole dictionary.
 
 Note: all notes about prefix searches apply to infix/suffix queries.
 
