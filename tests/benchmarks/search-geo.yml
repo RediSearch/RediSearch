@@ -7,8 +7,13 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
+  - oss-cluster-03-primaries
 dbconfig:
-  - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/redis-benchmark/datasets/nyc_taxis_1M.rdb"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-nyc_taxis-hashes/1M-nyc_taxis-hashes.redisearch.commands.ALL.csv"
   - init_commands:
       - '"FT.CREATE" "nyc" "SCHEMA" "pickup_location_long_lat" "GEO" "dropoff_location_long_lat" "GEO"'
   - dataset_load_timeout_secs: 180

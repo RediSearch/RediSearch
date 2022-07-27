@@ -8,12 +8,16 @@ description: "
                 - Query type: N/A
                 - Query sample: N/A
              "
-metadata:
-  component: "search"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+  - oss-cluster-03-primaries
 dbconfig:
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:
       - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
 clientconfig:
