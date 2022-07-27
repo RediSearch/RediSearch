@@ -680,7 +680,7 @@ workflows:
           <<: *never
       - benchmark-search-oss-standalone:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch # TODO: don't merge to master with this change!!
       - benchmark-search-oss-cluster:
           context: common
           <<: *on-perf-and-version-tags
