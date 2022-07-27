@@ -21,13 +21,13 @@ setups:
   - oss-cluster-03-primaries
 dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
+  - init_commands:
+    - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
     - reporting-period: 1s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
-  - init_commands:
-      - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
 clientconfig:
   - benchmark_type: "read-only"
   - tool: ftsb_redisearch
