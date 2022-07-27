@@ -15,6 +15,9 @@ typedef uint16_t tm_len_t;
 #define TM_NODE_SORTED 0x04
 #define TRIE_INITIAL_STRING_LEN 255
 
+#define TM_ITERSTATE_SELF 0
+#define TM_ITERSTATE_CHILDREN 1
+
 // This special pointer is returned when TrieMap::Find cannot find anything
 extern void *TRIEMAP_NOTFOUND;
 typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
@@ -91,14 +94,15 @@ struct TrieMapNode : public Object {
   static int Cmp(const void *p1, const void *p2);
 };
 
-/**************  Iterator API  - not ported from the textual trie yet
- * ***********/
-/* trie iterator stack node. for internal use only */
-struct __tmi_stackNode {
+// trie iterator stack node. for internal use only
+struct stackNode {
   int state;
   TrieMapNode *n;
   tm_len_t stringOffset;
   tm_len_t childOffset;
+
+  stackNode(TrieMapNode *node) :
+    state(TM_ITERSTATE_SELF), n(node), stringOffset(0), childOffset(0) {}
 };
 
 #pragma pack()
@@ -108,19 +112,22 @@ struct TrieMapIterator : public Object {
   tm_len_t bufLen;
   tm_len_t bufOffset;
 
-  __tmi_stackNode *stack;
-  tm_len_t stackOffset;
-  tm_len_t stackCap;
+  Vector<stackNode> stack;
 
   const char *prefix;
   tm_len_t prefixLen;
   int inSuffix;
 
+  TrieMapIterator(TrieMapNode *node, const char *prefix, tm_len_t len) :
+      bufLen(16), bufOffset(0), prefix(prefix), prefixLen(len), inSuffix(0) {
+    Push(node);
+  }
+
   void Push(TrieMapNode *node);
   void Pop();
   void Free();
   bool Next(char **ptr, tm_len_t *len, void **value);
-  __tmi_stackNode *current() { return &stack[stackOffset - 1]; } // the current top of the iterator stack
+  stackNode current() { return stack.back(); } // the current top of the iterator stack
 };
 
 struct TrieMap : public Object {

@@ -19,22 +19,22 @@ C implementation of a compact trie lookup map
 
  for (int i = 0; i < 100; i++) {
     sprintf(buf, "key%d", i);
-    TrieMap_Add(tm, buf, strlen(buf), NULL, NULL);
+    tm->Add(buf, strlen(buf), NULL, NULL);
  }
- 
-  TrieMapIterator *it = TrieMap_Iterate(tm, "key1", 4);
-  
+
+  TrieMapIterator *it = tm->Iterate("key1", 4);
+
   char *str = NULL;
   tm_len_t len = 0;
   void *ptr = NULL;
 
   /* Prefix Iteration */
-  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
+  while (it->Next(&str, &len, &ptr)) {
     printf("Found key %.*s\n", (int)len, str);
   }
-  
-  TrieMapIterator_Free(&it);
-  TrieMap_Free(tm, NULL);
-  
+
+  delete it;
+  delete tm;
+
   ```
-  
+

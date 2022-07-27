@@ -91,6 +91,7 @@ void TrieNode::MergeWithSingleChild() {
   }
   TrieNode *ch = _children[0];
 
+  //@@ Rafi check this out :D
   Runes runes = _str;
   runes.append(ch->_str, ch->_len);
   // _str += ch->_str;
@@ -255,11 +256,10 @@ float TrieNode::Find(rune *runes, t_len len) const {
 
 //---------------------------------------------------------------------------------------------
 
-/* Optimize the node and its children:
- *   1. If a child should be deleted - delete it and reduce the child count
- *   2. If a child has a single child - merge them
- *   3. recalculate the max child score
- */
+// Optimize the node and its children:
+// 1. If a child should be deleted - delete it and reduce the child count
+// 2. If a child has a single child - merge them
+// 3. recalculate the max child score
 
 void TrieNode::optimizeChildren() {
   _maxChildScore = _score;
@@ -351,6 +351,7 @@ end:
 //---------------------------------------------------------------------------------------------
 
 // Free the trie's root and all its children recursively
+
 TrieNode::~TrieNode() {
   for (auto child: _children) {
     delete child;
@@ -361,6 +362,7 @@ TrieNode::~TrieNode() {
 //---------------------------------------------------------------------------------------------
 
 // Sort the children of a node by their maxChildScore
+
 void TrieNode::sortChildren() {
   if (_sortmode == TRIENODE_SORTED_SCORE && _children.size() > 1) {
     std::sort(_children.begin(), _children.end(), [&](const TrieNode *a, const TrieNode *b) {

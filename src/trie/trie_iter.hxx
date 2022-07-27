@@ -4,15 +4,7 @@
 
 template <class T>
 void TrieIterator<T>::Push(TrieNode *node, int skipped) {
-  if (stackOffset < TRIE_INITIAL_STRING_LEN - 1) {
-    // @@TODO: convert stack into Vector<StackNode>, create StackNode::StackNode(...)
-    StackNode &sn = stack[stackOffset++];
-    sn.childOffset = 0;
-    sn.stringOffset = 0;
-    sn.skipped = skipped;
-    sn.n = node;
-    sn.state = ITERSTATE_SELF;
-  }
+    stack.push_back(new StackNode(skipped, node));
 }
 
 //---------------------------------------------------------------------------------------------
@@ -21,15 +13,15 @@ void TrieIterator<T>::Push(TrieNode *node, int skipped) {
 
 template <class T>
 void TrieIterator<T>::Pop() {
-  if (stackOffset > 0) {
-    StackNode &curr = current();
-    if (popCallback) {
-      popCallback(ctx, curr.stringOffset);
-    }
+    if (!stack.empty()) {
+        StackNode &curr = current();
+        if (popCallback) {
+            popCallback(ctx, curr.stringOffset);
+        }
 
     bufOffset -= curr.stringOffset;
-    --stackOffset;
-  }
+    stack.pop_back();
+    }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -38,19 +30,12 @@ void TrieIterator<T>::Pop() {
 
 template <class T>
 TrieIterator<T>::StepResult TrieIterator<T>::Step(void *matchCtx) {
-  if (stackOffset == 0) {
+  if (stack.empty()) {
     return __STEP_STOP;
   }
 
   StackNode &curr = current();
-
   int matched = 0;
-  // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child
-  // offset %d/%d\n",
-  //        bufOffset, buf, current, current->n->_len, current->n->str,
-  //        current->n->score, current->state, current->stringOffset,
-  //        current->n->_len,
-  //        current->childOffset, current->n->numChildren);
   switch (curr.state) {
     case ITERSTATE_MATCH:
       Pop();

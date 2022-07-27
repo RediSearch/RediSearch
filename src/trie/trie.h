@@ -72,13 +72,14 @@ struct TrieNode;
 
 // trie iterator stack node. for internal use only
 struct StackNode {
-  StackNode();
-
   int state;
   TrieNode *n;
   t_len stringOffset;
   t_len childOffset;
   bool skipped;
+
+  StackNode(bool skipped, TrieNode *node) : state(ITERSTATE_SELF), n(node), childOffset(0),
+    stringOffset(0), skipped(skipped) {}
 };
 
 //---------------------------------------------------------------------------------------------
@@ -102,8 +103,7 @@ struct TrieIterator : public Object {
   rune buf[TRIE_INITIAL_STRING_LEN + 1];
   t_len bufOffset;
 
-  StackNode stack[TRIE_INITIAL_STRING_LEN + 1];
-  t_len stackOffset;
+  Vector<StackNode*> stack;
   StepFilter filter;
   float minScore;
   int nodesConsumed;
@@ -118,7 +118,7 @@ struct TrieIterator : public Object {
   void Pop();
 
   // current top of iterator stack
-  StackNode &current() { return stack[stackOffset - 1]; }
+  StackNode &current() { return *stack.back(); }
 
   enum StepResult {
     __STEP_STOP = 0, // Stop the iteration

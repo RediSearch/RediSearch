@@ -458,38 +458,20 @@ size_t TrieMap::MemUsage() {
 
 //---------------------------------------------------------------------------------------------
 
-/* Step itearator return codes below: */
-
-#define TM_ITERSTATE_SELF 0
-#define TM_ITERSTATE_CHILDREN 1
-
 // Push a new trie node on the iterator's stack
-inline void TrieMapIterator::Push(TrieMapNode *node) {
-  if (stackOffset == stackCap) {
-    // make sure we don't overflow stackCap
-    if ((int)stackCap + 1024 > 0xFFFF) {
-      stackCap = 0xFFFF;
-    } else {
-      stackCap += MIN(stackCap, 1024);
-    }
-    stack = rm_realloc(stack, stackCap * sizeof(__tmi_stackNode));
-  }
-  stack[stackOffset++] = (__tmi_stackNode){
-      state: TM_ITERSTATE_SELF,
-      n: node,
-      stringOffset: 0,
-      childOffset: 0
-  };
+
+void TrieMapIterator::Push(TrieMapNode *node) {
+  stack.push_back(stackNode(node));
 }
 
 //---------------------------------------------------------------------------------------------
 
-inline void TrieMapIterator::Pop() {
-  bufOffset -= current()->stringOffset;
+void TrieMapIterator::Pop() {
+  bufOffset -= current().stringOffset;
   if (bufOffset < prefixLen) {
     inSuffix = 0;
   }
-  --stackOffset;
+  stack.pop_back();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -500,26 +482,15 @@ inline void TrieMapIterator::Pop() {
 // prefix is not found, the first call to next will return 0 */
 
 TrieMapIterator *TrieMap::Iterate(const char *prefix, tm_len_t len) {
-  TrieMapIterator *it = new TrieMapIterator();
-
-  it->bufLen = 16;
-  it->stackCap = 8;
-  it->bufOffset = 0;
-  it->inSuffix = 0;
-  it->prefix = prefix;
-  it->prefixLen = len;
-
-  it->Push(root);
-
-  return it;
+  return new TrieMapIterator(root, prefix, len);
 }
 
 //---------------------------------------------------------------------------------------------
 
 static int nodecmp(const char *sa, size_t na, const char *sb, size_t nb) {
   size_t minlen = MIN(na, nb);
-  for (size_t ii = 0; ii < minlen; ++ii) {
-    char a = tolower(sa[ii]), b = tolower(sb[ii]);
+  for (size_t i = 0; i < minlen; ++i) {
+    char a = tolower(sa[i]), b = tolower(sb[i]);
     int rc = a - b;
     if (rc == 0) {
       continue;
@@ -760,13 +731,13 @@ void TrieMap::IterateRange(const char *min, int minlen, bool includeMin,
 // or false if we're done and should exit
 
 bool TrieMapIterator::Next(char **ptr, tm_len_t *len, void **value) {
-  while (stackOffset > 0) {
-    __tmi_stackNode *curr = current();
-    TrieMapNode *n = curr->n;
+  while (!stack.empty()) {
+    stackNode curr = current();
+    TrieMapNode *n = curr.n;
 
-    if (curr->state == TM_ITERSTATE_SELF) {
-      while (curr->stringOffset < n->str.length()) {
-        char b = curr->n->str[curr->stringOffset];
+    if (curr.state == TM_ITERSTATE_SELF) {
+      while (curr.stringOffset < n->str.length()) {
+        char b = n->str[curr.stringOffset];
         if (!inSuffix) {
           // end of iteration in prefix mode
           if (prefix[bufOffset] != b) {
@@ -779,7 +750,7 @@ bool TrieMapIterator::Next(char **ptr, tm_len_t *len, void **value) {
 
         // advance the buffer offset and character offset
         buf[bufOffset++] = b;
-        curr->stringOffset++;
+        curr.stringOffset++;
 
         // if needed - increase the buffer on the heap
         if (bufOffset == bufLen) {
@@ -797,7 +768,7 @@ bool TrieMapIterator::Next(char **ptr, tm_len_t *len, void **value) {
         inSuffix = 1;
       }
       // switch to "children mode"
-      curr->state = TM_ITERSTATE_CHILDREN;
+      curr.state = TM_ITERSTATE_CHILDREN;
 
       // we've reached
       if (n->isTerminal() && inSuffix) {
@@ -808,17 +779,17 @@ bool TrieMapIterator::Next(char **ptr, tm_len_t *len, void **value) {
       }
     }
 
-    if (curr->state == TM_ITERSTATE_CHILDREN) {
+    if (curr.state == TM_ITERSTATE_CHILDREN) {
       // push the next child that matches
-      tm_len_t nch = curr->n->_children.size();
-      while (curr->childOffset < nch) {
+      tm_len_t nch = n->_children.size();
+      while (curr.childOffset < nch) {
         if (inSuffix ||
-            n->childKey(curr->childOffset) == prefix[bufOffset]) {
-          TrieMapNode *ch = n->children()[curr->childOffset++];
+            n->childKey(curr.childOffset) == prefix[bufOffset]) {
+          TrieMapNode *ch = n->children()[curr.childOffset++];
 
           // unless in suffix mode, no need to go back here after popping the
           // child, so we just set the child offset at the end
-          if (!inSuffix) curr->childOffset = nch;
+          if (!inSuffix) curr.childOffset = nch;
 
           // Add the matching child to the stack
           Push(ch);
@@ -826,7 +797,7 @@ bool TrieMapIterator::Next(char **ptr, tm_len_t *len, void **value) {
           goto next;
         }
         // if the child doesn't match- just advance one
-        curr->childOffset++;
+        curr.childOffset++;
       }
     }
   pop:
