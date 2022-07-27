@@ -361,8 +361,14 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
 
 DocumentField *Document_GetField(Document *d, const char *fieldName);
 
-/* return value as c string */
+/* return value as c string (if array - return the first entry)*/
 const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len);
+
+/* return an array value as c string */
+const char *DocumentField_GetArrayValueCStr(const DocumentField *df, size_t *len, size_t index);
+
+/* return the sum of all c string lenths in array */
+size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df);
 
 // Document add functions:
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

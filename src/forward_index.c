@@ -49,6 +49,8 @@ static size_t estimtateTermCount(const Document *doc) {
       size_t n;
       DocumentField_GetValueCStr(field, &n);
       nChars += n;
+    } else if (field->unionType == FLD_VAR_T_ARRAY) {
+        nChars += DocumentField_GetArrayValueCStrTotalLen(field);
     }
   }
   return nChars / CHARS_PER_TERM;
