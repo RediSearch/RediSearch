@@ -303,9 +303,9 @@ long long timeInMilliseconds(void) {
 
 /* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
 int dictRehashMilliseconds(dict *d, int ms) {
-	if (__atomic_load_n(&d->pauserehash, __ATOMIC_RELAXED) > 0) return 0;
+    if (__atomic_load_n(&d->pauserehash, __ATOMIC_RELAXED) > 0) return 0;
 
-	long long start = timeInMilliseconds();
+    long long start = timeInMilliseconds();
     int rehashes = 0;
 
     while(dictRehash(d,100)) {
@@ -324,7 +324,7 @@ int dictRehashMilliseconds(dict *d, int ms) {
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
 static void _dictRehashStep(dict *d) {
-	if (__atomic_load_n(&d->pauserehash, __ATOMIC_RELAXED) == 0) dictRehash(d,1);
+    if (__atomic_load_n(&d->pauserehash, __ATOMIC_RELAXED) == 0) dictRehash(d,1);
 }
 
 /* Add an element to the target hash table */
@@ -632,7 +632,7 @@ dictEntry *dictNext(dictIterator *iter)
             dictht *ht = &iter->d->ht[iter->table];
             if (iter->index == -1 && iter->table == 0) {
                 if (iter->safe)
-                	dictPauseRehashing(iter->d);
+                    dictPauseRehashing(iter->d);
                 else
                     iter->fingerprint = dictFingerprint(iter->d);
             }
@@ -914,7 +914,7 @@ unsigned long dictScan(dict *d,
     if (dictSize(d) == 0) return 0;
 
     /* This is needed in case the scan callback tries to do dictFind or alike. */
-	dictPauseRehashing(d);
+    dictPauseRehashing(d);
 
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
