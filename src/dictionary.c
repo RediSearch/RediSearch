@@ -9,7 +9,7 @@ dict *spellCheckDicts = NULL;
 Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
   Trie *t = dictFetchValue(spellCheckDicts, dictName);
   if (!t && mode == REDISMODULE_WRITE) {
-    t = NewTrie(NULL);
+    t = NewTrie(NULL, Trie_None);
     dictAdd(spellCheckDicts, (char *)dictName, t);
   }
   return t;

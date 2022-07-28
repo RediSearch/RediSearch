@@ -19,6 +19,7 @@ typedef struct {
   TrieNode *root;
   size_t size;
   TrieFreeCallback freecb;
+  TrieFlags flags;
 } Trie;
 
 typedef struct {
@@ -31,7 +32,7 @@ typedef struct {
 
 #define SCORE_TRIM_FACTOR 10.0
 
-Trie *NewTrie(TrieFreeCallback freecb);
+Trie *NewTrie(TrieFreeCallback freecb, TrieFlags flags);
 int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload);
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
                             RSPayload *payload);

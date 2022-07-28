@@ -22,6 +22,13 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED_SCORE 1
 #define TRIENODE_SORTED_LEX 2
 
+typedef enum {
+  Trie_None = 0x00,
+  Trie_ScoreSort = 0x01,    // support sorting by score in addition to sorting by lex
+} TrieFlags;
+
+#define isStrictlyLex(n) (!n->withScoreSort)
+
 typedef void (*TrieFreeCallback)(void *node);
 struct timespec;
 
@@ -51,6 +58,7 @@ typedef struct {
 
   uint8_t flags : 2;
   uint8_t sortmode : 2;
+  uint8_t withScoreSort : 1;
 
   // the node's score. Non termn
   float score;
@@ -78,7 +86,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
-                        t_len numChildren, float score, int terminal);
+                        t_len numChildren, float score, int terminal, int withScoreSort);
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for

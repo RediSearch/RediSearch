@@ -64,7 +64,7 @@ static ElemSet trieIterRange(Trie *t, const char *begin, const char *end) {
 }
 
 TEST_F(TrieTest, testBasicRange) {
-  Trie *t = NewTrie(NULL);
+  Trie *t = NewTrie(NULL, Trie_ScoreSort);
   rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
@@ -102,7 +102,7 @@ TEST_F(TrieTest, testBasicRange) {
  * string.
  */
 TEST_F(TrieTest, testDeepEntry) {
-  Trie *t = NewTrie(NULL);
+  Trie *t = NewTrie(NULL, Trie_ScoreSort);
   const size_t maxbuf = TRIE_INITIAL_STRING_LEN - 1;
   char manyOnes[maxbuf + 1];
   for (size_t ii = 0; ii < maxbuf; ++ii) {
@@ -130,7 +130,7 @@ TEST_F(TrieTest, testDeepEntry) {
 TEST_F(TrieTest, testPayload) {
   char buf1[] = "world";
 
-  Trie *t = NewTrie(NULL);
+  Trie *t = NewTrie(NULL, Trie_ScoreSort);
 
   RSPayload payload = { .data = buf1, .len = 2 };
   Trie_InsertStringBuffer(t, buf1, 2, 1, 1, &payload);
@@ -190,7 +190,7 @@ void trieFreeCb(void *val) {
 }
 
 TEST_F(TrieTest, testFreeCallback) {
-  Trie *t = NewTrie(trieFreeCb);
+  Trie *t = NewTrie(trieFreeCb, Trie_ScoreSort);
 
   char buf[] = "world";
   char *str = rm_strdup("hello");
