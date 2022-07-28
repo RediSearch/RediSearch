@@ -398,8 +398,6 @@ void __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
 
   if (isStrictlyLex(n)) {
     __trieNode_sortChildrenLex(n);
-  } else {
-    __trieNode_sortChildrenScore(n);
   }
 }
 
