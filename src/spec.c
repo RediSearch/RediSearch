@@ -26,6 +26,7 @@
 #include "commands.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
+#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000.0)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -120,6 +121,20 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
     }
   }
   return 0;
+}
+
+int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
+  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+    if (fm & ((t_fieldMask)1 << ii)) {
+      const FieldSpec *fs = spec->fields + ii;
+      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
+        QueryError_SetErrorFmt(status, QUERY_EBADORDEROPTION,
+          "slop/inorder are not supported for field `%s` since it has undefined ordering", fs->name);
+        return 0;
+      }
+    }
+  }
+  return 1;
 }
 
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
@@ -801,8 +816,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       sp->flags |= Index_HasFieldAlias;
     } else {
       // if `AS` is not used, set the path as name
-      fieldName = fieldPath;
-      namelen= pathlen;
+      namelen = pathlen;
       fieldPath = NULL;
     }
 
@@ -838,6 +852,34 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
         }
       }
       fs->ftId = textId;
+      if isSpecJson (sp) {
+        if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
+          RedisModuleString *err_msg;
+          JSONPath jsonPath = pathParse(fs->path, &err_msg);
+          if (jsonPath && pathHasDefinedOrder(jsonPath)) {
+            // Ordering is well defined
+            fs->options &= ~FieldSpec_UndefinedOrder;
+          } else {
+            // Mark FieldSpec
+            fs->options |= FieldSpec_UndefinedOrder;
+            // Mark IndexSpec
+            sp->flags |= Index_HasUndefinedOrder;
+          }
+          if (jsonPath) {
+            pathFree(jsonPath);
+          } else if (err_msg != NULL) {
+            QueryError_SetErrorFmt(status, QUERY_EINVALPATH,
+                               "Invalid JSONPath '%s' in attribute '%s' in index '%s'",
+                            fs->path, fs->name, sp->name);
+            RedisModule_FreeString(RSDummyContext, err_msg);
+            goto reset;
+          } /* else {
+            RedisModule_Log(RSDummyContext, "info",
+                            "missing RedisJSON API to parse JSONPath '%s' in attribute '%s' in index '%s', assuming undefined ordering",
+                            fs->path, fs->name, sp->name);
+          } */
+        }
+      }
     }
 
     if (FieldSpec_IsSortable(fs)) {
@@ -1187,7 +1229,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free fields data
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
-      FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
       if (spec->fields[i].name != spec->fields[i].path) {
         rm_free(spec->fields[i].name);
       }
@@ -1257,6 +1298,12 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->stopwords) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
+  }
+  // Reset fields stats
+  if (spec->fields != NULL) {
+    for (size_t i = 0; i < spec->numFields; i++) {
+      FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
+    }
   }
   // Free unlinked index spec on a second thread
   if (RSGlobalConfig.freeResourcesThread == false) {
@@ -2482,6 +2529,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
+  clock_t startDocTime  = clock();
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
@@ -2515,6 +2564,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);
+
+  clock_t totalDocTime = clock() - startDocTime;
+  spec->stats.totalIndexTime += totalDocTime / CLOCKS_PER_MILLISEC;
+
   return REDISMODULE_OK;
 }
 

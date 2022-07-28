@@ -819,6 +819,11 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
                                               double weight) {
+
+  if (!GeoFilter_Validate(node->gn.gf, q->status)) {
+    return NULL;
+  }
+  
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->gn.gf->property, strlen(node->gn.gf->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
@@ -1427,6 +1432,55 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
   return res;
 }
 
+int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
+  if (!q || !q->root || !isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder)) {
+    return REDISMODULE_OK;
+  }
+  return QueryNode_CheckIsValid(q->root, spec, opts, status);
+}
+
+int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
+  int withChildren = 1;
+  int res = REDISMODULE_OK;
+  switch(n->type) {
+    case QN_PHRASE:
+      {
+        bool atTopLevel = opts->slop >=0 || (opts->flags & Search_InOrder);
+        if (!QueryNode_CheckAllowSlopAndInorder(n, spec, atTopLevel, status)) {
+          res = REDISMODULE_ERR;
+        }
+      }
+      break;
+    case QN_NULL:
+      withChildren = 0;
+      break;
+    case QN_UNION:
+    case QN_TOKEN:
+    case QN_NUMERIC:
+    case QN_NOT:
+    case QN_OPTIONAL:
+    case QN_GEO:
+    case QN_PREFIX:
+    case QN_IDS:
+    case QN_WILDCARD:
+    case QN_WILDCARD_QUERY:
+    case QN_TAG:
+    case QN_FUZZY:
+    case QN_LEXRANGE:
+    case QN_VECTOR:
+      break;
+  }
+  // Handle children
+  if (withChildren && res == REDISMODULE_OK) {
+    for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status);
+      if (res == REDISMODULE_ERR)
+        break;
+    }
+  }
+  return res;
+}
+
 /* Set the field mask recursively on a query node. This is called by the parser to handle
  * situations like @foo:(bar baz|gaz), where a complex tree is being applied a field mask */
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask) {
@@ -1729,6 +1783,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
       return 0;
     }
     qn->opts.inOrder = b;
+    qn->opts.flags |= QueryNode_OverriddenInOrder;
 
   } else if (STR_EQCASE(attr->name, attr->namelen, "weight")) {
     // Apply weight: [0  ... INF]
@@ -1764,12 +1819,22 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   return 1;
 }
 
-int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len,
-                              QueryError *status) {
+int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len, QueryError *status) {
   for (size_t i = 0; i < len; i++) {
     if (!QueryNode_ApplyAttribute(qn, &attrs[i], status)) {
       return 0;
     }
   }
   return 1;
+}
+
+int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool atTopLevel, QueryError *status) {
+  // Need to check when slop/inorder are locally overridden at query node level, or at query top-level
+  if(atTopLevel || qn->opts.maxSlop >= 0 || (qn->opts.flags & QueryNode_OverriddenInOrder)) {
+    // Check only fields that are used in this query node (either specific fields or all fields)
+    return IndexSpec_CheckAllowSlopAndInorder(spec, qn->opts.fieldMask, status);
+  } else {
+    return 1;
+  }
+  
 }
