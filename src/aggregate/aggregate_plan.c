@@ -32,10 +32,10 @@ static const char *steptypeToString(PLN_StepType type) {
 
 //---------------------------------------------------------------------------------------------
 
-/* add a step to the plan at its end (before the dummy tail) */
+// add a step to the plan at its end (before the dummy tail)
 void AGGPlan::AddStep(PLN_BaseStep *step) {
   RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
-  steps.append(step);
+  steps.push_back(step);
   steptypes |= (1 << (step->type - 1));
 }
 
@@ -47,12 +47,13 @@ bool AGGPlan::HasStep(PLN_StepType t) const {
 
 //---------------------------------------------------------------------------------------------
 
+#if 0
 void AGGPlan::AddBefore(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
-  if (posstp == NULL || steps.first() == posstp) {
-    steps.prepend(posstp);
+  if (posstp == NULL || steps.front() == posstp) {
+    steps.push_front(posstp);
   } else {
-    steps.prepend(posstp, newstp);
+    steps.insert(posstp, newstp); //@@need to insert newstp after posstp
   }
 }
 
@@ -60,23 +61,24 @@ void AGGPlan::AddBefore(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
 
 void AGGPlan::AddAfter(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
-  if (posstp == NULL || steps.last() == posstp) {
+  if (posstp == NULL || steps.back() == posstp) {
     AddStep(newstp);
   } else {
-    steps.append(posstp, newstp);
+    steps.insert(posstp, newstp); //@@need to insert newstp after posstp
   }
 }
+#endif // 0
 
 //---------------------------------------------------------------------------------------------
 
 void AGGPlan::Prepend(PLN_BaseStep *newstp) {
-  steps.prepend(newstp);
+  steps.push_front(newstp);
 }
 
 //---------------------------------------------------------------------------------------------
 
-void AGGPlan::PopStep(PLN_BaseStep *step) {
-  steps.remove(step);
+void AGGPlan::PopStep() {
+  steps.pop_back();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -114,10 +116,10 @@ AGGPlan::AGGPlan() {
 const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseStep *end,
                                       PLN_StepType type) const {
   if (!begin) {
-    begin = steps.first();
+    begin = steps.front();
   }
 
-  for (const PLN_BaseStep *bstp = begin; bstp != end; bstp = bstp->list_node.next) {
+  for (const PLN_BaseStep *bstp = begin; bstp != end; bstp = bstp->NextStep()) {
     if (bstp->type == type) {
       return bstp;
     }
@@ -144,7 +146,7 @@ PLN_ArrangeStep::~PLN_ArrangeStep() {
 PLN_ArrangeStep *AGGPlan::GetArrangeStep() {
   // Go backwards.. and stop at the cutoff
   //for (const DLLIST_node *nn = steps.prev; nn != &steps; nn = nn->prev) {
-  for (PLN_BaseStep *step = steps.tail(); step; step = step->list_node.prev) {
+  for (PLN_BaseStep *step = steps.back(); step; step = step->PrevStep()) {
     if (step->IsReduce()) {
       break;
     }
@@ -186,33 +188,33 @@ RLookup *AGGPlan::GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) c
 
   switch (mode) {
     case AGPLN_GETLOOKUP_FIRST:
-      first = steps.first();
+      first = steps.front();
       last = bstp ? bstp : NULL;
       break;
     case AGPLN_GETLOOKUP_PREV:
       first = NULL;
-      last = bstp->list_node.prev;
+      last = bstp->PrevStep();
       isReverse = true;
       break;
     case AGPLN_GETLOOKUP_NEXT:
-      first = bstp->list_node.next;
+      first = bstp->NextStep();
       last = NULL;
       break;
     case AGPLN_GETLOOKUP_LAST:
       first = bstp ? bstp : NULL;
-      last = steps.last();
+      last = steps.back();
       isReverse = true;
   }
 
   if (isReverse) {
-    for (const PLN_BaseStep *step = last; step && step != first; step = step->list_node.prev) {
+    for (PLN_BaseStep *step = last; step && step != first; step = step->PrevStep()) {
       RLookup *lk = step->getLookup();
       if (lk) {
         return lk;
       }
     }
   } else {
-    for (const PLN_BaseStep *step = first; step && step != last; step = step->list_node.next) {
+    for (PLN_BaseStep *step = first; step && step != last; step = step->NextStep()) {
       RLookup *lk = step->getLookup();
       if (lk) {
         return lk;
@@ -226,9 +228,9 @@ RLookup *AGGPlan::GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) c
 //---------------------------------------------------------------------------------------------
 
 AGGPlan::~AGGPlan() {
-  PLN_BaseStep *step = steps.first();
+  PLN_BaseStep *step = steps.front();
   while (step) {
-    PLN_BaseStep *next = step->list_node.next;
+    PLN_BaseStep *next = step->NextStep();
     delete step;
     step = next;
   }
@@ -237,7 +239,7 @@ AGGPlan::~AGGPlan() {
 //---------------------------------------------------------------------------------------------
 
 void AGGPlan::Dump() const {
-  for (const PLN_BaseStep *step = steps.first(); step; step = step->list_node.next) {
+  for (const PLN_BaseStep *step = steps.front(); step; step = step->NextStep()) {
     printf("STEP: [T=%s. P=%p]\n", steptypeToString(step->type), step);
     const RLookup *lk = step->getLookup();
     if (lk) {
@@ -412,7 +414,7 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
 
 array_t AGGPlan::Serialize() const {
   char **arr = array_new(char *, 1);
-  for (const PLN_BaseStep *step = steps.first(); step; step = step->list_node.next) {
+  for (PLN_BaseStep *step = steps.front(); step; step = step->NextStep()) {
     switch (step->type) {
       case PLN_T_APPLY:
       case PLN_T_FILTER:

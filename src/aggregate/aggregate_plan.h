@@ -35,12 +35,15 @@ enum PlanFlags {
 
 //---------------------------------------------------------------------------------------------
 
+struct PLN_BaseStep;
+typedef List<PLN_BaseStep*> PLN_Steps;
+
 struct PLN_BaseStep {
   PLN_BaseStep(PLN_StepType type) : type(type) {}
   virtual ~PLN_BaseStep();
 
-  List<PLN_BaseStep>::Node list_node;
-  operator List<PLN_BaseStep>::Node&() { return list_node; }
+  PLN_Steps::iterator list_node;
+  operator PLN_Steps::iterator&() { return list_node; }
 
   //DLLIST_node llnodePln;  // Linked list node for previous/next
 
@@ -66,8 +69,8 @@ struct PLN_BaseStep {
     }
   }
 
-  PLN_BaseStep *NextStep() { return list_node.next; }
-  PLN_BaseStep *PrevStep() { return list_node.prev; }
+  PLN_BaseStep *NextStep() { return *++list_node; }
+  PLN_BaseStep *PrevStep() { return *--list_node; }
 
   virtual void Dump() const {}
 };
@@ -193,11 +196,9 @@ enum AGPLNGetLookupMode {
 // A plan is a linked list of all steps
 
 struct AGGPlan : Object {
-  //DLLIST steps;
-  List<PLN_BaseStep> steps;
+  PLN_Steps steps;
   PLN_ArrangeStep *arrangement;
-  //PLN_FirstStep firstStep_s;  // Storage for initial plan
-  uint64_t steptypes;         // Mask of step-types contained in plan
+  uint64_t steptypes; // Mask of step-types contained in plan
 
   array_t Serialize() const;
 
@@ -207,10 +208,10 @@ struct AGGPlan : Object {
   void Print() const;
 
   void AddStep(PLN_BaseStep *step);
-  void AddBefore(PLN_BaseStep *step, PLN_BaseStep *add);
-  void AddAfter(PLN_BaseStep *step, PLN_BaseStep *add);
+  // void AddBefore(PLN_BaseStep *step, PLN_BaseStep *add);
+  // void AddAfter(PLN_BaseStep *step, PLN_BaseStep *add);
   void Prepend(PLN_BaseStep *step);
-  void PopStep(PLN_BaseStep *step);
+  void PopStep();
 
   RLookup *GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) const;
 
