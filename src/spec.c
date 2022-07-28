@@ -123,6 +123,20 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
   return 0;
 }
 
+int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
+  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+    if (fm & ((t_fieldMask)1 << ii)) {
+      const FieldSpec *fs = spec->fields + ii;
+      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
+        QueryError_SetErrorFmt(status, QUERY_EBADORDEROPTION,
+          "slop/inorder are not supported for field `%s` since it has undefined ordering", fs->name);
+        return 0;
+      }
+    }
+  }
+  return 1;
+}
+
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
   if (!sp->sortables) return -1;
   return RSSortingTable_GetFieldIdx(sp->sortables, name);
@@ -802,8 +816,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       sp->flags |= Index_HasFieldAlias;
     } else {
       // if `AS` is not used, set the path as name
-      fieldName = fieldPath;
-      namelen= pathlen;
+      namelen = pathlen;
       fieldPath = NULL;
     }
 
@@ -839,6 +852,34 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
         }
       }
       fs->ftId = textId;
+      if isSpecJson (sp) {
+        if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
+          RedisModuleString *err_msg;
+          JSONPath jsonPath = pathParse(fs->path, &err_msg);
+          if (jsonPath && pathHasDefinedOrder(jsonPath)) {
+            // Ordering is well defined
+            fs->options &= ~FieldSpec_UndefinedOrder;
+          } else {
+            // Mark FieldSpec
+            fs->options |= FieldSpec_UndefinedOrder;
+            // Mark IndexSpec
+            sp->flags |= Index_HasUndefinedOrder;
+          }
+          if (jsonPath) {
+            pathFree(jsonPath);
+          } else if (err_msg != NULL) {
+            QueryError_SetErrorFmt(status, QUERY_EINVALPATH,
+                               "Invalid JSONPath '%s' in attribute '%s' in index '%s'",
+                            fs->path, fs->name, sp->name);
+            RedisModule_FreeString(RSDummyContext, err_msg);
+            goto reset;
+          } /* else {
+            RedisModule_Log(RSDummyContext, "info",
+                            "missing RedisJSON API to parse JSONPath '%s' in attribute '%s' in index '%s', assuming undefined ordering",
+                            fs->path, fs->name, sp->name);
+          } */
+        }
+      }
     }
 
     if (FieldSpec_IsSortable(fs)) {
