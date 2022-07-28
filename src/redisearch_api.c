@@ -516,6 +516,7 @@ typedef struct RS_ApiIter {
   RSFreeFunction scorerFree;
   double minscore;  // Used for scoring
   QueryAST qast;    // Used for string queries..
+  IndexSpec* sp;
 } RS_ApiIter;
 
 #define QUERY_INPUT_STRING 1
@@ -536,6 +537,9 @@ typedef struct {
 static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
   // here we only take the read lock and we will free it when the iterator will be freed
   RWLOCK_ACQUIRE_READ();
+  /* We might have multiple readers that reads from the index,
+   * Avoid rehashing the terms dictionary */
+  dictPauseRehashing(sp->keysDict);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options = {0};
@@ -567,6 +571,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;
   it->minscore = DBL_MAX;
+  it->sp = sp;
 
   // dummy statement for goto
   ;
@@ -644,6 +649,7 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   QAST_Destroy(&iter->qast);
   rm_free(iter);
 
+  dictResumeRehashing(iter->sp->keysDict);
   RWLOCK_RELEASE();
 }
 
@@ -784,6 +790,9 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
   }
 
   RWLOCK_ACQUIRE_READ();
+  /* We might have multiple readers that reads from the index,
+   * Avoid rehashing the terms dictionary */
+  dictPauseRehashing(sp->keysDict);
 
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
   if (sp->rule) {
@@ -826,6 +835,7 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
     info->lastRunTimeMs = gcStats.lastRunTimeMs;
   }
 
+  dictResumeRehashing(sp->keysDict);
   RWLOCK_RELEASE();
 
   return REDISEARCH_OK;
