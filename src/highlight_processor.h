@@ -7,7 +7,8 @@
  * a document. This structure exists to avoid passing these four parameters
  * discreetly (as we did in previous versiosn)
  */
-struct hlpDocContext {
+
+struct HighligherDoc {
   // Byte offsets, byte-wise
   const RSByteOffsets *byteOffsets;
 
@@ -15,12 +16,18 @@ struct hlpDocContext {
   const IndexResult *indexResult;
 
   // Array used for in/out when writing fields. Optimization cache
-  Array<iovec *> iovsArr;
+  //Array<iovec *> iovsArr;
+  IOVecArrays iovsArr;
 
   RLookupRow *row;
 
-  hlpDocContext(RSByteOffsets *byteOffsets, IndexResult *indexResult, RLookupRow *row) :
+  HighligherDoc(RSByteOffsets *byteOffsets, IndexResult *indexResult, RLookupRow *row) :
     byteOffsets(byteOffsets), indexResult(indexResult), row(row) {}
+
+  RSValue *summarizeField(IndexSpec *spec, const ReturnedField &field,
+    const char *fieldName, const RSValue *value, int options);
+
+  void resetIovsArr(size_t newSize);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -35,7 +42,7 @@ struct Highlighter : public ResultProcessor {
 
   const IndexResult *getIndexResult(t_docId docId);
 
-  void processField(hlpDocContext *docParams, ReturnedField *spec);
+  void processField(HighligherDoc &doc, const ReturnedField &field);
 
   virtual int Next(SearchResult *res);
 };

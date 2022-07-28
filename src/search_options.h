@@ -10,6 +10,8 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+typedef Vector<Vector<iovec>> IOVecArrays;
+
 enum SummarizeMode {
   SummarizeMode_None = 0x00, // No summaries
   SummarizeMode_Highlight = 0x01,
@@ -56,10 +58,12 @@ struct ReturnedField {
   SummarizeMode mode;
   int explicitReturn; // Whether this field was explicitly requested by `RETURN`
 
-  ReturnedField() : name(0), lookupKey(0), explicitReturn(0) {}
+  ReturnedField() : name(0), lookupKey(0), mode(SummarizeMode_None), explicitReturn(0) {}
   ~ReturnedField();
 
   void setFieldSettings(const ReturnedField *defaults, int isHighlight);
+  char *trimField(const char *docStr, size_t *docLen, size_t estWordSize) const;
+  struct ReturnedField normalizeSettings(const ReturnedField &defaults) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -75,8 +79,10 @@ struct FieldList {
   // Whether this list contains fields explicitly selected by `RETURN`
   uint16_t explicitReturn;
 
-  ReturnedField *GetCreateField(const char *name);
+  FieldList() : fields(NULL), numFields(0), explicitReturn(0) {}
   ~FieldList();
+
+  ReturnedField *GetCreateField(const char *name);
 
   int parseArgs(ArgsCursor *ac, bool isHighlight);
   int parseFieldList(ArgsCursor *ac, Vector<size_t> fieldPtrs);

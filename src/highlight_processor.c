@@ -6,49 +6,13 @@
 #include "util/minmax.h"
 
 #include <ctype.h>
+#include <string>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Attempts to fragmentize a single field from its offset entries. This takes
-// the field name, gets the matching field ID, retrieves the offset iterator
-// for the field ID, and fragments the text based on the offsets. The fragmenter
-// itself is in fragmenter.{c,h}
-//
-// Returns true if the fragmentation succeeded, false otherwise.
-
-static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText,
-                              size_t fieldLen, const IndexResult *indexResult,
-                              const RSByteOffsets *byteOffsets, FragmentList *fragList,
-                              int options) {
-  const FieldSpec *fs = spec->GetField(fieldName, strlen(fieldName));
-  if (!fs || !fs->IsFieldType(INDEXFLD_T_FULLTEXT)) {
-    return 0;
-  }
-
-  int rc = 0;
-  RSOffsetIterator offsIter = indexResult->IterateOffsets();
-  FragmentTermIterator fragIter;
-  RSByteOffsetIterator bytesIter(*byteOffsets, fs->ftId);
-  if (!bytesIter.valid) {
-    goto done;
-  }
-
-  fragIter.InitOffsets(&bytesIter, &offsIter);
-  fragList->FragmentizeIter(fieldText, fieldLen, &fragIter, options);
-  if (fragList->numFrags == 0) {
-    goto done;
-  }
-  rc = 1;
-
-done:
-  delete &offsIter;
-  return rc;
-}
-
-//---------------------------------------------------------------------------------------------
-
 // Strip spaces from a buffer in place. Returns the new length of the text,
 // with all duplicate spaces stripped and converted to a single ' '.
+
 static size_t stripDuplicateSpaces(char *s, size_t n) {
   int isLastSpace = 0;
   size_t oix = 0;
@@ -82,31 +46,25 @@ static size_t trimTrailingSpaces(const char *s, size_t input) {
 
 //---------------------------------------------------------------------------------------------
 
-static void normalizeSettings(const ReturnedField *srcField, const ReturnedField *defaults,
-                              ReturnedField *out) {
-  if (srcField == NULL) {
-    // Global setting
-    *out = *defaults;
-    return;
-  }
+ReturnedField ReturnedField::normalizeSettings(const ReturnedField &defaults) const {
+  ReturnedField out;
 
   // Otherwise it gets more complex
-  if ((defaults->mode & SummarizeMode_Highlight) &&
-      (srcField->mode & SummarizeMode_Highlight) == 0) {
-    out->highlightSettings = defaults->highlightSettings;
-  } else if (srcField->mode && SummarizeMode_Highlight) {
-    out->highlightSettings = srcField->highlightSettings;
+  if ((defaults.mode & SummarizeMode_Highlight) && (mode & SummarizeMode_Highlight) == 0) {
+    out.highlightSettings = defaults.highlightSettings;
+  } else if (mode & SummarizeMode_Highlight) {
+    out.highlightSettings = highlightSettings;
   }
 
-  if ((defaults->mode & SummarizeMode_Synopsis) && (srcField->mode & SummarizeMode_Synopsis) == 0) {
-    out->summarizeSettings = defaults->summarizeSettings;
+  if ((defaults.mode & SummarizeMode_Synopsis) && (mode & SummarizeMode_Synopsis) == 0) {
+    out.summarizeSettings = defaults.summarizeSettings;
   } else {
-    out->summarizeSettings = srcField->summarizeSettings;
+    out.summarizeSettings = summarizeSettings;
   }
 
-  out->mode |= defaults->mode | srcField->mode;
-  out->name = srcField->name;
-  out->lookupKey = srcField->lookupKey;
+  out.mode |= defaults.mode | mode;
+  out.name = name;
+  out.lookupKey = lookupKey;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -115,55 +73,49 @@ static void normalizeSettings(const ReturnedField *srcField, const ReturnedField
 // docLen is an in/out parameter. On input it should contain the length of the
 // field, and on output it contains the length of the trimmed summary.
 // Returns a string which should be freed using free()
-static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_t *docLen,
-                       size_t estWordSize) {
 
+char *ReturnedField::trimField(const char *docStr, size_t *docLen, size_t estWordSize) const {
   // Number of desired fragments times the number of context words in each fragments,
   // in characters (estWordSize)
-  size_t headLen =
-      fieldInfo->summarizeSettings.contextLen * fieldInfo->summarizeSettings.numFrags * estWordSize;
+  size_t headLen = summarizeSettings.contextLen * summarizeSettings.numFrags * estWordSize;
   headLen += estWordSize;  // Because we trim off a word when finding the toksep
   headLen = Min(headLen, *docLen);
 
-  Array<char*> bufTmp = new Array(ArrayAlloc_RM);
-
-  bufTmp.Write(docStr, headLen);
-  headLen = stripDuplicateSpaces(bufTmp.data, headLen);
-  bufTmp.Resize(headLen);
-
-  while (bufTmp.len > 1) {
-    if (istoksep(bufTmp.data[bufTmp.len - 1])) {
+  size_t len = headLen;
+  char *buf = rm_strndup(docStr, len);
+  len = stripDuplicateSpaces(buf, len);
+  buf = rm_realloc(buf, len);
+  while (len > 1) {
+    if (istoksep(buf[len - 1])) {
       break;
     }
-    bufTmp.len--;
+    --len;
   }
 
-  bufTmp.len = trimTrailingSpaces(bufTmp.data, bufTmp.len);
-  char *ret = bufTmp.Steal(docLen);
-  return ret;
+  len = trimTrailingSpaces(buf, len);
+  *docLen = len;
+  return buf;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
-                               const char *fieldName, const RSValue *returnedField,
-                               hlpDocContext *docParams, int options) {
-
-  FragmentList frags(8, 6);
+RSValue *HighligherDoc::summarizeField(IndexSpec *spec, const ReturnedField &fieldInfo,
+    const char *fieldName, const RSValue *returnedField, int options) {
+  FragmentList frags{8, 6};
 
   // Start gathering the terms
-  HighlightTags tags(fieldInfo->highlightSettings);
+  HighlightTags tags{fieldInfo.highlightSettings};
 
   // First actually generate the fragments
   size_t docLen;
   const char *docStr = returnedField->StringPtrLen(&docLen);
-  if (docParams->byteOffsets == NULL ||
-      !fragmentizeOffsets(spec, fieldName, docStr, docLen, docParams->indexResult,
-                          docParams->byteOffsets, &frags, options)) {
-    if (fieldInfo->mode == SummarizeMode_Synopsis) {
+  if (byteOffsets == NULL ||
+      !frags.fragmentizeOffsets(spec, fieldName, docStr, docLen, indexResult, byteOffsets, options)) {
+    if (fieldInfo.mode == SummarizeMode_Synopsis) {
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
-      char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
+      // note that summarized is allocated dynamically and freed by RSValue::Clear()
+      char *summarized = fieldInfo.trimField(docStr, &docLen, frags.estAvgWordSize);
       return RS_StringVal(summarized, docLen);
     } else {
       // Otherwise, just return the whole field, but without highlighting
@@ -172,78 +124,64 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
   }
 
   // Highlight only
-  if (fieldInfo->mode == SummarizeMode_Highlight) {
-    // No need to return snippets; just return the entire doc with relevant tags
-    // highlighted.
-    char *hlDoc = frags.HighlightWholeDocS(&tags);
+  if (fieldInfo.mode == SummarizeMode_Highlight) {
+    // No need to return snippets; just return the entire doc with relevant tags highlighted
+    char *hlDoc = frags.HighlightWholeDocS(tags);
     return RS_StringValC(hlDoc);
   }
 
-  size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, frags.GetNumFrags());
-  for (size_t i = 0; i < numIovArr; ++i) {
-    docParams->iovsArr[i].Resize(0);
-  }
+  size_t numIovArr = Min(fieldInfo.summarizeSettings.numFrags, frags.GetNumFrags());
+  resetIovsArr(numIovArr);
 
-  frags.HighlightFragments(&tags, fieldInfo->summarizeSettings.contextLen,
-                           docParams->iovsArr, numIovArr, HIGHLIGHT_ORDER_SCOREPOS);
+  frags.HighlightFragments(tags, fieldInfo.summarizeSettings.contextLen,
+                           iovsArr, HIGHLIGHT_ORDER_SCOREPOS);
 
   // Buffer to store concatenated fragments
-  Array<iovec *> bufTmp = new Array<iovec *>(ArrayAlloc_RM);
+  std::string s;
 
-  for (size_t i = 0; i < numIovArr; ++i) {
-    Array *curIovs = docParams->iovsArr + i;
-    struct iovec *iovs = curIovs->ARRAY_GETARRAY_AS(struct iovec *);
-    size_t numIovs = curIovs->ARRAY_GETSIZE_AS(struct iovec);
-    size_t lastSize = bufTmp.len;
+  for (auto &iovs_array: iovsArr) {
+    size_t lastSize = s.length();
 
-    for (size_t j = 0; j < numIovs; ++j) {
-      bufTmp.Write(iovs[j].iov_base, iovs[j].iov_len);
+    for (auto &iov: iovs_array) {
+	    s.append(reinterpret_cast<const char*>(iov.iov_base), iov.iov_len);
     }
 
     // Duplicate spaces for the current snippet are eliminated here. We shouldn't
     // move it to the end because the delimiter itself may contain a special kind
     // of whitespace.
-    size_t newSize = stripDuplicateSpaces(bufTmp.ARRAY_GETARRAY_AS() + lastSize, bufTmp.len - lastSize);
-    bufTmp.Resize(lastSize + newSize);
-    bufTmp.Write(fieldInfo->summarizeSettings.separator,
-                 strlen(fieldInfo->summarizeSettings.separator));
+    size_t newSize = stripDuplicateSpaces(s.c_str() + lastSize, s.length() - lastSize);
+	  s.resize(newSize);
+  	s += fieldInfo.summarizeSettings.separator;
   }
 
   // Set the string value to the contents of the array. It might be nice if we didn't
   // need to strndup it.
-  size_t hlLen;
-  char *hlText = bufTmp.Steal(&hlLen);
+  size_t hlLen = s.length();
+  char *hlText = rm_strdup(s.c_str());
   return RS_StringVal(hlText, hlLen);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
-  if (*curSize < newSize) {
-    *iovsArrp = rm_realloc(*iovsArrp, sizeof(**iovsArrp) * newSize);
+void HighligherDoc::resetIovsArr(size_t newSize) {
+  for (auto arr: iovsArr) {
+    arr.clear();
   }
-  for (size_t ii = 0; ii < *curSize; ++ii) {
-    Array_Resize((*iovsArrp) + ii, 0);
-  }
-  for (size_t ii = *curSize; ii < newSize; ++ii) {
-    Array_Init((*iovsArrp) + ii);
-  }
-  *curSize = newSize;
+  iovsArr.resize(newSize);
 }
 
 //---------------------------------------------------------------------------------------------
 
-void Highlighter::processField(hlpDocContext *docParams, ReturnedField *spec) {
-  const char *fName = spec->name;
-  const RSValue *fieldValue = docParams->row->GetItem(spec->lookupKey);
+void Highlighter::processField(HighligherDoc &doc, const ReturnedField &field) {
+  const char *fname = field.name;
+  const RSValue *fval = doc.row->GetItem(field.lookupKey);
 
-  if (fieldValue == NULL || !fieldValue->IsString()) {
+  if (fval == NULL || !fval->IsString()) {
     return;
   }
-  RSValue *v = summarizeField(parent->sctx->spec, spec, fName, fieldValue, docParams,
-                              fragmentizeOptions);
+  RSValue *v = doc.summarizeField(parent->sctx->spec, field, fname, fval, fragmentizeOptions);
   if (v) {
-    docParams->row->WriteOwnKey(spec->lookupKey, v);
+    doc.row->WriteOwnKey(field.lookupKey, v);
   }
 }
 
@@ -256,6 +194,7 @@ const IndexResult *Highlighter::getIndexResult(t_docId docId) {
   if (INDEXREAD_OK != it->SkipTo(docId, &ir)) {
     return NULL;
   }
+  //@@@TODO: release it?!
   return ir;
 }
 
@@ -282,7 +221,7 @@ int Highlighter::Next(SearchResult *r) {
     return RS_RESULT_OK;
   }
 
-  hlpDocContext docParams(dmd->byteOffsets, ir, &r->rowdata);
+  HighligherDoc doc{dmd->byteOffsets, ir, &r->rowdata};
 
   if (fields->numFields) {
     for (size_t i = 0; i < fields->numFields; ++i) {
@@ -291,33 +230,30 @@ int Highlighter::Next(SearchResult *r) {
         // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
         continue;
       }
-      ReturnedField combinedSpec;
-      normalizeSettings(ff, &fields->defaultField, &combinedSpec);
-      resetIovsArr(&docParams.iovsArr, &numIovsArr, combinedSpec.summarizeSettings.numFrags);
-      processField(&docParams, &combinedSpec);
+      ReturnedField field = ff->normalizeSettings(fields->defaultField);
+      doc.resetIovsArr(field.summarizeSettings.numFrags);
+      processField(doc, field);
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
     for (const RLookupKey *k = lookup->head; k; k = k->next) {
       if (k->flags & RLOOKUP_F_HIDDEN) {
         continue;
       }
-      ReturnedField spec;
-      normalizeSettings(NULL, &fields->defaultField, &spec);
-      spec.lookupKey = k;
-      spec.name = k->name;
-      resetIovsArr(&docParams.iovsArr, &numIovsArr, spec.summarizeSettings.numFrags);
-      processField(&docParams, &spec);
+      ReturnedField field = fields->defaultField;
+      field.lookupKey = k;
+      field.name = k->name;
+      doc.resetIovsArr(field.summarizeSettings.numFrags);
+      processField(doc, field);
     }
   }
 
-  delete &docParams.iovsArr;
   return RS_RESULT_OK;
 }
 
 //---------------------------------------------------------------------------------------------
 
 Highlighter::Highlighter(const RSSearchOptions *searchopts, const FieldList *fields,
-                         const RLookup *lookup) : ResultProcessor("Highlighter"), lookup(lookup), fields(fields) {
+    const RLookup *lookup) : ResultProcessor("Highlighter"), lookup(lookup), fields(fields) {
   if (searchopts->language == RS_LANG_CHINESE) {
     fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }

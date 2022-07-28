@@ -89,7 +89,7 @@ struct Fragment {
   bool HasTerm(uint32_t termId) const;
 
   void WriteIovs(const char *openTag, size_t openLen, const char *closeTag,
-                 size_t closeLen, Array<iovec *> iovs, const char **preamble) const;
+                 size_t closeLen, Vector<iovec> &iovs, const char **preamble) const;
 };
 
 struct HighlightTags {
@@ -161,14 +161,17 @@ struct FragmentList {
                          const FragmentSearchTerm *terms, size_t numTerms);
   void FragmentizeIter(const char *doc_, size_t docLen, FragmentTermIterator *iter, int options);
 
-  void HighlightWholeDocV(const HighlightTags *tags, Array<iovec *> iovs) const;
-  char *HighlightWholeDocS(const HighlightTags *tags) const;
+  Vector<iovec> HighlightWholeDocV(const HighlightTags &tags) const;
+  char *HighlightWholeDocS(const HighlightTags &tags) const;
 
-  void HighlightFragments(const HighlightTags *tags, size_t contextSize, Array<iovec *> *iovBufList,
-                          size_t niovs, int order);
+  void HighlightFragments(const HighlightTags &tags, size_t contextSize, IOVecArrays &iovArrays,
+                          int order);
 
   void FindContext(const Fragment *frag, const char *limitBefore, const char *limitAfter,
                    size_t contextSize, struct iovec *before, struct iovec *after) const;
+
+  bool fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText, size_t fieldLen,
+                          const IndexResult *indexResult, const RSByteOffsets *byteOffsets, int options);
 
   void Sort();
   void Dump() const;

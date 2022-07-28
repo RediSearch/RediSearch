@@ -134,14 +134,11 @@ void FragmentList::FragmentizeBuffer(const char *doc_, Stemmer *stemmer, StopWor
 
 //---------------------------------------------------------------------------------------------
 
-static void addToIov(const char *s, size_t n, Array<iovec *> b) {
+static void addToIov(const char *s, size_t n, Vector<iovec> &b) {
   if (n == 0 || s == NULL) {
     return;
   }
-  struct iovec *iov = b.Add(sizeof(*iov));
-  RS_LOG_ASSERT(iov, "failed to create iov");
-  iov->iov_base = (void *)s;
-  iov->iov_len = n;
+  b.emplace_back(iovec{s, n});
 }
 
 //---------------------------------------------------------------------------------------------
@@ -158,7 +155,7 @@ static void addToIov(const char *s, size_t n, Array<iovec *> b) {
 //    fragment being written is after the current one.
 
 void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeTag,
-                         size_t closeLen, Array<iovec *> iovs, const char **preamble) const {
+                         size_t closeLen, Vector<iovec> &iovs, const char **preamble) const {
   size_t nlocs = termLocs.size();
   const char *preamble_s = NULL;
 
@@ -197,20 +194,22 @@ void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeT
 //---------------------------------------------------------------------------------------------
 
 // Highlight matches the entire document, returning a series of IOVs
-void FragmentList::HighlightWholeDocV(const HighlightTags *tags, Array<iovec *> iovs) const {
+Vector<iovec> FragmentList::HighlightWholeDocV(const HighlightTags &tags) const {
+  Vector<iovec> iovs;
+
   if (!numFrags) {
     // Whole doc, but no matches found
     addToIov(doc, docLen, iovs);
-    return;
+    return iovs;
   }
 
   const char *preamble = doc;
-  size_t openLen = strlen(tags->openTag);
-  size_t closeLen = strlen(tags->closeTag);
+  size_t openLen = strlen(tags.openTag);
+  size_t closeLen = strlen(tags.closeTag);
 
   for (size_t i = 0; i < numFrags; ++i) {
     const Fragment *curFrag = frags[i];
-    curFrag->WriteIovs(tags->openTag, openLen, tags->closeTag, closeLen, iovs, &preamble);
+    curFrag->WriteIovs(tags.openTag, openLen, tags.closeTag, closeLen, iovs, &preamble);
   }
 
   // Write the last preamble
@@ -219,34 +218,33 @@ void FragmentList::HighlightWholeDocV(const HighlightTags *tags, Array<iovec *> 
   if (preambleLen) {
     addToIov(preamble, preambleLen, iovs);
   }
+
+  return iovs;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Highlight matches the entire document, returning it as a freeable NUL-terminated buffer
-char *FragmentList::HighlightWholeDocS(const HighlightTags *tags) const {
-  Array<iovec *> iovsArr;
-  HighlightWholeDocV(tags, iovsArr);
+
+char *FragmentList::HighlightWholeDocS(const HighlightTags &tags) const {
+  Vector<iovec> iovs = HighlightWholeDocV(tags);
 
   // Calculate the length
-  struct iovec *iovs = *iovsArr.ARRAY_GETARRAY_AS();
-  size_t niovs = iovsArr.ARRAY_GETSIZE_AS();
   size_t docLen = 0;
-  for (size_t i = 0; i < niovs; ++i) {
-    docLen += iovs[i].iov_len;
+  for (auto &iov: iovs) {
+    docLen += iov.iov_len;
   }
 
   char *docBuf = rm_malloc(docLen + 1);
   RS_LOG_ASSERT(docBuf, "failed malloc of docBuf");
-  docBuf[docLen] = '\0';
 
   size_t offset = 0;
-  for (size_t ii = 0; ii < niovs; ++ii) {
-    memcpy(docBuf + offset, iovs[ii].iov_base, iovs[ii].iov_len);
-    offset += iovs[ii].iov_len;
+  for (auto &iov: iovs) {
+    memcpy(docBuf + offset, iov.iov_base, iov.iov_len);
+    offset += iov.iov_len;
   }
 
-  delete &iovsArr;
+  docBuf[docLen] = '\0';
   return docBuf;
 }
 
@@ -315,7 +313,7 @@ void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, co
     return;
   }
 
-  contextSize -= (frag->totalTokens - frag->numMatches);
+  contextSize -= frag->totalTokens - frag->numMatches;
 
   // i.e. how much context before and after
   contextSize /= 2;
@@ -359,6 +357,38 @@ void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, co
 
 //---------------------------------------------------------------------------------------------
 
+// Attempts to fragmentize a single field from its offset entries. This takes
+// the field name, gets the matching field ID, retrieves the offset iterator
+// for the field ID, and fragments the text based on the offsets. The fragmenter
+// itself is in fragmenter.{c,h}
+//
+// Returns true if the fragmentation succeeded, false otherwise.
+
+bool FragmentList::fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText,
+    size_t fieldLen, const IndexResult *indexResult, const RSByteOffsets *byteOffsets, int options) {
+  const FieldSpec *fs = spec->GetField(fieldName, strlen(fieldName));
+  if (!fs || !fs->IsFieldType(INDEXFLD_T_FULLTEXT)) {
+    return false;
+  }
+
+  RSOffsetIterator offsIter = indexResult->IterateOffsets();
+  FragmentTermIterator fragIter;
+  RSByteOffsetIterator bytesIter(*byteOffsets, fs->ftId);
+  if (!bytesIter.valid) {
+    return false;
+  }
+
+  fragIter.InitOffsets(&bytesIter, &offsIter);
+  FragmentizeIter(fieldText, fieldLen, &fragIter, options);
+  if (numFrags == 0) {
+    return false;
+  }
+
+  return true;
+}
+
+//---------------------------------------------------------------------------------------------
+
 // Highlight fragments for each document.
 //
 // - contextSize is the size of the surrounding context, in estimated words,
@@ -373,9 +403,9 @@ void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, co
 // - order is one of the HIGHLIGHT_ORDER_ constants. See their documentation
 // for more details
 
-void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextSize, Array<iovec *> *iovArrList,
-                                      size_t niovs, int order) {
-  niovs = Min(niovs, numFrags);
+void FragmentList::HighlightFragments(const HighlightTags &tags, size_t contextSize, IOVecArrays &iovArrays,
+                                      int order) {
+  size_t niovs = Min(iovArrays.size(), numFrags);
 
   if (!scratchFrags) {
     scratchFrags = rm_malloc(sizeof(*scratchFrags) * numFrags);
@@ -396,29 +426,30 @@ void FragmentList::HighlightFragments(const HighlightTags *tags, size_t contextS
     }
   }
 
-  size_t openLen = tags->openTag ? strlen(tags->openTag) : 0;
-  size_t closeLen = tags->closeTag ? strlen(tags->closeTag) : 0;
+  size_t openLen = tags.openTag ? strlen(tags.openTag) : 0;
+  size_t closeLen = tags.closeTag ? strlen(tags.closeTag) : 0;
 
-  for (size_t ii = 0; ii < niovs; ++ii) {
-    Array<iovec *> *curArr = iovArrList + ii;
-
+  int i = 0;
+  for (auto &iovs: iovArrays) {
     const char *beforeLimit = NULL, *afterLimit = NULL;
-    const Fragment *curFrag = indexes[ii];
+    const Fragment *curFrag = indexes[i];
 
     if (order & HIGHLIGHT_ORDER_POS) {
-      if (ii > 0) {
-        beforeLimit = indexes[ii - 1]->buf + indexes[ii - 1]->len;
+      if (i > 0) {
+        beforeLimit = indexes[i - 1]->buf + indexes[i - 1]->len;
       }
-      if (ii + 1 < niovs) {
-        afterLimit = indexes[ii + 1]->buf;
+      if (i + 1 < niovs) {
+        afterLimit = indexes[i + 1]->buf;
       }
     }
 
     struct iovec before, after;
     FindContext(curFrag, beforeLimit, afterLimit, contextSize, &before, &after);
-    addToIov(before.iov_base, before.iov_len, *curArr);
-    curFrag->WriteIovs(tags->openTag, openLen, tags->closeTag, closeLen, *curArr, NULL);
-    addToIov(after.iov_base, after.iov_len, *curArr);
+    addToIov(before.iov_base, before.iov_len, iovs);
+    curFrag->WriteIovs(tags.openTag, openLen, tags.closeTag, closeLen, iovs, NULL);
+    addToIov(after.iov_base, after.iov_len, iovs);
+
+    ++i;
   }
 }
 
@@ -470,7 +501,7 @@ void FragmentList::FragmentizeIter(const char *doc_, size_t docLen,
       len = curTerm->len;
     } else {
       len = 0;
-      for (size_t ii = curTerm->bytePos; ii < docLen && !istoksep(doc_[ii]); ++ii, ++len) {
+      for (size_t i = curTerm->bytePos; i < docLen && !istoksep(doc_[i]); ++i, ++len) { //@@Is something happening here??
       }
     }
 
