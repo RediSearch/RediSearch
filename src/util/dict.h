@@ -80,7 +80,6 @@ typedef struct dict {
     dictht ht[2];
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
-    unsigned long iterators; /* number of iterators currently running */
 } dict;
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call

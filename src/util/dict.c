@@ -190,7 +190,6 @@ int _dictInit(dict *d, dictType *type,
     d->privdata = privDataPtr;
     d->rehashidx = -1;
     d->pauserehash = 0;
-    d->iterators = 0;
     return DICT_OK;
 }
 
@@ -664,7 +663,7 @@ void dictReleaseIterator(dictIterator *iter)
 {
     if (!(iter->index == -1 && iter->table == 0)) {
         if (iter->safe)
-            iter->d->iterators--;
+            dictResumeRehashing(iter->d);
         else
             assert(iter->fingerprint == dictFingerprint(iter->d));
     }
@@ -1060,7 +1059,6 @@ void dictEmpty(dict *d, void(callback)(void*)) {
     _dictClear(d,&d->ht[0],callback);
     _dictClear(d,&d->ht[1],callback);
     d->rehashidx = -1;
-    d->iterators = 0;
     d->pauserehash = 0;
 }
 
