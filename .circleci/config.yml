@@ -298,7 +298,6 @@ commands:
             export MAX_PROFILERS=3
             redisbench-admin run-remote \
               --module_path $(cat $ROOT/bin/REJSON_PATH) \
-              --required-module ReJSON \
               --module_path $ROOT/<< parameters.module_path >> \
               --github_actor << parameters.github_actor >> \
               --github_repo $CIRCLE_PROJECT_REPONAME \
@@ -392,7 +391,7 @@ jobs:
 
   benchmark-search-oss-standalone:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
           platform: bionic
@@ -400,34 +399,34 @@ jobs:
       - benchmark-automation:
           platform: bionic
           benchmark_glob: "search*.yml"
-
-  benchmark-vecsim-ann-oss-standalone:
+  
+  benchmark-vecsim-oss-standalone:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
           platform: bionic
           run_pack: false
       - benchmark-automation:
           platform: bionic
-          benchmark_glob: "vecsim-ann*.yml"
+          benchmark_glob: "vecsim*.yml"
 
-  benchmark-vecsim-ann-oss-cluster:
+  benchmark-search-oss-cluster:
     docker:
-      - image: redisfab/rmbuilder:6.2.7-x64-bionic
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
           platform: bionic
           run_pack: false
       - benchmark-automation:
           platform: bionic
-          benchmark_glob: "vecsim-ann*.yml"
+          benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
 
-  benchmark-vecsim-ann-oss-cluster-profiler:
+  benchmark-search-oss-standalone-profiler:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
           platform: bionic
@@ -438,12 +437,11 @@ jobs:
           platform: bionic
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           module_path: bin/linux-x64-release-profile/search/redisearch.so
-          allowed_envs: oss-cluster
-          benchmark_glob: "vecsim-ann*.yml"
+          benchmark_glob: "search*.yml"
 
-  benchmark-vecsim-ann-oss-standalone-profiler:
+  benchmark-vecsim-oss-standalone-profiler:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bionic
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
           platform: bionic
@@ -451,10 +449,10 @@ jobs:
           run_pack: false
       - benchmark-automation:
           profile_env: "1"
-          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           platform: bionic
+          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           module_path: bin/linux-x64-release-profile/search/redisearch.so
-          benchmark_glob: "vecsim-ann*.yml"
+          benchmark_glob: "vecsim*.yml"
 
   coverage:
     docker:
@@ -709,16 +707,16 @@ workflows:
       - benchmark-search-oss-standalone:
           context: common
           <<: *on-perf-and-version-tags
-      - benchmark-vecsim-ann-oss-standalone:
+      - benchmark-vecsim-oss-standalone:
           context: common
           <<: *on-perf-and-version-tags
-      - benchmark-vecsim-ann-oss-cluster:
+      - benchmark-search-oss-cluster:
           context: common
           <<: *on-perf-and-version-tags
-      - benchmark-vecsim-ann-oss-cluster-profiler:
+      - benchmark-search-oss-standalone-profiler:
           context: common
           <<: *on-perf-and-version-tags
-      - benchmark-vecsim-ann-oss-standalone-profiler:
+      - benchmark-vecsim-oss-standalone-profiler:
           context: common
           <<: *on-perf-and-version-tags
       - upload-artifacts:
@@ -774,7 +772,9 @@ workflows:
     jobs:
       - benchmark-search-oss-standalone:
           context: common
-      - benchmark-vecsim-ann-oss-standalone:
+      - benchmark-vecsim-oss-standalone:
           context: common
-      - benchmark-vecsim-ann-oss-standalone-profiler:
+      - benchmark-vecsim-oss-standalone-profiler:
+          context: common
+      - benchmark-search-oss-standalone-profiler:
           context: common

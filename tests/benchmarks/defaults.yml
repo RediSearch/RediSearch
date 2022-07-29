@@ -17,6 +17,10 @@ exporter:
       - "$.build.vector_index_sz_mb"
       - '$."ALL STATS".*."Ops/sec"'
       - '$."ALL STATS".*."Latency"'
+clusterconfig:
+  init_commands:
+  - commands:
+    - 'search.CLUSTERREFRESH'
 spec:
   setups:
   - name: oss-standalone
