@@ -8,8 +8,6 @@ description: "
                 - Query type: 2 Word Union Query
                 - Query sample: Abraham Lincoln
              "
-metadata:
-  component: "search"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5

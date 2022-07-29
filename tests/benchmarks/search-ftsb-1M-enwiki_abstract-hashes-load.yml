@@ -8,8 +8,6 @@ description: "
                 - Query type: N/A
                 - Query sample: N/A
              "
-metadata:
-  component: "search"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5
