@@ -5,7 +5,7 @@ metadata:
 remote:
  - type: oss-standalone
  - setup: redisearch-m5
-
+timeout_seconds: 1800
 setups:
   - oss-standalone
   - oss-cluster-03-primaries
