@@ -425,16 +425,16 @@ struct rsbHelper {
 
 //---------------------------------------------------------------------------------------------
 
-static int rsbCompareCommon(const void *h, const void *e, int prefix) {
-  const rsbHelper *term = h;
-  const TrieNode *elem = *(const TrieNode **)e;
+static int rsbCompareCommon(const void *h, const void *e, bool prefix) {
+  const rsbHelper term = (const rsbHelper)h;
+  const TrieNode elem = *(const TrieNode *)e;
   int rc;
 
   if (prefix) {
-    size_t minLen = MIN(elem->_len, term->n);
-    rc = runecmp(term->r, minLen, &elem->_str[0], minLen);
+    size_t minLen = MIN(elem._len, term.n);
+    rc = runecmp(term.r, minLen, &elem._str[0], minLen);
   } else {
-    rc = runecmp(term->r, term->n, &elem->_str[0], elem->_len);
+    rc = runecmp(term.r, term.n, &elem._str[0], elem._len);
   }
 
   return rc;
@@ -443,13 +443,13 @@ static int rsbCompareCommon(const void *h, const void *e, int prefix) {
 //---------------------------------------------------------------------------------------------
 
 static int rsbCompareExact(const void *h, const void *e) {
-  return rsbCompareCommon(h, e, 0);
+  return rsbCompareCommon(h, e, false);
 }
 
 //---------------------------------------------------------------------------------------------
 
 static int rsbComparePrefix(const void *h, const void *e) {
-  return rsbCompareCommon(h, e, 1);
+  return rsbCompareCommon(h, e, true);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -514,14 +514,14 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     // searching for node that matches the prefix of our min value
     h.r = min;
     h.n = nmin;
-    beginEqIdx = rsb_eq(_children, arrlen, sizeof(_children), &h, rsbComparePrefix);
+    beginEqIdx = rsb_eq_vec(_children, &h, rsbComparePrefix);
   }
 
   if (nmax > 0) {
     // searching for node that matches the prefix of our max value
     h.r = max;
     h.n = nmax;
-    endEqIdx = rsb_eq(_children, arrlen, sizeof(_children), &h, rsbComparePrefix);
+    endEqIdx = rsb_eq_vec(_children, &h, rsbComparePrefix);
   }
 
   if (beginEqIdx == endEqIdx && endEqIdx != -1) {
@@ -567,7 +567,7 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     // search for the first element which are greater then our min value
     h.r = min;
     h.n = nmin;
-    beginIdx = rsb_gt(_children, arrlen, sizeof(_children), &h, rsbCompareExact);
+    beginIdx = rsb_gt_vec(_children, &h, rsbCompareExact);
   }
 
   endIdx = nmax ? arrlen - 1 : -1;
@@ -575,7 +575,7 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     // search for the first element which are less then our max value
     h.r = max;
     h.n = nmax;
-    endIdx = rsb_lt(_children, arrlen, sizeof(_children), &h, rsbCompareExact);
+    endIdx = rsb_lt_vec(_children, &h, rsbCompareExact);
   }
 
   // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx

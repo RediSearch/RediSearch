@@ -212,7 +212,7 @@ FilterCode DFAFilter::Filter(rune b, int *matched, int *match) {
 
   if (*matched) {
     // printf("MATCH %c, dist %d\n", b, dn->distance);
-    int *pdist = matchCtx;
+    int *pdist = match;
     if (pdist) {
       *pdist = MIN(dn->distance, minDist);
     }
@@ -229,7 +229,7 @@ FilterCode DFAFilter::Filter(rune b, int *matched, int *match) {
     if (next->match) {
       // printf("MATCH NEXT %c, dist %d\n", b, next->distance);
       *matched = 1;
-      int *pdist = matchCtx;
+      int *pdist = match;
       if (pdist) {
         *pdist = MIN(next->distance, minDist);
       }

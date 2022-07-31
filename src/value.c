@@ -70,8 +70,8 @@ size_t RSValue_NumToString(double dd, char *buf) {
 //---------------------------------------------------------------------------------------------
 
 // Return the value itself or its referred value
-//@@ Can we make it void?
-inline const RSValue *RSValue::Dereference() const {
+
+const RSValue *RSValue::Dereference() const {
   RSValue *v = this;
   for (; v && v->t == RSValue_Reference; v = v->ref)
     ;
@@ -321,25 +321,25 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 
 bool RSValue::ToNumber(double *d) const {
   if (IsNull()) return false;
-  this = Dereference(); //@@ can we make it void?
+  const RSValue *v = Dereference();
 
   const char *p = NULL;
   size_t l = 0;
-  switch (t) {
+  switch (v->t) {
     // for numerics - just set the value and return
     case RSValue_Number:
-      *d = numval;
+      *d = v->numval;
       return true;
 
     case RSValue_String:
       // C strings - take the ptr and len
-      p = strval.str;
-      l = strval.len;
+      p = v->strval.str;
+      l = v->strval.len;
       break;
     case RSValue_RedisString:
     case RSValue_OwnRstring:
       // Redis strings - take the number and len
-      p = RedisModule_StringPtrLen(rstrval, &l);
+      p = RedisModule_StringPtrLen(v->rstrval, &l);
       break;
 
     case RSValue_Null:
@@ -348,6 +348,7 @@ bool RSValue::ToNumber(double *d) const {
     default:
       return false;
   }
+
   // If we have a string - try to parse it
   if (p) {
     char *e;
@@ -357,10 +358,8 @@ bool RSValue::ToNumber(double *d) const {
         *e != '\0') {
       return false;
     }
-
     return true;
   }
-
   return false;
 }
 

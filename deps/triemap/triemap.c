@@ -514,7 +514,7 @@ static int nodecmp(const char *sa, size_t na, const char *sb, size_t nb) {
 
 static int TrieMapNode::CompareCommon(const void *h, const void *e, bool prefix) {
   const TrieMaprsbHelper term = (const TrieMaprsbHelper)h;
-  const TrieMapNode elem = (const TrieMapNode)e;
+  const TrieMapNode elem = *(const TrieMapNode *)e;
   size_t ntmp;
   int rc;
   if (prefix) {
@@ -595,7 +595,7 @@ void TrieMapNode::RangeIterate(const char *min, int nmin, const char *max,
     // searching for node that matches the prefix of our min value
     h.r = min;
     h.n = nmin;
-    beginEqIdx = rsb_eq(arr, arrlen, sizeof(arr), &h, TrieMapNode::ComparePrefix);
+    beginEqIdx = rsb_eq_vec(arr, &h, TrieMapNode::ComparePrefix);
   }
 
   endEqIdx = -1;
@@ -603,7 +603,7 @@ void TrieMapNode::RangeIterate(const char *min, int nmin, const char *max,
     // searching for node that matches the prefix of our max value
     h.r = max;
     h.n = nmax;
-    endEqIdx = rsb_eq(arr, arrlen, sizeof(arr), &h, TrieMapNode::ComparePrefix);
+    endEqIdx = rsb_eq_vec(arr, &h, TrieMapNode::ComparePrefix);
   }
 
   if (beginEqIdx == endEqIdx && endEqIdx != -1) {
@@ -649,7 +649,7 @@ void TrieMapNode::RangeIterate(const char *min, int nmin, const char *max,
     // search for the first element which are greater then our min value
     h.r = min;
     h.n = nmin;
-    beginIdx = rsb_gt(arr, arrlen, sizeof(arr), &h, TrieMapNode::CompareExact);
+    beginIdx = rsb_gt_vec(arr, &h, TrieMapNode::CompareExact);
   }
 
   endIdx = nmax ? arrlen - 1 : -1;
@@ -657,12 +657,12 @@ void TrieMapNode::RangeIterate(const char *min, int nmin, const char *max,
     // search for the first element which are less then our max value
     h.r = max;
     h.n = nmax;
-    endIdx = rsb_lt(arr, arrlen, sizeof(arr), &h, TrieMapNode::CompareExact);
+    endIdx = rsb_lt_vec(arr, &h, TrieMapNode::CompareExact);
   }
 
   // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx
-  for (int ii = beginIdx; ii <= endIdx; ++ii) {
-    arr[ii]->rangeIterateSubTree(r);
+  for (int i = beginIdx; i <= endIdx; ++i) {
+    arr[i]->rangeIterateSubTree(r);
   }
 
   if (endEqIdx != -1) {

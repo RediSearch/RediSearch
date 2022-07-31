@@ -30,6 +30,8 @@ AggregateResult::~AggregateResult() {
   delete children;
 }
 
+//------------------------------------------------------------------------------`---------------
+
 void AggregateResult::Print(int depth) const {
   for (int i = 0; i < depth; i++) printf("  ");
   printf("%s => %llu{ \n", type == RSResultType_Intersection ? "Inter" : "Union",
@@ -40,9 +42,13 @@ void AggregateResult::Print(int depth) const {
   printf("},\n");
 }
 
+//------------------------------------------------------------------------------`---------------
+
 bool AggregateResult::HasOffsets() const {
   return typeMask != RSResultType_Virtual && typeMask != RSResultType_Numeric;
 }
+
+//------------------------------------------------------------------------------`---------------
 
 void AggregateResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) {
   if (len == cap) return;
@@ -51,14 +57,20 @@ void AggregateResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &le
   }
 }
 
+//------------------------------------------------------------------------------`---------------
+
 // Reset aggregate result's child vector
+
 void AggregateResult::Reset() {
   IndexResult::Reset();
   numChildren = 0;
   typeMask = (RSResultType) 0;
 }
 
+//------------------------------------------------------------------------------`---------------
+
 // Append a child to an aggregate result
+
 void AggregateResult::AddChild(IndexResult *child) {
   // Increase capacity if needed
   if (numChildren >= childrenCap) {
@@ -73,12 +85,11 @@ void AggregateResult::AddChild(IndexResult *child) {
   fieldMask |= child->fieldMask;
 }
 
+//------------------------------------------------------------------------------`---------------
 
-/** Test the result offset vectors to see if they fall within a max "slop" or distance between the
- * terms. That is the total number of non matched offsets between the terms is no bigger than
- * maxSlop.
- * e.g. for an exact match, the slop allowed is 0.
- */
+// Test the result offset vectors to see if they fall within a max "slop" or distance between the
+// terms. That is the total number of non matched offsets between the terms is no bigger than
+// maxSlop. e.g. for an exact match, the slop allowed is 0.
 
 bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
   // check if calculation is even relevant here...
@@ -123,12 +134,10 @@ bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
 
 //------------------------------------------------------------------------------`---------------
 
-/**
-Find the minimal distance between members of the vectos.
-e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
-@param vs a list of vector pointers
-@param num the size of the list
-*/
+// Find the minimal distance between members of the vectos.
+// e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
+// @param vs a list of vector pointers
+// @param num the size of the list
 
 int AggregateResult::MinOffsetDelta() const {
   if (numChildren <= 1) {

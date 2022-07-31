@@ -82,10 +82,11 @@ int Extensions::RegisterQueryExpander(const char *alias, RSQueryTokenExpander ex
 
 //---------------------------------------------------------------------------------------------
 
-/* Load an extension by calling its init function. return REDISEARCH_ERR or REDISEARCH_OK */
+// Load an extension by calling its init function. return REDISEARCH_ERR or REDISEARCH_OK
+
 int Extensions::Load(const char *name, RSExtensionInitFunc func) {
   // bind the callbacks in the context
-  RSExtensionCtx ctx = {
+  RSExtensions ctx = {
       RegisterScoringFunction: RegisterScoringFunction,
       RegisterQueryExpander: RegisterQueryExpander,
   };
@@ -98,7 +99,7 @@ int Extensions::Load(const char *name, RSExtensionInitFunc func) {
 // Dynamically load a RediSearch extension by .so file path. Returns REDISMODULE_OK or ERR
 
 int Extensions::LoadDynamic(const char *path, char **errMsg) {
-  int (*init)(struct RSExtensionCtx *);
+  int (*init)(struct RSExtensions *);
   void *handle;
   *errMsg = NULL;
   handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
@@ -106,7 +107,7 @@ int Extensions::LoadDynamic(const char *path, char **errMsg) {
     FMT_ERR(errMsg, "Extension %s failed to load: %s", path, dlerror());
     return REDISMODULE_ERR;
   }
-  init = (int (*)(struct RSExtensionCtx *))(unsigned long)dlsym(handle, "RS_ExtensionInit");
+  init = (int (*)(struct RSExtensions *))(unsigned long)dlsym(handle, "RS_ExtensionInit");
   if (init == NULL) {
     FMT_ERR(errMsg,
             "Extension %s does not export RS_ExtensionInit() "
@@ -135,7 +136,7 @@ static ExtScoringFunction *Extensions::GetScoringFunction(ScoringFunctionArgs *f
     // if no ctx was given, we just return the scorer
     if (fnargs) {
       fnargs->extdata = p->privdata;
-      fnargs->GetSlop = IndexResult::MinOffsetDelta;
+      fnargs->GetSlop = IndexResult::MinOffsetDelta();
     }
     return p;
   }

@@ -14,4 +14,4 @@
 #define DOCSCORE_SCORER "DOCSCORE"
 #define HAMMINGDISTANCE_SCORER "HAMMING"
 
-int DefaultExtensionInit(RSExtensionCtx *ctx);
+int DefaultExtensionInit(RSExtensions *ctx);

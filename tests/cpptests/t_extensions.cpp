@@ -5,7 +5,7 @@
 #include "../ext/default.h"
 #include <gtest/gtest.h>
 
-int myRegisterFunc(RSExtensionCtx *ctx);
+int myRegisterFunc(RSExtensions *ctx);
 
 class ExtTest : public ::testing::Test {
  protected:
@@ -53,7 +53,7 @@ void myFreeFunc(void *p) {
 #define EXTENSION_NAME "testung_" __FILE__
 
 /* Register the default extension */
-int myRegisterFunc(RSExtensionCtx *ctx) {
+int myRegisterFunc(RSExtensions *ctx) {
   if (ctx->RegisterScoringFunction(SCORER_NAME, myScorer, myFreeFunc, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }

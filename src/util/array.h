@@ -29,6 +29,7 @@ public:
 
   Array(ArrayAllocatorType allocType) { ctor(allocType); }
   Array() { ctor(ArrayAlloc_Default); }
+  ~Array();
 
   void *Add(uint32_t elemSize);
   void Write(const T *data, size_t len);

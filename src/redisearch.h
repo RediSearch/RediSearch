@@ -402,14 +402,14 @@ typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const IndexR
 // The extension registeration context, containing the callbacks avaliable to the extension for
 // registering query expanders and scorers
 
-struct RSExtensionCtx {
+struct RSExtensions {
   virtual int RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff,
-                                      void *privdata);
+    void *privdata);
   virtual int RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff,
-                                    void *privdata);
+    void *privdata);
 };
 
 // An extension initialization function
-typedef int (*RSExtensionInitFunc)(RSExtensionCtx *ctx);
+typedef int (*RSExtensionInitFunc)(RSExtensions *ctx);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

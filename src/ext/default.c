@@ -512,7 +512,7 @@ void DefaultExpanderFree(void *p) {
 }
 
 /* Register the default extension */
-int DefaultExtensionInit(RSExtensionCtx *ctx) {
+int DefaultExtensionInit(RSExtensions *ctx) {
 
   /* TF-IDF scorer is the default scorer */
   if (ctx->RegisterScoringFunction(DEFAULT_SCORER_NAME, TFIDFScorer, NULL, NULL) ==

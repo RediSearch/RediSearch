@@ -34,7 +34,7 @@ Extensions should be compiled into .so files, and loaded into RediSearch on init
 The entry point of an extension is a function with the signature:
 
 ```c
-int RS_ExtensionInit(RSExtensionCtx *ctx);
+int RS_ExtensionInit(RSExtensions *ctx);
 ```
 
 When loading the extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers.
@@ -47,7 +47,7 @@ It should return REDISEARCH_ERR on error or REDISEARCH_OK on success.
 
 #include <redisearch.h> //must be in the include path
 
-int RS_ExtensionInit(RSExtensionCtx *ctx) {
+int RS_ExtensionInit(RSExtensions *ctx) {
 
   /* Register  a scoring function with an alias my_scorer and no special private data and free function */
   if (ctx->RegisterScoringFunction("my_scorer", MyCustomScorer, NULL, NULL) == REDISEARCH_ERR) {

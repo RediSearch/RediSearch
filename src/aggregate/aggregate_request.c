@@ -586,7 +586,7 @@ int AREQ::handleApplyOrFilter(ArgsCursor *ac, bool isApply, QueryError *status) 
 
 error:
   if (stp) {
-    ap.PopStep(stp);
+    ap.PopStep();
     delete stp;
   }
   return REDISMODULE_ERR;
