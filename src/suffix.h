@@ -51,10 +51,12 @@ void suffixTrieMap_freeCallback(void *payload);
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
                                         bool prefix, struct timespec timeout);
 
-arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *str, uint32_t len,
+arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
                                                struct timespec timeout);
 
-/* Breaks wildcard at '*'s and find the best token to get iterate the suffix trie  */
+/* Breaks wildcard at '*'s and finds the best token to get iterate the suffix trie.
+ * tokenIdx and tokenLen arrays should sufficient space for all tokens. Max (len / 2) + 1.
+ * The function does not assume str is NULL terminated. */
 int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
 int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen);
 

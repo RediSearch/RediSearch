@@ -1052,7 +1052,7 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
   match_t match = Wildcard_MatchRune(r->origStr, r->lenOrigStr, r->buf, array_len(r->buf));
   switch (match) {
     case NO_MATCH:
-      break;;
+      break;
     case FULL_MATCH: {
       if (r->prefix) {
         array_trimm_len(r->buf, n->len);
@@ -1063,7 +1063,7 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
         if (__trieNode_isTerminal(n)) {
           r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload);
         }
-        // no 'break;' as we continue to look for matches on children similar to PARTIAL_MATCH
+        // fall through - continue to look for matches on children similar to PARTIAL_MATCH
       }
     }
     case PARTIAL_MATCH: {

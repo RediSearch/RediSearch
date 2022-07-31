@@ -206,30 +206,11 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefi
   return ret;
 }
 
-/*
-QueryNode *NewVerbatimNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
-  QueryNode *ret = NewQueryNode(QN_VERBATIM);
-  q->numTokens++;
-  if (qt->type == QT_TERM) {
-    char *s = rm_malloc(qt->len);
-    memcpy(s, qt->s, qt->len);
-    // size_t len = _removeEscape(s, qt->len);
-    ret->verb.tok = (RSToken){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
-  } else {
-    // TODO: check correct parsing
-    assert (qt->type == QT_PARAM_TERM);
-    QueryNode_InitParams(ret, 1);
-    QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
-    // ret->verb.tok.len = _removeEscape(ret->verb.tok.str, ret->verb.tok.len);
-  }
-  return ret;
-}
-*/
-
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_WILDCARD_QUERY);
   q->numTokens++;
   if (qt->type == QT_WILDCARD) {
+    // ensure str is NULL terminated
     char *s = rm_malloc(qt->len + 1);
     memcpy(s, qt->s, qt->len);
     s[qt->len] = '\0';

@@ -14,6 +14,7 @@ typedef struct suffixData {
   arrayof(char *) array;   // list of words containing the string. weak pointers
 } suffixData;
 
+#define UNINITIALIZED -1
 #define Suffix_GetData(node) node ? node->payload ? \
                              (suffixData *)node->payload->data : NULL : NULL
 
@@ -183,24 +184,26 @@ void Suffix_IterateContains(SuffixCtx *sufCtx) {
 /***********************************************************************************
 *                                    Wildcard                                      *
 ************************************************************************************/
-
-/* Breaks wildcard at '*'s and find the best token to get iterate the suffix trie  */
 int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
   int runner = 0;
   int i = 0;
   int init = 0;
   while (i < len) {
+    // save location of token
     if (str[i] != '*') {
       tokenIdx[runner] = i;
       init = 1;
     }
+    // skip all characters other than `*`
     while (i < len && str[i] != '*') {
       ++i;
     }
+    // save length of token
     if (init) {
       tokenLen[runner] = i - tokenIdx[runner];
       ++runner;
     }
+    // skip `*` characters
     while (str[i] == '*') {
       ++i;
     }
@@ -208,7 +211,7 @@ int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *to
 
   // choose best option
   int score = INT32_MIN;
-  int retidx = -1;
+  int retidx = UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
     if (tokenLen[i] < MIN_SUFFIX) {
       continue;
@@ -244,17 +247,21 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   int i = 0;
   int init = 0;
   while (i < len) {
+    // save location of token
     if (str[i] != (rune)'*') {
       tokenIdx[runner] = i;
       init = 1;
     }
+    // skip all characters other than `*`
     while (i < len && str[i] != (rune)'*') {
       ++i;
     }
+    // save length of token
     if (init) {
       tokenLen[runner] = i - tokenIdx[runner];
       ++runner;
     }
+    // skip `*` characters
     while (str[i] == (rune)'*') {
       ++i;
     }
@@ -262,7 +269,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
 
   // choose best option
   int score = INT32_MIN;
-  int retidx = -1;
+  int retidx = UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
     if (tokenLen[i] < MIN_SUFFIX) {
       continue;
@@ -321,7 +328,7 @@ void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   size_t lens[sufCtx->cstrlen];
   int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
 
-  if (useIdx == -1) {
+  if (useIdx == UNINITIALIZED) {
     return;
   }
 
@@ -439,14 +446,11 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
   }
 }
 
-static arrayof(char*) _getWildcardArray(TrieMap *trie, const char *str, uint32_t slen, size_t idx, size_t idxlen, struct timespec timeout) {
-  int prefix = str[idx + idxlen] == '*';
-  TrieMapIterator *it = TrieMap_Iterate(trie, &str[idx], idxlen + prefix);
-  if (!it) return NULL;
-  TrieMapIterator_SetTimeout(it, timeout);
-  // If there is no '*`, the length is known which can be used for optimization
-  it->mode = prefix ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
-
+// TODO:
+/* This function iterates the suffix trie, find matches to a `token` and returns an
+ * array with terms matching the pattern.
+ * The 'token' address is 'pattern + tokenidx' with length of tokenlen. */
+static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern, uint32_t plen) {
   char *s;
   tm_len_t sl;
   suffixData *nodeData;;
@@ -457,7 +461,7 @@ static arrayof(char*) _getWildcardArray(TrieMap *trie, const char *str, uint32_t
       if (array_len(resArray) > RSGlobalConfig.maxPrefixExpansions) {
         goto end;
       }
-      if (Wildcard_MatchChar(str, slen, nodeData->array[i], strlen(nodeData->array[i])) == FULL_MATCH) {
+      if (Wildcard_MatchChar(pattern, plen, nodeData->array[i], strlen(nodeData->array[i])) == FULL_MATCH) {
         resArray = array_ensure_append_1(resArray, nodeData->array[i]);
       }
     }
@@ -469,17 +473,27 @@ end:
   return resArray;
 }
 
-arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *str, uint32_t len,
+arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
                                               struct timespec timeout) {
   size_t idx[len];
   size_t lens[len];
   // find best token
-  int useIdx = Suffix_ChooseToken(str, len, idx, lens);
-  if (useIdx == -1) {
+  int useIdx = Suffix_ChooseToken(pattern, len, idx, lens);
+  if (useIdx == UNINITIALIZED) {
     return NULL;
   }
 
-  arrayof(char*) arr = _getWildcardArray(trie, str, len, idx[useIdx], lens[useIdx], timeout);
+  size_t tokenidx = idx[useIdx];
+  size_t tokenlen = lens[useIdx];
+  // if token end with '*', we iterate all its children
+  int prefix = pattern[tokenidx + tokenlen] == '*';
+
+  TrieMapIterator *it = TrieMap_Iterate(trie, pattern + tokenidx, tokenlen + prefix);
+  if (!it) return NULL;
+  TrieMapIterator_SetTimeout(it, timeout);
+  it->mode = prefix ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
+
+  arrayof(char*) arr = _getWildcardArray(it, pattern, len);
 
   // token does not have hits
   if (array_len(arr) == 0) {

@@ -26,39 +26,39 @@ def testSanity(env):
     pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
     pl.execute()
 
-  for i in range(1,2):
+  for index in index_list:
     #prefix
-    env.expect('ft.search', index_list[i], "w'f*'", 'LIMIT', 0 , 0).equal([40000] if i == 0 else [0])
-    env.expect('ft.search', index_list[i], "w'foo*'", 'LIMIT', 0 , 0).equal([40000])
-    env.expect('ft.search', index_list[i], "w'foo1*'", 'LIMIT', 0 , 0).equal([1111])
-    env.expect('ft.search', index_list[i], "w'*ooo1*'", 'LIMIT', 0 , 0).equal([2222])
+    env.expect('ft.search', index, "w'f*'", 'LIMIT', 0 , 0).equal([40000] if index == index_list[0] else [0])
+    env.expect('ft.search', index, "w'foo*'", 'LIMIT', 0 , 0).equal([40000])
+    env.expect('ft.search', index, "w'foo1*'", 'LIMIT', 0 , 0).equal([1111])
+    env.expect('ft.search', index, "w'*ooo1*'", 'LIMIT', 0 , 0).equal([2222])
 
     # contains
-    env.expect('ft.search', index_list[i], "w'*oo*'", 'LIMIT', 0 , 0).equal([40000])
+    env.expect('ft.search', index, "w'*oo*'", 'LIMIT', 0 , 0).equal([40000])
     # 55xx & x55x & xx55 - 555x - x555
-    env.expect('ft.search', index_list[i], "w'*55*'", 'LIMIT', 0 , 0).equal([1120])
+    env.expect('ft.search', index, "w'*55*'", 'LIMIT', 0 , 0).equal([1120])
     # 555x & x555 - 5555
-    env.expect('ft.search', index_list[i], "w'*555*'", 'LIMIT', 0 , 0).equal([76])
-    env.expect('ft.search', index_list[i], "w'*o55*'", 'LIMIT', 0 , 0).equal([444])
-    env.expect('ft.search', index_list[i], "w'*oo55*'", 'LIMIT', 0 , 0).equal([333])
-    env.expect('ft.search', index_list[i], "w'*oo555*'", 'LIMIT', 0 , 0).equal([33])
+    env.expect('ft.search', index, "w'*555*'", 'LIMIT', 0 , 0).equal([76])
+    env.expect('ft.search', index, "w'*o55*'", 'LIMIT', 0 , 0).equal([444])
+    env.expect('ft.search', index, "w'*oo55*'", 'LIMIT', 0 , 0).equal([333])
+    env.expect('ft.search', index, "w'*oo555*'", 'LIMIT', 0 , 0).equal([33])
 
     # 23xx & x23x & xx23 - 2323
-    env.expect('ft.search', index_list[i], '*23*', 'LIMIT', 0 , 0).equal([1196])
+    env.expect('ft.search', index, '*23*', 'LIMIT', 0 , 0).equal([1196])
     # 234x & x234
     start = time.time()
-    env.expect('ft.search', index_list[i], '*234*', 'LIMIT', 0 , 0).equal([80])
+    env.expect('ft.search', index, '*234*', 'LIMIT', 0 , 0).equal([80])
     print (time.time() - start)
     start = time.time()
-    env.expect('ft.search', index_list[i], '*o23*', 'LIMIT', 0 , 0).equal([444])
+    env.expect('ft.search', index, '*o23*', 'LIMIT', 0 , 0).equal([444])
     print (time.time() - start)
-    env.expect('ft.search', index_list[i], '*oo23*', 'LIMIT', 0 , 0).equal([333])
-    env.expect('ft.search', index_list[i], '*oo234*', 'LIMIT', 0 , 0).equal([33])
+    env.expect('ft.search', index, '*oo23*', 'LIMIT', 0 , 0).equal([333])
+    env.expect('ft.search', index, '*oo234*', 'LIMIT', 0 , 0).equal([33])
 
     # suffix
-    env.expect('ft.search', index_list[i], "w'*oo234'", 'LIMIT', 0 , 0).equal([3])
-    env.expect('ft.search', index_list[i], "w'*234'", 'LIMIT', 0 , 0).equal([40])
-    env.expect('ft.search', index_list[i], "w'*13'", 'LIMIT', 0 , 0).equal([400])
+    env.expect('ft.search', index, "w'*oo234'", 'LIMIT', 0 , 0).equal([3])
+    env.expect('ft.search', index, "w'*234'", 'LIMIT', 0 , 0).equal([40])
+    env.expect('ft.search', index, "w'*13'", 'LIMIT', 0 , 0).equal([400])
 
   # test timeout
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
@@ -97,45 +97,45 @@ def testSanityTag(env):
     pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
     pl.execute()
 
-  for i in range(2):
+  for index in index_list:
     #prefix
-    env.expect('ft.search', index_list[i], "@t:{w'f*'}", 'LIMIT', 0 , 0).equal([40000] if i == 0 else [0])
-    env.expect('ft.search', index_list[i], "@t:{w'foo*'}", 'LIMIT', 0 , 0).equal([40000])
-    env.expect('ft.search', index_list[i], "@t:{w'foo1*'}", 'LIMIT', 0 , 0).equal([1111])
-    env.expect('ft.search', index_list[i], "@t:{w'*ooo1*'}", 'LIMIT', 0 , 0).equal([2222])
+    env.expect('ft.search', index, "@t:{w'f*'}", 'LIMIT', 0 , 0).equal([40000] if index == index_list[0] else [0])
+    env.expect('ft.search', index, "@t:{w'foo*'}", 'LIMIT', 0 , 0).equal([40000])
+    env.expect('ft.search', index, "@t:{w'foo1*'}", 'LIMIT', 0 , 0).equal([1111])
+    env.expect('ft.search', index, "@t:{w'*ooo1*'}", 'LIMIT', 0 , 0).equal([2222])
 
     # contains
-    env.expect('ft.search', index_list[i], "@t:{w'*oo*'}", 'LIMIT', 0 , 0).equal([40000])
+    env.expect('ft.search', index, "@t:{w'*oo*'}", 'LIMIT', 0 , 0).equal([40000])
     # 55xx & x55x & xx55 - 555x - x555 
-    env.expect('ft.search', index_list[i], "@t:{w'*55*'}", 'LIMIT', 0 , 0).equal([1120])
+    env.expect('ft.search', index, "@t:{w'*55*'}", 'LIMIT', 0 , 0).equal([1120])
     # 555x & x555 - 5555
-    env.expect('ft.search', index_list[i], "@t:{w'*555*'}", 'LIMIT', 0 , 0).equal([76])
-    env.expect('ft.search', index_list[i], "@t:{w'*o55*'}", 'LIMIT', 0 , 0).equal([444])
-    env.expect('ft.search', index_list[i], "@t:{w'*oo55*'}", 'LIMIT', 0 , 0).equal([333])
-    env.expect('ft.search', index_list[i], "@t:{w'*oo555*'}", 'LIMIT', 0 , 0).equal([33])
+    env.expect('ft.search', index, "@t:{w'*555*'}", 'LIMIT', 0 , 0).equal([76])
+    env.expect('ft.search', index, "@t:{w'*o55*'}", 'LIMIT', 0 , 0).equal([444])
+    env.expect('ft.search', index, "@t:{w'*oo55*'}", 'LIMIT', 0 , 0).equal([333])
+    env.expect('ft.search', index, "@t:{w'*oo555*'}", 'LIMIT', 0 , 0).equal([33])
 
     # 23xx & x23x & xx23 - 2323
-    env.expect('ft.search', index_list[i], "@t:{w'*23*'}", 'LIMIT', 0 , 0).equal([1196])
+    env.expect('ft.search', index, "@t:{w'*23*'}", 'LIMIT', 0 , 0).equal([1196])
     # 234x & x234
     start = time.time()
-    env.expect('ft.search', index_list[i], "@t:{w'*234*'}", 'LIMIT', 0 , 0).equal([80])
+    env.expect('ft.search', index, "@t:{w'*234*'}", 'LIMIT', 0 , 0).equal([80])
     print (time.time() - start)
     start = time.time()
-    env.expect('ft.search', index_list[i], "@t:{w'*o23*'}", 'LIMIT', 0 , 0).equal([444])
+    env.expect('ft.search', index, "@t:{w'*o23*'}", 'LIMIT', 0 , 0).equal([444])
     print (time.time() - start)
-    env.expect('ft.search', index_list[i], "@t:{w'*oo23*'}", 'LIMIT', 0 , 0).equal([333])
-    env.expect('ft.search', index_list[i], "@t:{w'*oo234*'}", 'LIMIT', 0 , 0).equal([33])
+    env.expect('ft.search', index, "@t:{w'*oo23*'}", 'LIMIT', 0 , 0).equal([333])
+    env.expect('ft.search', index, "@t:{w'*oo234*'}", 'LIMIT', 0 , 0).equal([33])
 
     # suffix
-    env.expect('ft.search', index_list[i], "@t:{w'*oo234'}", 'LIMIT', 0 , 0).equal([3])
-    env.expect('ft.search', index_list[i], "@t:{w'*234'}", 'LIMIT', 0 , 0).equal([40])
-    env.expect('ft.search', index_list[i], "@t:{w'*13'}", 'LIMIT', 0 , 0).equal([400])
-    env.expect('ft.search', index_list[i], "@t:{w'*oo234?'}", 'LIMIT', 0 , 0).equal([30])
-    env.expect('ft.search', index_list[i], "@t:{w'*234?'}", 'LIMIT', 0 , 0).equal([40])
-    env.expect('ft.search', index_list[i], "@t:{w'*13?'}", 'LIMIT', 0 , 0).equal([400])
-    env.expect('ft.search', index_list[i], "@t:{w'*oo23?4'}", 'LIMIT', 0 , 0).equal([30])
-    env.expect('ft.search', index_list[i], "@t:{w'*23?4'}", 'LIMIT', 0 , 0).equal([40])
-    env.expect('ft.search', index_list[i], "@t:{w'*1?3'}", 'LIMIT', 0 , 0).equal([400])
+    env.expect('ft.search', index, "@t:{w'*oo234'}", 'LIMIT', 0 , 0).equal([3])
+    env.expect('ft.search', index, "@t:{w'*234'}", 'LIMIT', 0 , 0).equal([40])
+    env.expect('ft.search', index, "@t:{w'*13'}", 'LIMIT', 0 , 0).equal([400])
+    env.expect('ft.search', index, "@t:{w'*oo234?'}", 'LIMIT', 0 , 0).equal([30])
+    env.expect('ft.search', index, "@t:{w'*234?'}", 'LIMIT', 0 , 0).equal([40])
+    env.expect('ft.search', index, "@t:{w'*13?'}", 'LIMIT', 0 , 0).equal([400])
+    env.expect('ft.search', index, "@t:{w'*oo23?4'}", 'LIMIT', 0 , 0).equal([30])
+    env.expect('ft.search', index, "@t:{w'*23?4'}", 'LIMIT', 0 , 0).equal([40])
+    env.expect('ft.search', index, "@t:{w'*1?3'}", 'LIMIT', 0 , 0).equal([400])
 
   # test timeout
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
@@ -205,7 +205,7 @@ def testBenchmark(env):
     start_time = time.time()
     print('----*oo234----')
 
-def testBasic(env):
+def testEscape(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
@@ -321,3 +321,36 @@ def testLowerUpperCase(env):
 
   env.expect('FT.SEARCH', 'idx', "w'*el*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
   env.expect('FT.SEARCH', 'idx', "w'*EL*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
+
+
+def testBasic(env):
+  conn = getConnectionByEnv(env)
+  env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+  conn.execute_command('HSET', 'doc2', 't', 'hell')
+  conn.execute_command('HSET', 'doc3', 't', 'helen')
+  conn.execute_command('HSET', 'doc4', 't', 'help')
+  conn.execute_command('HSET', 'doc5', 't', 'olah')
+  conn.execute_command('HSET', 'doc6', 't', 'heal')
+  conn.execute_command('HSET', 'doc7', 't', 'hall')
+  conn.execute_command('HSET', 'doc8', 't', 'hallo')
+
+  env.expect('FT.SEARCH', 'idx', "w'*el*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
+  env.expect('FT.SEARCH', 'idx', "w'*ll*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc7', 'doc8'])
+  env.expect('FT.SEARCH', 'idx', "w'*llo'", 'NOCONTENT').equal([2, 'doc1', 'doc8'])
+  env.expect('FT.SEARCH', 'idx', "w'he*'", 'NOCONTENT').equal([5, 'doc1', 'doc2', 'doc3', 'doc4', 'doc6'])
+
+  env.expect('FT.AGGREGATE', 'idx', "w'*el*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')    \
+        .equal([4, ['t', 'helen'], ['t', 'hell'], ['t', 'hello'], ['t', 'help']])
+
+  env.expect('FT.AGGREGATE', 'idx', "w'*ll*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')    \
+        .equal([4, ['t', 'hall'], ['t', 'hallo'], ['t', 'hell'], ['t', 'hello']])
+
+  env.expect('FT.AGGREGATE', 'idx', "w'*llo'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')    \
+        .equal([2, ['t', 'hallo'], ['t', 'hello']])
+
+  env.expect('FT.AGGREGATE', 'idx', "w'he*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')     \
+        .equal([5, ['t', 'heal'], ['t', 'helen'], ['t', 'hell'], ['t', 'hello'], ['t', 'help']])
