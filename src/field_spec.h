@@ -90,8 +90,6 @@ enum TagFieldFlags {
 // Each field has a unique id that's a power of two, so we can filter fields by a bit mask.
 // Each field has a type, allowing us to add non text fields in the future.
 
-#define Mask(T) unsigned int
-
 struct FieldSpec {
   char* name;
   Mask(FieldType) types : 8;

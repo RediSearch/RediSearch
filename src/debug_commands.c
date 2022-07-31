@@ -617,7 +617,7 @@ DEBUG_COMMAND(DocInfo) {
   }
   GET_SEARCH_CTX(argv[0]);
 
-  const RSDocumentMetadata *dmd = sctx->spec->docs.GetByKeyR(argv[1]);
+  const RSDocumentMetadata *dmd = sctx->spec->docs.GetByKey(argv[1]);
   if (!dmd) {
     delete sctx;
     return RedisModule_ReplyWithError(ctx, "Document not found in index");

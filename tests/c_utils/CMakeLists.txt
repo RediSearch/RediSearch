@@ -1,5 +1,7 @@
 add_library(apistubs STATIC api_stubs.c)
 
+set_source_files_properties(api_stubs.c PROPERTIES LANGUAGE CXX)
+
 if (NOT RS_TEST_MODULE)
     set(RS_TEST_MODULE redisearch)
 endif()

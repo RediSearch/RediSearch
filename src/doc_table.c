@@ -16,83 +16,82 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Creates a new DocTable with a given capacity
-void DocTable::ctor(size_t cap, size_t max_size) {
+void DocTable::ctor(size_t cap_, t_docId max_size) {
   size = 1;
   maxSize = max_size;
-  maxDocId = 0;
-  cap = cap;
+  maxDocId = t_docId{0};
+  cap = cap_;
   memsize = 0;
   sortablesSize = 0;
   buckets = NULL;
 }
 
 DocTable::DocTable(size_t cap) {
-  ctor(cap, RSGlobalConfig.maxDocTableSize);
+  ctor(cap, t_docId{RSGlobalConfig.maxDocTableSize});
 }
 
 DocTable::DocTable() {
-  ctor(100, RSGlobalConfig.maxDocTableSize);
+  ctor(100, t_docId{RSGlobalConfig.maxDocTableSize});
 }
 
 //---------------------------------------------------------------------------------------------
 
-inline uint32_t DocTable::GetBucket(t_docId docId) const {
-  return docId < maxSize ? docId : docId % maxSize;
+DocTable::BucketIndex DocTable::GetBucketIdx(t_docId docId) const {
+  return BucketIndex{docId < maxSize ? docId : docId % maxSize};
 }
 
 //---------------------------------------------------------------------------------------------
 
-inline int DocTable::ValidateDocId(t_docId docId) const {
+bool DocTable::ValidateDocId(t_docId docId) const {
   return docId != 0 && docId <= maxDocId;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Get the metadata for a doc Id from the DocTable. If docId is not inside the table, we return NULL
+
 RSDocumentMetadata *DocTable::Get(t_docId docId) const {
   if (!ValidateDocId(docId)) {
     return NULL;
   }
-  uint32_t bucketIndex = GetBucket(docId);
-  if (bucketIndex >= cap) {
+  BucketIndex bucketIndex = GetBucketIdx(docId);
+  if (bucketIndex >= buckets.size()) {
     return NULL;
   }
-  DMDChain *dmdChain = &buckets[bucketIndex];
-  DLLIST2_FOREACH(it, &dmdChain->lroot) {
-    RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
-    if (dmd->id == docId) {
-      return dmd;
+
+  for (auto &dmd: buckets[bucketIndex]) {
+    if (dmd.id == docId) {
+      return &dmd;
     }
   }
+
   return NULL;
 }
 
 //---------------------------------------------------------------------------------------------
 
 bool DocTable::Exists(t_docId docId) const {
-  if (!docId || docId > maxDocId) {
+  if (!ValidateDocId(docId)) {
     return false;
   }
-  uint32_t ix = GetBucket(docId);
-  if (ix >= cap) {
+
+  BucketIndex bucketIndex = GetBucketIdx(docId);
+  if (bucketIndex >= buckets.size()) {
     return false;
   }
-  const DMDChain *chain = buckets + ix;
-  if (chain == NULL) {
-    return false;
-  }
-  DLLIST2_FOREACH(it, &chain->lroot) {
-    const RSDocumentMetadata *md = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
-    if (md->id == docId && !(md->flags & Document_Deleted)) {
+
+  for (auto &dmd: buckets[bucketIndex]) {
+    if (dmd.id == docId && !dmd.IsDeleted()) {
       return true;
     }
   }
+
   return false;
 }
 
 //---------------------------------------------------------------------------------------------
 
-RSDocumentMetadata *DocTable::GetByKeyR(RedisModuleString *s) const {
+RSDocumentMetadata *DocTable::GetByKey(RedisModuleString *s) const {
   const char *kstr;
   size_t klen;
   kstr = RedisModule_StringPtrLen(s, &klen);
@@ -102,30 +101,27 @@ RSDocumentMetadata *DocTable::GetByKeyR(RedisModuleString *s) const {
 
 //---------------------------------------------------------------------------------------------
 
-inline void DocTable::Set(t_docId docId, RSDocumentMetadata *dmd) {
-  uint32_t bucket = GetBucket(docId);
-  if (bucket >= cap && cap < maxSize) {
-    /* We have to grow the array capacity.
-     * We only grow till we reach maxSize, then we starts to add the dmds to
-     * the already existing chains.
-     */
-    size_t oldcap = cap;
+RSDocumentMetadata &DocTable::Set(t_docId docId, RSDocumentMetadata &&dmd) {
+  size_t size = buckets.size();
+  BucketIndex bucketIdx = GetBucketIdx(docId);
+  if (bucketIdx >= size && size < maxSize) {
+    // We have to grow the array size.
+    // We grow till we reach maxSize, then we add dmds to the existing chains.
+
+    size_t oldsize = size;
     // We grow by half of the current capacity with maximum of 1m
-    cap += 1 + (cap ? MIN(cap / 2, 1024 * 1024) : 1);
-    cap = MIN(cap, maxSize);  // make sure we do not excised maxSize
-    cap = MAX(cap, bucket + 1);  // docs[bucket] needs to be valid, so cap > bucket
-    buckets = rm_realloc(buckets, cap * sizeof(DMDChain));
-    for (; oldcap < cap; oldcap++) {
-      buckets[oldcap].lroot.head = NULL;
-      buckets[oldcap].lroot.tail = NULL;
-    }
+    size += 1 + (size ? MIN(size / 2, 1024 * 1024) : 1);
+    size = MIN(size, maxSize);  // make sure we do not excised maxSize
+    size = MAX(size, bucketIdx + 1);  // docs[bucket] needs to be valid, so size > bucketIdx
+
+    buckets.resize(size);
   }
 
-  DMDChain *chain = &buckets[bucket];
-  dmd->Incref();
+  DMDChain &chain = buckets[bucketIdx];
+  //dmd->Incref();
 
-  // Adding the dmd to the chain
-  dllist2_append(&chain->lroot, &dmd->llnode);
+  chain.emplace_back(std::move(dmd));
+  return chain.back();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -137,42 +133,36 @@ t_docId DocTable::GetId(const char *s, size_t n) const {
 
 //---------------------------------------------------------------------------------------------
 
-// Set payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the document
-int DocTable::SetPayload(t_docId docId, const char *data, size_t len) {
-  /* Get the metadata */
+// Set payload for a document.
+// Returns 1 if we set the payload, 0 if we couldn't find the document
+
+bool DocTable::SetPayload(t_docId docId, const char *data, size_t len) {
   RSDocumentMetadata *dmd = Get(docId);
   if (!dmd || !data) {
-    return 0;
+    return false;
   }
 
-  /* If we already have metadata - clean up the old data */
   if (dmd->payload) {
-    /* Free the old payload */
-    if (dmd->payload->data) {
-      rm_free((void *)dmd->payload->data);
-    }
-    memsize -= dmd->payload->len;
-  } else {
-    dmd->payload = rm_malloc(sizeof(RSPayload));
+    memsize -= dmd->payload->memsize();
+    delete dmd->payload;
   }
-  /* Copy it... */
-  dmd->payload->data = rm_calloc(1, len + 1);
-  dmd->payload->len = len;
-  memcpy(dmd->payload->data, data, len);
 
+  dmd->payload = new RSPayload(data, len);
   dmd->flags |= Document_HasPayload;
-  memsize += len;
-  return 1;
+  memsize += dmd->payload->memsize();
+  return true;
 }
 
 //---------------------------------------------------------------------------------------------
 
-// Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
-// vector. Returns 1 on success, 0 if the document does not exist. No further validation is done.
-int DocTable::SetSortingVector(t_docId docId, RSSortingVector *v) {
+// Set the sorting vector for a document. 
+// If the vector is NULL we mark the doc as not having a vector. 
+// Returns true on success, false if the document does not exist. No further validation is done.
+
+bool DocTable::SetSortingVector(t_docId docId, RSSortingVector *v) {
   RSDocumentMetadata *dmd = Get(docId);
   if (!dmd) {
-    return 0;
+    return false;
   }
 
   // LCOV_EXCL_START
@@ -188,18 +178,19 @@ int DocTable::SetSortingVector(t_docId docId, RSSortingVector *v) {
   //LCOV_EXCL_STOP
   RS_LOG_ASSERT(v, "Sorting vector does not exist"); // tested in doAssignIds()
 
-  /* Set th new vector and the flags accordingly */
+  // Set th new vector and the flags accordingly
   dmd->sortVector = v;
   dmd->flags |= Document_HasSortVector;
-  sortablesSize += v->GetMemorySize();
+  sortablesSize += v->memsize();
 
-  return 1;
+  return true;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Set the offset vector for a document. This contains the byte offsets of each token found in
 // the document. This is used for highlighting.
+
 int DocTable::SetByteOffsets(t_docId docId, RSByteOffsets *v) {
   RSDocumentMetadata *dmd = Get(docId);
   if (!dmd) {
@@ -213,48 +204,42 @@ int DocTable::SetByteOffsets(t_docId docId, RSByteOffsets *v) {
 
 //---------------------------------------------------------------------------------------------
 
-/* Put a new document into the table, assign it an incremental id and store the metadata in the
- * table.
- * Return 0 if the document is already in the index.
- *
- * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
- * same key. This may result in document duplication in results  */
+RSPayload::RSPayload(const char *payload, size_t payloadSize) {
+  data = rm_calloc(1, payloadSize + 1);
+  memcpy(data, payload, payloadSize);
+  len = payloadSize;
+}
+
+//---------------------------------------------------------------------------------------------
+
+// Put a new document into the table, assign it an incremental id and store the metadata in the
+// table.
+// Return 0 if the document is already in the index.
+//
+// NOTE:
+// Currently there is no deduplication on the table so we do not prevent dual insertion of the
+// same key. This may result in document duplication in results.
+
 t_docId DocTable::Put(const char *s, size_t n, double score, u_char flags,
                       const char *payload, size_t payloadSize) {
 
   t_docId xid = dim.Get(s, n);
   // if the document is already in the index, return 0
   if (xid) {
-    return 0;
+    return t_docId{0};
   }
+
   t_docId docId = ++maxDocId;
 
-  /* Copy the payload since it's probably an input string not retained */
   RSPayload *dpl = NULL;
   if (payload && payloadSize) {
-
-    dpl = rm_malloc(sizeof(RSPayload));
-    dpl->data = rm_calloc(1, payloadSize + 1);
-    memcpy(dpl->data, payload, payloadSize);
-    dpl->len = payloadSize;
-    flags |= Document_HasPayload;
-    memsize += payloadSize + sizeof(RSPayload);
+    dpl = new RSPayload(payload, payloadSize);
+    memsize += dpl->memsize();
   }
 
-  sds keyPtr = sdsnewlen(s, n);
-
-  RSDocumentMetadata *dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
-  dmd->keyPtr = keyPtr;
-  dmd->score = score;
-  dmd->flags = flags;
-  dmd->payload = dpl;
-  dmd->maxFreq = 1;
-  dmd->id = docId;
-  dmd->sortVector = NULL;
-
-  Set(docId, dmd);
+  RSDocumentMetadata &dmd = Set(docId, RSDocumentMetadata(s, n, score, flags, dpl, docId));
   ++size;
-  memsize += sizeof(RSDocumentMetadata) + sdsAllocSize(keyPtr);
+  memsize += dmd.memsize();
   dim.Put(s, n, docId);
   return docId;
 }
@@ -263,6 +248,7 @@ t_docId DocTable::Put(const char *s, size_t n, double score, u_char flags,
 
 // Get the payload for a document, if any was set.
 // If no payload has been set or the document id is not found, we return NULL.
+
 RSPayload *DocTable::GetPayload(t_docId docId) {
   RSDocumentMetadata *dmd = Get(docId);
   return dmd ? dmd->payload : NULL;
@@ -271,6 +257,7 @@ RSPayload *DocTable::GetPayload(t_docId docId) {
 //---------------------------------------------------------------------------------------------
 
 // Get the "real" external key for an incremental id. Returns NULL if docId is not in the table.
+
 const char *DocTable::GetKey(t_docId docId, size_t *lenp) {
   size_t len_s = 0;
   if (!lenp) {
@@ -289,7 +276,8 @@ const char *DocTable::GetKey(t_docId docId, size_t *lenp) {
 //---------------------------------------------------------------------------------------------
 
 // Get the score for a document from the table. Returns 0 if docId is not in the table.
-inline float DocTable::GetScore(t_docId docId) {
+
+float DocTable::GetScore(t_docId docId) {
   RSDocumentMetadata *dmd = Get(docId);
   return dmd ? dmd->score : 0;
 }
@@ -297,54 +285,25 @@ inline float DocTable::GetScore(t_docId docId) {
 //---------------------------------------------------------------------------------------------
 
 RSDocumentMetadata::~RSDocumentMetadata() {
-  if (payload) {
-    rm_free(payload->data);
-    rm_free(payload);
-    flags &= ~Document_HasPayload;
-    payload = NULL;
-  }
-  if (sortVector) {
-    delete sortVector;
-    sortVector = NULL;
-    flags &= ~Document_HasSortVector;
-  }
-  if (byteOffsets) {
-    delete byteOffsets;
-    byteOffsets = NULL;
-    flags &= ~Document_HasOffsetVector;
-  }
+  delete payload;
+  delete sortVector;
+  delete byteOffsets;
   sdsfree(keyPtr);
-}
-
-// Decrement the refcount of the DMD object, freeing it if we're the last reference
-inline void RSDocumentMetadata::Decref() {
-  if (!--ref_count) {
-    delete this;
-  }
 }
 
 //---------------------------------------------------------------------------------------------
 
 DocTable::~DocTable() {
-  for (int i = 0; i < cap; ++i) {
-    DMDChain *chain = &buckets[i];
-    if (DLLIST2_IS_EMPTY(&chain->lroot)) {
-      continue;
-    }
-    DLLIST2_node *nn = chain->lroot.head;
-    while (nn) {
-      RSDocumentMetadata *md = DLLIST2_ITEM(nn, RSDocumentMetadata, llnode);
-      nn = nn->next;
-    }
-  }
 }
 
 //---------------------------------------------------------------------------------------------
 
-void DocTable::DmdUnchain(RSDocumentMetadata *md) {
-  uint32_t bucketIndex = GetBucket(md->id);
-  DMDChain *dmdChain = &buckets[bucketIndex];
-  dllist2_delete(&dmdChain->lroot, &md->llnode);
+std::shared_ptr<RSDocumentMetadata> DocTable::Unchain(RSDocumentMetadata *dmd) {
+  uint32_t bucketIndex = GetBucketIdx(dmd->id);
+  DMDChain &chain = buckets[bucketIndex];
+  std::shared_ptr<RSDocumentMetadata> dmdptr = *dmd->llnode;
+  chain.erase(dmd->llnode);
+  return dmdptr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -360,69 +319,41 @@ bool DocTable::Delete(const char *s, size_t n) {
 
 //---------------------------------------------------------------------------------------------
 
-RSDocumentMetadata *DocTable::Pop(const char *s, size_t n) {
+std::shared_ptr<RSDocumentMetadata> DocTable::Pop(const char *s, size_t n) {
   t_docId docId = dim.Get(s, n);
+  if (!ValidateDocId(docId)) return NULL;
 
-  if (docId && docId <= maxDocId) {
-
-    RSDocumentMetadata *md = Get(docId);
-    if (!md) {
-      return NULL;
-    }
-
-    md->flags |= Document_Deleted;
-
-    DmdUnchain(md);
-    dim.Delete(s, n);
-    --size;
-
-    return md;
+  RSDocumentMetadata *dmd = Get(docId);
+  if (!dmd) {
+    return NULL;
   }
-  return NULL;
+
+  dmd->flags |= Document_Deleted;
+
+  Unchain(dmd);
+  dim.Delete(s, n);
+  --size;
+
+  return dmd;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Save the table to RDB. Called from the owning index
+
 void DocTable::RdbSave(RedisModuleIO *rdb) {
   RedisModule_SaveUnsigned(rdb, size);
   RedisModule_SaveUnsigned(rdb, maxDocId);
   RedisModule_SaveUnsigned(rdb, maxSize);
 
   uint32_t elements_written = 0;
-  for (uint32_t i = 0; i < cap; ++i) {
-    if (DLLIST2_IS_EMPTY(&buckets[i].lroot)) {
-      continue;
-    }
-    DLLIST2_FOREACH(it, &buckets[i].lroot) {
-      const RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
-      RedisModule_SaveStringBuffer(rdb, dmd->keyPtr, sdslen(dmd->keyPtr));
-      RedisModule_SaveUnsigned(rdb, dmd->id);
-      RedisModule_SaveUnsigned(rdb, dmd->flags);
-      RedisModule_SaveUnsigned(rdb, dmd->maxFreq);
-      RedisModule_SaveUnsigned(rdb, dmd->len);
-      RedisModule_SaveFloat(rdb, dmd->score);
-      if (dmd->flags & Document_HasPayload) {
-        if (dmd->payload) {
-          // save an extra space for the null terminator to make the payload null terminated on
-          RedisModule_SaveStringBuffer(rdb, dmd->payload->data, dmd->payload->len + 1);
-        } else {
-          RedisModule_SaveStringBuffer(rdb, "", 1);
-        }
-      }
-
-      if (dmd->flags & Document_HasSortVector) {
-        dmd->sortVector->RdbSave(rdb);
-      }
-
-      if (dmd->flags & Document_HasOffsetVector) {
-        Buffer tmp(16);
-        dmd->byteOffsets->Serialize(&tmp);
-        RedisModule_SaveStringBuffer(rdb, tmp.data, tmp.offset);
-      }
+  for (auto &bucket: buckets) {
+    for (auto &dmd: bucket) {
+      dmd.RdbSave(rdb);
       ++elements_written;
     }
   }
+
   RS_LOG_ASSERT((elements_written + 1 == size), "Wrong number of written elements");
 }
 
@@ -440,17 +371,15 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   if (maxDocId > maxSize) {
-    /**
-     * If the maximum doc id is greater than the maximum cap size
-     * then it means there is a possibility that any index under maxId can
-     * be accessed. However, it is possible that this bucket does not have
-     * any documents inside it (and thus might not be populated below), but
-     * could still be accessed for simple queries (e.g. get, exist). Ensure
-     * we don't have to rely on Set/Put to ensure the doc table array.
-     */
+    // If the maximum doc id is greater than the maximum cap size then it means there is a 
+    // possibility that any index under maxId can be accessed. 
+    // However, it is possible that this bucket does not have any documents inside it (and 
+    // thus might not be populated below), but could still be accessed for simple queries 
+    // (e.g. get, exist). Ensure we don't have to rely on Set/Put to ensure the doc table array.
+
     cap = maxSize;
-    rm_free(buckets);
-    buckets = rm_calloc(cap, sizeof(*buckets));
+    buckets.clear();
+    buckets.resize(cap);
   }
 
   for (size_t i = 1; i < size; i++) {
@@ -491,7 +420,7 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
         RedisModule_Free(dmd->payload->data);
         dmd->payload->data = buf;
         dmd->payload->len--;
-        memsize += dmd->payload->len + sizeof(RSPayload);
+        memsize += dmd->payload->memsize();
       } else if ((dmd->flags & Document_Deleted) && (encver == INDEX_MIN_EXPIRE_VERSION)) {
         RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
       }
@@ -499,7 +428,7 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
     dmd->sortVector = NULL;
     if (dmd->flags & Document_HasSortVector) {
       dmd->sortVector = new RSSortingVector(rdb, encver);
-      sortablesSize += dmd->sortVector->GetMemorySize();
+      sortablesSize += dmd->sortVector->memsize();
     }
 
     if (dmd->flags & Document_HasOffsetVector) {
@@ -513,13 +442,96 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
     } else {
       dim.Put(dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
       Set(dmd->id, dmd);
-      memsize += sizeof(RSDocumentMetadata) + len;
+      memsize += dmd->memsize();
     }
   }
   size -= deletedElements;
 }
 
 //---------------------------------------------------------------------------------------------
+
+t_docId DocTable::GetId(RedisModuleString *r) const {
+  size_t n;
+  const char *s = RedisModule_StringPtrLen(r, &n);
+  return GetId(s, n);
+}
+
+//---------------------------------------------------------------------------------------------
+
+bool DocTable::Delete(RedisModuleString *r) {
+  size_t n;
+  const char *s = RedisModule_StringPtrLen(r, &n);
+  return Delete(s, n);
+}
+
+//---------------------------------------------------------------------------------------------
+
+RSDocumentMetadata *DocTable::Pop(RedisModuleString *r) {
+  size_t n;
+  const char *s = RedisModule_StringPtrLen(r, &n);
+  return Pop(s, n);
+}
+
+//---------------------------------------------------------------------------------------------
+
+RSDocumentMetadata *DocTable::GetByKey(const char *key) {
+  t_docId id = GetId(key, strlen(key));
+  if (id == 0) {
+    return NULL;
+  }
+  return Get(id);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+RSPayload::~RSPayload() {
+  if (data) rm_free(data);
+}
+
+//---------------------------------------------------------------------------------------------
+
+RSDocumentMetadata::RSDocumentMetadata(const char *id, size_t idlen, double score_, Mask(RSDocumentFlags) flags_,
+    RSPayload *payload_, t_docId docId_) {
+
+  keyPtr = sdsnewlen(id, idlen);
+  score = score_;
+  flags = flags_ | (payload ? Document_HasPayload : 0);
+  payload = payload_;
+  maxFreq = 1;
+  id = docId;
+  sortVector = NULL;
+}
+
+//---------------------------------------------------------------------------------------------
+
+void RSDocumentMetadata::RdbSave(RedisModuleIO *rdb) {
+  RedisModule_SaveStringBuffer(rdb, keyPtr, sdslen(keyPtr));
+  RedisModule_SaveUnsigned(rdb, id);
+  RedisModule_SaveUnsigned(rdb, flags);
+  RedisModule_SaveUnsigned(rdb, maxFreq);
+  RedisModule_SaveUnsigned(rdb, len);
+  RedisModule_SaveFloat(rdb, score);
+  if (flags & Document_HasPayload) {
+    if (dmd->payload) {
+      // save an extra space for the null terminator to make the payload null terminated on
+      RedisModule_SaveStringBuffer(rdb, payload->data, payload->len + 1);
+    } else {
+      RedisModule_SaveStringBuffer(rdb, "", 1);
+    }
+  }
+
+  if (flags & Document_HasSortVector) {
+    sortVector->RdbSave(rdb);
+  }
+
+  if (flags & Document_HasOffsetVector) {
+    Buffer tmp(16);
+    byteOffsets->Serialize(&tmp);
+    RedisModule_SaveStringBuffer(rdb, tmp.data, tmp.offset);
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 DocIdMap::DocIdMap() {
   tm = new TrieMap();

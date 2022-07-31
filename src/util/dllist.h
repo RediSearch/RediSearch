@@ -1,11 +1,11 @@
 #pragma once
 
+#if 0
+
 #include <stdlib.h>
 #include <stddef.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-#if 0
 
 template <class T>
 struct List {
@@ -118,8 +118,6 @@ struct List {
 
 #define List_foreach(v, T, it) for (T *it = (v).head(); it != NULL; it = ((List<T>::Node &) *it).next)
 
-#endif // 0
-
 //---------------------------------------------------------------------------------------------
 
 struct DLLIST_node {
@@ -228,3 +226,6 @@ static inline void dllist2_delete(DLLIST2 *l, DLLIST2_node *c) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
+#endif // 0
+

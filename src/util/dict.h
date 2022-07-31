@@ -33,6 +33,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if 0
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -192,3 +194,5 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
 
 extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapRedisStrings;
+
+#endif // 0

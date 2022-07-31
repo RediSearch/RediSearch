@@ -200,7 +200,7 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   Tokenizer *tokenizer;
 
   // Old document data. Contains sortables
-  RSDocumentMetadata *oldMd;
+  std::shared_ptr<RSDocumentMetadata> oldMd;
 
   // New flags to assign to the document
   RSDocumentFlags docFlags;
