@@ -300,10 +300,14 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   return retidx;
 }
 
-static int processSuffixData_Wildcard(suffixData *data, SuffixCtx *sufCtx) {
-  if (!data) {
+int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
+  SuffixCtx *sufCtx = p;
+  TriePayload *pl = payload;
+  if (!pl) {
     return REDISMODULE_OK;
   }
+
+  suffixData *data = pl->data;
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
@@ -314,13 +318,6 @@ static int processSuffixData_Wildcard(suffixData *data, SuffixCtx *sufCtx) {
     }
   }
   return REDISMODULE_OK;
-}
-
-int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
-  SuffixCtx *sufCtx = p;
-  TriePayload *pl = payload;
-
-  return processSuffixData_Wildcard((void *)pl->data, sufCtx);
 }
 
 int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
