@@ -72,7 +72,7 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
   n->score = score;
   n->sortMode = sortMode;
   n->flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
-  n->maxChildScore = 0;
+  n->maxChildScore = score;
   memcpy(n->str, str + offset, sizeof(rune) * (len - offset));
   if (payload != NULL && plen > 0) {
     n->payload = triePayload_New(payload, plen);
