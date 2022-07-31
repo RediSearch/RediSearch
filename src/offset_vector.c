@@ -48,9 +48,13 @@ void *newOffsetIterator() {
 /* Create an offset iterator interface  from a raw offset vector */
 RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t) {
   if (!__offsetIters) {
-    mempool_options options = {
-        .isGlobal = 1, .initialCap = 8, .alloc = newOffsetIterator, .free = rm_free};
-    __offsetIters = mempool_new(&options);
+    RedisModule_ThreadSafeContextLock(NULL);
+    if (!__offsetIters) {
+      mempool_options options = {
+          .isGlobal = 1, .initialCap = 8, .alloc = newOffsetIterator, .free = rm_free};
+      __offsetIters = mempool_new(&options);
+    }
+    RedisModule_ThreadSafeContextUnlock(NULL);
   }
   _RSOffsetVectorIterator *it = mempool_get(__offsetIters);
   it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
@@ -86,9 +90,13 @@ static void aggiterFree(void *p) {
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
 static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
   if (!__aggregateIters) {
-    mempool_options opts = {
-        .isGlobal = 1, .initialCap = 8, .alloc = aggiterNew, .free = aggiterFree};
-    __aggregateIters = mempool_new(&opts);
+    RedisModule_ThreadSafeContextLock(NULL);
+    if (!__aggregateIters) {
+      mempool_options opts = {
+          .isGlobal = 1, .initialCap = 8, .alloc = aggiterNew, .free = aggiterFree};
+      __aggregateIters = mempool_new(&opts);
+    }
+    RedisModule_ThreadSafeContextUnlock(NULL);
   }
   _RSAggregateOffsetIterator *it = mempool_get(__aggregateIters);
   it->res = agg;

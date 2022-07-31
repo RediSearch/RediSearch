@@ -30,6 +30,7 @@ mempool_t *mempool_new(const mempool_options *options) {
   p->cap = options->initialCap;
   p->max = options->maxCap;
   p->top = 0;
+  pthread_mutex_init(&p->lock, NULL);
   if (mempoolDisable_g == -1) {
     if (getenv("REDISEARCH_NO_MEMPOOL")) {
       fprintf(stderr, "[redisearch]: REDISEARCH_NO_MEMPOOL in environment. Disabling\n");
@@ -55,16 +56,19 @@ mempool_t *mempool_new(const mempool_options *options) {
 
 void *mempool_get(mempool_t *p) {
   void *ret = NULL;
+  pthread_mutex_lock(&p->lock);
   if (p->top > 0) {
     ret = p->entries[--p->top];
 
   } else {
     ret = p->alloc();
   }
+  pthread_mutex_unlock(&p->lock);
   return ret;
 }
 
 inline void mempool_release(mempool_t *p, void *ptr) {
+  pthread_mutex_lock(&p->lock);
   if (p->entries == NULL || (p->max && p->max <= p->top)) {
     p->free(ptr);
     return;
@@ -77,6 +81,7 @@ inline void mempool_release(mempool_t *p, void *ptr) {
     p->entries = rm_realloc(p->entries, p->cap * sizeof(void *));
   }
   p->entries[p->top++] = ptr;
+  pthread_mutex_unlock(&p->lock);
 }
 
 void mempool_destroy(mempool_t *p) {
@@ -84,6 +89,7 @@ void mempool_destroy(mempool_t *p) {
     p->free(p->entries[i]);
   }
   rm_free(p->entries);
+  pthread_mutex_destroy(&p->lock);
   rm_free(p);
 }
 
