@@ -36,8 +36,12 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
 
 void suffixTrie_freeCallback(void *data);
 
+/* Iterate on suffix trie and add use callback function on results */
 void Suffix_IterateContains(SuffixCtx *sufCtx);
-void Suffix_IterateWildcard(SuffixCtx *sufCtx);
+
+/* Iterate on suffix trie and add use callback function on results 
+ * If wildcard pattern does not support suffix trie, return 0, else return 1. */
+int Suffix_IterateWildcard(SuffixCtx *sufCtx);
 
 
 /***********************************************************/
@@ -48,9 +52,12 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
 
 void suffixTrieMap_freeCallback(void *payload);
 
+/* Return a list of list of terms which match the suffix or contains term */
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
                                         bool prefix, struct timespec timeout);
 
+/* Return a list of terms which match the wildcard pattern
+ * If pattern does not match using suffix trie, return 0xBAAAAAAD */
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
                                                struct timespec timeout);
 

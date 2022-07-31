@@ -323,13 +323,13 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
   return processSuffixData_Wildcard((void *)pl->data, sufCtx);
 }
 
-void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
+int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   size_t idx[sufCtx->cstrlen];
   size_t lens[sufCtx->cstrlen];
   int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
 
   if (useIdx == UNINITIALIZED) {
-    return;
+    return 0;
   }
 
   rune *token = sufCtx->rune + idx[useIdx];
@@ -340,6 +340,7 @@ void Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   token[toklen] = (rune)'\0';
 
   TrieNode_IterateWildcard(sufCtx->root, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout);
+  return 1;
 }
 
 void suffixTrie_freeCallback(void *payload) {
@@ -480,7 +481,7 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   // find best token
   int useIdx = Suffix_ChooseToken(pattern, len, idx, lens);
   if (useIdx == UNINITIALIZED) {
-    return NULL;
+    return 0xBAAAAAAD;
   }
 
   size_t tokenidx = idx[useIdx];

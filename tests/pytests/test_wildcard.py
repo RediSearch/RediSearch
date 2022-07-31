@@ -28,7 +28,7 @@ def testSanity(env):
 
   for index in index_list:
     #prefix
-    env.expect('ft.search', index, "w'f*'", 'LIMIT', 0 , 0).equal([40000] if index == index_list[0] else [0])
+    env.expect('ft.search', index, "w'f*'", 'LIMIT', 0 , 0).equal([40000])
     env.expect('ft.search', index, "w'foo*'", 'LIMIT', 0 , 0).equal([40000])
     env.expect('ft.search', index, "w'foo1*'", 'LIMIT', 0 , 0).equal([1111])
     env.expect('ft.search', index, "w'*ooo1*'", 'LIMIT', 0 , 0).equal([2222])
@@ -99,7 +99,7 @@ def testSanityTag(env):
 
   for index in index_list:
     #prefix
-    env.expect('ft.search', index, "@t:{w'f*'}", 'LIMIT', 0 , 0).equal([40000] if index == index_list[0] else [0])
+    env.expect('ft.search', index, "@t:{w'f*'}", 'LIMIT', 0 , 0).equal([40000])
     env.expect('ft.search', index, "@t:{w'foo*'}", 'LIMIT', 0 , 0).equal([40000])
     env.expect('ft.search', index, "@t:{w'foo1*'}", 'LIMIT', 0 , 0).equal([1111])
     env.expect('ft.search', index, "@t:{w'*ooo1*'}", 'LIMIT', 0 , 0).equal([2222])

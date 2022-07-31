@@ -565,7 +565,8 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
-  // spec support contains queries
+  bool fallbackBruteForce = false;
+  // spec support using suffix trie
   if (spec->suffix) {
     // all modifier fields are supported
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
@@ -581,11 +582,16 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         .cbCtx = &ctx,
         .timeout = &q->sctx->timeout,
       };
-      Suffix_IterateWildcard(&sufCtx);
+      if (Suffix_IterateWildcard(&sufCtx) == 0) {
+        // if suffix trie cannot be used, use brute force
+        fallbackBruteForce = true;
+      }
     } else {
       QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
-  } else {
+  }
+
+  if (!spec->suffix || fallbackBruteForce) {
     TrieNode_IterateWildcard(t->root, str, nstr, runeIterCb, &ctx, &q->sctx->timeout);
   }
 
@@ -1020,7 +1026,38 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
-  if (!idx->suffix) {
+  bool fallbackBruteForce = false;
+  if (idx->suffix) {
+    // with suffix
+    arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
+                                                        q->sctx->timeout);
+    if (!arr) {
+      // No matching terms
+      rm_free(its);     
+      return NULL;
+    } else if (arr == 0xBAAAAAAD) {
+      // The wildcard pattern does not include tokens that can be used with suffix trie 
+      fallbackBruteForce = true;
+    } else {
+      for (int i = 0; i < array_len(arr); ++i) {
+        if (itsSz >= RSGlobalConfig.maxPrefixExpansions) {
+          break;
+        }
+        IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, arr[i], strlen(arr[i]), 1);
+        if (!ret) continue;
+
+          // Add the reader to the iterator array
+        its[itsSz++] = ret;
+        if (itsSz == itsCap) {
+          itsCap *= 2;
+          its = rm_realloc(its, itsCap * sizeof(*its));
+        }
+      }
+      array_free(arr);
+    }
+  }
+
+  if (!idx->suffix || fallbackBruteForce) {
     // brute force wildcard query 
     TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
     TrieMapIterator_SetTimeout(it, q->sctx->timeout);
@@ -1045,30 +1082,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
       }
     }
     TrieMapIterator_Free(it);
-  } else {
-    // with suffix
-    arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
-                                                        q->sctx->timeout);
-    if (!arr) {
-      rm_free(its);     
-      return NULL;
-    }
-    for (int i = 0; i < array_len(arr); ++i) {
-      if (itsSz >= RSGlobalConfig.maxPrefixExpansions) {
-        break;
-      }
-      IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, arr[i], strlen(arr[i]), 1);
-      if (!ret) continue;
-
-        // Add the reader to the iterator array
-      its[itsSz++] = ret;
-      if (itsSz == itsCap) {
-        itsCap *= 2;
-        its = rm_realloc(its, itsCap * sizeof(*its));
-      }
-    }
-    array_free(arr);
-  }
+  } else 
 
   if (itsSz == 0) {
     rm_free(its);
