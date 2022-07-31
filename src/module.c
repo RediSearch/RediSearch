@@ -68,8 +68,8 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  /* Find the document by its key */
-  docId = sp->docs.GetIdR(argv[2]);
+  // Find the document by its key
+  docId = sp->docs.GetId(argv[2]);
   if (docId == 0) {
     RedisModule_ReplyWithError(ctx, "Document not in index");
     goto cleanup;
@@ -96,6 +96,7 @@ cleanup:
  * If referred docs are missing or not HASH keys, we simply reply with Null, but the result will
  * be an array the same size of the ids list
  */
+
 int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -107,7 +108,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
 
-    if (dt->GetIdR(argv[i]) == 0) {
+    if (dt->GetId(argv[i]) == 0) {
       // Document does not exist in index; even though it exists in keyspace
       RedisModule_ReplyWithNull(ctx);
       continue;
@@ -133,6 +134,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
  *
  * If referred docs are missing or not HASH keys, we simply reply with Null
  */
+
 int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
@@ -145,7 +147,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   Document doc(argv[2], 0, DEFAULT_LANGUAGE);
 
-  if (sctx->spec->docs.GetIdR(argv[2]) == 0 ||
+  if (sctx->spec->docs.GetId(argv[2]) == 0 ||
       doc.LoadAllFields(ctx) == REDISMODULE_ERR) {
     RedisModule_ReplyWithNull(ctx);
   } else {
@@ -157,11 +159,12 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
 //---------------------------------------------------------------------------------------------
 
-int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 #define DICT_INITIAL_SIZE 5
 #define DEFAULT_LEV_DISTANCE 1
 #define MAX_LEV_DISTANCE 100
 #define STRINGIFY(s) #s
+
+int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -306,7 +309,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModuleString *docKey = argv[2];
 
   // Get the doc ID
-  t_docId id = sp->docs.GetIdR(docKey);
+  t_docId id = sp->docs.GetId(docKey);
   if (id == 0) {
     return RedisModule_ReplyWithLongLong(ctx, 0);
     // ID does not exist.
@@ -321,13 +324,12 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     gi.RemoveEntries(id);
   }
 
-  int rc = sp->docs.DeleteR(docKey);
+  int rc = sp->docs.Delete(docKey);
   if (rc) {
     sp->stats.numDocuments--;
 
     // If needed - delete the actual doc
     if (delDoc) {
-
       RedisModuleKey *dk = RedisModule_OpenKey(ctx, argv[2], REDISMODULE_WRITE);
       if (dk && RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
         RedisModule_DeleteKey(dk);
@@ -352,9 +354,10 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 //---------------------------------------------------------------------------------------------
 
-/* FT.TAGVALS {idx} {field}
- * Return all the values of a tag field.
- * There is no sorting or paging, so be careful with high-cradinality tag fields */
+// FT.TAGVALS {idx} {field}
+// Return all the values of a tag field.
+// There is no sorting or paging, so be careful with high-cradinality tag fields.
+
 int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc != 3) {
@@ -425,6 +428,7 @@ overwritten
 
     OK or an error
 */
+
 int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, the SCHEMA keyword, and number of field/text args must be even
   if (argc < 5) {
@@ -469,6 +473,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
  * instances
  *
  */
+
 int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc != 2) {
@@ -496,6 +501,7 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
  *
  * If KEEPDOCS exists, we do not delete the actual docs
  */
+
 int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc < 2 || argc > 3) {
@@ -529,6 +535,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  * groups. Each Synonym group has a unique id. The SYNADD command creates a new synonym group with
  * the given terms and return its id.
  */
+
 int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) return RedisModule_WrongArity(ctx);
 
@@ -582,6 +589,7 @@ int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, 
  * Its only to add new terms to a synonym group.
  * return true on success.
  */
+
 int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) return RedisModule_WrongArity(ctx);
 
@@ -636,6 +644,7 @@ int SynForceUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
  *    - term3
  *        - id4
  */
+
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
@@ -724,6 +733,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 //---------------------------------------------------------------------------------------------
 
 // FT.ALIASADD <NAME> <TARGET>
+
 static int AliasAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
@@ -868,20 +878,15 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(NumericIndexType_Register, ctx);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom", 1, 1,
-         1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSSafeAddDocumentCommand, "write deny-oom",
-         1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSSafeAddDocumentCommand, "write deny-oom", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", 1,
-         1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, RSAddHashCommand, "write deny-oom", 1, 1,
-         1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, RSAddHashCommand, "write deny-oom", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADDHASH_CMD, RSSafeAddHashCommand, "write deny-oom",
-         1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADDHASH_CMD, RSSafeAddHashCommand, "write deny-oom", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
 
@@ -892,10 +897,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, -1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom", 1, 1,
-         1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CMD_PREFIX ".OPTIMIZE", OptimizeIndexCommand,
-         "write deny-oom", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CMD_PREFIX ".OPTIMIZE", OptimizeIndexCommand, "write deny-oom", 1, 1, 1);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly", 1, 1, 1);
@@ -903,11 +906,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly", 1,
-         1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1,
-         1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGDEL_CMD, RSSuggestDelCommand, "write", 1, 1, 1);
 
@@ -921,8 +922,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNFORCEUPDATE_CMD, SynForceUpdateCommand, "write", 1,
-         1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNFORCEUPDATE_CMD, SynForceUpdateCommand, "write", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly", 1, 1, 1);
 
@@ -958,7 +958,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
 //---------------------------------------------------------------------------------------------
 
-void __attribute__((destructor)) RediSearch_CleanupModule(void) {
+void __attribute__((destructor)) RediSearch_CleanupModule() {
   if (getenv("RS_GLOBAL_DTORS")) {  // used in sanitizer
     static int invoked = 0;
     if (invoked || !RS_Initialized) {

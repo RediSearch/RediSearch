@@ -1,3 +1,6 @@
+
+#if 0
+
 // clang-format off
 
 /* Hash Tables Implementation.
@@ -1277,3 +1280,5 @@ int main(int argc, char **argv) {
     end_benchmark("Removing and adding");
 }
 #endif
+
+#endif // 0

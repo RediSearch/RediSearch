@@ -81,7 +81,7 @@ struct SearchResult {
   double score;
   RSScoreExplain *scoreExplain;
 
-  RSDocumentMetadata *dmd;
+  std::shared_ptr<RSDocumentMetadata> dmd;
 
   // index result should cover what you need for highlighting, but we will add a method to
   // duplicate index results to make them thread safe.

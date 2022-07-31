@@ -229,7 +229,7 @@ int AddDocumentCtx::makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryErro
   IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
   if (replace) {
-    RSDocumentMetadata *dmd = table->PopR(doc.docKey);
+    std::shared_ptr<RSDocumentMetadata> dmd = table->Pop(doc.docKey);
     if (dmd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;

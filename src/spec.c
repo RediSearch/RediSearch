@@ -1253,7 +1253,8 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->stats.RdbLoad(rdb);
 
   sp->docs.RdbLoad(rdb, encver);
-  /* For version 3 or up - load the generic trie */
+
+  // For version 3 or up - load the generic trie
   if (encver >= 3) {
     sp->terms = TrieType_GenericLoad(rdb, 0);
   } else {

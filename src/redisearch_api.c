@@ -230,7 +230,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
   RedisSearchCtx sctx(NULL, sp);
-  int exists = !!sp->docs.GetIdR(d->docKey);
+  int exists = !!sp->docs.GetId(d->docKey);
   if (exists) {
     if (options & REDISEARCH_ADD_REPLACE) {
       options |= DOCUMENT_ADD_REPLACE;

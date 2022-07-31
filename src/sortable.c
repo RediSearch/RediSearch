@@ -161,7 +161,7 @@ inline RSValue *RSSortingVector::Get(size_t index) {
   return values[index];
 }
 
-size_t RSSortingVector::GetMemorySize() {
+size_t RSSortingVector::memsize() const {
   size_t sum = len * sizeof(RSValue *);
   for (int i = 0; i < len; i++) {
     if (!values[i]) continue;

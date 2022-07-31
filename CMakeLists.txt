@@ -99,6 +99,13 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>)
 
+#set(FINAL_OBJECTS
+#    $<TARGET_OBJECTS:rscore>
+#    $<TARGET_OBJECTS:rmutil>
+#    $<TARGET_OBJECTS:friso>
+#	)
+	
+
 #----------------------------------------------------------------------------------------------
 
 if (RS_BUILD_COORDINATOR)

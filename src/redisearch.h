@@ -6,6 +6,8 @@
 #include "trie/rune_util.h"
 #include "stemmer.h"
 #include "rmalloc.h"
+#include "rmutil/sds.h"
+#include "rmutil/vector.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -13,11 +15,29 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef uint64_t t_docId;
-typedef uint64_t t_offset;
-// used to represent the id of a single field.
-// to produce a field mask we calculate 2^fieldId
-typedef uint16_t t_fieldId;
+template <class T = size_t>
+struct IdType {
+  T _id;
+  explicit IdType(T id = 0): _id(id) {}
+  operator T() const { return _id; }
+  T operator+() const { return _id; }
+  IdType<T> &operator++() { ++_id; return *this; }
+  IdType<T> operator=(IdType<T> id) { _id = id; return *this; }
+  bool operator==(IdType<T> id) const { return _id == id._id; }
+};
+
+//---------------------------------------------------------------------------------------------
+
+#define Mask(T) unsigned int
+
+//---------------------------------------------------------------------------------------------
+
+//typedef uint64_t t_docId;
+typedef IdType<uint64_t> t_docId;
+typedef IdType<uint64_t> t_offset;
+
+// represents id of single field. to produce field mask we calculate 2^fieldId.
+typedef IdType<uint16_t> t_fieldId;
 
 #define DOCID_MAX UINT64_MAX
 
@@ -39,19 +59,24 @@ struct RSSortingVector;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* A payload object is set either by a query expander or by the user, and can be used to process
- * scores. For examples, it can be a feature vector that is then compared to a feature vector
- * extracted from each result or document */
+// payload object is set either by query expander or by user, and can be used to process scores.
+// For examples, it can be a feature vector that is then compared to a feature vector
+// extracted from each result or document.
 
-struct RSPayload {
+struct RSPayload : Object {
   RSPayload() : data(NULL), len(0) {}
+  RSPayload(const char *payload, size_t payloadSize);
+
   char *data;
   size_t len;
+
+  size_t memsize() const { return sizeof(*this) + len; }
 };
 
 //---------------------------------------------------------------------------------------------
 
 // Internally used document flags
+
 enum RSDocumentFlags {
   Document_DefaultFlags = 0x00,
   Document_Deleted = 0x01,
@@ -69,8 +94,8 @@ enum RSDocumentFlags {
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
  *
- * The key is the actual user defined key of the document, not the incremental id. It is used to
- * convert incremental internal ids to external string keys.
+ * The key is the actual user defined key of the document, not the incremental id.
+ * It is used to convert incremental internal ids to external string keys.
  *
  * Score is the original user score as inserted to the index
  *
@@ -81,7 +106,7 @@ struct RSDocumentMetadata : Object {
   t_docId id;
 
   // The actual key of the document, not the internal incremental id
-  char *keyPtr;
+  sds keyPtr;
 
   // The a-priory document score as given by the user on insertion
   float score;
@@ -93,7 +118,7 @@ struct RSDocumentMetadata : Object {
   uint32_t len : 24;
 
   // Document flags
-  RSDocumentFlags flags : 8;
+  Mask(RSDocumentFlags) flags : 8;
 
   // Optional user payload
   RSPayload *payload;
@@ -101,10 +126,12 @@ struct RSDocumentMetadata : Object {
   struct RSSortingVector *sortVector;
   // Offsets of all terms in the document (in bytes). Used by highlighter
   struct RSByteOffsets *byteOffsets;
-  DLLIST2_node llnode;
+  List<struct RSDocumentMetadata>::iterator llnode;
   uint32_t ref_count;
 
-  RSDocumentMetadata();
+  RSDocumentMetadata(const char *id, size_t idlen, double score, Mask(RSDocumentFlags) flags,
+    RSPayload *payload, t_docId docId);
+  RSDocumentMetadata(RedisModuleIO *rdb);
   ~RSDocumentMetadata();
 
   const char *KeyPtrLen(size_t *len) const;
@@ -113,6 +140,12 @@ struct RSDocumentMetadata : Object {
 
   void Decref();
   void Incref() { ++ref_count; }
+
+  bool IsDeleted() const { return !!(flags & Document_Deleted); }
+
+  size_t memsize() const { return sizeof(*this) + sdsAllocSize(keyPtr); }
+
+  void RdbSave(RedisModuleIO *rdb);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -128,6 +161,7 @@ typedef uint32_t RSTokenFlags;
 
 // A token in the query.
 // The expanders receive query tokens and can expand the query with more query tokens.
+
 struct RSToken {
   char *str; // The token string - which may or may not be NULL terminated
   size_t len; // The token length
@@ -185,6 +219,7 @@ struct RSQueryExpander {
 
 // The signature for a query expander instance
 typedef int (*RSQueryTokenExpander)(RSQueryExpander *expander, RSToken *token);
+
 // A free function called after the query expansion phase is over, to release per-query data
 typedef void (*RSFreeFunction)(void *);
 
@@ -215,7 +250,7 @@ struct RSQueryTerm : public Object {
 // Scoring Function API
 
 // RS_OFFSETVECTOR_EOF is returned from an RSOffsetIterator when calling next and reaching the end.
-// When calling the iterator you should check for this return value */
+// When calling the iterator you should check for this return value.
 #define RS_OFFSETVECTOR_EOF UINT32_MAX
 
 //---------------------------------------------------------------------------------------------
@@ -224,6 +259,7 @@ struct RSQueryTerm : public Object {
 
 struct RSOffsetIterator {
   virtual ~RSOffsetIterator() {}
+
   virtual uint32_t Next(RSQueryTerm **term) { return RS_OFFSETVECTOR_EOF; }
   virtual void Rewind() {}
 

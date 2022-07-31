@@ -134,7 +134,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
   int rc = REDISMODULE_ERR;
   // If the ID is 0, then the document does not exist.
   IndexSpec *sp = spec;
-  int exists = !!sp->docs.GetIdR(name);
+  int exists = !!sp->docs.GetId(name);
 
   AddDocumentCtx *aCtx = NULL;
   RedisModuleCtx *ctx = redisCtx;

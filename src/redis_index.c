@@ -522,10 +522,11 @@ static bool Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 //---------------------------------------------------------------------------------------------
 
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey) {
-
+  RedisModuleCtx *redisCtx = ctx->redisCtx;
   if (deleteDocuments) {
-    DocTable *dt = &ctx->spec->docs;
-    DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, dmd->CreateKeyString(ctx->redisCtx)));
+    ctx->spec->docs.foreach([](RSDocumentMetadata &dmd) {
+        Redis_DeleteKey(redisCtx, dmd.CreateKeyString(redisCtx))
+      });
   }
 
   rune *rstr = NULL;
@@ -538,30 +539,29 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
   while (it->Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModuleString *keyName = ctx->TermKeyName(res, strlen(res));
-    Redis_DropScanHandler(ctx->redisCtx, keyName, ctx);
-    RedisModule_FreeString(ctx->redisCtx, keyName);
+    Redis_DropScanHandler(redisCtx, keyName, ctx);
+    RedisModule_FreeString(redisCtx, keyName);
   }
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx->spec->numFields; i++) {
     const FieldSpec *fs = ctx->spec->fields + i;
     if (fs->IsFieldType(INDEXFLD_T_NUMERIC)) {
-      Redis_DeleteKey(ctx->redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_NUMERIC));
+      Redis_DeleteKey(redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_NUMERIC));
     }
     if (fs->IsFieldType(INDEXFLD_T_TAG)) {
-      Redis_DeleteKey(ctx->redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_TAG));
+      Redis_DeleteKey(redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_TAG));
     }
     if (fs->IsFieldType(INDEXFLD_T_GEO)) {
-      Redis_DeleteKey(ctx->redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_GEO));
+      Redis_DeleteKey(redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_GEO));
     }
   }
 
   // Delete the index spec
-  int deleted = 1;
+  bool deleted = true;
   if (deleteSpecKey) {
-    deleted = Redis_DeleteKey(
-        ctx->redisCtx,
-        RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
+    deleted = Redis_DeleteKey(redisCtx,
+        RedisModule_CreateStringPrintf(redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
   }
   return deleted ? REDISMODULE_OK : REDISMODULE_ERR;
 }
