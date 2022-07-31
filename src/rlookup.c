@@ -189,7 +189,9 @@ void RLookupRow_Wipe(RLookupRow *r) {
   }
   r->sv = NULL;
   if (r->rmkey) {
+    RedisModule_ThreadSafeContextLock(NULL);
     RedisModule_CloseKey(r->rmkey);
+    RedisModule_ThreadSafeContextUnlock(NULL);
     r->rmkey = NULL;
   }
 }

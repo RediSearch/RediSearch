@@ -370,9 +370,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     *r = *sr;
 
     rm_free(sr);
-    RedisModule_ThreadSafeContextLock(NULL);
     RLookupRow_Cleanup(&oldrow);
-    RedisModule_ThreadSafeContextUnlock(NULL);
     return RS_RESULT_OK;
   }
   return RS_RESULT_EOF;
@@ -402,9 +400,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (self->pooledResult == NULL) {
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
   } else {
-    RedisModule_ThreadSafeContextLock(NULL);
     RLookupRow_Wipe(&self->pooledResult->rowdata);
-    RedisModule_ThreadSafeContextUnlock(NULL);
   }
 
   SearchResult *h = self->pooledResult;
