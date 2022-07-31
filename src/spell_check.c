@@ -34,7 +34,7 @@ static void RS_SuggestionFree(RS_Suggestion *suggestion) {
 RS_Suggestions *RS_SuggestionsCreate() {
 #define SUGGESTIONS_ARRAY_INITIAL_SIZE 10
   RS_Suggestions *ret = rm_calloc(1, sizeof(RS_Suggestions));
-  ret->suggestionsTrie = NewTrie(NULL);
+  ret->suggestionsTrie = NewTrie(NULL, Trie_Sort_Score);
   return ret;
 }
 
