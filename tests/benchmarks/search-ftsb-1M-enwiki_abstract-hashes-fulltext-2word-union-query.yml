@@ -20,6 +20,7 @@ dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+    - '"FT.CONFIG SET" "TIMEOUT" "3000"'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64

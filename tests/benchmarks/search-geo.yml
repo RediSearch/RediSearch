@@ -16,6 +16,7 @@ dbconfig:
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-nyc_taxis-hashes/1M-nyc_taxis-hashes.redisearch.commands.ALL.csv"
   - init_commands:
       - '"FT.CREATE" "nyc" "SCHEMA" "pickup_location_long_lat" "GEO" "dropoff_location_long_lat" "GEO"'
+      - '"FT.CONFIG SET" "TIMEOUT" "3000"'
   - dataset_load_timeout_secs: 180
   - check:
       keyspacelen: 1000000
