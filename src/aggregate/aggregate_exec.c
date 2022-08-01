@@ -313,7 +313,7 @@ typedef struct { AREQ *r; RedisModuleBlockedClient *bc; } RCtx;
 void AREQ_Execute_ctx(RCtx *rctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(rctx->bc);
   rctx->r->sctx->redisCtx = ctx;
-  updateTimeout(&rctx->r->timeoutTime, rctx->r->reqTimeout + 1000); // Not counting complie time and queue time
+  // updateTimeout(&rctx->r->timeoutTime, rctx->r->reqTimeout + 1000); // Not counting complie time and queue time
   AREQ_Execute(rctx->r, ctx);
   if(RedisModule_BlockedClientMeasureTimeEnd) {
     // report block client end time
