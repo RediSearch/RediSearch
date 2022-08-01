@@ -70,7 +70,7 @@ Searches the index with a textual query, returning either documents or just ids.
 
 - **LIMIT first num**: Limit the results to the offset and number of results given.
   Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
-  If a result key expires during the query, its content will be a null-array.
+  If a result key expires during the query, its content will be a null array.
 
 {{% alert title="Tip" color="info" %}}
 `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
