@@ -71,6 +71,7 @@ inline void mempool_release(mempool_t *p, void *ptr) {
   pthread_mutex_lock(&p->lock);
   if (p->entries == NULL || (p->max && p->max <= p->top)) {
     p->free(ptr);
+    pthread_mutex_unlock(&p->lock);
     return;
   }
 
@@ -85,11 +86,11 @@ inline void mempool_release(mempool_t *p, void *ptr) {
 }
 
 void mempool_destroy(mempool_t *p) {
+  pthread_mutex_destroy(&p->lock);
   for (size_t i = 0; i < p->top; i++) {
     p->free(p->entries[i]);
   }
   rm_free(p->entries);
-  pthread_mutex_destroy(&p->lock);
   rm_free(p);
 }
 
