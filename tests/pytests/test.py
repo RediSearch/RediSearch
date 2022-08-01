@@ -292,7 +292,7 @@ def testDelete(env):
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'f', 'hello world'))
-    
+
     env.expect('ft.del', 'fake_idx', 'doc1').error()
 
     for i in range(100):
@@ -423,7 +423,7 @@ def testCustomStopwords(env):
     # Index with NO stopwords
     env.assertOk(r.execute_command('ft.create', 'idx3', 'stopwords', 0,
                                     'schema', 'foo', 'text'))
-    
+
     if not env.isCluster:
         res = env.cmd('ft.info', 'idx3')
         env.assertEqual(res[39], [])
@@ -2214,7 +2214,7 @@ def testNoCreate(env):
 
 def testSpellCheck(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'report', 'TEXT')
-    env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'report', 'report content')  
+    env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'report', 'report content')
     rv = env.cmd('FT.SPELLCHECK', 'idx', '111111')
     env.assertEqual([['TERM', '111111', []]], rv)
     if not env.isCluster():
@@ -2366,7 +2366,7 @@ def testOptionalFilter(env):
 def testIssue736(env):
     # 1. create the schema, we need a tag field
     env.cmd('ft.create', 'idx', 'schema', 't1', 'text', 'n2', 'numeric', 't2', 'tag')
-    # 2. create a single document to initialize at least one RSAddDocumentCtx
+    # 2. create a single document to initialize at least one AddDocumentCtx
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 't2', 'foo, bar')
     # 3. create a second document with many filler fields to force a realloc:
     extra_fields = []
@@ -2498,7 +2498,7 @@ def testDelIndexExternally(env):
     env.skipOnCluster() # todo: remove once fix on coordinator
     env.expect('FT.CREATE idx SCHEMA num NUMERIC t TAG g GEO').equal('OK')
     env.expect('ft.add idx doc1 1.0 FIELDS num 3 t my_tag g', "1,1").equal('OK')
-    
+
     env.expect('set nm:idx/num 1').equal('OK')
     env.expect('ft.add idx doc2 1.0 FIELDS num 3').equal('Could not open numeric index for indexing')
 
@@ -2621,7 +2621,7 @@ def testGroupbyWithSort(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', '1').equal('OK')
     env.expect('ft.add', 'idx', 'doc3', '1.0', 'FIELDS', 'test', '2').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@test', 'ASC', 
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@test', 'ASC',
                'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as', 'count').equal([2L, ['test', '2', 'count', '1'], ['test', '1', 'count', '2']])
 
 def testApplyError(env):
@@ -2914,10 +2914,10 @@ def to_dict(r):
 def testOptimize(env):
     env.skipOnCluster()
     env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
-    env.cmd('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo')   
-    env.assertEqual(0, env.cmd('FT.OPTIMIZE', 'idx'))   
+    env.cmd('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo')
+    env.assertEqual(0, env.cmd('FT.OPTIMIZE', 'idx'))
     with env.assertResponseError():
-        env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))   
+        env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))
     env.expect('FT.OPTIMIZE', 'fake_idx').error()
 
 def testInfoError(env):
@@ -2932,8 +2932,8 @@ def testSetPayload(env):
     env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
     env.expect('FT.SETPAYLOAD idx fake_hotel').error()          \
             .contains("wrong number of arguments for 'FT.SETPAYLOAD' command")
-    env.expect('FT.SETPAYLOAD fake_idx hotel payload').error().contains('Unknown Index name')    
-    env.expect('FT.SETPAYLOAD idx fake_hotel payload').error().contains('Document not in index')    
+    env.expect('FT.SETPAYLOAD fake_idx hotel payload').error().contains('Unknown Index name')
+    env.expect('FT.SETPAYLOAD idx fake_hotel payload').error().contains('Document not in index')
 
 def testIndexNotRemovedFromCursorListAfterRecreated(env):
     env.expect('FT.CREATE idx SCHEMA f1 TEXT').ok()
@@ -2979,7 +2979,7 @@ def testIssue1158(env):
     # only 1st checked (2nd returns an error)
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1||to_number(@txt2)<5 FIELDS txt1 5').equal('OK')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt3&&to_number(@txt2)<5 FIELDS txt1 5').equal('NOADD')
-    
+
     # both are checked
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11||to_number(@txt1)>42 FIELDS txt2 num2').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11||to_number(@txt1)<42 FIELDS txt2 num2').equal('OK')
@@ -3007,7 +3007,7 @@ def testIssue1184(env):
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0') 
+        env.assertEqual(d['num_records'], '0')
 
 
         value = '42'

@@ -13,7 +13,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
-#include "util/heap.h"
+#include "util/minmax_heap.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -170,8 +170,6 @@ struct RPIndexIterator : public ResultProcessor {
 #define SORTASCMAP_SETDESC(mm, pos) ((mm) &= ~(1LLU << (pos)))
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
 
-void SortAscMap_Dump(uint64_t v, size_t n);
-
 //---------------------------------------------------------------------------------------------
 
 // Loading Processor
@@ -236,13 +234,10 @@ struct RPSorter : public ResultProcessor {
   uint32_t offset;
 
   // The heap. We use a min-max heap here
-  Heap<TrieSearchResult *> pq;
+  MinMaxHeap<SearchResult *> *pq;
 
   // the compare function for the heap. We use it to test if a result needs to be added to the heap
   RPSorterCompareFunc cmp;
-
-  // private data for the compare function
-  void *cmpCtx;
 
   // pooled result - we recycle it to avoid allocations
   SearchResult *pooledResult;

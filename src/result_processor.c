@@ -98,7 +98,7 @@ int RPIndexIterator::Next(SearchResult *res) {
   res->docId = r->docId;
   res->indexResult = r;
   res->score = 0;
-  res->dmd = dmd;
+  res->dmd.reset(dmd);
   res->rowdata.sv = dmd->sortVector;
   dmd->Incref();
   return RS_RESULT_OK;
@@ -152,7 +152,7 @@ int RPScorer::Next(SearchResult *res) {
     }
 
     // Apply the scoring function
-    res->score = scorer(&scorerCtx, res->indexResult, res->dmd, parent->minScore);
+    res->score = scorer(&scorerCtx, res->indexResult, res->dmd.get(), parent->minScore);
     if (scorerCtx.scrExp) {
       res->scoreExplain = (RSScoreExplain *)scorerCtx.scrExp;
       scorerCtx.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
@@ -202,8 +202,8 @@ RPScorer::RPScorer(const ExtScoringFunction *funcs, const ScoringFunctionArgs *f
 
 int RPSorter::Next(SearchResult *r) {
   // make sure we don't overshoot the heap size, unless the heap size is dynamic
-  if (pq->count > 0 && (!size || offset++ < size)) {
-    SearchResult *sr = mmh_pop_max(pq);
+  if (pq->size() > 0 && (!size || offset++ < size)) {
+    SearchResult *sr = pq->pop_max();
     RLookupRow oldrow = r->rowdata;
     *r = *sr;
 
@@ -221,8 +221,7 @@ RPSorter::~RPSorter() {
     delete pooledResult;
   }
 
-  // calling mmh_free will free all the remaining results in the heap, if any
-  mmh_free(pq);
+  delete pq;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -250,11 +249,11 @@ int RPSorter::innerLoop(SearchResult *r) {
 
   // If the queue is not full - we just push the result into it
   // If the pool size is 0 we always do that, letting the heap grow dynamically
-  if (!size || pq->count + 1 < pq->size) {
+  if (pq->empty() || pq->size() + 1 < pq->capacity()) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
-    mmh_insert(pq, h);
+    pq->insert(h);
     pooledResult = NULL;
     if (h->score < parent->minScore) {
       parent->minScore = h->score;
@@ -262,7 +261,7 @@ int RPSorter::innerLoop(SearchResult *r) {
 
   } else {
     // find the min result
-    SearchResult *minh = mmh_peek_min(pq);
+    SearchResult *minh = pq->peek_min();
 
     // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
     if (minh->score > parent->minScore) {
@@ -270,10 +269,10 @@ int RPSorter::innerLoop(SearchResult *r) {
     }
 
     // if needed - pop it and insert a new result
-    if (cmp(h, minh, cmpCtx) > 0) {
+    if (cmp(h, minh, this) > 0) {
       h->indexResult = NULL;
-      pooledResult = mmh_pop_min(pq);
-      mmh_insert(pq, h);
+      pooledResult = pq->pop_min();
+      pq->insert(h);
       pooledResult->Clear();
     } else {
       // The current should not enter the pool, so just leave it as is
@@ -339,11 +338,6 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     }
 
     int rc = RSValue::Cmp(v1, v2, qerr);
-    // printf("asc? %d Compare: \n", ascending);
-    // v1->Print();
-    // printf(" <=> ");
-    // v2->Print();
-    // printf("\n");
 
     if (rc != 0) return ascending ? -rc : rc;
   }
@@ -366,29 +360,17 @@ static void srDtor(void *p) {
 
 void RPSorter::ctor(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap) {
   cmp = nkeys ? cmpByFields : cmpByScore;
-  cmpCtx = this;
   fieldcmp.ascendMap = ascmap;
   fieldcmp.keys = keys;
   fieldcmp.nkeys = nkeys;
 
-  pq = mmh_init_with_size(maxresults + 1, cmp, cmpCtx, srDtor);
+  // pq = mmh_init_with_size(maxresults + 1, cmp, this, srDtor);
+  pq = new MinMaxHeap<SearchResult *>(cmp, this);
+  pq->reserve(maxresults + 1);
   size = maxresults;
   offset = 0;
   pooledResult = NULL;
   name = "Sorter";
-}
-
-//---------------------------------------------------------------------------------------------
-
-void SortAscMap_Dump(uint64_t tt, size_t n) {
-  for (size_t ii = 0; ii < n; ++ii) {
-    if (SORTASCMAP_GETASC(tt, ii)) {
-      printf("%lu=(A), ", ii);
-    } else {
-      printf("%lu=(D)", ii);
-    }
-  }
-  printf("\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -439,7 +421,7 @@ int ResultsLoader::Next(SearchResult *r) {
     return RS_RESULT_OK;
   }
 
-  RLookupLoadOptions loadopts(parent->sctx, r->dmd, new QueryError());
+  RLookupLoadOptions loadopts(parent->sctx, r->dmd.get(), new QueryError());
   loadopts.noSortables = true;
   loadopts.forceString = true;
   loadopts.keys = fields;
