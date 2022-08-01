@@ -62,8 +62,8 @@ int Cursor::Pause() {
   }
 
   // Add to idle list
-  *(Cursor **)(cl.idle.ARRAY_ADD_AS()) = this;
-  pos = cl.idle.ARRAY_GETSIZE_AS() - 1;
+  cl.idle.push_back(this);
+  pos = cl.idle.size() - 1;
 
   return REDISMODULE_OK;
 }
@@ -71,17 +71,16 @@ int Cursor::Pause() {
 //---------------------------------------------------------------------------------------------
 
 void Cursor::RemoveFromIdle() {
-  Array<Cursor *> *idle = &parent->idle;
-  Cursor **ll = idle->ARRAY_GETARRAY_AS();
-  size_t n = idle->ARRAY_GETSIZE_AS();
+  Vector<Cursor *> idle = parent->idle;
+  size_t n = idle.size();
 
   if (n > 1) {
-    Cursor *last = ll[n - 1]; // Last cursor - move to current position
+    Cursor *last = idle.back(); // Last cursor - move to current position
     last->pos = pos;
-    ll[last->pos] = last;
+    idle[last->pos] = last;
   }
 
-  idle->Resize(sizeof(Cursor *) * (n - 1));
+  idle.pop_back();
   if (nextTimeoutNs == parent->nextIdleTimeoutNs) {
     parent->nextIdleTimeoutNs = 0;
   }
@@ -99,8 +98,6 @@ CursorList::CursorList() {
   counter = 0;
   lastCollect = 0;
   nextIdleTimeoutNs = 0;
-
-  idle = *new Array<Cursor *>();
   infos = NULL;
 
   srand48(getpid());
@@ -123,8 +120,8 @@ CursorSpecInfo *CursorList::Find(const char *keyName, size_t *index) const {
 //---------------------------------------------------------------------------------------------
 
 void CursorList::ForEach(std::function<void(CursorList&, Cursor&, void *)> f, void *arg) {
-  for (size_t i = 0; i < idle.ARRAY_GETSIZE_AS(); ++i) {
-    Cursor *cur = idle.ARRAY_GETITEM_AS(i);
+  for (size_t i = 0; i < idle.size(); ++i) {
+    Cursor *cur = idle[i];
     Cursor *oldCur = NULL;
 
     // The cursor `cur` might have been changed in the callback, if it has been
@@ -135,8 +132,8 @@ void CursorList::ForEach(std::function<void(CursorList&, Cursor&, void *)> f, vo
     while (cur && cur != oldCur) {
       f(*this, *cur, arg);
       oldCur = cur;
-      if (idle.len > i) {
-        cur = idle.ARRAY_GETITEM_AS(i);
+      if (idle.size() > i) {
+        cur = idle[i];
       }
     }
   }
@@ -328,7 +325,7 @@ void CursorList::RenderStats(const char *name, RedisModuleCtx *ctx) {
   // Output total information
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithSimpleString(ctx, "global_idle");
-  RedisModule_ReplyWithLongLong(ctx, idle.ARRAY_GETSIZE_AS());
+  RedisModule_ReplyWithLongLong(ctx, idle.size());
   n += 2;
 
   RedisModule_ReplyWithSimpleString(ctx, "global_total");

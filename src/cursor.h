@@ -4,7 +4,7 @@
 #include "rmalloc.h"
 #include "search_ctx.h"
 
-#include "util/array.h"
+#include "rmutil/vector.h"
 #include "util/map.h"
 
 #include <unistd.h>
@@ -82,7 +82,7 @@ struct CursorList : public Object {
   size_t cursorCount;
 
   // List of idle cursors
-  Array<Cursor *> idle;
+  Vector<Cursor *> idle;
 
   std::mutex lock;
 

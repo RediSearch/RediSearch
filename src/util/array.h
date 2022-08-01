@@ -36,6 +36,7 @@ public:
 
   void ShrinkToSize();
   int Resize(uint32_t newSize);
+  char *Steal(size_t *len_);
 
   //@@ need help in changing to funcs
   size_t ARRAY_GETSIZE_AS() { return (len / (sizeof(T))); }

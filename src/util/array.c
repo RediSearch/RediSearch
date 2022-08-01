@@ -10,7 +10,10 @@ static ArrayAllocProcs rmAllocProcs_g = {
     .Alloc = rm_malloc, .Realloc = rm_realloc, .Free = rm_free
   };
 
-void Array::ctor(ArrayAllocatorType allocType) {
+//---------------------------------------------------------------------------------------------
+
+template<class T>
+void Array<T>::ctor(ArrayAllocatorType allocType) {
   capacity = 0;
   len = 0;
   data = NULL;
@@ -21,7 +24,10 @@ void Array::ctor(ArrayAllocatorType allocType) {
   }
 }
 
-Array::~Array() {
+//---------------------------------------------------------------------------------------------
+
+template<class T>
+Array<T>::~Array() {
   procs->Free(data);
   capacity = 0;
   len = 0;
@@ -30,7 +36,8 @@ Array::~Array() {
 
 //---------------------------------------------------------------------------------------------
 
-int Array::Resize(uint32_t newSize) {
+template<class T>
+int Array<T>::Resize(uint32_t newSize) {
   uint32_t newCapacity = capacity ? capacity : 16;
   while (newCapacity - len < newSize) {
     newCapacity *= 2;
@@ -55,7 +62,8 @@ int Array::Resize(uint32_t newSize) {
  * Returns a pointer to the newly added item. The memory is allocated but uninitialized
  */
 
-void *Array::Add(uint32_t toAdd) {
+template<class T>
+void *Array<T>::Add(uint32_t toAdd) {
   uint32_t oldLen = len;
   if (capacity - len < toAdd) {
     if (Resize(len + toAdd) != 0) {
@@ -70,7 +78,8 @@ void *Array::Add(uint32_t toAdd) {
 
 //---------------------------------------------------------------------------------------------
 
-void Array::Write(const T *data, size_t len) {
+template<class T>
+void Array<T>::Write(const T *data, size_t len) {
   void *ptr = Add(len);
   memcpy(ptr, data, len);
 }
@@ -82,7 +91,8 @@ void Array::Write(const T *data, size_t len) {
  * This should be used when no more elements will be added to the array.
  */
 
-void Array::ShrinkToSize() {
+template<class T>
+void Array<T>::ShrinkToSize() {
   if (capacity > len) {
     capacity = len;
     data = procs->Realloc(data, capacity);
@@ -95,7 +105,8 @@ void Array::ShrinkToSize() {
  * "Steal" the contents of the array. The caller now owns its contents.
  */
 
-inline char *Array::Steal(size_t *len_) {
+template<class T>
+char *Array<T>::Steal(size_t *len_) {
   *len_ = len;
   char *ret = data;
   data = NULL;

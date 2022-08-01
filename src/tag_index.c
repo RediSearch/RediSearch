@@ -133,7 +133,7 @@ size_t TagIndex::Index(const Tags &tags, t_docId docId) {
 
 void TagConcKey::Reopen() {
   TagIndex *idx = NULL;
-  size_t nits = array_len(its);
+  size_t nits = its.size();
   // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
   if (key == NULL || RedisModule_ModuleTypeGetType(key) != TagIndexType ||
       (idx = RedisModule_ModuleTypeGetValue(key))->uniqueId != uid) {
