@@ -24,7 +24,7 @@ struct PriorityQueue : public Vector {
 
   size_t Push(T *elem) {
     size_t top = Push(elem);
-    Heap_Push(this, 0, top, pq->cmp);
+    _sift_up(0, top);
     return top;
   }
 
@@ -37,7 +37,14 @@ struct PriorityQueue : public Vector {
     if (top == 0) {
       return;
     }
-    Heap_Pop(this, 0, top, cmp);
+    _pop(0, top);
     top--;
   }
+
+private:
+  void _sift_up(size_t first, size_t last);
+  void _pop(size_t first, size_t last);
+  void _sift_down(size_t first, size_t last, size_t start);
 };
+
+#include "priority_queue.hxx"
