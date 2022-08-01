@@ -13,18 +13,15 @@
 
 //---------------------------------------------------------------------------------------------
 
-template <class T>
-int Heap<T>::__child_left(const int idx) {
+static int __child_left(const int idx) {
   return idx * 2 + 1;
 }
 
-template <class T>
-int __child_right(const int idx) {
+static int __child_right(const int idx) {
   return idx * 2 + 2;
 }
 
-template <class T>
-int __parent(const int idx) {
+static int __parent(const int idx) {
   return (idx - 1) / 2;
 }
 
@@ -39,10 +36,9 @@ int __parent(const int idx) {
  */
 
 template <class T>
-Heap<T>::Heap(int (*cmp)(const void *, const void *, const void *udata), const void *udata) {
+Heap<T>::Heap(int (*cmp)(const void *, const void *, const void *udata), const void *udata) :
+    cmp(cmp), udata(udata) {
   reserve(DEFAULT_CAPACITY);
-  cmp = cmp;
-  udata = udata;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -93,9 +89,9 @@ void Heap<T>::__pushdown(unsigned int idx) {
     childl = __child_left(idx);
     childr = __child_right(idx);
 
-    if (childr >= count) {
+    if (childr >= size()) {
       // can't pushdown any further
-      if (childl >= count) return;
+      if (childl >= size()) return;
 
       child = childl;
     }
@@ -129,17 +125,17 @@ void Heap<T>::__pushdown(unsigned int idx) {
  * @return 0 on success; -1 on error */
 
 template <class T>
-void Heap<T>::__offerx(T *item) {
-  _at(count) = item;
+void Heap<T>::__offerx(T item) {
+  _at(size()) = item;
 
   // ensure heap properties
-  __pushup(count++);
+  __pushup(size()+1);
 }
 
 //---------------------------------------------------------------------------------------------
 
 template <class T>
-int Heap<T>::offerx(void *item) {
+int Heap<T>::offerx(T item) {
   if (size() == capacity()) return -1;
   __offerx(item);
   return 0;
@@ -161,7 +157,7 @@ int Heap<T>::offerx(void *item) {
  * @return 0 on success; -1 on failure */
 
 template <class T>
-int Heap<T>::offer(void *item) {
+int Heap<T>::offer(T item) {
   __ensurecapacity();
   __offerx(item);
   return 0;
@@ -175,10 +171,10 @@ int Heap<T>::offer(void *item) {
  * @return top item */
 
 template <class T>
-T *Heap<T>::poll() {
+T Heap<T>::poll() {
   if (empty()) return NULL;
 
-  T *item = at(0);
+  T item = at(0);
 
   front() = back();
   pop_back();
@@ -194,28 +190,10 @@ T *Heap<T>::poll() {
  * @return top item of the heap */
 
 template <class T>
-T *Heap<T>::peek() const {
+T Heap<T>::peek() const {
   if (empty()) return NULL;
   return at(0);
 }
-
-//---------------------------------------------------------------------------------------------
-
-#if 0
-
-/**
- * Clear all items
- *
- * NOTE:
- *  Does not free items.
- *  Only use if item memory is managed outside of heap */
-
-template <class T>
-void Heap<T>::clear() {
-  count = 0;
-}
-
-#endif // 0
 
 //---------------------------------------------------------------------------------------------
 
@@ -223,10 +201,10 @@ void Heap<T>::clear() {
  * @return item's index on the heap's array; otherwise -1 */
 
 template <class T>
-int Heap<T>::__item_get_idx(const T *item) const {
+int Heap<T>::__item_get_idx(const T item) const {
   unsigned int idx;
 
-  for (idx = 0; idx < count; idx++)
+  for (idx = 0; idx < size(); idx++)
     if (0 == cmp((_at(idx), item, udata))) return idx;
 
   return -1;
@@ -241,13 +219,13 @@ int Heap<T>::__item_get_idx(const T *item) const {
  * @return item to be removed; NULL if item does not exist */
 
 template <class T>
-T *Heap<T>::remove_item(const T *item) {
+T Heap<T>::remove_item(const T item) {
   int idx = __item_get_idx(item);
 
   if (idx == -1) return NULL;
 
   // swap the item we found with the last item on the heap
-  T *ret_item = _at(idx);
+  T ret_item = _at(idx);
   _at(idx) = back();
   back() = NULL;
 
@@ -268,7 +246,7 @@ T *Heap<T>::remove_item(const T *item) {
  * @return 1 if the heap contains this item; otherwise 0 */
 
 template <class T>
-bool Heap<T>::contains_item(const T *item) const {
+bool Heap<T>::contains_item(const T item) const {
   return __item_get_idx(item) != -1;
 }
 

@@ -172,7 +172,7 @@ void TagConcKey::Reopen() {
 //---------------------------------------------------------------------------------------------
 
 void TagIndex::RegisterConcurrentIterators(ConcurrentSearch *conc, RedisModuleKey *key,
-                                           RedisModuleString *keyname, arrayof(IndexIterator*) iters) {
+                                           RedisModuleString *keyname, IndexIterators iters) {
   conc->AddKey(TagConcKey(key, keyname, iters));
 }
 

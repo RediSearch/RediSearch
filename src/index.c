@@ -82,7 +82,7 @@ void UnionIterator::Rewind() {
 
 //---------------------------------------------------------------------------------------------
 
-UnionIterator::UnionIterator(Vector<IndexIterator *> its_, DocTable *dt, int quickExit, double weight_) {
+UnionIterator::UnionIterator(IndexIterators its_, DocTable *dt, int quickExit, double weight_) {
   origits = its_;
   weight = weight_;
   IITER_CLEAR_EOF(this);
@@ -397,8 +397,8 @@ void IntersectIterator::SortChildren() {
   // 3. If all or any of the iterators are sorted, then remove the
   //    unsorted iterators from the equation, simply adding them to the tester list
 
-  Vector<IndexIterator *> unsortedIts;
-  Vector<IndexIterator *> sortedIts;
+  IndexIterators unsortedIts;
+  IndexIterators sortedIts;
   for (size_t i = 0; i < its.size(); ++i) {
     IndexIterator *curit = its[i];
 
@@ -451,7 +451,7 @@ void IntersectIterator::SortChildren() {
 
 //---------------------------------------------------------------------------------------------
 
-IntersectIterator::IntersectIterator(Vector<IndexIterator *> its, DocTable *dt, t_fieldMask fieldMask_,
+IntersectIterator::IntersectIterator(IndexIterators its, DocTable *dt, t_fieldMask fieldMask_,
                                      int maxSlop_, int inOrder_, double weight_) : its(its){
   // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
   IntersectIterator *ctx = rm_calloc(1, sizeof(*ctx));

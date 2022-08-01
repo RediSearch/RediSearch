@@ -1,4 +1,3 @@
-
 #include "aggregate/reducer.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -6,8 +5,8 @@
 RDCRCount::RDCRCount(const ReducerOptions *options) {
   if (!options->GetKey(&srckey)) {
     throw Error("RDCRCount: no key found");
-
   }
+
   reducerId = REDUCER_T_COUNT;
 }
 

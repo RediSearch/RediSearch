@@ -11,16 +11,10 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct TagConcKey : ConcurrentKey {
-  TagConcKey(RedisModuleKey *key, RedisModuleString *keyName, arrayof(IndexIterator*) its) :
+  TagConcKey(RedisModuleKey *key, RedisModuleString *keyName, IndexIterators its) :
     ConcurrentKey(key, keyName), its(its) {}
 
-  ~TagConcKey() {
-    if (its) {
-      array_free(its);
-    }
-  }
-
-  arrayof(IndexIterator*) its;
+  IndexIterators its;
   uint32_t uid;
 
   void Reopen();
@@ -161,7 +155,7 @@ struct TagIndex : public BaseIndex {
   IndexIterator *OpenReader(IndexSpec *sp, const char *value, size_t len, double weight);
 
   void RegisterConcurrentIterators(ConcurrentSearch *conc, RedisModuleKey *key,
-                                   RedisModuleString *keyname, arrayof(IndexIterator*) iters);
+                                   RedisModuleString *keyname, IndexIterators iters);
 
   struct InvertedIndex *OpenIndex(const char *value, size_t len, int create);
 

@@ -77,10 +77,6 @@ struct QueryAttribute {
 
 //---------------------------------------------------------------------------------------------
 
-typedef IndexIterator **IndexIteratorArray;
-
-//---------------------------------------------------------------------------------------------
-
 // QueryNode reqresents any query node in the query tree.
 // It has a type to resolve which node it is, and a union of all possible nodes.
 
@@ -139,11 +135,11 @@ struct QueryNode : Object {
   virtual sds dumpsds(sds s, const IndexSpec *spec, int depth) { return sdscat(s, "<empty>"); }
 
   virtual IndexIterator *EvalNode(Query *q) { return new EmptyIterator(); }
-  virtual IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight) {
+  virtual IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
     return NULL;
   }
 
-  IndexIterator *EvalSingleTagNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
+  IndexIterator *EvalSingleTagNode(Query *q, TagIndex *idx, IndexIterators iterout, double weight);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -169,7 +165,7 @@ struct QueryPhraseNode : QueryNode {
   bool expandChildren() const { return !exact; }
 
   IndexIterator *EvalNode(Query *q);
-  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -234,7 +230,7 @@ struct QueryTokenNode : QueryNode {
   }
 
   IndexIterator *EvalNode(Query *q);
-  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight) {
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
     return idx->OpenReader(q->sctx->spec, tok.str, tok.len, weight);
   }
 };
@@ -255,7 +251,7 @@ struct QueryPrefixNode : QueryNode {
   }
 
   IndexIterator *EvalNode(Query *q);
-  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -347,7 +343,7 @@ struct QueryLexRangeNode : QueryNode {
   }
 
   IndexIterator *EvalNode(Query *q);
-  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight);
+  IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight);
 };
 
 //---------------------------------------------------------------------------------------------

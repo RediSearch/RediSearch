@@ -37,7 +37,7 @@ int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb);
 struct Runes {
   enum class Folded { No, Yes };
 
-  Runes(const char *str, Folded folded = Folded::No) {
+  Runes(const char *str = "", Folded folded = Folded::No) {
     rune *p;
     if (folded == Folded::No) {
       _runes = strToRunes(str, &_len, dynamic, _runes_s);

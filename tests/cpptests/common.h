@@ -10,7 +10,7 @@
 
 namespace RS {
 
-static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
+static void donecb(AddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
   // printf("Finished indexing document. Status: %s\n", aCtx->status.GetError());
 }
 

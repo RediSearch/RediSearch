@@ -69,7 +69,7 @@ protected:
 
   BucketIndex GetBucketIdx(t_docId docId) const;
 
-  std::shared_ptr<RSDocumentMetadata> Unchain(RSDocumentMetadata *md);
+  void Unchain(RSDocumentMetadata *md);
 
 public:
   size_t size;
@@ -81,7 +81,7 @@ public:
 
   Vector<DMDChain> buckets;
   DocIdMap dim;
-  
+
   DocTable(size_t cap, t_docId max_size) { ctor(cap, max_size); }
   DocTable(size_t cap);
   DocTable();
@@ -113,8 +113,8 @@ public:
   bool Delete(const char *key, size_t n);
   bool Delete(RedisModuleString *r);
 
-  RSDocumentMetadata *Pop(const char *s, size_t n);
-  RSDocumentMetadata *Pop(RedisModuleString *r);
+  RSDocumentMetadata *Pop(const char *s, size_t n, bool retail = false);
+  RSDocumentMetadata *Pop(RedisModuleString *r, bool retail = false);
 
   void RdbSave(RedisModuleIO *rdb);
   void RdbLoad(RedisModuleIO *rdb, int encver);

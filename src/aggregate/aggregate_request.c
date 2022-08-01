@@ -807,7 +807,7 @@ int AREQ::ApplyContext(QueryError *status) {
   }
 
   conc = std::make_unique<ConcurrentSearch>(sctx->redisCtx);
-  rootiter = ast->Iterate(opts, *sctx, conc);
+  rootiter = ast->Iterate(opts, *sctx, conc.get());
   RS_LOG_ASSERT(rootiter, "QAST_Iterate failed");
 
   return REDISMODULE_OK;
@@ -1098,7 +1098,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
 
-  for (const PLN_BaseStep *step = pln->steps.first(); step; step = step->list_node.next) {
+  for (const PLN_BaseStep *step = pln->steps.front(); step; step = step->list_node.NextStep()) {
     switch (step->type) {
       case PLN_T_GROUP: {
         rpUpstream = getGroupRP((PLN_GroupStep *)step, rpUpstream, status);

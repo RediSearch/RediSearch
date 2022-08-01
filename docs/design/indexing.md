@@ -5,7 +5,7 @@ This document describes how documents are added to the index.
 ## Components
 
 * `Document` - this contains the actual document and its fields.
-* `RSAddDocumentCtx` - this is the per-document state that is used while it
+* `AddDocumentCtx` - this is the per-document state that is used while it
   is being indexed. The state is discarded once complete
 * `ForwardIndex` - contains terms found in the document. The forward index
   is used to write the `InvertedIndex` (later on)
@@ -14,7 +14,7 @@ This document describes how documents are added to the index.
 
 ##  Architecture
 
-The indexing process begins by creating a new RSAddDocumentCtx and adding a
+The indexing process begins by creating a new AddDocumentCtx and adding a
 document to it. Internally this is divided into several steps.
 
 
@@ -72,7 +72,7 @@ document to it. Internally this is divided into several steps.
    is scanned, and a larger, 'master' forward index is constructed in its place.
    Each entry in the forward index contains a reference to the origin document
    as well as the normal offset/score/frequency information.
-   
+
    Creating a 'master' forward index avoids opening common term keys once per
    document.
 
@@ -83,7 +83,7 @@ document to it. Internally this is divided into several steps.
    `ForwardIndex`.
 
 6. Document ID assignment
-   
+
    At this point, the GIL is locked and every document in the queue is assigned
    a document ID. The assignment is done immediately before writing to the index
    so as to reduce the number of times the GIL is locked; thus, the GIL is

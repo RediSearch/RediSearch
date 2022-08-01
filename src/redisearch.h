@@ -22,7 +22,8 @@ struct IdType {
   operator T() const { return _id; }
   T operator+() const { return _id; }
   IdType<T> &operator++() { ++_id; return *this; }
-  IdType<T> operator=(IdType<T> id) { _id = id; return *this; }
+  //IdType<T> operator=(IdType<T> id) { _id = id; return *this; }
+  IdType<T> operator=(T id) { _id = id; return *this; }
   bool operator==(IdType<T> id) const { return _id == id._id; }
 };
 
@@ -66,6 +67,7 @@ struct RSSortingVector;
 struct RSPayload : Object {
   RSPayload() : data(NULL), len(0) {}
   RSPayload(const char *payload, size_t payloadSize);
+  ~RSPayload();
 
   char *data;
   size_t len;
@@ -126,7 +128,7 @@ struct RSDocumentMetadata : Object {
   struct RSSortingVector *sortVector;
   // Offsets of all terms in the document (in bytes). Used by highlighter
   struct RSByteOffsets *byteOffsets;
-  List<struct RSDocumentMetadata>::iterator llnode;
+  List<struct RSDocumentMetadata>::iterator dmd_iter;
   uint32_t ref_count;
 
   RSDocumentMetadata(const char *id, size_t idlen, double score, Mask(RSDocumentFlags) flags,

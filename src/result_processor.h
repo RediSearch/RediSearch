@@ -13,7 +13,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
-#include "util/minmax_heap.h"
+#include "util/heap.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -236,7 +236,7 @@ struct RPSorter : public ResultProcessor {
   uint32_t offset;
 
   // The heap. We use a min-max heap here
-  heap_t *pq;
+  Heap<TrieSearchResult *> pq;
 
   // the compare function for the heap. We use it to test if a result needs to be added to the heap
   RPSorterCompareFunc cmp;

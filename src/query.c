@@ -181,13 +181,10 @@ void QueryTokenNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *str,
-                                           size_t len, int maxDist, int prefixMode,
-                                           QueryNodeOptions *opts) {
-  TrieIterator *it = terms->Iterate(str, len, maxDist, prefixMode);
-
-  size_t itsSz = 0, itsCap = 8;
-  IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
+static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *str, size_t len,
+                                           int maxDist, int prefixMode, QueryNodeOptions *opts) {
+  TrieIterator<DFAFilter> it = terms->Iterate(str, len, maxDist, prefixMode);
+  IndexIterators its;
 
   rune *rstr = NULL;
   t_len slen = 0;
@@ -196,8 +193,7 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
-  while (it->Next(&rstr, &slen, NULL, &score, &dist) &&
-         (itsSz < maxExpansions || maxExpansions == -1)) {
+  while (it.Next(&rstr, &slen, NULL, &score, &dist) && (its.size() < maxExpansions || maxExpansions == -1)) {
     // Create a token for the reader
     RSToken tok(rstr, slen);
     if (q->sctx && q->sctx->redisCtx) {
@@ -216,19 +212,10 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
     }
 
     // Add the reader to the iterator array
-    its[itsSz++] = ir->NewReadIterator();
-    if (itsSz == itsCap) {
-      itsCap *= 2;
-      its = rm_realloc(its, itsCap * sizeof(*its));
-    }
+    its.push_back(ir->NewReadIterator());
   }
 
-  delete it->ctx;
-  // printf("Expanded %d terms!\n", itsSz);
-  if (itsSz == 0) {
-    rm_free(its);
-    return NULL;
-  }
+  delete &it.ctx;
   return new UnionIterator(its, q->docTable, 1, opts->weight);
 }
 
@@ -259,38 +246,42 @@ void LexRange::rangeItersAddIterator(IndexReader *ir) {
 
 //---------------------------------------------------------------------------------------------
 
-void LexRange::rangeIterCbStrs(const char *r, size_t n, void *invidx) {
+static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
+  LexRange *ctx = p;
+  Query *q = ctx->q;
   RSToken tok{r, n};
-  RSQueryTerm *term = new RSQueryTerm(tok, q->tokenId++);
-  IndexReader *ir = new TermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, weight);
+  RSQueryTerm *term = new RSQueryTerm(tok, ctx->q->tokenId++);
+  IndexReader *ir = new TermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, ctx->weight);
   if (!ir) {
     delete term;
     return;
   }
 
-  rangeItersAddIterator(ir);
+  ctx->rangeItersAddIterator(ir);
 }
 
 //---------------------------------------------------------------------------------------------
 
-void LexRange::rangeIterCb(const rune *r, size_t n) {
+static void rangeIterCb(const rune *r, size_t n, void *p)  {
+  LexRange *ctx = p;
+  Query *q = ctx->q;
   RSToken tok{r, n};
   RSQueryTerm *term = new RSQueryTerm(tok, q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                     q->opts->fieldmask & opts->fieldMask, q->conc, 1);
+                                     q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
   if (!ir) {
     delete term;
     return;
   }
 
-  rangeItersAddIterator(ir);
+  ctx->rangeItersAddIterator(ir);
 }
 
 //---------------------------------------------------------------------------------------------
 
 IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
   Trie *t = q->sctx->spec->terms;
-  LexRange range(*q, &opts);
+  LexRange range(q, &opts);
 
   if (!t) {
     return NULL;
@@ -342,7 +333,7 @@ IndexIterator *QueryPhraseNode::EvalNode(Query *q) {
   }
 
   // recursively eval the children
-  Vector<IndexIterator *> iters;// = rm_calloc(NumChildren(), sizeof(IndexIterator *));
+  IndexIterators iters;// = rm_calloc(NumChildren(), sizeof(IndexIterator *));
   for (size_t i = 0; i < NumChildren(); ++i) {
     children[i]->opts.fieldMask &= opts.fieldMask;
     iters.push_back(children[i]->EvalNode(q));
@@ -385,7 +376,7 @@ IndexIterator *QueryWildcardNode::EvalNode(Query *q) {
 
 //---------------------------------------------------------------------------------------------
 
-IndexIterator *QueryPhraseNode::EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout, double weight) {
+IndexIterator *QueryPhraseNode::EvalSingle(Query *q, TagIndex *idx, Vector<IndexIterators> &iterout, double weight) {
   char *terms[NumChildren()];
   for (size_t i = 0; i < NumChildren(); ++i) {
     if (children[i]->type == QN_TOKEN) {
@@ -490,7 +481,7 @@ IndexIterator *QueryUnionNode::EvalNode(Query *q) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
+IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, Vector<IndexIterators> &iterout,
                                              double weight) {
   TrieMap *t = idx->values;
   if (!t) {
@@ -513,7 +504,7 @@ IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexItera
 
 // Evaluate a tag prefix by expanding it with a lookup on the tag index
 
-IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
+IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, Vector<IndexIterators> &iterout,
                                            double weight) {
   // we allow a minimum of 2 letters in the prefx by default (configurable)
   if (tok.len < q->sctx->spec->minPrefix) {
@@ -524,8 +515,7 @@ IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIterato
   TrieMapIterator *it = idx->values->Iterate(tok.str, tok.len);
   if (!it) return NULL;
 
-  size_t itsSz = 0, itsCap = 8;
-  IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
+  IndexIterators its;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   char *s;
@@ -535,35 +525,26 @@ IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIterato
   // Find all completions of the prefix
   size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
   while (it->Next(&s, &sl, &ptr) &&
-         (itsSz < maxExpansions || maxExpansions == -1)) {
+         (its.size() < maxExpansions || maxExpansions == -1)) {
     IndexIterator *ret = idx->OpenReader(q->sctx->spec, s, sl, 1);
     if (!ret) continue;
 
     // Add the reader to the iterator array
-    its[itsSz++] = ret;
-    if (itsSz == itsCap) {
-      itsCap *= 2;
-      its = rm_realloc(its, itsCap * sizeof(*its));
-    }
+    its.push_back(ret);
   }
 
-  // printf("Expanded %d terms!\n", itsSz);
-  if (itsSz == 0) {
-    rm_free(its);
-    return NULL;
-  }
-
-  *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
+  iterout.push_back(its);
   return new UnionIterator(its, q->docTable, 1, weight);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIteratorArray *iterout,
+IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIterators &iterout,
                                             double weight) {
   IndexIterator *ret = EvalSingle(q, idx, iterout, weight);
   if (ret) {
-    *array_ensure_tail(iterout, IndexIterator *) = ret;
+    // *array_ensure_tail(iterout, IndexIterator *) = ret;
+    iterout.push_back(ret);
   }
   return ret;
 }
@@ -580,22 +561,20 @@ IndexIterator *QueryTagNode::EvalNode(Query *q) {
   }
   RedisModuleString *kstr = q->sctx->spec->GetFormattedKey(fs, INDEXFLD_T_TAG);
   TagIndex *idx = TagIndex::Open(q->sctx, kstr, 0, &k);
-  IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
-  Vector<IndexIterator *> iters;
+  IndexIterators total_its;
+  IndexIterators iters;
 
   if (!idx) {
     goto done;
   }
   // a union stage with one child is the same as the child, so we just return it
   if (NumChildren() == 1) {
-    ret = children[0]->EvalSingleTagNode(q, idx, &total_its, opts.weight);
+    ret = children[0]->EvalSingleTagNode(q, idx, total_its, opts.weight);
     if (ret) {
       if (q->conc) {
-        idx->RegisterConcurrentIterators(q->conc, k, kstr, (array_t *)total_its);
-        k = NULL;  // we passed ownershit
-      } else {
-        array_free(total_its);
+        idx->RegisterConcurrentIterators(q->conc, k, kstr, total_its);
+        k = NULL;  // we passed ownership
       }
     }
     goto done;
@@ -603,7 +582,7 @@ IndexIterator *QueryTagNode::EvalNode(Query *q) {
 
   // recursively eval the children
   for (size_t i = 0; i < NumChildren(); i++) {
-    IndexIterator *it = children[i]->EvalSingleTagNode(q, idx, &total_its, opts.weight);
+    IndexIterator *it = children[i]->EvalSingleTagNode(q, idx, total_its, opts.weight);
     if (it) {
       iters.push_back(it);
     }
@@ -612,12 +591,10 @@ IndexIterator *QueryTagNode::EvalNode(Query *q) {
     goto done;
   }
 
-  if (total_its) {
+  if (!total_its.empty()) {
     if (q->conc) {
-      idx->RegisterConcurrentIterators(q->conc, k, kstr, (array_t *)total_its);
+      idx->RegisterConcurrentIterators(q->conc, k, kstr, total_its);
       k = NULL;  // we passed ownershit
-    } else {
-      array_free(total_its);
     }
   }
 

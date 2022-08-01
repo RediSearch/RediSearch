@@ -99,14 +99,13 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 
 TrieIterator<DFAFilter> Trie::Iterate(const char *prefix, size_t len, int maxDist, int prefixMode) {
   //@@@TODO: we don't use len argument!
-  size_t rlen;
-  Runes runes(prefix, &rlen);
-  if (!runes || rlen > TRIE_MAX_PREFIX) {
+  Runes runes(prefix);
+  if (!runes || runes.len() > TRIE_MAX_PREFIX) {
     Runes empty;
     return TrieIterator<DFAFilter>(DFAFilter(empty, maxDist, prefixMode));
   }
 
-  return root->Iterate(FilterFunc, StackPop, DFAFilter(runes, maxDist, prefixMode));
+  return TrieIterator<DFAFilter>(DFAFilter(runes, maxDist, prefixMode));
 }
 
 //---------------------------------------------------------------------------------------------
@@ -124,10 +123,10 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
     return Vector<TrieSearchResult *>();
   }
 
-  Heap<TrieSearchResult *, cmpEntries> pq(num);
+  Heap<TrieSearchResult *> pq(cmpEntries, num);
   DFAFilter fc(runes, maxDist, prefixMode);
 
-  TrieIterator it = root->Iterate(FilterFunc, StackPop, &fc);
+  TrieIterator it(&fc);
   rune *rstr;
   t_len slen;
   float score;
@@ -154,14 +153,14 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
       ent->score /= sqrt(1 + (slen >= len ? slen - len : len - slen));
     }
 
-    if (pq.count() < pq.size()) {
+    if (pq.size() < pq.capacity()) {
       ent->str = runesToStr(rstr, slen, &ent->len);
       ent->payload = payload.data;
       ent->plen = payload.len;
       pq.offerx(ent);
       pooledEntry = NULL;
 
-      if (pq.count() == pq.size()) {
+      if (pq.size() == pq.capacity()) {
         TrieSearchResult *qe = pq.peek();
         it.minScore = qe->score;
       }
@@ -189,10 +188,10 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
   }
 
   // put the results from the heap on a vector to return
-  size_t n = MIN(pq.count(), num);
+  size_t n = MIN(pq.size(), num);
   Vector<TrieSearchResult *> ret(n);
   for (int i = 0; i < n; ++i) {
-    TrieSearchResult *h = pq.poll(pq);
+    TrieSearchResult *h = pq.poll();
     ret[n - i - 1] = h;
   }
 
@@ -227,22 +226,21 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
 
 bool Trie::RandomKey(char **str, t_len *len, double *score) {
   if (size == 0) {
-    return 0;
+    return false;
   }
 
-  rune *rstr;
-  t_len rlen;
-
   // TODO: deduce steps from cardinality properly
-  TrieNode *n = root->RandomWalk(2 + rand() % 8 + (int)round(logb(1 + size)), rstr);
+  Runes runes;
+  TrieNode *n = root->RandomWalk(2 + rand() % 8 + (int)round(logb(1 + size)), runes);
   if (!n) {
     return false;
   }
-  size_t sz;
-  *str = runesToStr(rstr, rlen, &sz);
-  *len = sz;
 
+  size_t sz;
+  *str = runes.toUTF8(&sz);;
+  *len = sz;
   *score = n->_score;
+
   return true;
 }
 

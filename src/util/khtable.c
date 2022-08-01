@@ -61,7 +61,7 @@ void KHTable::Clear() {
 
 //---------------------------------------------------------------------------------------------
 
-static int KHTable::Rehash() {
+bool KHTable::Rehash() {
   // Find new capacity
   size_t newCapacity = 0;
   for (uint32_t *p = primes; *p; p++) {
@@ -72,10 +72,8 @@ static int KHTable::Rehash() {
   }
 
   if (!newCapacity) {
-    return 0;
+    return false;
   }
-
-  // printf("Rehashing %lu -> %lu\n", numBuckets, newCapacity);
 
   KHTableEntry **newEntries = rm_calloc(newCapacity, sizeof(*buckets));
   for (size_t ii = 0; ii < numBuckets; ++ii) {
@@ -99,14 +97,14 @@ static int KHTable::Rehash() {
   buckets = newEntries;
   numBuckets = newCapacity;
 
-  return 1;
+  return true;
 }
 
 //---------------------------------------------------------------------------------------------
 
 KHTableEntry *KHTable::InsertNewEntry(uint32_t hash, KHTableEntry **bucketHead) {
   if (++numItems == numBuckets) {
-    KHTable_Rehash(table);
+    Rehash();
     bucketHead = buckets + (hash % numBuckets);
   }
   KHTableEntry *entry = Alloc(alloc);

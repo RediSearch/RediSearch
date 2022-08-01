@@ -88,7 +88,7 @@ struct AggregateResult : IndexResult {
   uint32_t typeMask;
 
   AggregateResult(RSResultType t, size_t cap, double weight) :
-    IndexResult(t, 0, 0, 0, weight) {
+    IndexResult(t, t_docId{0}, 0, 0, weight) {
     numChildren = 0;
     childrenCap = cap;
     typeMask = 0x0000;
@@ -142,7 +142,7 @@ struct TermResult : public IndexResult {
   RSOffsetVector offsets;
 
   TermResult(RSQueryTerm *term_, double weight) :
-    IndexResult(RSResultType_Term, 0, 0, 0, weight) {
+    IndexResult(RSResultType_Term, t_docId{0}, 0, 0, weight) {
     term = term_; //@@ ownership?
     offsets.len = 0;
     offsets.data = 0;
@@ -184,7 +184,7 @@ struct ForwardIndexEntryResult : public TermResult {
 struct NumericResult : public IndexResult {
   double value;
 
-  NumericResult(t_docId docId = 0, double v = 0) : IndexResult(RSResultType_Numeric, docId, RS_FIELDMASK_ALL, 1, 1) {
+  NumericResult(t_docId docId = t_docId{0}, double v = 0) : IndexResult(RSResultType_Numeric, docId, RS_FIELDMASK_ALL, 1, 1) {
     value = v;
   }
 
@@ -196,7 +196,7 @@ struct NumericResult : public IndexResult {
 struct VirtualResult : IndexResult {
   char dummy;
 
-  VirtualResult(double weight) : IndexResult(RSResultType_Virtual, 0, 0, 0, weight) {}
+  VirtualResult(double weight) : IndexResult(RSResultType_Virtual, t_docId{0}, 0, 0, weight) {}
 
   void Print(int depth) const;
 };

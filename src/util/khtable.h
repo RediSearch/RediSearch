@@ -90,6 +90,10 @@ struct KHTable {
 
   void Clear();
 
+  bool Rehash();
+
+  KHTableEntry *InsertNewEntry(uint32_t hash, KHTableEntry **bucketHead);
+
   KHTableEntry *GetEntry(const void *s, size_t n, uint32_t hash, int *isNew);
 
   void Dump(FILE *fp) const;

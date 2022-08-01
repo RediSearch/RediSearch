@@ -332,7 +332,7 @@ static IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTre
 
   // We create a  union iterator, advancing a union on all the selected range,
   // treating them as one consecutive range
-  Vector<IndexIterator *> its;
+  IndexIterators its;
 
   for (size_t i = 0; i < n; i++) {
     its.push_back(NewNumericRangeIterator(sp, &v[i], f));

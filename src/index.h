@@ -14,20 +14,24 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+typedef Vector<IndexIterator*> IndexIterators;
+
+//---------------------------------------------------------------------------------------------
+
 // Create a new UnionIterator over a list of underlying child iterators.
 // It will return each document of the underlying iterators, exactly once
 
 class UnionIterator : public IndexIterator {
 public:
-  UnionIterator(Vector<IndexIterator *> its, DocTable *dt, int quickExit, double weight);
+  UnionIterator(IndexIterators its, DocTable *dt, int quickExit, double weight);
 
   // We maintain two iterator arrays. One is the original iterator list, and
   // the other is the list of currently active iterators. When an iterator
   // reaches EOF, it is set to NULL in the `its` list, but is still retained in
   // the `origits` list, for the purpose of supporting things like Rewind() and Free().
 
-  Vector<IndexIterator*> its;
-  Vector<IndexIterator*> origits;
+  IndexIterators its;
+  IndexIterators origits;
   uint32_t currIt;
   t_docId minDocId;
 
@@ -77,11 +81,11 @@ public:
 
 class IntersectIterator : public IndexIterator {
 public:
-  IntersectIterator(Vector<IndexIterator *> its, DocTable *dt, t_fieldMask fieldMask,
+  IntersectIterator(IndexIterators its, DocTable *dt, t_fieldMask fieldMask,
                     int maxSlop, int inOrder, double weight);
   ~IntersectIterator();
 
-  Vector<IndexIterator *> its;
+  IndexIterators its;
   IndexIterator *bestIt;
   Vector<IndexCriteriaTester *> testers;
   t_docId *docIds;
@@ -255,7 +259,7 @@ public:
   virtual IndexCriteriaTester *GetCriteriaTester() { return NULL; }
   virtual int Read(IndexResult **e) { return INDEXREAD_EOF; }
   virtual int SkipTo(t_docId docId, IndexResult **hit) { return INDEXREAD_EOF; }
-  virtual t_docId LastDocId() { return 0; }
+  virtual t_docId LastDocId() { return t_docId{0}; }
   virtual int HasNext() { return 0; }
   virtual size_t Len() { return 0; }
   virtual void Abort() {}
