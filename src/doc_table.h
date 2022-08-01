@@ -71,10 +71,10 @@ typedef struct {
 } DocTable;
 
 /* increasing the ref count of the given dmd */
-#define DMD_Incref(md)                                                       \
-  if (md) {                                                                  \
-    RS_LOG_ASSERT(md->ref_count < (1 << 16), "overflow of dmd ref_count");   \
-    __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED);                                                         \
+#define DMD_Incref(md)                                                            \
+  if (md) {                                                                       \
+    RS_LOG_ASSERT(md->ref_count < ((1 << 16) - 1), "overflow of dmd ref_count");  \
+    __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED);                      \
   }
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
