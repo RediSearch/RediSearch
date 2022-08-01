@@ -595,7 +595,7 @@ TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, v
   TrieIterator *it = rm_calloc(1, sizeof(TrieIterator));
   it->filter = f;
   it->popCallback = pf;
-  it->minScore = -1;    // terms from dictionary which are not in term trie get a valid score -1
+  it->minScore = INT_MIN;    // terms from dictionary which are not in term trie get a valid score INT_MIN
   it->ctx = ctx;
   __ti_Push(it, n, 0);
 

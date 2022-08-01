@@ -42,8 +42,8 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
   double currScore;
   bool isExists = SpellCheck_IsTermExistsInTrie(s->suggestionsTrie, term, len, &currScore);
   if (score == 0) {
-    /** we can not add zero score so we set it to -1 instead :\ **/
-    score = -1;
+    /** we can not add zero score so we set it to INT_MIN instead :\ **/
+    score = INT_MIN;
   }
 
   if (!incr) {
@@ -53,11 +53,11 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
     return;
   }
 
-  if (isExists && score == -1) {
+  if (isExists && score == INT_MIN) {
     return;
   }
 
-  if (!isExists || currScore == -1) {
+  if (!isExists || currScore == INT_MIN) {
     incr = 0;
   }
 
@@ -194,7 +194,7 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
     RedisModule_ReplyWithArray(ctx, array_len(suggestions));
     for (int i = 0; i < array_len(suggestions); ++i) {
       RedisModule_ReplyWithArray(ctx, 2);
-      RedisModule_ReplyWithDouble(ctx, suggestions[i]->score == -1 ? 0 :
+      RedisModule_ReplyWithDouble(ctx, suggestions[i]->score == INT_MIN ? 0 :
                                        suggestions[i]->score / totalDocNumber);
       RedisModule_ReplyWithStringBuffer(ctx, suggestions[i]->suggestion, suggestions[i]->len);
     }
