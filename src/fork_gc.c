@@ -622,7 +622,7 @@ void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inv
     }
     idx->size = newAddedLen;
     if (idx->size == 0) {
-      idx->AddBlock(0);
+      idx->AddBlock(t_docId{0});
     }
   }
 

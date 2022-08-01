@@ -64,7 +64,6 @@ RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
 
 RLookupKey *RLookup::GetKeyEx(const char *name, size_t n, int flags) {
   RLookupKey *ret = NULL;
-  int isNew = 0;
 
   for (RLookupKey *kk = head; kk; kk = kk->next) {
     size_t origlen = strlen(kk->name);
@@ -97,8 +96,7 @@ RLookupKey *RLookup::GetKeyEx(const char *name, size_t n, int flags) {
   }
 
   if (flags & RLOOKUP_F_OCREAT) {
-    // If the requester of this key is also its creator, remove the unresolved
-    // flag
+    // If the requester of this key is also its creator, remove the unresolved flag
     ret->flags &= ~RLOOKUP_F_UNRESOLVED;
   }
   return ret;
@@ -170,13 +168,11 @@ void RLookup::Reset(struct IndexSpecCache *cache) {
 
 void RLookupRow::WriteOwnKey(const RLookupKey *key, RSValue *v) {
   // Find the pointer to write to ...
-  RSValue **vptr = array_ensure_at(&dyn, key->dstidx, RSValue *);
-  if (*vptr) {
-    (*vptr)->Decref();
-    ndyn--;
+  RSValue *vptr = dyn[key->dstidx];
+  if (vptr) {
+    vptr->Decref();
   }
-  *vptr = v;
-  ndyn++;
+  dyn[key->dstidx] = v;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -226,19 +222,47 @@ void RLookup::WriteOwnKeyByName(const char *name, RLookupRow *row, RSValue *valu
  */
 
 void RLookupRow::Wipe() {
-  for (size_t ii = 0; ii < array_len(dyn) && ndyn; ++ii) {
-    RSValue **vpp = dyn + ii;
-    if (*vpp) {
-      (*vpp)->Decref();
-      *vpp = NULL;
-      ndyn--;
+  for (auto vpp : dyn) {
+    if (vpp) {
+      vpp->Decref();
     }
   }
+  dyn.clear();
   sv = NULL;
   if (rmkey) {
     RedisModule_CloseKey(rmkey);
     rmkey = NULL;
   }
+}
+
+//---------------------------------------------------------------------------------------------
+
+/** Get a value from the row, provided the key.
+ *
+ * This does not actually "search" for the key, but simply performs array lookups!
+ *
+ * @param lookup The lookup table containing the lookup table data
+ * @param key the key that contains the index
+ * @param row the row data which contains the value
+ * @return the value if found, NULL otherwise.
+ */
+
+RSValue *RLookupRow::GetItem(const RLookupKey *key) const {
+  RSValue *ret = NULL;
+  if (dyn.size() > key->dstidx) {
+    ret = dyn[key->dstidx];
+  }
+  if (!ret) {
+    if (key->flags & RLOOKUP_F_SVSRC) {
+      if (sv && sv->len > key->svidx) {
+        ret = sv->values[key->svidx];
+        if (ret != NULL && ret->t == RSValue_Null) {
+          ret = NULL;
+        }
+      }
+    }
+  }
+  return ret;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -250,9 +274,6 @@ void RLookupRow::Wipe() {
 
 void RLookupRow::Cleanup() {
   Wipe();
-  if (dyn) {
-    array_free(dyn);
-  }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -280,9 +301,9 @@ void RLookup::MoveRow(RLookupRow *src, RLookupRow *dst) const {
 
 void RLookupRow::Dump() const {
   printf("Row @%p\n", this);
-  if (dyn) {
+  if (!dyn.empty()) {
     printf("  DYN @%p\n", dyn);
-    for (size_t ii = 0; ii < array_len(dyn); ++ii) {
+    for (size_t ii = 0; ii < dyn.size(); ++ii) {
       printf("  [%lu]: %p\n", ii, dyn[ii]);
       if (dyn[ii]) {
         printf("    ");
@@ -528,6 +549,17 @@ int RLookup::LoadDocument(RLookupRow *dst, RLookupLoadOptions *options) {
   } else {
     return loadIndividualKeys(dst, options);
   }
+}
+
+//---------------------------------------------------------------------------------------------
+
+const RLookupKey *RLookup::FindKeyWith(uint32_t f) const {
+  for (const RLookupKey *k = head; k; k = k->next) {
+    if (k->flags & f) {
+      return k;
+    }
+  }
+  return NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

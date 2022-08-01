@@ -60,7 +60,7 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   idx->size = actualSize;
   if (idx->size == 0) {
-    idx->AddBlock(0);
+    idx->AddBlock(t_docId{0});
   } else {
     idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   }
@@ -524,8 +524,8 @@ static bool Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey) {
   RedisModuleCtx *redisCtx = ctx->redisCtx;
   if (deleteDocuments) {
-    ctx->spec->docs.foreach([](RSDocumentMetadata &dmd) {
-        Redis_DeleteKey(redisCtx, dmd.CreateKeyString(redisCtx))
+    ctx->spec->docs.foreach([&](RSDocumentMetadata &dmd) {
+        Redis_DeleteKey(redisCtx, dmd.CreateKeyString(redisCtx));
       });
   }
 

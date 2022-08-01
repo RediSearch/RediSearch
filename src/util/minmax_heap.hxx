@@ -1,13 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <assert.h>
-#include <stdint.h>
-#include <stdbool.h>
-
-#include "minmax_heap.h"
-
-#include "rmalloc.h"
-
 #define is_min(n) ((log2_32(n) & 1) == 0)
 #define parent(n) (n / 2)
 #define first_child(n) (n * 2)
@@ -28,8 +18,8 @@ static inline int log2_32(uint32_t value) {
 template<class T>
 void MinMaxHeap<T>::_swap(int i, int j) {
   T tmp = at(i);
-  _at(i) = at(j);
-  _at(j) = tmp;
+  at(i) = at(j);
+  at(j) = tmp;
 }
 
 template<class T>
@@ -86,12 +76,12 @@ int MinMaxHeap<T>::_index_max_child_grandchild(int i) {
   int e = first_child(b);
 
   int min_idx = -1;
-  if (a <= count) min_idx = a;
-  if (b <= count && _gt(b, min_idx)) min_idx = b;
-  if (c <= count && _gt(c, min_idx)) min_idx = c;
-  if (d <= count && _gt(d, min_idx)) min_idx = d;
-  if (e <= count && _gt(e, min_idx)) min_idx = e;
-  if (f <= count && _gt(f, min_idx)) min_idx = f;
+  if (a <= size()) min_idx = a;
+  if (b <= size() && _gt(b, min_idx)) min_idx = b;
+  if (c <= size() && _gt(c, min_idx)) min_idx = c;
+  if (d <= size() && _gt(d, min_idx)) min_idx = d;
+  if (e <= size() && _gt(e, min_idx)) min_idx = e;
+  if (f <= size() && _gt(f, min_idx)) min_idx = f;
 
   return min_idx;
 }
@@ -106,12 +96,12 @@ int MinMaxHeap<T>::_index_min_child_grandchild(int i) {
   int f = second_child(b);
 
   int min_idx = -1;
-  if (a <= count) min_idx = a;
-  if (b <= count && _lt(b, min_idx)) min_idx = b;
-  if (c <= count && _lt(c, min_idx)) min_idx = c;
-  if (d <= count && _lt(d, min_idx)) min_idx = d;
-  if (e <= count && _lt(e, min_idx)) min_idx = e;
-  if (f <= count && _lt(f, min_idx)) min_idx = f;
+  if (a <= size()) min_idx = a;
+  if (b <= size() && _lt(b, min_idx)) min_idx = b;
+  if (c <= size() && _lt(c, min_idx)) min_idx = c;
+  if (d <= size() && _lt(d, min_idx)) min_idx = d;
+  if (e <= size() && _lt(e, min_idx)) min_idx = e;
+  if (f <= size() && _lt(f, min_idx)) min_idx = f;
 
   return min_idx;
 }
@@ -165,7 +155,7 @@ void MinMaxHeap<T>::_trickledown(int i) {
 
 template<class T>
 void MinMaxHeap<T>::insert(T value) {
-  push_back(T);
+  push_back(value);
   _bubbleup(size());
 }
 
@@ -173,7 +163,8 @@ template<class T>
 T MinMaxHeap<T>::pop_min() {
   if (size() > 1) {
     T d = at(1);
-    erase(begin());
+    at(1) = this->back();
+    pop_back();
     _trickledown(1);
     return d;
   }
@@ -192,7 +183,8 @@ T MinMaxHeap<T>::pop_max() {
     if (_lt(2, 3)) idx = 3;
 
     T d = at(idx);
-    erase(begin() + idx);
+    at(idx) = this->back();
+    pop_back();
     _trickledown(idx);
     return d;
   }
@@ -211,7 +203,7 @@ T MinMaxHeap<T>::pop_max() {
 template<class T>
 T MinMaxHeap<T>::peek_min() const {
   if (!empty()) {
-    return begin();
+    return at(0);
   }
   return NULL;
 }

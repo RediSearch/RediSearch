@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 template<class T>
-struct MinMaxHeap : Vector<T> {
+struct MinMaxHeap : public Vector<T> {
   const void *udata; // user data
   int (*cmp)(const void *, const void *, const void *);
 
@@ -32,9 +32,9 @@ protected:
   void _trickledown_min(int i);
   void _trickledown(int i);
 
-  bool _gt(int x, int y) { return cmp((at(x), at(y), udata)) > 0; }
-  bool _lt(int x, int y) { return cmp((at(x), at(y), udata)) < 0; }
+  bool _gt(int x, int y) { return cmp(at(x), at(y), udata) > 0; }
+  bool _lt(int x, int y) { return cmp(at(x), at(y), udata) < 0; }
   bool _max(int x, int y) { return _gt(x, y) ? at(x) :  at(y); }
 };
 
-
+#include "minmax_heap.hxx"

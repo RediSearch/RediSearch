@@ -150,10 +150,7 @@ struct RLookupRow {
   RedisModuleKey *rmkey;
 
   // Dynamic values obtained from prior processing
-  RSValue **dyn;
-
-  // How many values actually exist in dyn. Note that this is not the length of the array!
-  size_t ndyn;
+  Vector<RSValue *> dyn;
 
   RSValue *GetItem(const RLookupKey *key) const;
 
@@ -164,7 +161,7 @@ struct RLookupRow {
   void Cleanup();
   void Dump() const;
 
-  int getKeyCommon(const RLookupKey *kk, RLookupLoadOptions *options, RedisModuleKey **keyobj);
+  int getKeyCommon(const RLookupKey *key, RLookupLoadOptions *options, RedisModuleKey **keyobj);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -211,36 +208,6 @@ struct RLookupRow {
 
 //---------------------------------------------------------------------------------------------
 
-/** Get a value from the row, provided the key.
- *
- * This does not actually "search" for the key, but simply performs array lookups!
- *
- * @param lookup The lookup table containing the lookup table data
- * @param key the key that contains the index
- * @param row the row data which contains the value
- * @return the value if found, NULL otherwise.
- */
-
-RSValue *RLookupRow::GetItem(const RLookupKey *key) const {
-  RSValue *ret = NULL;
-  if (dyn && array_len(dyn) > key->dstidx) {
-    ret = dyn[key->dstidx];
-  }
-  if (!ret) {
-    if (key->flags & RLOOKUP_F_SVSRC) {
-      if (sv && sv->len > key->svidx) {
-        ret = sv->values[key->svidx];
-        if (ret != NULL && ret->t == RSValue_Null) {
-          ret = NULL;
-        }
-      }
-    }
-  }
-  return ret;
-}
-
-//---------------------------------------------------------------------------------------------
-
 enum RLookupLoadFlags {
   RLOOKUP_LOAD_KEYLIST,  // Use keylist (keys/nkeys) for the fields to list
   RLOOKUP_LOAD_SVKEYS,   // Load only cached keys (don't open keys)
@@ -275,18 +242,7 @@ struct RLookupLoadOptions {
   struct QueryError *status;
 
   RLookupLoadOptions(RedisSearchCtx *sctx, RSDocumentMetadata *dmd, QueryError *status) :
-  sctx(sctx), dmd(dmd), status(status) {}
+    sctx(sctx), dmd(dmd), status(status) {}
 };
-
-//---------------------------------------------------------------------------------------------
-
-const RLookupKey *RLookup::FindKeyWith(uint32_t f) const {
-  for (const RLookupKey *k = head; k; k = k->next) {
-    if (k->flags & f) {
-      return k;
-    }
-  }
-  return NULL;
-}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
