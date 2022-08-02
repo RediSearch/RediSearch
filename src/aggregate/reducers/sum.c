@@ -3,29 +3,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-struct SumReducer : public Reducer {
-  bool isAvg;
-  size_t count;
-  double total;
-
-  SumReducer(bool avg);
-
-  int Add(const RLookupRow *srcrow);
-  RSValue *Finalize();
-};
-
-// //---------------------------------------------------------------------------------------------
-
-SumReducer::SumReducer(bool avg) {
-  isAvg = avg;
-  count = 0;
-  total = 0;
-}
-#endif //0
-
-//---------------------------------------------------------------------------------------------
-
 int RDCRSum::Add(const RLookupRow *srcrow) {
   const RSValue *v = srcrow->GetItem(srckey);
   if (v && v->t == RSValue_Number) {

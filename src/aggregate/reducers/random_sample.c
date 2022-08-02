@@ -3,31 +3,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-typedef struct {
-  Reducer base;
-  size_t len;
-} RSMPLReducer;
-
-typedef struct {
-  size_t seen;  // how many items we've seen
-  RSValue *samplesArray;
-} rsmplCtx;
-
-//---------------------------------------------------------------------------------------------
-
-static void *sampleNewInstance(Reducer *base) {
-  RSMPLReducer *r = (RSMPLReducer *)base;
-  size_t blocksize = MAX(10000, sizeof(rsmplCtx) + r->len * sizeof(RSValue *));
-  rsmplCtx *ctx = Reducer_BlkAlloc(base, sizeof(*ctx) + r->len * sizeof(RSValue *), blocksize);
-  ctx->seen = 0;
-  ctx->samplesArray = RSValue::NewArray(NULL, r->len, 0);
-  return ctx;
-}
-#endif //0
-
-//---------------------------------------------------------------------------------------------
-
 int RDCRRandomSample::Add(const RLookupRow *srcrow) {
   RSValue *v = srcrow->GetItem(srckey);
   if (!v) {

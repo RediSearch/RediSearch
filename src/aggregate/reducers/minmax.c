@@ -4,38 +4,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-enum MinMaxMode { Minmax_Min = 1, Minmax_Max = 2 };
-
-struct MinMaxReducer : public Reducer {
-  MinMaxMode mode;
-  double val;
-  size_t numMatches;
-
-  MinMaxReducer(MinMaxMode mode_);
-
-  int Add(const RLookupRow *srcrow);
-  RSValue *Finalize();
-};
-
-//---------------------------------------------------------------------------------------------
-
-MinMaxReducer::MinMaxReducer(MinMaxMode mode_) {
-  numMatches = 0;
-  mode = mode_;
-
-  if (mode == Minmax_Min) {
-    val = DBL_MAX;
-  } else if (mode == Minmax_Max) {
-    val = DBL_MIN;
-  } else {
-    val = 0;
-  }
-}
-#endif //0
-
-//---------------------------------------------------------------------------------------------
-
 int RDCRMin::Add(const RLookupRow *srcrow) {
   double val;
   RSValue *v = srcrow->GetItem(srckey);

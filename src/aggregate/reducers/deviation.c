@@ -4,21 +4,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-#define BLOCK_SIZE 1024 * sizeof(devCtx)
-
-//---------------------------------------------------------------------------------------------
-
-RDCRStdDev::Data *RDCRStdDev::NewInstance() {
-  Data *dd = alloc.Alloc(sizeof(*dd), BLOCK_SIZE);
-  memset(dd, 0, sizeof(*dd));
-  dd->srckey = srckey;
-  return dd;
-}
-#endif
-
-//---------------------------------------------------------------------------------------------
-
 void RDCRStdDev::Data::Add(double d) {
   // https://www.johndcook.com/blog/standard_deviation/
   n++;

@@ -50,7 +50,7 @@ ReducerFactory RDCR_GetFactory(const char *name) {
   X(RDCRStdDev, "STDDEV")                      \
   X(RDCRFirstValue, "FIRST_VALUE")             \
   X(RDCRRandomSample, "RANDOM_SAMPLE")         \
-  X(RDCRHLL, "HLL")                            \
+  X(RDCRHLLCommon, "HLL")                            \
   X(RDCRHLLSum, "HLL_SUM")
 
 //---------------------------------------------------------------------------------------------
@@ -96,35 +96,5 @@ bool ReducerOptions::EnsureArgsConsumed() const {
   }
   return true;
 }
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-// This helper function ensures that all of a reducer's arguments are consumed.
-// Otherwise, an error is raised to the user.
-
-void *Reducer::BlkAlloc(size_t elemsz, size_t blksz) {
-  return alloc.Alloc(elemsz, blksz);
-}
-
-//---------------------------------------------------------------------------------------------
-
-#if 0
-
-// Format a function name in the form of s(arg). Returns a pointer for use with 'free'
-static inline char *FormatAggAlias(const char *alias, const char *fname, const char *propname) {
-  if (alias) {
-    return rm_strdup(alias);
-  }
-
-  if (!propname || *propname == 0) {
-    return rm_strdup(fname);
-  }
-
-  char *s = NULL;
-  rm_asprintf(&s, "%s(%s)", fname, propname);
-  return s;
-}
-
-#endif // 0
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

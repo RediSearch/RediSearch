@@ -3,23 +3,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-typedef struct {
-  Reducer base;
-  double pct;
-  unsigned resolution;
-} QTLReducer;
-
-//---------------------------------------------------------------------------------------------
-
-static void *quantileNewInstance(Reducer *parent) {
-  QTLReducer *qt = (QTLReducer *)parent;
-  return new QuantileStream(&qt->pct, 0, qt->resolution);
-}
-#endif
-
-//---------------------------------------------------------------------------------------------
-
 int RDCRQuantile::Add(const RLookupRow *row) {
   double d;
   RSValue *v = row->GetItem(srckey);

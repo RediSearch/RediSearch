@@ -3,17 +3,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-struct TolistReducer : public Reducer {
-  TrieMap values;
-
-  int Add(const RLookupRow *srcrow);
-  RSValue *Finalize();
-};data.values.
-#endif
-
-//---------------------------------------------------------------------------------------------
-
 int RDCRToList::Add(const RLookupRow *srcrow) {
   RSValue *v = srcrow->GetItem(srckey);
   if (!v) {

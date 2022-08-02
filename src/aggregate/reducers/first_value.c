@@ -3,40 +3,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-struct fvCtx {
-  const RLookupKey *srckey;   // The key to return
-  const RLookupKey *sortprop;  // The key to sort by
-  RSValue *value;              // Value to return
-  RSValue *sortval;            // Top sorted value
-  int ascending;
-};
-
-struct FVReducer {
-  Reducer base;
-  const RLookupKey *sortprop;  // The property the value is sorted by
-  int ascending;
-};
-
-//---------------------------------------------------------------------------------------------
-
-static void *fvNewInstance(Reducer *rbase) {
-  FVReducer *parent = (FVReducer *)rbase;
-  BlkAlloc *ba = &parent->base.alloc;
-  fvCtx *fv = ba->Alloc(sizeof(*fv), 1024 * sizeof(*fv));  // malloc(sizeof(*ctr));
-  fv->srckey = parent->base.srckey;
-  fv->sortprop = parent->sortprop;
-  fv->ascending = parent->ascending;
-
-  fv->value = NULL;
-  fv->sortval = NULL;
-  return fv;
-}
-
-#endif //0
-
-//---------------------------------------------------------------------------------------------
-
 int RDCRFirstValue::noSort(const RLookupRow *srcrow) {
   if (data.value) {
     return 1;

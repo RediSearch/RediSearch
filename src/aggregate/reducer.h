@@ -45,10 +45,6 @@ struct Reducer : public Object {
   // Destination key where the reducer output is placed
   RLookupKey *dstkey;
 
-  // Common allocator for all groups. Used to reduce fragmentation when allocating
-  // like-sized objects for different groups.
-  BlkAlloc alloc;
-
   // Numeric ID identifying this reducer
   uint32_t reducerId;
 
@@ -72,11 +68,6 @@ struct Reducer : public Object {
   // Called when Add() has been invoked for the last time. This is used to
   // populate the result of the reduce function.
   virtual RSValue *Finalize();
-
-  // Frees the object created by NewInstance()
-  virtual void FreeInstance();
-
-  void *BlkAlloc(size_t elemsz, size_t absBlkSize);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -262,38 +253,22 @@ struct RDCRHLLCommon : public Reducer {
 
   struct Data {
     struct HLL hll;
-    const RLookupKey *key;
-  };
-};
 
-struct RDCRCountDistinctish : public RDCRHLLCommon {
-  RDCRCountDistinctish(const ReducerOptions *);
-
-  struct Data {
-    std::unordered_set<uint64_t> dedup;
-    struct HLL hll;
-    const RLookupKey *key;
+    int Add(const char *buf);
   } data;
 
   int Add(const RLookupRow *srcrow);
   RSValue *Finalize();
 };
 
-struct RDCRHLL : public RDCRHLLCommon {
-  RDCRHLL(const ReducerOptions *);
+struct RDCRCountDistinctish : public RDCRHLLCommon {
+  RDCRCountDistinctish(const ReducerOptions *);
+
+  RSValue *Finalize();
 };
 
-//---------------------------------------------------------------------------------------------
-
-struct RDCRHLLSum : public Reducer {
+struct RDCRHLLSum : public RDCRHLLCommon {
   RDCRHLLSum(const ReducerOptions *);
-  ~RDCRHLLSum();
-
-  struct Data {
-    struct HLL hll;
-
-    int Add(const char *buf);
-  } data;
 
   int Add(const RLookupRow *srcrow);
   RSValue *Finalize();

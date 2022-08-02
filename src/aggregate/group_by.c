@@ -197,7 +197,6 @@ int Grouper::Next(SearchResult &res) {
 static void cleanCallback(void *ptr, void *arg) {
   Group *group = ptr;
   Grouper *parent = arg;
-  // Call the reducer's FreeInstance
   for (size_t i = 0; i < parent->numReducers(); ++i) {
     delete parent->reducers[i];
   }
