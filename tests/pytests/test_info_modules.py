@@ -84,6 +84,7 @@ def testInfoModulesAlter(env):
   # idx1Info = info['search_info_' + idx1]
   # env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
 
+
 def testInfoModulesDrop(env):
   conn = env.getConnection()
   idx1 = 'idx1'
@@ -105,6 +106,7 @@ def testInfoModulesDrop(env):
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(fieldsInfo['search_fields_text'], 'Text=2,Sortable=1')
   env.assertFalse('search_fields_numeric' in fieldsInfo) # no numeric fields since we removed idx2
+
 
 def testInfoModulesAfterReload(env):
   conn = env.getConnection()
