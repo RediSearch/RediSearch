@@ -168,7 +168,7 @@ struct RDCRCountDistinct : public Reducer {
   RDCRCountDistinct(const ReducerOptions *);
 
   struct Data {
-    std::unordered_set<uint64_t> dedup; //@@
+    std::unordered_set<uint64_t> dedup;
   } data;
 
   int Add(const RLookupRow *srcrow);

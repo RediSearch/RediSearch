@@ -89,33 +89,33 @@ int ArgsCursor::GetLongLong(long long *ll, unsigned int flags) {
   if ((flags & AC_F_GE1) && tmpll < 1) {
     return AC_ERR_ELIMIT;
   }
-  MAYBE_ADVANCE(flags);
+  MaybeAdvance(flags);
   *ll = tmpll;
   return AC_OK;
 }
 
 int ArgsCursor::GetUnsignedLongLong(unsigned long long *ull, unsigned int flags) {
-  return GetInteger<0, LLONG_MAX, true>(ull, flags);
+  return GetInteger<unsigned long long, 0, LLONG_MAX, true>(ull, flags);
 }
 
 int ArgsCursor::GetUnsigned(unsigned *u, unsigned int flags) {
-  return GetInteger<0, UINT_MAX, true>(u, flags);
+  return GetInteger<unsigned, 0, UINT_MAX, true>(u, flags);
 }
 
 int ArgsCursor::GetInt(int *i, unsigned int flags) {
-  return GetInteger<INT_MIN, INT_MAX, false>(i, flags);
+  return GetInteger<int, INT_MIN, INT_MAX, false>(i, flags);
 }
 
 int ArgsCursor::GetU32(uint32_t *u, unsigned int flags) {
-  return GetInteger<0, UINT32_MAX, true>(u, flags);
+  return GetInteger<uint32_t, 0, UINT32_MAX, true>(u, flags);
 }
 
 int ArgsCursor::GetU64(uint64_t *u, unsigned int flags) {
-  return GetInteger<0, UINT64_MAX, true>(u, flags);
+  return GetInteger<uint64_t, 0, UINT64_MAX, true>(u, flags);
 }
 
 int ArgsCursor::GetSize(size_t *u, unsigned int flags) {
-  return GetInteger<0, SIZE_MAX, true>(u, flags);
+  return GetInteger<size_t, 0, SIZE_MAX, true>(u, flags);
 }
 
 int ArgsCursor::GetDouble(double *d, unsigned int flags) {
@@ -137,7 +137,7 @@ int ArgsCursor::GetDouble(double *d, unsigned int flags) {
   if ((flags & AC_F_GE1) && tmpd < 1.0) {
     return AC_ERR_ELIMIT;
   }
-  MAYBE_ADVANCE(flags);
+  MaybeAdvance(flags);
   *d = tmpd;
   return AC_OK;
 }
@@ -148,7 +148,7 @@ int ArgsCursor::GetRString(RedisModuleString **s, unsigned int flags) {
     return AC_ERR_NOARG;
   }
   *s = CURRENT();
-  MAYBE_ADVANCE(flags);
+  MaybeAdvance(flags);
   return AC_OK;
 }
 
@@ -168,7 +168,7 @@ int ArgsCursor::GetString(const char **s, size_t *n, unsigned int flags) {
       }
     }
   }
-  MAYBE_ADVANCE(flags);
+  MaybeAdvance(flags);
   return AC_OK;
 }
 
@@ -229,7 +229,7 @@ int ArgsCursor::parseSingleSpec(ACArgSpec *spec) {
     case AC_ARGTYPE_LLONG:
       return GetLongLong(spec->target, spec->intflags);
     case AC_ARGTYPE_ULLONG:
-      return GetInt1(reinterpret_cast<unsigned long long *>(spec->target), spec->intflags);
+      return GetUnsignedLongLong(spec->target, spec->intflags);
     case AC_ARGTYPE_UINT:
       return GetUnsigned(spec->target, spec->intflags);
     case AC_ARGTYPE_STRING:

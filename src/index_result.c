@@ -100,14 +100,14 @@ bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
   int num = numChildren;
 
   // Fill a list of iterators and the last read positions
-  RSOffsetIterator iters[num];
+  Vector<std::auto_ptr<RSOffsetIterator>> iters(num);
   uint32_t positions[num];
   int n = 0;
   for (int i = 0; i < num; i++) {
     // collect only iterators for nodes that can have offsets
     auto &child = *children[i];
     if (child.HasOffsets()) {
-      iters[n] = child.IterateOffsets();
+      iters.emplace_back(child.IterateOffsets());
       positions[n] = 0;
       n++;
     }
@@ -125,9 +125,6 @@ bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
   else
     rc = withinRangeUnordered(iters, positions, n, maxSlop);
   // printf("slop result for %d: %d\n", ir->docId, rc);
-  for (int i = 0; i < n; i++) {
-    delete &iters[i];
-  }
 
   return !!rc;
 }
@@ -147,7 +144,7 @@ int AggregateResult::MinOffsetDelta() const {
   int dist = 0;
   int num = numChildren;
 
-  RSOffsetIterator v1, v2;
+  std::unique_ptr<RSOffsetIterator> v1, v2;
   int i = 0;
   while (i < num) {
     // if either
@@ -164,26 +161,22 @@ int AggregateResult::MinOffsetDelta() const {
       continue;
     }
     if (i == num) {
-      delete &v1.Proxy;
       dist = dist ? dist : 100;
       break;
     }
     v2 = children[i]->IterateOffsets();
 
-    uint32_t p1 = v1.Next(NULL);
-    uint32_t p2 = v2.Next(NULL);
+    uint32_t p1 = v1->Next(NULL);
+    uint32_t p2 = v2->Next(NULL);
     int cd = __absdelta(p2, p1);
     while (cd > 1 && p1 != RS_OFFSETVECTOR_EOF && p2 != RS_OFFSETVECTOR_EOF) {
       cd = MIN(__absdelta(p2, p1), cd);
       if (p2 > p1) {
-        p1 = v1.Next(NULL);
+        p1 = v1->Next(NULL);
       } else {
-        p2 = v2.Next(NULL);
+        p2 = v2->Next(NULL);
       }
     }
-
-    delete &v1.Proxy;
-    delete &v2.Proxy;
 
     dist += cd * cd;
   }
@@ -297,7 +290,7 @@ size_t IndexResult::GetMatchedTerms(RSQueryTerm **arr, size_t cap) {
 
 //---------------------------------------------------------------------------------------------
 
-bool IndexResult::withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num,
+bool IndexResult::withinRangeInOrder(RSOffsetIterators &iters, uint32_t *positions, int num,
                                      int maxSlop) {
   while (1) {
     // we start from the beginning, and a span of 0

@@ -167,15 +167,13 @@ void QueryTokenNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp
     return;
   }
 
-  bool expand = expandChildren();
+  qexp.currentNode = this;
 
-  qexp.currentNode = &this; // @@TODO: check this up
-  expander(&qexp, &tok);
-
-  if (!expand) return;
-
-  for (size_t i = 0; i < NumChildren(); ++i) {
-    children[i]->Expand(expander, qexp);
+  if (expandChildren()) {
+    expander(&qexp, &tok);
+    for (size_t i = 0; i < NumChildren(); ++i) {
+      children[i]->Expand(expander, qexp);
+    }
   }
 }
 
@@ -215,7 +213,6 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
     its.push_back(ir->NewReadIterator());
   }
 
-  delete &it.ctx;
   return new UnionIterator(its, q->docTable, 1, opts->weight);
 }
 

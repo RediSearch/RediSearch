@@ -22,7 +22,7 @@ int RDCRCountDistinct::Add(const RLookupRow *srcrow) {
   }
 
   uint64_t hval = val->Hash(0);
-  data.dedup.insert(hval); //@@@TODO: we never use the values in the set.
+  data.dedup.insert(hval);
   return 1;
 }
 

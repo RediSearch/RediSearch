@@ -194,7 +194,7 @@ int UnionIterator::ReadSorted(IndexResult **hit) {
 
   do {
     // find the minimal iterator
-    t_docId minDocId = UINT32_MAX;
+    t_docId minDocId = t_docId{UINT32_MAX};
     IndexIterator *minIt = NULL;
     numActive = 0;
     int rc = INDEXREAD_EOF;
@@ -275,7 +275,7 @@ int UnionIterator::SkipTo(t_docId docId, IndexResult **hit) {
   int found = 0;
   int rc = INDEXREAD_EOF;
   const int quickExit = quickExit;
-  t_docId minDocId1 = UINT32_MAX;
+  t_docId minDocId1 = t_docId{UINT32_MAX};
   IndexIterator *it;
   IndexResult *res;
   IndexResult *minResult = NULL;

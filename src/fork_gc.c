@@ -264,7 +264,7 @@ void InvertedIndexRepair::sendHeader() {
 //---------------------------------------------------------------------------------------------
 
 void ForkGC::childCollectTerms(RedisSearchCtx *sctx) {
-  TrieIterator iter = *sctx->spec->terms->Iterate("", 0, 0, 1);
+  TrieIterator iter = sctx->spec->terms->Iterate("", 0, 0, 1);
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
@@ -285,7 +285,7 @@ void ForkGC::childCollectTerms(RedisSearchCtx *sctx) {
     rm_free(term);
   }
 
-  delete iter.ctx;
+  delete iter.dfafilter;
 
   // we are done with terms
   sendTerminator();

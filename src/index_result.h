@@ -111,12 +111,15 @@ struct AggregateResult : IndexResult {
 
   bool IsWithinRange(int maxSlop, bool inOrder) const;
 
-  RSOffsetIterator IterateOffsets() const {
+  std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
     // if we only have one sub result, just iterate that...
+    RSOffsetIterator *p;
     if (numChildren == 1) {
-      return *new AggregateOffsetIterator(children[0]);
+      p = new AggregateOffsetIterator(children[0]);
+    } else {
+      p = new AggregateOffsetIterator(this);
     }
-    return *new AggregateOffsetIterator(this);
+    return std::make_unique<RSOffsetIterator>(p);
   }
 };
 
@@ -168,7 +171,7 @@ struct TermResult : public IndexResult {
 
   void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len);
 
-  RSOffsetIterator IterateOffsets() const {
+  std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
     return offsets.Iterate(term);
   }
 };

@@ -156,7 +156,7 @@ static ExtScoringFunction *Extensions::GetScoringFunction(ScoringFunctionArgs *f
 
 void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flags) {
   QueryAST *q = qast;
-  QueryNode *qn = *currentNode;
+  QueryNode *qn = currentNode;
 
   // Replace current node with a new union node if needed
   if (qn->type != QN_UNION) {
@@ -166,13 +166,13 @@ void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flag
 
     // Append current node to the new union node as a child
     un->AddChild(qn);
-    *currentNode = un;
+    currentNode = un;
   }
 
   QueryTokenNode *exp = q->NewTokenNodeExpanded(str, len, flags);
   exp->opts.fieldMask = qn->opts.fieldMask;
   // Now the current node must be a union node - so we just add a new token node to it
-  *currentNode->AddChild(exp);
+  currentNode->AddChild(exp);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -190,7 +190,7 @@ void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flag
 void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTokenFlags flags,
                                             bool replace, bool exact) {
   QueryAST *q = qast;
-  QueryNode *qn = *currentNode;
+  QueryNode *qn = currentNode;
 
   QueryPhraseNode *ph = new QueryPhraseNode(exact);
   for (size_t i = 0; i < num; i++) {
@@ -201,7 +201,7 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
   if (replace) {
     delete qn;
 
-    currentNode = &ph;
+    currentNode = ph;
   } else {
 
     // Replace current node with a new union node if needed
@@ -210,7 +210,7 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
 
       // Append current node to the new union node as a child
       un->AddChild(qn);
-      currentNode = &un;
+      currentNode = un;
     }
     // Now the current node must be a union node - so we just add a new token node to it
     currentNode->AddChild(ph);

@@ -9,7 +9,7 @@
 #include "snowball/include/libstemmer.h"
 #include "default.h"
 #include "../tokenize.h"
-#include "../rmutil/vector.h"
+#include "rmutil/vector.h"
 #include "../stemmer.h"
 #include "../phonetic_manager.h"
 #include "../score_explain.h"
@@ -462,24 +462,24 @@ int SynonymExpand(RSQueryExpander *ctx, RSToken *token) {
  *
  ******************************************************************************************/
 int DefaultExpander(RSQueryExpander &ctx, RSToken *token) {
-  int phonetic = (*ctx.currentNode)->opts.phonetic;
+  int phonetic = ctx.currentNode->opts.phonetic;
   SynonymExpand(ctx, token);
 
   if (phonetic == PHONETIC_DEFAULT) {
     // Eliminate the phonetic expansion if we know that none of the fields
     // actually use phonetic matching
-    if (ctx->handle->spec->CheckPhoneticEnabled((*ctx->currentNode)->opts.fieldMask)) {
+    if (ctx.handle->spec->CheckPhoneticEnabled(ctx.currentNode->opts.fieldMask)) {
       phonetic = PHONETIC_ENABLED;
     }
   } else if (phonetic == PHONETIC_ENABLED || phonetic == PHONETIC_DESABLED) {
     // Verify that the field is actually phonetic
     int isValid = 0;
-    if ((*ctx.currentNode)->opts.fieldMask == RS_FIELDMASK_ALL) {
+    if (ctx.currentNode->opts.fieldMask == RS_FIELDMASK_ALL) {
       if (ctx->handle->spec->flags & Index_HasPhonetic) {
         isValid = 1;
       }
     } else {
-      t_fieldMask fm = (*ctx.currentNode)->opts.fieldMask;
+      t_fieldMask fm = ctx.currentNode->opts.fieldMask;
       for (size_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
         if (!(fm & (t_fieldMask)1 << ii)) {
           continue;

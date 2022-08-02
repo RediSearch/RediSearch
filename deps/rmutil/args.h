@@ -138,13 +138,13 @@ struct ArgsCursor {
   int Advance();
   int AdvanceBy(size_t by);
   int AdvanceIfMatch(const char *arg);
-  void MAYBE_ADVANCE(unsigned int flags) {
+  void MaybeAdvance(unsigned int flags) {
     if (!(flags & AC_F_NOADVANCE)) {
       Advance();
     }
   }
 
-  template <class T, size_t minVal, size_t maxVal, bool isUnsigned>
+  template <class T, long long minVal, size_t maxVal, bool isUnsigned>
   int GetInteger(T *p, unsigned int flags) {
     if (isUnsigned) {
       flags |= AC_F_GE0;
@@ -158,7 +158,7 @@ struct ArgsCursor {
       return AC_ERR_ELIMIT;
     }
     *p = ll;
-    maybeAdvance(flags);
+    MaybeAdvance(flags);
     return AC_OK;
   }
 

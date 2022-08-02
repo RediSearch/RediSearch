@@ -54,7 +54,7 @@ int IdListIterator::SkipTo(t_docId docId, IndexResult **r) {
     return INDEXREAD_EOF;
   }
 
-  t_offset top = size - 1, bottom = offset;
+  t_offset top = t_offset{size - 1}, bottom = offset;
   t_offset i = bottom;
 
   while (bottom <= top) {

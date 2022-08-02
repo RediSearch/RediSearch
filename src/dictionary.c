@@ -96,7 +96,7 @@ bool Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
     rm_free(res);
   }
 
-  delete it.ctx;
+  delete it.dfafilter;
 
   RedisModule_CloseKey(k);
 

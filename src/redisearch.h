@@ -200,7 +200,7 @@ struct RSQueryExpander {
   RedisSearchCtx &sctx;
 
   // Opaque query node object used internally by the engine, and should not be accessed
-  struct QueryNode **currentNode;
+  struct QueryNode *currentNode;
 
   // Error object. Can be used to signal an error to the user
   struct QueryError *status;
@@ -277,6 +277,8 @@ struct RSOffsetIterator {
   };
 };
 
+typedef Vector<std::auto_ptr<RSOffsetIterator>> RSOffsetIterators;
+
 //---------------------------------------------------------------------------------------------
 
 // RSOffsetVector represents the encoded offsets of a term in a document.
@@ -289,7 +291,7 @@ struct RSOffsetVector {
   uint32_t len;
 
   // Create an offset iterator interface  from a raw offset vector
-  RSOffsetIterator Iterate(RSQueryTerm *t) const;
+  std::unique_ptr<RSOffsetIterator> Iterate(RSQueryTerm *t) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -384,12 +386,12 @@ struct IndexResult : public Object {
 
   virtual bool HasOffsets() const { return false; };
 
-  bool withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num, int maxSlop);
-  bool withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num, int maxSlop);
+  bool withinRangeInOrder(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
+  bool withinRangeUnordered(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
 
   // Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed
-  virtual RSOffsetIterator IterateOffsets() const {
-    return offset_empty_iterator;
+  virtual std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
+    return std::make_unique<RSOffsetIterator>();
   }
 };
 #pragma pack()
