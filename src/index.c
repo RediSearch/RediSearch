@@ -1103,7 +1103,7 @@ OptionalIterator::OptionalIterator(IndexIterator *it, t_docId maxDocId_, double 
 // Read reads the next consecutive id, unless we're at the end
 
 int WildcardIterator::Read(IndexResult **hit) {
-  if (current > topId) {
+  if (currentId > topId) {
     return INDEXREAD_EOF;
   }
   current->docId = currentId++;
@@ -1113,10 +1113,11 @@ int WildcardIterator::Read(IndexResult **hit) {
   return INDEXREAD_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Skipto for wildcard iterator - always succeeds, but this should normally not happen as it has no meaning
 
 int WildcardIterator::SkipTo(t_docId docId, IndexResult **hit) {
-  // printf("WI_Skipto %d\n", docId);
   if (currentId > topId) return INDEXREAD_EOF;
 
   if (docId == 0) return Read(hit);
@@ -1129,9 +1130,13 @@ int WildcardIterator::SkipTo(t_docId docId, IndexResult **hit) {
   return INDEXREAD_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void WildcardIterator::Abort() {
   currentId = topId + 1;
 }
+
+//---------------------------------------------------------------------------------------------
 
 // We always have next, in case anyone asks... ;)
 
@@ -1139,23 +1144,33 @@ int WildcardIterator::HasNext() {
   return currentId <= topId;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Our len is the len of the index...
+
 size_t WildcardIterator::Len() {
   return topId;
 }
 
-// Last docId
+//---------------------------------------------------------------------------------------------
+
 t_docId WildcardIterator::LastDocId() {
   return currentId;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void WildcardIterator::Rewind() {
   currentId = 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 size_t WildcardIterator::NumEstimated() {
   return SIZE_MAX;
 }
+
+//---------------------------------------------------------------------------------------------
 
 WildcardIterator::WildcardIterator(t_docId maxId) {
   currentId = 1;

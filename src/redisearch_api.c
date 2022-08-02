@@ -34,7 +34,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   spec.MakeKeyless();
   spec.flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   if (!spec.indexer) {
-    spec.indexer = new DocumentIndexer(spec);
+    spec.indexer = std::make_shared<DocumentIndexer>(spec);
   }
 
   spec.getValue = options->gvcb;
@@ -269,7 +269,7 @@ QueryNumericNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field,
                                                int includeMax, int includeMin) {
   NumericFilter* nf = new NumericFilter(min, max, includeMin, includeMax);
   nf->fieldName = rm_strdup(field);
-  QueryNumericNode *ret(nf);
+  QueryNumericNode *ret = new QueryNumericNode(nf);
   ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
   return ret;
 }

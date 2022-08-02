@@ -450,7 +450,7 @@ class MyThread : Thread {
 };
 
 void DocumentIndexer::main() {
-  _stopped = false;
+  // _stopped = false;
   pthread_mutex_lock(&lock);
   while (!ShouldStop()) {
     while (addQueue.empty() && !ShouldStop()) {
@@ -476,7 +476,7 @@ void DocumentIndexer::main() {
   }
 
   pthread_mutex_unlock(&lock);
-  _stopped = true;
+  // _stopped = true;
 }
 
 //---------------------------------------------------------------------------------------------

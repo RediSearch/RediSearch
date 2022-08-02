@@ -25,6 +25,8 @@ struct IdType {
   //IdType<T> operator=(IdType<T> id) { _id = id; return *this; }
   IdType<T> operator=(T id) { _id = id; return *this; }
   bool operator==(IdType<T> id) const { return _id == id._id; }
+  bool operator<(IdType<T> id) const { return _id < id._id; }
+  bool operator>(IdType<T> id) const { return _id > id._id; }
 };
 
 //---------------------------------------------------------------------------------------------

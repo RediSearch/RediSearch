@@ -1,7 +1,7 @@
 #pragma once
 
-#include "trie/trie.h"
-#include "trie/levenshtein.h"
+#include "trie.h"
+#include "levenshtein.h"
 
 //#include "redismodule.h"
 
@@ -28,7 +28,7 @@ struct Trie {
   int InsertStringBuffer(const char *s, size_t len, double score, int incr, RSPayload *payload);
   Vector<TrieSearchResult*> Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode, int trim, int optimize);
 
-  TrieIterator<DFAFilter> Iterate(const char *prefix, size_t len, int maxDist, int prefixMode);
+  TrieIterator Iterate(const char *prefix, size_t len, int maxDist, int prefixMode);
 
   bool RandomKey(char **str, t_len *len, double *score);
 };

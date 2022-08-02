@@ -1098,7 +1098,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
 
-  for (const PLN_BaseStep *step = pln->steps.front(); step; step = step->list_node.NextStep()) {
+  for (const PLN_BaseStep *step = pln->steps.front(); step; step = step->NextStep()) {
     switch (step->type) {
       case PLN_T_GROUP: {
         rpUpstream = getGroupRP((PLN_GroupStep *)step, rpUpstream, status);

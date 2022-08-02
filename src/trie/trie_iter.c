@@ -1,33 +1,32 @@
+#include "trie.h"
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Push a new trie node on the iterator's stack
 
-template <class T>
-void TrieIterator<T>::Push(TrieNode *node, int skipped) {
-    stack.emplace_back(StackNode{skipped, node});
+void TrieIterator::Push(TrieNode *node, int skipped) {
+  stack.emplace_back(StackNode{skipped, node});
 }
 
 //---------------------------------------------------------------------------------------------
 
 // pop a node from the iterator's stcak
 
-template <class T>
-void TrieIterator<T>::Pop() {
-    if (!stack.empty()) {
-        StackNode &curr = current();
-        ctx.StackPop(curr.stringOffset);
+void TrieIterator::Pop() {
+  if (!stack.empty()) {
+    StackNode &curr = current();
+    dfafilter.StackPop(curr.stringOffset);
 
-        bufOffset -= curr.stringOffset;
-        stack.pop_back();
-    }
+    bufOffset -= curr.stringOffset;
+    stack.pop_back();
+  }
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Single step iteration, feeding the given filter/automaton with the next character
 
-template <class T>
-TrieIterator<T>::StepResult TrieIterator<T>::Step(int *match) {
+TrieIterator::StepResult TrieIterator::Step(int *match) {
   if (stack.empty()) {
     return __STEP_STOP;
   }
@@ -45,7 +44,7 @@ TrieIterator<T>::StepResult TrieIterator<T>::Step(int *match) {
         rune b = curr.n->_str[curr.stringOffset];
 
         // run the next character in the filter
-        FilterCode rc = ctx.Filter(b, &matched, match);
+        FilterCode rc = dfafilter.Filter(b, &matched, match);
 
         // if we should stop...
         if (rc == F_STOP) {
@@ -109,23 +108,20 @@ next:
 // or not. This can be a levenshtein automaton, a regex automaton, etc.
 // NULL filter means just continue iterating the entire trie. ctx is the filter's context.
 
-template <class T>
-TrieIterator<T> TrieNode::Iterate(StepFilter f, StackPopCallback pf, T &&obj) {
-  return TrieIterator<T>{this, f, pf, std::move(obj)};
+TrieIterator TrieNode::Iterate(StepFilter f, StackPopCallback pf, DFAFilter *filter) {
+  return TrieIterator{this, f, pf, filter};
 }
 
 //---------------------------------------------------------------------------------------------
 
-template <class T>
-TrieIterator<T>::TrieIterator(T &&obj) :
-    filter(NULL), popCallback(NULL), minScore(0), ctx(std::move(obj)) {
+TrieIterator::TrieIterator(DFAFilter *filter) :
+    filter(NULL), popCallback(NULL), minScore(0), dfafilter(*filter) {
 }
 
 //---------------------------------------------------------------------------------------------
 
-template <class T>
-TrieIterator<T>::TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, T &&obj) :
-    filter(f), popCallback(pf), minScore(0), ctx(std::move(obj)) {
+TrieIterator::TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, DFAFilter *filter) :
+    filter(f), popCallback(pf), minScore(0), dfafilter(*filter) {
   Push(node, false);
 }
 
@@ -134,10 +130,9 @@ TrieIterator<T>::TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf,
 // Iterate to the next matching entry in the trie.
 // Returns true if we can continue, or false if we're done and should exit.
 
-template <class T>
-bool TrieIterator<T>::Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx) {
+bool TrieIterator::Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *match) {
   StepResult rc;
-  while ((rc = Step(matchCtx)) != __STEP_STOP) {
+  while ((rc = Step(match)) != __STEP_STOP) {
     if (rc == __STEP_MATCH) {
       StackNode &sn = current();
 

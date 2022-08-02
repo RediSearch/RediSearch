@@ -48,7 +48,7 @@ int AliasTable::Del(const char *alias, IndexSpec *spec, int options, QueryError 
   }
 
   int rc = d.erase(alias);
-  RS_LOG_ASSERT(rc == DICT_OK, "Dictionary delete failed");
+  // RS_LOG_ASSERT(rc == DICT_OK, "Dictionary delete failed");
   return REDISMODULE_OK;
 }
 

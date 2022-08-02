@@ -11,8 +11,10 @@
  */
 
 template<typename T, typename Compare = std::less<T>>
-struct PriorityQueue : public Vector {
-  PriorityQueue(size_t cap) : Vector(cap) {}
+struct PriorityQueue : public Vector<T> {
+  PriorityQueue(size_t cap) {
+    reserve(cap);
+  }
 
   /* Access top element
   * Copy the top element in the priority_queue to ptr.
@@ -22,10 +24,9 @@ struct PriorityQueue : public Vector {
     return Get(0, ptr);
   }
 
-  size_t Push(T *elem) {
-    size_t top = Push(elem);
-    _sift_up(0, top);
-    return top;
+  void Push(T *elem) {
+    push_back(elem);
+    _sift_up(0, size()-1);
   }
 
   /* Remove top element
@@ -34,11 +35,7 @@ struct PriorityQueue : public Vector {
   * The value of this element can be retrieved before being popped by calling Priority_Queue_Top.
   */
   void Pop()  {
-    if (top == 0) {
-      return;
-    }
-    _pop(0, top);
-    top--;
+    _pop(0, size()-1);
   }
 
 private:

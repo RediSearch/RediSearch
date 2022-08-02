@@ -232,9 +232,8 @@ void RedisSearchCtx::Refresh(RedisModuleString *keyName) {
   RedisModule_ThreadSafeContextUnlock(redisCtx);
   // try to acquire it again...
   RedisModule_ThreadSafeContextLock(redisCtx);
-
   // reopen the context - it might have gone away!
-  ctor(redisCtx, keyName, true);
+  ctor(redisCtx, RedisModule_StringPtrLen(keyName, NULL), true);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -535,8 +534,8 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
   int dist = 0;
   size_t termLen;
 
-  TrieIterator<DFAFilter> it = ctx->spec->terms->Iterate("", 0, 0, 1);
-  while (it->Next(&rstr, &slen, NULL, &score, &dist)) {
+  TrieIterator it = ctx->spec->terms->Iterate("", 0, 0, 1);
+  while (it.Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModuleString *keyName = ctx->TermKeyName(res, strlen(res));
     Redis_DropScanHandler(redisCtx, keyName, ctx);

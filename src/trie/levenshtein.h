@@ -1,8 +1,8 @@
 #pragma once
 
+#include "rune_util.h"
 #include "sparse_vector.h"
 #include "rmutil/vector.h"
-#include "trie.h"
 
 #include <stdlib.h>
 
@@ -75,6 +75,8 @@ struct DFANode : Object {
 };
 
 //---------------------------------------------------------------------------------------------
+
+enum FilterCode { F_CONTINUE = 0, F_STOP = 1 };
 
 struct DFAFilter : Object {
 	DFAFilter(Runes &runes, int maxDist, bool prefixMode);

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "trie/rune_util.h"
 #include "rmutil/vector.h"
 #include "redisearch.h"
+#include "levenshtein.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -84,8 +84,6 @@ struct StackNode {
 
 //---------------------------------------------------------------------------------------------
 
-enum FilterCode { F_CONTINUE = 0, F_STOP = 1 };
-
 // A callback for an automaton that receives the current state, evaluates the next byte,
 // and returns the next state of the automaton. If we should not continue down, return F_STOP.
 typedef FilterCode (*StepFilter)(rune b, void *ctx, int *match, void *matchCtx);
@@ -98,7 +96,6 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 
 // Opaque trie iterator type
 
-template <class T>
 struct TrieIterator : public Object {
   rune buf[TRIE_INITIAL_STRING_LEN + 1];
   t_len bufOffset;
@@ -109,10 +106,10 @@ struct TrieIterator : public Object {
   int nodesConsumed;
   int nodesSkipped;
   StackPopCallback popCallback;
-  T ctx;
+  DFAFilter dfafilter;
 
-  TrieIterator(T &&obj); // empty iterator
-  TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, T &&obj);
+  TrieIterator(DFAFilter *filter);
+  TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, DFAFilter *filter);
   ~TrieIterator();
 
   void Push(TrieNode *node, int skipped);
@@ -168,8 +165,7 @@ struct TrieNode : public Object {
 
   bool Delete(rune *runes, t_len len);
 
-  template <class T>
-  TrieIterator<T> Iterate(StepFilter f, StackPopCallback pf, T &&obj);
+  TrieIterator Iterate(StepFilter f, StackPopCallback pf, DFAFilter *filter);
 
   TrieNode *RandomWalk(int minSteps, Runes &runes);
   void MergeWithSingleChild();
@@ -190,9 +186,5 @@ struct TrieNode : public Object {
   bool isDeleted() const { return _flags & TRIENODE_DELETED; }
 };
 #pragma pack()
-
-//---------------------------------------------------------------------------------------------
-
-#include "trie_iter.hxx"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

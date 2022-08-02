@@ -183,7 +183,7 @@ void QueryTokenNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp
 
 static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *str, size_t len,
                                            int maxDist, int prefixMode, QueryNodeOptions *opts) {
-  TrieIterator<DFAFilter> it = terms->Iterate(str, len, maxDist, prefixMode);
+  TrieIterator it = terms->Iterate(str, len, maxDist, prefixMode);
   IndexIterators its;
 
   rune *rstr = NULL;
@@ -290,10 +290,10 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
   rune *rbegin = NULL, *rend = NULL;
   size_t nbegin, nend;
   if (begin) {
-    begin = strToFoldedRunes(begin, &nbegin, false);
+    rbegin = strToFoldedRunes(begin, &nbegin, false);
   }
   if (end) {
-    end = strToFoldedRunes(end, &nend, false);
+    rend = strToFoldedRunes(end, &nend, false);
   }
 
   t->root->IterateRange(rbegin, rbegin ? nbegin : -1, includeBegin, rend,
@@ -376,7 +376,7 @@ IndexIterator *QueryWildcardNode::EvalNode(Query *q) {
 
 //---------------------------------------------------------------------------------------------
 
-IndexIterator *QueryPhraseNode::EvalSingle(Query *q, TagIndex *idx, Vector<IndexIterators> &iterout, double weight) {
+IndexIterator *QueryPhraseNode::EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
   char *terms[NumChildren()];
   for (size_t i = 0; i < NumChildren(); ++i) {
     if (children[i]->type == QN_TOKEN) {
@@ -481,8 +481,7 @@ IndexIterator *QueryUnionNode::EvalNode(Query *q) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, Vector<IndexIterators> &iterout,
-                                             double weight) {
+IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
   TrieMap *t = idx->values;
   if (!t) {
     return NULL;
@@ -504,8 +503,7 @@ IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, Vector<Ind
 
 // Evaluate a tag prefix by expanding it with a lookup on the tag index
 
-IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, Vector<IndexIterators> &iterout,
-                                           double weight) {
+IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
   // we allow a minimum of 2 letters in the prefx by default (configurable)
   if (tok.len < q->sctx->spec->minPrefix) {
     return NULL;
@@ -533,17 +531,16 @@ IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, Vector<Index
     its.push_back(ret);
   }
 
-  iterout.push_back(its);
+  iterout.insert(iterout.end(), its.begin(), its.end()); // concatenate the vectors
   return new UnionIterator(its, q->docTable, 1, weight);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIterators &iterout,
+IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIterators iterout,
                                             double weight) {
   IndexIterator *ret = EvalSingle(q, idx, iterout, weight);
   if (ret) {
-    // *array_ensure_tail(iterout, IndexIterator *) = ret;
     iterout.push_back(ret);
   }
   return ret;

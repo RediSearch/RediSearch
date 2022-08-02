@@ -58,7 +58,7 @@ InvertedIndex::InvertedIndex(IndexFlags flags, int initBlock) {
   flags = flags;
   numDocs = 0;
   if (initBlock) {
-    AddBlock(0);
+    AddBlock(t_docId{0});
   }
 }
 
@@ -409,7 +409,7 @@ size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, con
   // this can happen with duplicate tags for example
   if (lastId && lastId == docId) return 0;
 
-  t_docId delta = 0;
+  t_docId delta = t_docId{0};
   IndexBlock *blk = &LastBlock();
 
   // see if we need to grow the current block

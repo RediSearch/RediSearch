@@ -78,7 +78,7 @@ int ArgsCursor::GetLongLong(long long *ll, unsigned int flags) {
     }
   }
 
-  if (hasErr && tryReadAsDouble(this, &tmpll, flags) != AC_OK) {
+  if (hasErr && tryReadAsDouble(&tmpll, flags) != AC_OK) {
     return AC_ERR_PARSE;
   }
 

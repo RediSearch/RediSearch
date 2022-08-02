@@ -29,7 +29,7 @@ const RSValue *AREQ::getSortKey(const SearchResult *r, const PLN_ArrangeStep *as
 
 size_t AREQ::serializeResult(RedisModuleCtx *outctx, const SearchResult *r, const CachedVars &cv) {
   const uint32_t options = reqflags;
-  const RSDocumentMetadata *dmd = r->dmd;
+  const RSDocumentMetadata *dmd = r->dmd.get();
   size_t count = 0;
 
   if (dmd && (options & QEXEC_F_IS_SEARCH)) {

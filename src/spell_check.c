@@ -108,7 +108,7 @@ bool SpellChecker::IsTermExistsInTrie(Trie *t, const char *term, size_t len, dou
   float score = 0;
   int dist = 0;
   bool retVal = false;
-  TrieIterator<DFAFilter> it = t->Iterate(term, len, 0, 0);
+  TrieIterator it = t->Iterate(term, len, 0, 0);
   // TrieIterator can be empty when rune length exceed TRIE_MAX_PREFIX
   if (!it) {
     return retVal;
@@ -132,7 +132,7 @@ void SpellChecker::FindSuggestions(Trie *t, const char *term, size_t len, t_fiel
   int dist = 0;
   size_t suggestionLen;
 
-  TrieIterator<DFAFilter> it = t->Iterate(term, len, (int)distance, 0);
+  TrieIterator it = t->Iterate(term, len, (int)distance, 0);
   // TrieIterator can be empty when rune length exceed TRIE_MAX_PREFIX
   if (!it) {
     return;
@@ -150,7 +150,7 @@ void SpellChecker::FindSuggestions(Trie *t, const char *term, size_t len, t_fiel
 //---------------------------------------------------------------------------------------------
 
 arrayof(RS_Suggestion*) RS_Suggestions::GetSuggestions() {
-  TrieIterator<DFAFilter> iter = suggestionsTrie.Iterate("", 0, 0, 1);
+  TrieIterator iter = suggestionsTrie.Iterate("", 0, 0, 1);
   arrayof(RS_Suggestion*) suggestions = array_new(RS_Suggestion*, suggestionsTrie.size);
   rune *rstr = NULL;
   t_len slen = 0;

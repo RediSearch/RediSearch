@@ -130,7 +130,9 @@ void ConcurrentSearch::AddKey(ConcurrentKey1 &&key) {
 //---------------------------------------------------------------------------------------------
 
 void ConcurrentSearch::Lock() {
-  RS_LOG_ASSERT(!isLocked, "Redis GIL shouldn't be locked");
+  if (!isLocked) {
+    throw Error("Redis GIL shouldn't be locked");
+  }
   RedisModule_ThreadSafeContextLock(ctx);
   isLocked = true;
   ReopenKeys();
