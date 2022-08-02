@@ -97,15 +97,15 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 // caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
 // Otherwise we return an iterator to all strings within maxDist Levenshtein distance.
 
-TrieIterator<DFAFilter> Trie::Iterate(const char *prefix, size_t len, int maxDist, int prefixMode) {
+TrieIterator Trie::Iterate(const char *prefix, size_t len, int maxDist, int prefixMode) {
   //@@@TODO: we don't use len argument!
   Runes runes(prefix);
   if (!runes || runes.len() > TRIE_MAX_PREFIX) {
     Runes empty;
-    return TrieIterator<DFAFilter>(DFAFilter(empty, maxDist, prefixMode));
+    return TrieIterator(new DFAFilter(empty, maxDist, prefixMode));
   }
 
-  return TrieIterator<DFAFilter>(DFAFilter(runes, maxDist, prefixMode));
+  return TrieIterator(new DFAFilter(runes, maxDist, prefixMode));
 }
 
 //---------------------------------------------------------------------------------------------
@@ -124,9 +124,7 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
   }
 
   Heap<TrieSearchResult *> pq(cmpEntries, num);
-  DFAFilter fc(runes, maxDist, prefixMode);
-
-  TrieIterator it(&fc);
+  TrieIterator it(new DFAFilter(runes, maxDist, prefixMode));
   rune *rstr;
   t_len slen;
   float score;
