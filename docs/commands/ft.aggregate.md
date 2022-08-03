@@ -54,6 +54,7 @@ Runs a search query on an index, and performs aggregate transformations on the r
 * **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index
   `offset` (zero-based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you
   are interested in just limiting the output of a sort operation.
+  If a key expires during the query, an attempt to `load` the key's value will return a null array. 
 
     However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100.
 

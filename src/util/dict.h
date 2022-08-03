@@ -79,7 +79,7 @@ typedef struct dict {
     void *privdata;
     dictht ht[2];
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
-    unsigned long iterators; /* number of iterators currently running */
+    int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
 } dict;
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -147,6 +147,8 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
+#define dictPauseRehashing(d) __atomic_add_fetch(&(d)->pauserehash, 1, __ATOMIC_RELAXED)
+#define dictResumeRehashing(d) __atomic_add_fetch(&(d)->pauserehash, -1, __ATOMIC_RELAXED)
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
