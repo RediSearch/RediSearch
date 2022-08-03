@@ -25,6 +25,7 @@
 #include "module.h"
 #include "query_internal.h"
 #include "aggregate/aggregate.h"
+#include "util/timeout.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -382,7 +383,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
 static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
                                            size_t len, int maxDist, int prefixMode,
-                                           QueryNodeOptions *opts) {
+                                           QueryNodeOptions *opts, struct timespec *timeout) {
   TrieIterator *it = Trie_Iterate(terms, str, len, maxDist, prefixMode);
   if (!it) return NULL;
 
@@ -393,10 +394,12 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   t_len slen = 0;
   float score = 0;
   int dist = 0;
+  size_t timeoutCounter = 0;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
-         (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+         (itsSz < RSGlobalConfig.maxPrefixExpansions) &&
+         TimedOut_WithCounter(timeout, &timeoutCounter) == NOT_TIMED_OUT) {
 
     // Create a token for the reader
     RSToken tok = (RSToken){
@@ -454,7 +457,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, qn->pfx.tok.len, 0, 1, &qn->opts);
+  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, qn->pfx.tok.len, 0, 1, &qn->opts, &q->sctx->timeout);
 }
 
 typedef struct {
@@ -547,7 +550,8 @@ static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, qn->pfx.tok.len, qn->fz.maxDist, 0, &qn->opts);
+  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, qn->pfx.tok.len, qn->fz.maxDist,
+                              0, &qn->opts, &q->sctx->timeout);
 }
 
 static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -769,10 +773,12 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   char *s;
   tm_len_t sl;
   void *ptr;
+  size_t timeoutCounter = 0;
 
   // Find all completions of the prefix
   while (TrieMapIterator_Next(it, &s, &sl, &ptr) &&
-         (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+         (itsSz < RSGlobalConfig.maxPrefixExpansions) &&
+         TimedOut_WithCounter(&q->sctx->timeout, &timeoutCounter) == NOT_TIMED_OUT) {
     IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
     if (!ret) continue;
 
