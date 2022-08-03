@@ -41,7 +41,8 @@ def testExpireIndex(env):
 
 def testExpireDocs(env):
     env.skipOnCluster()
-    env = Env(enableDebugCommand=True)
+    if server_version_at_least(env, '7.0.0'):
+        env = Env(enableDebugCommand=True)
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
 

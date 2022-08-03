@@ -41,6 +41,8 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
 
 def initEnv():
   env = Env(useSlaves=True, forceTcp=True)
+  if server_version_at_least(env, '7.0.0'):
+    env = Env(useSlaves=True, forceTcp=True, enableDebugCommand=True)
 
   env.skipOnCluster()
 
@@ -211,3 +213,38 @@ def testDropWith__FORCEKEEPDOCS():
 
     env.assertEqual(master.execute_command('KEYS', '*'), ['doc1'])
     env.assertEqual(slave.execute_command('KEYS', '*'), ['doc1'])
+
+def testExpireDocs():
+  env = initEnv()
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+
+  '''
+  This test creates creates an index and two documents and check they
+  exist on both shards.
+  One of the documents is expired.
+  The test checks the document is removed from both master and slave.
+  '''
+
+  master.execute_command('FT.CREATE idx SCHEMA t TEXT')
+  master.execute_command('HSET', 'doc1', 't', 'foo')
+  master.execute_command('HSET', 'doc2', 't', 'bar')
+  
+  # both docs exist
+  res = master.execute_command('FT.SEARCH', 'idx', '*')
+  env.assertEqual(res, [2, 'doc1', ['t', 'foo'], 'doc2', ['t', 'bar']])
+  checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*', 'NOCONTENT'), [2, 'doc1', 'doc2'], time_out=5)
+
+  master.execute_command('PEXPIRE', 'doc1', 1)
+  time.sleep(0.01)
+
+  # both docs exist but doc1 fail to load field since they were expired passively
+  res = master.execute_command('FT.SEARCH', 'idx', '*')
+  env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'bar']])
+  checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*', 'NOCONTENT'), [1, 'doc2'], time_out=5)
+
+  # only 1 doc is left
+  res = master.execute_command('FT.SEARCH', 'idx', '*')
+  env.assertEqual(res, [1, 'doc2', ['t', 'bar']])
+  res = slave.execute_command('FT.SEARCH', 'idx', '*')
+  env.assertEqual(res, [1, 'doc2', ['t', 'bar']])
