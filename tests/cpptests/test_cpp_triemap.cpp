@@ -38,7 +38,7 @@ int testTMNumResults(TrieMap *t, const char *str, tm_iter_mode mode) {
 }
 
 void freeCb(void *val) {}
-/*
+
 TEST_F(TrieMapTest, testPrefix) {
   TrieMap *t = loadTrieMap();
 
@@ -57,14 +57,58 @@ TEST_F(TrieMapTest, testSuffix) {
 
   TrieMap_Free(t, freeCb);
 }
-*/
+
 TEST_F(TrieMapTest, testContains) {
   TrieMap *t = loadTrieMap();
   
-  //ASSERT_EQ(testTMNumResults(t, "wel", TM_CONTAINS_MODE), 1);
+  ASSERT_EQ(testTMNumResults(t, "wel", TM_CONTAINS_MODE), 1);
   ASSERT_EQ(testTMNumResults(t, "el", TM_CONTAINS_MODE), 7);
-  //ASSERT_EQ(testTMNumResults(t, "ell", TM_CONTAINS_MODE), 4);
-  //ASSERT_EQ(testTMNumResults(t, "ll", TM_CONTAINS_MODE), 4);
+  ASSERT_EQ(testTMNumResults(t, "ell", TM_CONTAINS_MODE), 4);
+  ASSERT_EQ(testTMNumResults(t, "ll", TM_CONTAINS_MODE), 4);
 
   TrieMap_Free(t, freeCb);
+}
+
+void checkNext(TrieMapIterator *iter, const char *str) {
+  char *outstr;
+  tm_len_t len;
+  void *value;
+
+  TrieMapIterator_Next(iter, &outstr, &len, &value);
+  ASSERT_FALSE(strncmp(outstr, str, strlen(str)));
+}
+
+void testFreeCB(void *val) {}
+
+TEST_F(TrieMapTest, testLexOrder) {
+  TrieMap *t = loadTrieMap();
+
+  TrieMapIterator *iter = TrieMap_Iterate(t, "", 0);
+  checkNext(iter, "bell");
+  checkNext(iter, "dealer");
+  checkNext(iter, "he");
+  checkNext(iter, "hell");
+  checkNext(iter, "hello");
+  checkNext(iter, "hello world");
+  checkNext(iter, "help");
+  checkNext(iter, "helper");
+  checkNext(iter, "her");
+  checkNext(iter, "towel");
+  TrieMapIterator_Free(iter);
+
+  TrieMap_Delete(t, "hello world", 11, testFreeCB);
+  TrieMap_Delete(t, "dealer", 6, testFreeCB);
+  TrieMap_Delete(t, "help", 4, testFreeCB);
+  TrieMap_Delete(t, "her", 3, testFreeCB);
+
+  iter = TrieMap_Iterate(t, "", 0);
+  checkNext(iter, "bell");
+  checkNext(iter, "he");
+  checkNext(iter, "hell");
+  checkNext(iter, "hello");
+  checkNext(iter, "helper");
+  checkNext(iter, "towel");
+  TrieMapIterator_Free(iter);
+
+  TrieMap_Free(t, testFreeCB);
 }
