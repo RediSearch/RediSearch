@@ -54,7 +54,7 @@ static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fi
   if (!fieldSpec) {
     return NULL;
   }
-  return spec->GetFormattedKey(fieldSpec, t);
+  return spec->GetFormattedKey(*fieldSpec, t);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -65,17 +65,17 @@ DEBUG_COMMAND(DumpTerms) {
   }
   GET_SEARCH_CTX(argv[0])
 
-  rune *rstr = NULL;
-  t_len slen = 0;
+  Runes runes;
   float score = 0;
   int dist = 0;
   size_t termLen;
+  RSPayload payload;
 
   RedisModule_ReplyWithArray(ctx, sctx->spec->terms->size);
 
   TrieIterator it = sctx->spec->terms->Iterate("", 0, 1);
-  while (it.Next(&rstr, &slen, NULL, &score, &dist)) {
-    char *res = runesToStr(rstr, slen, &termLen);
+  while (it.Next(runes, payload, score, &dist)) {
+    char *res = runes.toUTF8(&termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }

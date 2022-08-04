@@ -36,6 +36,10 @@ RSToken::RSToken(const rune *r, size_t n) {
   str = runesToStr(r, n, &len);
 }
 
+RSToken::RSToken(const Runes &r) {
+  str = r.toUTF8(&len);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
@@ -181,19 +185,19 @@ void QueryTokenNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp
 
 static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *str, size_t len,
                                            int maxDist, int prefixMode, QueryNodeOptions *opts) {
-  TrieIterator it = terms->Iterate(str, len, maxDist, prefixMode);
+  TrieIterator it = terms->Iterate(str, maxDist, prefixMode);
   IndexIterators its;
 
-  rune *rstr = NULL;
-  t_len slen = 0;
+  Runes runes;
   float score = 0;
   int dist = 0;
+  RSPayload payload;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
-  while (it.Next(&rstr, &slen, NULL, &score, &dist) && (its.size() < maxExpansions || maxExpansions == -1)) {
+  while (it.Next(runes, payload, score, &dist) && (its.size() < maxExpansions || maxExpansions == -1)) {
     // Create a token for the reader
-    RSToken tok(rstr, slen);
+    RSToken tok(runes);
     if (q->sctx && q->sctx->redisCtx) {
       RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
     }
@@ -284,17 +288,9 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
     return NULL;
   }
 
-  rune *rbegin = NULL, *rend = NULL;
-  size_t nbegin, nend;
-  if (begin) {
-    rbegin = strToFoldedRunes(begin, &nbegin, false);
-  }
-  if (end) {
-    rend = strToFoldedRunes(end, &nend, false);
-  }
+  Runes rbegin(begin), rend(end);
 
-  t->root->IterateRange(rbegin, rbegin ? nbegin : -1, includeBegin, rend,
-                        rend ? nend : -1, includeEnd, rangeIterCb, &range);
+  t->root->IterateRange(rbegin, includeBegin, rend, includeEnd, rangeIterCb, &range);
   if (range.its.empty()) {
     return NULL;
   } else {
@@ -305,23 +301,16 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
 //---------------------------------------------------------------------------------------------
 
 IndexIterator *QueryFuzzyNode::EvalNode(Query *q) {
-  // RS_LOG_ASSERT(type == QN_FUZZY, "query node type should be fuzzy");
-
   Trie *terms = q->sctx->spec->terms;
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, tok.str, tok.len, maxDist, 0, &opts); //@@ Why can it be Fuzzy and Prefix?
+  return iterateExpandedTerms(q, terms, tok.str, tok.len, maxDist, 0, &opts);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryPhraseNode::EvalNode(Query *q) {
-  // if (qn->type != QN_PHRASE) {
-  //   // printf("Not a phrase node!\n");
-  //   return NULL;
-  // }
-
   // an intersect stage with one child is the same as the child, so we just
   // return it
   if (NumChildren() == 1) {
@@ -391,10 +380,6 @@ IndexIterator *QueryPhraseNode::EvalSingle(Query *q, TagIndex *idx, IndexIterato
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryNotNode::EvalNode(Query *q) {
-  // if (qn->type != QN_NOT) {
-  //   return NULL;
-  // }
-
   return new NotIterator(NumChildren() ? children[0]->EvalNode(q) : NULL,
                          q->docTable->maxDocId, opts.weight);
 }
@@ -402,11 +387,6 @@ IndexIterator *QueryNotNode::EvalNode(Query *q) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryOptionalNode::EvalNode(Query *q) {
-  // if (type != QN_OPTIONAL) {
-    // return NULL;
-  // }
-  // QueryOptionalNode *node = &qn->opt;
-
   return new OptionalIterator(NumChildren() ? children[0]->EvalNode(q) : NULL,
                               q->docTable->maxDocId, opts.weight);
 }
@@ -432,23 +412,19 @@ IndexIterator *QueryGeofilterNode::Eval(Query *q, double weight) {
     return NULL;
   }
 
-  GeoIndex gi(q->sctx, fs);
+  GeoIndex gi(q->sctx, *fs);
   return gi.NewGeoRangeIterator(*gf, weight);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryIdFilterNode::EvalNode(Query *q) {
-  return new IdListIterator(ids, len, 1);
+  return new IdListIterator(ids, t_offset{len}, 1);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryUnionNode::EvalNode(Query *q) {
-  // if (qn->type != QN_UNION) {
-  //   return NULL;
-  // }
-
   // a union stage with one child is the same as the child, so we just return it
   if (NumChildren() == 1) {
     return children[0]->EvalNode(q);
@@ -549,11 +525,11 @@ IndexIterator *QueryTagNode::EvalNode(Query *q) {
   RedisModuleKey *k = NULL;
   size_t n = 0;
   const FieldSpec *fs = q->sctx->spec->GetFieldCase(fieldName, strlen(fieldName));
-
   if (!fs) {
     return NULL;
   }
-  RedisModuleString *kstr = q->sctx->spec->GetFormattedKey(fs, INDEXFLD_T_TAG);
+
+  RedisModuleString *kstr = q->sctx->spec->GetFormattedKey(*fs, INDEXFLD_T_TAG);
   TagIndex *idx = TagIndex::Open(q->sctx, kstr, 0, &k);
   IndexIterator *ret = NULL;
   IndexIterators total_its;
@@ -632,7 +608,6 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
   QueryParse qp(query, nquery, sctx, opts, status);
 
   root = qp.ParseRaw();
-  // printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, status->HasError(), root);
   if (!root) {
     if (status->HasError()) {
       throw Error(status);
@@ -762,14 +737,6 @@ void QueryNode::ClearChildren(bool shouldFree) {
     array_clear(children);
   }
 }
-
-//---------------------------------------------------------------------------------------------
-
-/* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
- * resulting in the query not performing context switches */
-// void Query_SetConcurrentMode(QueryPlan *q, int concurrent) {
-//   q->concurrentMode = concurrent;
-// }
 
 //---------------------------------------------------------------------------------------------
 

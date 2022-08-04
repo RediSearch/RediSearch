@@ -159,7 +159,7 @@ struct TrieNode : public Object {
   void Print(int idx, int depth);
   TrieNode *Add(const Runes &runes, RSPayload *payload, float score, TrieAddOp op);
 
-  TrieNode *AddChild(rune *runes, t_len offset, t_len len, RSPayload *payload, float score);
+  TrieNode *AddChild(const Runes &runes, t_len offset, RSPayload *payload, float score);
   void SplitNode(t_len offset);
 
   float Find(const Runes &runes) const;
@@ -174,8 +174,8 @@ struct TrieNode : public Object {
   void sortChildren();
   void optimizeChildren();
 
-  void IterateRange(const rune *min, int minlen, bool includeMin, const rune *max,
-                    int maxlen, bool includeMax, TrieRangeCallback callback, void *ctx);
+  void IterateRange(const Runes &min, bool includeMin, const Runes &max, bool includeMax,
+                    TrieRangeCallback callback, void *ctx);
   void rangeIterate(const rune *min, int nmin, const rune *max, int nmax, RangeCtx *r);
   void rangeIterateSubTree(RangeCtx *r);
 

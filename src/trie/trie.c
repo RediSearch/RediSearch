@@ -30,7 +30,7 @@ TriePayload::TriePayload(const char *payload, uint32_t plen) {
 // given score
 
 TrieNode::TrieNode(const Runes &runes, t_len offset, const char *payload, size_t payload_size,
-                   t_len numChildren, float score_, bool terminal) : _runes(&runes[offset], runes.len() - offset) {
+                   t_len numChildren, float score_, bool terminal) : _runes(runes[offset]) {
   _children.reserve(numChildren);
   _score = score_;
   _flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
@@ -43,10 +43,10 @@ TrieNode::TrieNode(const Runes &runes, t_len offset, const char *payload, size_t
 
 //---------------------------------------------------------------------------------------------
 
-TrieNode *TrieNode::AddChild(rune *str, t_len offset, t_len len, RSPayload *payload, float score) {
+TrieNode *TrieNode::AddChild(const Runes &runes, t_len offset, RSPayload *payload, float score) {
   // a newly added child must be a terminal node
-  _children.emplace_back(new TrieNode(str, offset, len, payload ? payload->data : NULL,
-    payload ? payload->len : 0, 0, score, 1));
+  _children.emplace_back(new TrieNode(runes, offset, payload ? payload->data : NULL,
+    payload ? payload->len : 0, 0, score, true));
   _sortmode = TRIENODE_SORTED_NONE;
   return _children.back();
 }
@@ -127,7 +127,7 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
   }
 
   int offset = 0;
-  for (; offset < len && offset < _len; ++offset) {
+  for (; offset < runes.len() && offset < _len; ++offset) {
     if (runes[offset] != _runes[offset]) {
       break;
     }
@@ -156,7 +156,7 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
       _children.emplace_back(newChild);
     } else {
       // we add a child
-      AddChild(runes, offset, len, payload, score);
+      AddChild(runes, offset, payload, score);
       _maxChildScore = MAX(_maxChildScore, score);
     }
     return this;
@@ -165,7 +165,7 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
   _maxChildScore = MAX(_maxChildScore, score);
 
   // we're inserting in an existing node - just replace the value
-  if (offset == len) {
+  if (offset == runes.len()) {
     switch (op) {
       // in increment mode, just add the score to the node's score
       case ADD_INCR:
@@ -193,12 +193,12 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
   // proceed to the next child or add a new child for the current rune
   for (auto &child: _children) {
     if (runes[offset] == child->_runes[0]) {
-      child = child->Add(&runes[offset], len - offset, payload, score, op);
+      child = child->Add(runes[offset], payload, score, op);
       return this;
     }
   }
 
-  return AddChild(runes, offset, len, payload, score);
+  return AddChild(runes, offset, payload, score);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -212,7 +212,7 @@ float TrieNode::Find(const Runes &runes) const {
   t_len offset = 0;
   while (n && offset < runes.len()) {
     t_len localOffset = 0;
-    for (; offset < len && localOffset < runes.len(); offset++, localOffset++) {
+    for (; offset < runes.len() && localOffset < runes.len(); offset++, localOffset++) {
       if (runes[offset] != n->_runes[localOffset]) {
         break;
       }
@@ -221,7 +221,6 @@ float TrieNode::Find(const Runes &runes) const {
     if (offset == runes.len()) {
       // we're at the end of both strings!
       if (localOffset == n->_len) return n->isDeleted() ? 0 : n->_score;
-
     } else if (localOffset == n->_len) {
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to
@@ -285,25 +284,25 @@ void TrieNode::optimizeChildren() {
 // but the node will not be persisted to disk, thus deleted after reload.
 // Returns true if the node was indeed deleted, false otherwise.
 
-bool TrieNode::Delete(rune *runes, t_len len) {
+bool TrieNode::Delete(const Runes &runes) {
   TrieNode *n = this;
   t_len offset = 0;
   static TrieNode *stack[TRIE_INITIAL_STRING_LEN]; //@@ static?!
   int stackPos = 0;
   bool rc = false;
-  while (n && offset < len) {
+  while (n && offset < runes.len()) {
     stack[stackPos++] = n;
     t_len localOffset = 0;
-    for (; offset < len && localOffset < len; offset++, localOffset++) {
+    for (; offset < runes.len() && localOffset < runes.len(); offset++, localOffset++) {
       if (runes[offset] != n->_runes[localOffset]) {
         break;
       }
     }
 
-    if (offset == len) {
+    if (offset == runes.len()) {
       // we're at the end of both strings!
       // this means we've found what we're looking for
-      if (localOffset == len) {
+      if (localOffset == runes.len()) {
         if (!n->isDeleted() && n->isTerminal()) {
           n->_flags |= TRIENODE_DELETED;
           n->_flags &= ~TRIENODE_TERMINAL;
@@ -606,25 +605,23 @@ clean_stack:
  * @param ctx data to be passed to the callback
  */
 
-void TrieNode::IterateRange(const rune *min, int nmin, bool includeMin, const rune *max,
-                            int nmax, bool includeMax, TrieRangeCallback callback, void *ctx) {
-  if (min && max) {
-    // min and max exists, lets compare them to make sure min < max
-    int cmp = runecmp(min, nmin, max, nmax);
-    if (cmp > 0) {
-      // min > max, no reason to continue
-      return;
-    }
+void TrieNode::IterateRange(const Runes &min, bool includeMin, const Runes &max, bool includeMax,
+    TrieRangeCallback callback, void *ctx) {
+  if (min > max) {
+    // min > max, no reason to continue
+    return;
+  }
 
-    if (cmp == 0) {
-      // min = max, we should just search for min and check for its existence
-      if (includeMin || includeMax) {
-        if (Find((rune *)min, nmin) != 0) {
-          callback(min, nmin, ctx);
-        }
+  size_t nmin = min.len();
+  size_t nmax = max.len();
+  if (min == max) {
+    // min = max, we should just search for min and check for its existence
+    if (includeMin || includeMax) {
+      if (Find(min) != 0) {
+        callback(min._runes, nmin, ctx);
       }
-      return;
     }
+    return;
   }
 
   // min < max we should start the scan
@@ -635,7 +632,7 @@ void TrieNode::IterateRange(const rune *min, int nmin, bool includeMin, const ru
       .includeMax = includeMax,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
-  rangeIterate(min, nmin, max, nmax, &r);
+  rangeIterate(min._runes, nmin, max._runes, nmax, &r);
   array_free(r.buf);
 }
 
