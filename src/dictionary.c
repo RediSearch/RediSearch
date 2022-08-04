@@ -70,8 +70,6 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   return 1;

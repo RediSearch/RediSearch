@@ -116,8 +116,8 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
     }
     return NULL;
   }
-  DFAFilter *fc = rm_malloc(sizeof(*fc));
-  *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+
+  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(t->root, FilterFunc, StackPop, fc);
   rm_free(runes);
@@ -141,7 +141,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   heap_t *pq = rm_malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
-  DFAFilter fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);
   // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
@@ -250,7 +250,6 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
 
   rm_free(runes);
   TrieIterator_Free(it);
-  DFAFilter_Free(&fc);
   heap_free(pq);
 
   return ret;

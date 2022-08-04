@@ -571,6 +571,10 @@ TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, v
 }
 
 void TrieIterator_Free(TrieIterator *it) {
+  if (it->ctx) {
+    DFAFilter_Free(it->ctx);
+    rm_free(it->ctx);
+  }
   rm_free(it);
 }
 
