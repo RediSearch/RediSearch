@@ -4,6 +4,8 @@ O(n) for single word queries. `n` is the number of the results in the result set
 
 The time complexity for more complex queries varies, but in general it's proportional to the number of words, the number of intersection points between them and the number of results in the result set.
 
+Note: if a sort order is not specified, the return order is not guaranteed.
+
 ---
 
 Searches the index with a textual query, returning either documents or just ids.
