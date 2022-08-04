@@ -2,6 +2,7 @@
 #pragma once
 
 #include "object.h"
+#include "score_explain.h"
 #include "util/dllist.h"
 #include "trie/rune_util.h"
 #include "stemmer.h"
@@ -181,6 +182,7 @@ struct RSToken {
   RSToken(const char *str, size_t len, uint8_t expanded = 1, RSTokenFlags flags = 31) :
     str(str ? rm_strdup(str) : NULL), len(len), expanded(expanded), flags(flags) {}
 
+  RSToken(const Runes &r);
   RSToken(const rune *r, size_t n);
 
   ~RSToken() {
@@ -302,6 +304,45 @@ struct RSOffsetVector {
 
 //---------------------------------------------------------------------------------------------
 
+// RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
+// order to completely filter out results and disregard them in the totals count
+#define RS_SCORE_FILTEROUT (-1.0 / 0.0)
+
+//---------------------------------------------------------------------------------------------
+
+struct RSIndexStats {
+  size_t numDocs;
+  size_t numTerms;
+  double avgDocLen;
+};
+
+//---------------------------------------------------------------------------------------------
+
+// The context given to a scoring function. It includes the payload set by the user or expander,
+// the private data set by the extensionm and callback functions
+
+struct ScoringFunctionArgs {
+  // Private data set by the extension on initialization time, or during scoring
+  void *extdata;
+
+  // Payload set by the client or by the query expander
+  const void *qdata;
+  size_t qdatalen;
+
+  // Index statistics to be used by scoring functions
+  RSIndexStats indexStats;
+
+  // Flags controlling scoring function
+  void *scrExp;  // scoreflags
+
+  // The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
+  // that can be used to factor the result score.
+  // int (*GetSlop)(const IndexResult *res);
+  virtual int GetSlop(const struct IndexResult *res);
+};
+
+//---------------------------------------------------------------------------------------------
+
 enum RSResultType {
   RSResultType_Union = 0x1,
   RSResultType_Intersection = 0x2,
@@ -395,50 +436,22 @@ struct IndexResult : public Object {
   bool withinRangeInOrder(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
   bool withinRangeUnordered(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
 
+  virtual double tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+
+  virtual double bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd,
+                               RSScoreExplain *scrExp) const;
+
+  double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd, double minScore,
+                       int normMode) const;
+
+  virtual double dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExplain *scrExp) const;
+
   // Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed
   virtual std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
     return std::make_unique<RSOffsetIterator>();
   }
 };
 #pragma pack()
-
-//---------------------------------------------------------------------------------------------
-
-// RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
-// order to completely filter out results and disregard them in the totals count
-#define RS_SCORE_FILTEROUT (-1.0 / 0.0)
-
-//---------------------------------------------------------------------------------------------
-
-struct RSIndexStats {
-  size_t numDocs;
-  size_t numTerms;
-  double avgDocLen;
-};
-
-//---------------------------------------------------------------------------------------------
-
-// The context given to a scoring function. It includes the payload set by the user or expander,
-// the private data set by the extensionm and callback functions
-
-struct ScoringFunctionArgs {
-  // Private data set by the extension on initialization time, or during scoring
-  void *extdata;
-
-  // Payload set by the client or by the query expander
-  const void *qdata;
-  size_t qdatalen;
-
-  // Index statistics to be used by scoring functions
-  RSIndexStats indexStats;
-
-  // Flags controlling scoring function
-  void *scrExp;  // scoreflags
-
-  // The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
-  // that can be used to factor the result score.
-  int (*GetSlop)(const IndexResult *res);
-};
 
 //---------------------------------------------------------------------------------------------
 

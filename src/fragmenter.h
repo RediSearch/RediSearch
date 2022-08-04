@@ -52,15 +52,16 @@ struct FragmentTerm {
 };
 
 struct FragmentTermIterator {
-  RSByteOffsetIterator *byteIter;
-  RSOffsetIterator *offsetIter;
+
+  RSByteOffsetIterator &byteIter;
+  RSOffsetIterator &offsetIter;
   RSQueryTerm *curMatchRec;
   uint32_t curTokPos;
   uint32_t curByteOffset;
-  FragmentTerm tmpTerm;
+  FragmentTerm aTerm;
 
   int Next(FragmentTerm **termInfo);
-  void InitOffsets(RSByteOffsetIterator *bytesIter, RSOffsetIterator *offIter);
+  FragmentTermIterator(RSByteOffsetIterator &bytesIter, RSOffsetIterator &offIter);
 };
 
 struct TermLoc {
@@ -159,7 +160,7 @@ struct FragmentList {
                             float baseScore);
   void FragmentizeBuffer(const char *doc_, Stemmer *stemmer, StopWordList *stopwords,
                          const FragmentSearchTerm *terms, size_t numTerms);
-  void FragmentizeIter(const char *doc_, size_t docLen, FragmentTermIterator *iter, int options);
+  void FragmentizeIter(const char *doc_, size_t docLen, FragmentTermIterator &iter, int options);
 
   Vector<iovec> HighlightWholeDocV(const HighlightTags &tags) const;
   char *HighlightWholeDocS(const HighlightTags &tags) const;

@@ -81,17 +81,17 @@ bool Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
     return false;
   }
 
-  rune *rstr = NULL;
-  t_len slen = 0;
+  Runes runes;
   float score = 0;
   int dist = 0;
   size_t termLen;
+  RSPayload payload;
 
   RedisModule_ReplyWithArray(ctx, t->size);
 
   TrieIterator it = t->Iterate("", 0, 1);
-  while (it.Next(&rstr, &slen, NULL, &score, &dist)) {
-    char *res = runesToStr(rstr, slen, &termLen);
+  while (it.Next(runes, payload, score, &dist)) {
+    char *res = runes.toUTF8(&termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }

@@ -28,15 +28,14 @@ void RLookupKey::ctor(RLookup *lookup, const char *name, size_t n, int flags, ui
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
-  const IndexSpecCache *cc = spcache;
-  if (!cc) {
+  if (!spcache) {
     return NULL;
   }
 
   const FieldSpec *fs = NULL;
-  for (size_t ii = 0; ii < cc->nfields; ++ii) {
-    if (!strcmp(cc->fields[ii].name, name)) {
-      fs = cc->fields + ii;
+  for (auto field : spcache->fields) {
+    if (!strcmp(field.name, name)) {
+      fs = &field;
       break;
     }
   }

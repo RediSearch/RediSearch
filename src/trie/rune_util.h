@@ -2,6 +2,7 @@
 
 #include "libnu/libnu.h"
 #include "rmalloc.h"
+#include "object.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -149,7 +150,11 @@ struct Runes {
     return runecmp(_runes, _len, r._runes, r._len) < 0;
   }
 
-  void operator=(const rune runes) { _runes = runes; } //@@ check this out 
+  bool operator>(const Runes &r) const {
+    return runecmp(_runes, _len, r._runes, r._len) > 0;
+  }
+
+  void operator=(const rune runes) { _runes = runes; } //@@ check this out
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

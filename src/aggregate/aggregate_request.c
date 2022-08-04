@@ -59,27 +59,17 @@ ReturnedField::~ReturnedField() {
 
 //---------------------------------------------------------------------------------------------
 
-FieldList::~FieldList() {
-  for (size_t ii = 0; ii < numFields; ++ii) {
-    delete &fields[ii];
-  }
-  rm_free(fields);
-}
-
-//---------------------------------------------------------------------------------------------
-
-ReturnedField *FieldList::GetCreateField(const char *name) {
+ReturnedField FieldList::GetCreateField(const char *name) {
   size_t foundIndex = -1;
-  for (size_t ii = 0; ii < numFields; ++ii) {
-    if (!strcasecmp(fields[ii].name, name)) {
-      return &fields[ii];
+  for (auto field : fields) {
+    if (!strcasecmp(field.name, name)) {
+      return field;
     }
   }
 
-  fields = rm_realloc(fields, sizeof(*fields) * ++numFields);
-  ReturnedField *ret = &fields[numFields - 1];
-  memset(ret, 0, sizeof *ret);
-  ret->name = name;
+  ReturnedField ret;
+  ret.name = name;
+  fields.push_back(ret);
   return ret;
 }
 
@@ -91,7 +81,7 @@ void FieldList::RestrictReturn() {
   }
 
   size_t oix = 0;
-  for (size_t ii = 0; ii < numFields; ++ii) {
+  for (size_t ii = 0; ii < fields.size(); ++ii) {
     if (fields[ii].explicitReturn == 0) {
       delete &fields[ii];
     } else if (ii != oix) {
@@ -100,7 +90,7 @@ void FieldList::RestrictReturn() {
       ++oix;
     }
   }
-  numFields = oix;
+  // numFields = oix; 
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -394,7 +384,7 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
 
     while (!returnFields.IsAtEnd()) {
       const char *name = returnFields.GetStringNC(NULL);
-      ReturnedField *f = outFields.GetCreateField(name);
+      ReturnedField *f = &outFields.GetCreateField(name);
       f->explicitReturn = 1;
     }
   }
@@ -1039,7 +1029,7 @@ int AREQ::buildOutputPipeline(QueryError *status) {
   const RLookupKey **loadkeys = NULL;
   if (outFields.explicitReturn) {
     // Go through all the fields and ensure that each one exists in the lookup stage
-    for (size_t ii = 0; ii < outFields.numFields; ++ii) {
+    for (size_t ii = 0; ii < outFields.NumFields(); ++ii) {
       const ReturnedField *rf = &outFields.fields[ii];
       RLookupKey *lk = lookup->GetKey(rf->name, RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
       if (!lk) {
@@ -1060,7 +1050,7 @@ int AREQ::buildOutputPipeline(QueryError *status) {
 
   if (reqflags & QEXEC_F_SEND_HIGHLIGHT) {
     RLookup *lookup = pln.GetLookup(NULL, AGPLN_GETLOOKUP_LAST);
-    for (size_t ii = 0; ii < outFields.numFields; ++ii) {
+    for (size_t ii = 0; ii < outFields..NumFields(); ++ii) {
       ReturnedField *ff = &outFields.fields[ii];
       RLookupKey *kk = lookup->GetKey(ff->name, 0);
       if (!kk) {

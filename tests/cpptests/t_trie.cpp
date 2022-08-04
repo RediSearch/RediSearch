@@ -24,24 +24,13 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
   rune r2[256] = {0};
   size_t nr1, nr2;
 
-  rune *r1Ptr = r1;
-  rune *r2Ptr = r2;
+  Runes r1Ptr(begin), r2Ptr(end);
 
   nr1 = strToRunesN(begin, nbegin, r1);
   nr2 = strToRunesN(end, nend, r2);
 
-  if (!begin) {
-    r1Ptr = NULL;
-    nr1 = -1;
-  }
-
-  if (!end) {
-    r2Ptr = NULL;
-    nr2 = -1;
-  }
-
   ElemSet foundElements;
-  t->root->IterateRange(r1Ptr, nr1, true, r2Ptr, nr2, false,
+  t->root->IterateRange(r1Ptr, true, r2Ptr, false,
                         [](const rune *u16, size_t nrune, void *ctx) {
                           size_t n;
                           char *s = runesToStr(u16, nrune, &n);

@@ -115,7 +115,7 @@ void ForkGC::sendTerminator() {
 
 //---------------------------------------------------------------------------------------------
 
-int __attribute__((warn_unused_result)) ForkGC::recvFixed(void *buf, size_t len) {
+int ForkGC::recvFixed(void *buf, size_t len) {
   while (len) {
     ssize_t nrecvd = read(pipefd[GC_READERFD], buf, len);
     if (nrecvd > 0) {
@@ -129,18 +129,12 @@ int __attribute__((warn_unused_result)) ForkGC::recvFixed(void *buf, size_t len)
   return REDISMODULE_OK;
 }
 
-int ForkGC::tryRecvFixed(void *obj, size_t len){
-  if (recvFixed(obj, len) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-}
-
 //---------------------------------------------------------------------------------------------
 
 static void *RECV_BUFFER_EMPTY = (void *)0x0deadbeef;
 
-int __attribute__((warn_unused_result)) ForkGC::recvBuffer(void **buf, size_t *len) {
-  tryRecvFixed(len, sizeof *len);
+int ForkGC::recvBuffer(void **buf, size_t *len) {
+  recvFixed(len, sizeof *len);
   if (*len == SIZE_MAX) {
     *buf = RECV_BUFFER_EMPTY;
     return REDISMODULE_OK;
@@ -152,17 +146,11 @@ int __attribute__((warn_unused_result)) ForkGC::recvBuffer(void **buf, size_t *l
 
   *buf = rm_malloc(*len + 1);
   ((char *)(*buf))[*len] = 0;
-  if (tryRecvFixed(*buf, *len) != REDISMODULE_OK) {
+  if (recvFixed(*buf, *len) != REDISMODULE_OK) {
     rm_free(buf);
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
-}
-
-int ForkGC::tryRecvBuffer(void **buf, size_t *len) {
-  if (recvBuffer(buf, len) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -264,14 +252,15 @@ void InvertedIndexRepair::sendHeader() {
 //---------------------------------------------------------------------------------------------
 
 void ForkGC::childCollectTerms(RedisSearchCtx *sctx) {
-  TrieIterator iter = sctx->spec->terms->Iterate("", 0, 0, 1);
-  rune *rstr = NULL;
-  t_len slen = 0;
+  TrieIterator iter = sctx->spec->terms->Iterate("", 0, 1);
+  Runes runes;
   float score = 0;
   int dist = 0;
-  while (iter.Next(&rstr, &slen, NULL, &score, &dist)) {
+  RSPayload payload;
+
+  while (iter.Next(runes, payload, score, &dist)) {
     size_t termLen;
-    char *term = runesToStr(rstr, slen, &termLen);
+    char *term = runes.toUTF8(&termLen);
     RedisModuleKey *idxKey = NULL;
     InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
     if (idx) {
@@ -284,8 +273,6 @@ void ForkGC::childCollectTerms(RedisSearchCtx *sctx) {
     }
     rm_free(term);
   }
-
-  delete iter.dfafilter;
 
   // we are done with terms
   sendTerminator();
@@ -359,14 +346,14 @@ void ForkGC::sendKht(const UnorderedMap<uint64_t, size_t> &kh) {
 //---------------------------------------------------------------------------------------------
 
 void ForkGC::childCollectNumeric(RedisSearchCtx *sctx) {
-  FieldSpec **numericFields = sctx->spec->getFieldsByType(INDEXFLD_T_NUMERIC);
-  for (int i = 0; i < array_len(numericFields); ++i) {
+  Vector<FieldSpec> numericFields = sctx->spec->getFieldsByType(INDEXFLD_T_NUMERIC);
+  for (int i = 0; i < numericFields.size(); ++i) {
     RedisModuleString *keyName = sctx->spec->GetFormattedKey(numericFields[i], INDEXFLD_T_NUMERIC);
     RedisModuleKey *idxKey = NULL;
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     NumericRangeTreeIterator gcIterator(rt);
-    NumericIndexRepair indexrepair(*this, *numericFields[i], *rt);
+    NumericIndexRepair indexrepair(*this, numericFields[i], *rt);
     for (NumericRangeNode *node = NULL; (node = gcIterator.Next()); ) {
       if (!node->range) {
         continue;
@@ -402,37 +389,35 @@ void ForkGC::childCollectNumeric(RedisSearchCtx *sctx) {
 //---------------------------------------------------------------------------------------------
 
 void ForkGC::childCollectTags(RedisSearchCtx *sctx) {
-  FieldSpec **tagFields = sctx->spec->getFieldsByType(INDEXFLD_T_TAG);
-  if (array_len(tagFields) != 0) {
-    for (int i = 0; i < array_len(tagFields); ++i) {
-      RedisModuleString *keyName = sctx->spec->GetFormattedKey(tagFields[i], INDEXFLD_T_TAG);
-      RedisModuleKey *idxKey = NULL;
-      TagIndex *tagIdx = TagIndex::Open(sctx, keyName, false, &idxKey);
-      if (!tagIdx) {
-        continue;
-      }
+  Vector<FieldSpec> tagFields = sctx->spec->getFieldsByType(INDEXFLD_T_TAG);
+  for (int i = 0; i < tagFields.size(); ++i) {
+    RedisModuleString *keyName = sctx->spec->GetFormattedKey(tagFields[i], INDEXFLD_T_TAG);
+    RedisModuleKey *idxKey = NULL;
+    TagIndex *tagIdx = TagIndex::Open(sctx, keyName, false, &idxKey);
+    if (!tagIdx) {
+      continue;
+    }
 
-      TrieMapIterator *iter = tagIdx->values->Iterate("", 0);
-      TagIndexRepair indexrepair(*this, *tagFields[i], *tagIdx);
-      IndexBlockRepair blockrepair;
-      char *ptr;
-      tm_len_t len;
-      InvertedIndex *invidx = NULL;
-      while (iter->Next(&ptr, &len, (void **)&invidx)) {
-        indexrepair.set(invidx);
-        // send repaired data
-        childRepairInvIdx(sctx, invidx, indexrepair, blockrepair);
-      }
+    TrieMapIterator *iter = tagIdx->values->Iterate("", 0);
+    TagIndexRepair indexrepair(*this, tagFields[i], *tagIdx);
+    IndexBlockRepair blockrepair;
+    char *ptr;
+    tm_len_t len;
+    InvertedIndex *invidx = NULL;
+    while (iter->Next(&ptr, &len, (void **)&invidx)) {
+      indexrepair.set(invidx);
+      // send repaired data
+      childRepairInvIdx(sctx, invidx, indexrepair, blockrepair);
+    }
 
-      // we are done with the current field
-      if (indexrepair.sentFieldName) {
-        void *pdummy = NULL;
-        sendVar(pdummy);
-      }
+    // we are done with the current field
+    if (indexrepair.sentFieldName) {
+      void *pdummy = NULL;
+      sendVar(pdummy);
+    }
 
-      if (idxKey) {
-        RedisModule_CloseKey(idxKey);
-      }
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
     }
   }
   // we are done with numeric fields
@@ -1226,7 +1211,7 @@ void ForkGC::OnTerm() {
   }
 
   RedisModule_FreeThreadSafeContext(ctx);
-  //@@ delete this; // GC::~GC does this
+  //@@ delete this;
 }
 
 //---------------------------------------------------------------------------------------------

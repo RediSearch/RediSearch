@@ -81,22 +81,6 @@ struct QueryAttribute {
 // It has a type to resolve which node it is, and a union of all possible nodes.
 
 struct QueryNode : Object {
-  //@@ make derive classes
-  /*union {
-    QueryPhraseNode pn;
-    QueryTokenNode tn;
-    QueryUnionNode un;
-    QueryNumericNode nn;
-    QueryGeofilterNode gn;
-    QueryIdFilterNode fn;
-    QueryNotNode inverted;
-    QueryOptionalNode opt;
-    QueryPrefixNode pfx;
-    QueryTagNode tag;
-    QueryFuzzyNode fz;
-    QueryLexRangeNode lxrng;
-  };*/
-
   void ctor(QueryNodeType t);
 
   QueryNode() { ctor(QN_NULL); }
@@ -347,8 +331,6 @@ struct QueryLexRangeNode : QueryNode {
 };
 
 //---------------------------------------------------------------------------------------------
-
-// typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;//@@ How to seperate it to classes?
 
 struct QueryUnionNode : QueryNode {
   QueryUnionNode() : QueryNode(QN_UNION) {}

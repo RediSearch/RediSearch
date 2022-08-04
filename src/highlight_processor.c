@@ -223,14 +223,14 @@ int Highlighter::Next(SearchResult *r) {
 
   HighligherDoc doc{dmd->byteOffsets, ir, &r->rowdata};
 
-  if (fields->numFields) {
-    for (size_t i = 0; i < fields->numFields; ++i) {
-      const ReturnedField *ff = &fields->fields[i];
-      if (ff->mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
+  if (fields->NumFields()) {
+    for (size_t i = 0; i < fields->NumFields(); ++i) {
+      const ReturnedField ff = fields->fields[i];
+      if (ff.mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
         // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
         continue;
       }
-      ReturnedField field = ff->normalizeSettings(fields->defaultField);
+      ReturnedField field = ff.normalizeSettings(fields->defaultField);
       doc.resetIovsArr(field.summarizeSettings.numFrags);
       processField(doc, field);
     }

@@ -62,15 +62,15 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   n += renderIndexOptions(ctx, sp);
 
   RedisModule_ReplyWithSimpleString(ctx, "fields");
-  RedisModule_ReplyWithArray(ctx, sp->numFields);
-  for (int i = 0; i < sp->numFields; i++) {
+  RedisModule_ReplyWithArray(ctx, sp->fields.size());
+  for (int i = 0; i < sp->fields.size(); i++) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
     int nn = 1;
-    const FieldSpec *fs = sp->fields + i;
+    const FieldSpec fs = sp->fields[i];
 
     // RediSearch_api - No coverage
-    if (fs->options & FieldSpec_Dynamic) {
+    if (fs.options & FieldSpec_Dynamic) {
       REPLY_KVSTR(nn, "type", "<DYNAMIC>");
       size_t ntypes = 0;
 
@@ -78,34 +78,34 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithSimpleString(ctx, "types");
       RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
-        if (fs->IsFieldType(INDEXTYPE_FROM_POS(jj))) {
+        if (fs.IsFieldType(INDEXTYPE_FROM_POS(jj))) {
           ntypes++;
           RedisModule_ReplyWithSimpleString(ctx, SpecTypeNames[jj]);
         }
       }
       RedisModule_ReplySetArrayLength(ctx, ntypes);
     } else {
-      REPLY_KVSTR(nn, "type", SpecTypeNames[INDEXTYPE_TO_POS(fs->types)]);
+      REPLY_KVSTR(nn, "type", SpecTypeNames[INDEXTYPE_TO_POS(fs.types)]);
     }
 
-    if (fs->IsFieldType(INDEXFLD_T_FULLTEXT)) {
-      REPLY_KVNUM(nn, SPEC_WEIGHT_STR, fs->ftWeight);
+    if (fs.IsFieldType(INDEXFLD_T_FULLTEXT)) {
+      REPLY_KVNUM(nn, SPEC_WEIGHT_STR, fs.ftWeight);
     }
 
-    if (fs->IsFieldType(INDEXFLD_T_TAG)) {
+    if (fs.IsFieldType(INDEXFLD_T_TAG)) {
       char buf[2];
-      sprintf(buf, "%c", fs->tagSep);
+      sprintf(buf, "%c", fs.tagSep);
       REPLY_KVSTR(nn, SPEC_SEPARATOR_STR, buf);
     }
-    if (fs->IsSortable()) {
+    if (fs.IsSortable()) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
       ++nn;
     }
-    if (fs->IsNoStem()) {
+    if (fs.IsNoStem()) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOSTEM_STR);
       ++nn;
     }
-    if (!fs->IsIndexable()) {
+    if (!fs.IsIndexable()) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOINDEX_STR);
       ++nn;
     }

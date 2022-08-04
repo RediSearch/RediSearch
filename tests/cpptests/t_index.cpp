@@ -725,7 +725,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(f->name, body);
   ASSERT_EQ(f->ftWeight, 2.0);
-  ASSERT_EQ(FIELD_BIT(f), 2);
+  ASSERT_EQ(f->FieldBit(), 2);
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
 
@@ -734,7 +734,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, title) == 0);
   ASSERT_TRUE(f->ftWeight == 0.1);
-  ASSERT_TRUE(FIELD_BIT(f) == 1);
+  ASSERT_TRUE(f->FieldBit() == 1);
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
@@ -743,7 +743,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, foo) == 0);
   ASSERT_TRUE(f->ftWeight == 1);
-  ASSERT_TRUE(FIELD_BIT(f) == 4);
+  ASSERT_TRUE(f->FieldBit() == 4);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
@@ -761,7 +761,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, name) == 0);
   ASSERT_TRUE(f->ftWeight == 1);
-  ASSERT_TRUE(FIELD_BIT(f) == 8);
+  ASSERT_TRUE(f->FieldBit() == 8);
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);
   ASSERT_TRUE(f->sortIdx == -1);
 

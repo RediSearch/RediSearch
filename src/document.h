@@ -194,7 +194,7 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
 
   // Byte offsets for highlighting.
   // If term offsets are stored, this contains the field byte offset for each term.
-  RSByteOffsets byteOffsets;
+  RSByteOffsets *byteOffsets;
   ByteOffsetWriter offsetsWriter;
 
   // Information about each field in the document. This is read from the spec

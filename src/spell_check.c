@@ -19,9 +19,8 @@ static int Compare(const RS_Suggestion **val1, const RS_Suggestion **val2) {
 
 //---------------------------------------------------------------------------------------------
 
-RS_Suggestion::RS_Suggestion(rune *ru, t_len ru_len, double score) :
-    score(score) {
-  suggestion = runesToStr(ru, ru_len, &len);
+RS_Suggestion::RS_Suggestion(Runes &runes, double score) : score(score) {
+  suggestion = runes.toUTF8(&len);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -62,10 +61,8 @@ void RS_Suggestions::Add(char *term, size_t len, double score, int incr) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/**
- * Return the score for the given suggestion (number between 0 to 1).
- * In case the suggestion should not be added return -1.
- */
+// Return the score for the given suggestion (number between 0 to 1).
+// In case the suggestion should not be added return -1.
 
 double SpellChecker::GetScore(char *suggestion, size_t len, t_fieldMask fieldMask) {
   RedisModuleKey *keyp = NULL;
@@ -103,17 +100,17 @@ end:
 //---------------------------------------------------------------------------------------------
 
 bool SpellChecker::IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore) {
-  rune *rstr = NULL;
-  t_len slen = 0;
+  Runes runes;
   float score = 0;
   int dist = 0;
   bool retVal = false;
-  TrieIterator it = t->Iterate(term, len, 0, 0);
+  TrieIterator it = t->Iterate(term, 0, 0);
+  RSPayload payload;
   // TrieIterator can be empty when rune length exceed TRIE_MAX_PREFIX
   if (!it) {
     return retVal;
   }
-  if (it.Next(&rstr, &slen, NULL, &score, &dist)) {
+  if (it.Next(runes, payload, score, &dist)) {
     retVal = true;
   }
   if (outScore) {
@@ -124,21 +121,21 @@ bool SpellChecker::IsTermExistsInTrie(Trie *t, const char *term, size_t len, dou
 
 //---------------------------------------------------------------------------------------------
 
-void SpellChecker::FindSuggestions(Trie *t, const char *term, size_t len, t_fieldMask fieldMask,
+void SpellChecker::FindSuggestions(Trie *t, const char *term, t_fieldMask fieldMask,
                                     RS_Suggestions &suggestions, int incr) {
-  rune *rstr = NULL;
-  t_len slen = 0;
+  Runes runes;
   float score = 0;
   int dist = 0;
   size_t suggestionLen;
+  RSPayload payload;
 
-  TrieIterator it = t->Iterate(term, len, (int)distance, 0);
+  TrieIterator it = t->Iterate(term, (int)distance, 0);
   // TrieIterator can be empty when rune length exceed TRIE_MAX_PREFIX
   if (!it) {
     return;
   }
-  while (it.Next(&rstr, &slen, NULL, &score, &dist)) {
-    char *res = runesToStr(rstr, slen, &suggestionLen);
+  while (it.Next(runes, payload, score, &dist)) {
+    char *res = runes.toUTF8(&suggestionLen);
     double score;
     if ((score = GetScore(res, suggestionLen, fieldMask)) != -1) {
       suggestions.Add(res, suggestionLen, score, incr);
@@ -149,15 +146,17 @@ void SpellChecker::FindSuggestions(Trie *t, const char *term, size_t len, t_fiel
 
 //---------------------------------------------------------------------------------------------
 
-arrayof(RS_Suggestion*) RS_Suggestions::GetSuggestions() {
-  TrieIterator iter = suggestionsTrie.Iterate("", 0, 0, 1);
-  arrayof(RS_Suggestion*) suggestions = array_new(RS_Suggestion*, suggestionsTrie.size);
-  rune *rstr = NULL;
-  t_len slen = 0;
+Vector<RS_Suggestion> RS_Suggestions::GetSuggestions() {
+  TrieIterator iter = suggestionsTrie.Iterate("", 0, 1);
+  Vector<RS_Suggestion> suggestions;
+  suggestions.reserve(suggestionsTrie.size);
+  Runes runes;
   float score = 0;
   int dist = 0;
-  while (iter.Next(&rstr, &slen, NULL, &score, &dist)) {
-    suggestions = array_append(suggestions, new RS_Suggestion(rstr, slen, score));
+  RSPayload payload;
+
+  while (iter.Next(runes, payload, score, &dist)) {
+    suggestions.push_back(RS_Suggestion(runes, score));
   }
   return suggestions;
 }
@@ -170,36 +169,32 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
   RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
 
-  arrayof(RS_Suggestion*) suggestions = GetSuggestions();
-
-  for (int i = 0; i < array_len(suggestions); ++i) {
-    if (suggestions[i]->score == -1) {
-      suggestions[i]->score = 0;
+  Vector<RS_Suggestion> suggestions = GetSuggestions();
+  for (auto s : suggestions) {
+    if (s.score == -1) {
+      s.score = 0;
     } else {
       if (totalDocNumber > 0) {
-        suggestions[i]->score = (suggestions[i]->score) / totalDocNumber;
+        s.score = (s.score) / totalDocNumber;
       }
     }
   }
 
-  qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion*), (__compar_fn_t) Compare);
+  std::sort(suggestions.begin(), suggestions.end(), [](const RS_Suggestion &a, const RS_Suggestion &b) {
+      return a > b;
+    });
 
-  if (array_len(suggestions) == 0) {
+  if (suggestions.empty()) {
     // no results found, we return an empty array
     RedisModule_ReplyWithArray(ctx, 0);
   } else {
-    RedisModule_ReplyWithArray(ctx, array_len(suggestions));
-    for (int i = 0; i < array_len(suggestions); ++i) {
+    RedisModule_ReplyWithArray(ctx, suggestions.size());
+    for (auto s : suggestions) {
       RedisModule_ReplyWithArray(ctx, 2);
-      RedisModule_ReplyWithDouble(ctx, suggestions[i]->score);
-      RedisModule_ReplyWithStringBuffer(ctx, suggestions[i]->suggestion, suggestions[i]->len);
+      RedisModule_ReplyWithDouble(ctx, s.score);
+      RedisModule_ReplyWithStringBuffer(ctx, s.suggestion, s.len);
     }
   }
-
-  for (int i = 0; i < array_len(suggestions); ++i) {
-    delete suggestions[i];
-  }
-  array_free(suggestions);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -240,7 +235,7 @@ inline bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMa
 
   RS_Suggestions s;
 
-  FindSuggestions(sctx->spec->terms, term, len, fieldMask, s, 1);
+  FindSuggestions(sctx->spec->terms, term, fieldMask, s, 1);
 
   // sorting results by score
 
@@ -252,7 +247,7 @@ inline bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMa
     if (t == NULL) {
       continue;
     }
-    FindSuggestions(t, term, len, fieldMask, s, 0);
+    FindSuggestions(t, term, fieldMask, s, 0);
     RedisModule_CloseKey(k);
   }
 

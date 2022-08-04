@@ -151,7 +151,7 @@ int Document::LoadSchemaFields(RedisSearchCtx *sctx) {
   MakeStringsOwner();
   fields = new DocumentField();
 
-  for (size_t ii = 0; ii < sctx->spec->numFields; ++ii) {
+  for (size_t ii = 0; ii < sctx->spec->fields.size(); ++ii) {
     const char *fname = sctx->spec->fields[ii].name;
     RedisModuleString *v = NULL;
     RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fname, &v, NULL);
@@ -231,9 +231,7 @@ void Document::LoadPairwiseArgs(RedisModuleString **args, size_t nargs) {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Clear the document of its fields. This does not free the document or clear its name
- */
+// Clear the document of its fields. This does not free the document or clear its name
 
 void Document::Clear() {
   if (flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
@@ -273,9 +271,7 @@ Document::~Document() {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Save a document in the index. Used for returning contents in search results.
- */
+// Save a document in the index. Used for returning contents in search results.
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status) {
   RedisModuleKey *k =
@@ -304,10 +300,10 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
 
 //---------------------------------------------------------------------------------------------
 
-/* Serialzie the document's fields to a redis client */
+// Serialzie the document's fields to a redis client
 
 int Document::ReplyFields(RedisModuleCtx *ctx) {
-  RS_LOG_ASSERT(this, "doc is NULL");
+  // RS_LOG_ASSERT(this, "doc is NULL");
   RedisModule_ReplyWithArray(ctx, numFields * 2);
   for (size_t j = 0; j < numFields; ++j) {
     RedisModule_ReplyWithStringBuffer(ctx, fields[j].name, strlen(fields[j].name));

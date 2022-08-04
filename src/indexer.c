@@ -209,9 +209,8 @@ void DocumentIndexer::writeEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
 static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
   IndexSpec *sp = sctx->spec;
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    const FieldSpec *fs = sp->fields + ii;
-    if (!fs->IsFieldType(INDEXFLD_T_GEO)) {
+  for (auto fs : sp->fields) {
+    if (!fs.IsFieldType(INDEXFLD_T_GEO)) {
       continue;
     }
     // Open the key:

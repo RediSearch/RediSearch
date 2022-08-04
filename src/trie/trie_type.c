@@ -289,7 +289,6 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   if (tree->root) {
     TrieIterator it = tree->root->Iterate(NULL, NULL, NULL);
     Runes runes;
-    //t_len len;
     float score;
     RSPayload payload;
 

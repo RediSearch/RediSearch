@@ -42,7 +42,7 @@ TrieIterator::StepResult TrieIterator::Step(int *match) {
     case ITERSTATE_SELF:
       if (curr.stringOffset < curr.n->_len) {
         // get the current rune to feed the filter
-        rune b = curr.n->_str[curr.stringOffset];
+        rune b = curr.n->_runes[curr.stringOffset];
 
         // run the next character in the filter
         FilterCode rc = dfafilter.Filter(b, &matched, match);
