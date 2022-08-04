@@ -90,7 +90,7 @@ void FieldList::RestrictReturn() {
       ++oix;
     }
   }
-  // numFields = oix; 
+  // numFields = oix;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1050,7 +1050,7 @@ int AREQ::buildOutputPipeline(QueryError *status) {
 
   if (reqflags & QEXEC_F_SEND_HIGHLIGHT) {
     RLookup *lookup = pln.GetLookup(NULL, AGPLN_GETLOOKUP_LAST);
-    for (size_t ii = 0; ii < outFields..NumFields(); ++ii) {
+    for (size_t ii = 0; ii < outFields.NumFields(); ++ii) {
       ReturnedField *ff = &outFields.fields[ii];
       RLookupKey *kk = lookup->GetKey(ff->name, 0);
       if (!kk) {
@@ -1063,7 +1063,7 @@ int AREQ::buildOutputPipeline(QueryError *status) {
       }
       ff->lookupKey = kk;
     }
-    rp = new Highlighter(&searchopts, &outFields, lookup);
+    rp = new Highlighter(&searchopts, outFields, lookup);
     PUSH_RP();
   }
 

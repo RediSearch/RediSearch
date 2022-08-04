@@ -223,23 +223,23 @@ int Highlighter::Next(SearchResult *r) {
 
   HighligherDoc doc{dmd->byteOffsets, ir, &r->rowdata};
 
-  if (fields->NumFields()) {
-    for (size_t i = 0; i < fields->NumFields(); ++i) {
-      const ReturnedField ff = fields->fields[i];
-      if (ff.mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
+  if (fields.NumFields()) {
+    for (size_t i = 0; i < fields.NumFields(); ++i) {
+      const ReturnedField ff = fields.fields[i];
+      if (ff.mode == SummarizeMode_None && fields.defaultField.mode == SummarizeMode_None) {
         // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
         continue;
       }
-      ReturnedField field = ff.normalizeSettings(fields->defaultField);
+      ReturnedField field = ff.normalizeSettings(fields.defaultField);
       doc.resetIovsArr(field.summarizeSettings.numFrags);
       processField(doc, field);
     }
-  } else if (fields->defaultField.mode != SummarizeMode_None) {
+  } else if (fields.defaultField.mode != SummarizeMode_None) {
     for (const RLookupKey *k = lookup->head; k; k = k->next) {
       if (k->flags & RLOOKUP_F_HIDDEN) {
         continue;
       }
-      ReturnedField field = fields->defaultField;
+      ReturnedField field = fields.defaultField;
       field.lookupKey = k;
       field.name = k->name;
       doc.resetIovsArr(field.summarizeSettings.numFrags);
@@ -252,7 +252,7 @@ int Highlighter::Next(SearchResult *r) {
 
 //---------------------------------------------------------------------------------------------
 
-Highlighter::Highlighter(const RSSearchOptions *searchopts, const FieldList *fields,
+Highlighter::Highlighter(const RSSearchOptions *searchopts, const FieldList &fields,
     const RLookup *lookup) : ResultProcessor("Highlighter"), lookup(lookup), fields(fields) {
   if (searchopts->language == RS_LANG_CHINESE) {
     fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;

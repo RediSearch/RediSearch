@@ -701,7 +701,7 @@ static void yy_destructor(
     case 33: /* fuzzy */
     case 34: /* tag_list */
 {
- QueryNode_Free((yypminor->yy35));
+ delete yypminor->yy35;
 }
       break;
     case 28: /* attribute */
@@ -716,7 +716,7 @@ static void yy_destructor(
       break;
     case 35: /* geo_filter */
 {
- GeoFilter_Free((yypminor->yy64));
+ delete yypminor->yy64;
 }
       break;
     case 36: /* modifierlist */
@@ -734,7 +734,7 @@ static void yy_destructor(
     case 38: /* numeric_range */
 {
 
-    NumericFilter_Free((yypminor->yy36));
+    delete yypminor->yy36;
 
 }
       break;
