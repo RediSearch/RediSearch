@@ -26,7 +26,7 @@ static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
 
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
-  const RLookup *lastLk;
+  RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
 
@@ -260,6 +260,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
     RedisModule_ReplyWithArray(outctx, 1);
     QueryError_ReplyAndClear(outctx, req->qiter.err);
+    nelem++;
   } else {
     RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
   }
@@ -292,6 +293,8 @@ done:
   req->qiter.totalResults = 0;
   if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
     RedisModule_ReplySetArrayLength(outctx, nelem);
+  } else {
+    RS_LOG_ASSERT(resultsLen == nelem, "Precalculated number of replies must be equal to actual number");
   }
 }
 

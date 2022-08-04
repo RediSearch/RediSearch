@@ -465,8 +465,6 @@ def testMultiValueTag_Recursive_Decent(env):
 @no_msan
 def testMultiValueErrors(env):
     # Index with Tag for array with multi-values
-    env.execute_command('FT.CREATE', 'idxtext', 'ON', 'JSON',
-                        'SCHEMA', '$.text', 'AS', 'text', 'TEXT')
     env.execute_command('FT.CREATE', 'idxnum', 'ON', 'JSON',
                         'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC')
     env.execute_command('FT.CREATE', 'idxgeo', 'ON', 'JSON',
@@ -479,8 +477,8 @@ def testMultiValueErrors(env):
                                            "vec":[[1],[2,3],[3.14]],                              \
                                            "geo":["1.234, 4.321", "0.123, 3.210"]}').ok()
 
-    # test non-tag indexes fail to index multivalue
-    indexes = ['idxtext', 'idxnum', 'idxgeo', 'idxvector']
+    # test non-tag non-text indexes fail to index multivalue
+    indexes = ['idxnum', 'idxgeo', 'idxvector']
     for index in indexes:
         res_actual = env.cmd('FT.INFO', index)
         res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
@@ -728,10 +726,9 @@ def test_WrongJsonType(env):
         '$.object4', 'GEO',
         '$.object5', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
 
-        '$.array1', 'TEXT',
-        '$.array2', 'NUMERIC',
-        '$.array3', 'GEO',
-        '$.array4', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2', # wrong sub-types
+        '$.array1', 'NUMERIC',
+        '$.array2', 'GEO',
+        '$.array3', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2', # wrong sub-types
 
         '$.numeric1', 'TEXT',
         '$.numeric2', 'TAG',
@@ -759,7 +756,6 @@ def test_WrongJsonType(env):
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array1":["foo", "bar"]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array2":["foo", "bar"]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array3":["foo", "bar"]}'))
-    env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"array4":["foo", "bar"]}'))
 
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric1":3.141}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc', '$', '{"numeric2":3.141}'))
@@ -1003,14 +999,22 @@ def testVector_delete(env):
 
 @no_msan
 def testRedisCommands(env):
+    env.skipOnCluster()
+
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
 
     # Test Redis COPY
-    env.execute_command('COPY', 'doc:1', 'doc:2')
-    env.execute_command('COPY', 'doc:2', 'dos:3')
+    if server_version_at_least(env, "6.2.0"):
+        env.execute_command('COPY', 'doc:1', 'doc:2')
+        env.execute_command('COPY', 'doc:2', 'dos:3')
+    else:
+        env.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+        env.execute_command('JSON.SET', 'dos:3', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+    
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
+
 
     # Test Redis DEL
     env.execute_command('DEL', 'doc:1')
@@ -1018,11 +1022,11 @@ def testRedisCommands(env):
 
     # Test Redis RENAME
     env.execute_command('RENAME', 'dos:3', 'doc:3')
-    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc2', 'doc:3'])
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:2', 'doc:3'])
 
     # Test Redis UNLINK
     env.execute_command('UNLINK', 'doc:3')
-    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc2'])
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:2'])
 
     # Test Redis EXPIRE
     env.execute_command('EXPIRE', 'doc:2', 1)

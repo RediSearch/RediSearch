@@ -18,7 +18,6 @@ typedef uint16_t tm_len_t;
 
 #define TM_NODE_DELETED 0x01
 #define TM_NODE_TERMINAL 0x02
-#define TM_NODE_SORTED 0x04
 
 /* This special pointer is returned when TrieMap_Find cannot find anything */
 extern void *TRIEMAP_NOTFOUND;
@@ -125,6 +124,8 @@ typedef enum {
   TM_PREFIX_MODE = 0,
   TM_CONTAINS_MODE = 1,
   TM_SUFFIX_MODE = 2,
+  TM_WILDCARD_MODE = 3,
+  TM_WILDCARD_FIXED_LEN_MODE = 4,
 } tm_iter_mode;
 
 typedef struct TrieMapIterator{
@@ -164,8 +165,12 @@ void TrieMapIterator_Free(TrieMapIterator *it);
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
 
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
- * or 0 if we're done and should exit */
+ * or 0 if we're done and should exit 
+ * NextContains is used by Contains and Suffix queries.
+ * Wildcard is used by Wildcard queries.
+ */
 int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
+int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
 
 typedef int (*TrieMapIterator_NextFunc)(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
 
