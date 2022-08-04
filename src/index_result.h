@@ -113,26 +113,33 @@ struct AggregateResult : IndexResult {
 
   std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
     // if we only have one sub result, just iterate that...
-    RSOffsetIterator *p;
     if (numChildren == 1) {
-      p = new AggregateOffsetIterator(children[0]);
+      return std::make_unique<AggregateOffsetIterator>(children[0]);
     } else {
-      p = new AggregateOffsetIterator(this);
+      return std::make_unique<AggregateOffsetIterator>(this);
     }
-    return std::make_unique<RSOffsetIterator>(p);
   }
+
+  double tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+
+  double bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd,
+    RSScoreExplain *scrExp) const;
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct IntersectResult : AggregateResult {
   IntersectResult(size_t cap, double weight) : AggregateResult(RSResultType_Intersection, cap, weight) {}
+
+  double dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExplain *scrExp) const;
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct UnionResult : AggregateResult {
   UnionResult(size_t cap, double weight) : AggregateResult(RSResultType_Union, cap, weight) {}
+
+  double dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExplain *scrExp) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -170,6 +177,10 @@ struct TermResult : public IndexResult {
   bool HasOffsets() const;
 
   void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len);
+
+  double tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+
+  double bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
 
   std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
     return offsets.Iterate(term);

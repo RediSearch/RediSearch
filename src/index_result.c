@@ -363,9 +363,9 @@ static inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
 
 //---------------------------------------------------------------------------------------------
 
-/* Check the index result for maximal slop, in an unordered fashion.
- * The algorithm is simple - we find the first offsets min and max such that max-min<=maxSlop */
-bool IndexResult::withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num,
+// Check the index result for maximal slop, in an unordered fashion.
+// The algorithm is simple - we find the first offsets min and max such that max-min<=maxSlop
+bool IndexResult::withinRangeUnordered(RSOffsetIterators &iters, uint32_t *positions, int num,
                                        int maxSlop) {
   for (int i = 0; i < num; i++) {
     positions[i] = iters[i].Next(NULL);

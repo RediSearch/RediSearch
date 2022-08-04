@@ -127,12 +127,22 @@ struct IndexBulkData {
   FieldType typemask;
   int found;
 
-  int Add(AddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField *field,
-          const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
+  bool Add(AddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField *field,
+           const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
   void Cleanup(RedisSearchCtx *sctx);
 
   static void indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx);
+
+  // private:
+  bool numericIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
+    const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
+
+  bool geoIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
+    const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
+
+  bool tagIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
+    const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

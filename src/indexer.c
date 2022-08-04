@@ -225,11 +225,11 @@ static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
 
 // Assigns a document ID to a single document
 
-int AddDocumentCtx::makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryError *status) {
+bool AddDocumentCtx::makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryError *status) {
   IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
   if (replace) {
-    std::shared_ptr<RSDocumentMetadata> dmd = table->Pop(doc.docKey);
+    std::shared_ptr<RSDocumentMetadata> dmd = std::dynamic_pointer_cast<RSDocumentMetadata>(table->Pop(doc.docKey));
     if (dmd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
@@ -250,11 +250,11 @@ int AddDocumentCtx::makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryErro
   doc.docId = table->Put(s, n, doc.score, docFlags, doc.payload, doc.payloadSize);
   if (doc.docId == 0) {
     status->SetError(QUERY_EDOCEXISTS, NULL);
-    return -1; //@@TODO: throw on error
+    return false; //@@TODO: throw on error
   }
   ++spec->stats.numDocuments;
 
-  return 0;
+  return true;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -275,8 +275,8 @@ void AddDocumentCtx::doAssignIds(RedisSearchCtx *ctx) {
     }
 
     RS_LOG_ASSERT(!cur->doc.docId, "docId must be 0");
-    int rv = cur->makeDocumentId(ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
-    if (rv != 0) {
+    bool rv = cur->makeDocumentId(ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+    if (!rv) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;
     }

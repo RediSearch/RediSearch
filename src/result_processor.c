@@ -76,7 +76,7 @@ int RPIndexIterator::Next(SearchResult *res) {
 
   // Read from the root filter until we have a valid result
   while (true) {
-    rc = it->Read(&r); //@@ What should replace it->ctx?
+    rc = it->Read(&r);
     // This means we are done!
     if (rc == INDEXREAD_EOF) {
       return RS_RESULT_EOF;
