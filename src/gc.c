@@ -79,7 +79,15 @@ static void threadCallback(void* data) {
   GCTask* task= data;
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
-  RedisModuleCtx* ctx = gc->gcCtx;
+  RedisModuleCtx* ctx;
+  switch (RSGlobalConfig.gcPolicy) {
+    case GCPolicy_Fork: 
+      ctx = ((ForkGC *)(gc->gcCtx))->ctx;
+      break;
+    case GCPolicy_Sync: // deprecated
+      ctx = RedisModule_GetThreadSafeContext(NULL);
+      break;
+  }
 
   if (gc->stopped) {
     // if the client is blocked, lets release it
@@ -116,6 +124,9 @@ static void threadCallback(void* data) {
 
 end:
   RedisModule_ThreadSafeContextUnlock(ctx);
+  if (RSGlobalConfig.gcPolicy == GCPolicy_Sync) {
+    RedisModule_FreeThreadSafeContext(ctx);
+  }
 }
 
 static void destroyCallback(void* data) {
