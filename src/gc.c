@@ -79,7 +79,7 @@ static void threadCallback(void* data) {
   GCTask* task= data;
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
-  RedisModuleCtx* ctx = RSDummyContext;
+  RedisModuleCtx* ctx = gc->gcCtx;
 
   if (gc->stopped) {
     // if the client is blocked, lets release it

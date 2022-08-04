@@ -1779,11 +1779,14 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
     if (spec->scanner) {
       // cancel ongoing scan, keep on_progress indicator on
       IndexesScanner_Cancel(spec->scanner, true);
+      RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted",
+                  spec->name);
     }
     spec->scanner = scanner;
     spec->scan_in_progress = true;
   } else {
     global_spec_scanner = scanner;
+    RedisModule_Log(RSDummyContext, "notice", "Global scanner created");    
   }
 
   return scanner;
@@ -1857,7 +1860,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
-  RedisModuleCtx *ctx = RSDummyContext;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
 
@@ -1877,11 +1880,18 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
     if (scanner->cancelled) {
       goto end;
+      RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
+                  scanner->totalKeys);
     }
   }
 
-  RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
+  if (scanner->global) {
+    RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
                   scanner->totalKeys);
+  } else {
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
+                  scanner->spec->name, scanner->totalKeys);
+  }
 
 end:
   if (!scanner->cancelled && scanner->global) {
@@ -1892,6 +1902,7 @@ end:
 
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_ScanCursorDestroy(cursor);
+  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -2478,6 +2489,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     } else {
       legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
     }
+    RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
     Indexes_UpgradeLegacyIndexes();
@@ -2494,6 +2506,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       RedisModule_Log(ctx, "warning",
                       "Skip background reindex scan, redis version contains loaded event.");
     }
+    RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
 }
 
