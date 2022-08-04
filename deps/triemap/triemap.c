@@ -10,6 +10,7 @@
 void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
 void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *));
+static inline void __trieNode_sortChildren(TrieMapNode *n);
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for
@@ -74,7 +75,7 @@ TrieMapNode *__trieMapNode_AddChild(TrieMapNode *n, char *str, tm_len_t offset, 
   *__trieMapNode_childKey(n, n->numChildren - 1) = str[offset];
 
   __trieMapNode_children(n)[n->numChildren - 1] = child;
-  n->flags &= ~TM_NODE_SORTED;
+  __trieNode_sortChildren(n);
   return n;
 }
 
@@ -92,12 +93,13 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   n->numChildren = 1;
   n->len = offset;
   n->value = NULL;
-  // the parent node is now non terminal and non sorted
-  n->flags = 0;  //&= ~(TM_NODE_TERMINAL | TM_NODE_DELETED | TM_NODE_SORTED);
+  // the parent node is now non terminal
+  n->flags = 0;  //&= ~(TM_NODE_TERMINAL | TM_NODE_DELETED);
 
   n = rm_realloc(n, __trieMapNode_Sizeof(n->numChildren, n->len));
   __trieMapNode_children(n)[0] = newChild;
   *__trieMapNode_childKey(n, 0) = newChild->str[0];
+  __trieNode_sortChildren(n);
   return n;
 }
 
@@ -153,7 +155,6 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     n->flags |= TM_NODE_TERMINAL;
     // if it was deleted, make sure it's not now
     n->flags &= ~TM_NODE_DELETED;
-    n->flags &= ~TM_NODE_SORTED;
     *np = n;
     // if the node existed - we return 0, otherwise return 1 as it's a new node
     rv += term && !deleted ? 0 : 1;
@@ -194,10 +195,9 @@ static int __cmp_chars(const void *p1, const void *p2) {
 
 /* Sort the children of a node by their first letter to allow binary search */
 static inline void __trieNode_sortChildren(TrieMapNode *n) {
-  if ((0 == (n->flags & TM_NODE_SORTED)) && n->numChildren > 3) {
+  if (n->numChildren > 1) {
     qsort(__trieMapNode_children(n), n->numChildren, sizeof(TrieMapNode *), __cmp_nodes);
     qsort(__trieMapNode_childKey(n, 0), n->numChildren, 1, __cmp_chars);
-    n->flags |= TM_NODE_SORTED;
   }
 }
 
@@ -229,31 +229,8 @@ void *TrieMapNode_Find(TrieMapNode *n, const char *str, tm_len_t len) {
       // let's find a child to continue to
       tm_len_t i = 0;
       TrieMapNode *nextChild = NULL;
-      // if (!(n->flags & TM_NODE_SORTED) && n->numChildren > 2) {
-      //   qsort(__trieMapNode_children(n), n->numChildren, sizeof(TrieMapNode *), __cmp_nodes);
-      //   qsort(__trieMapNode_childKey(n, 0), n->numChildren, 1, __cmp_chars);
-      //   n->flags |= TM_NODE_SORTED;
-      // }
       char *childKeys = __trieMapNode_childKey(n, 0);
       char c = str[offset];
-      // if (n->flags & TM_NODE_SORTED) {
-      //   int bottom = 0, top = n->numChildren - 1;
-
-      //   while (bottom <= top) {
-      //     int mid = (bottom + top) / 2;
-
-      //     char cc = *__trieMapNode_childKey(n, mid);
-      //     if (c == cc) {
-      //       nextChild = __trieMapNode_children(n)[mid];
-      //       break;
-      //     } else if (c < cc) {
-      //       top = mid - 1;
-      //     } else {
-      //       bottom = mid + 1;
-      //     }
-      //   }
-
-      // } else {
       char *ptr = memchr(childKeys, c, n->numChildren);
       if (ptr != NULL) {
         const size_t char_offset = ptr - childKeys;
@@ -701,8 +678,6 @@ static void TrieMapRangeIterate(TrieMapNode *n, const char *min, int nmin, const
     // no children, just return.
     goto clean_stack;
   }
-
-  __trieNode_sortChildren(n);
 
   // Find the minimum range here..
   // Use binary search to find the beginning and end ranges:
