@@ -250,9 +250,7 @@ struct ForkGC : public Object, public GCAPI {
   void sendTerminator();
 
   int recvFixed(void *buf, size_t len);
-  int tryRecvFixed(void *obj, size_t len); //@@ Why do we need it for?
   int recvBuffer(void **buf, size_t *len);
-  int tryRecvBuffer(void **buf, size_t *len); //@@ looks like nobody was using it
   int recvRepairedBlock(MSG_RepairedBlock *binfo);
   int recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info);
 

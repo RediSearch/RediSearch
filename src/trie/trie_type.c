@@ -49,7 +49,7 @@ int Trie::InsertStringBuffer(const char *s, size_t len, double score, int incr, 
     return 0;
   }
 
-  int rc = root->Add(runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
+  int rc = root->Add(runes, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
   size += rc;
 
   return rc;
@@ -64,7 +64,7 @@ bool Trie::Delete(const char *s) {
   if (!runes || runes.len() > TRIE_INITIAL_STRING_LEN) {
     return false;
   }
-  int rc = root->Delete(&runes, runes._len);
+  int rc = root->Delete(runes);
   size -= rc;
   return rc > 0;
 }
@@ -97,8 +97,7 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 // caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
 // Otherwise we return an iterator to all strings within maxDist Levenshtein distance.
 
-TrieIterator Trie::Iterate(const char *prefix, size_t len, int maxDist, int prefixMode) {
-  //@@@TODO: we don't use len argument!
+TrieIterator Trie::Iterate(const char *prefix, int maxDist, int prefixMode) {
   Runes runes(prefix);
   if (!runes || runes.len() > TRIE_MAX_PREFIX) {
     Runes empty;
@@ -125,19 +124,20 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
 
   Heap<TrieSearchResult *> pq(cmpEntries, num);
   TrieIterator it(new DFAFilter(runes, maxDist, prefixMode));
-  rune *rstr;
+  Runes *rstr;
   t_len slen;
   float score;
   RSPayload payload;
 
   TrieSearchResult *pooledEntry;
   int dist = maxDist + 1;
-  while (it.Next(&rstr, &slen, &payload, &score, &dist)) {
+  while (it.Next(&rstr, &payload, &score, &dist)) {
     if (pooledEntry == NULL) {
       pooledEntry->str = NULL;
       pooledEntry->payload = NULL;
       pooledEntry->plen = 0;
     }
+    slen = rstr->len();
     TrieSearchResult *ent = pooledEntry;
 
     ent->score = slen > 0 && slen == runes._len && memcmp(runes, rstr, slen) == 0 ? INT_MAX : score;

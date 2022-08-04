@@ -127,7 +127,7 @@ struct TrieIterator : public Object {
   };
 
   StepResult Step(int *match);
-  bool Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *matchCtx);
+  bool Next(Runes *ptr, RSPayload *payload, float *score, void *matchCtx);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -148,22 +148,22 @@ struct TrieNode : public Object {
 
   TriePayload *_payload; // payload of terminal node. can be NULL if nonterminal.
 
-  Runes _str; // string of current node
+  Runes _runes; // string of current node
   Vector<TrieNode*> _children;
 
-  TrieNode(rune *runes, t_len offset = 0, t_len new_len = 0, const char *new_payload = NULL, size_t plen = 0,
-           t_len numChildren = 0, float score = 0, bool terminal = false);
+  TrieNode(const Runes &runes, t_len offset = 0, const char *new_payload = NULL,
+    size_t plen = 0, t_len numChildren = 0, float score = 0, bool terminal = false);
   ~TrieNode();
 
-  void Print(int idx, int depth); //@@ looks like nobody is using it
-  TrieNode *Add(rune *runes, t_len len, RSPayload *payload, float score, TrieAddOp op);
+  void Print(int idx, int depth);
+  TrieNode *Add(const Runes &runes, RSPayload *payload, float score, TrieAddOp op);
 
   TrieNode *AddChild(rune *runes, t_len offset, t_len len, RSPayload *payload, float score);
   void SplitNode(t_len offset);
 
-  float Find(rune *runes, t_len len) const;
+  float Find(const Runes &runes) const;
 
-  bool Delete(rune *runes, t_len len);
+  bool Delete(const Runes &runes);
 
   TrieIterator Iterate(StepFilter f, StackPopCallback pf, DFAFilter *filter);
 

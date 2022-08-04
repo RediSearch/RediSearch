@@ -5,7 +5,7 @@
 
 #include <stdio.h>
 
-#include "../../util/fnv.h"
+#include "util/fnv.h"
 #include "hll.h"
 
 #include "rmalloc.h"

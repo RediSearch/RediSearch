@@ -89,14 +89,12 @@ bool Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
 
   RedisModule_ReplyWithArray(ctx, t->size);
 
-  TrieIterator it = t->Iterate("", 0, 0, 1);
+  TrieIterator it = t->Iterate("", 0, 1);
   while (it.Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }
-
-  delete it.dfafilter;
 
   RedisModule_CloseKey(k);
 

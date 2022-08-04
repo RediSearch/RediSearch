@@ -128,18 +128,6 @@ void Document::MakeStringsOwner() {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Make the document object steal references to the document's strings.
- */
-
-// TODO remove uncovered and clean DOCUMENT_F_OWNREFS from all code
-
-void Document::MakeRefOwner() {
-  flags |= DOCUMENT_F_OWNREFS;
-}
-
-//---------------------------------------------------------------------------------------------
-
-/**
  * Load all fields specified in the schema to the document. Note that
  * the document must then be freed using Document_Free().
  *

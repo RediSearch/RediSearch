@@ -166,7 +166,7 @@ static void _dictReset(dictht *ht)
 }
 
 /* Create a new hash table */
-dict *dictCreate(dictType *type, void *privDataPtr) //@@ should be constroctor but I'ts part of the API (?)
+dict *dictCreate(dictType *type, void *privDataPtr)
 {
     dict *d = rm_malloc(sizeof(*d));
 

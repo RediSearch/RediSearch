@@ -125,7 +125,6 @@ static inline int rsb_eq_vec(Vector<T> vec, const void *s, rsbcompare cmp) {
 
 //---------------------------------------------------------------------------------------------
 
-//@@ no use
 #if 0
 /**
  * In order to locate a range between A and B, the proper indexes must be found.

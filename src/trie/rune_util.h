@@ -40,47 +40,71 @@ struct Runes {
   Runes(const char *str = "", Folded folded = Folded::No) {
     rune *p;
     if (folded == Folded::No) {
-      _runes = strToRunes(str, &_len, dynamic, _runes_s);
+      _runes = strToRunes(str, &_len, _dynamic, _runes_s);
     } else {
-      _runes = strToFoldedRunes(str, &_len, dynamic, _runes_s);
+      _runes = strToFoldedRunes(str, &_len, _dynamic, _runes_s);
     }
   }
 
+  Runes(const char *str, size_t len) { copy(str, len); }
   Runes(const Runes &runes) { copy(runes); }
+#if 0
   Runes(const rune *runes, size_t len) { copy(runes, len); }
+#endif // 0
 
   ~Runes();
 
-  bool dynamic;
+  bool _dynamic;
   rune _runes_s[RUNE_STATIC_ALLOC_SIZE + 1];
   rune *_runes;
-  size_t _len;
+  size_t _len; // logical size of rune (not allocated bytes)
+  size_t _nbytes;
 
-  void copy(const rune *runes, size_t len) {
-    dynamic = len > RUNE_STATIC_ALLOC_SIZE;
-    if (dynamic) {
-      _runes = (rune *) rm_malloc((len + 1) * sizeof(rune));
+  void setup_storage(size_t nbytes) {
+    _dynamic = nbytes > RUNE_STATIC_ALLOC_SIZE;
+    _nbytes = nbytes + 1;
+    if (_dynamic) {
+      _runes = (rune *) rm_malloc(_nbytes * sizeof(rune));
     } else {
       _runes = _runes_s;
     }
+  }
+
+#if 0
+  void copy(const rune *runes, size_t len) {
+    setup_storage((nbytes + 1) * sizeof(rune));
     memcpy(_runes, runes, len);
-    _runes[len] = '\0';
+    _runes[len] = 0;
     _len = len;
   }
+#endif // 0
 
-  void append(Runes str, size_t len) {
-    size_t nlen = _len + len;
-    rune nstr[nlen + 1];
-    memcpy(nstr, &_runes[0], sizeof(rune) * _len);
-    memcpy(&nstr[_len], str[0], sizeof(rune) * len);
-    nstr[nlen] = 0;
-    copy(*nstr, nlen);
+  void copy(const char *str, size_t str_len) {
+    _runes = strToRunes(str, &_nbytes, _dynamic, _runes_s);
+    _len = str_len;
   }
 
-  void copy(const Runes &runes) { copy(_runes, _len); }
+  void append(const Runes &runes) {
+    size_t nbytes = _nbytes + runes._nbytes;
+    if (!_dynamic && nbytes > RUNE_STATIC_ALLOC_SIZE) {
+      _runes = (rune *) rm_malloc(nbytes + 1);
+      memcpy(_runes, _runes_s, _nbytes);
+      _dynamic = true;
+    }
+    memcpy(&_runes[_nbytes], runes._runes, runes._nbytes);
+    _runes[nbytes] = 0;
+  }
+
+  void copy(const Runes &runes) {
+    setup_storage(runes._nbytes); // sets _nbytes
+    memcpy(_runes, runes._runes, runes._nbytes);
+    _runes[_nbytes] = 0;
+    _len = runes._len;
+  }
 
   size_t len() const { return _len; }
   bool empty() const { return !_runes || !_len;}
+  size_t nbytes() const { return _nbytes; }
 
   rune *operator*() { return _runes; }
   const rune *operator*() const { return _runes; }
@@ -95,6 +119,8 @@ struct Runes {
   bool operator<(const Runes &r) const {
     return runecmp(_runes, _len, r._runes, r._len) < 0;
   }
+
+  void operator=(const rune runes) { _runes = runes; } //@@ check this out 
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

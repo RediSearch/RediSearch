@@ -130,15 +130,15 @@ TrieIterator::TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, DF
 // Iterate to the next matching entry in the trie.
 // Returns true if we can continue, or false if we're done and should exit.
 
-bool TrieIterator::Next(rune **ptr, t_len *len, RSPayload *payload, float *score, void *match) {
+bool TrieIterator::Next(Runes *ptr, RSPayload *payload, float *score, void *match) {
   StepResult rc;
   while ((rc = Step(match)) != __STEP_STOP) {
     if (rc == __STEP_MATCH) {
       StackNode &sn = current();
 
       if (sn.n->isTerminal() && sn.n->_len == sn.stringOffset && !sn.n->isDeleted()) {
-        *ptr = buf;
-        *len = bufOffset;
+        ptr = buf;
+        // *len = bufOffset;
         *score = sn.n->_score;
         if (payload != NULL) {
           if (sn.n->_payload != NULL) {

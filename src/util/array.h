@@ -15,6 +15,7 @@ enum ArrayAllocatorType {
   ArrayAlloc_Default = ArrayAlloc_RM
 };
 
+#if 0
 /** Array datatype. Simple wrapper around a C array, with capacity and length. */
 template <class T>
 class Array {
@@ -34,13 +35,13 @@ public:
   void *Add(uint32_t elemSize);
   void Write(const T *data, size_t len);
 
-  void ShrinkToSize();
+  void ShrinkToSize()
   int Resize(uint32_t newSize);
   char *Steal(size_t *len_);
 
-  //@@ need help in changing to funcs
   size_t ARRAY_GETSIZE_AS() { return (len / (sizeof(T))); }
   T *ARRAY_GETARRAY_AS() { return data; }
   void *ARRAY_ADD_AS() { return Add(sizeof(T)); }
   T ARRAY_GETITEM_AS(size_t ix) { return (data[ix]); }
 };
+#endif //0
