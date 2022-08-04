@@ -52,6 +52,25 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   return ret;
 }
 
+String runesToStr(const rune *in, size_t len) {
+  if (len > MAX_RUNESTR_LEN) {
+    if (utflen) *utflen = 0;
+    return NULL;
+  }
+  uint32_t unicode[len + 1];
+  for (int i = 0; i < len; i++) {
+    unicode[i] = (uint32_t)in[i];
+  }
+  unicode[len] = 0;
+
+  size_t utflen = nu_bytelen(unicode, nu_utf8_write);
+  String str;
+  str.resize(utflen + 1);
+
+  nu_writestr(unicode, str.data()), nu_utf8_write);
+  return str;
+}
+
 //---------------------------------------------------------------------------------------------
 
 // implementation is identical to that of strToRunes except for line where __fold is called

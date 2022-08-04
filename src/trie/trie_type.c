@@ -71,12 +71,9 @@ bool Trie::Delete(const char *s) {
 
 //---------------------------------------------------------------------------------------------
 
-TrieSearchResult::~TrieSearchResult() {
-  if (str) {
-    delete str;
-  }
-  payload = NULL;
-  plen = 0;
+void TrieSearchResult::clear() {
+  str.clear();
+  payload.reset();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -122,25 +119,23 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
     return Vector<TrieSearchResult *>();
   }
 
-  Heap<TrieSearchResult *> pq(cmpEntries, num);
-  TrieIterator it(new DFAFilter(runes, maxDist, prefixMode));
-  Runes *rstr;
+  Heap<TrieSearchResult*> pq(cmpEntries, num);
+  TrieIterator it{new DFAFilter(runes, maxDist, prefixMode)};
+  Runes it_runes;
   t_len slen;
   float score;
   RSPayload payload;
 
-  TrieSearchResult *pooledEntry;
+  TrieSearchResult *pooledEntry = NULL;
   int dist = maxDist + 1;
-  while (it.Next(&rstr, &payload, &score, &dist)) {
+  while (it.Next(it_runes, payload, score, dist)) {
     if (pooledEntry == NULL) {
-      pooledEntry->str = NULL;
-      pooledEntry->payload = NULL;
-      pooledEntry->plen = 0;
+      pooledEntry = new TrieSearchResult();
     }
-    slen = rstr->len();
+    slen = it_runes.len();
     TrieSearchResult *ent = pooledEntry;
 
-    ent->score = slen > 0 && slen == runes._len && memcmp(runes, rstr, slen) == 0 ? INT_MAX : score;
+    ent->score = !slen && runes == it_runes ? INT_MAX : score;
 
     if (maxDist > 0) {
       // factor the distance into the score
@@ -152,9 +147,8 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
     }
 
     if (pq.size() < pq.capacity()) {
-      ent->str = runesToStr(rstr, slen, &ent->len);
-      ent->payload = payload.data;
-      ent->plen = payload.len;
+      ent->str = it_runes.toUTF8();
+      ent->payload = payload;
       pq.offerx(ent);
       pooledEntry = NULL;
 
@@ -166,11 +160,9 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
     } else {
       if (ent->score >= it.minScore) {
         pooledEntry = pq.poll();
-        rm_free(pooledEntry->str);
-        pooledEntry->str = NULL;
-        ent->str = runesToStr(rstr, slen, &ent->len);
-        ent->payload = payload.data;
-        ent->plen = payload.len;
+        pooledEntry->clear();
+        ent->str = it_runes.toUTF8();
+        ent->payload = payload;
         pq.offerx(ent);
 
         // get the new minimal score
@@ -178,7 +170,6 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
         if (qe->score > it.minScore) {
           it.minScore = qe->score;
         }
-
       } else {
         pooledEntry = ent;
       }
@@ -297,15 +288,14 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   int count = 0;
   if (tree->root) {
     TrieIterator it = tree->root->Iterate(NULL, NULL, NULL);
-    rune *rstr;
-    t_len len;
+    Runes runes;
+    //t_len len;
     float score;
     RSPayload payload;
 
-    while (it.Next(&rstr, &len, &payload, &score, NULL)) {
-      size_t slen = 0;
-      char *s = runesToStr(rstr, len, &slen);
-      RedisModule_SaveStringBuffer(rdb, s, slen + 1);
+    while (it.Next(runes, payload, score, NULL)) {
+      String s = runes.toUTF8();
+      RedisModule_SaveStringBuffer(rdb, s.c_str(), s.length() + 1);
       RedisModule_SaveDouble(rdb, (double)score);
 
       if (savePayloads) {
@@ -318,7 +308,6 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
         }
       }
       // TODO: Save a marker for empty payload!
-      rm_free(s);
       count++;
     }
     if (count != tree->size) {

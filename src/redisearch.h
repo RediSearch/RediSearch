@@ -75,6 +75,8 @@ struct RSPayload : Object {
   size_t len;
 
   size_t memsize() const { return sizeof(*this) + len; }
+
+  operator SimpleBuff() { return SimpleBuff{data, len}; }
 };
 
 //---------------------------------------------------------------------------------------------

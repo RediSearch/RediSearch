@@ -87,4 +87,60 @@ struct BasicString : std::basic_string<CharT, Traits, rm_allocator<CharT>> {
 
 typedef BasicString<char> String;
 
+//---------------------------------------------------------------------------------------------
+
+struct SimpleBuff {
+	SimpleBuff(void *data = 0, size_t len = 0) : data(data), len(len) {}
+	void *data;
+	size_t len;
+
+	void reset() {
+		data = 0;
+		len = 0;
+	}
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct DynaBuff {
+	DynaBuff(void *data_ = 0, size_t len = 0) : len(len) {
+		copy(data_, len);
+	}
+
+	~DynaBuff() {
+		if (data) rm_free(data);
+	}
+
+	void *data;
+	size_t len;
+
+	void copy(void *data_ = 0, size_t len_ = 0) {
+		len = len_;
+		if (data_ && len > 0) {
+			data = rm_malloc(len);
+			memcpy(data, data_, len);
+		} else {
+			data = 0;
+		}
+	}
+
+	DynaBuff &operator=(const SimpleBuff &b) {
+		reset();
+		copy(b.data, b.len);
+		return *this;
+	}
+
+	DynaBuff &operator=(const DynaBuff &b) {
+		reset();
+		copy(b.data, b.len);
+		return *this;
+	}
+
+	void reset() {
+		if (data) rm_free(data);
+		data = 0;
+		len = 0;
+	}
+};
+
 ///////////////////////////////////////////////////////////////////////////////////////////////

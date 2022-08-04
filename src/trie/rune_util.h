@@ -19,6 +19,7 @@ rune runeFold(rune r);
 
 // Convert a rune string to utf-8 characters
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
+String runesToStr(const rune *in, size_t len);
 
 rune *strToFoldedRunes(const char *str, size_t *len, bool dynamic, rune *buf = NULL);
 
@@ -32,7 +33,7 @@ int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb);
 
 //---------------------------------------------------------------------------------------------
 
-#define RUNE_STATIC_ALLOC_SIZE 127
+#define RUNE_STATIC_ALLOC_SIZE 255
 
 struct Runes {
   enum class Folded { No, Yes };
@@ -70,6 +71,15 @@ struct Runes {
     }
   }
 
+  void fix_storage(size_t new_nbytes) {
+    if (!_dynamic && new_nbytes > RUNE_STATIC_ALLOC_SIZE) {
+      _runes = (rune *) rm_malloc(new_nbytes + 1);
+      memcpy(_runes, _runes_s, _nbytes);
+      _dynamic = true;
+    }
+    _nbytes = new_nbytes;
+  }
+
 #if 0
   void copy(const rune *runes, size_t len) {
     setup_storage((nbytes + 1) * sizeof(rune));
@@ -84,15 +94,28 @@ struct Runes {
     _len = str_len;
   }
 
+  void append(rune r) {
+    size_t end = _nbytes;
+    fix_storage(_nbytes + 1); // sets _nbytes
+    _runes[end] = r;
+    _runes[_nbytes] = 0;
+    ++_len;
+  }
+
   void append(const Runes &runes) {
-    size_t nbytes = _nbytes + runes._nbytes;
-    if (!_dynamic && nbytes > RUNE_STATIC_ALLOC_SIZE) {
-      _runes = (rune *) rm_malloc(nbytes + 1);
-      memcpy(_runes, _runes_s, _nbytes);
-      _dynamic = true;
+    size_t end = _nbytes;
+    fix_storage(_nbytes + runes._nbytes); // sets _nbytes
+    memcpy(&_runes[end], runes._runes, runes._nbytes);
+    _runes[_nbytes] = 0;
+    _len += runes._len;
+  }
+
+  void pop(size_t len) {
+    if (_len > len) {
+      _len -= len;
+    } else {
+      _len = 0;
     }
-    memcpy(&_runes[_nbytes], runes._runes, runes._nbytes);
-    _runes[nbytes] = 0;
   }
 
   void copy(const Runes &runes) {
@@ -115,6 +138,12 @@ struct Runes {
   const rune &operator[](int i) const { return _runes[i]; }
 
   char *toUTF8(size_t *utflen) const { return runesToStr(_runes, _len, utflen); }
+  String toUTF8() const { return runesToStr(_runes, _len); }
+
+  bool operator==(const Runes &r) const {
+    if (_nbytes != r._nbytes) return false;
+    return !memcpy(_runes, r._runes, _nbytes);
+  }
 
   bool operator<(const Runes &r) const {
     return runecmp(_runes, _len, r._runes, r._len) < 0;

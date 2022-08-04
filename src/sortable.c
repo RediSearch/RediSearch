@@ -1,14 +1,20 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include "rmutil/rm_assert.h"
-#include "libnu/libnu.h"
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "rmalloc.h"
 #include "sortable.h"
 #include "buffer.h"
+#include "rmalloc.h"
 
-/* Create a sorting vector of a given length for a document */
+#include "rmutil/rm_assert.h"
+#include "rmutil/util.h"
+#include "rmutil/strings.h"
+
+#include "libnu/libnu.h"
+
+#include <stdlib.h>
+#include <stdio.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+// Create a sorting vector of a given length for a document
+
 RSSortingVector::RSSortingVector(int len_) {
   if (len_ > RS_SORTABLES_MAX) {
     return;
@@ -20,7 +26,10 @@ RSSortingVector::RSSortingVector(int len_) {
   }
 }
 
-/* Internal compare function between members of the sorting vectors, sorted by sk */
+//---------------------------------------------------------------------------------------------
+
+// Internal compare function between members of the sorting vectors, sorted by sk
+
 static int RSSortingVector::Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk,
                                 QueryError *qerr) {
   RSValue *v1 = self->values[sk->index];
@@ -29,10 +38,12 @@ static int RSSortingVector::Cmp(RSSortingVector *self, RSSortingVector *other, R
   return sk->ascending ? rc : -rc;
 }
 
-/* Normalize sorting string for storage. This folds everything to unicode equivalent strings. The
- * allocated return string needs to be freed later */
-char *normalizeStr(const char *str) {
+//---------------------------------------------------------------------------------------------
 
+// Normalize sorting string for storage. This folds everything to unicode equivalent strings.
+// The allocated return string needs to be freed later.
+
+char *normalizeStr(const char *str) {
   size_t buflen = 2 * strlen(str) + 1;
   char *lower_buffer = rm_calloc(buflen, 1);
   char *lower = lower_buffer;
@@ -60,7 +71,10 @@ char *normalizeStr(const char *str) {
   return lower_buffer;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Put a value in the sorting vector
+
 void RSSortingVector::Put(int idx, const void *p, int type) {
   if (idx > RS_SORTABLES_MAX) {
     return;
@@ -86,14 +100,20 @@ void RSSortingVector::Put(int idx, const void *p, int type) {
   }
 }
 
-/* Free a sorting vector */
+//---------------------------------------------------------------------------------------------
+
+// Free a sorting vector
+
 RSSortingVector::~RSSortingVector() {
   for (size_t i = 0; i < len; i++) {
     values[i]->Decref();
   }
 }
 
-/* Save a sorting vector to rdb. This is called from the doc table */
+//---------------------------------------------------------------------------------------------
+
+// Save a sorting vector to rdb. This is called from the doc table
+
 void RSSortingVector::RdbSave(RedisModuleIO *rdb) {
   RedisModule_SaveUnsigned(rdb, len);
   for (int i = 0; i < len; i++) {
@@ -120,9 +140,11 @@ void RSSortingVector::RdbSave(RedisModuleIO *rdb) {
   }
 }
 
-/* Load a sorting vector from RDB */
-RSSortingVector::RSSortingVector(RedisModuleIO *rdb, int encver) {
+//---------------------------------------------------------------------------------------------
 
+// Load a sorting vector from RDB
+
+RSSortingVector::RSSortingVector(RedisModuleIO *rdb, int encver) {
   len = (int)RedisModule_LoadUnsigned(rdb);
   if (len > RS_SORTABLES_MAX || len <= 0) {
     return;
@@ -153,13 +175,18 @@ RSSortingVector::RSSortingVector(RedisModuleIO *rdb, int encver) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Returns the value for a given index. Does not increment the refcount
-inline RSValue *RSSortingVector::Get(size_t index) {
+
+RSValue *RSSortingVector::Get(size_t index) {
   if (len <= index) {
     return NULL;
   }
   return values[index];
 }
+
+//---------------------------------------------------------------------------------------------
 
 size_t RSSortingVector::memsize() const {
   size_t sum = len * sizeof(RSValue *);
@@ -177,7 +204,10 @@ size_t RSSortingVector::memsize() const {
   return sum;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Adds a field and returns the ID of the newly-inserted field
+
 int RSSortingTable::Add(const char *name, RSValueType t) {
   RS_LOG_ASSERT(len < RS_SORTABLES_MAX, "sorting table is too large");
   fields[len].name = name;
@@ -185,7 +215,10 @@ int RSSortingTable::Add(const char *name, RSValueType t) {
   return len++;
 }
 
-/* Get the field index by name from the sorting table. Returns -1 if the field was not found */
+//---------------------------------------------------------------------------------------------
+
+// Get the field index by name from the sorting table. Returns -1 if the field was not found
+
 int RSSortingTable::GetFieldIdx(const char *field) {
   for (int i = 0; i < len; i++) {
     if (!strcasecmp(fields[i].name, field)) {
@@ -194,3 +227,5 @@ int RSSortingTable::GetFieldIdx(const char *field) {
   }
   return -1;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

@@ -36,13 +36,11 @@ struct Trie {
 //---------------------------------------------------------------------------------------------
 
 struct TrieSearchResult : Object {
-  char *str;
-  size_t len;
+  String str;
   float score;
-  char *payload;
-  size_t plen;
+  SimpleBuff payload;
 
-  ~TrieSearchResult();
+  void clear();
 };
 
 //---------------------------------------------------------------------------------------------

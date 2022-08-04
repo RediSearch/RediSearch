@@ -13,13 +13,14 @@ void TrieIterator::Push(TrieNode *node, int skipped) {
 // pop a node from the iterator's stcak
 
 void TrieIterator::Pop() {
-  if (!stack.empty()) {
-    StackNode &curr = current();
-    dfafilter.StackPop(curr.stringOffset);
+  if (stack.empty()) return;
 
-    bufOffset -= curr.stringOffset;
-    stack.pop_back();
-  }
+  StackNode &curr = current();
+  dfafilter.StackPop(curr.stringOffset);
+
+  RS_LOG_ASSERT(runes.len() >= curr.stringOffset, "Invalid iterator state");
+  runes.pop(curr.stringOffset);
+  stack.pop_back();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -59,7 +60,7 @@ TrieIterator::StepResult TrieIterator::Step(int *match) {
         }
 
         // advance the buffer offset and character offset
-        buf[bufOffset++] = b;
+        runes.append(b);
         curr.stringOffset++;
 
         // if we don't have a filter, a "match" is when we reach the end of the
@@ -130,25 +131,23 @@ TrieIterator::TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, DF
 // Iterate to the next matching entry in the trie.
 // Returns true if we can continue, or false if we're done and should exit.
 
-bool TrieIterator::Next(Runes *ptr, RSPayload *payload, float *score, void *match) {
+bool TrieIterator::Next(Runes &ret_runes, RSPayload &payload, float &score, void *match) {
   StepResult rc;
   while ((rc = Step(match)) != __STEP_STOP) {
     if (rc == __STEP_MATCH) {
       StackNode &sn = current();
 
       if (sn.n->isTerminal() && sn.n->_len == sn.stringOffset && !sn.n->isDeleted()) {
-        ptr = buf;
-        // *len = bufOffset;
-        *score = sn.n->_score;
-        if (payload != NULL) {
+        ret_runes = runes;
+        score = sn.n->_score;
+        //if (payload != NULL) {
+          payload = sn.n->_payload;
           if (sn.n->_payload != NULL) {
-            payload->data = sn.n->_payload->data;
-            payload->len = sn.n->_payload->len;
+            payload = *sn.n->_payload;
           } else {
-            payload->data = NULL;
-            payload->len = 0;
+            payload.reset();
           }
-        }
+        //}
         return true;
       }
     }

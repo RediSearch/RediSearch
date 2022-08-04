@@ -37,6 +37,8 @@ struct TriePayload : Object {
   char data[];   // data will not take an extra pointer
 
   TriePayload(const char *payload, uint32_t plen);
+
+  operator SimpleBuff() { return SimpleBuff(&data, len); }
 };
 #pragma pack()
 
@@ -97,8 +99,7 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 // Opaque trie iterator type
 
 struct TrieIterator : public Object {
-  rune buf[TRIE_INITIAL_STRING_LEN + 1];
-  t_len bufOffset;
+  Runes runes;
 
   Vector<StackNode> stack;
   StepFilter filter;
@@ -127,7 +128,7 @@ struct TrieIterator : public Object {
   };
 
   StepResult Step(int *match);
-  bool Next(Runes *ptr, RSPayload *payload, float *score, void *matchCtx);
+  bool Next(Runes &runes, RSPayload &payload, float &score, void *matchCtx);
 };
 
 //---------------------------------------------------------------------------------------------
