@@ -364,7 +364,7 @@ jobs:
 
   build-macos:
     macos:
-      xcode: 12.4.0
+      xcode: 11.7.0
     resource_class: macos.x86.medium.gen2
     parameters:
       upload:
@@ -680,7 +680,8 @@ workflows:
           name: build
           <<: *not-on-integ-branch
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *on-any-branch
           context: common
           matrix:
             parameters:
@@ -693,7 +694,8 @@ workflows:
               platform: [bionic]
       - build-macos:
           context: common
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *on-any-branch
       - coverage:
           <<: *on-any-branch
       - sanitize:
