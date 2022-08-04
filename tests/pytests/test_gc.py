@@ -271,6 +271,7 @@ def testGFreeEmpryTerms(env):
 
 def testAutoMemory_MOD_3951():    
     env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     # create index with filter
