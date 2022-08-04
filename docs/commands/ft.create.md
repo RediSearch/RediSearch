@@ -85,13 +85,13 @@ When dropped, a temporary index does not delete the hashes as they may have been
   memory but does not allow sorting based on the frequencies of a given term within
   the document.
 
-* **STOPWORDS**: If set, we set the index with a custom stopword list, to be ignored during
-  indexing and search time. {num} is the number of stopwords, followed by a list of stopword
-  arguments exactly the length of {num}.
+* **STOPWORDS {count}**: If set, we set the index with a custom stopword list, to be ignored during
+  indexing and search time. {count} is the number of stopwords, followed by a list of stopword
+  arguments exactly the length of {count}.
 
     If not set, we take the default list of stopwords.
 
-    If **{num}** is set to 0, the index will not have stopwords.
+    If **{count}** is set to 0, the index will not have stopwords.
 
 * **SKIPINITIALSCAN**: If set, we do not scan and index.
 
