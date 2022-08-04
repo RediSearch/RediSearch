@@ -1,7 +1,8 @@
-#include "../util/quantile.h"
-#include "../buffer.h"
-#include "../rmutil/alloc.h"
+#include "util/quantile.h"
+#include "buffer.h"
+#include "rmutil/alloc.h"
 #include "test_util.h"
+
 #include <stdint.h>
 #include <assert.h>
 #include <stdio.h>

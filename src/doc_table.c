@@ -16,14 +16,13 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Creates a new DocTable with a given capacity
-void DocTable::ctor(size_t cap_, t_docId max_size) {
+void DocTable::ctor(size_t cap, t_docId max_size) {
   size = 1;
   maxSize = max_size;
   maxDocId = 0;
-  cap = cap_;
   memsize = 0;
   sortablesSize = 0;
-  buckets = NULL;
+  buckets.reserve(cap);
 }
 
 DocTable::DocTable(size_t cap) {
@@ -212,6 +211,16 @@ RSPayload::RSPayload(const char *payload, size_t payloadSize) {
 
 //---------------------------------------------------------------------------------------------
 
+RSPayload::RSPayload(RedisModuleIO *rdb) {
+  void *payload_data = RedisModule_LoadStringBuffer(rdb, &len);
+  data = rm_malloc(len);
+  memcpy(data, payload_data, len);
+  RedisModule_Free(payload_data);
+  --len;
+}
+
+//---------------------------------------------------------------------------------------------
+
 // Put a new document into the table, assign it an incremental id and store the metadata in the
 // table.
 // Return 0 if the document is already in the index.
@@ -220,9 +229,7 @@ RSPayload::RSPayload(const char *payload, size_t payloadSize) {
 // Currently there is no deduplication on the table so we do not prevent dual insertion of the
 // same key. This may result in document duplication in results.
 
-t_docId DocTable::Put(const char *s, size_t n, double score, u_char flags,
-                      const char *payload, size_t payloadSize) {
-
+t_docId DocTable::Put(const char *s, size_t n, double score, u_char flags, RSPayload *payload) {
   t_docId xid = dim.Get(s, n);
   // if the document is already in the index, return 0
   if (xid) {
@@ -231,13 +238,7 @@ t_docId DocTable::Put(const char *s, size_t n, double score, u_char flags,
 
   t_docId docId = ++maxDocId;
 
-  RSPayload *dpl = NULL;
-  if (payload && payloadSize) {
-    dpl = new RSPayload(payload, payloadSize);
-    memsize += dpl->memsize();
-  }
-
-  RSDocumentMetadata &dmd = Set(docId, RSDocumentMetadata(s, n, score, flags, dpl, docId));
+  RSDocumentMetadata &dmd = Set(docId, RSDocumentMetadata(s, n, score, flags, payload, docId));
   ++size;
   memsize += dmd.memsize();
   dim.Put(s, n, docId);
@@ -325,7 +326,7 @@ RSDocumentMetadata *DocTable::Pop(const char *s, size_t n, bool retain) {
   dmd->flags |= Document_Deleted;
 
   RSDocumentMetadata *dmd1 = NULL;
-  if (retain) dmd1 = new RSDocumentMetadata{*dmd};
+  if (retain) dmd1 = new RSDocumentMetadata{std::move(*dmd)};
 
   Unchain(dmd);
   dim.Delete(s, n);
@@ -356,9 +357,8 @@ void DocTable::RdbSave(RedisModuleIO *rdb) {
 
 //---------------------------------------------------------------------------------------------
 
-// Load the table from RDB
 void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
-  long long deletedElements = 0;
+  size_t deletedElements = 0;
   size = RedisModule_LoadUnsigned(rdb);
   maxDocId = RedisModule_LoadUnsigned(rdb);
   if (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION) {
@@ -374,72 +374,19 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
     // thus might not be populated below), but could still be accessed for simple queries
     // (e.g. get, exist). Ensure we don't have to rely on Set/Put to ensure the doc table array.
 
-    cap = maxSize;
     buckets.clear();
-    buckets.resize(cap);
+    buckets.reserve(maxSize);
   }
 
   for (size_t i = 1; i < size; i++) {
-    size_t len;
-
-    RSDocumentMetadata *dmd;
-    char *tmpPtr = RedisModule_LoadStringBuffer(rdb, &len);
-    if (encver < INDEX_MIN_BINKEYS_VERSION) {
-      // Previous versions would encode the NUL byte
-      len--;
-    }
-    dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i : RedisModule_LoadUnsigned(rdb);
-    dmd->keyPtr = sdsnewlen(tmpPtr, len);
-    RedisModule_Free(tmpPtr);
-
-    dmd->flags = RedisModule_LoadUnsigned(rdb);
-    dmd->maxFreq = 1;
-    dmd->len = 1;
-    if (encver > 1) {
-      dmd->maxFreq = RedisModule_LoadUnsigned(rdb);
-    }
-    if (encver >= INDEX_MIN_DOCLEN_VERSION) {
-      dmd->len = RedisModule_LoadUnsigned(rdb);
-    } else {
-      // In older versions, default the len to max freq to avoid division by zero.
-      dmd->len = dmd->maxFreq;
-    }
-
-    dmd->score = RedisModule_LoadFloat(rdb);
-    dmd->payload = NULL;
-    // read payload if set
-    if ((dmd->flags & Document_HasPayload)) {
-      if (!(dmd->flags & Document_Deleted)) {
-        dmd->payload = rm_malloc(sizeof(RSPayload));
-        dmd->payload->data = RedisModule_LoadStringBuffer(rdb, &dmd->payload->len);
-        char *buf = rm_malloc(dmd->payload->len);
-        memcpy(buf, dmd->payload->data, dmd->payload->len);
-        RedisModule_Free(dmd->payload->data);
-        dmd->payload->data = buf;
-        dmd->payload->len--;
-        memsize += dmd->payload->memsize();
-      } else if ((dmd->flags & Document_Deleted) && (encver == INDEX_MIN_EXPIRE_VERSION)) {
-        RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
-      }
-    }
-    dmd->sortVector = NULL;
-    if (dmd->flags & Document_HasSortVector) {
-      dmd->sortVector = new RSSortingVector(rdb, encver);
-      sortablesSize += dmd->sortVector->memsize();
-    }
-
-    if (dmd->flags & Document_HasOffsetVector) {
-      RMBuffer buf(rdb); // @@ handle exception
-      dmd->byteOffsets = new RSByteOffsets(buf);
-    }
-
-    if (dmd->flags & Document_Deleted) {
+    RSDocumentMetadata dmd{t_docId{i}, rdb, encver};
+    if (dmd.flags & Document_Deleted) {
       ++deletedElements;
-      delete dmd;
     } else {
-      dim.Put(dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
-      Set(dmd->id, dmd);
-      memsize += dmd->memsize();
+      dim.Put(dmd.keyPtr, sdslen(dmd.keyPtr), dmd.id);
+      Set(dmd.id, std::move(dmd));
+      memsize += dmd.memsize();
+      sortablesSize += dmd.sortVector->memsize();
     }
   }
   size -= deletedElements;
@@ -497,6 +444,67 @@ RSDocumentMetadata::RSDocumentMetadata(const char *id, size_t idlen, double scor
   maxFreq = 1;
   id = docId;
   sortVector = NULL;
+}
+
+//---------------------------------------------------------------------------------------------
+
+RSDocumentMetadata::RSDocumentMetadata(RSDocumentMetadata &&dmd) : id(dmd.id), keyPtr(dmd.keyPtr), 
+    score(dmd.score), maxFreq(dmd.maxFreq), len(dmd.len), flags(dmd.flags), payload(dmd.payload), 
+    sortVector(dmd.sortVector), byteOffsets(dmd.byteOffsets), dmd_iter(dmd.dmd_iter), ref_count(dmd.ref_count) {
+  dmd.payload = NULL;
+  dmd.sortVector = NULL;
+  dmd.byteOffsets = NULL;
+}
+
+//---------------------------------------------------------------------------------------------
+
+RSDocumentMetadata::RSDocumentMetadata(t_docId id, RedisModuleIO *rdb, int encver) {
+  size_t keylen;
+  char *key = RedisModule_LoadStringBuffer(rdb, &keylen);
+  if (encver < INDEX_MIN_BINKEYS_VERSION) {
+    // Previous versions would encode the NUL byte
+    keylen--;
+  }
+  id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? id : t_docId(RedisModule_LoadUnsigned(rdb));
+  keyPtr = sdsnewlen(key, keylen);
+  RedisModule_Free(key);
+
+  flags = RedisModule_LoadUnsigned(rdb);
+  maxFreq = 1;
+  len = 1;
+  if (encver > 1) {
+    maxFreq = RedisModule_LoadUnsigned(rdb);
+  }
+
+  if (encver >= INDEX_MIN_DOCLEN_VERSION) {
+    len = RedisModule_LoadUnsigned(rdb);
+  } else {
+    // In older versions, default the len to max freq to avoid division by zero.
+    len = maxFreq;
+  }
+
+  score = RedisModule_LoadFloat(rdb);
+
+  if (flags & Document_HasPayload) {
+    if (!(flags & Document_Deleted)) {
+      payload = new RSPayload(rdb);
+    } else if (encver == INDEX_MIN_EXPIRE_VERSION) {
+      RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL)); // throw this string to garbage
+    }
+  } else {
+    payload = NULL;
+  }
+
+  if (flags & Document_HasSortVector) {
+    sortVector = new RSSortingVector(rdb, encver);
+  } else {
+    sortVector = NULL;
+  }
+
+  if (flags & Document_HasOffsetVector) {
+    RMBuffer buf(rdb); // @@ handle exception
+    byteOffsets = new RSByteOffsets(buf);
+  }
 }
 
 //---------------------------------------------------------------------------------------------

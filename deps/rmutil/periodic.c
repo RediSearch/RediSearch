@@ -82,12 +82,13 @@ RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, RMUtilTimerTerminationF
                                      void *privdata, struct timespec interval) {
   RMUtilTimer *ret = rm_malloc(sizeof(*ret));
   *ret = (RMUtilTimer){
-      .privdata = privdata,
-      .interval = interval,
-      .cb = cb,
-      .onTerm = onTerm,
-      .isCanceled = false,
+      cb: cb,
+      onTerm: onTerm,
+      privdata: privdata,
+      interval: interval,
+      isCanceled: false,
   };
+
   pthread_cond_init(&ret->cond, NULL);
   pthread_mutex_init(&ret->lock, NULL);
 

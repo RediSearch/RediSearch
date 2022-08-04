@@ -1,5 +1,5 @@
-#ifndef __TESTUTIL_H__
-#define __TESTUTIL_H__
+
+#pragma once
 
 #include <assert.h>
 #include <stdio.h>
@@ -68,4 +68,3 @@ static int numAsserts = 0;
     printf("\n--------------------\n\n");       \
     return 0;                                   \
   }
-#endif

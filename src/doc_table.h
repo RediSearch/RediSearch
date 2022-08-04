@@ -75,7 +75,6 @@ public:
   size_t size;
   t_docId maxSize; // the maximum size this table is allowed to grow to
   t_docId maxDocId;
-  size_t cap;
   size_t memsize;
   size_t sortablesSize;
 
@@ -108,7 +107,7 @@ public:
   bool SetSortingVector(t_docId docId, RSSortingVector *v);
   int SetByteOffsets(t_docId docId, RSByteOffsets *offsets);
 
-  t_docId Put(const char *s, size_t n, double score, u_char flags, const char *payload, size_t payloadSize);
+  t_docId Put(const char *s, size_t n, double score, u_char flags, RSPayload *payload);
 
   bool Delete(const char *key, size_t n);
   bool Delete(RedisModuleString *r);

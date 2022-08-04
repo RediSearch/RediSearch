@@ -1,8 +1,9 @@
-#include "../util/block_alloc.h"
+#include "util/block_alloc.h"
 #include "test_util.h"
+#include "rmutil/alloc.h"
+
 #include <stdint.h>
 #include <assert.h>
-#include "rmutil/alloc.h"
 
 int testBlockAlloc() {
   RMUTil_InitAlloc();

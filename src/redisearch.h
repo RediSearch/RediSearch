@@ -69,6 +69,7 @@ struct RSSortingVector;
 struct RSPayload : Object {
   RSPayload() : data(NULL), len(0) {}
   RSPayload(const char *payload, size_t payloadSize);
+  RSPayload(RedisModuleIO *rdb);
   ~RSPayload();
 
   char *data;
@@ -130,14 +131,17 @@ struct RSDocumentMetadata : Object {
   RSPayload *payload;
 
   struct RSSortingVector *sortVector;
+
   // Offsets of all terms in the document (in bytes). Used by highlighter
   struct RSByteOffsets *byteOffsets;
+
   List<struct RSDocumentMetadata>::iterator dmd_iter;
   uint32_t ref_count;
 
   RSDocumentMetadata(const char *id, size_t idlen, double score, Mask(RSDocumentFlags) flags,
     RSPayload *payload, t_docId docId);
-  RSDocumentMetadata(RedisModuleIO *rdb);
+  RSDocumentMetadata(RSDocumentMetadata &&dmd);
+  RSDocumentMetadata(t_docId id, RedisModuleIO *rdb, int encver);
   ~RSDocumentMetadata();
 
   const char *KeyPtrLen(size_t *len) const;
@@ -149,7 +153,7 @@ struct RSDocumentMetadata : Object {
 
   bool IsDeleted() const { return !!(flags & Document_Deleted); }
 
-  size_t memsize() const { return sizeof(*this) + sdsAllocSize(keyPtr); }
+  size_t memsize() const { return sizeof(*this) + sdsAllocSize(keyPtr) + (payload ? payload->memsize() : 0); }
 
   void RdbSave(RedisModuleIO *rdb);
 };
