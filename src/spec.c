@@ -1879,9 +1879,9 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_ThreadSafeContextLock(ctx);
 
     if (scanner->cancelled) {
-      goto end;
       RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
                   scanner->totalKeys);
+      goto end;
     }
   }
 
