@@ -10,8 +10,7 @@ RSByteOffsets::~RSByteOffsets() {
 
 //---------------------------------------------------------------------------------------------
 
-void RSByteOffsets::ReserveFields(size_t numFields) {
-  fields.clear();
+RSByteOffsets::RSByteOffsets(size_t numFields) {
   fields.reserve(numFields);
 }
 

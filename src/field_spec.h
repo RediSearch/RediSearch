@@ -6,33 +6,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-
-// #ifdef __cplusplus
-// #define RS_ENUM_BITWISE_HELPER(T)   \
-//   inline T operator|=(T a, int b) { \
-//     return (T)((int)a | b);         \
-//   }
-// #else
-// #define RS_ENUM_BITWISE_HELPER(T)
-// #endif
-
-//@@ Need to make this template only for enums !!
-template<class E>
-inline size_t operator|(E a, size_t b) {
-  return static_cast<size_t>(a) | b;
-}
-
-//@@ Need to make this template only for enums !!
-template<class E>
-inline size_t operator|(E a, E b) {
-  return static_cast<size_t>(a) | static_cast<size_t>(b);
-}
-
-#endif // 0
-
-//---------------------------------------------------------------------------------------------
-
 enum FieldType {
   // Newline
   INDEXFLD_T_FULLTEXT = 0x01,
@@ -59,8 +32,6 @@ enum FieldType {
 #define IXFLDPOS_GEO INDEXTYPE_TO_POS(INDEXFLD_T_GEO)
 #define IXFLDPOS_TAG INDEXTYPE_TO_POS(INDEXFLD_T_TAG)
 
-// RS_ENUM_BITWISE_HELPER(FieldType)
-
 //---------------------------------------------------------------------------------------------
 
 enum FieldSpecOptions {
@@ -71,8 +42,6 @@ enum FieldSpecOptions {
   FieldSpec_Dynamic = 0x10
 };
 
-// RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
-
 //---------------------------------------------------------------------------------------------
 
 // Flags for tag fields
@@ -82,13 +51,20 @@ enum TagFieldFlags {
   TagField_RemoveAccents = 0x04,
 };
 
-// RS_ENUM_BITWISE_HELPER(TagFieldFlags)
+//---------------------------------------------------------------------------------------------
+
+#define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);
+#define TAG_FIELD_DEFAULT_SEP ','
 
 //---------------------------------------------------------------------------------------------
 
 // The fieldSpec represents a single field in the document's field spec.
 // Each field has a unique id that's a power of two, so we can filter fields by a bit mask.
 // Each field has a type, allowing us to add non text fields in the future.
+
+struct AddDocumentCtx;
+struct DocumentField;
+struct FieldIndexerData;
 
 struct FieldSpec {
   char* name;
@@ -112,6 +88,14 @@ struct FieldSpec {
 
   // TODO: More options here..
 
+  FieldSpec(int idx, char *name) : index(idx), name(rm_strdup(name)) {
+    ftId = (t_fieldId)-1;
+    ftWeight = 1.0;
+    sortIdx = -1;
+    tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+    tagFlags = TAG_FIELD_DEFAULT_SEP;
+  }
+
   void SetSortable();
   void Cleanup();
   void Initialize(FieldType types);
@@ -122,14 +106,21 @@ struct FieldSpec {
   bool IsIndexable() const { return 0 == (options & FieldSpec_NotIndexable); }
 
   bool IsFieldType(FieldType t) { return types & t; }
+
+  bool FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+    FieldIndexerData *fdata, QueryError *status) const;
+
+  bool NumericPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+    FieldIndexerData *fdata, QueryError *status) const;
+
+  bool GeoPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+    FieldIndexerData *fdata, QueryError *status) const;
+
+  bool TagPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+    FieldIndexerData *fdata, QueryError *status) const;
 };
 
 //---------------------------------------------------------------------------------------------
-
-#define FIELD_CHKIDX(fmask, ix) ((fmask) & (ix))
-
-#define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);
-#define TAG_FIELD_DEFAULT_SEP ','
 
 RSValueType fieldTypeToValueType(FieldType ft);
 

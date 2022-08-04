@@ -42,6 +42,8 @@ struct DocumentField : Object {
   const char *name;  // Can either be char or RMString
   RedisModuleString *text;
   FieldType indexAs;
+
+  bool CheckIdx(FieldType t) { return (indexAs) & (t); }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -71,7 +73,6 @@ struct Document : Object {
 
   void SetPayload(const void *payload, size_t n);
   void MakeStringsOwner();
-  void MakeRefOwner(); //@@ looks like nobody is using this func
   void Clear();
   void Dump() const; //@@ looks like nobody is using this func
 
@@ -95,6 +96,8 @@ struct Document : Object {
  *
  * This only applies to _values_; not keys. Used internally by the C API
  */
+
+// TODO remove uncovered and clean DOCUMENT_F_OWNREFS from all code
 #define DOCUMENT_F_OWNREFS 0x01
 
 /**
@@ -185,13 +188,13 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
 
   std::shared_ptr<DocumentIndexer> indexer;
 
-  // Sorting vector for the document. 
+  // Sorting vector for the document.
   // If the document has sortable fields, they are added to here as well.
   RSSortingVector *sv;
 
-  // Byte offsets for highlighting. 
+  // Byte offsets for highlighting.
   // If term offsets are stored, this contains the field byte offset for each term.
-  RSByteOffsets *byteOffsets;
+  RSByteOffsets byteOffsets;
   ByteOffsetWriter offsetsWriter;
 
   // Information about each field in the document. This is read from the spec
@@ -218,7 +221,7 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   virtual ~AddDocumentCtx();
 
   bool handlePartialUpdate(RedisSearchCtx *sctx); // can be private
-  int makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryError *status);
+  bool makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryError *status);
   void doAssignIds(RedisSearchCtx *ctx);
 
   void Submit(RedisSearchCtx *sctx, uint32_t options);
@@ -226,13 +229,14 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   void Finish();
   int AddToIndexes();
 
+  bool IsValid(size_t i) { return fspecs[i].name != NULL; }
   bool IsBlockable() const { return !(stateFlags & ACTX_F_NOBLOCK); }
   bool IsIndexed() const;
 
   void UpdateNoIndex(RedisSearchCtx *sctx);
   bool ReplaceMerge(RedisSearchCtx *sctx);
 
-  int SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCount);
+  bool SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCount);
 };
 
 // Don't create document if it does not exist. Replace only

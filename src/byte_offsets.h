@@ -26,6 +26,8 @@ struct RSByteOffsets {
   // List of field-id <-> position mapping
   Vector<RSByteOffsetField> fields;
 
+  RSByteOffsets() {}
+  RSByteOffsets(size_t numFields);
   RSByteOffsets(const Buffer &buf);
   ~RSByteOffsets();
 
