@@ -16,6 +16,8 @@ metadata:
 setups:
   - oss-standalone
   - oss-cluster-03-primaries
+  - rlec-01-primaries
+  - rlec-03-primaries
 dbconfig:
   - init_commands:
       - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'

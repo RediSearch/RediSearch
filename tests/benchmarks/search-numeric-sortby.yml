@@ -8,6 +8,8 @@ metadata:
 setups:
   - oss-standalone
   - oss-cluster-03-primaries
+  - rlec-01-primaries
+  - rlec-03-primaries
 dbconfig:
   - tool: ftsb_redisearch
   - parameters:

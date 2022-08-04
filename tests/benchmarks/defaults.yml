@@ -131,3 +131,17 @@ spec:
       requests:
         cpus: "30"
         memory: "300g"
+
+  - name: rlec-01-primaries
+    type: rlec
+    redis_topology:
+      primaries: 1
+      replicas: 0
+      placement: "dense"
+
+  - name: rlec-03-primaries
+    type: rlec
+    redis_topology:
+      primaries: 3
+      replicas: 0
+      placement: "dense"
