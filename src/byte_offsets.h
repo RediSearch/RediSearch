@@ -24,11 +24,10 @@ struct RSByteOffsets {
   // By-Byte offsets
   RSOffsetVector offsets;
   // List of field-id <-> position mapping
-  RSByteOffsetField *fields;
-  // How many fields
-  uint8_t numFields;
+  Vector<RSByteOffsetField> fields;
 
-  RSByteOffsets();
+  RSByteOffsets() {}
+  RSByteOffsets(size_t numFields);
   RSByteOffsets(const Buffer &buf);
   ~RSByteOffsets();
 
@@ -40,7 +39,7 @@ struct RSByteOffsets {
   // The start position is the position of the first token in this field.
   // The field info is returned, and the last position should be written to it
   // when done.
-  RSByteOffsetField *AddField(uint32_t fieldId, uint32_t startPos);
+  void AddField(uint32_t fieldId, uint32_t startPos, uint32_t lastTok);
 
   void Serialize(Buffer *b) const;
 };

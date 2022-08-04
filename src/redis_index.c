@@ -534,7 +534,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
   int dist = 0;
   size_t termLen;
 
-  TrieIterator it = ctx->spec->terms->Iterate("", 0, 0, 1);
+  TrieIterator it = ctx->spec->terms->Iterate("", 0, 1);
   while (it.Next(&rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModuleString *keyName = ctx->TermKeyName(res, strlen(res));
