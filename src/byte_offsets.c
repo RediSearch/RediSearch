@@ -4,31 +4,25 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-RSByteOffsets::RSByteOffsets() {
-  fields = NULL;
-  numFields = 0;
-}
-
-//---------------------------------------------------------------------------------------------
-
 RSByteOffsets::~RSByteOffsets() {
   rm_free(offsets.data);
-  if (fields) rm_free(fields);
 }
 
 //---------------------------------------------------------------------------------------------
 
 void RSByteOffsets::ReserveFields(size_t numFields) {
-  fields = rm_realloc(fields, sizeof(*fields) * numFields);
+  fields.clear();
+  fields.reserve(numFields);
 }
 
 //---------------------------------------------------------------------------------------------
 
-RSByteOffsetField *RSByteOffsets::AddField(uint32_t fieldId, uint32_t startPos) {
-  RSByteOffsetField *field = &(fields[numFields++]);
-  field->fieldId = fieldId;
-  field->firstTokPos = startPos;
-  return field;
+void RSByteOffsets::AddField(uint32_t fieldId, uint32_t startPos, uint32_t lastTok) {
+  RSByteOffsetField field;
+  field.fieldId = fieldId;
+  field.firstTokPos = startPos;
+  field.lastTokPos = lastTok;
+  fields.push_back(field);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -44,12 +38,12 @@ void ByteOffsetWriter::Move(RSByteOffsets *offsets) {
 void RSByteOffsets::Serialize(Buffer *b) const {
   BufferWriter w(b);
 
-  w.WriteU8(numFields);
+  w.WriteU8(fields.size());
 
-  for (size_t i = 0; i < numFields; ++i) {
-    w.WriteU8(fields[i].fieldId);
-    w.WriteU32(fields[i].firstTokPos);
-    w.WriteU32(fields[i].lastTokPos);
+  for (auto field : fields) {
+    w.WriteU8(field.fieldId);
+    w.WriteU32(field.firstTokPos);
+    w.WriteU32(field.lastTokPos);
   }
 
   w.WriteU32(offsets.len);
@@ -62,14 +56,13 @@ RSByteOffsets::RSByteOffsets(const Buffer &buf) {
   BufferReader r(&buf);
 
   uint8_t numFields = r.ReadU8();
-  ReserveFields(numFields);
+  fields.reserve(numFields);
 
   for (size_t i = 0; i < numFields; ++i) {
     uint8_t fieldId = r.ReadU8();
     uint32_t firstTok = r.ReadU32();
     uint32_t lastTok = r.ReadU32();
-    RSByteOffsetField *fieldInfo = AddField(fieldId, firstTok);
-    fieldInfo->lastTokPos = lastTok;
+    AddField(fieldId, firstTok, lastTok);
   }
 
   uint32_t offsetsLen = r.ReadU32();
@@ -90,7 +83,7 @@ RSByteOffsetIterator::RSByteOffsetIterator(const RSByteOffsets &offsets, uint32_
   valid = false;
 
   const RSByteOffsetField *offField = NULL;
-  for (size_t i = 0; i < offsets.numFields; ++i) {
+  for (size_t i = 0; i < offsets.fields.size(); ++i) {
     if (offsets.fields[i].fieldId == fieldId) {
       offField = &offsets.fields[i];
       break;
@@ -99,9 +92,6 @@ RSByteOffsetIterator::RSByteOffsetIterator(const RSByteOffsets &offsets, uint32_
   if (!offField) {
     return;
   }
-
-  // printf("Generating iterator for fieldId=%lu. BeginPos=%lu. EndPos=%lu\n", fieldId,
-  //        offField->firstTokPos, offField->lastTokPos);
 
   buf.cap = 0;
   buf.data = offsets.offsets.data;
@@ -112,12 +102,10 @@ RSByteOffsetIterator::RSByteOffsetIterator(const RSByteOffsets &offsets, uint32_
 
   lastValue = 0;
   while (curPos < offField->firstTokPos && !rdr.AtEnd()) {
-    // printf("Seeking & incrementing\n");
     lastValue += ReadVarint(rdr);
     curPos++;
   }
 
-  // printf("Iterator is now at %lu\n", iter->curPos);
   curPos--;
   valid = true;;
 }
