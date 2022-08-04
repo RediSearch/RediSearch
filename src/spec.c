@@ -26,7 +26,6 @@
 #include "commands.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
-#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000.0)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -2568,7 +2567,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   Document_Free(&doc);
 
   clock_t totalDocTime = clock() - startDocTime;
-  spec->stats.totalIndexTime += totalDocTime / CLOCKS_PER_MILLISEC;
+  spec->stats.totalIndexTime += totalDocTime;
 
   return REDISMODULE_OK;
 }
