@@ -47,7 +47,7 @@ int Extensions::RegisterScoringFunction(const char *alias, RSScoringFunction fun
   ctx->ff = ff;
   ctx->sf = func;
 
-  /* Make sure that two scorers are never registered under the same name */
+  // Make sure that two scorers are never registered under the same name
   if (scorers_g->Find((char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
     rm_free(ctx);
     return REDISEARCH_ERR;

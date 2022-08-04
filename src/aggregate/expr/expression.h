@@ -38,11 +38,11 @@ struct RSExpr : Object {
 
   virtual void Print() const;
 
-  virtual int Eval(ExprEval &eval, RSValue *res); //@@ was evalInternal
+  virtual int Eval(ExprEval &eval, RSValue *res);
   virtual int GetLookupKeys(RLookup *lookup, QueryError *err);
 
-  static RSExpr *ParseAST(const char *e, size_t n, QueryError *status); //@@ was ExprAST_Parse
-  static RSExpr *Parse(const char *expr, size_t len, char **err); //@@ was RSExpr_Parse
+  static RSExpr *ParseAST(const char *e, size_t n, QueryError *status);
+  static RSExpr *Parse(const char *expr, size_t len, char **err);
 };
 
 //---------------------------------------------------------------------------------------------
