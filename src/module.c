@@ -315,9 +315,8 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // ID does not exist.
   }
 
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    FieldSpec *fs = sp->fields + i;
-    if (!fs->IsFieldType(INDEXFLD_T_GEO)) {
+  for (auto fs : sp->fields) {
+    if (!fs.IsFieldType(INDEXFLD_T_GEO)) {
       continue;
     }
     GeoIndex gi(&sctx, fs);

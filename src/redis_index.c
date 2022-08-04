@@ -528,30 +528,29 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
       });
   }
 
-  rune *rstr = NULL;
-  t_len slen = 0;
+  Runes runes;
   float score = 0;
   int dist = 0;
   size_t termLen;
+  RSPayload payload;
 
   TrieIterator it = ctx->spec->terms->Iterate("", 0, 1);
-  while (it.Next(&rstr, &slen, NULL, &score, &dist)) {
-    char *res = runesToStr(rstr, slen, &termLen);
+  while (it.Next(runes, payload, score, &dist)) {
+    char *res = runes.toUTF8(&termLen);
     RedisModuleString *keyName = ctx->TermKeyName(res, strlen(res));
     Redis_DropScanHandler(redisCtx, keyName, ctx);
     RedisModule_FreeString(redisCtx, keyName);
   }
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
-  for (size_t i = 0; i < ctx->spec->numFields; i++) {
-    const FieldSpec *fs = ctx->spec->fields + i;
-    if (fs->IsFieldType(INDEXFLD_T_NUMERIC)) {
+  for (auto fs : ctx->spec->fields) {
+    if (fs.IsFieldType(INDEXFLD_T_NUMERIC)) {
       Redis_DeleteKey(redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_NUMERIC));
     }
-    if (fs->IsFieldType(INDEXFLD_T_TAG)) {
+    if (fs.IsFieldType(INDEXFLD_T_TAG)) {
       Redis_DeleteKey(redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_TAG));
     }
-    if (fs->IsFieldType(INDEXFLD_T_GEO)) {
+    if (fs.IsFieldType(INDEXFLD_T_GEO)) {
       Redis_DeleteKey(redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_GEO));
     }
   }
@@ -559,8 +558,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
   // Delete the index spec
   bool deleted = true;
   if (deleteSpecKey) {
-    deleted = Redis_DeleteKey(redisCtx,
-        RedisModule_CreateStringPrintf(redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
+    deleted = Redis_DeleteKey(redisCtx, RedisModule_CreateStringPrintf(redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
   }
   return deleted ? REDISMODULE_OK : REDISMODULE_ERR;
 }

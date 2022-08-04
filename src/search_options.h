@@ -73,19 +73,19 @@ struct FieldList {
   ReturnedField defaultField;
 
   // List of individual field specifications
-  ReturnedField *fields;
-  size_t numFields;
+  Vector<ReturnedField> fields;
 
   // Whether this list contains fields explicitly selected by `RETURN`
   uint16_t explicitReturn;
 
-  FieldList() : fields(NULL), numFields(0), explicitReturn(0) {}
-  ~FieldList();
+  FieldList() : explicitReturn(0) {}
 
-  ReturnedField *GetCreateField(const char *name);
+  ReturnedField GetCreateField(const char *name);
+
+  size_t NumFields() { return fields.size(); }
 
   int parseArgs(ArgsCursor *ac, bool isHighlight);
-  int parseFieldList(ArgsCursor *ac, Vector<size_t> fieldPtrs);
+  bool parseFieldList(ArgsCursor *ac, Vector<size_t> fieldPtrs);
   void ParseSummarize(ArgsCursor *ac);
   void ParseHighlight(ArgsCursor *ac);
 

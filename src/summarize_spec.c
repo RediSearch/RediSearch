@@ -12,20 +12,21 @@
  * SUMMARISE [FIELDS {num} {field} …] [LEN {len}] [FRAGS {num}]
  */
 
-int FieldList::parseFieldList(ArgsCursor *ac, Vector<size_t> fieldPtrs) {
+bool FieldList::parseFieldList(ArgsCursor *ac, Vector<size_t> fieldPtrs) {
   ArgsCursor fieldArgs;
   if (ac->GetVarArgs(&fieldArgs) != AC_OK) {
-    return -1;
+    return false;
   }
 
   while (!fieldArgs.IsAtEnd()) {
     const char *name = fieldArgs.GetStringNC(NULL);
-    ReturnedField *fieldInfo = GetCreateField(name);
-    size_t ix = fieldInfo - fields;
-    fieldPtrs.push_back(ix);
+    ReturnedField *fieldInfo = &GetCreateField(name);
+    // size_t ix = fieldInfo - fields;
+    // fieldPtrs.push_back(ix);
+    fieldPtrs.push_back(fieldInfo);
   }
 
-  return 0;
+  return true;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -75,7 +76,7 @@ int FieldList::parseArgs(ArgsCursor *ac, bool isHighlight) {
   Vector<size_t> fieldPtrs;
 
   if (ac->AdvanceIfMatch("FIELDS")) {
-    if (parseFieldList(ac, fieldPtrs) != 0) {
+    if (!parseFieldList(ac, fieldPtrs)) {
       rc = REDISMODULE_ERR;
       goto done;
     }

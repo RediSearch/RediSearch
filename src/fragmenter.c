@@ -371,15 +371,14 @@ bool FragmentList::fragmentizeOffsets(IndexSpec *spec, const char *fieldName, co
     return false;
   }
 
-  RSOffsetIterator offsIter = indexResult->IterateOffsets();
-  FragmentTermIterator fragIter;
+  std::unique_ptr<RSOffsetIterator> offsIter = indexResult->IterateOffsets();
   RSByteOffsetIterator bytesIter(*byteOffsets, fs->ftId);
   if (!bytesIter.valid) {
     return false;
   }
 
-  fragIter.InitOffsets(&bytesIter, &offsIter);
-  FragmentizeIter(fieldText, fieldLen, &fragIter, options);
+  FragmentTermIterator fragIter(bytesIter, *offsIter);
+  FragmentizeIter(fieldText, fieldLen, fragIter, options);
   if (numFrags == 0) {
     return false;
   }
@@ -472,14 +471,14 @@ FragmentList::~FragmentList() {
 //    noting the terms for each.
 
 void FragmentList::FragmentizeIter(const char *doc_, size_t docLen,
-                                   FragmentTermIterator *iter, int options) {
+                                   FragmentTermIterator &iter, int options) {
   docLen = docLen;
   doc = doc_;
-  FragmentTerm *curTerm;
   size_t lastTokPos = -1;
   size_t lastByteEnd = 0;
 
-  while (iter->Next(&curTerm)) {
+  FragmentTerm *curTerm;
+  while (iter.Next(&curTerm)) {
     if (curTerm == NULL) {
       numToksSinceLastMatch++;
       continue;
@@ -513,28 +512,26 @@ void FragmentList::FragmentizeIter(const char *doc_, size_t docLen,
 
 //---------------------------------------------------------------------------------------------
 
-void FragmentTermIterator::InitOffsets(RSByteOffsetIterator *byteOffsets, RSOffsetIterator *offIter) {
-  offsetIter = offIter;
-  byteIter = byteOffsets;
-  curByteOffset = byteIter->Next();
+FragmentTermIterator::FragmentTermIterator(RSByteOffsetIterator &byteOffsets, RSOffsetIterator &offIter) :
+    byteIter(byteOffsets), offsetIter(offIter) {
+  curByteOffset = byteIter.Next();
 
   // Advance the offset iterator to the first offset we care about (i.e. that
   // correlates with the first byte offset)
   do {
-    curTokPos = offsetIter->Next(&curMatchRec);
-  } while (byteIter->curPos > curTokPos);
+    curTokPos = offsetIter.Next(&curMatchRec);
+  } while (byteIter.curPos > curTokPos);
 }
 
 //---------------------------------------------------------------------------------------------
 
 int FragmentTermIterator::Next(FragmentTerm **termInfo) {
-  if (curMatchRec == NULL || curByteOffset == RSBYTEOFFSET_EOF ||
-      curTokPos == RS_OFFSETVECTOR_EOF) {
+  if (curMatchRec == NULL || curByteOffset == RSBYTEOFFSET_EOF || curTokPos == RS_OFFSETVECTOR_EOF) {
     return 0;
   }
 
-  if (byteIter->curPos < curTokPos) {
-    curByteOffset = byteIter->Next();
+  if (byteIter.curPos < curTokPos) {
+    curByteOffset = byteIter.Next();
     // No matching term at this position.
     // printf("IterPos=%lu. LastMatchPos=%u\n", byteIter->curPos, curTokPos);
     *termInfo = NULL;
@@ -546,16 +543,16 @@ int FragmentTermIterator::Next(FragmentTerm **termInfo) {
   RSQueryTerm *term = curMatchRec;
 
   // printf("Term Pointer: %p\n", term);
-  tmpTerm.score = term->idf;
-  tmpTerm.termId = term->id;
-  tmpTerm.len = term->len;
-  tmpTerm.tokPos = curTokPos;
-  tmpTerm.bytePos = curByteOffset;
-  *termInfo = &tmpTerm;
+  aTerm.score = term->idf;
+  aTerm.termId = term->id;
+  aTerm.len = term->len;
+  aTerm.tokPos = curTokPos;
+  aTerm.bytePos = curByteOffset;
+  *termInfo = &aTerm;
 
-  uint32_t nextPos = offsetIter->Next(&curMatchRec);
+  uint32_t nextPos = offsetIter.Next(&curMatchRec);
   if (nextPos != curTokPos) {
-    curByteOffset = byteIter->Next();
+    curByteOffset = byteIter.Next();
   }
   curTokPos = nextPos;
   return 1;

@@ -31,9 +31,9 @@
 #include <strings.h>
 #include <assert.h>
 #include "parse.h"
-#include "../util/arr.h"
-#include "../rmutil/vector.h"
-#include "../query_node.h"
+#include "util/arr.h"
+#include "rmutil/vector.h"
+#include "query_node.h"
 
 // strndup + lowercase in one pass!
 char *strdupcase(const char *s, size_t len) {
@@ -1234,7 +1234,7 @@ static YYACTIONTYPE yy_reduce(
         // Handle yymsp[0].minor.yy35
         yylhsminor.yy35->AddChild(yymsp[0].minor.yy35);
         yylhsminor.yy35->opts.fieldMask |= yymsp[0].minor.yy35->opts.fieldMask;
-        QueryNode_SetFieldMask(yylhsminor.yy35, yylhsminor.yy35->opts.fieldMask);
+        yylhsminor.yy35->SetFieldMask(yylhsminor.yy35->opts.fieldMask);
     }
 
 }
@@ -1246,7 +1246,7 @@ static YYACTIONTYPE yy_reduce(
     if (yymsp[0].minor.yy35) {
         yylhsminor.yy35->AddChild(yymsp[0].minor.yy35);
         yylhsminor.yy35->opts.fieldMask |= yymsp[0].minor.yy35->opts.fieldMask;
-        QueryNode_SetFieldMask(yymsp[0].minor.yy35, yylhsminor.yy35->opts.fieldMask);
+        yymsp[0].minor.yy35->SetFieldMask(yylhsminor.yy35->opts.fieldMask);
     }
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
@@ -1257,7 +1257,7 @@ static YYACTIONTYPE yy_reduce(
         yylhsminor.yy35 = NULL;
     } else {
         if (ctx->sctx->spec) {
-            QueryNode_SetFieldMask(yymsp[0].minor.yy35, ctx->sctx->spec->GetFieldBit(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
+            yymsp[0].minor.yy35->SetFieldMask(ctx->sctx->spec->GetFieldBit(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
         }
         yylhsminor.yy35 = yymsp[0].minor.yy35;
     }
@@ -1280,7 +1280,7 @@ static YYACTIONTYPE yy_reduce(
                 rm_free(p);
             }
         }
-        QueryNode_SetFieldMask(yymsp[0].minor.yy35, mask);
+        yymsp[0].minor.yy35->SetFieldMask(mask);
         delete yymsp[-2].minor.yy78;
         yylhsminor.yy35=yymsp[0].minor.yy35;
     }

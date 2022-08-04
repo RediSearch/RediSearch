@@ -128,7 +128,7 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCo
 
   if ((options & DOCUMENT_ADD_NOSAVE) == 0 && numTextIndexable &&
       (sp->flags & Index_StoreByteOffsets)) {
-    byteOffsets = *new RSByteOffsets(numTextIndexable);
+    byteOffsets = new RSByteOffsets(numTextIndexable);
     offsetsWriter = *new ByteOffsetWriter();
   }
 
@@ -376,7 +376,9 @@ bool FieldSpec::FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField *
     }
 
     uint32_t lastTokPos = aCtx->tokenizer->lastOffset;
-    aCtx->byteOffsets.AddField(ftId, aCtx->totalTokens + 1, lastTokPos);
+    if (aCtx->byteOffsets != NULL) {
+      aCtx->byteOffsets->AddField(ftId, aCtx->totalTokens + 1, lastTokPos);
+    }
     aCtx->totalTokens = lastTokPos;
   }
 
@@ -406,7 +408,7 @@ bool IndexBulkData::numericIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
     QueryError *status) {
   NumericRangeTree *rt = indexDatas[INDEXTYPE_TO_POS(INDEXFLD_T_NUMERIC)];
   if (!rt) {
-    RedisModuleString *keyName = ctx->spec->GetFormattedKey(fs, INDEXFLD_T_NUMERIC);
+    RedisModuleString *keyName = ctx->spec->GetFormattedKey(*fs, INDEXFLD_T_NUMERIC);
     rt = indexDatas[IXFLDPOS_NUMERIC] =
         OpenNumericIndex(ctx, keyName, &indexKeys[IXFLDPOS_NUMERIC]);
     if (!rt) {
@@ -442,7 +444,7 @@ bool FieldSpec::GeoPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field
 bool IndexBulkData::geoIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
     const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
     QueryError *status) {
-  GeoIndex gi(ctx, fs);
+  GeoIndex gi(ctx, *fs);
   int rv = gi.AddStrings(aCtx->doc.docId, fdata->geoSlon, fdata->geoSlat);
 
   if (rv == REDISMODULE_ERR) {
@@ -475,7 +477,7 @@ bool IndexBulkData::tagIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
     QueryError *status) {
   TagIndex *tidx = indexDatas[IXFLDPOS_TAG];
   if (!tidx) {
-    RedisModuleString *kname = ctx->spec->GetFormattedKey(fs, INDEXFLD_T_TAG);
+    RedisModuleString *kname = ctx->spec->GetFormattedKey(*fs, INDEXFLD_T_TAG);
     tidx = indexDatas[IXFLDPOS_TAG] = TagIndex::Open(ctx, kname, 1, &indexKeys[IXFLDPOS_TAG]);
     if (!tidx) {
       status->SetError(QUERY_EGENERIC, "Could not open tag index for indexing");

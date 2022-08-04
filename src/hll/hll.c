@@ -34,7 +34,7 @@ bool HLL::ctor(uint8_t bits) {
   return true;
 }
 
-HLL::~HLL {
+HLL::~HLL() {
   rm_free(registers);
   registers = NULL;
 }
@@ -127,7 +127,7 @@ bool HLL::load(const void *registers_, size_t size) {
     return false;
   }
 
-  if (!ctor(hll, bits)) return false;
+  if (!ctor(bits)) return false;
 
   memcpy(registers, registers_, size);
 

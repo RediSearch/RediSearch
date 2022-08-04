@@ -155,8 +155,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
 
-#define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
-
 struct DocumentIndexer;
 
 typedef uint64_t IndexSpecId;
@@ -195,8 +193,7 @@ struct IndexSpec : Object {
   typedef IndexSpecId Id;
 
   char *name;
-  FieldSpec *fields;
-  int numFields;
+  Vector<FieldSpec> fields;
 
   IndexStats stats;
   IndexFlags flags;
@@ -258,7 +255,7 @@ struct IndexSpec : Object {
   IndexSpecCache *GetSpecCache() const;
   IndexSpecCache *BuildSpecCache() const;
 
-  FieldSpec *CreateField(const char *name);
+  FieldSpec CreateField(const char *name);
 
   const FieldSpec *GetField(const char *name, size_t len) const;
   const FieldSpec *GetFieldCase(const char *name, size_t n) const;
@@ -272,7 +269,7 @@ struct IndexSpec : Object {
   void StartGC(RedisModuleCtx *ctx, float initialHZ);
 
   const FieldSpec *getFieldCommon(const char *name, size_t len, int useCase) const;
-  FieldSpec **getFieldsByType(FieldType type);
+  Vector<FieldSpec> getFieldsByType(FieldType type);
 
   bool CheckPhoneticEnabled(t_fieldMask fm) const;
 
@@ -295,10 +292,8 @@ struct IndexSpec : Object {
   void addAlias(const char *alias);
   void delAlias(ssize_t idx);
 
-  RedisModuleString *GetFormattedKey(const FieldSpec *fs, FieldType forType);
+  RedisModuleString *GetFormattedKey(const FieldSpec &fs, FieldType forType);
   RedisModuleString *GetFormattedKeyByName(const char *s, FieldType forType);
-
-  t_fieldMask ParseFieldMask(RedisModuleString **argv, int argc); //@@ nobody is using it
 
   void writeIndexEntry(struct InvertedIndex *idx, const struct ForwardIndexEntry &entry);
 };
@@ -327,8 +322,7 @@ extern RedisModuleType *IndexAliasType;
  */
 
 struct IndexSpecCache {
-  FieldSpec *fields;
-  size_t nfields;
+  Vector<FieldSpec> fields;
   size_t refcount;
 
   void Decref();
@@ -358,10 +352,6 @@ int isRdbLoading(RedisModuleCtx *ctx);
 
 // Global hook called when an index spec is created
 extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);
-
-// int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs); //@@ no one is using this
-
-// void IndexSpec_Free(void *value);
 
 //---------------------------------------------------------------------------------------------
 

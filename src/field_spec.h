@@ -105,6 +105,8 @@ struct FieldSpec {
   bool IsPhonetics() const { return options & FieldSpec_Phonetics; }
   bool IsIndexable() const { return 0 == (options & FieldSpec_NotIndexable); }
 
+  t_fieldMask FieldBit() { return ((t_fieldMask)1) << ftId; }
+
   bool IsFieldType(FieldType t) { return types & t; }
 
   bool FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,

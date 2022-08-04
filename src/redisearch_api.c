@@ -64,7 +64,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
   RWLOCK_ACQUIRE_WRITE();
 
-  FieldSpec* fs = sp->CreateField(name);
+  FieldSpec fs = sp->CreateField(name);
   int numTypes = 0;
 
   if (types & RSFLDTYPE_FULLTEXT) {
@@ -74,50 +74,50 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
       RWLOCK_RELEASE();
       return RSFIELD_INVALID;
     }
-    fs->ftId = txtId;
-    fs->Initialize(INDEXFLD_T_FULLTEXT);
+    fs.ftId = txtId;
+    fs.Initialize(INDEXFLD_T_FULLTEXT);
   }
 
   if (types & RSFLDTYPE_NUMERIC) {
     numTypes++;
-    fs->Initialize(INDEXFLD_T_NUMERIC);
+    fs.Initialize(INDEXFLD_T_NUMERIC);
   }
   if (types & RSFLDTYPE_GEO) {
-    fs->Initialize(INDEXFLD_T_GEO);
+    fs.Initialize(INDEXFLD_T_GEO);
     numTypes++;
   }
   if (types & RSFLDTYPE_TAG) {
-    fs->Initialize(INDEXFLD_T_TAG);
+    fs.Initialize(INDEXFLD_T_TAG);
     numTypes++;
   }
 
   if (numTypes > 1) {
-    fs->options |= FieldSpec_Dynamic;
+    fs.options |= FieldSpec_Dynamic;
   }
 
   if (options & RSFLDOPT_NOINDEX) {
-    fs->options |= FieldSpec_NotIndexable;
+    fs.options |= FieldSpec_NotIndexable;
   }
   if (options & RSFLDOPT_SORTABLE) {
-    fs->options |= FieldSpec_Sortable;
-    fs->sortIdx = sp->sortables->Add(fs->name, fieldTypeToValueType(fs->types));
+    fs.options |= FieldSpec_Sortable;
+    fs.sortIdx = sp->sortables->Add(fs.name, fieldTypeToValueType(fs.types));
   }
   if (options & RSFLDOPT_TXTNOSTEM) {
-    fs->options |= FieldSpec_NoStemming;
+    fs.options |= FieldSpec_NoStemming;
   }
   if (options & RSFLDOPT_TXTPHONETIC) {
-    fs->options |= FieldSpec_Phonetics;
+    fs.options |= FieldSpec_Phonetics;
     sp->flags |= Index_HasPhonetic;
   }
 
   RWLOCK_RELEASE();
-  return fs->index;
+  return fs.index;
 }
 
 //---------------------------------------------------------------------------------------------
 
 void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
-  FieldSpec* fs = sp->fields + id;
+  FieldSpec* fs = &sp->fields[id];
   RS_LOG_ASSERT(fs->IsFieldType(INDEXFLD_T_FULLTEXT), "types should be INDEXFLD_T_FULLTEXT");
   fs->ftWeight = w;
 }
@@ -125,7 +125,7 @@ void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
 //---------------------------------------------------------------------------------------------
 
 void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
-  FieldSpec* fs = sp->fields + id;
+  FieldSpec* fs = &sp->fields[id];
   RS_LOG_ASSERT(fs->IsFieldType(INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   fs->tagSep = sep;
 }
@@ -133,7 +133,7 @@ void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
 //---------------------------------------------------------------------------------------------
 
 void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable) {
-  FieldSpec* fs = sp->fields + id;
+  FieldSpec* fs = &sp->fields[id];
   RS_LOG_ASSERT(fs->IsFieldType(INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   if (enable) {
     fs->tagFlags |= TagField_CaseSensitive;

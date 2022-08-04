@@ -20,7 +20,6 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
-const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
 static uint64_t spec_unique_ids = 1;
@@ -28,18 +27,18 @@ static uint64_t spec_unique_ids = 1;
 //---------------------------------------------------------------------------------------------
 
 const FieldSpec *IndexSpec::getFieldCommon(const char *name, size_t len, int useCase) const {
-  for (size_t i = 0; i < numFields; i++) {
+  for (size_t i = 0; i < fields.size(); i++) {
     if (len != strlen(fields[i].name)) {
       continue;
     }
-    const FieldSpec *fs = fields + i;
+    const FieldSpec fs = fields[i];
     if (useCase) {
-      if (!strncmp(fs->name, name, len)) {
-        return fs;
+      if (!strncmp(fs.name, name, len)) {
+        return &fs;
       }
     } else {
-      if (!strncasecmp(fs->name, name, len)) {
-        return fs;
+      if (!strncasecmp(fs.name, name, len)) {
+        return &fs;
       }
     }
   }
@@ -72,7 +71,7 @@ t_fieldMask IndexSpec::GetFieldBit(const char *name, size_t len) {
   const FieldSpec *sp = GetField(name, len);
   if (!sp || !sp->IsFieldType(INDEXFLD_T_FULLTEXT) || !sp->IsIndexable()) return 0;
 
-  return FIELD_BIT(sp);
+  return sp->FieldBit();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -90,10 +89,10 @@ bool IndexSpec::CheckPhoneticEnabled(t_fieldMask fm) const {
     return true;
   }
 
-  for (size_t ii = 0; ii < numFields; ++ii) {
+  for (size_t ii = 0; ii < fields.size(); ++ii) {
     if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec *fs = fields + ii;
-      if (fs->IsFieldType(INDEXFLD_T_FULLTEXT) && (fs->IsPhonetics())) {
+      const FieldSpec fs = fields[ii];
+      if (fs.IsFieldType(INDEXFLD_T_FULLTEXT) && (fs.IsPhonetics())) {
         return true;
       }
     }
@@ -116,9 +115,9 @@ int IndexSpec::GetFieldSortingIndex(const char *name, size_t len) {
 // Get the field spec from the sortable index
 
 const FieldSpec *IndexSpec::GetFieldBySortingIndex(uint16_t idx) const {
-  for (size_t ii = 0; ii < numFields; ++ii) {
-    if (fields[ii].options & FieldSpec_Sortable && fields[ii].sortIdx == idx) {
-      return fields + ii;
+  for (auto field : fields) {
+    if (field.options & FieldSpec_Sortable && field.sortIdx == idx) {
+      return &field;
     }
   }
   return NULL;
@@ -127,10 +126,10 @@ const FieldSpec *IndexSpec::GetFieldBySortingIndex(uint16_t idx) const {
 //---------------------------------------------------------------------------------------------
 
 const char *IndexSpec::GetFieldNameByBit(t_fieldMask id) const {
-  for (int i = 0; i < numFields; i++) {
-    if (FIELD_BIT(&fields[i]) == id && fields[i].IsFieldType(INDEXFLD_T_FULLTEXT) &&
-        fields[i].IsIndexable()) {
-      return fields[i].name;
+  for (auto field : fields) {
+    if (field.FieldBit() == id && field.IsFieldType(INDEXFLD_T_FULLTEXT) &&
+        field.IsIndexable()) {
+      return field.name;
     }
   }
   return NULL;
@@ -160,20 +159,20 @@ void IndexSpec::ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
 
 //---------------------------------------------------------------------------------------------
 
-FieldSpec **IndexSpec::getFieldsByType(FieldType type) {
-#define FIELDS_ARRAY_CAP 2
-  FieldSpec **fields_ = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
-  for (int i = 0; i < numFields; ++i) {
-    if ((fields + i)->IsFieldType(type)) {
-      fields_ = array_append(fields_, &fields[i]);
+Vector<FieldSpec> IndexSpec::getFieldsByType(FieldType type) {
+  Vector<FieldSpec> res;
+  for (int i = 0; i < fields.size(); ++i) {
+    if (fields[i].IsFieldType(type)) {
+      res.push_back(fields[i]);
     }
   }
-  return fields_;
+  return res;
 }
 
 //---------------------------------------------------------------------------------------------
 
-/* Check if Redis is currently loading from RDB. Our thread starts before RDB loading is finished */
+// Check if Redis is currently loading from RDB. Our thread starts before RDB loading is finished
+
 int isRdbLoading(RedisModuleCtx *ctx) {
   long long isLoading = 0;
   RMUtilInfo *info = RMUtil_GetRedisInfo(ctx);
@@ -380,37 +379,35 @@ error:
 
 int IndexSpec::CreateTextId() const {
   int maxId = -1;
-  for (size_t ii = 0; ii < numFields; ++ii) {
-    const FieldSpec *fs = fields + ii;
-    if (fs->IsFieldType(INDEXFLD_T_FULLTEXT)) {
-      if (fs->ftId == (t_fieldId)-1) {
+  for (size_t ii = 0; ii < fields.size(); ++ii) {
+    const FieldSpec fs = fields[ii];
+    if (fs.IsFieldType(INDEXFLD_T_FULLTEXT)) {
+      if (fs.ftId == (t_fieldId)-1) {
         // ignore
         continue;
       }
-      maxId = MAX(fs->ftId, maxId);
+      maxId = MAX(fs.ftId, maxId);
     }
   }
 
   if (maxId + 1 >= SPEC_MAX_FIELD_ID) {
     return -1;
   }
+
   return maxId + 1;
 }
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Add fields to an existing (or newly created) index. If the addition fails,
- */
+// Add fields to an existing (or newly created) index.
 
 bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew) {
   if (spcache) {
     spcache->Decref();
     spcache = NULL;
   }
-  const size_t prevNumFields = numFields;
+
   const size_t prevSortLen = sortables->len;
-  FieldSpec *fs = NULL;
 
   while (!ac->IsAtEnd()) {
     size_t nfieldName = 0;
@@ -420,13 +417,13 @@ bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew)
       goto reset;
     }
 
-    fs = CreateField(fieldName);
+    FieldSpec fs = CreateField(fieldName);
 
-    if (!parseFieldSpec(ac, fs, status)) {
+    if (!parseFieldSpec(ac, &fs, status)) {
       goto reset;
     }
 
-    if (fs->IsFieldType(INDEXFLD_T_FULLTEXT) && fs->IsIndexable()) {
+    if (fs.IsFieldType(INDEXFLD_T_FULLTEXT) && fs.IsIndexable()) {
       int textId = CreateTextId();
       if (textId < 0) {
         status->SetError(QUERY_ELIMIT, "Too many TEXT fields in schema");
@@ -439,47 +436,35 @@ bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew)
         if (isNew) {
           flags |= Index_WideSchema;
         } else if ((flags & Index_WideSchema) == 0) {
-
               status->SetError(QUERY_ELIMIT,
               "Cannot add more fields. Declare index with wide fields to allow adding "
               "unlimited fields");
           goto reset;
         }
       }
-      fs->ftId = textId;
+      fs.ftId = textId;
     }
 
-    if (fs->IsSortable()) {
-      if (fs->options & FieldSpec_Dynamic) {
+    if (fs.IsSortable()) {
+      if (fs.options & FieldSpec_Dynamic) {
         status->SetError(QUERY_EBADOPTION, "Cannot set dynamic field to sortable");
         goto reset;
       }
 
-      fs->sortIdx = sortables->Add(fs->name, fieldTypeToValueType(fs->types));
+      fs.sortIdx = sortables->Add(fs.name, fieldTypeToValueType(fs.types));
     } else {
-      fs->sortIdx = -1;
+      fs.sortIdx = -1;
     }
-    if (fs->IsPhonetics()) {
+    if (fs.IsPhonetics()) {
       flags |= Index_HasPhonetic;
     }
-    fs = NULL;
+
+    fields.push_back(fs);
   }
+
   return true;
 
 reset:
-  // If the current field spec exists, but was not added (i.e. we got an error)
-  // and reached this block, then free it
-  if (fs) {
-    // if we have a field spec it means that we increased the number of fields, so we need to
-    // decreas it.
-    --numFields;
-    fs->Cleanup();
-  }
-  for (size_t i = prevNumFields; i < numFields; ++i) {
-    fields[i].Cleanup();
-  }
-
-  numFields = prevNumFields;
   sortables->len = prevSortLen;
   return false;
 }
@@ -595,13 +580,11 @@ IndexSpecCache *IndexSpec::GetSpecCache() const {
 // Create a new copy of the spec cache from the current index spec
 
 IndexSpecCache *IndexSpec::BuildSpecCache() const {
-  IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
-  ret->nfields = numFields;
-  ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
+  IndexSpecCache *ret;
   ret->refcount = 1;
-  for (size_t ii = 0; ii < numFields; ++ii) {
-    ret->fields[ii] = fields[ii];
-    ret->fields[ii].name = rm_strdup(ret->fields[ii].name);
+  for (size_t i = 0; i < fields.size(); ++i) {
+    ret->fields.push_back(fields[i]);
+    ret->fields[i].name = rm_strdup(ret->fields[i].name);
   }
   return ret;
 }
@@ -615,10 +598,8 @@ void IndexSpecCache::Decref() {
   if (--refcount) {
     return;
   }
-  for (size_t ii = 0; ii < nfields; ++ii) {
-    rm_free(fields[ii].name);
-  }
-  rm_free(fields);
+
+  fields.clear();
   rm_free(this);
 }
 
@@ -677,7 +658,7 @@ char *IndexSpec::GetRandomTerm(size_t sampleSize) {
       rm_free(samples[i]);
     }
   }
-  // printf("Selected %s --> %f\n", samples[selection], weights[selection]);
+
   return samples[selection];
 }
 
@@ -742,7 +723,7 @@ void IndexSpec::FreeInternals() {
   }
 
   if (indexStrs) {
-    for (size_t ii = 0; ii < numFields; ++ii) {
+    for (size_t ii = 0; ii < fields.size(); ++ii) {
       IndexSpecFmtStrings *fmts = indexStrs + ii;
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
         if (fmts->types[jj]) {
@@ -751,12 +732,6 @@ void IndexSpec::FreeInternals() {
       }
     }
     rm_free(indexStrs);
-  }
-  if (fields != NULL) {
-    for (size_t i = 0; i < numFields; i++) {
-      rm_free(fields[i].name);
-    }
-    rm_free(fields);
   }
 
   ClearAliases();
@@ -917,24 +892,24 @@ IndexSpec *IndexSpec::Load(RedisModuleCtx *ctx, const char *name, int openWrite)
 
 // Returns a string suitable for indexes. This saves on string creation/destruction
 
-RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec *fs, FieldType forType) {
+RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec &fs, FieldType forType) {
   if (!indexStrs) {
     indexStrs = rm_calloc(SPEC_MAX_FIELDS, sizeof(*indexStrs));
   }
 
   size_t typeix = INDEXTYPE_TO_POS(forType);
-  RedisModuleString *ret = indexStrs[fs->index].types[typeix];
+  RedisModuleString *ret = indexStrs[fs.index].types[typeix];
   if (!ret) {
     RedisSearchCtx sctx(RSDummyContext, this);
     switch (forType) {
       case INDEXFLD_T_NUMERIC:
-        ret = sctx.NumericIndexKey(fs->name);
+        ret = sctx.NumericIndexKey(fs.name);
         break;
       case INDEXFLD_T_TAG:
-        ret = TagIndex::FormatName(&sctx, fs->name);
+        ret = TagIndex::FormatName(&sctx, fs.name);
         break;
       case INDEXFLD_T_GEO:
-        ret = RedisModule_CreateStringPrintf(RSDummyContext, GEOINDEX_KEY_FMT, name, fs->name);
+        ret = RedisModule_CreateStringPrintf(RSDummyContext, GEOINDEX_KEY_FMT, name, fs.name);
         break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:
@@ -946,7 +921,7 @@ RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec *fs, FieldType for
   if (!ret) {
     return NULL;
   }
-  indexStrs[fs->index].types[typeix] = ret;
+  indexStrs[fs.index].types[typeix] = ret;
   return ret;
 }
 
@@ -957,25 +932,7 @@ RedisModuleString *IndexSpec::GetFormattedKeyByName(const char *s, FieldType for
   if (!fs) {
     return NULL;
   }
-  return GetFormattedKey(fs, forType);
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Parse the field mask passed to a query, map field names to a bit mask passed down to the
-// execution engine, detailing which fields the query works on. See FT.SEARCH for API details
-
-t_fieldMask IndexSpec::ParseFieldMask(RedisModuleString **argv, int argc) {
-  t_fieldMask ret = 0;
-
-  for (int i = 0; i < argc; i++) {
-    size_t len;
-    const char *p = RedisModule_StringPtrLen(argv[i], &len);
-
-    ret |= GetFieldBit(p, len);
-  }
-
-  return ret;
+  return GetFormattedKey(*fs, forType);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1023,7 +980,7 @@ bool IndexSpec::IsStopWord(const char *term, size_t len) {
 //---------------------------------------------------------------------------------------------
 
 void IndexSpec::ctor(const char *name) {
-  fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
+  fields.reserve(SPEC_MAX_FIELDS);
   sortables = new RSSortingTable();
   flags = INDEX_DEFAULT_FLAGS;
   name = rm_strdup(name);
@@ -1039,18 +996,8 @@ void IndexSpec::ctor(const char *name) {
 
 //---------------------------------------------------------------------------------------------
 
-FieldSpec *IndexSpec::CreateField(const char *name) {
-  fields = rm_realloc(fields, sizeof(*fields) * (numFields + 1));
-  FieldSpec *fs = fields + numFields;
-  memset(fs, 0, sizeof(*fs));
-  fs->index = numFields++;
-  fs->name = rm_strdup(name);
-  fs->ftId = (t_fieldId)-1;
-  fs->ftWeight = 1.0;
-  fs->sortIdx = -1;
-  fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  fs->tagFlags = TAG_FIELD_DEFAULT_SEP;
-  return fs;
+FieldSpec IndexSpec::CreateField(const char *name) {
+  return FieldSpec(fields.size(), name);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1235,19 +1182,20 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     sp->flags |= Index_StoreFreqs;
   }
 
-  sp->numFields = RedisModule_LoadUnsigned(rdb);
-  sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
+  uint64_t numsFields = RedisModule_LoadUnsigned(rdb);
+  sp->fields.reserve(numsFields);
   int maxSortIdx = -1;
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = sp->fields + i;
-    FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
-    sp->fields[i].index = i;
+  for (int i = 0; i < numsFields; i++) {
+    FieldSpec *fs;
+    FieldSpec_RdbLoad(rdb, fs, encver);
+    fs->index = i;
     if (fs->IsSortable()) {
       RS_LOG_ASSERT(fs->sortIdx < RS_SORTABLES_MAX, "sorting index is too large");
       sp->sortables->fields[fs->sortIdx].name = fs->name;
       sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->types);
       sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
     }
+    sp->fields.push_back(*fs);
   }
 
   sp->stats.RdbLoad(rdb);
@@ -1311,8 +1259,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name) + 1);
   RedisModule_SaveUnsigned(rdb, (uint)sp->flags);
 
-  RedisModule_SaveUnsigned(rdb, sp->numFields);
-  for (int i = 0; i < sp->numFields; i++) {
+  RedisModule_SaveUnsigned(rdb, sp->fields.size());
+  for (int i = 0; i < sp->fields.size(); i++) {
     FieldSpec_RdbSave(rdb, &sp->fields[i]);
   }
 

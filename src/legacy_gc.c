@@ -174,18 +174,15 @@ void GarbageCollector::FreeNumericGCArray() {
 //---------------------------------------------------------------------------------------------
 
 static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) {
-  FieldSpec **tagFields = NULL;
-  tagFields = spec->getFieldsByType(type);
-  if (array_len(tagFields) == 0) {
-    array_free(tagFields);
+  Vector<FieldSpec> tagFields = spec->getFieldsByType(type);
+  if (tagFields.empty()) {
     return NULL;
   }
 
   // choose random tag field
-  int randomIndex = rand() % array_len(tagFields);
+  int randomIndex = rand() % tagFields.size();
 
   RedisModuleString *ret = spec->GetFormattedKey(tagFields[randomIndex], type);
-  array_free(tagFields);
   return ret;
 }
 
@@ -274,7 +271,7 @@ end:
 size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
   size_t totalRemoved = 0;
   RedisModuleKey *idxKey = NULL;
-  arrayof(FieldSpec*) numericFields = NULL;
+  Vector<FieldSpec> numericFields;
   RedisSearchCtx *sctx = new RedisSearchCtx(ctx, (RedisModuleString *)keyName, false);
   IndexSpec *spec = NULL;
   int randomIndex;
@@ -293,16 +290,16 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
 
   spec = sctx->spec;
   numericFields = spec->getFieldsByType(INDEXFLD_T_NUMERIC);  // find all the numeric fields
-  if (array_len(numericFields) == 0) {
+  if (numericFields.empty()) {
     goto end;
   }
 
-  if (array_len(numericFields) != array_len(numericGC)) {
+  if (numericFields.size() != array_len(numericGC)) {
     // add all numeric fields to our gc
-    RS_LOG_ASSERT(array_len(numericFields) > array_len(numericGC),
+    RS_LOG_ASSERT(numericFields.size() > array_len(numericGC),
                   "it is not possible to remove fields");
     FreeNumericGCArray();
-    for (int i = 0; i < array_len(numericFields); ++i) {
+    for (int i = 0; i < numericFields.size(); ++i) {
       RedisModuleString *keyName = spec->GetFormattedKey(numericFields[i], INDEXFLD_T_NUMERIC);
       NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
       // if we could not open the numeric field we probably have a
@@ -325,7 +322,7 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
   if (num_gc->rt != rt || num_gc->revisionId != num_gc->rt->revisionId) {
     // memory or revision changed, recreating our numeric gc ctx
     RS_LOG_ASSERT(num_gc->rt != rt || num_gc->revisionId < num_gc->rt->revisionId,
-                      "NumericRangeTree or revisionId are inncorrect");
+                  "NumericRangeTree or revisionId are inncorrect");
     numericGC[randomIndex] = new NumericFieldGC(rt);
     delete num_gc;
     num_gc = numericGC[randomIndex];
@@ -356,10 +353,6 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
   }
 
 end:
-  if (numericFields) {
-    array_free(numericFields);
-  }
-
   if (sctx) {
     delete sctx;
   }

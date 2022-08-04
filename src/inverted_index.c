@@ -836,14 +836,13 @@ public:
     size_t len;
     DocTable *td = (DocTable *) &spec->docs;
     const char *externalId = td->GetKey(id, &len);
-    for (int i = 0; i < spec->numFields; ++i) {
-      FieldSpec *field = &spec->fields[i];
-      if (!(FIELD_BIT(field) & fieldMask)) {
+    for (auto field : spec->fields) {
+      if (!(field.FieldBit() & fieldMask)) {
         // field is not requested, we are not checking this field!!
         continue;
       }
       char *s;
-      int ret = spec->getValue(spec->getValueCtx, field->name, externalId, &s, NULL);
+      int ret = spec->getValue(spec->getValueCtx, field.name, externalId, &s, NULL);
       RS_LOG_ASSERT(ret == RSVALTYPE_STRING, "RSvalue type should be a string");
       if (strcmp(term, s) == 0) {
         return 1;
