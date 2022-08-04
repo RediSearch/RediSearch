@@ -68,8 +68,9 @@ Searches the index with a textual query, returning either documents or just ids.
 
 - **SORTBY {attribute} [ASC|DESC]**: If specified, the results are ordered by the value of this attribute. This applies to both text and numeric attributes. Attributes needed for **SORTBY** should be declared as **SORTABLE** in the index, in order to be available with very low latency (notice this adds memory overhead)
 
-- **LIMIT first num**: Limit the results to
-  the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
+- **LIMIT first num**: Limit the results to the offset and number of results given.
+  Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
+  If a result key expires during the query, its content will be a null array.
 
 {{% alert title="Tip" color="info" %}}
 `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
@@ -88,7 +89,7 @@ Searches the index with a textual query, returning either documents or just ids.
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
 {{% alert title="Expiration of hashes during a search query" color="info" %}}
-If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash will not be returned.
+If a hash expires after the query process starts, the hash will be counted in the total number of results, but the key's name and content will return as null.
 {{% /alert %}}
 
 @examples

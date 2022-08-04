@@ -409,6 +409,16 @@ CONFIG_GETTER(getVSSMaxResize) {
   return sdscatprintf(ss, "%u", config->vssMaxResize);
 }
 
+CONFIG_SETTER(setMultiTextOffsetDelta) {
+  int acrc = AC_GetUnsigned(ac, &config->multiTextOffsetDelta, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getMultiTextOffsetDelta) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->multiTextOffsetDelta);
+}
+
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
@@ -735,6 +745,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Set RediSearch vector indexes max resize (in bytes).",
          .setValue = setVSSMaxResize,
          .getValue = getVSSMaxResize},
+         {.name = "MULTI_TEXT_SLOP",
+         .helpText = "Set RediSearch delta used to increase positional offsets between array slots for multi text values."
+                      "Can control the level of separation between phrases in different array slots (related to the SLOP parameter of ft.search command)",
+         .setValue = setMultiTextOffsetDelta,
+         .getValue = getMultiTextOffsetDelta,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

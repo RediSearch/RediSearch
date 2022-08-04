@@ -45,7 +45,7 @@ See [Index limitations](#index-limitations) for more details about JSON index `S
 
 ## Add JSON documents
 
-After you create an index, RediSearch automatically indexes any existing, modified, or newly created JSON documents stored in the database.
+After you create an index, RediSearch automatically indexes any existing, modified, or newly created JSON documents stored in the database. For existing documents, indexing runs asynchronously in the background, so it can take some time before the document is available. Modified and newly created documents are indexed synchronously, so the document will be available by the time the add or modify command finishes.
 
 You can use any RedisJSON write command, such as `JSON.SET` and `JSON.ARRAPPEND`, to create or modify JSON documents.
 
@@ -98,7 +98,7 @@ Use `JSON.SET` to store these documents in the database:
 "OK"
 ```
 
-Because indexing is synchronous, the document will be available on the index as soon as the `JSON.SET` command returns.
+Because indexing is synchronous in this case, the document will be available on the index as soon as the `JSON.SET` command returns.
 Any subsequent queries that match the indexed content will return the document.
 
 ## Search the index
@@ -145,9 +145,9 @@ For more information about search queries, see [Search query syntax](/docs/stack
 `FT.SEARCH` queries require `attribute` modifiers. Don't use JSONPath expressions in queries because the query parser doesn't fully support them.
 {{% /alert %}}
 
-## Index JSON arrays
+## Index JSON arrays as TAG
 
-If you want to index string or boolean values within a JSON array, use the [JSONPath](/docs/stack/json/path) wildcard operator.
+If you want to index string or boolean values as TAG within a JSON array, use the [JSONPath](/docs/stack/json/path) wildcard operator.
 
 To index an item's list of available `colors`, specify the JSONPath `$.colors.*` in the `SCHEMA` definition during index creation:
 
@@ -164,6 +164,69 @@ Now you can search for silver headphones:
 3) 1) "$"
    2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"]}"
 ```
+
+## Index JSON arrays as TEXT
+Starting with RediSearch 2.6.0, full text search can be done on array of strings or on a JSONPath leading to multiple strings.
+
+If you want to index multiple string values as TEXT, either use a JSONPath leading to a single array of strings, or a JSONPath leading to multiple string values, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
+
+To index an item's list of available `colors`, specify the JSONPath `$.colors` in the `SCHEMA` definition during index creation:
+
+```sql
+127.0.0.1:6379> FT.CREATE itemIdx3 ON JSON PREFIX 1 item: SCHEMA $.colors AS colors TEXT $.name AS name TEXT $.description as description TEXT
+```
+
+```sql
+JSON.SET item:3 $ '{"name":"True Wireless earbuds","description":"True Wireless Bluetooth in-ear headphones","connection":{"wireless":true,"type":"Bluetooth"},"price":74.99,"stock":20,"colors":["red","light blue"]}'
+"OK"
+```
+
+Now you can do full text search for light colored headphones:
+
+```sql
+127.0.0.1:6379> FT.SEARCH itemIdx3 '@colors:(white|light) (@name|description:(headphones))' RETURN 1 $.colors
+1) (integer) 2
+2) "item:2"
+3) 1) "$.colors"
+   2) "[\"black\",\"white\"]"
+4) "item:3"
+5) 1) "$.colors"
+   2) "[\"red\",\"light blue\"]"
+```
+
+### Limitations
+- When a JSONPath may lead to multiple values and not only to a single array, e.g., when a JSONPath contains wildcards, etc., specifying `SLOP` or `INORDER` in `FT.SEARCH` will return an error, since the order of the values matching the JSONPath is not well defined, leading to potentially inconsistent results.
+
+   For example, using a JSONPath such as `$..b[*]` on a JSON value such as
+   ```json
+   {
+      "a": [
+         {"b": ["first first", "first second"]},
+         {"c":
+            {"b": ["second first", "second second"]}},
+         {"b": ["third first", "third second"]}
+      ]
+   }
+   ```
+   may match values in various ordering, depending on the specific implementation of the JSONPath library being used. 
+   
+   Since `SLOP` and `INORDER` consider relative ordering among the indexed values, and results may change in future releases, therefore an error will be returned.
+
+- When JSONPath leads to multiple values:
+  - String values are indexed
+  - `null` values are skipped
+  - Any other value type is causing an indexing failure
+  
+- `SORTBY` is only sorting by the first value
+- No `HIGHLIGHT` support
+- `RETURN` of a Schema attribute, whose JSONPath leads to multiple values, returns only the first value (as a JSON String)
+- If a JSONPath is specified by the `RETURN`, instead of a Schema attribute, all values are returned (as a JSON String)
+
+### Handling phrases in different array slots:
+When indexing, a predefined delta is used to increase positional offsets between array slots for multi text values. This delta controls the level of separation between phrases in different array slots (related to the `SLOP` parameter of `FT.SEARCH`).
+This predefined value is set by `RediSearch` configuration parameter `MULTI_TEXT_SLOP` (at module load-time). The default value is 100.
+
+
 
 ## Index JSON objects
 
@@ -346,7 +409,7 @@ During index creation, you need to map the JSON elements to `SCHEMA` fields as f
 - Strings as `TEXT`, `TAG`, or `GEO`.
 - Numbers as `NUMERIC`.
 - Booleans as `TAG`.
-- JSON array of strings or booleans in a `TAG` field. Other types (`NUMERIC`, `GEO`, `NULL`) are not supported.
+- JSON array of strings in a `TAG` field. Other types (`NUMERIC`, `GEO`, `NULL`) are not supported.
 - You cannot index JSON objects. Index the individual elements as separate attributes instead.
 - `NULL` values are ignored.
 
