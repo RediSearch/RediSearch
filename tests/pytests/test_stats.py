@@ -240,3 +240,4 @@ def testDocTableInfo(env):
     env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(int(d['doc_table_size_mb']), 0)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
+
