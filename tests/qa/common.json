@@ -1,6 +1,6 @@
 {
   "service_id": "single_module_test_cycle",
-  "name": "redisearch automation-testing",
+  "name": "{{TEST_TITLE}}",
   "properties": {
     "sut_version": "{{RLEC_VERSION}}",
     "email_recipients": "s5i1u4h5a8c8w2d7@redislabs.slack.com",
