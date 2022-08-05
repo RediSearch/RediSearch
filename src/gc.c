@@ -88,6 +88,7 @@ static void threadCallback(void* data) {
       RedisModule_UnblockClient(bc, NULL);
       RedisModule_ThreadSafeContextUnlock(ctx);
     }
+    RedisModule_FreeThreadSafeContext(ctx);
     rm_free(task);
     return;
   }
