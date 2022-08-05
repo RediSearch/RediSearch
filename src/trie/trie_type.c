@@ -144,7 +144,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
 
   DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
-  TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);
+  TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, fc);
   // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
