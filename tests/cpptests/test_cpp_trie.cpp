@@ -212,6 +212,7 @@ void checkNext(TrieIterator *iter, const char *str) {
   size_t len;
   char *res_str = runesToStr(rstr, rlen, &len);
   ASSERT_STREQ(res_str, str);
+  rm_free(res_str);
 }
 
 TEST_F(TrieTest, testLexOrder) {
