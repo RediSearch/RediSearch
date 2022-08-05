@@ -239,17 +239,16 @@ def testMultiTextNested(env):
     searchMultiTextCategory(env)
     searchMultiTextAuthor(env)
 
-    # TODO: enable the following
-    # env.execute_command('FT.CREATE', 'idx_book', 'ON', 'JSON', 'SCHEMA',
-    #     '$.category', 'AS', 'category', 'TEXT',
-    #     '$.books[*].authors[*]', 'AS', 'author', 'TEXT',
-    #     '$.books[*].name', 'AS', 'name', 'TEXT')
-    # waitForIndex(env, 'idx_book')
-    # res = env.execute_command('FT.SEARCH', 'idx_book',
-    #     '(@name:(design*) -@category:(cloud)) | '
-    #     '(@name:(Kubernetes*) @category:(cloud))',
-    #     'NOCONTENT')
-    # env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']), message='idx_book')
+    env.execute_command('FT.CREATE', 'idx_book', 'ON', 'JSON', 'SCHEMA',
+        '$.category', 'AS', 'category', 'TEXT',
+        '$.books[*].authors[*]', 'AS', 'author', 'TEXT',
+        '$.books[*].name', 'AS', 'name', 'TEXT')
+    waitForIndex(env, 'idx_book')
+    res = env.execute_command('FT.SEARCH', 'idx_book',
+        '(@name:(design*) -@category:(cloud)) | '
+        '(@name:(Kubernetes*) @category:(cloud))',
+        'NOCONTENT')
+    env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']), message='idx_book')
 
 def searchMultiTextCategory(env):
     """ helper function for searching multi-value attributes """
