@@ -30,8 +30,6 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
-void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
-                                             RedisModuleString *key, DocumentType type);
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
@@ -1825,6 +1823,7 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 
 //---------------------------------------------------------------------------------------------
 
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
   // RMKey it is provided as best effort but in some cases it might be NULL
@@ -1850,7 +1849,10 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
   } else {
-    IndexSpec_UpdateMatchingWithSchemaRules(scanner->spec, ctx, keyname, type);
+    IndexSpec *sp = scanner->spec;
+    if (SchemaRule_ShouldIndex(sp, keyname, type)) {
+      IndexSpec_UpdateDoc(sp, ctx, keyname, type);
+    }
   }
   ++scanner->scannedKeys;
 }
@@ -2778,31 +2780,6 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
     }
   }
 
-  Indexes_SpecOpsIndexingCtxFree(specs);
-}
-
-void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
-                                             RedisModuleString *key, DocumentType type) {
-  if (type != sp->rule->type) {
-    return;
-  }
-
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
-  if (!dictFind(specs->specs, sp->name)) {
-    goto end;
-  }
-
-  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
-    SpecOpCtx *specOp = specs->specsOps + i;
-    if (specOp->spec == sp) {
-      if (specOp->op == SpecOp_Add) {
-        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
-      } else {
-        IndexSpec_DeleteDoc(specOp->spec, ctx, key);
-      }
-    }
-  }
-end:
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
