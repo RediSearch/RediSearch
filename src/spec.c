@@ -30,8 +30,6 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
-void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
-                                             RedisModuleString *key, DocumentType type);
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
@@ -910,7 +908,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
         sp->flags |= Index_HasSuffixTrie;
-        sp->suffix = NewTrie(suffixTrie_freeCallback);
+        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
       }
     }
     fs = NULL;
@@ -1515,7 +1513,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->name = rm_strdup(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
-  sp->terms = NewTrie(NULL);
+  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
   sp->keysDict = NULL;
@@ -1779,11 +1777,14 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
     if (spec->scanner) {
       // cancel ongoing scan, keep on_progress indicator on
       IndexesScanner_Cancel(spec->scanner, true);
+      RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted",
+                  spec->name);
     }
     spec->scanner = scanner;
     spec->scan_in_progress = true;
   } else {
     global_spec_scanner = scanner;
+    RedisModule_Log(RSDummyContext, "notice", "Global scanner created");    
   }
 
   return scanner;
@@ -1822,6 +1823,7 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 
 //---------------------------------------------------------------------------------------------
 
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
   // RMKey it is provided as best effort but in some cases it might be NULL
@@ -1847,7 +1849,10 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
   } else {
-    IndexSpec_UpdateMatchingWithSchemaRules(scanner->spec, ctx, keyname, type);
+    IndexSpec *sp = scanner->spec;
+    if (SchemaRule_ShouldIndex(sp, keyname, type)) {
+      IndexSpec_UpdateDoc(sp, ctx, keyname, type);
+    }
   }
   ++scanner->scannedKeys;
 }
@@ -1857,7 +1862,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
-  RedisModuleCtx *ctx = RSDummyContext;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
 
@@ -1876,12 +1881,19 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_ThreadSafeContextLock(ctx);
 
     if (scanner->cancelled) {
+      RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
+                  scanner->totalKeys);
       goto end;
     }
   }
 
-  RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
+  if (scanner->global) {
+    RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
                   scanner->totalKeys);
+  } else {
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
+                  scanner->spec->name, scanner->totalKeys);
+  }
 
 end:
   if (!scanner->cancelled && scanner->global) {
@@ -1892,6 +1904,7 @@ end:
 
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_ScanCursorDestroy(cursor);
+  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -2163,7 +2176,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
       sp->flags |= Index_HasSuffixTrie;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->suffix = NewTrie(suffixTrie_freeCallback);
+        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
       }
     }
 
@@ -2178,7 +2191,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
 
   //    DocTable_RdbLoad(&sp->docs, rdb, encver);
-  sp->terms = NewTrie(NULL);
+  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   /* For version 3 or up - load the generic trie */
   //  if (encver >= 3) {
   //    sp->terms = TrieType_GenericLoad(rdb, 0);
@@ -2291,7 +2304,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver >= 3) {
     sp->terms = TrieType_GenericLoad(rdb, 0);
   } else {
-    sp->terms = NewTrie(NULL);
+    sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   }
 
   if (sp->flags & Index_HasCustomStopwords) {
@@ -2476,6 +2489,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     } else {
       legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
     }
+    RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
     Indexes_UpgradeLegacyIndexes();
@@ -2492,6 +2506,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       RedisModule_Log(ctx, "warning",
                       "Skip background reindex scan, redis version contains loaded event.");
     }
+    RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
 }
 
@@ -2763,31 +2778,6 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
     }
   }
 
-  Indexes_SpecOpsIndexingCtxFree(specs);
-}
-
-void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
-                                             RedisModuleString *key, DocumentType type) {
-  if (type != sp->rule->type) {
-    return;
-  }
-
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
-  if (!dictFind(specs->specs, sp->name)) {
-    goto end;
-  }
-
-  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
-    SpecOpCtx *specOp = specs->specsOps + i;
-    if (specOp->spec == sp) {
-      if (specOp->op == SpecOp_Add) {
-        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
-      } else {
-        IndexSpec_DeleteDoc(specOp->spec, ctx, key);
-      }
-    }
-  }
-end:
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 

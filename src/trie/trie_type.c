@@ -15,12 +15,13 @@
 #include <string.h>
 #include <limits.h>
 
-Trie *NewTrie(TrieFreeCallback freecb) {
+Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode) {
   Trie *tree = rm_malloc(sizeof(Trie));
   rune *rs = strToRunes("", 0);
-  tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0);
+  tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0, sortMode);
   tree->size = 0;
   tree->freecb = freecb;
+  tree->sortMode = sortMode;
   rm_free(rs);
   return tree;
 }
@@ -293,12 +294,13 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   return TrieType_GenericLoad(rdb, encver > TRIE_ENCVER_NOPAYLOADS);
 }
+
 void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
 
   Trie *tree = NULL;
   char *str = NULL;
   uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
-  tree = NewTrie(NULL);
+  tree = NewTrie(NULL, Trie_Sort_Score);
 
   while (elements--) {
     size_t len;
