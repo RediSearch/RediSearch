@@ -840,7 +840,7 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
       return rc;
     } else if (rc == INDEXREAD_OK) {
       // YAY! found!
-      if (res) {
+      if (res && res->docId == docId) {
         AggregateResult_AddChild(ic->base.current, res);
       }
       ic->lastDocId = docId;
