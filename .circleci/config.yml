@@ -680,8 +680,7 @@ workflows:
           name: build
           <<: *not-on-integ-branch
       - build-platforms:
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
@@ -694,8 +693,7 @@ workflows:
               platform: [bionic]
       - build-macos:
           context: common
-          #@@<<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
       - coverage:
           <<: *on-any-branch
       - sanitize:
