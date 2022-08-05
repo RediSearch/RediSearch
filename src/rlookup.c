@@ -582,6 +582,10 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       .options = options,
     };
     while(RedisModule_ScanKey(key, cursor, RLookup_HGETALL_scan_callback, &pd));
+    if (errno) {
+      RLookupRow_Wipe(dst);
+      errno = 0;
+    }
     RedisModule_ScanCursorDestroy(cursor);
     RedisModule_CloseKey(key);
   }
