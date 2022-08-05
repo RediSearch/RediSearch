@@ -711,7 +711,6 @@ def testconfigMultiTextOffsetDeltaSlop0(env):
         .expect_when(False, expect_undef_order)
 
 def testconfigMultiTextOffsetDeltaSlopNeg(env):
-    env.skip() #@@
     """ test ft.config `MULTI_TEXT_SLOP` -1 """
 
     if env.env == 'existing-env':
