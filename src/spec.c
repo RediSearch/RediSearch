@@ -908,7 +908,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
         sp->flags |= Index_HasSuffixTrie;
-        sp->suffix = NewTrie(suffixTrie_freeCallback);
+        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
       }
     }
     fs = NULL;
@@ -1513,7 +1513,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->name = rm_strdup(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
-  sp->terms = NewTrie(NULL);
+  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
   sp->keysDict = NULL;
@@ -2178,7 +2178,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
       sp->flags |= Index_HasSuffixTrie;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->suffix = NewTrie(suffixTrie_freeCallback);
+        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
       }
     }
 
@@ -2193,7 +2193,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
 
   //    DocTable_RdbLoad(&sp->docs, rdb, encver);
-  sp->terms = NewTrie(NULL);
+  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   /* For version 3 or up - load the generic trie */
   //  if (encver >= 3) {
   //    sp->terms = TrieType_GenericLoad(rdb, 0);
@@ -2306,7 +2306,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver >= 3) {
     sp->terms = TrieType_GenericLoad(rdb, 0);
   } else {
-    sp->terms = NewTrie(NULL);
+    sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   }
 
   if (sp->flags & Index_HasCustomStopwords) {
