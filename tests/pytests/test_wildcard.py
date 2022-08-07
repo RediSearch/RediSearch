@@ -231,8 +231,8 @@ def testEscape(env):
   conn.execute_command('HSET', 'doc13', 't', 'halloween')
 
   env.expect('FT.DEBUG', 'dump_terms', 'idx').equal(
-       ["'hello", '\\hello', 'hallelujah', 'halloween', 'hello', "hello'",
-       "hello'world", 'hello\\', 'hello\\world', 'help', 'jello', 'jellyfish', 'mellow'])
+      ['hello', "hello'", "hello'world", 'hello\\', 'hello\\world', 'help', 'hallelujah',
+       'halloween', 'jello','jellyfish', 'mellow', "'hello", '\\hello'])
 
   env.expect('FT.SEARCH', 'idx', "w'*ell*'", 'LIMIT', 0 , 0).equal([10])
   env.expect('FT.SEARCH', 'idx', "w'*ello'", 'LIMIT', 0 , 0).equal([4])
@@ -323,9 +323,9 @@ def testLowerUpperCase(env):
   env.expect('FT.SEARCH', 'idx', "w'*EL*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
 
 
-def testBasic(env):
-  conn = getConnectionByEnv(env)
+def testBasic():
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
 
