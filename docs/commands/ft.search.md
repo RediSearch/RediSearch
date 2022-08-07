@@ -4,8 +4,6 @@ O(n) for single word queries. `n` is the number of the results in the result set
 
 The time complexity for more complex queries varies, but in general it's proportional to the number of words, the number of intersection points between them and the number of results in the result set.
 
-Note: if a sort order is not specified, the return order is not guaranteed.
-
 ---
 
 Searches the index with a textual query, returning either documents or just ids.
@@ -69,6 +67,11 @@ Searches the index with a textual query, returning either documents or just ids.
   functions. [See Extensions](/redisearch/reference/extensions).
 
 - **SORTBY {attribute} [ASC|DESC]**: If specified, the results are ordered by the value of this attribute. This applies to both text and numeric attributes. Attributes needed for **SORTBY** should be declared as **SORTABLE** in the index, in order to be available with very low latency (notice this adds memory overhead)
+
+  If `SORTBY` is not specified, the order is by score.
+
+  For similar scores or values, the relative order among them is undefined.
+  
 
 - **LIMIT first num**: Limit the results to the offset and number of results given.
   Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
