@@ -1066,6 +1066,7 @@ def test_hybrid_query_change_policy():
     conn = getConnectionByEnv(env)
     dim = 2
     n = 6000 * env.shardsCount
+    np.random.seed(10)
     vectors = np.random.rand(n, dim).astype(np.float32)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
