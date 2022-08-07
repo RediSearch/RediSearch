@@ -236,20 +236,33 @@ def testExpireDocs():
     # both docs exist
     res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
-    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*', 'NOCONTENT'), [2, 'doc1', 'doc2'], time_out=5)
+    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*'), [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']], time_out=5)
 
     master.execute_command('PEXPIRE', 'doc1', 1)
     time.sleep(0.01)
 
-    # since there is no sortable, we loaded doc1 at sortby and found out it was deleted
-    res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-    env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+    if i == 0:    # w/o sortby
+      # both docs exist but doc1 fail to load field since they were expired passively
+      res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+      env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'foo']])
+      res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+      env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'foo']])
+    elif i == 1:  # with sortby
+      # since there is no sortable, we loaded doc1 at sortby and found out it was deleted
+      res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+      env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+      res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+      env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+
+    # only 1 doc is left
     res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
     env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+    res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+
 
     master.execute_command('FLUSHALL')
-    checkSlaveSynced(env, slave, ('KEYS','*'), [], time_out=5)
-
+    env.expect('WAIT', '1', '10000').equal(1)
 
 def testExpireDocsSortable():
   env = initEnv()
@@ -275,7 +288,7 @@ def testExpireDocsSortable():
     # both docs exist
     res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
-    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*', 'NOCONTENT'), [2, 'doc1', 'doc2'], time_out=5)
+    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*'), [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']], time_out=5)
 
     master.execute_command('PEXPIRE', 'doc1', 1)
     time.sleep(0.01)
@@ -292,4 +305,4 @@ def testExpireDocsSortable():
     env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
 
     master.execute_command('FLUSHALL')
-    checkSlaveSynced(env, slave, ('KEYS','*'), [], time_out=5)
+    env.expect('WAIT', '1', '10000').equal(1)
