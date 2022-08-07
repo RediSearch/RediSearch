@@ -540,6 +540,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
     rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
 
     if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+      ((RSDocumentMetadata *)options->dmd)->flags |= Document_Deleted;
       goto done;
     }
 
@@ -569,6 +570,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   } else {
     RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, REDISMODULE_READ);
     if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
+      ((RSDocumentMetadata *)options->dmd)->flags |= Document_Deleted;
       // key does not exist or is not a hash
       if (key) {
         RedisModule_CloseKey(key);
@@ -608,6 +610,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisJSON jsonRoot = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
   if (!jsonRoot) {
+    ((RSDocumentMetadata *)options->dmd)->flags |= Document_Deleted;
     goto done;
   }
 
