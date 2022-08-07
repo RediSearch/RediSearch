@@ -1295,7 +1295,7 @@ def test_timeout_reached():
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
 
-    vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 80000 * nshards)]
+    vecsim_algorithms_and_sizes = [('FLAT', 160000 * nshards), ('HNSW', 120000 * nshards)]
     hybrid_modes = ['HYBRID_BATCHES', 'HYBRID_ADHOC_BF']
     dim = 10
 
