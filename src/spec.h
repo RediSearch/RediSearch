@@ -262,7 +262,7 @@ struct IndexSpec : Object {
   const FieldSpec *GetFieldBySortingIndex(uint16_t idx) const;
   const char *GetFieldNameByBit(t_fieldMask id) const;
   int GetFieldSortingIndex(const char *name, size_t len);
-  t_fieldMask GetFieldBit(const char *name, size_t len);
+  t_fieldMask GetFieldBit(const char *name, size_t len) const;
   void GetStats(RSIndexStats *stats_);
 
   void StartGCFromSpec(float initialHZ, uint32_t gcPolicy);

@@ -6,22 +6,22 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct IdListIterator : public IndexIterator {
-  t_docId *docIds;
+  Vector<t_docId> docIds;
   t_docId lastDocId;
   t_offset size;
   t_offset offset;
 
-  IdListIterator(t_docId *ids, t_offset num, double weight);
+  IdListIterator(Vector<t_docId> docIds;, double weight);
   ~IdListIterator();
 
   virtual IndexResult *GetCurrent();
-  virtual size_t NumEstimated();
+  virtual size_t NumEstimated() const ;
   virtual IndexCriteriaTester *GetCriteriaTester();
   virtual int Read(IndexResult **e);
   virtual int SkipTo(t_docId docId, IndexResult **hit);
-  virtual t_docId LastDocId();
-  virtual int HasNext();
-  virtual size_t Len();
+  virtual t_docId LastDocId() const ;
+  virtual bool HasNext() const ;
+  virtual size_t Len() const ;
   virtual void Abort();
   virtual void Rewind();
 
@@ -29,18 +29,17 @@ struct IdListIterator : public IndexIterator {
   int isEof() const { return !isValid; }
 
   static int cmp_docids(const t_docId *d1, const t_docId *d2);
-};
 
-//---------------------------------------------------------------------------------------------
+  //-------------------------------------------------------------------------------------------
 
-struct ILCriteriaTester : public IndexCriteriaTester {
-  t_docId *docIds;
-  t_offset size;
+  struct CriteriaTester : public IndexCriteriaTester {
+    Vector<t_docId> &docIds;
 
-  ILCriteriaTester(IdListIterator *it);
-  ~ILCriteriaTester();
+    CriteriaTester(IdListIterator *it);
+    ~CriteriaTester();
 
-  int Test(t_docId id);
+    int Test(t_docId id);
+  };
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

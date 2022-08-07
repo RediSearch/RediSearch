@@ -2,19 +2,24 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+/*
 struct FuncEntry {
   const char *name;
   ReducerFactory fn;
 };
 
 static FuncEntry *globalRegistry = NULL;
+*/
+
+static UnorderedMap<String, ReducerFactory> g_reducersMap;
 
 //---------------------------------------------------------------------------------------------
 
-void RDCR_RegisterFactory(const char *name, ReducerFactory factory) {
-  FuncEntry ent = {.name = name, .fn = factory};
-  FuncEntry *tail = array_ensure_tail(&globalRegistry, FuncEntry);
-  *tail = ent;
+template <class T>
+void RegisterReducer(const char *name) {
+  g_reducersMap[name] = [](const ReducerOptions *opt) {
+      return new T{opt};
+    };
 }
 
 //---------------------------------------------------------------------------------------------
@@ -22,15 +27,16 @@ void RDCR_RegisterFactory(const char *name, ReducerFactory factory) {
 static bool isBuiltinsRegistered = false;
 
 ReducerFactory RDCR_GetFactory(const char *name) {
+  String ucname{name};
+  std::for_each(ucname.begin(), ucname.end(), [](char & c){ c = ::toupper(c); });
+
   if (!isBuiltinsRegistered) {
     isBuiltinsRegistered = true;
     RDCR_RegisterBuiltins();
   }
-  size_t n = array_len(globalRegistry);
-  for (size_t ii = 0; ii < n; ++ii) {
-    if (!strcasecmp(globalRegistry[ii].name, name)) {
-      return globalRegistry[ii].fn;
-    }
+  auto reducer = g_reducersMap.find(name);
+  if (reducer != g_reducersMap.end()) {
+    return reducer->second;
   }
   return NULL;
 }
@@ -50,13 +56,13 @@ ReducerFactory RDCR_GetFactory(const char *name) {
   X(RDCRStdDev, "STDDEV")                      \
   X(RDCRFirstValue, "FIRST_VALUE")             \
   X(RDCRRandomSample, "RANDOM_SAMPLE")         \
-  X(RDCRHLLCommon, "HLL")                            \
+  X(RDCRHLLCommon, "HLL")                      \
   X(RDCRHLLSum, "HLL_SUM")
 
 //---------------------------------------------------------------------------------------------
 
 void RDCR_RegisterBuiltins() {
-#define X(fn, n) RDCR_RegisterFactory(n, fn);
+#define X(T, name) RegisterReducer<T>(name);
   RDCR_XBUILTIN(X);
 #undef X
 }

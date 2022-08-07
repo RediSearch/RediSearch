@@ -80,13 +80,13 @@ public:
   virtual int SkipTo(t_docId docId, IndexResult **hit);
 
   // the last docId read
-  virtual t_docId LastDocId();
+  virtual t_docId LastDocId() const ;
 
   // can we continue iteration?
-  virtual int HasNext() { return false; }
+  virtual bool HasNext() const { return false; }
 
   // Return the number of results in this iterator. Used by the query execution on the top iterator
-  virtual size_t Len();
+  virtual size_t Len() const ;
 
   // Abort the execution of the iterator and mark it as EOF.
   // This is used for early aborting in case of data consistency issues due to multi threading

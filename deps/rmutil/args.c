@@ -7,9 +7,13 @@
 #include <string.h>
 #include <assert.h>
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 int ArgsCursor::Advance() {
   return AdvanceBy(1);
 }
+
+//---------------------------------------------------------------------------------------------
 
 int ArgsCursor::AdvanceBy(size_t by) {
   if (offset + by > argc) {
@@ -19,6 +23,8 @@ int ArgsCursor::AdvanceBy(size_t by) {
   }
   return AC_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Advances the cursor if the next argument matches the given string. This
 // will swallow it up.
@@ -38,6 +44,8 @@ int ArgsCursor::AdvanceIfMatch(const char *s) {
   return rv;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int ArgsCursor::tryReadAsDouble(long long *ll, unsigned int flags) {
   double dTmp = 0.0;
   if (GetDouble(&dTmp, flags | AC_F_NOADVANCE) != AC_OK) {
@@ -55,6 +63,8 @@ int ArgsCursor::tryReadAsDouble(long long *ll, unsigned int flags) {
     return AC_OK;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 int ArgsCursor::GetLongLong(long long *ll, unsigned int flags) {
   long long tmpll = 0;
@@ -94,6 +104,8 @@ int ArgsCursor::GetLongLong(long long *ll, unsigned int flags) {
   return AC_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int ArgsCursor::GetUnsignedLongLong(unsigned long long *ull, unsigned int flags) {
   return GetInteger<unsigned long long, 0, LLONG_MAX, true>(ull, flags);
 }
@@ -117,6 +129,8 @@ int ArgsCursor::GetU64(uint64_t *u, unsigned int flags) {
 int ArgsCursor::GetSize(size_t *u, unsigned int flags) {
   return GetInteger<size_t, 0, SIZE_MAX, true>(u, flags);
 }
+
+//---------------------------------------------------------------------------------------------
 
 int ArgsCursor::GetDouble(double *d, unsigned int flags) {
   double tmpd = 0;
@@ -142,6 +156,8 @@ int ArgsCursor::GetDouble(double *d, unsigned int flags) {
   return AC_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int ArgsCursor::GetRString(RedisModuleString **s, unsigned int flags) {
   assert(type == AC_TYPE_RSTRING);
   if (offset == argc) {
@@ -151,6 +167,8 @@ int ArgsCursor::GetRString(RedisModuleString **s, unsigned int flags) {
   MaybeAdvance(flags);
   return AC_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 int ArgsCursor::GetString(const char **s, size_t *n, unsigned int flags) {
   if (offset == argc) {
@@ -172,6 +190,8 @@ int ArgsCursor::GetString(const char **s, size_t *n, unsigned int flags) {
   return AC_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Gets the string (and optionally the length). If the string does not exist,
 // it returns NULL. Used when caller is sure the arg exists
 
@@ -182,6 +202,8 @@ const char *ArgsCursor::GetStringNC(size_t *len) {
   }
   return s;
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Read the argument list in the format of
 // <NUM_OF_ARGS> <ARG[1]> <ARG[2]> .. <ARG[NUM_OF_ARGS]>
@@ -195,6 +217,8 @@ int ArgsCursor::GetVarArgs(ArgsCursor *dst) {
   }
   return GetSlice(dst, nargs);
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Consume the next <n> arguments and place them in <dst>
 
@@ -210,6 +234,8 @@ int ArgsCursor::GetSlice(ArgsCursor *dst, size_t n) {
   AdvanceBy(n);
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 int ArgsCursor::parseSingleSpec(ACArgSpec *spec) {
   switch (spec->type) {
@@ -245,6 +271,8 @@ int ArgsCursor::parseSingleSpec(ACArgSpec *spec) {
       abort();
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * Utilizes the argument cursor to traverse a list of known argument specs. This
@@ -296,3 +324,5 @@ int ArgsCursor::ParseArgSpec(ACArgSpec *specs, ACArgSpec **errSpec) {
   }
   return AC_OK;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

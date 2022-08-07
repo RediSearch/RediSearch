@@ -14,13 +14,15 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct QueryAST;
+struct QueryToken;
 
 //---------------------------------------------------------------------------------------------
 
 struct QueryParse {
+  void *parser;
   const char *raw;
   size_t len;
-  size_t numTokens;     // the token count
+  size_t numTokens;     // token count
   RedisSearchCtx *sctx; // Index spec
   QueryNode *root;      // query root
   const RSSearchOptions *opts;
@@ -31,6 +33,7 @@ struct QueryParse {
 
   QueryNode *ParseRaw();
 
+  void Parse(int yymajor, const QueryToken &yyminor);
   bool IsOk() { return status->HasError(); }
 };
 

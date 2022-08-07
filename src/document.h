@@ -89,29 +89,20 @@ struct Document : Object {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Document should decrement the reference count to the contained strings. Used
- * when the user does not want to retain his own reference to them. It effectively
- * "steals" a reference.
- *
- * This only applies to _values_; not keys. Used internally by the C API
- */
+// Document should decrement the reference count to the contained strings.
+// Used when the user does not want to retain his own reference to them.
+// It effectively "steals" a reference.
+// This only applies to _values_; not keys. Used internally by the C API
 
 // TODO remove uncovered and clean DOCUMENT_F_OWNREFS from all code
 #define DOCUMENT_F_OWNREFS 0x01
 
-/**
- * Indicates that the document owns a reference to the field contents,
- * the language string, and the payload.
- *
- * The document always owns the field array, though.
- */
+// Indicates that the document owns a reference to the field contents,
+// the language string, and the payload.
+// The document always owns the field array, though.
 #define DOCUMENT_F_OWNSTRINGS 0x02
 
-/**
- * The document has been moved to another target. This is quicker than
- * zero'ing the entire structure
- */
+// The document has been moved to another target. This is quicker than zero'ing the entire structure.
 #define DOCUMENT_F_DEAD 0x08
 
 //---------------------------------------------------------------------------------------------
@@ -142,14 +133,14 @@ struct FieldIndexerData;
 
 //---------------------------------------------------------------------------------------------
 
-// The context has had its forward entries merged in the merge table. We can
-// skip merging its tokens
+// The context has had its forward entries merged in the merge table.
+// We can skip merging its tokens.
 #define ACTX_F_TEXTINDEXED 0x01
 
 // The context has had an error and should not be processed further
 #define ACTX_F_ERRORED 0x02
 
-// Non-text fields have been indexed.
+// Non-text fields have been indexed
 #define ACTX_F_OTHERINDEXED 0x04
 
 // The content has indexable fields
@@ -158,8 +149,8 @@ struct FieldIndexerData;
 // The content has sortable fields
 #define ACTX_F_SORTABLES 0x10
 
-// Don't block/unblock the client when indexing. This is the case when the
-// operation is being done from within the context of AOF
+// Don't block/unblock the client when indexing.
+// Used when the operation is done from within the context of AOF.
 #define ACTX_F_NOBLOCK 0x20
 
 // Document is entirely empty (no sortables, indexables)
@@ -169,8 +160,7 @@ struct FieldIndexerData;
 
 struct DocumentIndexer;
 
-struct AddDocumentPool : MemPool {
-};
+using AddDocumentPool = MemPool;
 
 // Context used when indexing documents
 
@@ -202,7 +192,7 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   FieldSpec *fspecs;
   Tokenizer *tokenizer;
 
-  // Old document data. Contains sortables
+  // Old document data. Contains sortables.
   std::shared_ptr<RSDocumentMetadata> oldMd;
 
   // New flags to assign to the document
@@ -217,7 +207,7 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   DocumentAddCompleted donecb;
   void *donecbData;
 
-  AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_);
+  AddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *status);
   virtual ~AddDocumentCtx();
 
   bool handlePartialUpdate(RedisSearchCtx *sctx); // can be private
@@ -229,7 +219,7 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   void Finish();
   int AddToIndexes();
 
-  bool IsValid(size_t i) { return fspecs[i].name != NULL; }
+  bool IsValid(size_t i) const { return fspecs[i].name != NULL; }
   bool IsBlockable() const { return !(stateFlags & ACTX_F_NOBLOCK); }
   bool IsIndexed() const;
 
@@ -243,6 +233,8 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
 #define REDIS_SAVEDOC_NOCREATE 0x01
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status);
+
+template<> AddDocumentPool MemPoolObject<AddDocumentPool>::pool(16, 0, true);
 
 //---------------------------------------------------------------------------------------------
 

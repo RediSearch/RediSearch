@@ -119,28 +119,25 @@ struct RSSearchOptions {
   t_fieldMask fieldmask;
   int slop;
 
-  const char **inkeys;
-  size_t ninkeys;
+  Vector<const char *> inkeys;
 
   // Keys are converted into arrays. This is done when the actual search ctx is available.
-  t_docId *inids;
-  size_t nids;
+  Vector<t_docId> inids;
 
   //std::shared_ptr<const StopWordList> stopwords;
   StopWordList *stopwords;
 
   // Legacy options
   struct Legacy {
-    NumericFilter **filters;
+    Vector<NumericFilter*> filters;
     GeoFilter *gf;
-    const char **infields;
-    size_t ninfields;
+    Vector<const char *> infields;
 
     Legacy() {
-      filters = NULL;
+      for (auto filter: filters) {
+        delete filter;
+      }
       gf = NULL;
-      infields = NULL;
-      ninfields = 0;
     }
   } legacy;
 
@@ -148,30 +145,12 @@ struct RSSearchOptions {
     expanderName = NULL;
     scorerName = NULL;
     language = RS_LANG_ENGLISH;
-
     flags = 0;
     slop = -1;
     fieldmask = RS_FIELDMASK_ALL;
-
-    nids = 0;
-    inids = NULL;
-
-    ninkeys = 0;
-    inkeys = NULL;
   }
 
-  ~RSSearchOptions() {
-    if (legacy.filters) {
-      for (size_t ii = 0; ii < array_len(legacy.filters); ++ii) {
-        NumericFilter *nf = legacy.filters[ii];
-        if (nf) {
-          delete legacy.filters[ii];
-        }
-      }
-      array_free(legacy.filters);
-    }
-    rm_free(inids);
-  }
+  ~RSSearchOptions() {}
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -64,10 +64,10 @@ const FieldSpec *IndexSpec::GetFieldCase(const char *name, size_t n) const {
 
 //---------------------------------------------------------------------------------------------
 
-// Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
-// text field
+// Get the field bitmask id of a text field by name.
+// Return 0 if the field is not found or is not a text field.
 
-t_fieldMask IndexSpec::GetFieldBit(const char *name, size_t len) {
+t_fieldMask IndexSpec::GetFieldBit(const char *name, size_t len) const {
   const FieldSpec *sp = GetField(name, len);
   if (!sp || !sp->IsFieldType(INDEXFLD_T_FULLTEXT) || !sp->IsIndexable()) return 0;
 

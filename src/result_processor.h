@@ -197,11 +197,10 @@ struct ResultsLoader : public ResultProcessor {
 // It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
 
 struct RPScorer : public ResultProcessor {
-  RSScoringFunction scorer;
-  RSFreeFunction scorerFree;
-  ScoringFunctionArgs scorerCtx;
+  Scorer *scorer;
+  ScorerArgs *args;
 
-  RPScorer(const ExtScoringFunction *funcs, const ScoringFunctionArgs *fnargs);
+  RPScorer(const Scorer *scorer, const ScorerArgs *args);
   ~RPScorer();
 
   int Next(SearchResult *res);

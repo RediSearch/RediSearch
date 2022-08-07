@@ -278,14 +278,9 @@ err:
 
 static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryError *status) {
   if (ac->AdvanceIfMatch("FILTER")) {
-    // Numeric filter
-    NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
     try {
-      *curpp = new NumericFilter(ac, status);
+      options->legacy.filters.push_back(new NumericFilter(ac, status));
     } catch (Error &x) {
-      *curpp = NULL;
-    }
-    if (!*curpp) {
       return ARG_ERROR;
     }
   } else if (ac->AdvanceIfMatch("GEOFILTER")) {
@@ -368,10 +363,14 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
     }
   }
 
-  searchOpts->inkeys = (const char **)inKeys.objs;
-  searchOpts->ninkeys = inKeys.argc;
-  searchOpts->legacy.infields = (const char **)inFields.objs;
-  searchOpts->legacy.ninfields = inFields.argc;
+  for (int i = 0; i < inKeys.argc; ++i) {
+    searchOpts->inkeys.push_back((const char *) inKeys.objs[i]);
+  }
+
+  for (int i = 0; i < inFields.argc; ++i) {
+    searchOpts->inkeys.push_back((const char *) inFields.objs[i]);
+  }
+
   searchOpts->language = RSLanguage_Find(languageStr);
 
   if (returnFields.IsInitialized()) {
@@ -712,26 +711,22 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
 
 void QueryAST::applyGlobalFilters(RSSearchOptions &opts, const RedisSearchCtx &sctx) {
   // The following blocks will set filter options on the entire query
-  if (opts.legacy.filters) {
-    for (size_t ii = 0; ii < array_len(opts.legacy.filters); ++ii) {
-      SetGlobalFilters(opts.legacy.filters[ii]);
-    }
-    array_clear(opts.legacy.filters);  // so AREQ_Free() doesn't free the filters themselves, which
-                                       // are now owned by the query object
+  for (auto filter: opts.legacy.filters) {
+    SetGlobalFilters(filter);
   }
+
   if (opts.legacy.gf) {
     SetGlobalFilters(opts.legacy.gf);
   }
 
-  if (opts.inkeys) {
-    opts.inids = rm_malloc(sizeof(*opts.inids) * opts.ninkeys);
-    for (size_t ii = 0; ii < opts.ninkeys; ++ii) {
-      t_docId did = sctx.spec->docs.GetId(opts.inkeys[ii], strlen(opts.inkeys[ii]));
-      if (did) {
-        opts.inids[opts.nids++] = did;
-      }
+  for (auto inkey: opts.inkeys) {
+    t_docId did{sctx.spec->docs.GetId(inkey)};
+    if (!!did) {
+      opts.inids.push_back(did);
     }
-    SetGlobalFilters(opts.inids, opts.nids);
+  }
+  if (!opts.inids.empty()) {
+    SetGlobalFilters(opts.inids);
   }
 }
 
@@ -760,11 +755,10 @@ int AREQ::ApplyContext(QueryError *status) {
 
   // Go through the query options and see what else needs to be filled in!
   // 1) INFIELDS
-  if (opts.legacy.ninfields) {
+  if (opts.legacy.infields.size() > 0) {
     opts.fieldmask = 0;
-    for (size_t ii = 0; ii < opts.legacy.ninfields; ++ii) {
-      const char *s = opts.legacy.infields[ii];
-      t_fieldMask bit = index->GetFieldBit(s, strlen(s));
+    for (auto infield: opts.legacy.infields) {
+      t_fieldMask bit = index->GetFieldBit(infield, strlen(infield));
       opts.fieldmask |= bit;
     }
   }
@@ -784,7 +778,7 @@ int AREQ::ApplyContext(QueryError *status) {
   }
 
   try {
-    ast = std::make_unique<QueryAST>(*sctx, searchopts, query, strlen(query), status);
+    ast = std::make_unique<QueryAST>(*sctx, searchopts, query, status);
     ast->applyGlobalFilters(opts, *sctx);
   } catch (Error &x) {
     return REDISMODULE_ERR;
@@ -945,20 +939,19 @@ ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, const PLN_BaseStep *stp, Resul
 //---------------------------------------------------------------------------------------------
 
 ResultProcessor *AREQ::getScorerRP() {
-  const char *scorer = searchopts.scorerName;
-  if (!scorer) {
-    scorer = DEFAULT_SCORER_NAME;
+  const char *scorer_name = searchopts.scorerName;
+  if (!scorer_name) {
+    scorer_name = DEFAULT_SCORER_NAME;
   }
-  ScoringFunctionArgs scargs;
+  ScorerArgs scargs;
   if (reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
-    scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
+    scargs.scrExp = new RSScoreExplain;
   }
-  ExtScoringFunction *fns = Extensions::GetScoringFunction(&scargs, scorer);
-  RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
+  ExtScorer *scorer = g_ext.GetScorer(&scargs, scorer_name);
+  RS_LOG_ASSERT(scorer, "Extensions::GetScorer failed");
   sctx->spec->GetStats(&scargs.indexStats);
-  scargs.qdata = ast->udata;
-  scargs.qdatalen = ast->udatalen;
-  ResultProcessor *rp = new RPScorer(fns, &scargs);
+  scargs.qdata = SimpleBuff(ast->udata, ast->udatalen);
+  ResultProcessor *rp = new RPScorer(scorer, &scargs);
   return rp;
 }
 

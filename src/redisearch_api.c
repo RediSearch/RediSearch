@@ -345,7 +345,7 @@ void RediSearch_QueryNodeClearChildren(QueryNode* qn) {
 }
 
 QueryNode* RediSearch_QueryNodeGetChild(const QueryNode* qn, size_t ix) {
-  return qn->GetChild(ix);
+  return qn->Child(ix);
 }
 
 size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
@@ -358,9 +358,8 @@ struct RS_ApiIter {
   IndexIterator* internal;
   IndexResult* res;
   const RSDocumentMetadata* lastmd;
-  ScoringFunctionArgs scargs;
-  RSScoringFunction scorer;
-  RSFreeFunction scorerFree;
+  ScorerArgs scargs;
+  Scorer *scorer;
   double minscore;  // Used for scoring
   QueryAST qast;    // Used for string queries..
 };

@@ -8,6 +8,8 @@
 #include "numeric_filter.h"
 
 #include <stdlib.h>
+#include <string>
+#include <string_view>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -16,6 +18,7 @@ struct idFilter;
 //---------------------------------------------------------------------------------------------
 
 // The types of query nodes
+
 enum QueryNodeType {
   QN_PHRASE = 1,  // Phrase (AND) node, exact or not
   QN_UNION,       // Union (OR) Node
@@ -60,7 +63,7 @@ struct QueryNodeOptions {
                    int maxSlop = -1,
                    bool inOrder = false,
                    double weight = 1) :
-  fieldMask(fieldMask), flags(flags), maxSlop(maxSlop), inOrder(inOrder), weight(weight) {}
+    fieldMask(fieldMask), flags(flags), maxSlop(maxSlop), inOrder(inOrder), weight(weight) {}
 };
 
 //---------------------------------------------------------------------------------------------
@@ -69,42 +72,58 @@ struct QueryNodeOptions {
 // Currently supported are weight, slop, and inorder
 
 struct QueryAttribute {
-  const char *name;
-  size_t namelen;
-  const char *value;
-  size_t vallen;
+  QueryAttribute(const char *name, size_t namelen, const char *value, size_t vallen) :
+    name(name, namelen), value(value, vallen) {}
+
+  std::string_view name;
+  const String value;
+};
+
+struct QueryAttributes : Vector<QueryAttribute*> {
+  ~QueryAttributes() {
+    for (auto attr: *this) {
+      delete attr;
+    }
+  }
 };
 
 //---------------------------------------------------------------------------------------------
 
+typedef Vector<struct QueryNode *> QueryNodes;
+
 // QueryNode reqresents any query node in the query tree.
-// It has a type to resolve which node it is, and a union of all possible nodes.
 
 struct QueryNode : Object {
   void ctor(QueryNodeType t);
 
   QueryNode() { ctor(QN_NULL); }
   QueryNode(QueryNodeType t) { ctor(t); }
-  QueryNode(QueryNodeType t, QueryNode **children_, size_t n) {
+  QueryNode(QueryNodeType t, QueryNode *node) {
     ctor(t);
-    children = array_ensure_append(children, children_, n, QueryNode *);
+    children.push_back(node);
+  }
+  QueryNode(QueryNodeType t, QueryNodes *chi) {
+    ctor(t);
+    if (chi) {
+      children.swap(*chi);
+    }
   }
   virtual ~QueryNode();
 
   // The node type, for resolving the union access
   QueryNodeType type;
   QueryNodeOptions opts;
-  struct QueryNode **children;
+  QueryNodes children;
 
-  bool ApplyAttribute(QueryAttribute *attr, QueryError *status);
-  bool ApplyAttributes(QueryAttribute *attrs, size_t len, QueryError *status);
+  bool ApplyAttribute(QueryAttribute &attr, QueryError *status);
+  bool ApplyAttributes(QueryAttributes *attrs, QueryError *status);
 
-  void AddChildren(QueryNode **children, size_t n);
+  void AddChildren(QueryNodes &children);
   void AddChild(QueryNode *child);
   void ClearChildren(bool shouldFree);
 
-  size_t NumChildren() const { return children ? array_len(children) : 0; }
-  QueryNode *GetChild(int ix) { return NumChildren() > ix ? children[ix] : NULL; }
+  size_t NumChildren() const { return children.size(); }
+  QueryNode *Child(int i) { return NumChildren() > i ? children[i] : NULL; }
 
   virtual void Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp);
   virtual bool expandChildren() const { return false; }
@@ -138,8 +157,8 @@ struct QueryPhraseNode : QueryNode {
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "%s {\n", exact ? "EXACT" : "INTERSECT");
-    for (size_t ii = 0; ii < NumChildren(); ++ii) {
-      s = children[ii]->DumpSds(s, spec, depth + 1);
+    for (auto &child: children) {
+      s = child->DumpSds(s, spec, depth + 1);
     }
 
     s = doPad(s, depth);
@@ -171,14 +190,13 @@ struct QueryWildcardNode : QueryNode {
 //---------------------------------------------------------------------------------------------
 
 struct QueryTagNode : QueryNode {
-  const char *fieldName;
-  size_t len;
+  String fieldName;
 
-  QueryTagNode(const char *field, size_t len) : QueryNode(QN_TAG), fieldName(field), len(len) {}
+  QueryTagNode(const std::string_view &fieldName) : QueryNode(QN_TAG), fieldName(fieldName) {}
   ~QueryTagNode();
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
-    s = sdscatprintf(s, "TAG:@%.*s {\n", (int)len, fieldName);
+    s = sdscatprintf(s, "TAG:@%.*s {\n", (int)fieldName.length(), fieldName.data());
     s = DumpChildren(s, spec, depth + 1);
     s = doPad(s, depth);
     return s;
@@ -197,15 +215,15 @@ struct QueryTagNode : QueryNode {
 struct QueryTokenNode : QueryNode {
   RSToken tok;
 
-  QueryTokenNode(QueryParse *q, const char *s, size_t len, uint8_t expanded = 0, RSTokenFlags flags = 0) :
-    QueryNode(QN_TOKEN), tok(s, len == (size_t)-1 ? strlen(s) : len, expanded, flags) {
+  QueryTokenNode(QueryParse *q, std::string_view str, uint8_t expanded = 0, RSTokenFlags flags = 0) :
+    QueryNode(QN_TOKEN), tok(str, expanded, flags) {
     if (q) q->numTokens++;
   }
 
   virtual void Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
-    s = sdscatprintf(s, "%s%s", (char *)tok.str, tok.expanded ? "(expanded)" : "");
+    s = sdscatprintf(s, "%s%s", (char *)tok.str.data(), tok.expanded ? "(expanded)" : "");
     if (opts.weight != 1) {
       s = sdscatprintf(s, " => {$weight: %g;}", opts.weight);
     }
@@ -215,7 +233,7 @@ struct QueryTokenNode : QueryNode {
 
   IndexIterator *EvalNode(Query *q);
   IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
-    return idx->OpenReader(q->sctx->spec, tok.str, tok.len, weight);
+    return idx->OpenReader(q->sctx->spec, tok.str.data(), tok.length(), weight);
   }
 };
 
@@ -224,13 +242,13 @@ struct QueryTokenNode : QueryNode {
 struct QueryPrefixNode : QueryNode {
   RSToken tok;
 
-  QueryPrefixNode(QueryParse *q, const char *s, size_t len) :
-    QueryNode(QN_PREFX), tok((char *)s, len, 0, 0) {
+  QueryPrefixNode(QueryParse *q, const std::string_view &str) :
+    QueryNode(QN_PREFX), tok(str, 0, 0) {
     if (q) q->numTokens++;
   }
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
-    s = sdscatprintf(s, "PREFIX{%s*", (char *)tok.str);
+    s = sdscatprintf(s, "PREFIX{%s*", +tok);
     return s;
   }
 
@@ -244,15 +262,15 @@ struct QueryFuzzyNode : QueryNode {
   RSToken tok;
   int maxDist;
 
-  QueryFuzzyNode(QueryParse *q, const char *s, size_t len, int maxDist) :
-      QueryNode(QN_FUZZY), tok((char *)s, len, 0, 0), maxDist(maxDist) {
+  QueryFuzzyNode(QueryParse *q, const std::string_view &str, int maxDist) :
+      QueryNode(QN_FUZZY), tok(str, 0, 0), maxDist(maxDist) {
     q->numTokens++;
   }
 
   IndexIterator *EvalNode(Query *q);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
-    s = sdscatprintf(s, "FUZZY{%s}\n", tok.str);
+    s = sdscatprintf(s, "FUZZY{%s}\n", +tok);
     return s;
   }
 };
@@ -294,10 +312,10 @@ struct QueryGeofilterNode : QueryNode {
 //---------------------------------------------------------------------------------------------
 
 struct QueryIdFilterNode : QueryNode {
-  t_docId *ids;
+  Vector<t_docId> ids;
   size_t len;
 
-  QueryIdFilterNode(t_docId *ids, size_t len) : QueryNode(QN_IDS), ids(ids), len(len) {}
+  QueryIdFilterNode(Vector<t_docId> &ids) : QueryNode(QN_IDS), ids(ids) {}
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscat(s, "IDS { ");
@@ -351,7 +369,7 @@ struct QueryUnionNode : QueryNode {
 
 struct QueryNotNode : QueryNode {
   QueryNotNode() : QueryNode(QN_NOT) {}
-  QueryNotNode(QueryNode *child) : QueryNode(QN_NOT, &child, 1) {}
+  QueryNotNode(QueryNode *child) : QueryNode(QN_NOT, child) {}
 
   IndexIterator *EvalNode(Query *q);
 
@@ -367,7 +385,7 @@ struct QueryNotNode : QueryNode {
 
 struct QueryOptionalNode : QueryNode {
   QueryOptionalNode() : QueryNode(QN_OPTIONAL) {}
-  QueryOptionalNode(QueryNode *child) : QueryNode(QN_OPTIONAL, &child, 1) {}
+  QueryOptionalNode(QueryNode *child) : QueryNode(QN_OPTIONAL, child) {}
 
   IndexIterator *EvalNode(Query *q);
 

@@ -3,7 +3,11 @@
 #include "redismodule.h"
 #include "redisearch.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 struct RSScoreExplain {
+  RSScoreExplain(RSScoreExplain *exp);
+  
   char *str;
   int numChildren;
   struct RSScoreExplain *children;
@@ -11,3 +15,5 @@ struct RSScoreExplain {
   void SEReply(RedisModuleCtx *ctx);
   void SEDestroy();
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////

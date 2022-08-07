@@ -1,82 +1,44 @@
-#include <dlfcn.h>
-#include <stdio.h>
 #include "extension.h"
 #include "redisearch.h"
 #include "rmalloc.h"
 #include "redismodule.h"
 #include "index_result.h"
 #include "query.h"
+
+#include <dlfcn.h>
+#include <stdio.h>
 #include <err.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Init the extension system - currently just create the regsistries
-
-void Extensions::Init() {
-  if (!queryExpanders_g) {
-    queryExpanders_g = new TrieMap();
-    scorers_g = new TrieMap();
-  }
-}
+extern Extensions g_ext = new Extensions();
 
 //---------------------------------------------------------------------------------------------
 
-Extensions::~Extensions() {
-  if (queryExpanders_g) {
-    delete queryExpanders_g;
-    queryExpanders_g = NULL;
-  }
-  if (scorers_g) {
-    delete scorers_g;
-    scorers_g = NULL;
-  }
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Register a scoring function by its alias. privdata is an optional pointer to a user defined
-// struct. ff is a free function releasing any resources allocated at the end of query execution.
-
-int Extensions::RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff,
-                                        void *privdata) {
-  if (func == NULL || scorers_g == NULL) {
+int Extensions::Register(const char *alias, Scorer *scorer) {
+  if (scorer == NULL) {
     return REDISEARCH_ERR;
   }
-  ExtScoringFunction *ctx = rm_new(ExtScoringFunction);
-  ctx->privdata = privdata;
-  ctx->ff = ff;
-  ctx->sf = func;
-
   // Make sure that two scorers are never registered under the same name
-  if (scorers_g->Find((char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
-    rm_free(ctx);
+  if (scorers.find(alias) != scorers::end()->Find((char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
     return REDISEARCH_ERR;
   }
 
-  scorers_g->Add((char *)alias, strlen(alias), ctx, NULL);
+  scorers[alias] = scorer;
   return REDISEARCH_OK;
 }
 
 //---------------------------------------------------------------------------------------------
 
-// Register a aquery expander
-
-int Extensions::RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff,
-                                      void *privdata) {
-  if (exp == NULL || queryExpanders_g == NULL) {
+int Extensions::RegisterQueryExpander(const char *alias, RSQueryTokenExpander *exp) {
+  if (exp == NULL) {
     return REDISEARCH_ERR;
   }
-  ExtQueryExpander *ctx;
-  ctx->privdata = privdata;
-  ctx->ff = ff;
-  ctx->exp = exp;
-
-  /* Make sure there are no two query expanders under the same name */
-  if (queryExpanders_g->Find((char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
-    rm_free(ctx);
+  // Make sure there are no two query expanders under the same name
+  if (queryExpanders.find(alias) != queryExpanders.end()) {
     return REDISEARCH_ERR;
   }
-  queryExpanders_g->Add((char *)alias, strlen(alias), ctx, NULL);
+  queryExpanders[alias] = exp;
   return REDISEARCH_OK;
 }
 
@@ -84,39 +46,30 @@ int Extensions::RegisterQueryExpander(const char *alias, RSQueryTokenExpander ex
 
 // Load an extension by calling its init function. return REDISEARCH_ERR or REDISEARCH_OK
 
-int Extensions::Load(const char *name, RSExtensionInitFunc func) {
-  // bind the callbacks in the context
-  RSExtensions ctx = {
-      RegisterScoringFunction: RegisterScoringFunction,
-      RegisterQueryExpander: RegisterQueryExpander,
-  };
-
-  return func(&ctx);
+int Extensions::Load(const char *name, Extension *ext) {
+  return REDISEARCH_OK;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Dynamically load a RediSearch extension by .so file path. Returns REDISMODULE_OK or ERR
 
+typedef int (*RS_ExtensionInit)(RSExtensions *);
+
 int Extensions::LoadDynamic(const char *path, char **errMsg) {
-  int (*init)(struct RSExtensions *);
-  void *handle;
   *errMsg = NULL;
-  handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
   if (handle == NULL) {
     FMT_ERR(errMsg, "Extension %s failed to load: %s", path, dlerror());
     return REDISMODULE_ERR;
   }
-  init = (int (*)(struct RSExtensions *))(unsigned long)dlsym(handle, "RS_ExtensionInit");
+  RS_ExtensionInit init = reinterpret_cast<RS_ExtensionInit>(dlsym(handle, "RS_ExtensionInit"));
   if (init == NULL) {
-    FMT_ERR(errMsg,
-            "Extension %s does not export RS_ExtensionInit() "
-            "symbol. Module not loaded.",
-            path);
+    FMT_ERR(errMsg, "Extension %s does not export RS_ExtensionInit() symbol. Module not loaded.", path);
     return REDISMODULE_ERR;
   }
 
-  if (Extensions::Load(path, init) == REDISEARCH_ERR) {
+  if (Load(path, init) == REDISEARCH_ERR) {
     FMT_ERR(errMsg, "Could not register extension %s", path);
     return REDISMODULE_ERR;
   }
@@ -126,21 +79,19 @@ int Extensions::LoadDynamic(const char *path, char **errMsg) {
 
 //---------------------------------------------------------------------------------------------
 
-// Get a scoring function by name
-static ExtScoringFunction *Extensions::GetScoringFunction(ScoringFunctionArgs *fnargs, const char *name) {
-  if (!scorers_g) return NULL;
-
+Scorer *Extensions::GetScorer(ScorerArgs *args, const char *name) {
   // lookup the scorer by name (case sensitive)
-  ExtScoringFunction *p = scorers_g->Find((char *)name, strlen(name));
-  if (p && (void *)p != TRIEMAP_NOTFOUND) {
-    // if no ctx was given, we just return the scorer
-    if (fnargs) {
-      fnargs->extdata = p->privdata;
-      fnargs->GetSlop = IndexResult::MinOffsetDelta();
-    }
-    return p;
+  auto it = scorers.find(name);
+  if (it == scorers.end()) {
+    return NULL;
   }
-  return NULL;
+
+  Scorer *scorer = it->second;
+  if (args) {
+    args->extdata = scorer;
+    args->GetSlop = IndexResult::MinOffsetDelta();
+  }
+  return scorer;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -220,6 +171,7 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
 //---------------------------------------------------------------------------------------------
 
 // Set the query payload
+
 void RSQueryExpander::SetPayload(RSPayload payload) {
   qast->udata = payload.data;
   qast->udatalen = payload.len;
@@ -227,21 +179,15 @@ void RSQueryExpander::SetPayload(RSPayload payload) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Get an expander by name
-
-static ExtQueryExpander *Extensions::GetQueryExpander(RSQueryExpander *ctx, const char *name) {
-  if (!queryExpanders_g) return NULL;
-
-  ExtQueryExpander *p = queryExpanders_g->Find((char *)name, strlen(name));
-
-  if (p && (void *)p != TRIEMAP_NOTFOUND) {
-    // ctx->ExpandToken = RSQueryExpander::ExpandToken;
-    // ctx->SetPayload = RSQueryExpander::SetPayload;
-    // ctx->ExpandTokenWithPhrase = RSQueryExpander::ExpandTokenWithPhrase;
-    ctx->privdata = p->privdata;
-    return p;
+QueryExpander *Extensions::GetQueryExpander(RSQueryExpander *ctx, const char *name) {
+  auto it = queryExpanders.find(name);
+  if (it == queryExpanders.end()) {
+    return NULL;
   }
-  return NULL;
+
+  queryExpanders *exp = it->second;
+  ctx->privdata = exp;
+  return exp;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

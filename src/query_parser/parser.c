@@ -34,15 +34,19 @@
 #include "util/arr.h"
 #include "rmutil/vector.h"
 #include "query_node.h"
+#include "tokenizer.h"
 
-// strndup + lowercase in one pass!
+//---------------------------------------------------------------------------------------------
+
+// strndup + lowercase in one pass
+
 char *strdupcase(const char *s, size_t len) {
   char *ret = rm_strndup(s, len);
   char *dst = ret;
   char *src = dst;
   while (*src) {
       // unescape
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
+      if (*src == '\\' && (ispunct(src[1]) || isspace(src[1]))) {
           ++src;
           continue;
       }
@@ -56,9 +60,27 @@ char *strdupcase(const char *s, size_t len) {
   return ret;
 }
 
-// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
-size_t unescapen(char *s, size_t sz) {
+//---------------------------------------------------------------------------------------------
 
+String str_unescape_lcase(const char *s, size_t len) {
+    String ss;
+    while (len--) {
+        // unescape
+        if (*s == '\\' && (ispunct(s[1]) || isspace(s[1]))) {
+            ++s;
+            continue;
+        }
+        ss.push_back(tolower(*s));
+    }
+    return ss;
+}
+
+//---------------------------------------------------------------------------------------------
+
+// unescape a string (non null terminated) and return the new length (may be shorter than the original.
+// This manipulates the string itself.
+
+size_t unescapen(char *s, size_t sz) {
   char *dst = s;
   char *src = dst;
   char *end = s + sz;
@@ -75,26 +97,47 @@ size_t unescapen(char *s, size_t sz) {
   return (size_t)(dst - s);
 }
 
+//---------------------------------------------------------------------------------------------
+
+String str_unescape(char *s, size_t len) {
+    String ss;
+    while (len--) {
+      // unescape
+      if (*s == '\\' && (ispunct(s[1]) || isspace(s[1]))) {
+          ++s;
+          continue;
+      }
+      ss.push_back(*s);
+  }
+  return ss;
+}
+
+//---------------------------------------------------------------------------------------------
+
 #define NODENN_BOTH_VALID 0
 #define NODENN_BOTH_INVALID -1
 #define NODENN_ONE_NULL 1
+
 // Returns:
 // 0 if a && b
 // -1 if !a && !b
 // 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out`
-static int one_not_null(void *a, void *b, void *out) {
+
+static int one_not_null(void *a, void *b, void *&out) {
     if (a && b) {
         return NODENN_BOTH_VALID;
     } else if (a == NULL && b == NULL) {
         return NODENN_BOTH_INVALID;
     } if (a) {
-        *(void **)out = a;
+        out = a;
         return NODENN_ONE_NULL;
     } else {
-        *(void **)out = b;
+        out = b;
         return NODENN_ONE_NULL;
     }
 }
+
+//---------------------------------------------------------------------------------------------
 
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols
@@ -126,7 +169,7 @@ static int one_not_null(void *a, void *b, void *out) {
 **                       the minor type might be the name of the identifier.
 **                       Each non-terminal can have a different minor type.
 **                       Terminal symbols all have the same minor type, though.
-**                       This macros defines the minor type for terminal
+**                       This macros defines the minor type for terminal 
 **                       symbols.
 **    YYMINORTYPE        is the data type used for all minor types.
 **                       This is typically a union of many types, one of
@@ -165,20 +208,20 @@ static int one_not_null(void *a, void *b, void *out) {
 typedef union {
   int yyinit;
   RSQueryParser_TOKENTYPE yy0;
+  Vector<String> * yy23;
   QueryNode * yy35;
   NumericFilter * yy36;
-  QueryAttribute yy55;
   GeoFilter * yy64;
   QueryAttribute * yy69;
-  Vector* yy78;
+  QueryAttributes * yy76;
   RangeNumber yy83;
 } YYMINORTYPE;
 #ifndef YYSTACKDEPTH
 #define YYSTACKDEPTH 100
 #endif
 #define RSQueryParser_ARG_SDECL  QueryParse *ctx ;
-#define RSQueryParser_ARG_PDECL , QueryParse *ctx
-#define RSQueryParser_ARG_PARAM ,ctx
+#define RSQueryParser_ARG_PDECL , QueryParse *ctx 
+#define RSQueryParser_ARG_PARAM ,ctx 
 #define RSQueryParser_ARG_FETCH  QueryParse *ctx =yypParser->ctx ;
 #define RSQueryParser_ARG_STORE yypParser->ctx =ctx ;
 #define RSQueryParser_CTX_SDECL
@@ -215,7 +258,7 @@ typedef union {
 /* Next are the tables used to determine what action to take based on the
 ** current state and lookahead token.  These tables are used to implement
 ** functions that take a state number and lookahead value and return an
-** action integer.
+** action integer.  
 **
 ** Suppose the action integer is N.  Then the action is determined as
 ** follows
@@ -354,9 +397,9 @@ static const YYACTIONTYPE yy_default[] = {
 };
 /********** End of lemon-generated parsing tables *****************************/
 
-/* The next table maps tokens (terminal symbols) into fallback tokens.
+/* The next table maps tokens (terminal symbols) into fallback tokens.  
 ** If a construct like the following:
-**
+** 
 **      %fallback ID X Y Z.
 **
 ** appears in the grammar, then ID becomes a fallback token for X, Y,
@@ -428,10 +471,10 @@ static char *yyTracePrompt = 0;
 #endif /* NDEBUG */
 
 #ifndef NDEBUG
-/*
+/* 
 ** Turn parser tracing on by giving a stream to which to write the trace
 ** and a prompt to preface each trace message.  Tracing is turned off
-** by making either argument NULL
+** by making either argument NULL 
 **
 ** Inputs:
 ** <ul>
@@ -456,7 +499,7 @@ void RSQueryParser_Trace(FILE *TraceFILE, char *zTracePrompt){
 #if defined(YYCOVERAGE) || !defined(NDEBUG)
 /* For tracing shifts, the names of all terminals and nonterminals
 ** are required.  The following table supplies these names */
-static const char *const yyTokenName[] = {
+static const char *const yyTokenName[] = { 
   /*    0 */ "$",
   /*    1 */ "LOWEST",
   /*    2 */ "TILDE",
@@ -593,7 +636,7 @@ static int yyGrowStack(yyParser *p){
 #endif
     p->yystksz = newSize;
   }
-  return pNew==0;
+  return pNew==0; 
 }
 #endif
 
@@ -635,7 +678,7 @@ void RSQueryParser_Init(void *yypRawParser RSQueryParser_CTX_PDECL){
 }
 
 #ifndef RSQueryParser__ENGINEALWAYSONSTACK
-/*
+/* 
 ** This function allocates a new parser.
 ** The only argument is a pointer to a function which works like
 ** malloc.
@@ -662,7 +705,7 @@ void *RSQueryParser_Alloc(void *(*mallocProc)(YYMALLOCARGTYPE) RSQueryParser_CTX
 /* The following function deletes the "minor type" or semantic value
 ** associated with a symbol.  The symbol can be either a terminal
 ** or nonterminal. "yymajor" is the symbol code, and "yypminor" is
-** a pointer to the value to be deleted.  The code used to do the
+** a pointer to the value to be deleted.  The code used to do the 
 ** deletions is derived from the %destructor and/or %token_destructor
 ** directives of the input grammar.
 */
@@ -677,7 +720,7 @@ static void yy_destructor(
     /* Here is inserted the actions which take place when a
     ** terminal or non-terminal is destroyed.  This can happen
     ** when the symbol is popped from the stack during a
-    ** reduce or during error processing or when a parser is
+    ** reduce or during error processing or when a parser is 
     ** being destroyed before it is finished parsing.
     **
     ** Note: during a reduce, the only symbols destroyed are those
@@ -691,7 +734,7 @@ static void yy_destructor(
     case 40: /* modifier */
     case 41: /* term */
 {
-
+ 
 }
       break;
     case 27: /* expr */
@@ -701,40 +744,35 @@ static void yy_destructor(
     case 33: /* fuzzy */
     case 34: /* tag_list */
 {
- delete yypminor->yy35;
+ delete (yypminor->yy35); 
 }
       break;
     case 28: /* attribute */
 {
- rm_free((char*)(yypminor->yy55).value);
+ delete (yypminor->yy69); 
 }
       break;
     case 29: /* attribute_list */
 {
- array_free_ex((yypminor->yy69), rm_free((char*)((QueryAttribute*)ptr )->value));
+ delete (yypminor->yy76);; 
 }
       break;
     case 35: /* geo_filter */
 {
- delete yypminor->yy64;
+ delete (yypminor->yy64); 
 }
       break;
     case 36: /* modifierlist */
 {
 
-    for (size_t i = 0; i < yypminor->yy78->Size(); i++) {
-        char *s;
-        yypminor->yy78->Get(i, &s);
-        rm_free(s);
-    }
-    delete yypminor->yy78;
+    delete (yypminor->yy23);
 
 }
       break;
     case 38: /* numeric_range */
 {
 
-    delete yypminor->yy36;
+    delete (yypminor->yy36);
 
 }
       break;
@@ -776,7 +814,7 @@ void RSQueryParser_Finalize(void *p){
 }
 
 #ifndef RSQueryParser__ENGINEALWAYSONSTACK
-/*
+/* 
 ** Deallocate and destroy a parser.  Destructors are called for
 ** all stack elements before shutting the parser down.
 **
@@ -884,7 +922,7 @@ static YYACTIONTYPE yy_find_shift_action(
 #ifdef YYWILDCARD
       {
         int j = i - iLookAhead + YYWILDCARD;
-        if(
+        if( 
 #if YY_SHIFT_MIN+YYWILDCARD<0
           j>=0 &&
 #endif
@@ -999,7 +1037,7 @@ static void yy_shift(
     assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack) );
   }
 #endif
-#if YYSTACKDEPTH>0
+#if YYSTACKDEPTH>0 
   if( yypParser->yytos>yypParser->yystackEnd ){
     yypParser->yytos--;
     yyStackOverflow(yypParser);
@@ -1138,7 +1176,7 @@ static YYACTIONTYPE yy_reduce(
       assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack));
     }
 #endif
-#if YYSTACKDEPTH>0
+#if YYSTACKDEPTH>0 
     if( yypParser->yytos>=yypParser->yystackEnd ){
       yyStackOverflow(yypParser);
       /* The call to yyStackOverflow() above pops the stack until it is
@@ -1173,10 +1211,8 @@ static YYACTIONTYPE yy_reduce(
         YYMINORTYPE yylhsminor;
       case 0: /* query ::= expr */
 {
- /* If the root is a negative node, we intersect it with a wildcard node */
-
+    // If the root is a negative node, we intersect it with a wildcard node
     ctx->root = yymsp[0].minor.yy35;
-
 }
         break;
       case 1: /* query ::= */
@@ -1191,15 +1227,23 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 3: /* expr ::= expr expr */
 {
-    int rv = one_not_null(yymsp[-1].minor.yy35, yymsp[0].minor.yy35, (void**)&yylhsminor.yy35);
+    int rv = one_not_null(yymsp[-1].minor.yy35, yymsp[0].minor.yy35, *(void**)&yylhsminor.yy35);
     if (rv == NODENN_BOTH_INVALID) {
         yylhsminor.yy35 = NULL;
     } else if (rv == NODENN_ONE_NULL) {
         // Nothing- `out` is already assigned
     } else {
-        if (yymsp[-1].minor.yy35 && yymsp[-1].minor.yy35->type == QN_PHRASE && yymsp[-1].minor.yy35->pn.exact == 0 &&
-            yymsp[-1].minor.yy35->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            yylhsminor.yy35 = yymsp[-1].minor.yy35;
+        if (yymsp[-1].minor.yy35 && yymsp[-1].minor.yy35->type == QN_PHRASE && yymsp[-1].minor.yy35->opts.fieldMask == RS_FIELDMASK_ALL) {
+            QueryPhraseNode *pn = dynamic_cast<QueryPhraseNode*>(yymsp[-1].minor.yy35);
+            if (!pn) {
+                throw Error("Invalid node: not PhraseNode");
+            }
+            if (!pn->exact) {
+                yylhsminor.yy35 = yymsp[-1].minor.yy35;
+            } else {
+                yylhsminor.yy35 = new QueryPhraseNode(0);
+                yylhsminor.yy35->AddChild(yymsp[-1].minor.yy35);
+            }
         } else {
             yylhsminor.yy35 = new QueryPhraseNode(0);
             yylhsminor.yy35->AddChild(yymsp[-1].minor.yy35);
@@ -1210,6 +1254,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 4: /* expr ::= union */
+      case 20: /* expr ::= termlist */ yytestcase(yyruleno==20);
 {
     yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
@@ -1217,7 +1262,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 5: /* union ::= expr OR expr */
 {
-    int rv = one_not_null(yymsp[-2].minor.yy35, yymsp[0].minor.yy35, (void**)&yylhsminor.yy35);
+    int rv = one_not_null(yymsp[-2].minor.yy35, yymsp[0].minor.yy35, *(void**)&yylhsminor.yy35);
     if (rv == NODENN_BOTH_INVALID) {
         yylhsminor.yy35 = NULL;
     } else if (rv == NODENN_ONE_NULL) {
@@ -1266,22 +1311,17 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 8: /* expr ::= modifierlist COLON expr */
 {
-
     if (yymsp[0].minor.yy35 == NULL) {
         yylhsminor.yy35 = NULL;
     } else {
-        //yymsp[0].minor.yy35->opts.fieldMask = 0;
         t_fieldMask mask = 0;
-        if (ctx->sctx->spec) {
-            for (int i = 0; i < yymsp[-2].minor.yy78->Size(); i++) {
-                char *p;
-                yymsp[-2].minor.yy78->Get(i, &p);
-                mask |= ctx->sctx->spec->GetFieldBit(p, strlen(p));
-                rm_free(p);
+        if (ctx->sctx->spec && yymsp[-2].minor.yy23) {
+            for (auto &mod: *yymsp[-2].minor.yy23) {
+                mask |= ctx->sctx->spec->GetFieldBit(mod.c_str(), mod.length());
             }
         }
         yymsp[0].minor.yy35->SetFieldMask(mask);
-        delete yymsp[-2].minor.yy78;
+        delete yymsp[-2].minor.yy23;
         yylhsminor.yy35=yymsp[0].minor.yy35;
     }
 }
@@ -1295,75 +1335,70 @@ static YYACTIONTYPE yy_reduce(
       case 10: /* attribute ::= ATTRIBUTE COLON term */
 {
 
-    yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), .vallen = yymsp[0].minor.yy0.len };
-}
-  yymsp[-2].minor.yy55 = yylhsminor.yy55;
-        break;
-      case 11: /* attribute_list ::= attribute */
-{
-    yylhsminor.yy69 = array_new(QueryAttribute, 2);
-    yylhsminor.yy69 = array_append(yylhsminor.yy69, yymsp[0].minor.yy55);
-}
-  yymsp[0].minor.yy69 = yylhsminor.yy69;
-        break;
-      case 12: /* attribute_list ::= attribute_list SEMICOLON attribute */
-{
-    yylhsminor.yy69 = array_append(yymsp[-2].minor.yy69, yymsp[0].minor.yy55);
+    yylhsminor.yy69 = new QueryAttribute{yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len};
 }
   yymsp[-2].minor.yy69 = yylhsminor.yy69;
         break;
+      case 11: /* attribute_list ::= attribute */
+{
+    yylhsminor.yy76 = new QueryAttributes();
+    yylhsminor.yy76->push_back(yymsp[0].minor.yy69);
+}
+  yymsp[0].minor.yy76 = yylhsminor.yy76;
+        break;
+      case 12: /* attribute_list ::= attribute_list SEMICOLON attribute */
+{
+    yymsp[-2].minor.yy76->push_back(yymsp[0].minor.yy69);
+    yylhsminor.yy76 = yymsp[-2].minor.yy76;
+}
+  yymsp[-2].minor.yy76 = yylhsminor.yy76;
+        break;
       case 13: /* attribute_list ::= attribute_list SEMICOLON */
 {
-    yylhsminor.yy69 = yymsp[-1].minor.yy69;
+    yylhsminor.yy76 = yymsp[-1].minor.yy76;
 }
-  yymsp[-1].minor.yy69 = yylhsminor.yy69;
+  yymsp[-1].minor.yy76 = yylhsminor.yy76;
         break;
       case 14: /* attribute_list ::= */
 {
-    yymsp[1].minor.yy69 = NULL;
+    yymsp[1].minor.yy76 = NULL;
 }
         break;
       case 15: /* expr ::= expr ARROW LB attribute_list RB */
 {
-
-    if (yymsp[-4].minor.yy35 && yymsp[-1].minor.yy69) {
-        yymsp[-4].minor.yy35->ApplyAttributes(yymsp[-1].minor.yy69, array_len(yymsp[-1].minor.yy69), ctx->status);
+    if (yymsp[-4].minor.yy35 && yymsp[-1].minor.yy76) {
+        yymsp[-4].minor.yy35->ApplyAttributes(yymsp[-1].minor.yy76, ctx->status);
     }
-    array_free_ex(yymsp[-1].minor.yy69, rm_free((char*)((QueryAttribute*)ptr )->value));
     yylhsminor.yy35 = yymsp[-4].minor.yy35;
 }
   yymsp[-4].minor.yy35 = yylhsminor.yy35;
         break;
       case 16: /* expr ::= QUOTE termlist QUOTE */
 {
-    yymsp[-1].minor.yy35->pn.exact =1;
+    QueryPhraseNode *pn = dynamic_cast<QueryPhraseNode*>(yymsp[-1].minor.yy35);
+    if (!pn) {
+        throw Error("Invalid node: not PhraseNode");
+    }
+    pn->exact = true;
     yymsp[-1].minor.yy35->opts.flags |= QueryNode_Verbatim;
-
     yymsp[-2].minor.yy35 = yymsp[-1].minor.yy35;
 }
         break;
       case 17: /* expr ::= QUOTE term QUOTE */
 {
-    yymsp[-2].minor.yy35 = new QueryTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
+    yymsp[-2].minor.yy35 = new QueryTokenNode(ctx, str_unescape_lcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len));
     yymsp[-2].minor.yy35->opts.flags |= QueryNode_Verbatim;
-
 }
         break;
       case 18: /* expr ::= term */
 {
-   yylhsminor.yy35 = new QueryTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1);
+   yylhsminor.yy35 = new QueryTokenNode(ctx, str_unescape_lcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
 }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 19: /* expr ::= prefix */
 {
     yylhsminor.yy35= yymsp[0].minor.yy35;
-}
-  yymsp[0].minor.yy35 = yylhsminor.yy35;
-        break;
-      case 20: /* expr ::= termlist */
-{
-        yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
@@ -1375,15 +1410,15 @@ static YYACTIONTYPE yy_reduce(
       case 22: /* termlist ::= term term */
 {
     yylhsminor.yy35 = new QueryPhraseNode(0);
-    yylhsminor.yy35->AddChild(new QueryTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
-    yylhsminor.yy35->AddChild(new QueryTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yylhsminor.yy35->AddChild(new QueryTokenNode(ctx, str_unescape_lcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len)));
+    yylhsminor.yy35->AddChild(new QueryTokenNode(ctx, str_unescape_lcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len)));
 }
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 23: /* termlist ::= termlist term */
 {
     yylhsminor.yy35 = yymsp[-1].minor.yy35;
-    yylhsminor.yy35->AddChild(new QueryTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yylhsminor.yy35->AddChild(new QueryTokenNode(ctx, str_unescape_lcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len)));
 }
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
@@ -1414,30 +1449,26 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 27: /* prefix ::= PREFIX */
 {
-    yymsp[0].minor.yy0.s = strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    yylhsminor.yy35 = new QueryPrefixNode(ctx, yymsp[0].minor.yy0.s, strlen(yymsp[0].minor.yy0.s));
+    yylhsminor.yy35 = new QueryPrefixNode(ctx, str_unescape_lcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
 }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 28: /* expr ::= PERCENT term PERCENT */
       case 31: /* expr ::= PERCENT STOPWORD PERCENT */ yytestcase(yyruleno==31);
 {
-    yymsp[-1].minor.yy0.s = strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-    yymsp[-2].minor.yy35 = new QueryFuzzyNode(ctx, yymsp[-1].minor.yy0.s, strlen(yymsp[-1].minor.yy0.s), 1);
+    yymsp[-2].minor.yy35 = new QueryFuzzyNode(ctx, str_unescape_lcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), 1);
 }
         break;
       case 29: /* expr ::= PERCENT PERCENT term PERCENT PERCENT */
       case 32: /* expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */ yytestcase(yyruleno==32);
 {
-    yymsp[-2].minor.yy0.s = strdupcase(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    yymsp[-4].minor.yy35 = new QueryFuzzyNode(ctx, yymsp[-2].minor.yy0.s, strlen(yymsp[-2].minor.yy0.s), 2);
+    yymsp[-4].minor.yy35 = new QueryFuzzyNode(ctx, str_unescape_lcase(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len), 2);
 }
         break;
       case 30: /* expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
       case 33: /* expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */ yytestcase(yyruleno==33);
 {
-    yymsp[-3].minor.yy0.s = strdupcase(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
-    yymsp[-6].minor.yy35 = new QueryFuzzyNode(ctx, yymsp[-3].minor.yy0.s, strlen(yymsp[-3].minor.yy0.s), 3);
+    yymsp[-6].minor.yy35 = new QueryFuzzyNode(ctx, str_unescape_lcase(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len), 3);
 }
         break;
       case 34: /* modifier ::= MODIFIER */
@@ -1449,21 +1480,18 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 35: /* modifierlist ::= modifier OR term */
 {
-    yylhsminor.yy78 = NewVector(char *, 2);
-    char *s = strdupcase(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    yylhsminor.yy78->Push(s);
-    s = strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    yylhsminor.yy78->Push(s);
+    yylhsminor.yy23 = new Vector<String>(2);
+    yylhsminor.yy23->emplace_back(str_unescape_lcase(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
+    yylhsminor.yy23->emplace_back(str_unescape_lcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
 }
-  yymsp[-2].minor.yy78 = yylhsminor.yy78;
+  yymsp[-2].minor.yy23 = yylhsminor.yy23;
         break;
       case 36: /* modifierlist ::= modifierlist OR term */
 {
-    char *s = strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    yymsp[-2].minor.yy78->Push(s);
-    yylhsminor.yy78 = yymsp[-2].minor.yy78;
+    yymsp[-2].minor.yy23->push_back(str_unescape_lcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
+    yylhsminor.yy23 = yymsp[-2].minor.yy23;
 }
-  yymsp[-2].minor.yy78 = yylhsminor.yy78;
+  yymsp[-2].minor.yy23 = yylhsminor.yy23;
         break;
       case 37: /* expr ::= modifier COLON tag_list */
 {
@@ -1471,14 +1499,11 @@ static YYACTIONTYPE yy_reduce(
         yylhsminor.yy35= NULL;
     } else {
         // Tag field names must be case sensitive, we we can't do strdupcase
-        char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        size_t slen = unescapen((char*)s, yymsp[-2].minor.yy0.len);
-
-        yylhsminor.yy35 = new QueryTagNode(s, slen);
-        yylhsminor.yy35->AddChildren(yymsp[0].minor.yy35->children, yymsp[0].minor.yy35->NumChildren());
+        yylhsminor.yy35 = new QueryTagNode(str_unescape(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
+        yylhsminor.yy35->AddChildren(yymsp[0].minor.yy35->children); // we transfer ownership of yymsp[0].minor.yy35->children
 
         // Set the children count on yymsp[0].minor.yy35 to 0 so they won't get recursively free'd
-        yymsp[0].minor.yy35->ClearChildren(false);
+        // yymsp[0].minor.yy35->ClearChildren(false);
         delete yymsp[0].minor.yy35;
     }
 }
@@ -1487,7 +1512,7 @@ static YYACTIONTYPE yy_reduce(
       case 38: /* tag_list ::= LB term */
 {
     yymsp[-1].minor.yy35 = new QueryPhraseNode(0);
-    yymsp[-1].minor.yy35->AddChild(new QueryTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    yymsp[-1].minor.yy35->AddChild(new QueryTokenNode(ctx, str_unescape_lcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len)));
 }
         break;
       case 39: /* tag_list ::= LB prefix */
@@ -1522,7 +1547,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 46: /* numeric_range ::= LSQB num num RSQB */
 {
-    yymsp[-3].minor.yy36 = NewNumericFilter(yymsp[-2].minor.yy83.num, yymsp[-1].minor.yy83.num, yymsp[-2].minor.yy83.inclusive, yymsp[-1].minor.yy83.inclusive);
+    yymsp[-3].minor.yy36 = new NumericFilter(yymsp[-2].minor.yy83.num, yymsp[-1].minor.yy83.num, yymsp[-2].minor.yy83.inclusive, yymsp[-1].minor.yy83.inclusive);
 }
         break;
       case 47: /* expr ::= modifier COLON geo_filter */
@@ -1541,8 +1566,8 @@ static YYACTIONTYPE yy_reduce(
     } else {
         strcpy(buf, "INVALID");
     }
-    yymsp[-5].minor.yy64 = NewGeoFilter(yymsp[-4].minor.yy83.num, yymsp[-3].minor.yy83.num, yymsp[-2].minor.yy83.num, buf);
-    GeoFilter_Validate(yymsp[-5].minor.yy64, ctx->status);
+    yymsp[-5].minor.yy64 = new GeoFilter(yymsp[-4].minor.yy83.num, yymsp[-3].minor.yy83.num, yymsp[-2].minor.yy83.num, buf);
+    yymsp[-5].minor.yy64->Validate(ctx->status);
 }
         break;
       case 49: /* num ::= NUMBER */
@@ -1750,7 +1775,7 @@ void RSQueryParser_(
 #ifdef YYERRORSYMBOL
       /* A syntax error has occurred.
       ** The response to an error depends upon whether or not the
-      ** grammar defines an error token "ERROR".
+      ** grammar defines an error token "ERROR".  
       **
       ** This is what we do if the grammar does define ERROR:
       **

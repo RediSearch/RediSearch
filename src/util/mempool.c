@@ -32,7 +32,7 @@ mempool_t::mempool_t(size_t initialCap, size_t maxCap, bool isGlobal) {
     max = 0;
     entries = NULL;
   } else {
-    entries = rm_calloc(options.initialCap, sizeof(void *));
+    entries = rm_calloc(initialCap, sizeof(void *));
     cap = initialCap;
     max = maxCap;
   }

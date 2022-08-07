@@ -181,8 +181,7 @@ RPScorer::~RPScorer() {
   if (scorerFree) {
     scorerFree(scorerCtx.extdata);
   }
-  rm_free(scorerCtx.scrExp);
-  scorerCtx.scrExp = NULL;
+  delete scorerCtx;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -190,7 +189,7 @@ RPScorer::~RPScorer() {
 // Create a new scorer by name. If the name is not found in the scorer registry, we use the
 // defalt scorer
 
-RPScorer::RPScorer(const ExtScoringFunction *funcs, const ScoringFunctionArgs *fnargs) : ResultProcessor("Scorer") {
+RPScorer::RPScorer(const ExtScorer *scorer, const ScorerArgs *fnargs) : ResultProcessor("Scorer") {
   scorer = funcs->sf;
   scorerFree = funcs->ff;
   scorerCtx = *fnargs;

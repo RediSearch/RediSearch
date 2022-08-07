@@ -36,7 +36,6 @@ struct IdType {
 
 //---------------------------------------------------------------------------------------------
 
-//typedef uint64_t t_docId;
 typedef IdType<uint64_t> t_docId;
 typedef IdType<uint64_t> t_offset;
 
@@ -48,15 +47,18 @@ typedef IdType<uint16_t> t_fieldId;
 #if defined(__x86_64__) && !defined(RS_NO_U128)
 // 64 bit architectures use 128 bit field masks and up to 128 fields
 typedef __uint128_t t_fieldMask;
-#define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
+// #define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
 
 #else
 // 32 bit architectures use 64 bits and 64 fields only
 typedef uint64_t t_fieldMask;
-#define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
+// #define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
 #endif
 
+#define RS_FIELDMASK_ALL (~(t_fieldMask(0)))
+
 struct RSSortingVector;
+struct RSScoreExplain;
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
@@ -102,7 +104,7 @@ enum RSDocumentFlags {
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
  *
- * The key is the actual user defined key of the document, not the incremental id.
+ * The key is the user-defined key of the document, not the incremental id.
  * It is used to convert incremental internal ids to external string keys.
  *
  * Score is the original user score as inserted to the index
@@ -174,20 +176,18 @@ typedef uint32_t RSTokenFlags;
 // The expanders receive query tokens and can expand the query with more query tokens.
 
 struct RSToken {
-  char *str; // The token string - which may or may not be NULL terminated
-  size_t len; // The token length
+  String str;
   uint8_t expanded; // Is this token an expansion?
   RSTokenFlags flags; // Extension set token flags - up to 31 bits
 
-  RSToken(const char *str, size_t len, uint8_t expanded = 1, RSTokenFlags flags = 31) :
-    str(str ? rm_strdup(str) : NULL), len(len), expanded(expanded), flags(flags) {}
+  RSToken(const std::string_view &str, uint8_t expanded = 1, RSTokenFlags flags = 31) :
+    str(str), expanded(expanded), flags(flags) {}
 
   RSToken(const Runes &r);
   RSToken(const rune *r, size_t n);
 
-  ~RSToken() {
-    if (str) rm_free(str);
-  }
+  size_t length() const { return str.length(); }
+  const char *operator+() const { return str.c_str(); }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -306,6 +306,7 @@ struct RSOffsetVector {
 
 // RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
 // order to completely filter out results and disregard them in the totals count
+
 #define RS_SCORE_FILTEROUT (-1.0 / 0.0)
 
 //---------------------------------------------------------------------------------------------
@@ -318,27 +319,27 @@ struct RSIndexStats {
 
 //---------------------------------------------------------------------------------------------
 
-// The context given to a scoring function. It includes the payload set by the user or expander,
-// the private data set by the extensionm and callback functions
+// The context given to a scoring function.
+// It includes payload set by user or expander, extension private data, and callback functions.
 
-struct ScoringFunctionArgs {
+struct ScorerArgs {
   // Private data set by the extension on initialization time, or during scoring
   void *extdata;
 
   // Payload set by the client or by the query expander
-  const void *qdata;
-  size_t qdatalen;
+  SimpleBuff *qdata;
 
   // Index statistics to be used by scoring functions
   RSIndexStats indexStats;
 
   // Flags controlling scoring function
-  void *scrExp;  // scoreflags
+  void *scrExp; // scoreflags
 
   // The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
   // that can be used to factor the result score.
-  // int (*GetSlop)(const IndexResult *res);
   virtual int GetSlop(const struct IndexResult *res);
+
+  RSScoreExplain *strExpCreateParent(RSScoreExplain **child) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -417,18 +418,17 @@ struct IndexResult : public Object {
 
   // Reset state of an existing index hit. This can be used to recycle index hits during reads
   void Reset();
-
-  // Debug print a result
-  virtual void Print(int depth) const;
+  
+  virtual void Print(int depth) const; // debug print
 
   // Get the minimal delta between the terms in the result
   virtual int MinOffsetDelta() const { return 1; };
 
   size_t GetMatchedTerms(RSQueryTerm **arr, size_t cap);
-  virtual void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) { return; }
+  virtual void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) {}
 
-  // Return 1 if the the result is within a given slop range, inOrder determines whether the tokens
-  // need to be ordered as in the query or not
+  // Return true if the result is within a slop range.
+  // inOrder determines whether the tokens need to be ordered as in the query or not.
   virtual bool IsWithinRange(int maxSlop, bool inOrder) const { return true; }
 
   virtual bool HasOffsets() const { return false; };
@@ -436,17 +436,12 @@ struct IndexResult : public Object {
   bool withinRangeInOrder(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
   bool withinRangeUnordered(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
 
-  virtual double tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+  virtual double tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
+  double tfIdfInternal(const ScorerArgs *args, const RSDocumentMetadata *dmd, double minScore, int normMode) const;
+  virtual double bm25Recursive(const ScorerArgs *args, const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
+  virtual double dismaxRecursive(const ScorerArgs *args, RSScoreExplain *expl) const;
 
-  virtual double bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd,
-                               RSScoreExplain *scrExp) const;
-
-  double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd, double minScore,
-                       int normMode) const;
-
-  virtual double dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExplain *scrExp) const;
-
-  // Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed
+  // Iterate an offset vector
   virtual std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
     return std::make_unique<RSOffsetIterator>();
   }
@@ -457,7 +452,7 @@ struct IndexResult : public Object {
 
 // RSScoringFunction is a callback type for query custom scoring function modules
 
-typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const IndexResult *res,
+typedef double (*RSScoringFunction)(const ScorerArgs *ctx, const IndexResult *res,
                                     const RSDocumentMetadata *dmd, double minScore);
 
 // The extension registeration context, containing the callbacks avaliable to the extension for

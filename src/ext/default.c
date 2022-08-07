@@ -1,27 +1,26 @@
+
+#include "redisearch.h"
+#include "spec.h"
+#include "query.h"
+#include "synonym_map.h"
+#include "snowball/include/libstemmer.h"
+#include "default.h"
+#include "tokenize.h"
+#include "rmutil/vector.h"
+#include "stemmer.h"
+#include "phonetic_manager.h"
+#include "score_explain.h"
+
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <sys/param.h>
-#include "../redisearch.h"
-#include "../spec.h"
-#include "../query.h"
-#include "../synonym_map.h"
-#include "snowball/include/libstemmer.h"
-#include "default.h"
-#include "../tokenize.h"
-#include "rmutil/vector.h"
-#include "../stemmer.h"
-#include "../phonetic_manager.h"
-#include "../score_explain.h"
 
-/******************************************************************************************
- *
- * TF-IDF Scoring Functions
- *
- * We have 2 TF-IDF scorers - one where TF is normalized by max frequency, the other where it is
- * normalized by total weighted number of terms in the document
- *
- ******************************************************************************************/
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TF-IDF Scoring Functions
+
+// We have 2 TF-IDF scorers - one where TF is normalized by max frequency, the other where it is
+// normalized by total weighted number of terms in the document
 
 // normalize TF by max frequency
 #define NORM_MAXFREQ 1
@@ -35,12 +34,12 @@
     }                              \
   }
 
-static inline void explain(RSScoreExplain *scrExp, char *fmt, ...) {
-  void *tempStr = scrExp->str;
+static inline void explain(RSScoreExplain *expl, char *fmt, ...) {
+  void *tempStr = expl->str;
 
   va_list ap;
   va_start(ap, fmt);
-  rm_vasprintf((char ** __restrict) & scrExp->str, fmt, ap);
+  rm_vasprintf((char ** __restrict) & expl->str, fmt, ap);
   va_end(ap);
 
   rm_free(tempStr);
@@ -48,13 +47,12 @@ static inline void explain(RSScoreExplain *scrExp, char *fmt, ...) {
 
 //-------------------------------------------------------------------------------------------------------
 
-//@@ How to make it a member of ScoringFunctionArgs?
-static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp) {
-  if (*scrExp) {
-    RSScoreExplain *finalScrExp = rm_calloc(1, sizeof(RSScoreExplain));
+RSScoreExplain *ScorerArgs::strExpCreateParent(RSScoreExplain **child) const {
+  if (*child) {
+    RSScoreExplain *finalScrExp = new RSScoreExplain(*child);
     finalScrExp->numChildren = 1;
-    finalScrExp->children = *scrExp;
-    ((ScoringFunctionArgs *)ctx)->scrExp = *scrExp = finalScrExp;
+    finalScrExp->children = *child;
+    scrExp = *child = finalScrExp;
   }
 }
 
@@ -99,9 +97,9 @@ double IndexResult::tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain
 
 // internal common tf-idf function, where just the normalization method changes
 
-double IndexResult::tfIdfInternal(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd,
+double IndexResult::tfIdfInternal(const ScorerArgs *args, const RSDocumentMetadata *dmd,
     double minScore, int normMode) const {
-  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  RSScoreExplain *scrExp = (RSScoreExplain *)args->scrExp;
   if (dmd->score == 0) {
     EXPLAIN(scrExp, "Document score is 0");
     return 0;
@@ -131,7 +129,7 @@ double IndexResult::tfIdfInternal(const ScoringFunctionArgs *ctx, const RSDocume
 // Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
 // in this document.
 
-static double TFIDFScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
+static double TFIDFScorer(const ScorerArgs *ctx, const IndexResult *h,
                           const RSDocumentMetadata *dmd, double minScore) {
   return h->tfIdfInternal(ctx, dmd, minScore, NORM_MAXFREQ);
 }
@@ -140,24 +138,19 @@ static double TFIDFScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
 
 // Identical scorer to TFIDFScorer, only the normalization is by total weighted frequency in the doc
 
-static double TFIDFNormDocLenScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
+static double TFIDFNormDocLenScorer(const ScorerArgs *ctx, const IndexResult *h,
                                     const RSDocumentMetadata *dmd, double minScore) {
 
   return h->tfIdfInternal(ctx, dmd, minScore, NORM_DOCLEN);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-/******************************************************************************************
- *
- * BM25 Scoring Functions
- *
- * https://en.wikipedia.org/wiki/Okapi_BM25
- *
- ******************************************************************************************/
+// BM25 Scoring Functions
+// https://en.wikipedia.org/wiki/Okapi_BM25
 
 // recursively calculate score for each token, summing up sub tokens
-double TermResult::bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd,
+
+double TermResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd,
     RSScoreExplain *scrExp) const {
   static const float b = 0.5;
   static const float k1 = 1.2;
@@ -174,7 +167,7 @@ double TermResult::bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocumen
 
 //-------------------------------------------------------------------------------------------------------
 
-double AggregateResult::bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd,
+double AggregateResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd,
     RSScoreExplain *scrExp) const {
   static const float b = 0.5;
   static const float k1 = 1.2;
@@ -199,7 +192,7 @@ double AggregateResult::bm25Recursive(const ScoringFunctionArgs *ctx, const RSDo
 
 //-------------------------------------------------------------------------------------------------------
 
-double IndexResult::bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd,
+double IndexResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd,
     RSScoreExplain *scrExp) const {
   double f = (double)freq;
   double ret = 0;
@@ -220,10 +213,9 @@ double IndexResult::bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocume
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 // BM25 scoring function
 
-static double BM25Scorer(const ScoringFunctionArgs *ctx, const IndexResult *r,
+static double BM25Scorer(const ScorerArgs *ctx, const IndexResult *r,
                          const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   double bm25res = r->bm25Recursive(ctx, dmd, scrExp);
@@ -245,14 +237,9 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const IndexResult *r,
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Raw document-score scorer. Just returns the document score
 
-/******************************************************************************************
- *
- * Raw document-score scorer. Just returns the document score
- *
- ******************************************************************************************/
-
-static double DocScoreScorer(const ScoringFunctionArgs *ctx, const IndexResult *r,
+static double DocScoreScorer(const ScorerArgs *ctx, const IndexResult *r,
                              const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   EXPLAIN(scrExp, "Document's score is %.2f", dmd->score);
@@ -260,14 +247,9 @@ static double DocScoreScorer(const ScoringFunctionArgs *ctx, const IndexResult *
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
+// DISMAX-style scorer
 
-/******************************************************************************************
- *
- * DISMAX-style scorer
- *
- ******************************************************************************************/
-
-double IndexResult::dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExplain *scrExp) const {
+double IndexResult::dismaxRecursive(const ScorerArgs *ctx, RSScoreExplain *scrExp) const {
   // for terms - we return the term frequency
   double ret = freq;
   EXPLAIN(scrExp, "DISMAX %.2f = Weight %.2f * Frequency %d", weight * ret, weight, freq);
@@ -277,7 +259,7 @@ double IndexResult::dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExpla
 
 //-------------------------------------------------------------------------------------------------------
 
-double IntersectResult::dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExplain *scrExp) const {
+double IntersectResult::dismaxRecursive(const ScorerArgs *ctx, RSScoreExplain *scrExp) const {
   // for terms - we return the term frequency
   double ret = 0;
   if (!scrExp) {
@@ -298,7 +280,7 @@ double IntersectResult::dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreE
 
 //-------------------------------------------------------------------------------------------------------
 
-double UnionResult::dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExplain *scrExp) const {
+double UnionResult::dismaxRecursive(const ScorerArgs *ctx, RSScoreExplain *scrExp) const {
   double ret = 0;
   if (!scrExp) {
     for (int i = 0; i < numChildren; i++) {
@@ -320,7 +302,7 @@ double UnionResult::dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExpla
 
 // Calculate sum(TF-IDF)*document score for each result
 
-static double DisMaxScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
+static double DisMaxScorer(const ScorerArgs *ctx, const IndexResult *h,
                            const RSDocumentMetadata *dmd, double minScore) {
   return h->dismaxRecursive(ctx, ctx->scrExp);
 }
@@ -344,7 +326,7 @@ static const unsigned char bitsinbyte[256] = {
 // HAMMING - Scorer using Hamming distance between the query payload and the document payload.
 // Only works if both have the payloads the same length
 
-static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
+static double HammingDistanceScorer(const ScorerArgs *ctx, const IndexResult *h,
                                     const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   // the strings must be of the same length > 0
@@ -370,19 +352,6 @@ static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const IndexR
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-struct DefaultExpander : public RSQueryExpander {
-  bool isCn;
-  union {
-    struct cn {
-      ChineseTokenizer *tokenizer;
-      Vector<char *> tokList;
-    } cn;
-    struct sb_stemmer *latin;
-  } data;
-
-  void expandCn(RSToken *token);
-};
-
 void DefaultExpander::expandCn(RSToken *token) {
   if (!data.cn.tokenizer) {
     data.cn.tokenizer = new ChineseTokenizer(NULL, NULL, 0);
@@ -405,13 +374,9 @@ void DefaultExpander::expandCn(RSToken *token) {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/******************************************************************************************
- *
- * Stemmer based query expander
- *
- ******************************************************************************************/
+// Stemmer based query expander
 
-int StemmerExpander(RSQueryExpander *ctx, RSToken *token) {
+int StemmerExpander::Expand(RSToken *token) {
   // we store the stemmer as private data on the first call to expand
   DefaultExpander *dd = ctx->privdata;
   struct sb_stemmer *sb;
@@ -458,7 +423,9 @@ int StemmerExpander(RSQueryExpander *ctx, RSToken *token) {
   return REDISMODULE_OK;
 }
 
-void StemmerExpanderFree(void *p) {
+//---------------------------------------------------------------------------------------------
+
+StemmerExpander::StemmerExpander() {
   if (!p) {
     return;
   }
@@ -473,13 +440,9 @@ void StemmerExpanderFree(void *p) {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/******************************************************************************************
- *
- * phonetic based query expander
- *
- ******************************************************************************************/
+// Phonetic-based query expander
 
-int PhoneticExpand(RSQueryExpander *ctx, RSToken *token) {
+PhoneticExpander::Expand(RSToken *token) {
   char *primary = NULL;
 
   PhoneticManager::ExpandPhonetics(token->str, token->len, &primary, NULL);
@@ -492,21 +455,17 @@ int PhoneticExpand(RSQueryExpander *ctx, RSToken *token) {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/******************************************************************************************
- *
- * Synonyms based query expander
- *
- ******************************************************************************************/
+// Synonyms-based query expander
 
-int SynonymExpand(RSQueryExpander *ctx, RSToken *token) {
 #define BUFF_LEN 100
+
+int SynonymExpand::Expand(RSToken *token) {
   IndexSpec *spec = ctx->sctx.spec;
   if (!spec->smap) {
     return REDISMODULE_OK;
   }
 
   TermData *t_data = spec->smap->GetIdsBySynonym(token->str, token->len);
-
   if (t_data == NULL) {
     return REDISMODULE_OK;
   }
@@ -521,14 +480,11 @@ int SynonymExpand(RSQueryExpander *ctx, RSToken *token) {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/******************************************************************************************
- *
- * Default query expander
- *
- ******************************************************************************************/
+// Default query expander
 
 //@@ need to change the name - there is a struct with that name
-int DefaultExpander(RSQueryExpander &ctx, RSToken *token) {
+
+int DefaultExpander::Expand(RSToken *token) {
   int phonetic = ctx.currentNode->opts.phonetic;
   SynonymExpand(&ctx, token);
 
@@ -574,73 +530,66 @@ int DefaultExpander(RSQueryExpander &ctx, RSToken *token) {
   return REDISMODULE_OK;
 }
 
-void DefaultExpanderFree(void *p) {
+//---------------------------------------------------------------------------------------------
+
+void DefaultExpander::~DefaultExpander() {
   StemmerExpanderFree(p);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/* Register the default extension */
-int DefaultExtensionInit(RSExtensions *ctx) {
+// Register the default extension
 
-  /* TF-IDF scorer is the default scorer */
-  if (ctx->RegisterScoringFunction(DEFAULT_SCORER_NAME, TFIDFScorer, NULL, NULL) ==
-      REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
+DefaultExtension::DefaultExtension() {
+  // TF-IDF scorer is the default scorer
+  if (RegisterScorer(DEFAULT_SCORER_NAME, TFIDFScorer) == REDISEARCH_ERR) {
+    throw Error("Cannot register " DEFAULT_SCORER_NAME);
   }
 
-  /* DisMax-alike scorer */
-  if (ctx->RegisterScoringFunction(DISMAX_SCORER_NAME, DisMaxScorer, NULL, NULL) ==
-      REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
+  // DisMax-alike scorer
+  if (RegisterScorer(DISMAX_SCORER_NAME, DisMaxScorer) == REDISEARCH_ERR) {
+    throw Error("Cannot register " DISMAX_SCORER_NAME);
   }
 
-  /* Register BM25 scorer */
-  if (ctx->RegisterScoringFunction(BM25_SCORER_NAME, BM25Scorer, NULL, NULL) == REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
+  // Register BM25 scorer
+  if (RegisterScorer(BM25_SCORER_NAME, BM25Scorer) == REDISEARCH_ERR) {
+    throw Error("Cannot register " BM25_SCORER_NAME);
   }
 
-  /* Register HAMMING scorer */
-  if (ctx->RegisterScoringFunction(HAMMINGDISTANCE_SCORER, HammingDistanceScorer, NULL, NULL) ==
-      REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
-  }
-  /* Register TFIDF.DOCNORM */
-  if (ctx->RegisterScoringFunction(TFIDF_DOCNORM_SCORER_NAME, TFIDFNormDocLenScorer, NULL, NULL) ==
-      REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
+  // Register HAMMING scorer
+  if (RegisterScorer(HAMMINGDISTANCE_SCORER_NAME, HammingDistanceScorer) == REDISEARCH_ERR) {
+    throw Error("Cannot register " HAMMINGDISTANCE_SCORER_NAME);
   }
 
-  /* Register DOCSCORE scorer */
-  if (ctx->RegisterScoringFunction(DOCSCORE_SCORER, DocScoreScorer, NULL, NULL) == REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
+  // Register TFIDF.DOCNORM
+  if (RegisterScorer(TFIDF_DOCNORM_SCORER_NAME, TFIDFNormDocLenScorer) == REDISEARCH_ERR) {
+    throw Error("Cannot register " TFIDF_DOCNORM_SCORER_NAME);
   }
 
-  /* Snowball Stemmer is the default expander */
-  if (ctx->RegisterQueryExpander(STEMMER_EXPENDER_NAME, StemmerExpander, StemmerExpanderFree,
-                                 NULL) == REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
+  // Register DOCSCORE scorer
+  if (RegisterScorer(DOCSCORE_SCORER_NAME, DocScoreScorer) == REDISEARCH_ERR) {
+    throw Error("Cannot register " DOCSCORE_SCORER_NAME);
   }
 
-  /* Synonyms expender */
-  if (ctx->RegisterQueryExpander(SYNONYMS_EXPENDER_NAME, SynonymExpand, NULL, NULL) ==
-      REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
+  // Snowball Stemmer is the default expander
+  if (RegisterQueryExpander(STEMMER_EXPENDER_NAME, StemmerExpander, StemmerExpanderFree, NULL) == REDISEARCH_ERR) {
+    throw Error("Cannot register " STEMMER_EXPENDER_NAME);
   }
 
-  /* Phonetic expender */
-  if (ctx->RegisterQueryExpander(PHONETIC_EXPENDER_NAME, PhoneticExpand, NULL, NULL) ==
-      REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
+  // Synonyms expender
+  if (RegisterQueryExpander(SYNONYMS_EXPENDER_NAME, SynonymExpand) == REDISEARCH_ERR) {
+    throw Error("Cannot register " SYNONYMS_EXPENDER_NAME);
   }
 
-  /* Default expender */
-  if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultExpander, DefaultExpanderFree,
-                                 NULL) == REDISEARCH_ERR) {
-    return REDISEARCH_ERR;
+  // Phonetic expender
+  if (RegisterQueryExpander(PHONETIC_EXPENDER_NAME, PhoneticExpand) == REDISEARCH_ERR) {
+    throw Error("Cannot register " PHONETIC_EXPENDER_NAME);
   }
 
-  return REDISEARCH_OK;
+  // Default expender
+  if (RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultExpander, DefaultExpanderFree, NULL) == REDISEARCH_ERR) {
+    throw Error("Cannot register " DEFAULT_EXPANDER_NAME);
+  }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////

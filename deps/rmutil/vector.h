@@ -11,22 +11,11 @@
 #if 1
 
 template <class T>
-class Vector : public std::vector<T, rm_allocator<T>> {
-  typedef std::vector<T, rm_allocator<T>> Super;
+using Vector = std::vector<T, rm_allocator<T>>;
 
-public:
-  Vector() {}
-  Vector(size_t size) : Super(size) {}
-  Vector(Super &&v) : Super(v) {}
-};
 
 template <class T>
-class List : public std::list<T, rm_allocator<T>> {
-  typedef std::list<T, rm_allocator<T>> Super;
-
-public:
-  List() {}
-};
+using List = std::list<T, rm_allocator<T>>;
 
 #else
 	

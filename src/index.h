@@ -21,8 +21,7 @@ typedef Vector<IndexIterator*> IndexIterators;
 // Create a new UnionIterator over a list of underlying child iterators.
 // It will return each document of the underlying iterators, exactly once
 
-class UnionIterator : public IndexIterator {
-public:
+struct UnionIterator : public IndexIterator {
   UnionIterator(IndexIterators its, DocTable *dt, int quickExit, double weight);
 
   // We maintain two iterator arrays. One is the original iterator list, and
@@ -63,8 +62,7 @@ public:
 
 //---------------------------------------------------------------------------------------------
 
-class UnionCriteriaTester : public IndexCriteriaTester {
-public:
+struct UnionCriteriaTester : public IndexCriteriaTester {
   UnionCriteriaTester(Vector<IndexCriteriaTester*> testers);
 
   Vector<IndexCriteriaTester*> children;
@@ -79,15 +77,14 @@ public:
 // If maxSlop is set and inOrder is 1, we assert that the terms are in order.
 // I.e anexact match has maxSlop of 0 and inOrder 1.
 
-class IntersectIterator : public IndexIterator {
-public:
+struct IntersectIterator : IndexIterator {
   IntersectIterator(IndexIterators its, DocTable *dt, t_fieldMask fieldMask,
                     int maxSlop, int inOrder, double weight);
   ~IntersectIterator();
 
   IndexIterators its;
   IndexIterator *bestIt;
-  Vector<IndexCriteriaTester *> testers;
+  Vector<IndexCriteriaTester*> testers;
   t_docId *docIds;
   int *rcs;
   size_t len;
@@ -118,26 +115,23 @@ public:
   virtual size_t Len();
 
   AggregateResult &result() { return reinterpret_cast<AggregateResult&>(*current); }
+
+  //-------------------------------------------------------------------------------------------
+
+  struct CriteriaTester : public IndexCriteriaTester {
+    CriteriaTester(Vector<IndexCriteriaTester*> testers);
+
+    Vector<IndexCriteriaTester*> children;
+
+    bool Test(t_docId id);
+  };
 };
-
-//---------------------------------------------------------------------------------------------
-
-class IICriteriaTester : public IndexCriteriaTester {
-public:
-  IICriteriaTester(Vector<IndexCriteriaTester *> testers);
-
-  Vector<IndexCriteriaTester *> children;
-
-  bool Test(t_docId id);
-};
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // A Not iterator works by wrapping another iterator, and returning OK for misses, and NOTFOUND for hits
 
-class NotIterator : public IndexIterator {
-public:
+struct NotIterator : public IndexIterator {
   NotIterator(IndexIterator *it, t_docId maxDocId_, double weight_);
   ~NotIterator();
 
@@ -157,20 +151,17 @@ public:
   virtual void Abort();
   virtual void Rewind();
   virtual int SkipTo(t_docId docId, IndexResult **hit);
-  virtual size_t NumEstimated();
+  virtual size_t NumEstimated() const ;
   virtual IndexCriteriaTester *GetCriteriaTester();
-  virtual size_t Len();
-  virtual int HasNext();
+  virtual size_t Len() const ;
+  virtual bool HasNext() const;
 
-  t_docId LastDocId();
+  t_docId LastDocId() const;
 };
-
-typedef NotIterator NotContext;
 
 //---------------------------------------------------------------------------------------------
 
-class NI_CriteriaTester : public IndexCriteriaTester {
-public:
+struct NI_CriteriaTester : public IndexCriteriaTester {
   NI_CriteriaTester(IndexCriteriaTester *childTester);
   ~NI_CriteriaTester();
 
@@ -184,8 +175,7 @@ public:
 // Create an Optional clause iterator by wrapping another index iterator. An optional iterator
 // always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit
 
-class OptionalIterator : public IndexIterator {
-public:
+struct OptionalIterator : public IndexIterator {
   OptionalIterator(IndexIterator *it, t_docId maxDocId_, double weight_);
   ~OptionalIterator();
 
@@ -206,19 +196,14 @@ public:
 
   virtual int SkipTo(t_docId docId, IndexResult **hit);
   virtual IndexCriteriaTester *GetCriteriaTester();
-  virtual size_t NumEstimated();
-  virtual int HasNext();
+  virtual size_t NumEstimated() const;
+  virtual bool HasNext() const;
   virtual void Abort();
-  virtual size_t Len();
+  virtual size_t Len() const;
   virtual void Rewind();
 
-  t_docId LastDocId();
+  t_docId LastDocId() const;
 };
-
-typedef OptionalIterator OptionalMatchContext;
-
-//---------------------------------------------------------------------------------------------
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -228,8 +213,7 @@ typedef OptionalIterator OptionalMatchContext;
 // So we create a wildcard iterator that basically just iterates all the incremental document ids,
 // and matches every skip within its range.
 
-class WildcardIterator : public IndexIterator {
-public:
+struct WildcardIterator : public IndexIterator {
   WildcardIterator(t_docId maxId);
 
   t_docId topId;
@@ -238,30 +222,24 @@ public:
   int Read(IndexResult **hit);
   int SkipTo(t_docId docId, IndexResult **hit);
   void Abort();
-  int HasNext();
-  size_t Len();
-  t_docId LastDocId();
+  bool HasNext() const;
+  size_t Len() const;
+  t_docId LastDocId() const;
   void Rewind();
-  size_t NumEstimated();
+  size_t NumEstimated() const;
 };
-
-typedef WildcardIterator WildcardIteratorCtx;
-
-//---------------------------------------------------------------------------------------------
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-class EOFIterator : public IndexIterator {
-public:
+struct EOFIterator : public IndexIterator {
   virtual IndexResult *GetCurrent() {}
-  virtual size_t NumEstimated() { return 0; }
+  virtual size_t NumEstimated() const { return 0; }
   virtual IndexCriteriaTester *GetCriteriaTester() { return NULL; }
   virtual int Read(IndexResult **e) { return INDEXREAD_EOF; }
   virtual int SkipTo(t_docId docId, IndexResult **hit) { return INDEXREAD_EOF; }
-  virtual t_docId LastDocId() { return t_docId{0}; }
-  virtual int HasNext() { return 0; }
-  virtual size_t Len() { return 0; }
+  virtual t_docId LastDocId() const { return t_docId{0}; }
+  virtual bool HasNext() const { return 0; }
+  virtual size_t Len() const { return 0; }
   virtual void Abort() {}
   virtual void Rewind() {}
 };
@@ -269,16 +247,5 @@ public:
 // Iterator which returns no results
 
 typedef EOFIterator EmptyIterator;
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-// Load document metadata for an index hit, marking it as having metadata.
-// Currently has no effect due to performance issues
-int IndexResult_LoadMetadata(IndexResult *h, DocTable *dt);
-
-// Create a new IdListIterator from a pre populated list of document ids of size num. The doc ids
-// are sorted in this function, so there is no need to sort them. They are automatically freed in
-// the end and assumed to be allocated using rm_malloc
-IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

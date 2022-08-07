@@ -18,7 +18,7 @@
 
 Document::Document(RedisModuleString *docKey, double score, RSLanguage lang) {
   docKey = docKey;
-  score = (float)score;
+  score = (float) score;
   numFields = 0;
   fields = NULL;
   language = lang ? lang : DEFAULT_LANGUAGE;
@@ -53,13 +53,10 @@ void Document::AddField(const char *fieldname, RedisModuleString *fieldval,
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Add a simple char buffer value. This creates an RMString internally, so this
- * must be used with F_OWNSTRINGS
- */
+// Add a simple char buffer value.
+// This creates an RMString internally, so this must be used with F_OWNSTRINGS.
 
-void Document::AddFieldC(const char *fieldname, const char *val, size_t vallen,
-                         uint32_t typemask) {
+void Document::AddFieldC(const char *fieldname, const char *val, size_t vallen, uint32_t typemask) {
   RS_LOG_ASSERT(flags & DOCUMENT_F_OWNSTRINGS, "Document should own strings");
   DocumentField *f = addFieldCommon(fieldname, typemask);
   f->text = RedisModule_CreateString(RSDummyContext, val, vallen);
@@ -90,9 +87,7 @@ static void Document::Move(Document *dst, Document *src) {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Make the document the owner of the strings it contains
- */
+// Make the document the owner of the strings it contains
 
 void Document::MakeStringsOwner() {
   if (flags & DOCUMENT_F_OWNSTRINGS) {
@@ -127,12 +122,9 @@ void Document::MakeStringsOwner() {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Load all fields specified in the schema to the document. Note that
- * the document must then be freed using Document_Free().
- *
- * The document must already have the docKey set
- */
+// Load all fields specified in the schema to the document. 
+// Note that the document must then be freed using Document_Free().
+// The document must already have the docKey set.
 
 int Document::LoadSchemaFields(RedisSearchCtx *sctx) {
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, docKey, REDISMODULE_READ);
@@ -173,9 +165,7 @@ done:
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Load all the fields into the document.
- */
+// Load all the fields into the document.
 
 int Document::LoadAllFields(RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
@@ -291,8 +281,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
   }
 
   for (int i = 0; i < doc->numFields; i++) {
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
-                        NULL);
+    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text, NULL);
   }
   RedisModule_CloseKey(k);
   return REDISMODULE_OK;

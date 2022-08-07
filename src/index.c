@@ -546,17 +546,17 @@ int IntersectIterator::SkipTo(t_docId docId, IndexResult **hit) {
 int IntersectIterator::ReadUnsorted(IndexResult **hit) {
   int rc = INDEXREAD_OK;
   IndexResult *res = NULL;
-  while (1) {
+  for (;;) {
     rc = bestIt->Read(&res);
     if (rc == INDEXREAD_EOF) {
       return INDEXREAD_EOF;
       *hit = res;
       return rc;
     }
-    int isMatch = 1;
-    for (size_t i = 0; i < testers.size(); ++i) {
-      if (!testers[i]->Test(res->docId)) {
-        isMatch = 0;
+    bool isMatch = true;
+    for (auto &tester: testers) {
+      if (!tester.Test(res->docId)) {
+        isMatch = false;
         break;
       }
     }
@@ -570,13 +570,13 @@ int IntersectIterator::ReadUnsorted(IndexResult **hit) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IICriteriaTester::IICriteriaTester(Vector<IndexCriteriaTester *> testers) : children(testers) {}
+IntersectIterator::CriteriaTester::CriteriaTester(Vector<IndexCriteriaTester*> testers) : children(testers) {}
 
 //---------------------------------------------------------------------------------------------
 
-bool IICriteriaTester::Test(t_docId id) {
-  for (size_t i = 0; i < children.size(); ++i) {
-    if (!children[i]->Test(id)) {
+bool IntersectIterator::CriteriaTester::Test(t_docId id) {
+  for (auto &child: children) {
+    if (!child.Test(id)) {
       return false;
     }
   }
@@ -586,25 +586,25 @@ bool IICriteriaTester::Test(t_docId id) {
 //---------------------------------------------------------------------------------------------
 
 IndexCriteriaTester *IntersectIterator::GetCriteriaTester() {
-  for (size_t i = 0; i < its.size(); ++i) {
+  for (auto &it: its) {
     IndexCriteriaTester *tester = NULL;
-    if (its[i]) {
-      tester = its[i]->GetCriteriaTester();
+    if (*it) {
+      tester = it->GetCriteriaTester();
     }
     if (!tester) {
-      delete &testers;
+      testers.clear();
       return NULL;
     }
     testers.push_back(tester);
   }
-  IICriteriaTester *it = new IICriteriaTester(testers);
-  testers = NULL;
+  CriteriaTester *it = new CriteriaTester(testers);
+  testers.clear();
   return it;
 }
 
 //---------------------------------------------------------------------------------------------
 
-size_t IntersectIterator::NumEstimated() {
+size_t IntersectIterator::NumEstimated() const {
   return nexpected;
 }
 
@@ -692,10 +692,12 @@ eof:
 
 //---------------------------------------------------------------------------------------------
 
-t_docId IntersectIterator::LastDocId() {
+t_docId IntersectIterator::LastDocId() const {
   // return last FOUND id, not last read id form any child
   return lastFoundId;
 }
+
+//---------------------------------------------------------------------------------------------
 
 size_t IntersectIterator::Len() {
   return len;
@@ -709,6 +711,8 @@ void NotIterator::Abort() {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void NotIterator::Rewind() {
   lastDocId = 0;
   current->docId = 0;
@@ -716,6 +720,8 @@ void NotIterator::Rewind() {
     child->Rewind();
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 NotIterator::~NotIterator() {
   if (child) {
@@ -726,6 +732,8 @@ NotIterator::~NotIterator() {
   }
   delete current;
 }
+
+//---------------------------------------------------------------------------------------------
 
 // If we have a match - return NOTFOUND. If we don't or we're at the end - return OK
 
@@ -782,9 +790,13 @@ NI_CriteriaTester::NI_CriteriaTester(IndexCriteriaTester *childTester) {
   child = childTester; //@@ ownership?
 }
 
+//---------------------------------------------------------------------------------------------
+
 int NI_CriteriaTester::Test(t_docId id) {
   return !child->Test(id);
 }
+
+//---------------------------------------------------------------------------------------------
 
 NI_CriteriaTester::~NI_CriteriaTester() {
   delete child; //@@ ownership?
@@ -878,17 +890,20 @@ ok:
 //---------------------------------------------------------------------------------------------
 
 // We always have next, in case anyone asks... ;)
-int NotIterator::HasNext() {
+
+bool NotIterator::HasNext() const {
   return lastDocId <= maxDocId;
 }
 
 // Our len is the child's len? TBD it might be better to just return 0
-size_t NotIterator::Len() {
+
+size_t NotIterator::Len() const {
   return len;
 }
 
-// Last docId
-t_docId NotIterator::LastDocId() {
+//---------------------------------------------------------------------------------------------
+
+t_docId NotIterator::LastDocId() const {
   return lastDocId;
 }
 
@@ -1042,9 +1057,11 @@ int OptionalIterator::ReadSorted(IndexResult **hit) {
 
 // We always have next, in case anyone asks... ;)
 
-int OptionalIterator::HasNext() {
+bool OptionalIterator::HasNext() const {
   return lastDocId <= maxDocId;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void OptionalIterator::Abort() {
   if (child) {
@@ -1052,16 +1069,21 @@ void OptionalIterator::Abort() {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Our len is the child's len? TBD it might be better to just return 0
 
-size_t OptionalIterator::Len() {
+size_t OptionalIterator::Len() const {
   return child ? child->Len() : 0;
 }
 
-// Last docId
-t_docId OptionalIterator::LastDocId() {
+//---------------------------------------------------------------------------------------------
+
+t_docId OptionalIterator::LastDocId() const {
   return lastDocId;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void OptionalIterator::Rewind() {
   lastDocId = 0;
@@ -1140,7 +1162,7 @@ void WildcardIterator::Abort() {
 
 // We always have next, in case anyone asks... ;)
 
-int WildcardIterator::HasNext() {
+bool WildcardIterator::HasNext() const {
   return currentId <= topId;
 }
 
@@ -1148,13 +1170,13 @@ int WildcardIterator::HasNext() {
 
 // Our len is the len of the index...
 
-size_t WildcardIterator::Len() {
+size_t WildcardIterator::Len() const {
   return topId;
 }
 
 //---------------------------------------------------------------------------------------------
 
-t_docId WildcardIterator::LastDocId() {
+t_docId WildcardIterator::LastDocId() const {
   return currentId;
 }
 
@@ -1166,7 +1188,7 @@ void WildcardIterator::Rewind() {
 
 //---------------------------------------------------------------------------------------------
 
-size_t WildcardIterator::NumEstimated() {
+size_t WildcardIterator::NumEstimated() const {
   return SIZE_MAX;
 }
 

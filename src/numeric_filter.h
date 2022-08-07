@@ -11,7 +11,7 @@
 #define NF_INFINITY (1.0 / 0.0)
 #define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
 
-class NumericFilter {
+struct NumericFilter : Object {
   int parseDoubleRange(const char *s, bool &inclusive, double &target, bool isMin, QueryError *status);
 
 public:

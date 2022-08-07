@@ -24,7 +24,7 @@ struct GeoIndex : Object {
   void RemoveEntries(IndexSpec *sp, t_docId docId);
 
   IndexIterator *NewGeoRangeIterator(const GeoFilter &gf, double weight);
-  t_docId *RangeLoad(const GeoFilter &gf, size_t &num) const;
+  Vector<t_docId> RangeLoad(const GeoFilter &gf) const;
 };
 
 #define GEOINDEX_KEY_FMT "geo:%s/%s"
@@ -66,7 +66,7 @@ struct GeoFilter : Object {
   double lat;
   double radius;
   GeoDistance unitType;
-  const char *property;
+  String property;
 
   // Create a geo filter from parsed strings and numbers
   GeoFilter(double lon, double lat, double radius, const char *unit);

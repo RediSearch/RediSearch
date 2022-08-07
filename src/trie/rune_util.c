@@ -54,8 +54,7 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
 
 String runesToStr(const rune *in, size_t len) {
   if (len > MAX_RUNESTR_LEN) {
-    if (utflen) *utflen = 0;
-    return NULL;
+    return "";
   }
   uint32_t unicode[len + 1];
   for (int i = 0; i < len; i++) {
@@ -67,7 +66,7 @@ String runesToStr(const rune *in, size_t len) {
   String str;
   str.resize(utflen + 1);
 
-  nu_writestr(unicode, str.data()), nu_utf8_write);
+  nu_writestr(unicode, str.data(), nu_utf8_write);
   return str;
 }
 
@@ -175,7 +174,7 @@ int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 Runes::~Runes() {
-  if (dynamic) rm_free(_runes);
+  if (_dynamic) rm_free(_runes);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

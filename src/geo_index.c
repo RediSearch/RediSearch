@@ -97,16 +97,7 @@ GeoFilter::GeoFilter(ArgsCursor *ac, QueryError *status) {
 
 //---------------------------------------------------------------------------------------------
 
-GeoFilter::~GeoFilter() {
-  if (property) rm_free((char *)property);
-}
-
-//---------------------------------------------------------------------------------------------
-
-t_docId *GeoIndex::RangeLoad(const GeoFilter &gf, size_t &num) const {
-  num = 0;
-  t_docId *docIds = NULL;
-  size_t sz;
+Vector<t_docId> GeoIndex::RangeLoad(const GeoFilter &gf) const {
   RedisModuleString *s = ctx->spec->GetFormattedKey(fs, INDEXFLD_T_GEO);
   RS_LOG_ASSERT(s, "failed to retrive key");
   // GEORADIUS key longitude latitude radius m|km|ft|mi
@@ -120,16 +111,13 @@ t_docId *GeoIndex::RangeLoad(const GeoFilter &gf, size_t &num) const {
     goto done;
   }
 
-  sz = RedisModule_CallReplyLength(rep);
-  docIds = rm_calloc(sz, sizeof(t_docId));
+  size_t sz = RedisModule_CallReplyLength(rep);
+  Vector<t_docId> docIds(sz);
   for (size_t i = 0; i < sz; i++) {
     const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);
     if (!s) continue;
-
-    docIds[i] = (t_docId)atol(s);
+    docIds.push_back(t_docId{atol(s)});
   }
-
-  num = sz;
 
 done:
   RedisModule_FreeString(rctx, slon);
@@ -145,15 +133,11 @@ done:
 //---------------------------------------------------------------------------------------------
 
 IndexIterator *GeoIndex::NewGeoRangeIterator(const GeoFilter &gf, double weight) {
-  size_t size;
-  t_docId *docIds = GeoIndex::RangeLoad(gf, size);
-  if (!docIds) {
+  Vector<t_docId> docIds = GeoIndex::RangeLoad(gf);
+  if (docIds.empty()) {
     return NULL;
   }
-
-  IdListIterator *ret = new IdListIterator(docIds, (t_offset)size, weight);
-  rm_free(docIds);
-  return ret;
+  return new IdListIterator(docIds, weight);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -172,9 +156,9 @@ GeoDistance::GeoDistance(const char *s) {
 //---------------------------------------------------------------------------------------------
 
 const char *GeoDistance::ToString() const {
-#define X(c, val)              \
+#define X(c, val) \
   if (dist == GeoDistance::Unit::c) { \
-    return val;                \
+    return val; \
   }
   X_GEO_DISTANCE(X)
 #undef X

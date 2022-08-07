@@ -18,12 +18,10 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/**
- * Query AST structure.
- *
- * To parse a query, use QAST::QAST()
- * To get an iterator from the query, use, QAST::Iterate()
- */
+// Query AST structure
+//
+// To parse a query, use QAST::QAST()
+// To get an iterator from the query, use, QAST::Iterate()
 
 struct QueryAST : public Object {
   size_t numTokens;
@@ -34,17 +32,15 @@ struct QueryAST : public Object {
 
   // Copied query and length, because it seems we modify the string in the parser (FIXME).
   // Thus, if the original query is const then it explodes.
-  char *query;
-  size_t nquery;
+  String query;
 
-  QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &sopts, const char *qstr,
-           size_t len, QueryError *status);
+  QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &sopts, std::string_view query, QueryError *status);
   ~QueryAST();
 
   // Set global filters on the AST
   void SetGlobalFilters(const NumericFilter *numeric);
   void SetGlobalFilters(const GeoFilter *geo);
-  void SetGlobalFilters(t_docId *ids, size_t nids);
+  void SetGlobalFilters(Vector<t_docId> ids);
 
   IndexIterator *Iterate(const RSSearchOptions &options, RedisSearchCtx &sctx,
                          ConcurrentSearch *conc) const;

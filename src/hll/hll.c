@@ -10,6 +10,8 @@
 
 #include "rmalloc.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 static __inline uint8_t _hll_rank(uint32_t hash, uint8_t bits) {
   uint8_t i;
 
@@ -21,6 +23,8 @@ static __inline uint8_t _hll_rank(uint32_t hash, uint8_t bits) {
 
   return i;
 }
+
+//---------------------------------------------------------------------------------------------
 
 bool HLL::ctor(uint8_t bits) {
   if (bits < 4 || bits > 20) {
@@ -34,10 +38,14 @@ bool HLL::ctor(uint8_t bits) {
   return true;
 }
 
+//---------------------------------------------------------------------------------------------
+
 HLL::~HLL() {
   rm_free(registers);
   registers = NULL;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void HLL::add_hash(uint32_t hash) {
   uint32_t index = hash >> (32 - bits);
@@ -48,10 +56,14 @@ void HLL::add_hash(uint32_t hash) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void HLL::add(const void *buf, size_t size) {
   uint32_t hash = rs_fnv_32a_buf((void *)buf, (uint32_t)size, 0x5f61767a);
   add_hash(hash);
 }
+
+//---------------------------------------------------------------------------------------------
 
 double HLL::count() const {
   double alpha_mm;
@@ -95,6 +107,8 @@ double HLL::count() const {
   return estimate;
 }
 
+//---------------------------------------------------------------------------------------------
+
 bool HLL::merge(const HLL *src) {
   uint32_t i;
 
@@ -109,6 +123,8 @@ bool HLL::merge(const HLL *src) {
 
   return true;
 }
+
+//---------------------------------------------------------------------------------------------
 
 bool HLL::load(const void *registers_, size_t size) {
   uint8_t bits = 0;
@@ -134,6 +150,10 @@ bool HLL::load(const void *registers_, size_t size) {
   return true;
 }
 
+//---------------------------------------------------------------------------------------------
+
 uint32_t HLL::hash() const {
   return rs_fnv_32a_buf(registers, (uint32_t)size, 0);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

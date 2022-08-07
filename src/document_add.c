@@ -4,6 +4,8 @@
 #include "commands.h"
 #include "rmutil/rm_assert.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
 [PAYLOAD {payload}] FIELDS <field> <text> ....] Add a documet to the index.
@@ -129,6 +131,8 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOptions *opts,
                                 QueryError *status) {
   int rc = REDISMODULE_ERR;
@@ -207,6 +211,8 @@ error:
   return REDISMODULE_ERR;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void replyCallback(AddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
   if (aCtx->status.HasError()) {
     if (aCtx->status.code == QUERY_EDOCNOTADDED) {
@@ -218,6 +224,8 @@ static void replyCallback(AddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unuse
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int canBlock) {
   if (argc < 4) {
@@ -276,6 +284,8 @@ cleanup:
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 /* FT.ADDHASH <index> <docId> <score> [LANGUAGE <lang>] [REPLACE]
 *  Index a document that's already saved in redis as a HASH object, unrelated to
 * the module.
@@ -310,8 +320,8 @@ exists
 
   Returns OK on success, or an error if something went wrong.
 */
-static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                            int isBlockable) {
+
+static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int isBlockable) {
   if (argc < 4 || argc > 7) {
     return RedisModule_WrongArity(ctx);
   }
@@ -404,17 +414,28 @@ cleanup:
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return doAddDocument(ctx, argv, argc, 1);
 }
+
+//---------------------------------------------------------------------------------------------
+
 int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return doAddDocument(ctx, argv, argc, 0);
 }
+
+//---------------------------------------------------------------------------------------------
 
 int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return doAddHashCommand(ctx, argv, argc, 1);
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return doAddHashCommand(ctx, argv, argc, 0);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

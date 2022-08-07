@@ -1,3 +1,5 @@
+#if 0
+
 #include "array.h"
 #include "rmalloc.h"
 #include "util/minmax.h"
@@ -114,3 +116,5 @@ char *Array<T>::Steal(size_t *len_) {
   capacity = 0;
   return ret;
 }
+
+#endif // 0

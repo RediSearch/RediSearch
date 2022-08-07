@@ -159,9 +159,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   DO_LOG("notice", "Initialized thread pool!");
 
-  /* Load extensions if needed */
+  // Load extensions if needed
   if (RSGlobalConfig.extLoad != NULL) {
-
     char *errMsg = NULL;
     // Load the extension so TODO: pass with param
     if (Extensions::LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
@@ -173,7 +172,9 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
 
   // Register the default hard coded extension
-  if (Extensions::Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
+  try {
+    Extensions::Load("DEFAULT", DefaultExtensionInit);
+  catch (Error &x) {
     DO_LOG("warning", "Could not register default extension");
     return REDISMODULE_ERR;
   }

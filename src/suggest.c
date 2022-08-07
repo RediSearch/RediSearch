@@ -5,6 +5,8 @@
 #include "trie/trie_type.h"
 #include "query_error.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 /*
 ## FT.SUGGADD key string score [INCR] [PAYLOAD {payload}]
 
@@ -36,6 +38,7 @@ real
 
 Integer reply: the current size of the suggestion dictionary.
 */
+
 int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4 || argc > 7) {
     return RedisModule_WrongArity(ctx);
@@ -58,7 +61,7 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
   }
 
-  RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+  RedisModule_AutoMemory(ctx); // Use automatic memory management
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
@@ -71,7 +74,7 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithError(ctx, "ERR invalid score");
   }
 
-  /* Create an empty value object if the key is currently empty. */
+  // Create an empty value object if the key is currently empty
   Trie *tree;
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
     RedisModule_ModuleTypeSetValue(key, TrieType, tree);
@@ -79,13 +82,15 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     tree = RedisModule_ModuleTypeGetValue(key);
   }
 
-  /* Insert the new element. */
+  // Insert the new element
   tree->Insert(val, score, incr, &payload);
 
   RedisModule_ReplyWithLongLong(ctx, tree->size);
   RedisModule_ReplicateVerbatim(ctx);
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /*
 ## FT.SUGLEN key
@@ -100,8 +105,9 @@ Get the size of an autoc-complete suggestion dictionary
 
 Integer reply: the current size of the suggestion dictionary.
 */
+
 int RSSuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+  RedisModule_AutoMemory(ctx); // Use automatic memory management
 
   if (argc != 2) return RedisModule_WrongArity(ctx);
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
@@ -113,6 +119,8 @@ int RSSuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   Trie *tree = RedisModule_ModuleTypeGetValue(key);
   return RedisModule_ReplyWithLongLong(ctx, tree ? tree->size : 0);
 }
+
+//---------------------------------------------------------------------------------------------
 
 /*
 ## FT.SUGDEL key str
@@ -129,8 +137,9 @@ Delete a string from a suggestion index.
 
 Integer reply: 1 if the string was found and deleted, 0 otherwise.
 */
+
 int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+  RedisModule_AutoMemory(ctx); // Use automatic memory management
 
   if (argc != 3) return RedisModule_WrongArity(ctx);
   RedisModule_ReplicateVerbatim(ctx);
@@ -149,6 +158,8 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   const char *str = RedisModule_StringPtrLen(argv[2], &len);
   return RedisModule_ReplyWithLongLong(ctx, trie->Delete(str));
 }
+
+//---------------------------------------------------------------------------------------------
 
 /*
 ## FT.SUGGET key prefix [FUZZY] [MAX num] [WITHSCORES] [TRIM] [OPTIMIZE] [WITHPAYLOADS]
@@ -228,8 +239,10 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+  RedisModule_AutoMemory(ctx); // Use automatic memory management
 
   if (argc < 3 || argc > 10) return RedisModule_WrongArity(ctx);
 
@@ -280,14 +293,14 @@ parse_error:
   mul = options.withPayloads ? mul + 1 : mul;
   RedisModule_ReplyWithArray(ctx, res.size() * mul);
 
-  for (auto e: res) {
-    RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
+  for (auto &e: res) {
+    RedisModule_ReplyWithStringBuffer(ctx, e->str.c_str(), e->str.length());
     if (options.withScores) {
       RedisModule_ReplyWithDouble(ctx, e->score);
     }
     if (options.withPayloads) {
-      if (e->payload)
-        RedisModule_ReplyWithStringBuffer(ctx, e->payload, e->plen);
+      if (!!e->payload)
+        RedisModule_ReplyWithStringBuffer(ctx, e->payload.data, e->payload.len);
       else
         RedisModule_ReplyWithNull(ctx);
     }
@@ -295,3 +308,5 @@ parse_error:
 
   return REDISMODULE_OK;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

@@ -5,6 +5,8 @@
 
 #include <stdlib.h>
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 // A query-specific tokenizer, that reads symbols like quots, pipes, etc
 
 struct QueryTokenizer {
@@ -16,8 +18,11 @@ struct QueryTokenizer {
   const char **stopwords;
 };
 
+//----------------------------------------------------------------------------------------------
+
 // A token in the process of parsing a query.
 // Unlike the document tokenizer, it works iteratively and is not callback based.
+// This sits in a union (i.e., YYMINORTYPE), therefore should not have a ctor.
 
 struct QueryToken {
   const char *s;
@@ -27,9 +32,13 @@ struct QueryToken {
   double numval;
 };
 
+//----------------------------------------------------------------------------------------------
+
 struct RangeNumber {
   double num;
   int inclusive;
 };
 
 // #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
+
+///////////////////////////////////////////////////////////////////////////////////////////////

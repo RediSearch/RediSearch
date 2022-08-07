@@ -124,7 +124,7 @@ struct AggregateResult : IndexResult {
 
   double tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
 
-  double bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd,
+  double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd,
     RSScoreExplain *scrExp) const;
 };
 
@@ -133,7 +133,7 @@ struct AggregateResult : IndexResult {
 struct IntersectResult : AggregateResult {
   IntersectResult(size_t cap, double weight) : AggregateResult(RSResultType_Intersection, cap, weight) {}
 
-  double dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExplain *scrExp) const;
+  double dismaxRecursive(const ScorerArgs *ctx, RSScoreExplain *scrExp) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -141,7 +141,7 @@ struct IntersectResult : AggregateResult {
 struct UnionResult : AggregateResult {
   UnionResult(size_t cap, double weight) : AggregateResult(RSResultType_Union, cap, weight) {}
 
-  double dismaxRecursive(const ScoringFunctionArgs *ctx, RSScoreExplain *scrExp) const;
+  double dismaxRecursive(const ScorerArgs *ctx, RSScoreExplain *scrExp) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -182,7 +182,7 @@ struct TermResult : public IndexResult {
 
   double tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
 
-  double bm25Recursive(const ScoringFunctionArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+  double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
 
   std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
     return offsets.Iterate(term);

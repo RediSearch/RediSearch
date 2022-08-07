@@ -76,6 +76,7 @@ bool operator!=(rm_allocator<T> const& x, rm_allocator<U> const& y) noexcept { r
 
 //---------------------------------------------------------------------------------------------
 
+/*
 template<class CharT, class Traits = std::char_traits<CharT>>
 struct BasicString : std::basic_string<CharT, Traits, rm_allocator<CharT>> {
 	typedef std::basic_string<CharT, Traits, rm_allocator<CharT>> Super;
@@ -83,9 +84,16 @@ struct BasicString : std::basic_string<CharT, Traits, rm_allocator<CharT>> {
 	BasicString(const Super &s) : Super(s) {}
 	BasicString(Super &&s) : Super(s) {}
 	BasicString(const CharT* s) : Super(s) {}
+	BasicString(const CharT* s, size_t len) : Super(s, len) {}
 };
 
 typedef BasicString<char> String;
+*/
+
+template<class CharT, class Traits = std::char_traits<CharT>>
+using BasicString = std::basic_string<CharT, Traits, rm_allocator<CharT>>;
+
+using String = BasicString<char>;
 
 //---------------------------------------------------------------------------------------------
 
@@ -98,6 +106,8 @@ struct SimpleBuff {
 		data = 0;
 		len = 0;
 	}
+
+	bool operator!() const { return !data || !len; }
 };
 
 //---------------------------------------------------------------------------------------------

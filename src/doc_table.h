@@ -96,6 +96,7 @@ public:
   RSPayload *GetPayload(t_docId dodcId);
 
   t_docId GetId(const char *s, size_t n) const;
+  t_docId GetId(const std::string_view &id) const { return GetId(id.data(), id.length()); }
   t_docId GetId(RedisModuleString *r) const;
 
   RSDocumentMetadata *GetByKey(const char *key);

@@ -3,28 +3,31 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-int ILCriteriaTester::Test(t_docId id) {
+int IdListIterator::CriteriaTester::Test(t_docId id) {
   return bsearch((void *)id, docIds, (size_t)size, sizeof(t_docId), IdListIterator::cmp_docids) != NULL;
 }
 
-ILCriteriaTester::~ILCriteriaTester() {
+IdListIterator::CriteriaTester::~CriteriaTester() {
   rm_free(docIds);
 }
 
-ILCriteriaTester::ILCriteriaTester(IdListIterator *it) {
+IdListIterator::CriteriaTester::CriteriaTester(IdListIterator *it) {
   docIds = rm_malloc(sizeof(t_docId) * size);
   memcpy(docIds, docIds, size);
   size = it->size;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-size_t IdListIterator::NumEstimated() {
+size_t IdListIterator::NumEstimated() const {
   return size;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Read the next entry from the iterator, into hit *e.
 // Returns INDEXREAD_EOF if at the end */
+
 int IdListIterator::Read(IndexResult **r) {
   if (isEof() || offset >= size) {
     setEof(1);
@@ -39,11 +42,16 @@ int IdListIterator::Read(IndexResult **r) {
   return INDEXREAD_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void IdListIterator::Abort() {
   isValid = 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Skip to a docid, potentially reading the entry into hit, if the docId matches
+
 int IdListIterator::SkipTo(t_docId docId, IndexResult **r) {
   if (isEof() || offset >= size) {
     return INDEXREAD_EOF;
@@ -87,27 +95,37 @@ int IdListIterator::SkipTo(t_docId docId, IndexResult **r) {
   return INDEXREAD_NOTFOUND;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // the last docId read
-t_docId IdListIterator::LastDocId() {
+
+t_docId IdListIterator::LastDocId() const {
   return lastDocId;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // release the iterator's context and free everything needed
+
 IdListIterator::~IdListIterator() {
   delete current;
-  if (docIds) {
-    rm_free(docIds);
-  }
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Return the number of results in this iterator. Used by the query execution on the top iterator
-size_t IdListIterator::Len() {
+
+size_t IdListIterator::Len() const {
   return size;
 }
 
-static int IdListIterator::cmp_docids(const t_docId *d1, const t_docId *d2) {
+//---------------------------------------------------------------------------------------------
+
+int IdListIterator::cmp_docids(const t_docId *d1, const t_docId *d2) {
   return (int)(*d1 - *d2);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void IdListIterator::Rewind() {
   setEof(0);
@@ -116,13 +134,17 @@ void IdListIterator::Rewind() {
   offset = 0;
 }
 
-IdListIterator::IdListIterator(t_docId *ids, t_offset num, double weight) {
+//---------------------------------------------------------------------------------------------
+
+// Create a new IdListIterator from a pre populated list of document ids of size num. The doc ids
+// are sorted in this function, so there is no need to sort them. They are automatically freed in
+// the end and assumed to be allocated using rm_malloc
+
+//@@@ TODO: fix this
+IdListIterator::IdListIterator(Vector<t_docId> &ids, double weight) {
   // first sort the ids, so the caller will not have to deal with it
   qsort(ids, (size_t)num, sizeof(t_docId), (int (*)(const void *, const void*)) cmp_docids);
 
-  size = num;
-  docIds = rm_calloc(num, sizeof(t_docId));
-  if (num > 0) memcpy(docIds, ids, num * sizeof(t_docId));
   setEof(0);
   lastDocId = 0;
   current = new VirtualResult(weight);

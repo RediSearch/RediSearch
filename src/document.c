@@ -20,12 +20,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Memory pool for RSAddDocumentContext contexts
-//static mempool_t *actxPool_g = NULL;
-template<> AddDocumentPool MemPoolObject<AddDocumentPool>::pool(16, 0, true);
-
-//---------------------------------------------------------------------------------------------
-
 bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCount) {
   stateFlags &= ~ACTX_F_INDEXABLES;
   stateFlags &= ~ACTX_F_TEXTINDEXED;
