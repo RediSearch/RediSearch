@@ -268,7 +268,7 @@ struct IndexSpec : Object {
   void StartGCFromSpec(float initialHZ, uint32_t gcPolicy);
   void StartGC(RedisModuleCtx *ctx, float initialHZ);
 
-  const FieldSpec *getFieldCommon(const char *name, size_t len, int useCase) const;
+  const FieldSpec *getFieldCommon(const char *name, size_t len, bool useCase) const;
   Vector<FieldSpec> getFieldsByType(FieldType type);
 
   bool CheckPhoneticEnabled(t_fieldMask fm) const;

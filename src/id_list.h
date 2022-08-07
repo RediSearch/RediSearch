@@ -11,7 +11,7 @@ struct IdListIterator : public IndexIterator {
   t_offset size;
   t_offset offset;
 
-  IdListIterator(Vector<t_docId> docIds;, double weight);
+  IdListIterator(Vector<t_docId> docIds, double weight);
   ~IdListIterator();
 
   virtual IndexResult *GetCurrent();
@@ -36,7 +36,6 @@ struct IdListIterator : public IndexIterator {
     Vector<t_docId> &docIds;
 
     CriteriaTester(IdListIterator *it);
-    ~CriteriaTester();
 
     int Test(t_docId id);
   };

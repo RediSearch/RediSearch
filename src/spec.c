@@ -26,7 +26,7 @@ static uint64_t spec_unique_ids = 1;
 
 //---------------------------------------------------------------------------------------------
 
-const FieldSpec *IndexSpec::getFieldCommon(const char *name, size_t len, int useCase) const {
+const FieldSpec *IndexSpec::getFieldCommon(const char *name, size_t len, bool useCase) const { //@@ Can we use String here?
   for (size_t i = 0; i < fields.size(); i++) {
     if (len != strlen(fields[i].name)) {
       continue;
@@ -47,19 +47,19 @@ const FieldSpec *IndexSpec::getFieldCommon(const char *name, size_t len, int use
 
 //---------------------------------------------------------------------------------------------
 
-/*
- * Get a field spec by field name. Case insensitive!
- * Return the field spec if found, NULL if not
- */
-const FieldSpec *IndexSpec::GetField(const char *name, size_t len) const {
-  return getFieldCommon(name, len, 0);
+// Get a field spec by field name. Case insensitive!
+// Return the field spec if found, NULL if not
+
+const FieldSpec *IndexSpec::GetField(const char *name, size_t len) const { //@@ Can we use String here?
+  return getFieldCommon(name, len, false);
 };
 
 //---------------------------------------------------------------------------------------------
 
 // Case-sensitive version of GetField()
-const FieldSpec *IndexSpec::GetFieldCase(const char *name, size_t n) const {
-  return getFieldCommon(name, n, 1);
+
+const FieldSpec *IndexSpec::GetFieldCase(const char *name, size_t n) const { //@@ Can we use String here?
+  return getFieldCommon(name, n, true);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -67,7 +67,7 @@ const FieldSpec *IndexSpec::GetFieldCase(const char *name, size_t n) const {
 // Get the field bitmask id of a text field by name.
 // Return 0 if the field is not found or is not a text field.
 
-t_fieldMask IndexSpec::GetFieldBit(const char *name, size_t len) const {
+t_fieldMask IndexSpec::GetFieldBit(const char *name, size_t len) const { //@@ Can we use String here?
   const FieldSpec *sp = GetField(name, len);
   if (!sp || !sp->IsFieldType(INDEXFLD_T_FULLTEXT) || !sp->IsIndexable()) return 0;
 

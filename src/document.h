@@ -57,8 +57,7 @@ struct Document : Object {
   RSLanguage language;
   float score;
   t_docId docId;
-  const char *payload;
-  size_t payloadSize;
+  RSPayload *payload;
   uint32_t flags;
 
   Document(RedisModuleString *docKey, double score, RSLanguage lang);
@@ -71,7 +70,7 @@ struct Document : Object {
   void AddField(const char *fieldname, RedisModuleString *fieldval, uint32_t typemask);
   void AddFieldC(const char *fieldname, const char *val, size_t vallen, uint32_t typemask);
 
-  void SetPayload(const void *payload, size_t n);
+  void SetPayload(RSPayload *p);
   void MakeStringsOwner();
   void Clear();
   void Dump() const; //@@ looks like nobody is using this func

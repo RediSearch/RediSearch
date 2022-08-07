@@ -18,7 +18,9 @@ void TrieIterator::Pop() {
   StackNode &curr = current();
   dfafilter.StackPop(curr.stringOffset);
 
-  RS_LOG_ASSERT(runes.len() >= curr.stringOffset, "Invalid iterator state");
+  if (runes.len() >= curr.stringOffset) {
+    throw Error("Invalid iterator state");
+  }
   runes.pop(curr.stringOffset);
   stack.pop_back();
 }

@@ -246,7 +246,7 @@ bool AddDocumentCtx::makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryErr
   size_t n;
   const char *s = RedisModule_StringPtrLen(doc.docKey, &n);
 
-  doc.docId = table->Put(s, n, doc.score, docFlags, doc.payload, doc.payloadSize);
+  doc.docId = table->Put(s, n, doc.score, docFlags, doc.payload);
   if (doc.docId == 0) {
     status->SetError(QUERY_EDOCEXISTS, NULL);
     return false; //@@TODO: throw on error

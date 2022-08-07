@@ -33,13 +33,13 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 RSToken::RSToken(const rune *r, size_t n) {
-  str = runesToStr(r, n, &len);
+  str = runesToStr(r, n);
 }
 
 //---------------------------------------------------------------------------------------------
 
 RSToken::RSToken(const Runes &r) {
-  str = r.toUTF8(&len);
+  str = r.toUTF8();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -55,20 +55,6 @@ QueryLexRangeNode::~QueryLexRangeNode() {
 
 //---------------------------------------------------------------------------------------------
 
-// void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
-
-QueryNode::~QueryNode() {
-  if (children) {
-    for (size_t i = 0; i < NumChildren(); ++i) {
-      delete children[i];
-    }
-    array_free(children);
-    children = NULL;
-  }
-}
-
-//---------------------------------------------------------------------------------------------
-
 void QueryNode::ctor(QueryNodeType t) {
   type = t;
 }
@@ -76,7 +62,7 @@ void QueryNode::ctor(QueryNodeType t) {
 //---------------------------------------------------------------------------------------------
 
 QueryTokenNode *QueryAST::NewTokenNodeExpanded(const char *s, size_t len, RSTokenFlags flags) {
-  QueryTokenNode *ret = new QueryTokenNode(NULL, (char *)s, len, 1, flags);
+  QueryTokenNode *ret = new QueryTokenNode(NULL, std::string_view(s, len), 1, flags);
   numTokens++;
   return ret;
 }
@@ -89,8 +75,8 @@ void QueryAST::setFilterNode(QueryNode *n) {
   // for a simple phrase node we just add the numeric node
   if (root->type == QN_PHRASE) {
     // we usually want the numeric range as the "leader" iterator
-    root->children.insert(root->children.head(), n);
-  } else { 
+    root->children.insert(root->children.begin(), n);
+  } else {
     // for other types, we need to create a new phrase node
     QueryNode *nr = new QueryPhraseNode(0);
     nr->AddChild(n);
@@ -117,7 +103,7 @@ void QueryAST::SetGlobalFilters(const GeoFilter *geo) {
 // List of IDs to limit to, and the length of that array
 void QueryAST::SetGlobalFilters(Vector<t_docId> &ids) {
   QueryIdFilterNode node{ids};
-  setFilterNode(node);
+  setFilterNode(&node);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -179,9 +165,9 @@ void QueryTokenNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *str, size_t len,
-                                           int maxDist, int prefixMode, QueryNodeOptions *opts) {
-  TrieIterator it = terms->Iterate(str, maxDist, prefixMode);
+static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const String str, int maxDist,
+                                           bool prefixMode, QueryNodeOptions *opts) {
+  TrieIterator it = terms->Iterate(str.c_str(), maxDist, prefixMode);
   IndexIterators its;
 
   Runes runes;
@@ -225,14 +211,14 @@ IndexIterator *QueryPrefixNode::EvalNode(Query *q) {
   // RS_LOG_ASSERT(type == QN_PREFX, "query node type should be prefix");
 
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (tok.len < RSGlobalConfig.minTermPrefix) {
+  if (tok.length() < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
 
   Trie *terms = q->sctx->spec->terms;
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, tok.str, tok.len, 0, 1, &opts);
+  return iterateExpandedTerms(q, terms, tok.str, 0, true, &opts);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -301,7 +287,7 @@ IndexIterator *QueryFuzzyNode::EvalNode(Query *q) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, tok.str, tok.len, maxDist, 0, &opts);
+  return iterateExpandedTerms(q, terms, tok.str, maxDist, false, &opts);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -361,7 +347,7 @@ IndexIterator *QueryPhraseNode::EvalSingle(Query *q, TagIndex *idx, IndexIterato
   for (size_t i = 0; i < NumChildren(); ++i) {
     if (children[i]->type == QN_TOKEN) {
       TermResult *res = dynamic_cast<TermResult*>(children[i]);
-      terms[i] = res->term->str;
+      terms[i] = res->term->str.c_str();
     } else {
       terms[i] = "";
     }
@@ -400,8 +386,7 @@ IndexIterator *QueryNumericNode::EvalNode(Query *q) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryGeofilterNode::Eval(Query *q, double weight) {
-  const FieldSpec *fs =
-      q->sctx->spec->GetField(gf->property, strlen(gf->property));
+  const FieldSpec *fs = q->sctx->spec->GetField(gf->property.c_str(), gf->property.length());
   if (!fs || !fs->IsFieldType(INDEXFLD_T_GEO)) {
     return NULL;
   }
@@ -413,7 +398,7 @@ IndexIterator *QueryGeofilterNode::Eval(Query *q, double weight) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryIdFilterNode::EvalNode(Query *q) {
-  return new IdListIterator(ids, t_offset{len}, 1);
+  return new IdListIterator(ids, 1);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -425,22 +410,21 @@ IndexIterator *QueryUnionNode::EvalNode(Query *q) {
   }
 
   // recursively eval the children
-  IndexIterator **iters = rm_calloc(NumChildren(), sizeof(IndexIterator *));
-  int n = 0;
+  IndexIterators iters(NumChildren());
   for (size_t i = 0; i < NumChildren(); ++i) {
     children[i]->opts.fieldMask &= opts.fieldMask;
     IndexIterator *it = children[i]->EvalNode(q);
     if (it) {
-      iters[n++] = it;
+      iters.push_back(it);
     }
   }
-  if (n == 0) {
+
+  if (iters.size() == 0) {
     return NULL;
   }
 
-  if (n == 1) {
-    IndexIterator *ret = iters[0];
-    return ret;
+  if (iters.size() == 1) {
+    return iters[0];
   }
 
   return new UnionIterator(iters, q->docTable, 0, opts.weight);
@@ -472,12 +456,12 @@ IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexItera
 
 IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (tok.len < q->sctx->spec->minPrefix) {
+  if (tok.length() < q->sctx->spec->minPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
 
-  TrieMapIterator *it = idx->values->Iterate(tok.str, tok.len);
+  TrieMapIterator *it = idx->values->Iterate(tok.str.c_str(), tok.length());
   if (!it) return NULL;
 
   IndexIterators its;
@@ -518,7 +502,7 @@ IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIterat
 IndexIterator *QueryTagNode::EvalNode(Query *q) {
   RedisModuleKey *k = NULL;
   size_t n = 0;
-  const FieldSpec *fs = q->sctx->spec->GetFieldCase(fieldName, strlen(fieldName));
+  const FieldSpec *fs = q->sctx->spec->GetFieldCase(fieldName.c_str(), fieldName.length());
   if (!fs) {
     return NULL;
   }
@@ -694,16 +678,16 @@ void QueryNode::SetFieldMask(t_fieldMask mask) {
 
 //---------------------------------------------------------------------------------------------
 
-void QueryNode::AddChildren(Vector<QueryNode*> children_) {
+void QueryNode::AddChildren(QueryNodes &children_) {
   if (type == QN_TAG) {
-    for (size_t ii = 0; ii < nchildren; ++ii) {
-      if (children_[ii]->type == QN_TOKEN || children_[ii]->type == QN_PHRASE ||
-          children_[ii]->type == QN_PREFX || children_[ii]->type == QN_LEXRANGE) {
-        children = array_ensure_append(children, children_ + ii, 1, QueryNode *);
+    for (auto child : children_) {
+      if (child->type == QN_TOKEN || child->type == QN_PHRASE ||
+          child->type == QN_PREFX || child->type == QN_LEXRANGE) {
+        children.push_back(child);
       }
     }
   } else {
-    array_ensure_append(children, children_, nchildren, QueryNode *);
+    children.insert(children.begin(), children_.begin(), children_.end());
   }
 }
 
@@ -715,11 +699,9 @@ void QueryNode::AddChild(QueryNode *ch) {
 
 //---------------------------------------------------------------------------------------------
 
-void QueryNode::ClearChildren(bool shouldFree) {
-  if (!shouldFree) return;
-  for (auto child: children) {
-      delete child;
-    }
+void QueryNode::ClearChildren(bool shouldFree) { //@@ Do we need the param here?
+  if (shouldFree) {
+    children.clear();
   }
 }
 
@@ -844,12 +826,12 @@ bool QueryNode::ApplyAttribute(QueryAttribute &attr, QueryError *status) {
 
 #define MK_INVALID_VALUE() \
   status->SetErrorFmt(QUERY_ESYNTAX, "Invalid value (%.*s) for `%.*s`", \
-                      (int)attr.length(), attr.data(), (int)attr.name.length(), attr.name.data())
+                      (int)attr.value.length(), attr.value.data(), (int)attr.name.length(), attr.name.data())
 
   // Apply slop: [-1 ... INF]
   if (str_caseeq(attr.name, slop)) {
     long long n;
-    if (!ParseInteger(attr->value, &n) || n < -1) {
+    if (!ParseInteger(attr.value.c_str(), n) || n < -1) {
       MK_INVALID_VALUE();
       return false;
     }
@@ -858,25 +840,25 @@ bool QueryNode::ApplyAttribute(QueryAttribute &attr, QueryError *status) {
   } else if (str_caseeq(attr.name, inorder)) {
     // Apply inorder: true|false
     bool b;
-    if (!ParseBoolean(attr.value, &b)) {
+    if (!ParseBoolean(attr.value.c_str(), b)) {
       MK_INVALID_VALUE();
       return false;
     }
     opts.inOrder = b;
 
-  } else if (str_caseeq(attr->name, weight)) {
+  } else if (str_caseeq(attr.name, weight)) {
     // Apply weight: [0  ... INF]
     double d;
-    if (!ParseDouble(attr->value, &d) || d < 0) {
+    if (!ParseDouble(attr.value.c_str(), d) || d < 0) {
       MK_INVALID_VALUE();
       return false;
     }
     opts.weight = d;
 
-  } else if (str_caseeq(attr->name, "phonetic")) {
+  } else if (str_caseeq(attr.name, "phonetic")) {
     // Apply phonetic: true|false
     bool b;
-    if (!ParseBoolean(attr->value, &b)) {
+    if (!ParseBoolean(attr.value.c_str(), b)) {
       MK_INVALID_VALUE();
       return false;
     }
@@ -889,7 +871,7 @@ bool QueryNode::ApplyAttribute(QueryAttribute &attr, QueryError *status) {
     //                                          will be enable if field was declared phonetic
 
   } else {
-    status->SetErrorFmt(QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->name.length(), attr->name.data());
+    status->SetErrorFmt(QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr.name.length(), attr.name.data());
     return false;
   }
 
@@ -900,8 +882,8 @@ bool QueryNode::ApplyAttribute(QueryAttribute &attr, QueryError *status) {
 
 bool QueryNode::ApplyAttributes(QueryAttributes *attrs, QueryError *status) {
   if (!attrs) return true;
-  for (auto &attr: *attrs) {}
-    if (!ApplyAttribute(attr, status)) {
+  for (auto attr: *attrs) {
+    if (!ApplyAttribute(*attr, status)) {
       return false;
     }
   }

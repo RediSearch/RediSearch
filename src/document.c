@@ -669,7 +669,7 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
   md->score = doc.score;
   // Set the payload if needed
   if (doc.payload) {
-    sctx->spec->docs.SetPayload(docId, doc.payload, doc.payloadSize);
+    sctx->spec->docs.SetPayload(docId, doc.payload);
   }
 
   if (stateFlags & ACTX_F_SORTABLES) {

@@ -6,8 +6,6 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct RSScoreExplain {
-  RSScoreExplain(RSScoreExplain *exp);
-  
   char *str;
   int numChildren;
   struct RSScoreExplain *children;

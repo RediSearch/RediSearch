@@ -10,6 +10,7 @@
 #include "rmutil/sds.h"
 
 #include <stdlib.h>
+#include <string_view>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -104,7 +105,7 @@ public:
 
   RSDocumentMetadata &Set(t_docId docId, RSDocumentMetadata &&dmd);
 
-  bool SetPayload(t_docId docId, const char *data, size_t len);
+  bool SetPayload(t_docId docId, RSPayload *data);
   bool SetSortingVector(t_docId docId, RSSortingVector *v);
   int SetByteOffsets(t_docId docId, RSByteOffsets *offsets);
 

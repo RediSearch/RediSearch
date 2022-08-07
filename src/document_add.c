@@ -171,7 +171,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
   if (opts->payload) {
     size_t npayload = 0;
     const char *payload = RedisModule_StringPtrLen(opts->payload, &npayload);
-    doc.SetPayload(payload, npayload);
+    doc.SetPayload(new RSPayload{payload, npayload});
   }
   doc.LoadPairwiseArgs(opts->fieldsArray, opts->numFieldElems);
 

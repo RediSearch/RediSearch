@@ -94,7 +94,7 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 // caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
 // Otherwise we return an iterator to all strings within maxDist Levenshtein distance.
 
-TrieIterator Trie::Iterate(const char *prefix, int maxDist, int prefixMode) {
+TrieIterator Trie::Iterate(const char *prefix, int maxDist, bool prefixMode) {
   Runes runes(prefix);
   if (!runes || runes.len() > TRIE_MAX_PREFIX) {
     Runes empty;

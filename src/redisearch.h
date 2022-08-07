@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <string_view>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -241,9 +242,7 @@ typedef void (*RSFreeFunction)(void *);
 
 struct RSQueryTerm : public Object {
   // The term string, not necessarily NULL terminated, hence the length is given as well
-  char *str;
-  // The term length
-  size_t len;
+  String str;
 
   // Inverse document frequency of the term in the index.
   // See https://en.wikipedia.org/wiki/Tf%E2%80%93idf
@@ -255,7 +254,6 @@ struct RSQueryTerm : public Object {
   RSTokenFlags flags;
 
   RSQueryTerm(const RSToken &tok, int id);
-  ~RSQueryTerm();
 };
 
 //---------------------------------------------------------------------------------------------
@@ -418,7 +416,7 @@ struct IndexResult : public Object {
 
   // Reset state of an existing index hit. This can be used to recycle index hits during reads
   void Reset();
-  
+
   virtual void Print(int depth) const; // debug print
 
   // Get the minimal delta between the terms in the result

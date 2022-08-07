@@ -135,7 +135,7 @@ t_docId DocTable::GetId(const char *s, size_t n) const {
 // Set payload for a document.
 // Returns 1 if we set the payload, 0 if we couldn't find the document
 
-bool DocTable::SetPayload(t_docId docId, const char *data, size_t len) {
+bool DocTable::SetPayload(t_docId docId, RSPayload *data) {
   RSDocumentMetadata *dmd = Get(docId);
   if (!dmd || !data) {
     return false;
@@ -146,7 +146,7 @@ bool DocTable::SetPayload(t_docId docId, const char *data, size_t len) {
     delete dmd->payload;
   }
 
-  dmd->payload = new RSPayload(data, len);
+  dmd->payload = data;
   dmd->flags |= Document_HasPayload;
   memsize += dmd->payload->memsize();
   return true;
@@ -448,8 +448,8 @@ RSDocumentMetadata::RSDocumentMetadata(const char *id, size_t idlen, double scor
 
 //---------------------------------------------------------------------------------------------
 
-RSDocumentMetadata::RSDocumentMetadata(RSDocumentMetadata &&dmd) : id(dmd.id), keyPtr(dmd.keyPtr), 
-    score(dmd.score), maxFreq(dmd.maxFreq), len(dmd.len), flags(dmd.flags), payload(dmd.payload), 
+RSDocumentMetadata::RSDocumentMetadata(RSDocumentMetadata &&dmd) : id(dmd.id), keyPtr(dmd.keyPtr),
+    score(dmd.score), maxFreq(dmd.maxFreq), len(dmd.len), flags(dmd.flags), payload(dmd.payload),
     sortVector(dmd.sortVector), byteOffsets(dmd.byteOffsets), dmd_iter(dmd.dmd_iter), ref_count(dmd.ref_count) {
   dmd.payload = NULL;
   dmd.sortVector = NULL;

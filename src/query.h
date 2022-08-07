@@ -40,7 +40,7 @@ struct QueryAST : public Object {
   // Set global filters on the AST
   void SetGlobalFilters(const NumericFilter *numeric);
   void SetGlobalFilters(const GeoFilter *geo);
-  void SetGlobalFilters(Vector<t_docId> ids);
+  void SetGlobalFilters(Vector<t_docId> &ids);
 
   IndexIterator *Iterate(const RSSearchOptions &options, RedisSearchCtx &sctx,
                          ConcurrentSearch *conc) const;

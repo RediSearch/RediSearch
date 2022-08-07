@@ -7,10 +7,6 @@ int IdListIterator::CriteriaTester::Test(t_docId id) {
   return bsearch((void *)id, docIds, (size_t)size, sizeof(t_docId), IdListIterator::cmp_docids) != NULL;
 }
 
-IdListIterator::CriteriaTester::~CriteriaTester() {
-  rm_free(docIds);
-}
-
 IdListIterator::CriteriaTester::CriteriaTester(IdListIterator *it) {
   docIds = rm_malloc(sizeof(t_docId) * size);
   memcpy(docIds, docIds, size);
