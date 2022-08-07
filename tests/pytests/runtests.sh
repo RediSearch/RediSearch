@@ -246,7 +246,7 @@ if [[ -n $REJSON && $REJSON != 0 ]]; then
 		FORCE_GET=
 		[[ $REJSON == get ]] && FORCE_GET=1
 		export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
-		BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
+		OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
 		REJSON_MODULE=$(cat $MODULE_FILE)
 		REJSON_ARGS="--module $REJSON_MODULE"
 	fi
