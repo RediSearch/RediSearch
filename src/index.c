@@ -69,6 +69,10 @@ typedef struct {
   QueryNodeType origType;
   // original string for fuzzy or prefix unions
   const char *qstr;
+
+  // timeout params
+  struct timespec timeout;
+  size_t timeoutCounter;
 } UnionIterator;
 
 static void resetMinIdHeap(UnionIterator *ui) {
@@ -144,7 +148,8 @@ static void UI_Rewind(void *ctx) {
 }
 
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit,
-                                double weight, QueryNodeType type, const char *qstr) {
+                                double weight, QueryNodeType type, const char *qstr,
+                                struct timespec *timeout) {
   // create union context
   UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
   ctx->origits = its;
@@ -161,6 +166,9 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   ctx->currIt = 0;
   ctx->heapMinId = NULL;
   ctx->qstr = qstr;
+
+  ctx->timeout = *timeout;
+  ctx->timeoutCounter = 0;
 
   // bind the union iterator calls
   IndexIterator *it = &ctx->base;
@@ -293,6 +301,10 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
   if (ui->num == 0 || !IITER_HAS_NEXT(&ui->base)) {
     IITER_SET_EOF(&ui->base);
     return INDEXREAD_EOF;
+  }
+
+  if (TimedOut_WithCounter(&ui->timeout, &ui->timeoutCounter) == TIMED_OUT) {
+    return INDEXREAD_TIMEOUT;
   }
 
   int numActive = 0;
@@ -533,6 +545,10 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   if (!IITER_HAS_NEXT(&ui->base)) {
     return INDEXREAD_EOF;
+  }
+
+  if (TimedOut_WithCounter(&ui->timeout, &ui->timeoutCounter) == TIMED_OUT) {
+    return INDEXREAD_TIMEOUT;
   }
 
   AggregateResult_Reset(CURRENT_RECORD(ui));

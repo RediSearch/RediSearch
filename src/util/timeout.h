@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+extern struct timespec MAX_TIMESPEC;
+
 /*****************************************
  *            Timeout API
  ****************************************/
@@ -60,7 +62,7 @@ static inline int TimedOut(struct timespec *timeout) {
 static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter) {
   if (RS_IsMock) return 0;
 
-  if (++(*counter) == 100) {
+  if (++(*counter) == 1000) {
     *counter = 0;
     return TimedOut(timeout);
   }
