@@ -511,3 +511,18 @@ def test_MOD_3540(env):
                   .equal([10, ['t', '9'], ['t', '8'], ['t', '7'], ['t', '6'], ['t', '5'], ['t', '4'], ['t', '3'], ['t', '2'], ['t', '1'], ['t', '0']])
   env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '0', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LOAD', '*')  \
                   .equal([10])
+
+def test_sortby_Noexist(env):
+  conn = getConnectionByEnv(env)
+
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't', '1')
+  conn.execute_command('HSET', 'doc2', 'somethingelse', '2')
+  conn.execute_command('HSET', 'doc3', 't', '3')
+  conn.execute_command('HSET', 'doc4', 'somethingelse', '4')
+
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'LIMIT', '0', '2').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '2').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
+
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'LIMIT', '0', '3').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
