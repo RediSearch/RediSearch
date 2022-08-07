@@ -101,7 +101,6 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
  *  Provide info and stats about an index
  */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
