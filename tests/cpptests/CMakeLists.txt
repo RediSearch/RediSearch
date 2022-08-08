@@ -10,7 +10,6 @@ if (NOT RS_TEST_MODULE)
     set(RS_TEST_MODULE redisearch)
 endif()
 
-
 # add_definitions(-DEXT_TEST_PATH="\\"${binroot}/search/tests/cpptests/example_extension/libexample_extension.so\\"")
 
 file(GLOB TEST_SOURCES "test_cpp_*.cpp")

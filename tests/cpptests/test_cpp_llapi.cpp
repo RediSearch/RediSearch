@@ -1004,7 +1004,7 @@ TEST_F(LLApiTest, testStopwords) {
   RediSearch_DropIndex(index);
 
   // Check custom stopword list
-  const char *words[] = {"Redis", "Labs"};
+  const char *words[] = { "Labs", "Redis"};
   RSIndexOptions *options = RediSearch_CreateIndexOptions();
   RediSearch_IndexOptionsSetStopwords(options, words, 2);
 
