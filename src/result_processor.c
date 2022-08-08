@@ -454,7 +454,8 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
       if (QueryError_HasError(&status)) {
         // failure to fetch the doc:
         // release dmd, reduce result count and continue
-        DMD_Decref(h->dmd);
+        self->pooledResult = h;
+        SearchResult_Clear(self->pooledResult);
         rp->parent->totalResults--;
         return RESULT_QUEUED;
       }
