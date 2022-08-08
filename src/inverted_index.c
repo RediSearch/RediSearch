@@ -995,6 +995,18 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       continue;
     }
 
+    // Avoid reading same docId
+    if (delta) {
+      // Different docId
+      ir->sameId = 0;
+    } else if (ir->sameId) {
+      // Not the first encounter with same docId
+      continue;
+    } else {
+      // The first encounter with potentially same docId
+      ir->sameId = ir->lastId;      
+    }
+
     ++ir->len;
     *e = record;
     return INDEXREAD_OK;
@@ -1144,6 +1156,7 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->record = record;
   ret->len = 0;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
+  ret->sameId = 0;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
   ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;

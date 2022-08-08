@@ -115,7 +115,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
     break;
   // TEXT and VECTOR fields can be represented as array
   case JSONType_Array:
-    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR) {
+    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC) {
       rv = REDISMODULE_OK;
     }
     break;
@@ -151,18 +151,18 @@ static int JSON_getFloat32(RedisJSON json, float *val) {
   }
 }
 
-// Uncomment when support for more types is added
-// static int JSON_getFloat64(RedisJSON json, double *val) {
-//   int ret = japi->getDouble(json, val);
-//   if (REDISMODULE_OK == ret) {
-//     return ret;
-//   } else {
-//     long long temp;
-//     ret = japi->getInt(json, &temp);
-//     *val = (double)temp;
-//     return ret;
-//   }
-// }
+static int JSON_getFloat64(RedisJSON json, double *val) {
+  int ret = japi->getDouble(json, val);
+  if (REDISMODULE_OK == ret) {
+    return ret;
+  } else {
+    // On RedisJSON<2.0.9, getDouble can't handle integer values
+    long long temp;
+    ret = japi->getInt(json, &temp);
+    *val = (double)temp;
+    return ret;
+  }
+}
 
 int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df) {
   VecSimType type;
@@ -303,6 +303,49 @@ int JSON_StoreTextInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
   return JSON_StoreTextInDocField(len, &iter, df);
 }
 
+int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df) {
+  arrayof(double) arr = array_new(double, len);
+  int nulls = 0;
+  RedisJSON json;
+  double dval;
+  while ((json = JSONIterable_Next(iterable))) {
+    JSONType jsonType = japi->getType(json);
+    if (jsonType == JSONType_Double || jsonType == JSONType_Int) {
+      JSON_getFloat64(json, &dval);
+      array_ensure_append_1(arr, dval);
+    } else if (jsonType == JSONType_Null) {
+      ++nulls; // Skip Nulls (TODO: consider also failing or converting to a specific value, e.g., zero)
+    } else {
+      // Numeric fields can handle only numeric or Nulls
+      goto error;
+    }
+  }
+  RS_LOG_ASSERT ((array_len(arr) + nulls) == len, "NUMERIC iterator count and len must be equal");
+  df->arrNumval = arr;
+  df->unionType = FLD_VAR_T_ARRAY;
+  return REDISMODULE_OK;
+
+error:
+  array_free(arr);
+  return REDISMODULE_ERR;
+}
+
+int JSON_StoreNumericInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
+  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
+                                      .iter = jsonIter};
+  return JSON_StoreNumericInDocField(len, &iter, df);
+}
+
+int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
+  size_t len;
+  japi->getLen(arr, &len);
+  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
+                                      .array.arr = arr,
+                                      .array.index = 0};
+  return JSON_StoreNumericInDocField(len, &iter, df);
+}
+
+
 int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df) {
   int rv = REDISMODULE_OK;
 
@@ -340,15 +383,20 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       df->unionType = FLD_VAR_T_NULL;
       break;
     case JSONType_Array:
-      if (fs->types == INDEXFLD_T_FULLTEXT || fs->types == INDEXFLD_T_VECTOR) {
-        if (fs->types == INDEXFLD_T_FULLTEXT) {
-          rv = JSON_StoreTextInDocFieldFromArr(json, df);          
-        } else {
+      switch (fs->types) {
+        case INDEXFLD_T_FULLTEXT:
+          rv = JSON_StoreTextInDocFieldFromArr(json, df);
+          break;
+        case INDEXFLD_T_VECTOR:
           rv = JSON_StoreVectorInDocField(fs, json, df);
-        }
-      } else {
-        rv = REDISMODULE_ERR;  
-      }
+          break;
+        case INDEXFLD_T_NUMERIC:
+          rv = JSON_StoreNumericInDocFieldFromArr(json, df);
+          break;
+        default:
+          rv = REDISMODULE_ERR;
+          break;
+      }      
       break;
     case JSONType_Object:
       rv = REDISMODULE_ERR;
@@ -406,6 +454,9 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   } else if (fs->types == INDEXFLD_T_FULLTEXT) {
     // Handling multiple values as Text
     rv = JSON_StoreTextInDocFieldFromIter(len, jsonIter, df);
+  } else if (fs->types == INDEXFLD_T_NUMERIC) {
+    // Handling multiple values as Numeric
+    rv = JSON_StoreNumericInDocFieldFromIter(len, jsonIter, df);
   } else {
     rv = REDISMODULE_ERR;
   }

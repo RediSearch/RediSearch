@@ -76,22 +76,22 @@ doc1_content = [
 ]
 
 
-
-
 def testNumeric(env):
     """ Test multi numeric values (an array of numeric values or multiple numeric values) """
 
     conn = getConnectionByEnv(env)
-    # TODO: FIXME: Remove debug config
-    env.expect('FT.CONFIG', 'SET', 'TIMEOUT', 0).ok()
-
-    #env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..seq[*]', 'AS', 'seq', 'NUMERIC').ok()
-    env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$[0].seq[0]', 'AS', 'seq', 'NUMERIC').ok()
-
-    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
     
+    env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..seq[*]', 'AS', 'seq', 'NUMERIC').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
 
-    res1 = [1, 'doc:1']
-    env.expect('FT.SEARCH', 'idx1', '@seq:[3 6]', 'NOCONTENT').equal(res1)
+    env.expect('FT.SEARCH', 'idx1', '@seq:[3 6]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx1', '-@seq:[3 6]', 'NOCONTENT').equal([0])
+
+    env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$[0].nested2[0].seq', 'AS', 'seq', 'NUMERIC').ok()
+    env.expect('FT.SEARCH', 'idx2', '@seq:[1.4 1.5]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx2', '-@seq:[1.4 1.5]', 'NOCONTENT').equal([0])
+
+    env.expect('FT.SEARCH', 'idx2', '-@seq:[1.4 (1.5]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx2', '@seq:[1.4 (1.5]', 'NOCONTENT').equal([0])
 
 

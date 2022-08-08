@@ -8,7 +8,7 @@
 #include "util/arr.h"
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
-  int count;
+  int isMulti;
   union {
     // Single value
     double numeric;  // i.e. the numeric value of the field
@@ -23,7 +23,7 @@ typedef struct FieldIndexerData {
     };
 
     // Multi value
-    array_t arrNumeric;
+    arrayof(double) arrNumeric;
     struct {
       array_t arrGeoSlon;
       array_t arrGeoSlat;

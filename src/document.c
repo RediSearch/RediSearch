@@ -490,8 +490,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   return 0;
 }
 
-FIELD_PREPROCESSOR(numericPreprocessor) {
-  char *end;
+FIELD_PREPROCESSOR(numericPreprocessor) {  
   switch (field->unionType) {
     case FLD_VAR_T_RMS:
       if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
@@ -500,10 +499,13 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
       }
       break;
     case FLD_VAR_T_CSTR:
-      fdata->numeric = strtod(field->strval, &end);
-      if (*end) {
-        QueryError_SetCode(status, QUERY_ENOTNUMERIC);
-        return -1;
+      {
+        char *end;
+        fdata->numeric = strtod(field->strval, &end);
+        if (*end) {
+          QueryError_SetCode(status, QUERY_ENOTNUMERIC);
+          return -1;
+        }
       }
       break;
     case FLD_VAR_T_NUM:
@@ -511,13 +513,26 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
       break;
     case FLD_VAR_T_NULL:
       return 0;
+    case FLD_VAR_T_ARRAY:
+      fdata->isMulti = 1;
+      // Borrow values
+      fdata->arrNumeric = field->arrNumval;
+      break;
     default:
       return -1;
   }
 
   // If this is a sortable numeric value - copy the value to the sorting vector
   if (FieldSpec_IsSortable(fs)) {
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
+    if (field->unionType != FLD_VAR_T_ARRAY) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
+    } else {
+      if (array_len(fdata->arrNumeric)) {
+        // Currently sort by the first numeric value
+        RSSortingVector_Put(aCtx->sv, fs->sortIdx, array_elem(fdata->arrNumeric, 0), RS_SORTABLE_NUM, 0);
+      }
+    }
+    
   }
   return 0;
 }
@@ -534,11 +549,18 @@ FIELD_BULK_INDEXER(numericIndexer) {
     }
   }
   
-  //TODO: handle fdata->arrNumeric
-  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
-
-  ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
-  ctx->spec->stats.numRecords += rv.numRecords;
+  if (!fdata->isMulti) {
+    NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
+    ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
+    ctx->spec->stats.numRecords += rv.numRecords;
+  } else {
+    for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
+      double numval = fdata->arrNumeric[i];
+      NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
+      ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
+      ctx->spec->stats.numRecords += rv.numRecords;
+    }    
+  }  
   return 0;
 }
 
