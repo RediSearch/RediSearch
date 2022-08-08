@@ -454,7 +454,12 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
       RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
       RedisModule_ThreadSafeContextUnlock(NULL);
       if (QueryError_HasError(&status)) {
-        return RS_RESULT_ERROR;
+        // failure to fetch the doc:
+        // release dmd, reduce result count and continue
+        self->pooledResult = h;
+        SearchResult_Clear(self->pooledResult);
+        rp->parent->totalResults--;
+        return RESULT_QUEUED;
       }
     }
   }

@@ -30,7 +30,6 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
-int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -2104,8 +2103,6 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
     RedisModule_FreeString(ctx.redisCtx, keyName);
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
