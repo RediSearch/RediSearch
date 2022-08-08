@@ -1,31 +1,49 @@
-name-template: 'Version $NEXT_PATCH_VERSION'
-tag-template: 'v$NEXT_PATCH_VERSION'
+name-template: '$NEXT_MAJOR_VERSION'
+tag-template: 'v$NEXT_MAJOR_VERSION'
+autolabeler:
+  - label: 'maintenance'
+    files:
+      - '*.md'
+      - '.github/*'
+  - label: 'bug'
+    branch:
+      - '/bug-.+'
+  - label: 'maintenance'
+    branch:
+      - '/maintenance-.+'
+  - label: 'feature'
+    branch:
+      - '/feature-.+'
 categories:
-  - title: 'Features'
+  - title: 'Breaking Changes'
+    labels:
+      - 'breakingchange'
+
+  - title: '🧪 Experimental Features'
+    labels:
+      - 'experimental'
+  - title: '🚀 New Features'
     labels:
       - 'feature'
       - 'enhancement'
-      - 'c:feature'
-      - 'c:enhancement'
-  - title: 'Bug Fixes'
+  - title: '🐛 Bug Fixes'
     labels:
       - 'fix'
       - 'bugfix'
       - 'bug'
-      - 'c:bug'
-  - title: 'Breaking Changes'
-    labels:
-      - 'pr:break'
-  - title: 'Documentation'
-    labels:
-      - 'x:docs'
-  - title: 'Maintenance'
-    label: 'chore'
+      - 'BUG'
+  - title: '🧰 Maintenance'
+    label: 'maintenance'
 change-template: '- $TITLE (#$NUMBER)'
 exclude-labels:
   - 'skip-changelog'
-  - 'x:build'
 template: |
   ## Changes
 
   $CHANGES
+
+  ## Contributors
+  We'd like to thank all the contributors who worked on this release!
+
+  $CONTRIBUTORS
+
