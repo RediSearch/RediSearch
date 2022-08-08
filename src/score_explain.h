@@ -2,18 +2,18 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
+#include "rmutil/vector.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct RSScoreExplain {
   RSScoreExplain(RSScoreExplain *exp);
-  
-  char *str;
-  int numChildren;
-  struct RSScoreExplain *children;
+  ~RSScoreExplain();
 
-  void SEReply(RedisModuleCtx *ctx);
-  void SEDestroy();
+  String str;
+  Vector<struct RSScoreExplain*> children;
+
+  void RMReply(RedisModuleCtx *ctx);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

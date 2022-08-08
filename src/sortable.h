@@ -3,6 +3,8 @@
 #include "redismodule.h"
 #include "value.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 /* Sortables - embedded sorting fields. When creating a schema we can specify fields that will be
  * sortable.
  * A sortable field means that its data will get copied into an inline table inside the index. right
@@ -11,26 +13,35 @@
 // Maximum number of sortables
 #define RS_SORTABLES_MAX 255
 
-#pragma pack(1)
-
 #define RS_SORTABLE_NUM 1
 // #define RS_SORTABLE_EMBEDDED_STR 2
 #define RS_SORTABLE_STR 3
 // nil value means the value is empty
 #define RS_SORTABLE_NIL 4
 
-/* RSSortingKey describes the sorting of a query and is parsed from the redis command arguments */
+//---------------------------------------------------------------------------------------------
+
+// RSSortingKey describes the sorting of a query and is parsed from the redis command arguments
+
+#pragma pack(1)
+
 struct RSSortingKey {
-  /* The field index we are sorting by */
+  // The field index we are sorting by
   int index : 8;
 
-  /* ASC/DESC flag */
+  // ASC/DESC flag
   int ascending;
 };
 
+#pragma pack()
 
-/* RSSortingVector is a vector of sortable values. All documents in a schema where sortable fields
- * are defined will have such a vector. */
+//---------------------------------------------------------------------------------------------
+
+// RSSortingVector is a vector of sortable values. 
+// All documents in a schema where sortable fields are defined will have such a vector.
+
+#pragma pack(1)
+
 struct RSSortingVector {
   unsigned int len : 8;
   RSValue *values[];
@@ -50,8 +61,11 @@ struct RSSortingVector {
 
 #pragma pack()
 
-/* RSSortingTable defines the length and names of the fields in a sorting vector. It is saved as
- * part of the spec */
+//---------------------------------------------------------------------------------------------
+
+// RSSortingTable defines the length and names of the fields in a sorting vector. 
+// It is saved as part of the spec.
+
 struct RSSortingTable {
   uint8_t len;
   struct sortField {
@@ -62,3 +76,5 @@ struct RSSortingTable {
   int Add(const char *name, RSValueType t);
   int GetFieldIdx(const char *field);
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////

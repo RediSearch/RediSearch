@@ -45,7 +45,7 @@ size_t AREQ::serializeResult(RedisModuleCtx *outctx, const SearchResult *r, cons
     } else {
       RedisModule_ReplyWithArray(outctx, 2);
       RedisModule_ReplyWithDouble(outctx, r->score);
-      r->scoreExplain->SEReply(outctx);
+      r->scoreExplain->RMReply(outctx);
     }
     count++;
   }

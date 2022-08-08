@@ -166,7 +166,6 @@ struct RSDocumentMetadata : Object {
 // Forward declaration of the opaque query object
 // struct RSQuery;
 
-// Forward declaration of the opaque query node object
 struct QueryNode;
 
 // We support up to 30 user given flags for each token, flags 1 and 2 are taken by the engine
@@ -323,9 +322,6 @@ struct RSIndexStats {
 // It includes payload set by user or expander, extension private data, and callback functions.
 
 struct ScorerArgs {
-  // Private data set by the extension on initialization time, or during scoring
-  void *extdata;
-
   // Payload set by the client or by the query expander
   SimpleBuff *qdata;
 
@@ -333,10 +329,10 @@ struct ScorerArgs {
   RSIndexStats indexStats;
 
   // Flags controlling scoring function
-  void *scrExp; // scoreflags
+  RSScoreExplain *scrExp; // scoreflags
 
-  // The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
-  // that can be used to factor the result score.
+  // The GetSlop() callback.
+  // Returns cumulative "slop" or distance between query terms, that can be used to factor the result score.
   virtual int GetSlop(const struct IndexResult *res);
 
   RSScoreExplain *strExpCreateParent(RSScoreExplain **child) const;
@@ -436,10 +432,11 @@ struct IndexResult : public Object {
   bool withinRangeInOrder(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
   bool withinRangeUnordered(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
 
-  virtual double tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
-  double tfIdfInternal(const ScorerArgs *args, const RSDocumentMetadata *dmd, double minScore, int normMode) const;
-  virtual double bm25Recursive(const ScorerArgs *args, const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
-  virtual double dismaxRecursive(const ScorerArgs *args, RSScoreExplain *expl) const;
+  double TFIDFScorer(const ScorerArgs *args, const RSDocumentMetadata *dmd, double minScore, int normMode) const;
+  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
+
+  virtual double BM25Dcorer(const ScorerArgs *args, const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
+  virtual double dismaxScorer(const ScorerArgs *args, RSScoreExplain *expl) const;
 
   // Iterate an offset vector
   virtual std::unique_ptr<RSOffsetIterator> IterateOffsets() const {

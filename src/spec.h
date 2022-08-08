@@ -257,18 +257,18 @@ struct IndexSpec : Object {
 
   FieldSpec CreateField(const char *name);
 
-  const FieldSpec *GetField(const char *name, size_t len) const;
-  const FieldSpec *GetFieldCase(const char *name, size_t n) const;
+  const FieldSpec *GetField(std::string_view name) const;
+  const FieldSpec *GetFieldCase(std::string_view name) const;
   const FieldSpec *GetFieldBySortingIndex(uint16_t idx) const;
   const char *GetFieldNameByBit(t_fieldMask id) const;
-  int GetFieldSortingIndex(const char *name, size_t len);
-  t_fieldMask GetFieldBit(const char *name, size_t len) const;
+  int GetFieldSortingIndex(std::string_view name);
+  t_fieldMask GetFieldBit(std::string_view name) const;
   void GetStats(RSIndexStats *stats_);
 
   void StartGCFromSpec(float initialHZ, uint32_t gcPolicy);
   void StartGC(RedisModuleCtx *ctx, float initialHZ);
 
-  const FieldSpec *getFieldCommon(const char *name, size_t len, int useCase) const;
+  const FieldSpec *getFieldCommon(std::string_view name, int useCase) const;
   Vector<FieldSpec> getFieldsByType(FieldType type);
 
   bool CheckPhoneticEnabled(t_fieldMask fm) const;
@@ -284,7 +284,7 @@ struct IndexSpec : Object {
   bool AddFields(ArgsCursor *ac, QueryError *status);
 
   bool ParseStopWords(RedisModuleString **strs, size_t len);
-  bool IsStopWord(const char *term, size_t len);
+  bool IsStopWord(std::string_view term);
 
   void ClearAliases();
   void InitializeSynonym();

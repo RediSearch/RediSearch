@@ -1,5 +1,4 @@
-#ifndef EXT_EXAMPLE_H__
-#define EXT_EXAMPLE_H__
+#pragma once
 
 #include "redisearch.h"
 
@@ -9,5 +8,3 @@
 const char *extentionName = "EXAMPLE_EXTENSION";
 
 int RS_ExtensionInit(RSExtensionCtx *ctx);
-
-#endif

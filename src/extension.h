@@ -17,6 +17,8 @@ struct QueryExpander {
   virtual ~QueryExpander() {}
 
   RSQueryTokenExpander exp;
+
+  // int Expand(RSQueryExpanderCtx *ctx, RSToken *token);
 };
 
 //---------------------------------------------------------------------------------------------

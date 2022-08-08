@@ -122,9 +122,9 @@ struct AggregateResult : IndexResult {
     }
   }
 
-  double tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
 
-  double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd,
+  virtual double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd,
     RSScoreExplain *scrExp) const;
 };
 
@@ -180,7 +180,7 @@ struct TermResult : public IndexResult {
 
   void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len);
 
-  double tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
 
   double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
 

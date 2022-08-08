@@ -24,7 +24,7 @@ void SearchResult::Clear() {
   // This won't affect anything if the result is null
   score = 0;
   if (scoreExplain) {
-    scoreExplain->SEDestroy();
+    delete scoreExplain;
     scoreExplain = NULL;
   }
   if (indexResult) {
@@ -46,22 +46,13 @@ SearchResult::SearchResult() {
 
 //---------------------------------------------------------------------------------------------
 
-// Free the search result object including the object itself
-
 SearchResult::~SearchResult() {
   Clear();
   rowdata.Cleanup();
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
-  return RS_RESULT_EOF;
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Next implementation
 int RPIndexIterator::Next(SearchResult *res) {
   IndexIterator *it = iiter;
 
@@ -116,7 +107,7 @@ IndexIterator *QueryIterator::GetRootFilter() {
   return ((RPIndexIterator *)rootProc)->iiter;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 void QueryIterator::PushRP(ResultProcessor *rp) {
   rp->parent = this;
@@ -140,22 +131,21 @@ void QueryIterator::FreeChain() {
   }
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 int RPScorer::Next(SearchResult *res) {
   int rc;
-
-  do {
+  for (;;) {
     rc = upstream->Next(res);
     if (rc != RS_RESULT_OK) {
       return rc;
     }
 
     // Apply the scoring function
-    res->score = scorer(&scorerCtx, res->indexResult, res->dmd.get(), parent->minScore);
-    if (scorerCtx.scrExp) {
-      res->scoreExplain = (RSScoreExplain *)scorerCtx.scrExp;
-      scorerCtx.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
+    res->score = TFIDFScorer(&args, res->indexResult, res->dmd.get(), parent->minScore);
+    if (args.scrExp) {
+      res->scoreExplain = (RSScoreExplain *)args.scrExp;
+      args.scoreExplain = new RSScoreExplain();
     }
     // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
     // number of results (it's been increased by the upstream processor)
@@ -168,7 +158,7 @@ int RPScorer::Next(SearchResult *res) {
     }
 
     break;
-  } while (1);
+  }
 
   return rc;
 }
@@ -178,10 +168,7 @@ int RPScorer::Next(SearchResult *res) {
 // Free impl. for scorer - frees up the scorer privdata if needed
 
 RPScorer::~RPScorer() {
-  if (scorerFree) {
-    scorerFree(scorerCtx.extdata);
-  }
-  delete scorerCtx;
+  delete args;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -189,10 +176,8 @@ RPScorer::~RPScorer() {
 // Create a new scorer by name. If the name is not found in the scorer registry, we use the
 // defalt scorer
 
-RPScorer::RPScorer(const ExtScorer *scorer, const ScorerArgs *fnargs) : ResultProcessor("Scorer") {
-  scorer = funcs->sf;
-  scorerFree = funcs->ff;
-  scorerCtx = *fnargs;
+RPScorer::RPScorer(const ExtScorer *scorer, const ScorerArgs *fnargs_) : ResultProcessor("Scorer") {
+  args = *args_;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -213,7 +198,7 @@ int RPSorter::Next(SearchResult *r) {
   return RS_RESULT_EOF;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 RPSorter::~RPSorter() {
   if (pooledResult) {
@@ -295,7 +280,7 @@ int RPSorter::Accum(SearchResult *r) {
 //---------------------------------------------------------------------------------------------
 
 // Compare results for the heap by score
-static inline int cmpByScore(const void *e1, const void *e2, const void *udata) {
+static inline int cmpByScore(const void *e1, const void *e2, const void *_) {
   const SearchResult *h1 = e1, *h2 = e2;
 
   if (h1->score < h2->score) {
@@ -309,21 +294,21 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
 //---------------------------------------------------------------------------------------------
 
 // Compare results for the heap by sorting key
-static int cmpByFields(const void *e1, const void *e2, const void *udata) {
-  const RPSorter *self = udata;
+static int cmpByFields(const void *e1, const void *e2, const void *sorter_) {
+  const RPSorter *sorter = sorter_;
   const SearchResult *h1 = e1, *h2 = e2;
   int ascending = 0;
 
   QueryError *qerr = NULL;
-  if (self && self->parent && self->parent->err) {
-    qerr = self->parent->err;
+  if (sorter && self->parent && sorter->parent->err) {
+    qerr = sorter->parent->err;
   }
 
-  for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = h1->rowdata.GetItem(self->fieldcmp.keys[i]);
-    const RSValue *v2 = h2->rowdata.GetItem(self->fieldcmp.keys[i]);
+  for (size_t i = 0; i < sorter->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
+    const RSValue *v1 = h1->rowdata.GetItem(sorter->fieldcmp.keys[i]);
+    const RSValue *v2 = h2->rowdata.GetItem(sorter->fieldcmp.keys[i]);
     // take the ascending bit for this property from the ascending bitmap
-    ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
+    ascending = SORTASCMAP_GETASC(sorter->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
       int rc;
       if (v1) {
@@ -372,7 +357,7 @@ void RPSorter::ctor(size_t maxresults, const RLookupKey **keys, size_t nkeys, ui
   name = "Sorter";
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 int RPPager::Next(SearchResult *r) {
   int rc;

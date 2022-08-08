@@ -768,7 +768,7 @@ int AREQ::ApplyContext(QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (opts.scorerName && Extensions::GetScoringFunction(NULL, opts.scorerName) == NULL) {
+  if (opts.scorerName && g_ext.GetScorer(NULL, opts.scorerName) == NULL) {
     status->SetErrorFmt(QUERY_EINVAL, "No such scorer %s", opts.scorerName);
     return REDISMODULE_ERR;
   }
@@ -945,12 +945,12 @@ ResultProcessor *AREQ::getScorerRP() {
   }
   ScorerArgs scargs;
   if (reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
-    scargs.scrExp = new RSScoreExplain;
+    scargs.scoreExplain = new RSScoreExplain;
   }
   ExtScorer *scorer = g_ext.GetScorer(&scargs, scorer_name);
   RS_LOG_ASSERT(scorer, "Extensions::GetScorer failed");
   sctx->spec->GetStats(&scargs.indexStats);
-  scargs.qdata = SimpleBuff(ast->udata, ast->udatalen);
+  scargs.qdata = ast->udata;
   ResultProcessor *rp = new RPScorer(scorer, &scargs);
   return rp;
 }

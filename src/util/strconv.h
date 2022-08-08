@@ -13,8 +13,8 @@
 // Case insensitive string equal
 #define STR_EQCASE(str, len, other) (len == strlen(other) && !strncasecmp(str, other, len))
 
-inline int str_casecmp(const std::string_view &ss, size_t len, const char *s) {
-  return len == strlen(l) && !strncasecmp(ss.data(), len);
+inline int str_casecmp(const std::string_view &ss, const char *s, size_t len) {
+  return len == ss.length() && !strncasecmp(ss.data(), s, len);
 }
 
 inline int str_casecmp(const std::string_view &a, const std::string_view &b) {
@@ -24,12 +24,12 @@ inline int str_casecmp(const std::string_view &a, const std::string_view &b) {
 // Case sensitive string equal
 #define STR_EQ(str, len, other) (len == strlen(other) && !strncmp(str, other, len))
 
-inline int str_caseeq(const std::string_view &ss, size_t len, const char *s) {
-  return len == strlen(l) && !strncasecmp(ss.data(), s, len);
+inline int str_caseeq(const std::string_view &ss, const char *s, size_t len) {
+  return ss == std::string_view(s, len);
 }
 
 inline int str_caseeq(const std::string_view &a, const std::string_view &b) {
-  return a.length() == b.length() && !strncasecmp(a.data(), b.data(), len);
+  return a.length() == b.length() && !strncasecmp(a.data(), b.data(), a.length());
 }
 
 //---------------------------------------------------------------------------------------------

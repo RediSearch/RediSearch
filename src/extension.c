@@ -88,7 +88,6 @@ Scorer *Extensions::GetScorer(ScorerArgs *args, const char *name) {
 
   Scorer *scorer = it->second;
   if (args) {
-    args->extdata = scorer;
     args->GetSlop = IndexResult::MinOffsetDelta();
   }
   return scorer;
@@ -105,7 +104,7 @@ Scorer *Extensions::GetScorer(ScorerArgs *args, const char *name) {
 // into a union node with the original token node and new token node as children. Or if it is
 // already a union node (in consecutive calls), it just adds a new token node as a child to it.
 
-void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flags) {
+void RSQueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
   QueryAST *q = qast;
   QueryNode *qn = currentNode;
 
@@ -120,7 +119,7 @@ void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flag
     currentNode = un;
   }
 
-  QueryTokenNode *exp = q->NewTokenNodeExpanded(str, len, flags);
+  QueryTokenNode *exp = q->NewTokenNodeExpanded(str, flags);
   exp->opts.fieldMask = qn->opts.fieldMask;
   // Now the current node must be a union node - so we just add a new token node to it
   currentNode->AddChild(exp);
@@ -145,7 +144,7 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
 
   QueryPhraseNode *ph = new QueryPhraseNode(exact);
   for (size_t i = 0; i < num; i++) {
-    ph->AddChild(q->NewTokenNodeExpanded(toks[i], strlen(toks[i]), flags));
+    ph->AddChild(q->NewTokenNodeExpanded(toks[i], flags));
   }
 
   // if we're replacing - just set the expanded phrase instead of the token
@@ -173,8 +172,7 @@ void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTok
 // Set the query payload
 
 void RSQueryExpander::SetPayload(RSPayload payload) {
-  qast->udata = payload.data;
-  qast->udatalen = payload.len;
+  qast->udata = payload;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

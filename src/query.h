@@ -27,8 +27,7 @@ struct QueryAST : public Object {
   size_t numTokens;
   QueryNode *root;
   // User data and length, for use by scorers
-  const void *udata;
-  size_t udatalen;
+  SimpleBuff udata;
 
   // Copied query and length, because it seems we modify the string in the parser (FIXME).
   // Thus, if the original query is const then it explodes.
@@ -40,7 +39,7 @@ struct QueryAST : public Object {
   // Set global filters on the AST
   void SetGlobalFilters(const NumericFilter *numeric);
   void SetGlobalFilters(const GeoFilter *geo);
-  void SetGlobalFilters(Vector<t_docId> ids);
+  void SetGlobalFilters(Vector<t_docId> &ids);
 
   IndexIterator *Iterate(const RSSearchOptions &options, RedisSearchCtx &sctx,
                          ConcurrentSearch *conc) const;
@@ -58,7 +57,7 @@ struct QueryAST : public Object {
   void applyGlobalFilters(RSSearchOptions &opts, const RedisSearchCtx &sctx);
   void setFilterNode(QueryNode *n);
 
-  QueryTokenNode *NewTokenNodeExpanded(const char *s, size_t len, RSTokenFlags flags);
+  QueryTokenNode *NewTokenNodeExpanded(std::string_view s, RSTokenFlags flags);
 };
 
 //---------------------------------------------------------------------------------------------

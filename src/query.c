@@ -31,15 +31,15 @@
 #include <sys/param.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
+/*
 RSToken::RSToken(const rune *r, size_t n) {
   str = runesToStr(r, n, &len);
 }
-
+*/
 //---------------------------------------------------------------------------------------------
 
 RSToken::RSToken(const Runes &r) {
-  str = r.toUTF8(&len);
+  str = r.toUTF8();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -58,12 +58,8 @@ QueryLexRangeNode::~QueryLexRangeNode() {
 // void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
 
 QueryNode::~QueryNode() {
-  if (children) {
-    for (size_t i = 0; i < NumChildren(); ++i) {
-      delete children[i];
-    }
-    array_free(children);
-    children = NULL;
+  for (auto chi: children) {
+    delete chi;
   }
 }
 
@@ -73,10 +69,10 @@ void QueryNode::ctor(QueryNodeType t) {
   type = t;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-QueryTokenNode *QueryAST::NewTokenNodeExpanded(const char *s, size_t len, RSTokenFlags flags) {
-  QueryTokenNode *ret = new QueryTokenNode(NULL, (char *)s, len, 1, flags);
+QueryTokenNode *QueryAST::NewTokenNodeExpanded(std::string_view s, RSTokenFlags flags) {
+  QueryTokenNode *ret = new QueryTokenNode(NULL, s, 1, flags);
   numTokens++;
   return ret;
 }
@@ -89,7 +85,7 @@ void QueryAST::setFilterNode(QueryNode *n) {
   // for a simple phrase node we just add the numeric node
   if (root->type == QN_PHRASE) {
     // we usually want the numeric range as the "leader" iterator
-    root->children.insert(root->children.head(), n);
+    root->children.insert(root->children.begin(), n);
   } else { 
     // for other types, we need to create a new phrase node
     QueryNode *nr = new QueryPhraseNode(0);
@@ -104,20 +100,17 @@ void QueryAST::setFilterNode(QueryNode *n) {
 
 // Used only to support legacy FILTER keyword. Should not be used by newer code
 void QueryAST::SetGlobalFilters(const NumericFilter *numeric) {
-  QueryNumericNode *n = new QueryNumericNode(numeric);
-  setFilterNode(n);
+  setFilterNode(new QueryNumericNode{numeric});
 }
 
 // Used only to support legacy GEOFILTER keyword. Should not be used by newer code
 void QueryAST::SetGlobalFilters(const GeoFilter *geo) {
-  QueryGeofilterNode *n = new QueryGeofilterNode(geo);
-  setFilterNode(n);
+  setFilterNode(new QueryGeofilterNode{geo});
 }
 
 // List of IDs to limit to, and the length of that array
 void QueryAST::SetGlobalFilters(Vector<t_docId> &ids) {
-  QueryIdFilterNode node{ids};
-  setFilterNode(node);
+  setFilterNode(new QueryIdFilterNode{ids});
 }
 
 //---------------------------------------------------------------------------------------------
@@ -129,8 +122,8 @@ void QueryNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp) {
   }
 
   if (!expandChildren()) return;
-  for (size_t i = 0; i < NumChildren(); ++i) {
-    children[i]->Expand(expander, qexp);
+  for (auto chi: children) {
+    chi->Expand(expander, qexp);
   }
 }
 
@@ -179,9 +172,9 @@ void QueryTokenNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *str, size_t len,
+static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, std::string_view str,
                                            int maxDist, int prefixMode, QueryNodeOptions *opts) {
-  TrieIterator it = terms->Iterate(str, maxDist, prefixMode);
+  TrieIterator it = terms->Iterate(str.data(), maxDist, prefixMode); //@@@TODO: str.data() is not safe
   IndexIterators its;
 
   Runes runes;
@@ -195,7 +188,7 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const char *st
     // Create a token for the reader
     RSToken tok(runes);
     if (q->sctx && q->sctx->redisCtx) {
-      RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
+      RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str.data(), score);
     }
 
     RSQueryTerm *term = new RSQueryTerm(tok, q->tokenId++);
@@ -225,14 +218,14 @@ IndexIterator *QueryPrefixNode::EvalNode(Query *q) {
   // RS_LOG_ASSERT(type == QN_PREFX, "query node type should be prefix");
 
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (tok.len < RSGlobalConfig.minTermPrefix) {
+  if (tok.str.length() < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
 
   Trie *terms = q->sctx->spec->terms;
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, tok.str, tok.len, 0, 1, &opts);
+  return iterateExpandedTerms(q, terms, tok.str, 0, 1, &opts);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -301,7 +294,7 @@ IndexIterator *QueryFuzzyNode::EvalNode(Query *q) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, tok.str, tok.len, maxDist, 0, &opts);
+  return iterateExpandedTerms(q, terms, tok.str, maxDist, 0, &opts);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -389,7 +382,7 @@ IndexIterator *QueryOptionalNode::EvalNode(Query *q) {
 
 IndexIterator *QueryNumericNode::EvalNode(Query *q) {
   const FieldSpec *fs =
-      q->sctx->spec->GetField(nf->fieldName, strlen(nf->fieldName));
+      q->sctx->spec->GetField(nf->fieldName);
   if (!fs || !fs->IsFieldType(INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
@@ -401,7 +394,7 @@ IndexIterator *QueryNumericNode::EvalNode(Query *q) {
 
 IndexIterator *QueryGeofilterNode::Eval(Query *q, double weight) {
   const FieldSpec *fs =
-      q->sctx->spec->GetField(gf->property, strlen(gf->property));
+      q->sctx->spec->GetField(gf->property);
   if (!fs || !fs->IsFieldType(INDEXFLD_T_GEO)) {
     return NULL;
   }
@@ -413,32 +406,31 @@ IndexIterator *QueryGeofilterNode::Eval(Query *q, double weight) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryIdFilterNode::EvalNode(Query *q) {
-  return new IdListIterator(ids, t_offset{len}, 1);
+  return new IdListIterator(ids, 1);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryUnionNode::EvalNode(Query *q) {
   // a union stage with one child is the same as the child, so we just return it
-  if (NumChildren() == 1) {
-    return children[0]->EvalNode(q);
+  if (children.size() == 1) {
+    return children.front()->EvalNode(q);
   }
 
   // recursively eval the children
-  IndexIterator **iters = rm_calloc(NumChildren(), sizeof(IndexIterator *));
-  int n = 0;
-  for (size_t i = 0; i < NumChildren(); ++i) {
-    children[i]->opts.fieldMask &= opts.fieldMask;
-    IndexIterator *it = children[i]->EvalNode(q);
+  IndexIterators iters(children.size());
+  for (auto chi: children) {
+    chi->opts.fieldMask &= opts.fieldMask;
+    IndexIterator *it = chi->EvalNode(q);
     if (it) {
-      iters[n++] = it;
+      iters.push_back(it);
     }
   }
-  if (n == 0) {
+  if (iters.empty()) {
     return NULL;
   }
 
-  if (n == 1) {
+  if (iters.size() == 1) {
     IndexIterator *ret = iters[0];
     return ret;
   }
@@ -472,12 +464,12 @@ IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexItera
 
 IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (tok.len < q->sctx->spec->minPrefix) {
+  if (tok.length() < q->sctx->spec->minPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
 
-  TrieMapIterator *it = idx->values->Iterate(tok.str, tok.len);
+  TrieMapIterator *it = idx->values->Iterate(tok.str);
   if (!it) return NULL;
 
   IndexIterators its;

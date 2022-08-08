@@ -1,27 +1,29 @@
 #include "score_explain.h"
 #include "rmalloc.h"
 
-// RedisModule_reply.
-void RSScoreExplain::SEReply(RedisModuleCtx *ctx) {
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+void RSScoreExplain::RMReply(RedisModuleCtx *ctx) {
   int numChildren = numChildren;
 
-  if (numChildren == 0) {
+  if (children.empty()) {
     RedisModule_ReplyWithSimpleString(ctx, str);
   } else {
     RedisModule_ReplyWithArray(ctx, 2);
     RedisModule_ReplyWithSimpleString(ctx, str);
-    RedisModule_ReplyWithArray(ctx, numChildren);
-    for (int i = 0; i < numChildren; i++) {
-      children[i].SEReply(ctx);
+    RedisModule_ReplyWithArray(ctx, children.size());
+    for (auto chi: children) {
+      chi->RMReply(ctx);
     }
   }
 }
 
-// Release allocated resources. //@@ should be decostroctor?
+//---------------------------------------------------------------------------------------------
+
 void RSScoreExplain::SEDestroy() {
-  for (int i = 0; i < numChildren; i++) {
-    children[i].SEDestroy();
+  for (auto chi: children) {
+    delete *chi;
   }
-  rm_free(children);
-  rm_free(str);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

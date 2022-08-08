@@ -35,24 +35,23 @@
   }
 
 static inline void explain(RSScoreExplain *expl, char *fmt, ...) {
-  void *tempStr = expl->str;
-
   va_list ap;
   va_start(ap, fmt);
-  rm_vasprintf((char ** __restrict) & expl->str, fmt, ap);
+  char *p;
+  rm_vasprintf((char ** __restrict) &p, fmt, ap);
   va_end(ap);
 
-  rm_free(tempStr);
+  expl->str = p;
+  rm_free(p);
 }
 
 //-------------------------------------------------------------------------------------------------------
 
 RSScoreExplain *ScorerArgs::strExpCreateParent(RSScoreExplain **child) const {
   if (*child) {
-    RSScoreExplain *finalScrExp = new RSScoreExplain(*child);
-    finalScrExp->numChildren = 1;
-    finalScrExp->children = *child;
-    scrExp = *child = finalScrExp;
+    RSScoreExplain *finalScoreExplain = new RSScoreExplain(*child);
+    finalScoreExplain->children.push_back(*child);
+    scoreExplain = *child = finalScoreExplain;
   }
 }
 
@@ -60,7 +59,7 @@ RSScoreExplain *ScorerArgs::strExpCreateParent(RSScoreExplain **child) const {
 
 // recursively calculate tf-idf
 
-double TermResult::tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const {
+double TermResult::TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const {
   double idf = term ? term->idf : 0;
   double res = weight * ((double)freq) * idf;
   EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, weight, freq, idf);
@@ -69,17 +68,17 @@ double TermResult::tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain 
 
 //-------------------------------------------------------------------------------------------------------
 
-double AggregateResult::tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const {
+double AggregateResult::TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const {
   double ret = 0;
   if (!scrExp) {
     for (int i = 0; i < numChildren; i++) {
-      ret += children[i]->tfidfRecursive(dmd, NULL);
+      ret += children[i]->TFIDFScorer(dmd, NULL);
     }
   } else {
     scrExp->numChildren = numChildren;
     scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
     for (int i = 0; i < numChildren; i++) {
-      ret += children[i]->tfidfRecursive(dmd, &scrExp->children[i]);
+      ret += children[i]->TFIDFScorer(dmd, &scrExp->children[i]);
     }
     EXPLAIN(scrExp, "(Weight %.2f * total children TFIDF %.2f)", weight, ret);
   }
@@ -88,24 +87,23 @@ double AggregateResult::tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExp
 
 //-------------------------------------------------------------------------------------------------------
 
-double IndexResult::tfidfRecursive(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const {
+double IndexResult::TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const {
   EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * Frequency %d)", weight * (double)freq, weight, freq);
   return weight * (double)freq;
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
+//-------------------------------------------------------------------------------------------------------
 
 // internal common tf-idf function, where just the normalization method changes
 
-double IndexResult::tfIdfInternal(const ScorerArgs *args, const RSDocumentMetadata *dmd,
-    double minScore, int normMode) const {
-  RSScoreExplain *scrExp = (RSScoreExplain *)args->scrExp;
+double IndexResult::TFIDFScorer(const ScorerArgs *args, const RSDocumentMetadata *dmd, double minScore, int normMode) const {
+  RSScoreExplain *scrExp = args->scroeExplain;
   if (dmd->score == 0) {
     EXPLAIN(scrExp, "Document score is 0");
     return 0;
   }
   uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
-  double rawTfidf = tfidfRecursive(dmd, scrExp);
+  double rawTfidf = TFIDFScorer(dmd, scrExp);
   double tfidf = dmd->score * rawTfidf / norm;
   strExpCreateParent(ctx, &scrExp);
 
@@ -124,24 +122,22 @@ double IndexResult::tfIdfInternal(const ScorerArgs *args, const RSDocumentMetada
   return tfidf;
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
+//-------------------------------------------------------------------------------------------------------
 
 // Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
 // in this document.
 
-static double TFIDFScorer(const ScorerArgs *ctx, const IndexResult *h,
-                          const RSDocumentMetadata *dmd, double minScore) {
-  return h->tfIdfInternal(ctx, dmd, minScore, NORM_MAXFREQ);
+double TFIDFScorer(const ScorerArgs *ctx, const IndexResult *h, const RSDocumentMetadata *dmd, double minScore) {
+  return h->TFIDFScorer(ctx, dmd, minScore, NORM_MAXFREQ);
 }
 
 //-------------------------------------------------------------------------------------------------------
 
 // Identical scorer to TFIDFScorer, only the normalization is by total weighted frequency in the doc
 
-static double TFIDFNormDocLenScorer(const ScorerArgs *ctx, const IndexResult *h,
-                                    const RSDocumentMetadata *dmd, double minScore) {
+double TFIDFNormDocLenScorer(const ScorerArgs *ctx, const IndexResult *h, const RSDocumentMetadata *dmd, double minScore) {
 
-  return h->tfIdfInternal(ctx, dmd, minScore, NORM_DOCLEN);
+  return h->TFIDFScorer(ctx, dmd, minScore, NORM_DOCLEN);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -150,8 +146,7 @@ static double TFIDFNormDocLenScorer(const ScorerArgs *ctx, const IndexResult *h,
 
 // recursively calculate score for each token, summing up sub tokens
 
-double TermResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd,
-    RSScoreExplain *scrExp) const {
+double TermResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const {
   static const float b = 0.5;
   static const float k1 = 1.2;
   double f = (double)freq;
@@ -167,8 +162,7 @@ double TermResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata
 
 //-------------------------------------------------------------------------------------------------------
 
-double AggregateResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd,
-    RSScoreExplain *scrExp) const {
+double AggregateResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const {
   static const float b = 0.5;
   static const float k1 = 1.2;
   double f = (double)freq;
@@ -192,8 +186,7 @@ double AggregateResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMet
 
 //-------------------------------------------------------------------------------------------------------
 
-double IndexResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd,
-    RSScoreExplain *scrExp) const {
+double IndexResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const {
   double f = (double)freq;
   double ret = 0;
 
@@ -201,8 +194,7 @@ double IndexResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadat
     static const float b = 0.5;
     static const float k1 = 1.2;
     ret = weight * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
-    EXPLAIN(
-        scrExp,
+    EXPLAIN(scrExp,
         "(%.2f = Weight %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
         ret, weight, freq, freq, ctx->indexStats.avgDocLen);
   } else {
@@ -215,9 +207,8 @@ double IndexResult::bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadat
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 // BM25 scoring function
 
-static double BM25Scorer(const ScorerArgs *ctx, const IndexResult *r,
-                         const RSDocumentMetadata *dmd, double minScore) {
-  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+double BM25Scorer(const ScorerArgs *args, const IndexResult *r, const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)args->scrExp;
   double bm25res = r->bm25Recursive(ctx, dmd, scrExp);
   double score = dmd->score * bm25res;
   strExpCreateParent(ctx, &scrExp);
@@ -239,9 +230,8 @@ static double BM25Scorer(const ScorerArgs *ctx, const IndexResult *r,
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Raw document-score scorer. Just returns the document score
 
-static double DocScoreScorer(const ScorerArgs *ctx, const IndexResult *r,
-                             const RSDocumentMetadata *dmd, double minScore) {
-  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+double DocScoreScorer(const ScorerArgs *ctx, const IndexResult *r, const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)args->scrExp;
   EXPLAIN(scrExp, "Document's score is %.2f", dmd->score);
   return dmd->score;
 }
@@ -302,8 +292,7 @@ double UnionResult::dismaxRecursive(const ScorerArgs *ctx, RSScoreExplain *scrEx
 
 // Calculate sum(TF-IDF)*document score for each result
 
-static double DisMaxScorer(const ScorerArgs *ctx, const IndexResult *h,
-                           const RSDocumentMetadata *dmd, double minScore) {
+double DisMaxScorer(const ScorerArgs *ctx, const IndexResult *h, const RSDocumentMetadata *dmd, double minScore) {
   return h->dismaxRecursive(ctx, ctx->scrExp);
 }
 
@@ -326,9 +315,8 @@ static const unsigned char bitsinbyte[256] = {
 // HAMMING - Scorer using Hamming distance between the query payload and the document payload.
 // Only works if both have the payloads the same length
 
-static double HammingDistanceScorer(const ScorerArgs *ctx, const IndexResult *h,
-                                    const RSDocumentMetadata *dmd, double minScore) {
-  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)args->scrExp;
   // the strings must be of the same length > 0
   if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
     EXPLAIN(scrExp, "Payloads provided to scorer vary in length");

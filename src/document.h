@@ -52,8 +52,7 @@ struct AddDocumentCtx;
 
 struct Document : Object {
   RedisModuleString *docKey;
-  DocumentField *fields;
-  uint32_t numFields;
+  Vector<DocumentField*> fields;
   RSLanguage language;
   float score;
   t_docId docId;

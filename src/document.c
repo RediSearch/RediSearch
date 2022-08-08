@@ -539,36 +539,37 @@ void IndexBulkData::Cleanup(RedisSearchCtx *sctx) {
 int Document::AddToIndexes(AddDocumentCtx *aCtx) {
   Document *doc = &aCtx->doc;
 
-  for (size_t i = 0; i < doc->numFields; i++) {
-    const FieldSpec *fs = aCtx->fspecs + i;
-    const DocumentField *ff = doc->fields + i;
-    FieldIndexerData *fdata = aCtx->fdatas + i;
+  size_t i = 0;
+  for (auto ff: doc->fields) {
+    const FieldSpec *fs = aCtx->fspecs[i];
+    FieldIndexerData *fdata = aCtx->fdatas[i];
+    ++i;
 
     if (fs->name == NULL || ff->indexAs == 0) {
-      LG_DEBUG("Skipping field %s not in index!", doc->fields[i].name);
+      LG_DEBUG("Skipping field %s not in index!", ff->name);
       continue;
     }
 
     if (ff->CheckIdx(INDEXFLD_T_FULLTEXT)) {
-      if (!fs->FulltextPreprocessor(aCtx, &doc->fields[i], fdata, &aCtx->status)) {
+      if (!fs->FulltextPreprocessor(aCtx, &ff, fdata, &aCtx->status)) {
         goto cleanup;
       }
     }
 
     if (ff->CheckIdx(INDEXFLD_T_NUMERIC)) {
-      if (!fs->NumericPreprocessor(aCtx, &doc->fields[i], fdata, &aCtx->status)) {
+      if (!fs->NumericPreprocessor(aCtx, &ff, fdata, &aCtx->status)) {
         goto cleanup;
       }
     }
 
     if (ff->CheckIdx(INDEXFLD_T_GEO)) {
-      if (!fs->GeoPreprocessor(aCtx, &doc->fields[i], fdata, &aCtx->status)) {
+      if (!fs->GeoPreprocessor(aCtx, &ff, fdata, &aCtx->status)) {
         goto cleanup;
       }
     }
 
     if (ff->CheckIdx(INDEXFLD_T_TAG)) {
-      if (!fs->TagPreprocessor(aCtx, &doc->fields[i], fdata, &aCtx->status)) {
+      if (!fs->TagPreprocessor(aCtx, &ff, fdata, &aCtx->status)) {
         goto cleanup;
       }
     }

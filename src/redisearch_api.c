@@ -383,7 +383,7 @@ struct QueryInput {
 
 //---------------------------------------------------------------------------------------------
 
-static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
+static RS_ApiIter* handleIterCommon(IndexSpec *sp, QueryInput *input, char **error) {
   // here we only take the read lock and we will free it when the iterator will be freed
   RWLOCK_ACQUIRE_READ();
 
@@ -410,8 +410,8 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   }
 
   sp->GetStats(&it->scargs.indexStats);
-  scoreCtx = Extensions::GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
-  RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
+  scoreCtx = g_ext.GetScorer(&it->scargs, DEFAULT_SCORER_NAME);
+  RS_LOG_ASSERT(scoreCtx, "GetScorer failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;
   it->minscore = DBL_MAX;
@@ -496,11 +496,8 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   } else {
     printf("Not freeing internal iterator. internal iterator is null\n");
   }
-  if (iter->scorerFree) {
-    iter->scorerFree(iter->scargs.extdata);
-  }
   delete &iter->qast;
-  rm_free(iter);
+  delete iter;
 
   RWLOCK_RELEASE();
 }
