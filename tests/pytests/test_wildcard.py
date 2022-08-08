@@ -248,8 +248,8 @@ def testBasic(env):
   conn.execute_command('HSET', 'doc13', 't', 'halloween')
 
   env.expect('FT.DEBUG', 'dump_terms', 'idx').equal(
-      ['hello', "hello'", "hello'world", 'hello\\', 'hello\\world', 'help', 'hallelujah',
-       'halloween', 'jello','jellyfish', 'mellow', "'hello", '\\hello'])
+       ["'hello", '\\hello', 'hallelujah', 'halloween', 'hello', "hello'",
+       "hello'world", 'hello\\', 'hello\\world', 'help', 'jello', 'jellyfish', 'mellow'])
 
   env.expect('FT.SEARCH', 'idx', "w'*ell*'", 'LIMIT', 0 , 0).equal([10])
   env.expect('FT.SEARCH', 'idx', "w'*ello'", 'LIMIT', 0 , 0).equal([4])
