@@ -364,7 +364,7 @@ jobs:
 
   build-macos:
     macos:
-      xcode: 12.4.0
+      xcode: 11.7.0
     resource_class: macos.x86.medium.gen2
     parameters:
       upload:
@@ -399,6 +399,17 @@ jobs:
       - benchmark-automation:
           platform: bionic
           benchmark_glob: "search*.yml"
+  
+  benchmark-vecsim-oss-standalone:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          platform: bionic
+          run_pack: false
+      - benchmark-automation:
+          platform: bionic
+          benchmark_glob: "vecsim*.yml"
 
   benchmark-search-oss-cluster:
     docker:
@@ -427,6 +438,21 @@ jobs:
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "search*.yml"
+
+  benchmark-vecsim-oss-standalone-profiler:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          platform: bionic
+          build_params: PROFILE=1
+          run_pack: false
+      - benchmark-automation:
+          profile_env: "1"
+          platform: bionic
+          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          benchmark_glob: "vecsim*.yml"
 
   coverage:
     docker:
@@ -681,10 +707,16 @@ workflows:
       - benchmark-search-oss-standalone:
           context: common
           <<: *on-any-branch # TODO: don't merge to master with this change!!
+      - benchmark-vecsim-oss-standalone:
+          context: common
+          <<: *on-perf-and-version-tags
       - benchmark-search-oss-cluster:
           context: common
           <<: *on-perf-and-version-tags
       - benchmark-search-oss-standalone-profiler:
+          context: common
+          <<: *on-perf-and-version-tags
+      - benchmark-vecsim-oss-standalone-profiler:
           context: common
           <<: *on-perf-and-version-tags
       - upload-artifacts:
@@ -739,6 +771,10 @@ workflows:
 
     jobs:
       - benchmark-search-oss-standalone:
+          context: common
+      - benchmark-vecsim-oss-standalone:
+          context: common
+      - benchmark-vecsim-oss-standalone-profiler:
           context: common
       - benchmark-search-oss-standalone-profiler:
           context: common
