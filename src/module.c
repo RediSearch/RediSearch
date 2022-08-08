@@ -273,9 +273,15 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   rep = RedisModule_Call(ctx, "DEL", "!s", doc_id);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_INTEGER ||
       RedisModule_CallReplyInteger(rep) != 1) {
-    return RedisModule_ReplyWithLongLong(ctx, 0);
+    RedisModule_ReplyWithLongLong(ctx, 0);
+  } else {
+    RedisModule_ReplyWithLongLong(ctx, 1);
   }
-  return RedisModule_ReplyWithLongLong(ctx, 1);
+
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
+  return REDISMODULE_OK;
 }
 
 /* FT.TAGVALS {idx} {field}
@@ -304,7 +310,9 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  TagIndex *idx = TagIndex_Open(sctx, TagIndex_FormatName(sctx, field), 0, NULL);
+  RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
+  TagIndex *idx = TagIndex_Open(sctx, rstr, 0, NULL);
+  RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithArray(ctx, 0);
     goto cleanup;
