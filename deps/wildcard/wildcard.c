@@ -144,26 +144,3 @@ size_t Wildcard_RemoveEscape(char *str, size_t len) {
   str[runner] = '\0';
   return runner;
 }
-
-int Wildcard_StarBreak(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
-  int runner = 0;
-  int i = 0;
-  int init = 0;
-  while (i < len) {
-    if (str[i] != '*') {
-      tokenIdx[runner] = i;
-      init = 1;
-    }
-    while (i < len && str[i] != '*') {
-      ++i;
-    }
-    if (init) {
-      tokenLen[runner] = i - tokenIdx[runner]; // TODO: check
-      ++runner;
-    }
-    while (str[i] == '*') {
-      ++i;
-    }
-  }
-  return runner;
-}
