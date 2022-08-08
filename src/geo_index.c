@@ -67,11 +67,11 @@ GeoFilter::GeoFilter(ArgsCursor *ac, QueryError *status) {
   }
 
   int rv;
-  if ((rv = ac->GetString(&property, NULL, 0)) != AC_OK) {
+  if ((rv = ac->GetString(&property.c_str(), NULL, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<geo property>", rv);
     throw Error(status);
   }
-  property = rm_strdup(property);
+  // property = rm_strdup(property);
 
   if ((rv = ac->GetDouble(&lon, 0) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<lon>", rv);
@@ -107,12 +107,14 @@ Vector<t_docId> GeoIndex::RangeLoad(const GeoFilter &gf) const {
   RedisModuleString *srad = RedisModule_CreateStringPrintf(rctx, "%f", gf.radius);
   const char *unitstr = gf.unitType.ToString();
   RedisModuleCallReply *rep = RedisModule_Call(rctx, "GEORADIUS", "ssssc", s, slon, slat, srad, unitstr);
+  size_t sz;
+  Vector<t_docId> docIds;
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
   }
 
-  size_t sz = RedisModule_CallReplyLength(rep);
-  Vector<t_docId> docIds(sz);
+  sz = RedisModule_CallReplyLength(rep);
+  docIds.reserve(sz);
   for (size_t i = 0; i < sz; i++) {
     const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);
     if (!s) continue;

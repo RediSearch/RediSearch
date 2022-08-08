@@ -21,8 +21,6 @@ int testVector() {
     int n;
     int rc = v.Get(i, &n);
     ASSERT_EQUAL(1, rc);
-    // printf("%d %d\n", rc, n);
-
     ASSERT_EQUAL(n, i);
   }
 

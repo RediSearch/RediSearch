@@ -950,9 +950,8 @@ ResultProcessor *AREQ::getScorerRP() {
   ExtScorer *scorer = g_ext.GetScorer(&scargs, scorer_name);
   RS_LOG_ASSERT(scorer, "Extensions::GetScorer failed");
   sctx->spec->GetStats(&scargs.indexStats);
-  scargs.qdata = ast->udata;
-  ResultProcessor *rp = new RPScorer(scorer, &scargs);
-  return rp;
+  scargs.qdata = new SimpleBuff(ast->udata, ast->udatalen);
+  return new RPScorer(scorer, &scargs);
 }
 
 //---------------------------------------------------------------------------------------------

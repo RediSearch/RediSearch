@@ -76,7 +76,7 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   md = RedisModule_StringPtrLen(argv[3], &mdlen);
-  if (sp->docs.SetPayload(docId, md, mdlen) == 0) {
+  if (sp->docs.SetPayload(docId, new RSPayload(md, mdlen)) == 0) {
     RedisModule_ReplyWithError(ctx, "Could not set payload ¯\\_(ツ)_/¯");
     goto cleanup;
   }
@@ -181,7 +181,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   const char **includeDict = NULL, **excludeDict = NULL;
   try {
-    QueryAST qast = *new QueryAST(*sctx, opts, rawQuery, len, &status);
+    QueryAST qast = *new QueryAST(*sctx, opts, std::string_view(rawQuery, len), &status);
 
     includeDict = array_new(const char *, DICT_INITIAL_SIZE);
     excludeDict = array_new(const char *, DICT_INITIAL_SIZE);

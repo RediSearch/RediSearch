@@ -23,7 +23,6 @@ Document::Document(RedisModuleString *docKey, double score, RSLanguage lang) {
   fields = NULL;
   language = lang ? lang : DEFAULT_LANGUAGE;
   payload = NULL;
-  payloadSize = 0;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -64,12 +63,12 @@ void Document::AddFieldC(const char *fieldname, const char *val, size_t vallen, 
 
 //---------------------------------------------------------------------------------------------
 
-void Document::SetPayload(const void *p, size_t n) {
+void Document::SetPayload(RSPayload *p) {
   payload = p;
-  payloadSize = n;
   if (flags & DOCUMENT_F_OWNSTRINGS) {
-    payload = rm_malloc(n);
-    memcpy((void *)payload, p, n);
+    // payload->data = rm_malloc(n);
+    // memcpy((void *)payload->data, p, n);
+    payload = std::move(p);
   }
 }
 
@@ -112,9 +111,10 @@ void Document::MakeStringsOwner() {
     }
   }
   if (payload) {
-    void *tmp = rm_malloc(payloadSize);
-    memcpy(tmp, payload, payloadSize);
-    payload = tmp;
+    // void *tmp = rm_malloc(payload.memsize());
+    // memcpy(tmp, payload, payload.memsize());
+    // payload = tmp;
+    payload = std::move(payload);
   }
   flags |= DOCUMENT_F_OWNSTRINGS;
   flags &= ~DOCUMENT_F_OWNREFS;
@@ -122,7 +122,7 @@ void Document::MakeStringsOwner() {
 
 //---------------------------------------------------------------------------------------------
 
-// Load all fields specified in the schema to the document. 
+// Load all fields specified in the schema to the document.
 // Note that the document must then be freed using Document_Free().
 // The document must already have the docKey set.
 
@@ -254,7 +254,7 @@ Document::~Document() {
   }
   if (flags & DOCUMENT_F_OWNSTRINGS) {
     if (payload) {
-      rm_free((void *)payload);
+      delete payload;
     }
   }
 }

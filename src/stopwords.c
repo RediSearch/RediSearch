@@ -82,7 +82,7 @@ void StopWordList::ctor(const char **strs, size_t len) {
         t[pos] = tolower(t[pos]);
       }
     }
-    // printf("Adding stopword %s\n", t);
+
     m->Add(t, tlen, NULL, NULL);
     rm_free(t);
   }

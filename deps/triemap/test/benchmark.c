@@ -47,7 +47,6 @@ void populate(int N) {
     size_t sz = formatKey(buf, i); // formatRandomKey((char *)buf, 12);
     if (!sz || buf[0] == 0)
       continue;
-    // printf("%s\n", buf);
     dataSize += sz;
     TimeSampler_StartSection(&ts);
     tm->Add(buf, sz, NULL, NULL);

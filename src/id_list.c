@@ -3,18 +3,16 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-int IdListIterator::CriteriaTester::Test(t_docId id) {
-  return bsearch((void *)id, docIds, (size_t)size, sizeof(t_docId), IdListIterator::cmp_docids) != NULL;
-}
-
-IdListIterator::CriteriaTester::~CriteriaTester() {
-  rm_free(docIds);
+bool IdListIterator::CriteriaTester::Test(t_docId id) {
+  return binary_search(docIds.begin(), docIds.end(), id);
 }
 
 IdListIterator::CriteriaTester::CriteriaTester(IdListIterator *it) {
-  docIds = rm_malloc(sizeof(t_docId) * size);
-  memcpy(docIds, docIds, size);
-  size = it->size;
+  //@@
+  // docIds = rm_malloc(sizeof(t_docId) * size);
+  // memcpy(docIds, docIds, size);
+  // size = it->size;
+  docIds = std::move(it->docIds);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -121,12 +119,6 @@ size_t IdListIterator::Len() const {
 
 //---------------------------------------------------------------------------------------------
 
-int IdListIterator::cmp_docids(const t_docId *d1, const t_docId *d2) {
-  return (int)(*d1 - *d2);
-}
-
-//---------------------------------------------------------------------------------------------
-
 void IdListIterator::Rewind() {
   setEof(0);
   lastDocId = 0;
@@ -143,7 +135,9 @@ void IdListIterator::Rewind() {
 //@@@ TODO: fix this
 IdListIterator::IdListIterator(Vector<t_docId> &ids, double weight) {
   // first sort the ids, so the caller will not have to deal with it
-  qsort(ids, (size_t)num, sizeof(t_docId), (int (*)(const void *, const void*)) cmp_docids);
+  std::sort(ids.begin(), ids.end(), [](const t_docId &a, const t_docId &b) {
+    return a > b;
+  });
 
   setEof(0);
   lastDocId = 0;

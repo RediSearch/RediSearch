@@ -15,28 +15,21 @@
 
 // Returns true if the entire numeric range is contained between min and max
 bool NumericRange::Contained(double min, double max) const {
-  bool rc = minVal >= min && maxVal <= max;
-
-  // printf("range %f..%f, min %f max %f, WITHIN? %d\n", minVal, maxVal, min, max, rc);
-  return rc;
+  return minVal >= min && maxVal <= max;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Returns true if min and max are both inside the range. this is the opposite of _Within.
 bool NumericRange::Contains(double min, double max) const {
-  bool rc = minVal <= min && maxVal > max;
-  // printf("range %f..%f, min %f max %f, contains? %d\n", minVal, maxVal, min, max, rc);
-  return rc;
+  return minVal <= min && maxVal > max;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Returns true if there is any overlap between the range and min/max
 bool NumericRange::Overlaps(double min, double max) const {
-  bool rc = (min >= minVal && min <= maxVal) || (max >= minVal && max <= maxVal);
-  // printf("range %f..%f, min %f max %f, overlaps? %d\n", minVal, maxVal, min, max, rc);
-  return rc;
+  return (min >= minVal && min <= maxVal) || (max >= minVal && max <= maxVal);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -73,7 +66,6 @@ size_t NumericRange::Add(t_docId docId, double value, int checkCard) {
 double NumericRange::Split(NumericRangeNode **lp, NumericRangeNode **rp) {
   double split = unique_sum / (double)card;
 
-  // printf("split point :%f\n", split);
   *lp = new NumericRangeNode(entries.numDocs / 2 + 1, minVal, split,
                             MIN(NR_MAXRANGE_CARD, 1 + splitCard * NR_EXPONENT));
   *rp = new NumericRangeNode(entries.numDocs / 2 + 1, split, maxVal,
@@ -88,10 +80,6 @@ double NumericRange::Split(NumericRangeNode **lp, NumericRangeNode **rp) {
     }
   }
 
-  // printf("Splitting node %p %f..%f, card %d size %d\n", this, minVal, maxVal, card,
-  //        entries.numDocs);
-  // printf("left node: %d, right: %d\n", (*lp)->range->entries->numDocs,
-  //        (*rp)->range->entries.numDocs);
   return split;
 }
 
@@ -167,14 +155,9 @@ NRN_AddRv NumericRangeNode::Add(t_docId docId, double newval) {
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
   rv.sz = (uint32_t) range->Add(docId, newval, 1);
   int card = range->card;
-  // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, newval,
-  //        range->minVal, range->maxVal, card, range->entries.numDocs);
   if (card >= range->splitCard || (range->entries.numDocs > NR_MAXRANGE_SIZE && card > 1)) {
-
     // split this node but don't delete its range
-    double split = range->Split(&left, &right);
-
-    value = split;
+    value = range->Split(&left, &right);
 
     maxDepth = 1;
     rv.changed = 1;
@@ -188,10 +171,6 @@ NRN_AddRv NumericRangeNode::Add(t_docId docId, double newval) {
 // Recursively add a node's children to the range
 void NumericRangeNode::AddChildren(Vector<NumericRange> &v, double min, double max) {
   if (range) {
-    // printf("min %f, max %f, range %f..%f, contained? %d, overlaps? %d, leaf? %d\n", min, max,
-    //        range->minVal, range->maxVal, range->Contained(min, max),
-    //        n->range->Overlaps(min, max), IsLeaf());
-
     // if range is completely contained in the search, add it and not inspect any downwards
     if (range->Contained(min, max)) {
       v.push_back(*range);
@@ -220,13 +199,6 @@ Vector<NumericRange> NumericRangeNode::FindRange(double min, double max) {
   Vector<NumericRange> leaves;
   leaves.reserve(8);
   AddChildren(leaves, min, max);
-  // printf("Found %zd ranges for %f...%f\n", leaves->top, min, max);
-  // for (int i = 0; i < leaves->top; i++) {
-  //   NumericRange *rng;
-  //   leaves->Get(i, &rng);
-  //   printf("%f...%f (%f). %d card, %d splitCard\n", rng->minVal, rng->maxVal,
-  //          rng->maxVal - rng->minVal, rng->entries.numDocs, rng->splitCard);
-  // }
 
   return leaves;
 }
@@ -294,6 +266,8 @@ NumericRangeTree::~NumericRangeTree() {
   delete root;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void NumericRangeTree::Free(NumericRangeTree *p) {
   delete p;
 }
@@ -316,6 +290,7 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr, co
 
 // Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
 // the filter
+
 static IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
                                      const NumericFilter *f) {
   Vector<NumericRange> v = t->Find(f->min, f->max);
@@ -584,6 +559,7 @@ void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
       }
     }
   });
+
   // Save the final record
   RedisModule_SaveUnsigned(rdb, 0);
 }

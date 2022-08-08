@@ -622,14 +622,12 @@ static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key
 
     loadopts = new RLookupLoadOptions(sctx, dmd, status);
     if (lookup_s.LoadDocument(&row, loadopts) != REDISMODULE_OK) {
-      // printf("Couldn't load document!\n");
       delete loadopts;
       goto done;
     }
 
     evaluator = new ExprEval(status, &lookup_s, &row, &e);
     if (evaluator->Eval(&rv) != EXPR_EVAL_OK) {
-      // printf("Eval not OK!!! SAD!!\n");
       delete evaluator;
       goto done;
     }
@@ -670,7 +668,7 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
   md->score = doc.score;
   // Set the payload if needed
   if (doc.payload) {
-    sctx->spec->docs.SetPayload(docId, doc.payload, doc.payloadSize);
+    sctx->spec->docs.SetPayload(docId, doc.payload);
   }
 
   if (stateFlags & ACTX_F_SORTABLES) {

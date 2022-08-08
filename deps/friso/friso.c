@@ -1172,8 +1172,6 @@ __STATIC_API__ void token_normal_output(friso_task_t task, lex_entry_t lex, int 
  */
 __STATIC_API__ lex_entry_t en_second_seg(friso_t friso, friso_config_t config, friso_task_t task,
                                          lex_entry_t lex, int retfw) {
-  // printf("sseg: %d\n", (task->ctrlMask & START_SS_MASK));
-
   int j, p = 0, start = 0;
   fstring str = lex->word;
 

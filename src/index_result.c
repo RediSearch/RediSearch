@@ -128,7 +128,6 @@ bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
     rc = withinRangeInOrder(iters, positions, n, maxSlop);
   else
     rc = withinRangeUnordered(iters, positions, n, maxSlop);
-  // printf("slop result for %d: %d\n", ir->docId, rc);
 
   return !!rc;
 }
@@ -235,9 +234,8 @@ bool TermResult::HasOffsets() const {
 void TermResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) {
   if (len == cap) return;
   if (term) {
-    const char *s = term->str;
     // make sure we have a term string and it's not an expansion
-    if (s) {
+    if (term->str.length() > 0) {
       arr[len++] = term;
     }
   }
@@ -259,14 +257,7 @@ void VirtualResult::Print(int depth) const {
 
 //---------------------------------------------------------------------------------------------
 
-RSQueryTerm::RSQueryTerm(const RSToken &tok, int id) : id(id), idf(1.0), flags(tok.flags),
-  str(tok.str ? rm_strndup(tok.str, tok.len) : NULL), len(tok.len) {
-}
-
-//---------------------------------------------------------------------------------------------
-
-RSQueryTerm::~RSQueryTerm() {
-  if (str) rm_free(str);
+RSQueryTerm::RSQueryTerm(const RSToken &tok, int id) : id(id), idf(1.0), flags(tok.flags), str(tok.str) {
 }
 
 //---------------------------------------------------------------------------------------------
@@ -300,14 +291,11 @@ bool IndexResult::withinRangeInOrder(RSOffsetIterators &iters, uint32_t *positio
       // For the first iterator we always advance once
       uint32_t pos = i ? positions[i] : iters[i].Next(NULL);
       uint32_t lastPos = i ? positions[i - 1] : 0;
-      // printf("Before: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // read while we are not in order
       while (pos != RS_OFFSETVECTOR_EOF && pos < lastPos) {
         pos = iters[i].Next(NULL);
-        // printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
       }
-      // printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // we've read through the entire list and it's not in order relative to the last pos
       if (pos == RS_OFFSETVECTOR_EOF) {
@@ -381,8 +369,6 @@ bool IndexResult::withinRangeUnordered(RSOffsetIterators &iters, uint32_t *posit
     if (min != max) {
       // calculate max - min
       int span = (int)max - (int)min - (num - 1);
-      // printf("maxslop %d min %d, max %d, minPos %d, maxPos %d, span %d\n", maxSlop, min, max,
-      //        minPos, maxPos, span);
       // if it matches the condition - just return success
       if (span <= maxSlop) {
         return true;

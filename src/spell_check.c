@@ -295,7 +295,7 @@ inline bool SpellChecker::CheckTermDictsExistance() {
 static int forEachCallback(QueryNode *n, SpellChecker *self) {
     if (n->type == QN_TOKEN) {
     QueryTokenNode *tn = dynamic_cast<QueryTokenNode*>(n);
-    if (self->ReplyTermSuggestions(tn->tok.str, tn->tok.len, tn->opts.fieldMask)) {
+    if (self->ReplyTermSuggestions(tn->tok.str.c_str(), tn->tok.length(), tn->opts.fieldMask)) {
       self->results++;
     }
   }

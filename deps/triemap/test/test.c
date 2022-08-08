@@ -157,7 +157,6 @@ void testRandomWalk() {
       void *val = tm.RandomValueByPrefix(prefix, strlen(prefix));
 
       mu_check(val);
-      // printf("%d %s\n", i, (char*)val);
       mu_check(!strncmp((char *)val, prefix, strlen(prefix)));
     }
   }

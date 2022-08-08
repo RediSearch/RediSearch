@@ -31,14 +31,13 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   maxTerms = MIN(100, maxTerms);
   const SearchResult *res = ctx->res;
 
-  // fprintf(stderr, "res %p, indexresult %p\n", res, res ? res->indexResult : NULL);
   if (res && res->indexResult) {
     RSQueryTerm *terms[maxTerms];
     size_t n = ctx->res->indexResult->GetMatchedTerms(terms, maxTerms);
     if (n) {
       RSValue **arr = rm_calloc(n, sizeof(RSValue *));
       for (size_t i = 0; i < n; i++) {
-        arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
+        arr[i] = RS_ConstStringVal(terms[i]->str.c_str(), terms[i]->str.length());
       }
       RSValue *v = RSValue::NewArray(arr, n, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
       result->MakeOwnReference(v);
@@ -52,9 +51,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
 //---------------------------------------------------------------------------------------------
 
 /* lower(str) */
-static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                              QueryError *err) {
-
+static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("lower", 1, 1, err);
   RSValue *val = argv[0]->Dereference();
   if (!val->IsString()) {

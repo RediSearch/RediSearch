@@ -426,10 +426,7 @@ size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, con
   }
 
   BufferWriter bw(&blk->buf);
-
-  // printf("Writing docId %llu, delta %llu, flags %x\n", docId, delta, (int)idx->flags);
   size_t ret = encoder(&bw, delta, &entry);
-
   lastId = docId;
   blk->lastId = docId;
   ++blk->numDocs;
@@ -820,15 +817,13 @@ public:
 
 class TermIndexCriteriaTester : public IndexCriteriaTester {
 public:
-  char *term;
-  size_t termLen;
+  String term;
   t_fieldMask fieldMask;
   const IndexSpec *spec;
 
   TermIndexCriteriaTester(IndexReader *ir) {
     spec = ir->sp;
-    term = rm_strdup(ir->record->term->str);
-    termLen = ir->record->term->len;
+    term = ir->record->term->str;
     fieldMask = ir->decoder.mask;
   }
 
@@ -843,8 +838,10 @@ public:
       }
       char *s;
       int ret = spec->getValue(spec->getValueCtx, field.name, externalId, &s, NULL);
-      RS_LOG_ASSERT(ret == RSVALTYPE_STRING, "RSvalue type should be a string");
-      if (strcmp(term, s) == 0) {
+      if (ret == RSVALTYPE_STRING) {
+        throw Error("RSvalue type should be a string");
+      }
+      if (strcmp(term.c_str(), s) == 0) {
         return 1;
       }
     }

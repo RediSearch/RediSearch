@@ -307,7 +307,7 @@ QueryLexRangeNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fiel
 //---------------------------------------------------------------------------------------------
 
 QueryTagNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
-  QueryTagNode *ret = new QueryTagNode(rm_strdup(field), strlen(field));
+  QueryTagNode *ret = new QueryTagNode(rm_strdup(field));
   ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
   return ret;
 }
@@ -371,14 +371,12 @@ struct RS_ApiIter {
 
 struct QueryInput {
   int qtype;
-  union {
-    struct {
-      const char* qs;
-      size_t n;
-    } s;
+  String s;
+  QueryNode qn;
 
-    QueryNode* qn;
-  } u;
+  QueryInput(String s) : qtype(QUERY_INPUT_STRING), s(s) {}
+  QueryInput(const char* str, size_t n) : qtype(QUERY_INPUT_STRING), s(str, n) {}
+  QueryInput(QueryNode &qn) : qtype(QUERY_INPUT_NODE), qn(qn) {}
 };
 
 //---------------------------------------------------------------------------------------------
@@ -391,13 +389,12 @@ static RS_ApiIter* handleIterCommon(IndexSpec *sp, QueryInput *input, char **err
   RSSearchOptions options;
   QueryError status;
   ExtScoringFunction* scoreCtx = NULL;
-
-  RS_ApiIter* it = rm_calloc(1, sizeof(*it));
+  RS_ApiIter *it;
 
   if (input->qtype == QUERY_INPUT_STRING) {
-    it->qast = *new QueryAST(sctx, options, input->u.s.qs, input->u.s.n, &status);
+    it->qast = *new QueryAST(sctx, options, input->s, &status);
   } else {
-    it->qast.root = input->u.qn;
+    it->qast.root = &input->qn;
   }
 
   if (it->qast.Expand(NULL, &options, sctx, &status) != REDISMODULE_OK) {
@@ -441,15 +438,14 @@ int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
 //---------------------------------------------------------------------------------------------
 
 RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
-  QueryInput input = {qtype: QUERY_INPUT_STRING,
-                      u: {s: {s, n}}};
+  QueryInput input(s, n);
   return handleIterCommon(sp, &input, error);
 }
 
 //---------------------------------------------------------------------------------------------
 
 RS_ApiIter* RediSearch_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
-  QueryInput input = {.qtype = QUERY_INPUT_NODE, .u = {.qn = qn}};
+  QueryInput input(*qn);
   return handleIterCommon(sp, &input, NULL);
 }
 

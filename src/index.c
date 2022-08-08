@@ -161,7 +161,7 @@ UnionCriteriaTester::UnionCriteriaTester(Vector<IndexCriteriaTester *> testers) 
 
 //---------------------------------------------------------------------------------------------
 
-size_t UnionIterator::NumEstimated() {
+size_t UnionIterator::NumEstimated() const {
   return nexpected;
 }
 
@@ -205,7 +205,6 @@ int UnionIterator::ReadSorted(IndexResult **hit) {
       IndexResult *res = IITER_CURRENT_RECORD(it);
       rc = INDEXREAD_OK;
       // if this hit is behind the min id - read the next entry
-      // printf("docIds[%d]: %d, minDocId: %d\n", i, docIds[i], minDocId);
       while (it->minId <= minDocId && rc != INDEXREAD_EOF) {
         rc = INDEXREAD_NOTFOUND;
         // read while we're not at the end and perhaps the flags do not match
@@ -256,9 +255,9 @@ int UnionIterator::ReadSorted(IndexResult **hit) {
 // @return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF if at EOF
 
 int UnionIterator::SkipTo(t_docId docId, IndexResult **hit) {
-  RS_LOG_ASSERT(mode != IndexIteratorMode::Sorted, "union iterator mode is not MODE_SORTED");
-
-  // printf("UI %p skipto %d\n", this, docId);
+  if (mode != IndexIteratorMode::Sorted) {
+    throw Error("union iterator mode is not MODE_SORTED");
+  }
 
   if (docId == 0) {
     return ReadSorted(hit);
@@ -453,7 +452,6 @@ void IntersectIterator::SortChildren() {
 
 IntersectIterator::IntersectIterator(IndexIterators its, DocTable *dt, t_fieldMask fieldMask_,
                                      int maxSlop_, int inOrder_, double weight_) : its(its){
-  // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
   IntersectIterator *ctx = rm_calloc(1, sizeof(*ctx));
   lastDocId = 0;
   lastFoundId = 0;
@@ -521,8 +519,6 @@ int IntersectIterator::SkipTo(t_docId docId, IndexResult **hit) {
 
   // if the requested id was found on all children - we return OK
   if (nfound == its.size()) {
-    // printf("Skipto %d hit @%d\n", docId, current->docId);
-
     // Update the last found id
     // if maxSlop == -1 there is no need to verify maxSlop and inorder, otherwise lets verify
     if (maxSlop == -1 || current->IsWithinRange(maxSlop, inOrder)) {
@@ -588,7 +584,7 @@ bool IntersectIterator::CriteriaTester::Test(t_docId id) {
 IndexCriteriaTester *IntersectIterator::GetCriteriaTester() {
   for (auto &it: its) {
     IndexCriteriaTester *tester = NULL;
-    if (*it) {
+    if (it) {
       tester = it->GetCriteriaTester();
     }
     if (!tester) {
@@ -635,7 +631,6 @@ int IntersectIterator::ReadSorted(IndexResult **hit) {
         } else {
           rc = it->SkipTo(lastDocId, &h);
         }
-        // printf("II %p last docId %d, it %d read docId %d(%d), rc %d\n", ic, lastDocId, i, h->docId, it->LastDocId(), rc);
 
         if (rc == INDEXREAD_EOF) goto eof;
         docIds[i] = h->docId;
@@ -654,34 +649,30 @@ int IntersectIterator::ReadSorted(IndexResult **hit) {
     }
 
     if (nh == its.size()) {
-      // printf("II %p HIT @ %d\n", this, current->docId);
       // sum up all hits
       if (hit != NULL) {
         *hit = current;
       }
+
       // Update the last valid found id
       lastFoundId = current->docId;
 
       // advance the doc id so next time we'll read a new record
       lastDocId++;
 
-      // // make sure the flags are matching.
+      // make sure the flags are matching.
       if ((current->fieldMask & fieldMask) == 0) {
-        // printf("Field masks don't match!\n");
         continue;
       }
 
       // If we need to match slop and order, we do it now, and possibly skip the result
       if (maxSlop >= 0) {
-        // printf("Checking SLOP... (%d)\n", maxSlop);
         if (!current->IsWithinRange(maxSlop, inOrder)) {
-          // printf("Not within range!\n");
           continue;
         }
       }
 
       len++;
-      // printf("Returning OK\n");
       return INDEXREAD_OK;
     }
   } while (1);
@@ -817,7 +808,7 @@ IndexCriteriaTester *NotIterator::GetCriteriaTester() {
 
 //---------------------------------------------------------------------------------------------
 
-size_t NotIterator::NumEstimated() {
+size_t NotIterator::NumEstimated() const {
   return maxDocId;
 }
 
@@ -999,7 +990,7 @@ IndexCriteriaTester *OptionalIterator::GetCriteriaTester() {
   return new IndexCriteriaTester();
 }
 
-size_t OptionalIterator::NumEstimated() {
+size_t OptionalIterator::NumEstimated() const {
   return maxDocId;
 }
 

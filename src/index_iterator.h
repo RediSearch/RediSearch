@@ -68,7 +68,7 @@ public:
 
   virtual IndexResult *GetCurrent() { return NULL; }
 
-  virtual size_t NumEstimated();
+  virtual size_t NumEstimated() const;
 
   virtual IndexCriteriaTester *GetCriteriaTester();
 

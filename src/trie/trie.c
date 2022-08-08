@@ -8,17 +8,8 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-
-size_t TrieNode::Size(t_len numChildren, t_len slen) {
-  return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);
-}
-
-#endif // 0
-
-//---------------------------------------------------------------------------------------------
-
 // Allocate a new trie payload struct
+
 TriePayload::TriePayload(const char *payload, uint32_t plen) {
   len = plen;
   memcpy(data, payload, sizeof(char) * plen);
@@ -452,7 +443,6 @@ void TrieNode::rangeIterateSubTree(RangeCtx *r) {
   }
 
   for (auto child: _children) {
-    // printf("Descending to index %lu\n", ii);
     child->rangeIterateSubTree(r);
   }
 

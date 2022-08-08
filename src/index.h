@@ -53,7 +53,7 @@ struct UnionIterator : public IndexIterator {
   virtual void Abort();
   virtual void Rewind();
   virtual int SkipTo(t_docId docId, IndexResult **hit);
-  virtual size_t NumEstimated();
+  virtual size_t NumEstimated() const;
   virtual IndexCriteriaTester *GetCriteriaTester();
   virtual size_t Len();
 
@@ -111,7 +111,7 @@ struct IntersectIterator : IndexIterator {
   virtual int SkipTo(t_docId docId, IndexResult **hit);
   virtual void Abort();
   virtual void Rewind();
-  virtual size_t NumEstimated();
+  virtual size_t NumEstimated() const;
   virtual size_t Len();
 
   AggregateResult &result() { return reinterpret_cast<AggregateResult&>(*current); }
