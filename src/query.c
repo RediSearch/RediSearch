@@ -123,17 +123,11 @@ void QueryNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryTokenNode::EvalNode(Query *q) {
-  // if (qn->type != QN_TOKEN) {
-  //   return NULL;
-  // }
-
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
   // we can just use the optimized score index
   int isSingleWord = q->numTokens == 1 && q->opts->fieldmask == RS_FIELDMASK_ALL;
   RSQueryTerm *term = new RSQueryTerm(tok, q->tokenId++);
-
-  // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
 
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
                                      EFFECTIVE_FIELDMASK(q, this), q->conc, opts.weight);
@@ -208,8 +202,6 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, const String s
 // UNION on all of them.
 
 IndexIterator *QueryPrefixNode::EvalNode(Query *q) {
-  // RS_LOG_ASSERT(type == QN_PREFX, "query node type should be prefix");
-
   // we allow a minimum of 2 letters in the prefx by default (configurable)
   if (tok.length() < RSGlobalConfig.minTermPrefix) {
     return NULL;

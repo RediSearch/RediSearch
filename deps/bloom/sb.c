@@ -124,8 +124,6 @@ typedef struct __attribute__((packed)) {
 } dumpedChainHeader;
 
 static SBLink *getLinkPos(const SBChain *sb, long long curIter, size_t *offset) {
-  // printf("Requested %lld\n", curIter);
-
   curIter--;
   SBLink *link = NULL;
 
@@ -167,7 +165,6 @@ const char *SBChain_GetEncodedChunk(const SBChain *sb, long long *curIter, size_
   }
 
   *curIter += *len;
-  // printf("Returning offset=%lu\n", offset);
   return (const char *)(link->inner.bf + offset);
 }
 
@@ -240,7 +237,6 @@ int SBChain_LoadEncodedChunk(SBChain *sb, long long iter, const char *buf, size_
     return -1;
   }
 
-  // printf("Copying to %p. Offset=%lu, Len=%lu\n", link, offset, bufLen);
   memcpy(link->inner.bf + offset, buf, bufLen);
   return 0;
 }

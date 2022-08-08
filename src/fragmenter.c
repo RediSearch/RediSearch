@@ -533,19 +533,16 @@ int FragmentTermIterator::Next(FragmentTerm **termInfo) {
   if (byteIter.curPos < curTokPos) {
     curByteOffset = byteIter.Next();
     // No matching term at this position.
-    // printf("IterPos=%lu. LastMatchPos=%u\n", byteIter->curPos, curTokPos);
     *termInfo = NULL;
     return 1;
   }
 
-  // printf("ByteOffset=%lu. LastMatchPos=%u\n", curByteOffset, curTokPos);
 
   RSQueryTerm *term = curMatchRec;
 
-  // printf("Term Pointer: %p\n", term);
   aTerm.score = term->idf;
   aTerm.termId = term->id;
-  aTerm.len = term->len;
+  aTerm.len = term->str.length();
   aTerm.tokPos = curTokPos;
   aTerm.bytePos = curByteOffset;
   *termInfo = &aTerm;

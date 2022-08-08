@@ -426,10 +426,7 @@ size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, con
   }
 
   BufferWriter bw(&blk->buf);
-
-  // printf("Writing docId %llu, delta %llu, flags %x\n", docId, delta, (int)idx->flags);
   size_t ret = encoder(&bw, delta, &entry);
-
   lastId = docId;
   blk->lastId = docId;
   ++blk->numDocs;

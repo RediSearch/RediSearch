@@ -546,7 +546,6 @@ void TrieMapNode::rangeIterateSubTree(TrieMapRangeCtx *r) {
   TrieMapNode **arr = children();
 
   for (int ii = 0; ii < _children.size(); ++ii) {
-    // printf("Descending to index %lu\n", ii);
     arr[ii]->rangeIterateSubTree(r);
   }
 

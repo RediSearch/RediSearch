@@ -621,14 +621,12 @@ static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key
 
     loadopts = new RLookupLoadOptions(sctx, dmd, status);
     if (lookup_s.LoadDocument(&row, loadopts) != REDISMODULE_OK) {
-      // printf("Couldn't load document!\n");
       delete loadopts;
       goto done;
     }
 
     evaluator = new ExprEval(status, &lookup_s, &row, &e);
     if (evaluator->Eval(&rv) != EXPR_EVAL_OK) {
-      // printf("Eval not OK!!! SAD!!\n");
       delete evaluator;
       goto done;
     }

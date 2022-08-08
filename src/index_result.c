@@ -128,7 +128,6 @@ bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
     rc = withinRangeInOrder(iters, positions, n, maxSlop);
   else
     rc = withinRangeUnordered(iters, positions, n, maxSlop);
-  // printf("slop result for %d: %d\n", ir->docId, rc);
 
   return !!rc;
 }
@@ -370,8 +369,6 @@ bool IndexResult::withinRangeUnordered(RSOffsetIterators &iters, uint32_t *posit
     if (min != max) {
       // calculate max - min
       int span = (int)max - (int)min - (num - 1);
-      // printf("maxslop %d min %d, max %d, minPos %d, maxPos %d, span %d\n", maxSlop, min, max,
-      //        minPos, maxPos, span);
       // if it matches the condition - just return success
       if (span <= maxSlop) {
         return true;
