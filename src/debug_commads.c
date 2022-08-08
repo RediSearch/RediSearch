@@ -73,8 +73,6 @@ DEBUG_COMMAND(DumpTerms) {
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   SearchCtx_Free(sctx);
