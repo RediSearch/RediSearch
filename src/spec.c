@@ -2086,8 +2086,6 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
     RedisModule_FreeString(ctx.redisCtx, keyName);
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
