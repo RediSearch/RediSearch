@@ -740,7 +740,7 @@ static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
   // Push string to stack
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
   if (__trieNode_isTerminal(n)) {
-    if (r->callback(r->buf, array_len(r->buf), r->cbctx) != REDISEARCH_OK) {
+    if (r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload) != REDISEARCH_OK) {
       r->stop = 1;
       return REDISEARCH_ERR;
     }
@@ -773,9 +773,9 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     // if nmin or nmax is zero, it means that we find an exact match
     // we should fire the callback only if exact match requested
     if (r->includeMin && nmin == 0) {
-      r->callback(r->buf, array_len(r->buf), r->cbctx);
+      r->callback(r->buf, array_len(r->buf), r->cbctx, NULL);
     } else if (r->includeMax && nmax == 0) {
-      r->callback(r->buf, array_len(r->buf), r->cbctx);
+      r->callback(r->buf, array_len(r->buf), r->cbctx, NULL);
     }
   }
 
@@ -903,7 +903,7 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
       // min = max, we should just search for min and check for its existence
       if (includeMin || includeMax) {
         if (TrieNode_Find(n, (rune *)min, nmin) != 0) {
-          callback(min, nmin, ctx);
+          callback(min, nmin, ctx, NULL);
         }
       }
       return;
@@ -932,7 +932,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     if (TrieNode_Find(n, (rune *)str, nstr) != 0) {
-      callback(str, nstr, ctx);
+      callback(str, nstr, ctx, NULL);
     }
     return;
   }
@@ -1018,7 +1018,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
       } else { // suffix mode
         // it is suffix match if node is terminal and have no extra characters.
         if (__trieNode_isTerminal(n) && localOffset + 1 == n->len) {
-          if (r->callback(r->buf, array_len(r->buf), r->cbctx) == REDISMODULE_ERR) {
+          if (r->callback(r->buf, array_len(r->buf), r->cbctx, NULL) == REDISMODULE_ERR) {
             r->stop = 1;
           }
         }
@@ -1055,7 +1055,7 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
   match_t match = Wildcard_MatchRune(r->origStr, r->lenOrigStr, r->buf, array_len(r->buf));
   switch (match) {
     case NO_MATCH:
-      break;;
+      break;
     case FULL_MATCH: {
       if (r->prefix) {
         array_trimm_len(r->buf, n->len);
@@ -1064,9 +1064,9 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
       } else {
         // if node is terminal we add the result.
         if (__trieNode_isTerminal(n)) {
-          r->callback(r->buf, array_len(r->buf), r->cbctx);
+          r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload);
         }
-        // no 'break;' as we continue to look for matches on children similar to PARTIAL_MATCH
+        // fall through - continue to look for matches on children similar to PARTIAL_MATCH
       }
     }
     case PARTIAL_MATCH: {
