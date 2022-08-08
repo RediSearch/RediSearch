@@ -855,7 +855,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
   if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+    QueryError_SetErrorFmt(status, QUERY_ESCORER, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
   }
   if (!(opts->flags & Search_NoStopwrods)) {
@@ -1075,6 +1075,9 @@ static ResultProcessor *getScorerRP(AREQ *req) {
   if (!scorer) {
     scorer = DEFAULT_SCORER_NAME;
   }
+  if (!strcasecmp(scorer, NO_SCORER)) {
+    return NULL;
+  }
   ScoringFunctionArgs scargs = {0};
   if (req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
@@ -1132,9 +1135,16 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
   if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
-      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req))) {
+      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req) &&
+                                  req->ast.root->type != QN_WILDCARD)) {
     rp = getScorerRP(req);
-    PUSH_RP();
+    if (!rp) {  
+      if (req->reqflags & QEXEC_F_SEND_SCORES) {
+        QueryError_SetError(Status, QUERY_ESCORER, "Scorer NO_SCORER cannot be combined with WITHSCORES");
+      } // else NO_SCORER to push
+    } else {
+      PUSH_RP();
+    }
   }
 }
 

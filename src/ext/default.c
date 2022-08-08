@@ -315,6 +315,16 @@ static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSInde
   return result;
 }
 
+/******************************************************************************************
+ *
+ * No-scorer place holder.
+ *
+ ******************************************************************************************/
+static double NoScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                             const RSDocumentMetadata *dmd, double minScore) {
+  return 1;
+}
+
 typedef struct {
   int isCn;
   union {
@@ -548,6 +558,11 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
   /* Register DOCSCORE scorer */
   if (ctx->RegisterScoringFunction(DOCSCORE_SCORER, DocScoreScorer, NULL, NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Register NO_SCORE scorer */
+  if (ctx->RegisterScoringFunction(NO_SCORER, NoScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

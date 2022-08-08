@@ -12,6 +12,7 @@
 #define BM25_SCORER_NAME "BM25"
 #define DOCSCORE_SCORER "DOCSCORE"
 #define HAMMINGDISTANCE_SCORER "HAMMING"
+#define NO_SCORER "NO_SCORER"
 
 int DefaultExtensionInit(RSExtensionCtx *ctx);
 
