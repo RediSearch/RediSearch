@@ -13,8 +13,6 @@ typedef uint64_t t_offset;
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
 
-// extern void *RSDummyContext;
-
 #define DOCID_MAX UINT64_MAX
 
 #if defined(__x86_64__) && !defined(RS_NO_U128)

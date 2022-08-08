@@ -263,8 +263,6 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
 }
 
 int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RS_AutoMemory(ctx); /* Use automatic memory management. */
-
   if (argc < 3 || argc > 10) return RedisModule_WrongArity(ctx);
   RETURN_ERROR_ON_CRDT(ctx);
 
