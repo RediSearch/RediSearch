@@ -452,7 +452,12 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
                                     .status = &status};
       RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
       if (QueryError_HasError(&status)) {
-        return RS_RESULT_ERROR;
+        // failure to fetch the doc:
+        // release dmd, reduce result count and continue
+        self->pooledResult = h;
+        SearchResult_Clear(self->pooledResult);
+        rp->parent->totalResults--;
+        return RESULT_QUEUED;
       }
     }
   }
