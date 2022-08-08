@@ -689,7 +689,27 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
   if (!*it1) return -1;
   if (!*it2) return 1;
 
-  return (int)((*it1)->NumEstimated((*it1)->ctx) - (*it2)->NumEstimated((*it2)->ctx));
+  double factor1 = 1;
+  double factor2 = 1;
+  enum iteratorType it_1_type = (*it1)->type;
+  enum iteratorType it_2_type = (*it2)->type;
+
+  /* on UNION iterator, we multiply the estimate by the number of children
+   * since we iterate each read over all children.
+   * on INTERSECT iterator, we divide the estimate by the number of children
+   * since we skip as soon as a number does not in all iterators */
+  if (it_1_type == UNION_ITERATOR) {
+    factor1 = ((UnionIterator *)*it1)->num;
+  } else if (it_1_type == INTERSECT_ITERATOR) {
+    factor1 = 1 / MAX(1, ((UnionIterator *)*it1)->num);
+  }
+  if (it_2_type == UNION_ITERATOR) {
+    factor2 = ((UnionIterator *)*it2)->num;
+  } else if (it_2_type == INTERSECT_ITERATOR) {
+    factor2 = 1 / MAX(1, ((UnionIterator *)*it2)->num);
+  }
+
+  return (int)((*it1)->NumEstimated((*it1)->ctx) * factor1 - (*it2)->NumEstimated((*it2)->ctx) * factor2);
 }
 
 static void II_SortChildren(IntersectIterator *ctx) {
@@ -840,7 +860,7 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
       return rc;
     } else if (rc == INDEXREAD_OK) {
       // YAY! found!
-      if (res) {
+      if (res && res->docId == docId) {
         AggregateResult_AddChild(ic->base.current, res);
       }
       ic->lastDocId = docId;
@@ -1799,6 +1819,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   case QN_PREFIX : unionTypeStr = "PREFIX"; break;
   case QN_NUMERIC : unionTypeStr = "NUMERIC"; break;
   case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
+  case QN_WILDCARD_QUERY : unionTypeStr = "WILDCARD"; break;
   default:
     RS_LOG_ASSERT(0, "Invalid type for union");
     break;

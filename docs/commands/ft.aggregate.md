@@ -13,6 +13,8 @@ Runs a search query on an index, and performs aggregate transformations on the r
 * **query**: The base filtering query that retrieves the documents. It follows
   **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
+- **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms verbatim.
+
 * **LOAD {nargs} {identifier} AS {property} …**: Load document attributes from the source document.
   `identifier` is either an attribute name (for hashes and JSON) or a JSON Path expression for (JSON).
   `property` is the optional name used in the result. It is not provided, the `identifier` is used.
@@ -52,6 +54,7 @@ Runs a search query on an index, and performs aggregate transformations on the r
 * **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index
   `offset` (zero-based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you
   are interested in just limiting the output of a sort operation.
+  If a key expires during the query, an attempt to `load` the key's value will return a null array. 
 
     However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100.
 
@@ -91,8 +94,9 @@ FT.AGGREGATE books-idx *
       REDUCE MAX 1 @num_published AS max_books_published_per_year
 ```
 
-!!! tip "Reducing all results"
-    The last example used `GROUPBY 0`. Use `GROUPBY 0` to apply a `REDUCE` function over all results from the last step of an aggregation pipeline -- this works on both the  initial query and subsequent `GROUPBY` operations.
+{{% alert title="Reducing all results" color="info" %}}
+The last example used `GROUPBY 0`. Use `GROUPBY 0` to apply a `REDUCE` function over all results from the last step of an aggregation pipeline -- this works on both the  initial query and subsequent `GROUPBY` operations.
+{{% /alert %}}
 
 Searching for libraries within 10 kilometers of the longitude -73.982254 and latitude 40.753181 then annotating them with the distance between their location and those coordinates:
 
@@ -104,8 +108,9 @@ Searching for libraries within 10 kilometers of the longitude -73.982254 and lat
 
 Here, we needed to use `LOAD` to pre-load the @location attribute because it is a GEO attribute.
 
-!!! tip "More examples"
-    For more details on aggregations and detailed examples of aggregation queries, see [aggregations](/redisearch/reference/aggregations).
+{{% alert title="More examples" color="info" %}}
+For more details on aggregations and detailed examples of aggregation queries, see [aggregations](/redisearch/reference/aggregations).
+{{% /alert %}}    
 
 Here we are counting GitHub events by user (actor), to produce the most active users:
 

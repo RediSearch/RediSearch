@@ -7,6 +7,7 @@
 #include "phonetic_manager.h"
 #include "gc.h"
 #include "module.h"
+#include "suffix.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -72,8 +73,6 @@ DEBUG_COMMAND(DumpTerms) {
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   SearchCtx_Free(sctx);
@@ -262,6 +261,77 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(DumpSuffix) {
+  if (argc != 1 && argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0]);
+  if (argc == 1) { // suffix trie of global text field
+    Trie *suffix = sctx->spec->suffix; 
+    if (!suffix) {
+      RedisModule_ReplyWithError(ctx, "Index does not have suffix trie");
+      goto end;
+    }
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    long resultSize = 0;
+
+    // iterate trie and reply with terms
+    TrieIterator *it = TrieNode_Iterate(suffix->root, NULL, NULL, NULL);
+    rune *rstr;
+    t_len len;
+    float score;
+
+    while (TrieIterator_Next(it, &rstr, &len, NULL, &score, NULL)) {
+      size_t slen = 0;
+      char *s = runesToStr(rstr, len, &slen);
+      RedisModule_ReplyWithSimpleString(ctx, s);
+      rm_free(s);
+      ++resultSize;
+    }
+
+    TrieIterator_Free(it);
+
+    RedisModule_ReplySetArrayLength(ctx, resultSize);
+
+  } else { // suffix triemap of tag field
+    RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_TAG);
+    if (!keyName) {
+      RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+      goto end;
+    }
+    const TagIndex *idx = TagIndex_Open(sctx, keyName, false, NULL);
+    if (!idx) {
+      RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
+      goto end;
+    }
+    if (!idx->suffix) {
+      RedisModule_ReplyWithError(sctx->redisCtx, "tag field does have suffix trie");
+      goto end;
+    }
+  
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    long resultSize = 0;
+
+    TrieMapIterator *it = TrieMap_Iterate(idx->suffix, "", 0);
+    char *str;
+    tm_len_t len;
+    void *value;
+    while (TrieMapIterator_Next(it, &str, &len, &value)) {
+      str[len] = '\0';
+      RedisModule_ReplyWithSimpleString(ctx, str);
+      ++resultSize;
+    }
+
+    TrieMapIterator_Free(it);
+
+    RedisModule_ReplySetArrayLength(ctx, resultSize);  
+  }
+end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -702,6 +772,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"DOCIDTOID", DocIdToId},
                                {"DOCINFO", DocInfo},
                                {"DUMP_PHONETIC_HASH", DumpPhoneticHash},
+                               {"DUMP_SUFFIX_TRIE", DumpSuffix},
                                {"DUMP_TERMS", DumpTerms},
                                {"INVIDX_SUMMARY", InvertedIndexSummary},
                                {"NUMIDX_SUMMARY", NumericIndexSummary},

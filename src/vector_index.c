@@ -292,45 +292,46 @@ fail:
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                           VecSimQueryParams *qParams, bool hybrid, QueryError *status) {
 
-  VecSimResolveCode code = VecSimIndex_ResolveParams(index, params, params_len, qParams, hybrid);
-  if (code == VecSim_OK) {
-    return code;
+  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, hybrid);
+  if (vecSimCode == VecSim_OK) {
+    return vecSimCode;
   }
 
-  const char *error_msg = "";
-  switch (code) {
+  QueryErrorCode RSErrorCode;
+  switch (vecSimCode) {
     case VecSimParamResolverErr_AlreadySet: {
-      error_msg = QueryError_Strerror(QUERY_EDUPPARAM);
+      RSErrorCode = QUERY_EDUPPARAM;
       break;
     }
     case VecSimParamResolverErr_UnknownParam: {
-      error_msg = QueryError_Strerror(QUERY_ENOOPTION);
+      RSErrorCode = QUERY_ENOOPTION;
       break;
     }
     case VecSimParamResolverErr_BadValue: {
-      error_msg = QueryError_Strerror(QUERY_EBADVAL);
+      RSErrorCode = QUERY_EBADVAL;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NHybrid: {
-      error_msg = QueryError_Strerror(QUERY_ENHYBRID);
+      RSErrorCode = QUERY_ENHYBRID;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_NExits: {
-      error_msg = QueryError_Strerror(QUERY_EHYBRIDNEXIST);
+      RSErrorCode = QUERY_EHYBRIDNEXIST;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_BatchSize: {
-      error_msg = QueryError_Strerror(QUERY_EADHOCWBATCHSIZE);
+      RSErrorCode = QUERY_EADHOCWBATCHSIZE;
       break;
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_EfRuntime: {
-      error_msg = QueryError_Strerror(QUERY_EADHOCWEFRUNTIME);
+      RSErrorCode = QUERY_EADHOCWEFRUNTIME;
       break;
     }
     default: {
-      error_msg = QueryError_Strerror(QUERY_EGENERIC);
+      RSErrorCode = QUERY_EGENERIC;
     }
   }
-  QueryError_SetErrorFmt(status, code, "Error parsing vector similarity parameters: %s", error_msg);
-  return code;
+  const char *error_msg = QueryError_Strerror(RSErrorCode);
+  QueryError_SetErrorFmt(status, RSErrorCode, "Error parsing vector similarity parameters: %s", error_msg);
+  return vecSimCode;
 }

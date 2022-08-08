@@ -111,7 +111,7 @@ int testRuneUtil() {
 
 int testPayload() {
   rune *rootRunes = strToRunes("", NULL);
-  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0);
+  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Score);
   ASSERT(root != NULL)
   free(rootRunes);
 
@@ -121,8 +121,8 @@ int testPayload() {
 
   size_t rlen;
   rune *runes = strToRunes("hel", &rlen);
-  DFAFilter fc = NewDFAFilter(runes, rlen, 1, 1);
-  TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, &fc);
+  DFAFilter *fc = NewDFAFilter(runes, rlen, 1, 1);
+  TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, fc);
   rune *s;
   t_len len;
   float score;
@@ -140,7 +140,6 @@ int testPayload() {
   }
   ASSERT(matches > 0);
 
-  DFAFilter_Free(&fc);
   TrieIterator_Free(it);
   free(runes);
 
@@ -150,7 +149,7 @@ int testPayload() {
 
 int testTrie() {
   rune *rootRunes = strToRunes("", NULL);
-  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0);
+  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Score);
   ASSERT(root != NULL)
   free(rootRunes);
 
@@ -213,7 +212,7 @@ int testUnicode() {
   char *str = "\xc4\x8c\xc4\x87";
 
   rune *rn = strToRunes("", NULL);
-  TrieNode *root = __newTrieNode(rn, 0, 0, NULL, 0, 0, 1, 0);
+  TrieNode *root = __newTrieNode(rn, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Score);
   free(rn);
   ASSERT(root != NULL)
 
@@ -240,7 +239,7 @@ int testDFAFilter() {
   ssize_t read;
   size_t rlen;
   rune *runes = strToRunes("root", &rlen);
-  TrieNode *root = __newTrieNode(runes, 0, rlen, NULL, 0, 0, 0, 0);
+  TrieNode *root = __newTrieNode(runes, 0, rlen, NULL, 0, 0, 0, 0, Trie_Sort_Score);
   ASSERT(root != NULL)
   free(runes);
   int i = 0;
@@ -285,9 +284,9 @@ int testDFAFilter() {
 
   for (i = 0; terms[i] != NULL; i++) {
     runes = strToFoldedRunes(terms[i], &rlen);
-    DFAFilter fc = NewDFAFilter(runes, rlen, 2, 0);
+    DFAFilter *fc = NewDFAFilter(runes, rlen, 2, 0);
 
-    TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, &fc);
+    TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, fc);
     rune *s;
     t_len len;
     float score;
@@ -308,7 +307,6 @@ int testDFAFilter() {
     }
     ASSERT(matches > 0);
 
-    DFAFilter_Free(&fc);
     TrieIterator_Free(it);
     free(runes);
   }
@@ -317,9 +315,10 @@ int testDFAFilter() {
   for (i = 0; prefixes[i] != NULL; i++) {
     // printf("prefix %d: %s\n", i, prefixes[i]);
     runes = strToRunes(prefixes[i], &rlen);
-    DFAFilter fc = NewDFAFilter(runes, rlen, 1, 1);
 
-    TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, &fc);
+    DFAFilter *fc = NewDFAFilter(runes, rlen, 1, 1);
+
+    TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, fc);
     rune *s;
     t_len len;
     float score;
@@ -337,7 +336,6 @@ int testDFAFilter() {
     }
     ASSERT(matches > 0);
 
-    DFAFilter_Free(&fc);
     TrieIterator_Free(it);
     free(runes);
   }

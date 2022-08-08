@@ -3476,3 +3476,24 @@ def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'RETURN', '1', 'test').error().contains("RETURN is not supported on FT.AGGREGATE")
+
+def test_emoji(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx_tag', 'ON', 'HASH', 'SCHEMA', 'test', 'TAG').equal('OK')
+
+    conn.execute_command('HSET', 'doc1', 'test', 'a📌')
+    env.expect('ft.search', 'idx', 'a📌').equal([1, 'doc1', ['test', 'a📌']])
+    env.expect('ft.search', 'idx_tag', '@test:{a📌}').equal([1, 'doc1', ['test', 'a📌']])
+    conn.execute_command('HSET', 'doc2', 'test', '💮a')
+    env.expect('ft.search', 'idx', '💮a').equal([1, 'doc2', ['test', '💮a']])
+    env.expect('ft.search', 'idx_tag', '@test:{💮a}').equal([1, 'doc2', ['test', '💮a']])
+    conn.execute_command('HSET', 'doc3', 'test', '💩')
+    env.expect('ft.search', 'idx', '💩').equal([1, 'doc3', ['test', '💩']])
+    env.expect('ft.search', 'idx_tag', '@test:{💩}').equal([1, 'doc3', ['test', '💩']])
+    '''
+    conn.execute_command('HSET', 'doc4', 'test', '😀😁🙂')
+    env.expect('ft.search', 'idx', '😀😁*').equal([1, 'doc4', ['test', '😀😁🙂']])
+    env.expect('ft.search', 'idx', '%😀😁%').equal([1, 'doc4', ['test', '😀😁🙂']])
+    conn.execute_command('HSET', 'doc4', 'test', '')
+    '''

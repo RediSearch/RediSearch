@@ -355,6 +355,7 @@ void Document_Clear(Document *d) {
             rm_free(field->multiVal[i]);
           }
           rm_free(field->multiVal);
+          field->arrayLen = 0;
         case FLD_VAR_T_GEO:
         case FLD_VAR_T_NUM:
         case FLD_VAR_T_NULL:

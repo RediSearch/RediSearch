@@ -9,7 +9,7 @@ dict *spellCheckDicts = NULL;
 Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
   Trie *t = dictFetchValue(spellCheckDicts, dictName);
   if (!t && mode == REDISMODULE_WRITE) {
-    t = NewTrie(NULL);
+    t = NewTrie(NULL, Trie_Sort_Lex);
     dictAdd(spellCheckDicts, (char *)dictName, t);
   }
   return t;
@@ -70,8 +70,6 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   return 1;

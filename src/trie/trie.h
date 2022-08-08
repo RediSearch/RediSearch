@@ -22,7 +22,13 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED_SCORE 1
 #define TRIENODE_SORTED_LEX 2
 
+typedef enum {
+  Trie_Sort_Lex = 0,
+  Trie_Sort_Score = 1,
+} TrieSortMode;
+
 typedef void (*TrieFreeCallback)(void *node);
+struct timespec;
 
 #pragma pack(1)
 typedef struct {
@@ -49,7 +55,7 @@ typedef struct {
   t_len numChildren;
 
   uint8_t flags : 2;
-  uint8_t sortmode : 2;
+  TrieSortMode sortMode : 1;
 
   // the node's score. Non termn
   float score;
@@ -77,7 +83,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
-                        t_len numChildren, float score, int terminal);
+                        t_len numChildren, float score, int terminal, TrieSortMode sortMode);
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for
@@ -229,6 +235,22 @@ typedef int(TrieSuffixCallback)(const char *, size_t, void *);
 void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includeMin,
                            const rune *max, int maxlen, bool includeMax, TrieRangeCallback callback,
                            void *ctx);
+
+/**
+ * Iterate all nodes within range.
+ * @param n the node to iterateo
+ * @param str the string to check
+ * @param nstr the length of str
+ * @param prefix is the string prefix
+ * @param suffix is the string suffix
+ * @param callback the callback to invoke
+ * @param ctx data to be passed to the callback
+ */
+void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout);
+
+void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout);
 
 #ifdef __cplusplus
 }

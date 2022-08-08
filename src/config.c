@@ -409,6 +409,16 @@ CONFIG_GETTER(getVSSMaxResize) {
   return sdscatprintf(ss, "%u", config->vssMaxResize);
 }
 
+CONFIG_SETTER(setMultiTextOffsetDelta) {
+  int acrc = AC_GetUnsigned(ac, &config->multiTextOffsetDelta, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getMultiTextOffsetDelta) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->multiTextOffsetDelta);
+}
+
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
@@ -735,6 +745,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Set RediSearch vector indexes max resize (in bytes).",
          .setValue = setVSSMaxResize,
          .getValue = getVSSMaxResize},
+         {.name = "MULTI_TEXT_SLOP",
+         .helpText = "Set RediSearch delta used to increase positional offsets between array slots for multi text values."
+                      "Can control the level of separation between phrases in different array slots (related to the SLOP parameter of ft.search command)",
+         .setValue = setMultiTextOffsetDelta,
+         .getValue = getMultiTextOffsetDelta,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -842,6 +858,33 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   int rc = var->setValue(config, &ac, status);
   *offset += ac.offset;
   return rc;
+}
+
+void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "runtime_configurations");
+
+  RedisModule_InfoAddFieldCString(ctx, "concurrent_mode", RSGlobalConfig.concurrentMode ? "ON" : "OFF");
+  if (RSGlobalConfig.extLoad != NULL) {
+    RedisModule_InfoAddFieldCString(ctx, "extension_load", (char*)RSGlobalConfig.extLoad);
+  }
+  if (RSGlobalConfig.frisoIni != NULL) {
+    RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char*)RSGlobalConfig.frisoIni);
+  }
+  RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.enableGC ? "ON" : "OFF");
+  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.minTermPrefix);
+  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.maxPrefixExpansions);
+  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.queryTimeoutMS);
+  RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.timeoutPolicy));
+  RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
+
+  RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "search_pool_size", RSGlobalConfig.searchPoolSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_pool_size", RSGlobalConfig.indexPoolSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcScanSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
 }
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {

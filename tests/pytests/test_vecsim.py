@@ -186,7 +186,6 @@ def testUpdateWithBadValue(env):
     env.expect('FT.SEARCH', 'idx2', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', 'vec').equal(res)
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     for i in range(n_vec):
         vector = np.random.rand(1, vec_size).astype(np.float32)
@@ -1127,6 +1126,7 @@ def test_hybrid_query_change_policy():
     conn = getConnectionByEnv(env)
     dim = 2
     n = 6000 * env.shardsCount
+    np.random.seed(10)
     vectors = np.random.rand(n, dim).astype(np.float32)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
@@ -1155,7 +1155,10 @@ def test_hybrid_query_change_policy():
     # Ask explicitly to use AD-HOC policy.
     query_string = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word1})=>[KNN 10 @v $vec_param HYBRID_POLICY ADHOC_BF]'
     adhoc_res = execute_hybrid_query(env, query_string, vectors[0], 'tag2', hybrid_mode='HYBRID_ADHOC_BF').res
-    env.assertEqual(res, adhoc_res)
+
+    # Validate that the same scores are back for the top k results (not necessarily the exact same ids)
+    for i, res_fields in enumerate(res[2::2]):
+        env.assertEqual(res_fields, adhoc_res[2+2*i])
 
     # This query has 0 results, since none of the tags in @tag1 go along with 'word2' in @tag2.
     # However, the estimated number of the "child" results should be index_size/2.
@@ -1357,3 +1360,45 @@ def test_rdb_memory_limit():
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
+
+def test_timeout_reached():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    nshards = env.shardsCount
+
+    vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 10000 * nshards)]
+    hybrid_modes = ['BATCHES', 'ADHOC_BF']
+    dim = 10
+
+    for algo, n_vec in vecsim_algorithms_and_sizes:
+        # succeed to create indexes with no limits
+        query_vec = load_vectors_to_redis(env, n_vec, 0, dim)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, '8', 'TYPE', 'FLOAT32',
+                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
+        waitForIndex(env, 'idx')
+
+        # STANDART KNN
+        # run query with no timeout. should succeed.
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                   'TIMEOUT', 0)
+        env.assertEqual(res[0], n_vec)
+        # run query with 1 milisecond timeout. should fail.
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                   'TIMEOUT', 1)
+        env.assertEqual(res[0], 0)
+
+        # HYBRID MODES
+        for mode in hybrid_modes:
+            res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                       'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+                                       'TIMEOUT', 0)
+            env.assertEqual(res[0], n_vec)
+
+            res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                       'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+                                       'TIMEOUT', 1)
+            env.assertEqual(res[0], 0)
+
+        conn.flushall()

@@ -29,9 +29,10 @@
 
 %left TAGLIST.
 %left TERMLIST.
-%left PREFIX.
+%left PREFIX SUFFIX CONTAINS.
 %left PERCENT.
 %left ATTRIBUTE.
+%left VERBATIM WILDCARD.
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
@@ -146,8 +147,17 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type attribute_list {QueryAttribute *}
 %destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
 
-%type prefix { QueryNode * }
-%destructor prefix { QueryNode_Free($$); }
+%type affix { QueryNode * }
+%destructor affix { QueryNode_Free($$); }
+
+%type suffix { QueryNode * } 
+%destructor suffix { QueryNode_Free($$); }
+
+%type contains { QueryNode * } 
+%destructor contains { QueryNode_Free($$); }
+
+%type verbatim { QueryNode * }
+%destructor verbatim { QueryNode_Free($$); }
 
 %type termlist { QueryNode * }
 %destructor termlist { QueryNode_Free($$); }
@@ -565,7 +575,11 @@ text_expr(A) ::= param_term(B) . [LOWEST]  {
   A = NewTokenNode_WithParams(ctx, &B);
 }
 
-text_expr(A) ::= prefix(B) . [PREFIX]  {
+text_expr(A) ::= affix(B) . [PREFIX]  {
+A = B;
+}
+
+text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 A = B;
 }
 
@@ -632,8 +646,24 @@ text_expr(A) ::= TILDE text_expr(B) . {
 // Prefix experessions
 /////////////////////////////////////////////////////////////////
 
-prefix(A) ::= PREFIX(B) . [PREFIX] {
-    A = NewPrefixNode_WithParams(ctx, &B);
+affix(A) ::= PREFIX(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, true, false);
+}
+
+affix(A) ::= SUFFIX(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, false, true);
+}
+
+affix(A) ::= CONTAINS(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, true, true);
+}
+
+// verbatim(A) ::= VERBATIM(B) . {
+//    A = NewVerbatimNode_WithParams(ctx, &B);
+// }
+
+verbatim(A) ::= WILDCARD(B) . {
+    A = NewWildcardNode_WithParams(ctx, &B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -723,7 +753,12 @@ tag_list(A) ::= STOPWORD(B) . [TAGLIST] {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
 }
 
-tag_list(A) ::= prefix(B) . [TAGLIST] {
+tag_list(A) ::= affix(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, B);
+}
+
+tag_list(A) ::= verbatim(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
 }
@@ -747,7 +782,12 @@ tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
     A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
+    QueryNode_AddChild(B, C);
+    A = B;
+}
+
+tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
     QueryNode_AddChild(B, C);
     A = B;
 }

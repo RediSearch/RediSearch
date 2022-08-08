@@ -26,7 +26,7 @@ static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
 
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
-  const RLookup *lastLk;
+  RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
 
@@ -233,7 +233,16 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
     size_t resultFactor = getResultsFactor(req);
-    size_t reqResults = req->qiter.totalResults > reqOffset ? req->qiter.totalResults - reqOffset : 0;
+    
+    size_t reqResults;
+    if (reqLimit + reqOffset <= RSGlobalConfig.maxSearchResults) {
+    	reqResults = req->qiter.totalResults > reqOffset ?
+                   req->qiter.totalResults - reqOffset : 0;
+    } else {
+    	reqResults = RSGlobalConfig.maxSearchResults > reqOffset ?
+                   RSGlobalConfig.maxSearchResults - reqOffset : 0;
+    }
+
     resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
   }
 
@@ -251,6 +260,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
     RedisModule_ReplyWithArray(outctx, 1);
     QueryError_ReplyAndClear(outctx, req->qiter.err);
+    nelem++;
   } else {
     RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
   }
@@ -283,6 +293,8 @@ done:
   req->qiter.totalResults = 0;
   if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
     RedisModule_ReplySetArrayLength(outctx, nelem);
+  } else {
+    RS_LOG_ASSERT(resultsLen == nelem, "Precalculated number of replies must be equal to actual number");
   }
 }
 

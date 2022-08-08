@@ -79,7 +79,7 @@ static void threadCallback(void* data) {
   GCTask* task= data;
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
-  RedisModuleCtx* ctx = RSDummyContext;
+  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
 
   if (gc->stopped) {
     // if the client is blocked, lets release it
@@ -88,6 +88,7 @@ static void threadCallback(void* data) {
       RedisModule_UnblockClient(bc, NULL);
       RedisModule_ThreadSafeContextUnlock(ctx);
     }
+    RedisModule_FreeThreadSafeContext(ctx);
     rm_free(task);
     return;
   }
@@ -116,6 +117,7 @@ static void threadCallback(void* data) {
 
 end:
   RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 static void destroyCallback(void* data) {
@@ -177,6 +179,12 @@ void GCContext_Stop(GCContext* gc) {
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
   gc->callbacks.renderStats(ctx, gc->gcCtx);
 }
+
+#ifdef FTINFO_FOR_INFO_MODULES
+void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx) {
+  gc->callbacks.renderStatsForInfo(ctx, gc->gcCtx);
+}
+#endif
 
 void GCContext_OnDelete(GCContext* gc) {
   if (gc->callbacks.onDelete) {

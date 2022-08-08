@@ -7,3 +7,4 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx);
 void Initialize_CommandFilter(RedisModuleCtx *ctx);
 void Initialize_RdbNotifications(RedisModuleCtx *ctx);
+void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx);
