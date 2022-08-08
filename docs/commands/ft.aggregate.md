@@ -7,7 +7,20 @@ Run a search query on an index, and perform aggregate transformations on the res
 ## Syntax
 
 {{< highlight bash >}}
-FT.AGGREGATE index query [VERBATIM] [ LOAD count field [field ...]] [TIMEOUT timeout] [LOAD *] [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] ...]] [ SORTBY nargs [ property ASC | DESC [ property ASC | DESC ...]] [MAX num]] [ APPLY expression AS name [ APPLY expression AS name ...]] [ LIMIT offset num] [FILTER filter] [ WITHCURSOR [COUNT read_size] [MAXIDLE idle_time]] [ PARAMS nargs name value [ name value ...]] [DIALECT dialect]
+FT.AGGREGATE index query 
+          [VERBATIM] 
+          [ LOAD count field [field ...]] 
+          [TIMEOUT timeout] 
+          [LOAD *] 
+          [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] 
+          [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] ...]] 
+          [ SORTBY nargs [ property ASC | DESC [ property ASC | DESC ...]] [MAX num]] 
+          [ APPLY expression AS name [ APPLY expression AS name ...]] 
+          [ LIMIT offset num] 
+          [FILTER filter] 
+          [ WITHCURSOR [COUNT read_size] [MAXIDLE idle_time]] 
+          [ PARAMS nargs name value [ name value ...]] 
+          [DIALECT dialect]
 {{< / highlight >}}
 
 [Examples](#examples)
@@ -104,23 +117,23 @@ if set, overrides the timeout parameter of the module.
 
 defines one or more value parameters. Each parameter has a name and a value. 
 
-Parameters can be referenced in the query by a `$`, followed by the parameter name, for example, `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` is evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, for example, `@loc`. To use `PARAMS`, `DIALECT` must be set to 2.
+You can reference parameters in the `query` by a `$`, followed by the parameter name, for example, `$user`. Each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` is evaluated to `@loc:[29.69465 34.95126 10 km]`. You cannot reference parameters in the query string where concrete values are not allowed, such as in field names, for example, `@loc`. To use `PARAMS`, set `DIALECT` to 2.
 </details>
 
 <details open>
 <summary><code>DIALECT {dialect_version}</code></summary> 
 
-chooses the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
+selects the dialect version under which to execute the query. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
 </details>
-
-## Complexity
-
-Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned.
 
 ## Return
 
 FT.AGGREGATE returns an array reply where each row is an array reply and represents a single aggregate result.
 The [integer reply](/docs/reference/protocol-spec/#resp-integers) at position `1` does not represent a valid value.
+
+## Complexity
+
+Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned.
 
 ## Examples
 

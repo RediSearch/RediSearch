@@ -25,7 +25,7 @@ alias.
 
 FT.ALISSADD allows administrators to transparently redirect application queries to alternative indexes.
 
-## Returns
+## Return
 
 FT.ALIASADD returns a simple string reply `OK` if executed correctly, or an error reply otherwise.
 

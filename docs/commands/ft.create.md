@@ -7,7 +7,23 @@ Create an index with the given specification
 ## Syntax
 
 {{< highlight bash >}}
-FT.CREATE index [ON HASH | JSON] [ PREFIX count prefix [prefix ...]] [LANGUAGE default_lang] [LANGUAGE_FIELD lang_attribute] [SCORE default_score] [SCORE_FIELD score_attribute] [PAYLOAD_FIELD payload_attribute] [MAXTEXTFIELDS] [TEMPORARY seconds] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [STOPWORDS count stopword [stopword ...]] SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
+FT.CREATE index 
+          [ON HASH | JSON] 
+          [ PREFIX count prefix [prefix ...]] 
+          [LANGUAGE default_lang] 
+          [LANGUAGE_FIELD lang_attribute] 
+          [SCORE default_score] 
+          [SCORE_FIELD score_attribute] 
+          [PAYLOAD_FIELD payload_attribute] 
+          [MAXTEXTFIELDS] 
+          [TEMPORARY seconds] 
+          [NOOFFSETS] 
+          [NOHL] 
+          [NOFIELDS] 
+          [NOFREQS] 
+          [STOPWORDS count stopword [stopword ...]] 
+          SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
+          [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
 {{< / highlight >}}
 
 [Examples](#examples)
@@ -119,12 +135,12 @@ avoids saving the term frequencies in the index. It saves
 </details>
 
 <details open>
-<summary><code>STOPWORDS</code></summary> 
+<summary><code>STOPWORDS {count}</code></summary> 
 
 sets the index with a custom stopword list, to be ignored during
-  indexing and search time. `{num}` is the number of stopwords, followed by a list of stopword arguments exactly the length of `{num}`.
+  indexing and search time. `{count}` is the number of stopwords, followed by a list of stopword arguments exactly the length of `{count}`.
 
-If not set, FT.CREATE takes the default list of stopwords. If `{num}` is set to 0, the index does not have stopwords.
+If not set, FT.CREATE takes the default list of stopwords. If `{count}` is set to 0, the index does not have stopwords.
 </details>
 
 <details open>

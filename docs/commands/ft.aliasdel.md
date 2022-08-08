@@ -20,9 +20,9 @@ FT.ALIASDEL alias
 is index alias to be removed.
 </details>
 
-## Returns
+## Return
 
-FT.ALIASSADD returns a simple string reply `OK` if executed correctly, or an error reply otherwise.
+FT.ALIASDEL returns a simple string reply `OK` if executed correctly, or an error reply otherwise.
 
 ## Examples
 
