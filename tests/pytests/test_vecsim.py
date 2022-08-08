@@ -1291,9 +1291,11 @@ def test_rdb_memory_limit():
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
 def test_timeout_reached():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
+    timeout_expected = 0 if env.isCluster() else 'Timeout limit was reached'
+    prefix = "_" if env.isCluster() else ""
 
     vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 80000 * nshards)]
     hybrid_modes = ['HYBRID_BATCHES', 'HYBRID_ADHOC_BF']
@@ -1316,7 +1318,7 @@ def test_timeout_reached():
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                    'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 1)
-        env.assertEqual(res[0], 0)
+        env.assertEqual(res[0], timeout_expected)
 
         # HYBRID MODES
         # Todo: uncomment when hybrid optional arguments is merged, in the meantime arrange manually settings
@@ -1324,7 +1326,7 @@ def test_timeout_reached():
         for i in range(int(n_vec/20)):
             vector = np.random.rand(1, dim).astype(np.float32)
             conn.execute_command('HSET', n_vec+i, 'vector', vector.tobytes(), 't', 'dummy')
-        prefix = "_" if env.isCluster() else ""
+
         for mode in hybrid_modes:
             # to trigger ad-hoc BF, use a filter that is passed by a ~5% of the vectors, and for batches use a filter
             # that is passed by ~95% of the vectors.
@@ -1339,7 +1341,7 @@ def test_timeout_reached():
             res = conn.execute_command('FT.SEARCH', 'idx', f'({hybrid_query_filter})=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_res,
                                        'PARAMS', 4, 'K', n_res, 'vec_param', query_vec.tobytes(),
                                        'TIMEOUT', 1)
-            env.assertEqual(res[0], 0)
+            env.assertEqual(res[0], timeout_expected)
             env.assertEqual(env.cmd(prefix + "FT.DEBUG", "VECSIM_INFO", "idx", "vector")[-1], mode)
 
         conn.flushall()
