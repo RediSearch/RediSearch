@@ -307,7 +307,7 @@ QueryLexRangeNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fiel
 //---------------------------------------------------------------------------------------------
 
 QueryTagNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
-  QueryTagNode *ret = new QueryTagNode(rm_strdup(field), strlen(field));
+  QueryTagNode *ret = new QueryTagNode(rm_strdup(field));
   ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
   return ret;
 }
@@ -394,7 +394,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   if (input->qtype == QUERY_INPUT_STRING) {
     it->qast = *new QueryAST(sctx, options, input->s, &status);
   } else {
-    it->qast.root = input->qn;
+    it->qast.root = &input->qn;
   }
 
   if (it->qast.Expand(NULL, &options, sctx, &status) != REDISMODULE_OK) {

@@ -221,6 +221,14 @@ RSPayload::RSPayload(RedisModuleIO *rdb) {
 
 //---------------------------------------------------------------------------------------------
 
+RSPayload::RSPayload(TriePayload *payload) {
+  memcpy(data, payload->data, payload->len);
+  len = payload->len;
+}
+
+
+//---------------------------------------------------------------------------------------------
+
 // Put a new document into the table, assign it an incremental id and store the metadata in the
 // table.
 // Return 0 if the document is already in the index.

@@ -1,4 +1,5 @@
 #include "trie.h"
+#include "query_error.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -142,14 +143,11 @@ bool TrieIterator::Next(Runes &ret_runes, RSPayload &payload, float &score, void
       if (sn.n->isTerminal() && sn.n->_len == sn.stringOffset && !sn.n->isDeleted()) {
         ret_runes = runes;
         score = sn.n->_score;
-        //if (payload != NULL) {
-          payload = sn.n->_payload;
-          if (sn.n->_payload != NULL) {
-            payload = *sn.n->_payload;
-          } else {
-            payload.reset();
-          }
-        //}
+        if (sn.n->_payload != NULL) {
+          payload = RSPayload(sn.n->_payload);
+        } else {
+          payload.reset();
+        }
         return true;
       }
     }

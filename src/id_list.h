@@ -11,7 +11,7 @@ struct IdListIterator : public IndexIterator {
   t_offset size;
   t_offset offset;
 
-  IdListIterator(Vector<t_docId> docIds, double weight);
+  IdListIterator(Vector<t_docId> &ids, double weight);
   ~IdListIterator();
 
   virtual IndexResult *GetCurrent();
@@ -28,8 +28,6 @@ struct IdListIterator : public IndexIterator {
   void setEof(int value) { isValid = !value; }
   int isEof() const { return !isValid; }
 
-  static int cmp_docids(const t_docId *d1, const t_docId *d2);
-
   //-------------------------------------------------------------------------------------------
 
   struct CriteriaTester : public IndexCriteriaTester {
@@ -37,7 +35,7 @@ struct IdListIterator : public IndexIterator {
 
     CriteriaTester(IdListIterator *it);
 
-    int Test(t_docId id);
+    bool Test(t_docId id);
   };
 };
 

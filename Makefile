@@ -74,7 +74,7 @@ make build         # compile and link
   FORCE=1            # Force CMake rerun (default)
   CMAKE_ARGS=...     # extra arguments to CMake
   VG=1               # build for Valgrind
-  SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread)
   SLOW=1             # do not parallelize build (for diagnostics)
 make parsers       # build parsers code
 make clean         # remove build artifacts
@@ -97,7 +97,7 @@ make pytest        # run python tests (tests/pytests)
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
   VG_LEAKS=0         # do not search leaks with Valgrind
-  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
+  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread)
   ONLY_STABLE=1      # skip unstable tests
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
@@ -356,7 +356,7 @@ else
 	@make -C $(BINDIR) $(MAKE_J) $(CMAKE_FILE_FLAGS)
 endif
 
-.PHONY: build clean run 
+.PHONY: build clean run
 
 clean:
 ifeq ($(ALL),1)
@@ -410,7 +410,7 @@ endif # DEPS
 setup:
 	@echo Setting up system...
 	$(SHOW)./deps/readies/bin/getpy3
-	$(SHOW)./sbin/system-setup.py 
+	$(SHOW)./sbin/system-setup.py
 
 #----------------------------------------------------------------------------------------------
 
@@ -590,7 +590,7 @@ upload-artifacts:
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(REMOTE),1)
-BENCHMARK_ARGS=run-remote 
+BENCHMARK_ARGS=run-remote
 else
 BENCHMARK_ARGS=run-local
 endif

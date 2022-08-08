@@ -74,6 +74,7 @@ struct RSPayload : Object {
   RSPayload() : data(NULL), len(0) {}
   RSPayload(const char *payload, size_t payloadSize);
   RSPayload(RedisModuleIO *rdb);
+  RSPayload(struct TriePayload *payload);
   ~RSPayload();
 
   char *data;
@@ -82,6 +83,11 @@ struct RSPayload : Object {
   size_t memsize() const { return sizeof(*this) + len; }
 
   operator SimpleBuff() { return SimpleBuff{data, len}; }
+
+  void reset() {
+    data = NULL;
+    len = 0;
+  }
 };
 
 //---------------------------------------------------------------------------------------------
