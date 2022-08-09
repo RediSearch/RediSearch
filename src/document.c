@@ -493,6 +493,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 FIELD_PREPROCESSOR(numericPreprocessor) {  
   switch (field->unionType) {
     case FLD_VAR_T_RMS:
+      fdata->isMulti = 0;
       if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
         QueryError_SetCode(status, QUERY_ENOTNUMERIC);
         return -1;
@@ -501,14 +502,16 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
     case FLD_VAR_T_CSTR:
       {
         char *end;
+        fdata->isMulti = 0;
         fdata->numeric = strtod(field->strval, &end);
         if (*end) {
           QueryError_SetCode(status, QUERY_ENOTNUMERIC);
           return -1;
-        }
+        }        
       }
       break;
     case FLD_VAR_T_NUM:
+      fdata->isMulti = 0;
       fdata->numeric = field->numval;
       break;
     case FLD_VAR_T_NULL:
@@ -628,6 +631,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   if (geohash == INVALID_GEOHASH) {
     return REDISMODULE_ERR;
   }
+  fdata->isMulti = 0;
   fdata->numeric = geohash;
 
   if (FieldSpec_IsSortable(fs)) {

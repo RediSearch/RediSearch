@@ -127,8 +127,8 @@ typedef struct IndexReader {
   InvertedIndex *idx;
   // last docId, used for delta encoding/decoding
   t_docId lastId;
-  // same docId, used for skipping same doc
-  t_docId sameId;
+  // same docId, used for detecting same doc (with multi values)
+  bool sameId;
   uint32_t currentBlock;
 
   /* The decoder's filtering context. It may be a number or a pointer. The number is used for

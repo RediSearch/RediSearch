@@ -795,6 +795,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
   procs.decoder = reader;                \
   procs.seeker = seeker_;                \
   return procs;
+
   IndexDecoderProcs procs = {0};
   switch (flags & INDEX_STORAGE_MASK) {
 
@@ -995,16 +996,19 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       continue;
     }
 
-    // Avoid reading same docId
+    // Avoid returning the same doc
+    //
+    // Currently the only relevant predicate for multi-value is `any`, therefore a first match is enough.
+    // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
     if (delta) {
       // Different docId
-      ir->sameId = 0;
+      ir->sameId = false;
     } else if (ir->sameId) {
       // Not the first encounter with same docId
       continue;
     } else {
       // The first encounter with potentially same docId
-      ir->sameId = ir->lastId;      
+      ir->sameId = true;
     }
 
     ++ir->len;
@@ -1156,7 +1160,7 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->record = record;
   ret->len = 0;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
-  ret->sameId = 0;
+  ret->sameId = false;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
   ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;
