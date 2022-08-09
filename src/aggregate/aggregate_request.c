@@ -1136,7 +1136,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.sctx = sctx;
   req->qiter.err = Status;
 
-  IndexSpecCache *cache = IndexSpec_GetSpecCache(req->sctx->spec);
+  IndexSpecCache *cache = IndexSpec_GetSpecCache(sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
@@ -1150,7 +1150,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   /** Create a scorer if:
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
-  if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
+  if ((req->reqflags & QEXEC_F_SEND_SCORES) || sctx->spec->rule->score_field ||
       (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req) &&
                                   reqQueryScore(req->ast.root))) {
     rp = getScorerRP(req);
