@@ -1106,6 +1106,22 @@ static int hasQuerySortby(const AGGPlan *pln) {
   return 0;
 }
 
+static int reqQueryScore(QueryNode *root) {
+  switch (root->type) {
+    case QN_WILDCARD:
+    case QN_VECTOR:
+    case QN_NUMERIC:
+    case QN_GEO:
+    case QN_IDS:
+    case QN_NULL:
+    case QN_NOT:
+    return 0;
+  default:
+    break;
+  }
+  return 1;
+}
+
 #define PUSH_RP()                           \
   rpUpstream = pushRP(req, rp, rpUpstream); \
   rp = NULL;
@@ -1136,7 +1152,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
    *  * there is no subsequent sorter within this grouping */
   if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
       (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req) &&
-                                  req->ast.root->type != QN_WILDCARD)) {
+                                  reqQueryScore(req->ast.root))) {
     rp = getScorerRP(req);
     if (!rp) {  
       if (req->reqflags & QEXEC_F_SEND_SCORES) {
