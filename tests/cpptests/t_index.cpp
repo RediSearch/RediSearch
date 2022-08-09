@@ -320,7 +320,7 @@ TEST_F(IndexTest, testWeight) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT_EQ(h->docId, expected[i++]);
     ASSERT_EQ(h->weight, 0.8);
-    if (h->agg.numChildren == 2) {
+    if (h->agg.NumChildren() == 2) {
       ASSERT_EQ(h->agg.children[0]->weight, 0.5);
       ASSERT_EQ(h->agg.children[1]->weight, 1);
     } else {
@@ -720,7 +720,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(S->IsStopWord("world", 5));
   ASSERT_TRUE(!S->IsStopWord("werld", 5));
 
-  const FieldSpec *f = s->GetField(body, strlen(body));
+  const FieldSpec *f = s->GetField(body);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(f->name, body);
@@ -729,7 +729,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
 
-  f = s->GetField(title, strlen(title));
+  f = s->GetField(title);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, title) == 0);
@@ -738,7 +738,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  f = s->GetField(foo, strlen(foo));
+  f = s->GetField(foo);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, foo) == 0);
@@ -747,16 +747,16 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
-  f = s->GetField(bar, strlen(bar));
+  f = s->GetField(bar);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_NUMERIC));
 
   ASSERT_TRUE(strcmp(f->name, bar) == 0);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 1);
-  ASSERT_TRUE(s->GetField("fooz", 4) == NULL);
+  ASSERT_TRUE(s->GetField("fooz") == NULL);
 
-  f = s->GetField(name, strlen(name));
+  f = s->GetField(name);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(f->IsFieldType(INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, name) == 0);
@@ -767,11 +767,11 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(s->sortables != NULL);
   ASSERT_TRUE(s->sortables->len == 2);
-  int rc = s->GetFieldSortingIndex(foo, strlen(foo));
+  int rc = s->GetFieldSortingIndex(foo);
   ASSERT_EQ(0, rc);
-  rc = S->GetFieldSortingIndex(bar, strlen(bar));
+  rc = S->GetFieldSortingIndex(bar);
   ASSERT_EQ(1, rc);
-  rc = S->GetFieldSortingIndex(title, strlen(title));
+  rc = S->GetFieldSortingIndex(title);
   ASSERT_EQ(-1, rc);
 
   delete s;

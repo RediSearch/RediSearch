@@ -550,8 +550,8 @@ int IntersectIterator::ReadUnsorted(IndexResult **hit) {
       return rc;
     }
     bool isMatch = true;
-    for (auto &tester: testers) {
-      if (!tester.Test(res->docId)) {
+    for (auto tester: testers) {
+      if (!tester->Test(res->docId)) {
         isMatch = false;
         break;
       }
@@ -571,8 +571,8 @@ IntersectIterator::CriteriaTester::CriteriaTester(Vector<IndexCriteriaTester*> t
 //---------------------------------------------------------------------------------------------
 
 bool IntersectIterator::CriteriaTester::Test(t_docId id) {
-  for (auto &child: children) {
-    if (!child.Test(id)) {
+  for (auto child: children) {
+    if (!child->Test(id)) {
       return false;
     }
   }

@@ -186,8 +186,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
     }
   }
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
-           doc.numFields);
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL), doc.NumFields());
   aCtx = new AddDocumentCtx(sp, &doc, status);
   if (aCtx == NULL) {
     goto error;
@@ -385,8 +384,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL),
-           doc->numFields);
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL), doc->NumFields());
 
   aCtx = new AddDocumentCtx(sp, doc, &status);
   if (aCtx == NULL) {

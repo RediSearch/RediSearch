@@ -102,7 +102,7 @@ uint32_t SimpleTokenizer::Next(Token *t) {
     }
 
     // skip stopwords
-    if (stopwords->Contains(normalized, normLen)) {
+    if (stopwords->Contains(normalized)) {
       continue;
     }
 

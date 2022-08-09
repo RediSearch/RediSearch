@@ -258,7 +258,7 @@ struct IndexSpec : Object {
   FieldSpec CreateField(const char *name);
 
   const FieldSpec *GetField(std::string_view name) const;
-  const FieldSpec *GetFieldCase(std::string_view name) const;
+  const FieldSpec * GetFieldCase(std::string_view name) const;
   const FieldSpec *GetFieldBySortingIndex(uint16_t idx) const;
   const char *GetFieldNameByBit(t_fieldMask id) const;
   int GetFieldSortingIndex(std::string_view name);
@@ -268,7 +268,7 @@ struct IndexSpec : Object {
   void StartGCFromSpec(float initialHZ, uint32_t gcPolicy);
   void StartGC(RedisModuleCtx *ctx, float initialHZ);
 
-  const FieldSpec *getFieldCommon(std::string_view name, int useCase) const;
+  const FieldSpec *getFieldCommon(std::string_view name, bool useCase) const;
   Vector<FieldSpec> getFieldsByType(FieldType type);
 
   bool CheckPhoneticEnabled(t_fieldMask fm) const;

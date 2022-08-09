@@ -105,7 +105,7 @@ struct IntersectIterator : IndexIterator {
   int ReadUnsorted(IndexResult **hit);
 
   void SortChildren();
-  t_docId LastDocId();
+  t_docId LastDocId() const;
 
   virtual IndexCriteriaTester *GetCriteriaTester();
   virtual int SkipTo(t_docId docId, IndexResult **hit);

@@ -373,7 +373,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
-  const FieldSpec *sp = sctx->spec->GetField(field, len);
+  const FieldSpec *sp = sctx->spec->GetField(field);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "No such field");
     goto cleanup;

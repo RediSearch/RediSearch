@@ -31,7 +31,7 @@ int RDCRToList::Add(const RLookupRow *srcrow) {
 //---------------------------------------------------------------------------------------------
 
 RSValue *RDCRToList::Finalize() {
-  TrieMapIterator *it = data.values.Iterate("", 0);
+  TrieMapIterator *it = data.values.Iterate("");
   char *c;
   tm_len_t l;
   void *ptr;

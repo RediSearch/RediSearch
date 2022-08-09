@@ -300,7 +300,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *sorter_) {
   int ascending = 0;
 
   QueryError *qerr = NULL;
-  if (sorter && self->parent && sorter->parent->err) {
+  if (sorter && sorter->parent && sorter->parent->err) {
     qerr = sorter->parent->err;
   }
 

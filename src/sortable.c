@@ -7,6 +7,7 @@
 #include "rmutil/strings.h"
 
 #include "libnu/libnu.h"
+#include "util/strconv.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -208,7 +209,7 @@ size_t RSSortingVector::memsize() const {
 
 // Adds a field and returns the ID of the newly-inserted field
 
-int RSSortingTable::Add(const char *name, RSValueType t) {
+int RSSortingTable::Add(std::string_view name, RSValueType t) {
   RS_LOG_ASSERT(len < RS_SORTABLES_MAX, "sorting table is too large");
   fields[len].name = name;
   fields[len].type = t;
@@ -219,9 +220,9 @@ int RSSortingTable::Add(const char *name, RSValueType t) {
 
 // Get the field index by name from the sorting table. Returns -1 if the field was not found
 
-int RSSortingTable::GetFieldIdx(const char *field) {
+int RSSortingTable::GetFieldIdx(std::string_view field) {
   for (int i = 0; i < len; i++) {
-    if (!strcasecmp(fields[i].name, field)) {
+    if (!str_casecmp(fields[i].name, field)) {
       return i;
     }
   }

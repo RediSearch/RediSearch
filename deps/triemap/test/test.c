@@ -92,7 +92,7 @@ void testTrieIterator() {
   delete it;
 
   /* Test iteration starting from the empty node */
-  it = tm->Iterate("", 0);
+  it = tm->Iterate("");
   mu_check(it);
   mu_check(it->Next(&str, &len, &ptr));
 
@@ -185,7 +185,7 @@ void testRandom() {
   // mu_check(1 == tm->Add("", 0, NULL, NULL));
   // mu_assert_int_eq(101, tm->cardinality);
 
-  TrieMapIterator *it = tm->Iterate("", 0);
+  TrieMapIterator *it = tm->Iterate("");
   mu_check(it);
   int count = 0;
 

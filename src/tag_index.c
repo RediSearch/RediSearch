@@ -264,7 +264,7 @@ static TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formatt
 
 // Serialize all the tags in the index to the redis client
 void TagIndex::SerializeValues(RedisModuleCtx *ctx) {
-  TrieMapIterator *it = values->Iterate("", 0);
+  TrieMapIterator *it = values->Iterate("");
 
   char *str;
   tm_len_t slen;
@@ -303,7 +303,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
 void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   TagIndex *idx = value;
   RedisModule_SaveUnsigned(rdb, idx->values->cardinality);
-  TrieMapIterator *it = idx->values->Iterate("", 0);
+  TrieMapIterator *it = idx->values->Iterate("");
 
   char *str;
   tm_len_t slen;
@@ -332,7 +332,7 @@ size_t TagIndex_MemUsage(const void *value) {
   const TagIndex *idx = value;
   size_t sz = sizeof(*idx);
 
-  TrieMapIterator *it = idx->values->Iterate("", 0);
+  TrieMapIterator *it = idx->values->Iterate("");
 
   char *str;
   tm_len_t slen;

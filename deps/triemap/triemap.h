@@ -87,7 +87,7 @@ struct TrieMapNode : public Object {
   void rangeIterateSubTree(TrieMapRangeCtx *r);
 
   static size_t Sizeof(tm_len_t numChildren, tm_len_t slen);
-  static int CompareCommon(const void *h, const void *e, bool prefix);
+  static int CompareCommon(const void *h, const void *e, bool isPrefix);
   static int CompareExact(const void *h, const void *e);
   static int ComparePrefix(const void *h, const void *e);
 
@@ -114,12 +114,11 @@ struct TrieMapIterator : public Object {
 
   Vector<stackNode> stack;
 
-  const char *prefix;
-  tm_len_t prefixLen;
+  String prefix;
   int inSuffix;
 
-  TrieMapIterator(TrieMapNode *node, const char *prefix, tm_len_t len) :
-      bufLen(16), bufOffset(0), prefix(prefix), prefixLen(len), inSuffix(0) {
+  TrieMapIterator(TrieMapNode *node, String &prefix) :
+      bufLen(16), bufOffset(0), prefix(prefix), inSuffix(0) {
     Push(node);
   }
 
@@ -148,5 +147,5 @@ struct TrieMap : public Object {
   void IterateRange(const char *min, int minlen, bool includeMin,
                     const char *max, int maxlen, bool includeMax,
                     TrieMapRangeCallback callback, void *ctx);
-  TrieMapIterator *Iterate(const char *prefix, tm_len_t prefixLen);
+  TrieMapIterator *Iterate(String &prefix);
 };

@@ -468,7 +468,7 @@ void TrieMapIterator::Push(TrieMapNode *node) {
 
 void TrieMapIterator::Pop() {
   bufOffset -= current().stringOffset;
-  if (bufOffset < prefixLen) {
+  if (bufOffset < prefix.length()) {
     inSuffix = 0;
   }
   stack.pop_back();
@@ -481,8 +481,8 @@ void TrieMapIterator::Pop() {
 // TrieMapIterator::Next are needed to get the results from the iteration. If the
 // prefix is not found, the first call to next will return 0 */
 
-TrieMapIterator *TrieMap::Iterate(const char *prefix, tm_len_t len) {
-  return new TrieMapIterator(root, prefix, len);
+TrieMapIterator *TrieMap::Iterate(String &prefix) {
+  return new TrieMapIterator(root, prefix);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -512,12 +512,12 @@ static int nodecmp(const char *sa, size_t na, const char *sb, size_t nb) {
 
 //---------------------------------------------------------------------------------------------
 
-static int TrieMapNode::CompareCommon(const void *h, const void *e, bool prefix) {
+static int TrieMapNode::CompareCommon(const void *h, const void *e, bool isPrefix) {
   const TrieMaprsbHelper term = (const TrieMaprsbHelper)h;
   const TrieMapNode elem = *(const TrieMapNode *)e;
   size_t ntmp;
   int rc;
-  if (prefix) {
+  if (isPrefix) {
     size_t minLen = MIN(elem.str.length(), term.n);
     rc = nodecmp(term.r, minLen, elem.str.c_str(), minLen);
   } else {
@@ -742,7 +742,7 @@ bool TrieMapIterator::Next(char **ptr, tm_len_t *len, void **value) {
           if (prefix[bufOffset] != b) {
             goto pop;
           }
-          if (bufOffset == prefixLen - 1) {
+          if (bufOffset == prefix.length() - 1) {
             inSuffix = 1;
           }
         }
@@ -763,7 +763,7 @@ bool TrieMapIterator::Next(char **ptr, tm_len_t *len, void **value) {
       }
 
       // this is required for an empty node to switch to suffix mode
-      if (bufOffset == prefixLen) {
+      if (bufOffset == prefix.length()) {
         inSuffix = 1;
       }
       // switch to "children mode"

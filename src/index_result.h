@@ -79,25 +79,19 @@ struct AggregateOffsetIterator : public RSOffsetIterator,
 //---------------------------------------------------------------------------------------------
 
 struct AggregateResult : IndexResult {
-  // number of child records
-  int numChildren;
-  // capacity of the records array. Has no use for extensions
-  int childrenCap;
   // array of recods
-  struct IndexResult **children;
+  Vector<IndexResult *> children;
 
   // A map of the aggregate type of the underlying results
   uint32_t typeMask;
 
   AggregateResult(RSResultType t, size_t cap, double weight) :
     IndexResult(t, t_docId{0}, 0, 0, weight) {
-    numChildren = 0;
-    childrenCap = cap;
     typeMask = 0x0000;
-    children = rm_calloc(cap, sizeof(IndexResult *));
+    children.reserve(cap);
   }
+
   AggregateResult(const AggregateResult &src);
-  ~AggregateResult();
 
   void Reset();
 
@@ -113,19 +107,20 @@ struct AggregateResult : IndexResult {
 
   bool IsWithinRange(int maxSlop, bool inOrder) const;
 
+  size_t NumChildren() { return children.size(); }
+
   std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
     // if we only have one sub result, just iterate that...
-    if (numChildren == 1) {
+    if (children.size() == 1) {
       return std::make_unique<AggregateOffsetIterator>(children[0]);
     } else {
       return std::make_unique<AggregateOffsetIterator>(this);
     }
   }
 
-  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+  double TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
 
-  virtual double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd,
-    RSScoreExplain *scrExp) const;
+  double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
 };
 
 //---------------------------------------------------------------------------------------------

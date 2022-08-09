@@ -169,7 +169,7 @@ static int one_not_null(void *a, void *b, void *&out) {
 **                       the minor type might be the name of the identifier.
 **                       Each non-terminal can have a different minor type.
 **                       Terminal symbols all have the same minor type, though.
-**                       This macros defines the minor type for terminal 
+**                       This macros defines the minor type for terminal
 **                       symbols.
 **    YYMINORTYPE        is the data type used for all minor types.
 **                       This is typically a union of many types, one of
@@ -220,8 +220,8 @@ typedef union {
 #define YYSTACKDEPTH 100
 #endif
 #define RSQueryParser_ARG_SDECL  QueryParse *ctx ;
-#define RSQueryParser_ARG_PDECL , QueryParse *ctx 
-#define RSQueryParser_ARG_PARAM ,ctx 
+#define RSQueryParser_ARG_PDECL , QueryParse *ctx
+#define RSQueryParser_ARG_PARAM ,ctx
 #define RSQueryParser_ARG_FETCH  QueryParse *ctx =yypParser->ctx ;
 #define RSQueryParser_ARG_STORE yypParser->ctx =ctx ;
 #define RSQueryParser_CTX_SDECL
@@ -258,7 +258,7 @@ typedef union {
 /* Next are the tables used to determine what action to take based on the
 ** current state and lookahead token.  These tables are used to implement
 ** functions that take a state number and lookahead value and return an
-** action integer.  
+** action integer.
 **
 ** Suppose the action integer is N.  Then the action is determined as
 ** follows
@@ -397,9 +397,9 @@ static const YYACTIONTYPE yy_default[] = {
 };
 /********** End of lemon-generated parsing tables *****************************/
 
-/* The next table maps tokens (terminal symbols) into fallback tokens.  
+/* The next table maps tokens (terminal symbols) into fallback tokens.
 ** If a construct like the following:
-** 
+**
 **      %fallback ID X Y Z.
 **
 ** appears in the grammar, then ID becomes a fallback token for X, Y,
@@ -471,10 +471,10 @@ static char *yyTracePrompt = 0;
 #endif /* NDEBUG */
 
 #ifndef NDEBUG
-/* 
+/*
 ** Turn parser tracing on by giving a stream to which to write the trace
 ** and a prompt to preface each trace message.  Tracing is turned off
-** by making either argument NULL 
+** by making either argument NULL
 **
 ** Inputs:
 ** <ul>
@@ -499,7 +499,7 @@ void RSQueryParser_Trace(FILE *TraceFILE, char *zTracePrompt){
 #if defined(YYCOVERAGE) || !defined(NDEBUG)
 /* For tracing shifts, the names of all terminals and nonterminals
 ** are required.  The following table supplies these names */
-static const char *const yyTokenName[] = { 
+static const char *const yyTokenName[] = {
   /*    0 */ "$",
   /*    1 */ "LOWEST",
   /*    2 */ "TILDE",
@@ -636,7 +636,7 @@ static int yyGrowStack(yyParser *p){
 #endif
     p->yystksz = newSize;
   }
-  return pNew==0; 
+  return pNew==0;
 }
 #endif
 
@@ -678,7 +678,7 @@ void RSQueryParser_Init(void *yypRawParser RSQueryParser_CTX_PDECL){
 }
 
 #ifndef RSQueryParser__ENGINEALWAYSONSTACK
-/* 
+/*
 ** This function allocates a new parser.
 ** The only argument is a pointer to a function which works like
 ** malloc.
@@ -705,7 +705,7 @@ void *RSQueryParser_Alloc(void *(*mallocProc)(YYMALLOCARGTYPE) RSQueryParser_CTX
 /* The following function deletes the "minor type" or semantic value
 ** associated with a symbol.  The symbol can be either a terminal
 ** or nonterminal. "yymajor" is the symbol code, and "yypminor" is
-** a pointer to the value to be deleted.  The code used to do the 
+** a pointer to the value to be deleted.  The code used to do the
 ** deletions is derived from the %destructor and/or %token_destructor
 ** directives of the input grammar.
 */
@@ -720,7 +720,7 @@ static void yy_destructor(
     /* Here is inserted the actions which take place when a
     ** terminal or non-terminal is destroyed.  This can happen
     ** when the symbol is popped from the stack during a
-    ** reduce or during error processing or when a parser is 
+    ** reduce or during error processing or when a parser is
     ** being destroyed before it is finished parsing.
     **
     ** Note: during a reduce, the only symbols destroyed are those
@@ -734,7 +734,7 @@ static void yy_destructor(
     case 40: /* modifier */
     case 41: /* term */
 {
- 
+
 }
       break;
     case 27: /* expr */
@@ -744,22 +744,22 @@ static void yy_destructor(
     case 33: /* fuzzy */
     case 34: /* tag_list */
 {
- delete (yypminor->yy35); 
+ delete (yypminor->yy35);
 }
       break;
     case 28: /* attribute */
 {
- delete (yypminor->yy69); 
+ delete (yypminor->yy69);
 }
       break;
     case 29: /* attribute_list */
 {
- delete (yypminor->yy76);; 
+ delete (yypminor->yy76);;
 }
       break;
     case 35: /* geo_filter */
 {
- delete (yypminor->yy64); 
+ delete (yypminor->yy64);
 }
       break;
     case 36: /* modifierlist */
@@ -814,7 +814,7 @@ void RSQueryParser_Finalize(void *p){
 }
 
 #ifndef RSQueryParser__ENGINEALWAYSONSTACK
-/* 
+/*
 ** Deallocate and destroy a parser.  Destructors are called for
 ** all stack elements before shutting the parser down.
 **
@@ -922,7 +922,7 @@ static YYACTIONTYPE yy_find_shift_action(
 #ifdef YYWILDCARD
       {
         int j = i - iLookAhead + YYWILDCARD;
-        if( 
+        if(
 #if YY_SHIFT_MIN+YYWILDCARD<0
           j>=0 &&
 #endif
@@ -1037,7 +1037,7 @@ static void yy_shift(
     assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack) );
   }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
   if( yypParser->yytos>yypParser->yystackEnd ){
     yypParser->yytos--;
     yyStackOverflow(yypParser);
@@ -1176,7 +1176,7 @@ static YYACTIONTYPE yy_reduce(
       assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack));
     }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
     if( yypParser->yytos>=yypParser->yystackEnd ){
       yyStackOverflow(yypParser);
       /* The call to yyStackOverflow() above pops the stack until it is
@@ -1302,7 +1302,7 @@ static YYACTIONTYPE yy_reduce(
         yylhsminor.yy35 = NULL;
     } else {
         if (ctx->sctx->spec) {
-            yymsp[0].minor.yy35->SetFieldMask(ctx->sctx->spec->GetFieldBit(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
+            yymsp[0].minor.yy35->SetFieldMask(ctx->sctx->spec->GetFieldBit(yymsp[-2].minor.yy0.s));
         }
         yylhsminor.yy35 = yymsp[0].minor.yy35;
     }
@@ -1317,7 +1317,7 @@ static YYACTIONTYPE yy_reduce(
         t_fieldMask mask = 0;
         if (ctx->sctx->spec && yymsp[-2].minor.yy23) {
             for (auto &mod: *yymsp[-2].minor.yy23) {
-                mask |= ctx->sctx->spec->GetFieldBit(mod.c_str(), mod.length());
+                mask |= ctx->sctx->spec->GetFieldBit(mod.c_str());
             }
         }
         yymsp[0].minor.yy35->SetFieldMask(mask);
@@ -1775,7 +1775,7 @@ void RSQueryParser_(
 #ifdef YYERRORSYMBOL
       /* A syntax error has occurred.
       ** The response to an error depends upon whether or not the
-      ** grammar defines an error token "ERROR".  
+      ** grammar defines an error token "ERROR".
       **
       ** This is what we do if the grammar does define ERROR:
       **

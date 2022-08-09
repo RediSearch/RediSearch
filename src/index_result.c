@@ -15,23 +15,10 @@
 AggregateResult::AggregateResult(const AggregateResult &src) {
   *this = src;
   isCopy = true;
-  // allocate a new child pointer array
-  children = rm_malloc(src.numChildren * sizeof(AggregateResult *));
-  childrenCap = numChildren;
   // deep copy recursively all children
-  for (int i = 0; i < src.numChildren; i++) {
-    children[i] = new IndexResult(*src.children[i]);
+  for (auto child : src.children) {
+    children.push_back(new IndexResult(*child));
   }
-}
-
-AggregateResult::~AggregateResult() {
-  // for deep-copy results we also free the children
-  if (isCopy && children) {
-    for (int i = 0; i < numChildren; i++) {
-      delete children[i];
-    }
-  }
-  delete children;
 }
 
 //------------------------------------------------------------------------------`---------------
@@ -41,7 +28,7 @@ void AggregateResult::Print(int depth) const {
   printf("%s => %llu{ \n", type == RSResultType_Intersection ? "Inter" : "Union",
          (unsigned long long)docId);
 
-  for (int i = 0; i < numChildren; i++) children[i]->Print(depth + 1);
+  for (auto child : children) child->Print(depth + 1);
   for (int i = 0; i < depth; i++) printf("  ");
   printf("},\n");
 }
@@ -56,8 +43,8 @@ bool AggregateResult::HasOffsets() const {
 
 void AggregateResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) {
   if (len == cap) return;
-  for (int i = 0; i < numChildren; i++) {
-    children[i]->GetMatchedTerms(arr, cap, len);
+  for (auto child : children) {
+    child->GetMatchedTerms(arr, cap, len);
   }
 }
 
@@ -67,7 +54,7 @@ void AggregateResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &le
 
 void AggregateResult::Reset() {
   IndexResult::Reset();
-  numChildren = 0;
+  children.clear();
   typeMask = (RSResultType) 0;
 }
 
@@ -77,11 +64,7 @@ void AggregateResult::Reset() {
 
 void AggregateResult::AddChild(IndexResult *child) {
   // Increase capacity if needed
-  if (numChildren >= childrenCap) {
-    childrenCap = childrenCap ? childrenCap * 2 : 1;
-    children = (__typeof__(children)) rm_realloc(children, childrenCap * sizeof(IndexResult *));
-  }
-  children[numChildren++] = child;
+  children.push_back(child);
 
   typeMask |= child->type;
   freq += child->freq;
@@ -97,11 +80,11 @@ void AggregateResult::AddChild(IndexResult *child) {
 
 bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
   // check if calculation is even relevant here...
-  if (numChildren <= 1) {
+  int num = children.size();
+
+  if (num <= 1) {
     return true;
   }
-
-  int num = numChildren;
 
   // Fill a list of iterators and the last read positions
   Vector<std::auto_ptr<RSOffsetIterator>> iters(num);
@@ -132,7 +115,7 @@ bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
   return !!rc;
 }
 
-//------------------------------------------------------------------------------`---------------
+//----------------------------------------------------------------------------------------------
 
 // Find the minimal distance between members of the vectos.
 // e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
@@ -140,12 +123,12 @@ bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
 // @param num the size of the list
 
 int AggregateResult::MinOffsetDelta() const {
-  if (numChildren <= 1) {
+  int dist = 0;
+  int num = children.size();
+
+  if (num <= 1) {
     return 1;
   }
-
-  int dist = 0;
-  int num = numChildren;
 
   std::unique_ptr<RSOffsetIterator> v1, v2;
   int i = 0;
@@ -185,7 +168,7 @@ int AggregateResult::MinOffsetDelta() const {
   }
 
   // we return 1 if ditance could not be calculate, to avoid division by zero
-  return dist ? sqrt(dist) : numChildren - 1;
+  return dist ? sqrt(dist) : children.size() - 1;
 }
 
 //---------------------------------------------------------------------------------------------

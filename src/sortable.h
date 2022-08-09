@@ -37,7 +37,7 @@ struct RSSortingKey {
 
 //---------------------------------------------------------------------------------------------
 
-// RSSortingVector is a vector of sortable values. 
+// RSSortingVector is a vector of sortable values.
 // All documents in a schema where sortable fields are defined will have such a vector.
 
 #pragma pack(1)
@@ -63,18 +63,18 @@ struct RSSortingVector {
 
 //---------------------------------------------------------------------------------------------
 
-// RSSortingTable defines the length and names of the fields in a sorting vector. 
+// RSSortingTable defines the length and names of the fields in a sorting vector.
 // It is saved as part of the spec.
 
 struct RSSortingTable {
   uint8_t len;
   struct sortField {
-    const char *name;
+    std::string_view name;
     RSValueType type;
   } fields[RS_SORTABLES_MAX];
 
-  int Add(const char *name, RSValueType t);
-  int GetFieldIdx(const char *field);
+  int Add(std::string_view name, RSValueType t);
+  int  GetFieldIdx(std::string_view field);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -1,20 +1,25 @@
-#include "rmutil/util.h"
-#include "spec.h"
-#include "util/logging.h"
-#include "util/misc.h"
-#include "rmutil/vector.h"
-#include "trie/trie_type.h"
 #include <math.h>
 #include <ctype.h>
-#include "rmalloc.h"
+
+#include "alias.h"
 #include "config.h"
 #include "cursor.h"
-#include "tag_index.h"
-#include "redis_index.h"
-#include "numeric_index.h"
 #include "indexer.h"
-#include "alias.h"
 #include "module.h"
+#include "numeric_index.h"
+#include "redis_index.h"
+#include "rmalloc.h"
+#include "spec.h"
+#include "tag_index.h"
+
+#include "trie/trie_type.h"
+
+#include "util/misc.h"
+#include "util/logging.h"
+#include "util/strconv.h"
+
+#include "rmutil/util.h"
+#include "rmutil/vector.h"
 #include "rmutil/rm_assert.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -26,18 +31,18 @@ static uint64_t spec_unique_ids = 1;
 
 //---------------------------------------------------------------------------------------------
 
-const FieldSpec *IndexSpec::getFieldCommon(const char *name, size_t len, bool useCase) const { //@@ Can we use String here?
+const FieldSpec *IndexSpec::getFieldCommon(std::string_view name, bool useCase) const {
   for (size_t i = 0; i < fields.size(); i++) {
-    if (len != strlen(fields[i].name)) {
+    if (name.length() != strlen(fields[i].name)) {
       continue;
     }
     const FieldSpec fs = fields[i];
     if (useCase) {
-      if (!strncmp(fs.name, name, len)) {
+      if (!strcmp(fs.name, name.data())) {
         return &fs;
       }
     } else {
-      if (!strncasecmp(fs.name, name, len)) {
+      if (!str_casecmp(name, fs.name, strlen(fs.name))) {
         return &fs;
       }
     }
@@ -50,16 +55,16 @@ const FieldSpec *IndexSpec::getFieldCommon(const char *name, size_t len, bool us
 // Get a field spec by field name. Case insensitive!
 // Return the field spec if found, NULL if not
 
-const FieldSpec *IndexSpec::GetField(const char *name, size_t len) const { //@@ Can we use String here?
-  return getFieldCommon(name, len, false);
+const FieldSpec *IndexSpec::GetField(std::string_view name) const {
+  return getFieldCommon(name, false);
 };
 
 //---------------------------------------------------------------------------------------------
 
 // Case-sensitive version of GetField()
 
-const FieldSpec *IndexSpec::GetFieldCase(const char *name, size_t n) const { //@@ Can we use String here?
-  return getFieldCommon(name, n, true);
+const FieldSpec *IndexSpec::GetFieldCase(std::string_view name) const {
+  return getFieldCommon(name, true);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -67,8 +72,8 @@ const FieldSpec *IndexSpec::GetFieldCase(const char *name, size_t n) const { //@
 // Get the field bitmask id of a text field by name.
 // Return 0 if the field is not found or is not a text field.
 
-t_fieldMask IndexSpec::GetFieldBit(const char *name, size_t len) const { //@@ Can we use String here?
-  const FieldSpec *sp = GetField(name, len);
+t_fieldMask IndexSpec::GetFieldBit(std::string_view name) const { //@@ Can we use String here?
+  const FieldSpec *sp = GetField(name);
   if (!sp || !sp->IsFieldType(INDEXFLD_T_FULLTEXT) || !sp->IsIndexable()) return 0;
 
   return sp->FieldBit();
@@ -105,7 +110,7 @@ bool IndexSpec::CheckPhoneticEnabled(t_fieldMask fm) const {
 // Get a sortable field's sort table index by its name. return -1 if the field was not found or is
 // not sortable.
 
-int IndexSpec::GetFieldSortingIndex(const char *name, size_t len) {
+int IndexSpec::GetFieldSortingIndex(std::string_view name) {
   if (!sortables) return -1;
   return sortables->GetFieldIdx(name);
 }
@@ -412,7 +417,7 @@ bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew)
   while (!ac->IsAtEnd()) {
     size_t nfieldName = 0;
     const char *fieldName = ac->GetStringNC(&nfieldName);
-    if (GetField(fieldName, nfieldName)) {
+    if (GetField(fieldName)) {
       status->SetError(QUERY_EINVAL, "Duplicate field in schema");
       goto reset;
     }
@@ -928,7 +933,7 @@ RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec &fs, FieldType for
 //---------------------------------------------------------------------------------------------
 
 RedisModuleString *IndexSpec::GetFormattedKeyByName(const char *s, FieldType forType) {
-  const FieldSpec *fs = GetField(s, strlen(s));
+  const FieldSpec *fs = GetField(s);
   if (!fs) {
     return NULL;
   }
@@ -970,11 +975,11 @@ bool IndexSpec::ParseStopWords(RedisModuleString **strs, size_t len) {
 
 //---------------------------------------------------------------------------------------------
 
-bool IndexSpec::IsStopWord(const char *term, size_t len) {
+bool IndexSpec::IsStopWord(std::string_view term) {
   if (!stopwords) {
     return false;
   }
-  return stopwords->Contains(term, len);
+  return stopwords->Contains(term);
 }
 
 //---------------------------------------------------------------------------------------------

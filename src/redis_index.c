@@ -142,7 +142,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 // Format redis key for a term.
 // TODO: Add index name to it
 
-RedisModuleString *RedisSearchCtx::TermKeyName(const char *term, size_t len) {
+RedisModuleString *RedisSearchCtx::TermKeyName(const char *term, size_t len) { //@@ Shold we shange it to String?
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
   size_t nameLen = strlen(spec->name);
@@ -387,7 +387,7 @@ end:
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *sctx, RSQueryTerm *term, DocTable *dt, int singleWordMode,
                               t_fieldMask fieldMask, ConcurrentSearch *csx, double weight) {
-  RedisModuleString *termKey = sctx->TermKeyName(term->str, term->len);
+  RedisModuleString *termKey = sctx->TermKeyName(term->str, term->length());
   InvertedIndex *idx = NULL;
   RedisModuleKey *k = NULL;
   IndexReader *reader = NULL;

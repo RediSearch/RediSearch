@@ -19,8 +19,6 @@
 Document::Document(RedisModuleString *docKey, double score, RSLanguage lang) {
   docKey = docKey;
   score = (float) score;
-  numFields = 0;
-  fields = NULL;
   language = lang ? lang : DEFAULT_LANGUAGE;
   payload = NULL;
 }
@@ -28,14 +26,16 @@ Document::Document(RedisModuleString *docKey, double score, RSLanguage lang) {
 //---------------------------------------------------------------------------------------------
 
 DocumentField *Document::addFieldCommon(const char *fieldname, uint32_t typemask) {
-  DocumentField *f = fields + numFields - 1;
-  f->indexAs = typemask;
+  DocumentField f;
+  f.indexAs = typemask;
   if (flags & DOCUMENT_F_OWNSTRINGS) {
-    f->name = rm_strdup(fieldname);
+    f.name = rm_strdup(fieldname);
   } else {
-    f->name = fieldname;
+    f.name = fieldname;
   }
-  return f;
+
+  fields.push_back(&f);
+  return &f;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -99,8 +99,7 @@ void Document::MakeStringsOwner() {
     RedisModule_FreeString(RSDummyContext, oldDocKey);
   }
 
-  for (size_t ii = 0; ii < numFields; ++ii) {
-    DocumentField *f = fields + ii;
+  for (auto f : fields) {
     f->name = rm_strdup(f->name);
     if (f->text) {
       RedisModuleString *oldText = f->text;
@@ -141,7 +140,7 @@ int Document::LoadSchemaFields(RedisSearchCtx *sctx) {
   }
 
   MakeStringsOwner();
-  fields = new DocumentField();
+  fields.clear();
 
   for (size_t ii = 0; ii < sctx->spec->fields.size(); ++ii) {
     const char *fname = sctx->spec->fields[ii].name;
@@ -150,9 +149,10 @@ int Document::LoadSchemaFields(RedisSearchCtx *sctx) {
     if (v == NULL) {
       continue;
     }
-    size_t oix = numFields++;
-    fields[oix].name = rm_strdup(fname);
-    fields[oix].text = v;  // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
+    DocumentField* f;
+    f->name = rm_strdup(fname);
+    f->text = v;  // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
+    fields.push_back(f);
   }
   rv = REDISMODULE_OK;
 
@@ -185,16 +185,17 @@ int Document::LoadAllFields(RedisModuleCtx *ctx) {
 
   MakeStringsOwner();
 
-  fields = rm_calloc(len / 2, sizeof(DocumentField));
-  numFields = len / 2;
+  fields.clear();
+  fields.reserve(len / 2);
+
   RedisModuleCallReply *k, *v;
   for (size_t i = 0; i < len; i += 2, ++n) {
     k = RedisModule_CallReplyArrayElement(rep, i);
     v = RedisModule_CallReplyArrayElement(rep, i + 1);
     size_t nlen = 0;
     const char *name = RedisModule_CallReplyStringPtr(k, &nlen);
-    fields[n].name = rm_strndup(name, nlen);
-    fields[n].text = RedisModule_CreateStringFromCallReply(v);
+    fields[n]->name = rm_strndup(name, nlen);
+    fields[n]->text = RedisModule_CreateStringFromCallReply(v);
   }
   rc = REDISMODULE_OK;
 
@@ -208,14 +209,13 @@ done:
 //---------------------------------------------------------------------------------------------
 
 void Document::LoadPairwiseArgs(RedisModuleString **args, size_t nargs) {
-  fields = rm_calloc(nargs / 2, sizeof(*fields));
-  numFields = nargs / 2;
-  size_t oix = 0;
-  for (size_t ii = 0; ii < nargs; ii += 2, oix++) {
-    DocumentField *dst = fields + oix;
+  fields.reserve(nargs/2);
+  for (size_t ii = 0; ii < nargs; ii += 2) {
+    DocumentField *dst;
     const char *name = RedisModule_StringPtrLen(args[ii], NULL);
     dst->name = name;
     dst->text = args[ii + 1];
+    fields.push_back(dst);
   }
 }
 
@@ -225,18 +225,17 @@ void Document::LoadPairwiseArgs(RedisModuleString **args, size_t nargs) {
 
 void Document::Clear() {
   if (flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
-    for (size_t ii = 0; ii < numFields; ++ii) {
+    for (auto f : fields) {
       if (flags & DOCUMENT_F_OWNSTRINGS) {
-        rm_free((void *)fields[ii].name);
+        rm_free(f->name);
       }
-      if (fields[ii].text) {
-        RedisModule_FreeString(RSDummyContext, fields[ii].text);
+      if (f->text) {
+        RedisModule_FreeString(RSDummyContext, f->text);
       }
     }
   }
-  rm_free(fields);
-  numFields = 0;
-  fields = NULL;
+
+  fields.clear();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -280,8 +279,8 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
     return REDISMODULE_ERR;
   }
 
-  for (int i = 0; i < doc->numFields; i++) {
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text, NULL);
+  for (auto field : doc->fields) {
+    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, field->name, field->text, NULL);
   }
   RedisModule_CloseKey(k);
   return REDISMODULE_OK;
@@ -292,12 +291,11 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
 // Serialzie the document's fields to a redis client
 
 int Document::ReplyFields(RedisModuleCtx *ctx) {
-  // RS_LOG_ASSERT(this, "doc is NULL");
-  RedisModule_ReplyWithArray(ctx, numFields * 2);
-  for (size_t j = 0; j < numFields; ++j) {
-    RedisModule_ReplyWithStringBuffer(ctx, fields[j].name, strlen(fields[j].name));
-    if (fields[j].text) {
-      RedisModule_ReplyWithString(ctx, fields[j].text);
+  RedisModule_ReplyWithArray(ctx, fields.size() * 2);
+  for (auto f : fields) {
+    RedisModule_ReplyWithStringBuffer(ctx, f->name, strlen(f->name));
+    if (f->text) {
+      RedisModule_ReplyWithString(ctx, f->text);
     } else {
       RedisModule_ReplyWithNull(ctx);
     }

@@ -33,17 +33,17 @@ uint32_t RSOffsetVectorIterator::Next(RSQueryTerm **t) {
 AggregateOffsetIterator::AggregateOffsetIterator(const AggregateResult *agg) {
   res = agg; //@@ ownership
 
-  if (agg->numChildren > size) {
-    size = agg->numChildren;
+  if (agg->NumChildren() > size) {
+    size = agg->NumChildren();
     rm_free(iters);
     rm_free(offsets);
     rm_free(terms);
-    iters = rm_calloc(agg->numChildren, sizeof(RSOffsetIterator));
-    offsets = rm_calloc(agg->numChildren, sizeof(uint32_t));
-    terms = rm_calloc(agg->numChildren, sizeof(RSQueryTerm *));
+    iters = rm_calloc(agg->NumChildren(), sizeof(RSOffsetIterator));
+    offsets = rm_calloc(agg->NumChildren(), sizeof(uint32_t));
+    terms = rm_calloc(agg->NumChildren(), sizeof(RSQueryTerm *));
   }
 
-  for (int i = 0; i < agg->numChildren; i++) {
+  for (int i = 0; i < agg->NumChildren(); i++) {
     iters[i] = *new AggregateOffsetIterator(agg->children[i]);
     offsets[i] = iters[i].Next(&terms[i]);
   }
@@ -54,7 +54,7 @@ AggregateOffsetIterator::AggregateOffsetIterator(const AggregateResult *agg) {
 uint32_t AggregateOffsetIterator::Next(RSQueryTerm **t) {
   int minIdx = -1;
   uint32_t minVal = RS_OFFSETVECTOR_EOF;
-  int num = res->numChildren;
+  int num = res->NumChildren();
   // find the minimal value that's not EOF
   for (int i = 0; i < num; ++i) {
     if (offsets[i] < minVal) {
@@ -87,7 +87,7 @@ AggregateOffsetIterator::~AggregateOffsetIterator() {
 //---------------------------------------------------------------------------------------------
 
 void AggregateOffsetIterator::Rewind() {
-  for (int i = 0; i < res->numChildren; i++) {
+  for (int i = 0; i < res->NumChildren(); i++) {
     iters[i].Rewind();
     offsets[i] = 0;
   }

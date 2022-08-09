@@ -83,6 +83,8 @@ struct Document : Object {
   void LoadPairwiseArgs(RedisModuleString **args, size_t nargs);
 
   DocumentField *addFieldCommon(const char *fieldname, uint32_t typemask);
+
+  size_t NumFields() { return fields.size(); }
 };
 
 //---------------------------------------------------------------------------------------------

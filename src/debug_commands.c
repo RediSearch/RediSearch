@@ -50,7 +50,7 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  const FieldSpec *fieldSpec = spec->GetField(fieldName, strlen(fieldName));
+  const FieldSpec *fieldSpec = spec->GetField(fieldName);
   if (!fieldSpec) {
     return NULL;
   }
@@ -272,7 +272,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     goto end;
   }
 
-  iter = tagIndex->values->Iterate("", 0);
+  iter = tagIndex->values->Iterate("");
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while (iter->Next(&tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
@@ -519,7 +519,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   }
 
   limit = options.limit ? options.limit : 0;
-  iter = idx->values->Iterate("", 0);
+  iter = idx->values->Iterate("");
   nelem += 2;
   RedisModule_ReplyWithSimpleString(ctx, "values");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);

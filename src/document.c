@@ -25,13 +25,13 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCo
   stateFlags &= ~ACTX_F_TEXTINDEXED;
   stateFlags &= ~ACTX_F_OTHERINDEXED;
 
-  if (oldFieldCount < doc->numFields) {
+  if (oldFieldCount < doc->NumFields()) {
     // Pre-allocate the field specs
-    fspecs = rm_realloc(fspecs, sizeof(*fspecs) * doc->numFields);
-    fdatas = rm_realloc(fdatas, sizeof(*fdatas) * doc->numFields);
+    fspecs = rm_realloc(fspecs, sizeof(*fspecs) * doc->NumFields());
+    fdatas = rm_realloc(fdatas, sizeof(*fdatas) * doc->NumFields());
   }
 
-  for (size_t i = 0; i < doc->numFields; ++i) {
+  for (size_t i = 0; i < doc->NumFields(); ++i) {
     // zero out field data. We check at the destructor to see if there is any
     // left-over tag data here; if we've realloc'd, then this contains garbage
     fdatas[i].tags = TagIndex::Tags();
@@ -42,9 +42,9 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCo
   int hasTextFields = 0;
   int hasOtherFields = 0;
 
-  for (size_t i = 0; i < doc->numFields; i++) {
-    DocumentField *f = doc->fields + i;
-    const FieldSpec *fs = sp->GetField(f->name, strlen(f->name));
+  for (size_t i = 0; i < doc->NumFields(); i++) {
+    DocumentField *f = doc->fields[i];
+    const FieldSpec *fs = sp->GetField(f->name);
     if (!fs || !f->text) {
       fspecs[i].name = NULL;
       fspecs[i].types = 0;
@@ -156,7 +156,7 @@ AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) 
   RS_LOG_ASSERT(sp->indexer, "No indexer");
 
   // Assign the document:
-  if (!SetDocument(sp, b, doc.numFields)) {
+  if (!SetDocument(sp, b, doc.NumFields())) {
     *status_ = status;
     status.detail = NULL;
     throw Error("AddDocumentCtx::SetDocument failed");
@@ -224,9 +224,9 @@ void AddDocumentCtx::Finish() {
 void Document::Dump() const {
   printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(docKey, NULL),
          docId);
-  for (size_t ii = 0; ii < numFields; ++ii) {
-    printf("  [%lu]: %s => %s\n", ii, fields[ii].name,
-           RedisModule_StringPtrLen(fields[ii].text, NULL));
+  for (size_t ii = 0; ii < NumFields(); ++ii) {
+    printf("  [%lu]: %s => %s\n", ii, fields[ii]->name,
+           RedisModule_StringPtrLen(fields[ii]->text, NULL));
   }
 }
 // LCOV_EXCL_STOP
@@ -240,7 +240,7 @@ bool AddDocumentCtx::ReplaceMerge(RedisSearchCtx *sctx) {
    * fields must be reindexed.
    */
   // Free the old field data
-  size_t oldFieldCount = doc.numFields;
+  size_t oldFieldCount = doc.NumFields();
 
   doc.Clear();
   int rv = doc.LoadSchemaFields(sctx);
@@ -295,11 +295,11 @@ void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
 
   RS_LOG_ASSERT(client.bc, "No blocked client");
   size_t totalSize = 0;
-  for (size_t ii = 0; ii < doc.numFields; ++ii) {
-    const DocumentField *ff = doc.fields + ii;
+  for (size_t ii = 0; ii < doc.NumFields(); ++ii) {
+    const DocumentField *ff = doc.fields[ii];
     if (fspecs[ii].name && (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
       size_t n;
-      RedisModule_StringPtrLen(doc.fields[ii].text, &n);
+      RedisModule_StringPtrLen(doc.fields[ii]->text, &n);
       totalSize += n;
     }
   }
@@ -318,7 +318,7 @@ void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
 
 AddDocumentCtx::~AddDocumentCtx() {
   // Free preprocessed data; this is the only reliable place to do it
-  for (size_t i = 0; i < doc.numFields; ++i) {
+  for (size_t i = 0; i < doc.NumFields(); ++i) {
     if (IsValid(i) && fspecs[i].IsFieldType(INDEXFLD_T_TAG) && !!fdatas[i].tags) {
       fdatas[i].tags.Clear();
     }
@@ -541,35 +541,35 @@ int Document::AddToIndexes(AddDocumentCtx *aCtx) {
 
   size_t i = 0;
   for (auto ff: doc->fields) {
-    const FieldSpec *fs = aCtx->fspecs[i];
-    FieldIndexerData *fdata = aCtx->fdatas[i];
+    const FieldSpec fs = aCtx->fspecs[i];
+    FieldIndexerData *fdata = &aCtx->fdatas[i];
     ++i;
 
-    if (fs->name == NULL || ff->indexAs == 0) {
+    if (fs.name == NULL || ff->indexAs == 0) {
       LG_DEBUG("Skipping field %s not in index!", ff->name);
       continue;
     }
 
     if (ff->CheckIdx(INDEXFLD_T_FULLTEXT)) {
-      if (!fs->FulltextPreprocessor(aCtx, &ff, fdata, &aCtx->status)) {
+      if (!fs.FulltextPreprocessor(aCtx, ff, fdata, &aCtx->status)) {
         goto cleanup;
       }
     }
 
     if (ff->CheckIdx(INDEXFLD_T_NUMERIC)) {
-      if (!fs->NumericPreprocessor(aCtx, &ff, fdata, &aCtx->status)) {
+      if (!fs.NumericPreprocessor(aCtx, ff, fdata, &aCtx->status)) {
         goto cleanup;
       }
     }
 
     if (ff->CheckIdx(INDEXFLD_T_GEO)) {
-      if (!fs->GeoPreprocessor(aCtx, &ff, fdata, &aCtx->status)) {
+      if (!fs.GeoPreprocessor(aCtx, ff, fdata, &aCtx->status)) {
         goto cleanup;
       }
     }
 
     if (ff->CheckIdx(INDEXFLD_T_TAG)) {
-      if (!fs->TagPreprocessor(aCtx, &ff, fdata, &aCtx->status)) {
+      if (!fs.TagPreprocessor(aCtx, ff, fdata, &aCtx->status)) {
         goto cleanup;
       }
     }
@@ -674,9 +674,8 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
   if (stateFlags & ACTX_F_SORTABLES) {
     FieldSpecDedupeArray dedupes = {0};
     // Update sortables if needed
-    for (int i = 0; i < doc.numFields; i++) {
-      DocumentField *f = &doc.fields[i];
-      const FieldSpec *fs = sctx->spec->GetField(f->name, strlen(f->name));
+    for (auto f : doc.fields) {
+      const FieldSpec *fs = sctx->spec->GetField(f->name);
       if (fs == NULL || !fs->IsSortable()) {
         continue;
       }
@@ -687,7 +686,7 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
 
       dedupes[fs->index] = 1;
 
-      int idx = sctx->spec->GetFieldSortingIndex(f->name, strlen(f->name));
+      int idx = sctx->spec->GetFieldSortingIndex(f->name);
       if (idx < 0) continue;
 
       if (!md->sortVector) {
@@ -725,9 +724,9 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
 DocumentField *Document::GetField(const char *fieldName) {
   if (!fieldName) return NULL;
 
-  for (int i = 0; i < numFields; i++) {
-    if (!strcasecmp(fields[i].name, fieldName)) {
-      return &fields[i];
+  for (auto f : fields) {
+    if (!strcasecmp(f->name, fieldName)) {
+      return f;
     }
   }
   return NULL;

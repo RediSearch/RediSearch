@@ -258,7 +258,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
 QueryTokenNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
   QueryTokenNode *ret(NULL, (char*)rm_strdup(token), strlen(token));
   if (fieldName) {
-    ret->opts.fieldMask = sp->GetFieldBit(fieldName, strlen(fieldName));
+    ret->opts.fieldMask = sp->GetFieldBit(fieldName);
   }
   return ret;
 }
@@ -270,17 +270,17 @@ QueryNumericNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field,
   NumericFilter* nf = new NumericFilter(min, max, includeMin, includeMax);
   nf->fieldName = rm_strdup(field);
   QueryNumericNode *ret = new QueryNumericNode(nf);
-  ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
+  ret->opts.fieldMask = sp->GetFieldBit(field);
   return ret;
 }
 
 //---------------------------------------------------------------------------------------------
 
 QueryPrefixNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  QueryPrefixNode *ret = new QueryPrefixNode(NULL, (char*)rm_strdup(s), strlen(s));
+  QueryPrefixNode *ret = new QueryPrefixNode(NULL, rm_strdup(s));
 
   if (fieldName) {
-    ret->opts.fieldMask = sp->GetFieldBit(fieldName, strlen(fieldName));
+    ret->opts.fieldMask = sp->GetFieldBit(fieldName);
   }
   return ret;
 }
@@ -299,7 +299,7 @@ QueryLexRangeNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fiel
     ret->includeEnd = includeEnd;
   }
   if (fieldName) {
-    ret->opts.fieldMask = sp->GetFieldBit(fieldName, strlen(fieldName));
+    ret->opts.fieldMask = sp->GetFieldBit(fieldName);
   }
   return ret;
 }
@@ -308,7 +308,7 @@ QueryLexRangeNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fiel
 
 QueryTagNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryTagNode *ret = new QueryTagNode(rm_strdup(field));
-  ret->opts.fieldMask = sp->GetFieldBit(field, strlen(field));
+  ret->opts.fieldMask = sp->GetFieldBit(field);
   return ret;
 }
 

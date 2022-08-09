@@ -71,8 +71,8 @@ void QueryNode::ctor(QueryNodeType t) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-QueryTokenNode *QueryAST::NewTokenNodeExpanded(const char *s, size_t len, RSTokenFlags flags) {
-  QueryTokenNode *ret = new QueryTokenNode(NULL, std::string_view(s, len), 1, flags);
+QueryTokenNode *QueryAST::NewTokenNodeExpanded(std::string_view s, RSTokenFlags flags) {
+  QueryTokenNode *ret = new QueryTokenNode(NULL, s, 1, flags);
   numTokens++;
   return ret;
 }
@@ -500,7 +500,7 @@ IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIterat
 IndexIterator *QueryTagNode::EvalNode(Query *q) {
   RedisModuleKey *k = NULL;
   size_t n = 0;
-  const FieldSpec *fs = q->sctx->spec->GetFieldCase(fieldName.c_str(), fieldName.length());
+  const FieldSpec *fs = q->sctx->spec->GetFieldCase(fieldName);
   if (!fs) {
     return NULL;
   }

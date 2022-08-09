@@ -20,10 +20,14 @@ struct PhoneticExpander : RSQueryExpander {
 };
 
 struct SynonymExpander : RSQueryExpander {
+  SynonymExpander();
+
   int Expand(RSToken *token);
 };
 
 struct StemmerExpander : RSQueryExpander {
+  StemmerExpander();
+
   int Expand(RSToken *token);
 };
 

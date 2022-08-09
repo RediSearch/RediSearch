@@ -36,12 +36,12 @@ StopWordList *EmptyStopWordList() {
 
 // Check if a stopword list contains a term. The term must be already lowercased
 
-bool StopWordList::Contains(const char *term, size_t len) const {
-  if (!term) {
+bool StopWordList::Contains(std::string_view term) const {
+  if (term.empty()) {
     return false;
   }
 
-  return m->Find((char *)term, len) != TRIEMAP_NOTFOUND;
+  return m->Find(term.data(), term.length()) != TRIEMAP_NOTFOUND;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -135,7 +135,7 @@ StopWordList::StopWordList(RedisModuleIO *rdb, int encver) {
 // Save a stopword list to RDB
 void StopWordList::RdbSave(RedisModuleIO *rdb) const {
   RedisModule_SaveUnsigned(rdb, m->cardinality);
-  TrieMapIterator *it = m->Iterate("", 0);
+  TrieMapIterator *it = m->Iterate("");
   char *str;
   tm_len_t len;
   void *ptr;
@@ -157,7 +157,7 @@ void StopWordList::ReplyWithStopWordsList(RedisModuleCtx *ctx) const {
     return;
   }
 #endif
-  TrieMapIterator *it = m->Iterate("", 0);
+  TrieMapIterator *it = m->Iterate("");
   char *str;
   tm_len_t len;
   void *ptr;

@@ -259,6 +259,8 @@ struct RSQueryTerm : public Object {
   RSTokenFlags flags;
 
   RSQueryTerm(const RSToken &tok, int id);
+
+  size_t length() { return str.length(); }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -437,10 +439,12 @@ struct IndexResult : public Object {
   bool withinRangeUnordered(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
 
   double TFIDFScorer(const ScorerArgs *args, const RSDocumentMetadata *dmd, double minScore, int normMode) const;
-  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
 
-  virtual double BM25Dcorer(const ScorerArgs *args, const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
+  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
+  virtual double BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
   virtual double dismaxScorer(const ScorerArgs *args, RSScoreExplain *expl) const;
+  virtual double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+  virtual double dismaxRecursive(const ScorerArgs *ctx, RSScoreExplain *scrExp) const;
 
   // Iterate an offset vector
   virtual std::unique_ptr<RSOffsetIterator> IterateOffsets() const {

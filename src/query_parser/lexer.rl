@@ -205,7 +205,7 @@ main := |*
     tok.s = ts;
     tok.numval = 0;
     tok.pos = ts-raw;
-    if (!opts->stopwords->Contains(tok.s, tok.len)) {
+    if (!opts->stopwords->Contains(tok.s)) {
       Parse(TERM, tok);
     } else {
       Parse(STOPWORD, tok);

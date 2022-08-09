@@ -366,7 +366,7 @@ void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, co
 
 bool FragmentList::fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText,
     size_t fieldLen, const IndexResult *indexResult, const RSByteOffsets *byteOffsets, int options) {
-  const FieldSpec *fs = spec->GetField(fieldName, strlen(fieldName));
+  const FieldSpec *fs = spec->GetField(fieldName);
   if (!fs || !fs->IsFieldType(INDEXFLD_T_FULLTEXT)) {
     return false;
   }

@@ -287,7 +287,7 @@ expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
         A = NULL;
     } else {
         if (ctx->sctx->spec) {
-            C->SetFieldMask(ctx->sctx->spec->GetFieldBit(B.s, B.len));
+            C->SetFieldMask(ctx->sctx->spec->GetFieldBit(B.s));
         }
         A = C;
     }
@@ -301,7 +301,7 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
         t_fieldMask mask = 0;
         if (ctx->sctx->spec && B) {
             for (auto &mod: *B) {
-                mask |= ctx->sctx->spec->GetFieldBit(mod.c_str(), mod.length());
+                mask |= ctx->sctx->spec->GetFieldBit(mod.c_str());
             }
         }
         C->SetFieldMask(mask);

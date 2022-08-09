@@ -20,9 +20,9 @@
 
 static size_t estimtateTermCount(const Document *doc) {
   size_t nChars = 0;
-  for (size_t i = 0; i < doc->numFields; ++i) {
+  for (auto f : doc->fields) {
     size_t n;
-    RedisModule_StringPtrLen(doc->fields[i].text, &n);
+    RedisModule_StringPtrLen(f->text, &n);
     nChars += n;
   }
   return nChars / CHARS_PER_TERM;

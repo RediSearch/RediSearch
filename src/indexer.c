@@ -311,9 +311,9 @@ void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
     }
 
     const Document *doc = &cur->doc;
-    for (size_t ii = 0; ii < doc->numFields; ++ii) {
-      const FieldSpec *fs = cur->fspecs + ii;
-      FieldIndexerData *fdata = cur->fdatas + ii;
+    for (size_t i = 0; i < doc->NumFields(); ++i) {
+      const FieldSpec *fs = cur->fspecs + i;
+      FieldIndexerData *fdata = cur->fdatas + i;
       if (fs->name == NULL || fs->types == INDEXFLD_T_FULLTEXT || !fs->IsIndexable()) {
         continue;
       }
@@ -323,7 +323,7 @@ void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
         activeBulks[numActiveBulks++] = bulk;
       }
 
-      if (bulk->Add(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
+      if (bulk->Add(cur, sctx, doc->fields[i], fs, fdata, &cur->status) != 0) {
         cur->stateFlags |= ACTX_F_ERRORED;
       }
       cur->stateFlags |= ACTX_F_OTHERINDEXED;
@@ -331,8 +331,8 @@ void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
   }
 
   // Flush it!
-  for (size_t ii = 0; ii < numActiveBulks; ++ii) {
-    IndexBulkData *cur = activeBulks[ii];
+  for (size_t i = 0; i < numActiveBulks; ++i) {
+    IndexBulkData *cur = activeBulks[i];
     cur->Cleanup(sctx);
   }
 }

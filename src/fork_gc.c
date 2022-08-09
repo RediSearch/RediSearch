@@ -398,7 +398,7 @@ void ForkGC::childCollectTags(RedisSearchCtx *sctx) {
       continue;
     }
 
-    TrieMapIterator *iter = tagIdx->values->Iterate("", 0);
+    TrieMapIterator *iter = tagIdx->values->Iterate("");
     TagIndexRepair indexrepair(*this, tagFields[i], *tagIdx);
     IndexBlockRepair blockrepair;
     char *ptr;

@@ -142,7 +142,7 @@ uint32_t ChineseTokenizer::Next(Token *t) {
     }
 
     // Check if it's a stopword?
-    if (stopwords && stopwords->Contains(tok->word, tok->length)) {
+    if (stopwords && stopwords->Contains(tok->word)) {
       continue;
     }
     // printf("Type: %d\n", tok->type);

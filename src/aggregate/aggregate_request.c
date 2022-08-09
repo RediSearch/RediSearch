@@ -320,7 +320,7 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
       {AC_MKBITFLAG("NOCONTENT", &reqflags, QEXEC_F_SEND_NOFIELDS)},
       {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
       {AC_MKBITFLAG("EXPLAINSCORE", &reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
-      {name: "PAYLOAD", type: AC_ARGTYPE_STRING, target: &ast->udata, len: &ast->udatalen},
+      {name: "PAYLOAD", type: AC_ARGTYPE_STRING, target: &ast->udata, len: &ast->udata.len},
       {0}};
 
   while (!ac->IsAtEnd()) {
@@ -758,7 +758,7 @@ int AREQ::ApplyContext(QueryError *status) {
   if (opts.legacy.infields.size() > 0) {
     opts.fieldmask = 0;
     for (auto infield: opts.legacy.infields) {
-      t_fieldMask bit = index->GetFieldBit(infield, strlen(infield));
+      t_fieldMask bit = index->GetFieldBit(infield);
       opts.fieldmask |= bit;
     }
   }
@@ -950,7 +950,7 @@ ResultProcessor *AREQ::getScorerRP() {
   ExtScorer *scorer = g_ext.GetScorer(&scargs, scorer_name);
   RS_LOG_ASSERT(scorer, "Extensions::GetScorer failed");
   sctx->spec->GetStats(&scargs.indexStats);
-  scargs.qdata = new SimpleBuff(ast->udata, ast->udatalen);
+  scargs.qdata = &ast->udata;
   return new RPScorer(scorer, &scargs);
 }
 
