@@ -10,6 +10,8 @@ setups:
   - oss-cluster-03-primaries
   - rlec-01-primaries
   - rlec-03-primaries
+  - rlec-01-primaries-lite
+
 dbconfig:
   - tool: ftsb_redisearch
   - parameters:

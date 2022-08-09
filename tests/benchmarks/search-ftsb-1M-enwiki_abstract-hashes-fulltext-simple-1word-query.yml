@@ -21,6 +21,8 @@ setups:
   - oss-cluster-03-primaries
   - rlec-01-primaries
   - rlec-03-primaries
+  - rlec-01-primaries-lite
+
 dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:

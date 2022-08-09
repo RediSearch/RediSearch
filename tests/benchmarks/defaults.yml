@@ -145,3 +145,10 @@ spec:
       primaries: 3
       replicas: 0
       placement: "dense"
+
+  - name: rlec-01-primaries-lite
+    type: rlec
+    redis_topology:
+      primaries: 1
+      replicas: 0
+      placement: "dense"
