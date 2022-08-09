@@ -523,18 +523,11 @@ def test_RED_81612():
   for i in range(10000):
     conn.execute_command('HSET', i, 't1', 'foo%s' % i, 't2', 'bar%s' % i, 'tg1', 'foo%s' % i, 'tg2', 'bar%s' % i)
 
-  time_list = [5, 10, 20]
-
-  for _time in time_list:
-    start_time = time.time()
-    env.expect('FT.SEARCH', 'idx', '(foo* bar*)|(fo* ba*)|(foo* ba*)|(fo* bar*)', 'TIMEOUT', _time)  \
+    # test for TEXT fields
+    env.expect('FT.SEARCH', 'idx', '(foo* bar*)|(fo* ba*)|(foo* ba*)|(fo* bar*)')                              \
                     .contains('Timeout limit was reached')
-    total_time = time.time() - start_time
-    env.assertLess(total_time * 1000, 3 * _time)
 
-    start_time = time.time()
+    # test for TAG fields
     env.expect('FT.SEARCH', 'idx',
-      '(@tg1:{foo*} @tg2:{bar*})|(@tg1:{fo*} @tg2:{ba*})|(@tg1:{foo*} @tg2:{ba*})|(@tg1:{fo*} @tg2:{bar*})',
-      'TIMEOUT', _time).contains('Timeout limit was reached')
-    total_time = time.time() - start_time
-    env.assertLess(total_time * 1000, 3 * _time)
+      '(@tg1:{foo*} @tg2:{bar*})|(@tg1:{fo*} @tg2:{ba*})|(@tg1:{foo*} @tg2:{ba*})|(@tg1:{fo*} @tg2:{bar*})')  \
+                    .contains('Timeout limit was reached')
