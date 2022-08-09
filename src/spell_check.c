@@ -34,7 +34,7 @@ static void RS_SuggestionFree(RS_Suggestion *suggestion) {
 RS_Suggestions *RS_SuggestionsCreate() {
 #define SUGGESTIONS_ARRAY_INITIAL_SIZE 10
   RS_Suggestions *ret = rm_calloc(1, sizeof(RS_Suggestions));
-  ret->suggestionsTrie = NewTrie(NULL);
+  ret->suggestionsTrie = NewTrie(NULL, Trie_Sort_Score);
   return ret;
 }
 
@@ -120,8 +120,6 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   if (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     retVal = true;
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
   if (outScore) {
     *outScore = score;
@@ -150,8 +148,6 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
     }
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
 }
 
@@ -167,8 +163,6 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
     char *res = runesToStr(rstr, slen, &termLen);
     ret = array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }
-  DFAFilter_Free(iter->ctx);
-  rm_free(iter->ctx);
   TrieIterator_Free(iter);
   return ret;
 }

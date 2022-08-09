@@ -458,6 +458,49 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   RedisModule_SaveUnsigned(rdb, rule->lang_default);
 }
 
+bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type) {
+  // check type
+  if (type != sp->rule->type) {
+    return false;
+  }
+
+  const char *keyCstr = RedisModule_StringPtrLen(keyname, NULL);
+
+  // check prefixes
+  bool match = false;
+  const char **prefixes = sp->rule->prefixes;
+  for (int i = 0; i < array_len(prefixes); ++i) {
+    if (!strncmp(keyCstr, prefixes[i], strlen(prefixes[i]))) {
+      match = true;
+      break;
+    }
+  }
+  if (!match) {
+    return false;
+  }
+
+  // check filters
+  int ret = true;
+  SchemaRule *rule = sp->rule;
+  if (rule->filter_exp) {
+    EvalCtx *r = NULL;     
+    // load hash only if required
+    r = EvalCtx_Create();
+
+    RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, rule, keyCstr);
+ 
+    if (EvalCtx_EvalExpr(r, rule->filter_exp) != EXPR_EVAL_OK ||
+        !RSValue_BoolTest(&r->res)) {
+      ret = false;
+    }
+    QueryError_ClearError(r->ee.err);
+    EvalCtx_Destroy(r);
+  }
+
+  return ret;
+}
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void SchemaPrefixes_Create() {
@@ -485,25 +528,23 @@ void SchemaPrefixes_Add(const char *prefix, IndexSpec *spec) {
 }
 
 void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
-  TrieMapIterator *it = TrieMap_Iterate(ScemaPrefixes_g, "", 0);
-  while (true) {
-    char *p;
-    tm_len_t len;
-    SchemaPrefixNode *node = NULL;
-    if (!TrieMapIterator_Next(it, &p, &len, (void **)&node)) {
-      break;
+  if (!spec || !spec->rule || !spec->rule->prefixes) return;
+
+  const char **prefixes = spec->rule->prefixes;
+  for (int i = 0; i < array_len(prefixes); ++i) {
+    // retrieve list of specs matching the prefix
+    SchemaPrefixNode *node = TrieMap_Find(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]));
+    if (node == TRIEMAP_NOTFOUND) {
+      continue;
     }
-    if (!node) {
-      return;
-    }
-    for (int i = 0; i < array_len(node->index_specs); ++i) {
-      if (node->index_specs[i] == spec) {
-        array_del_fast(node->index_specs, i);
+    // iterate over specs list and remove
+    for (int j = 0; j < array_len(node->index_specs); ++j) {
+      if (node->index_specs[j] == spec) {
+        array_del_fast(node->index_specs, j);
         break;
       }
     }
   }
-  TrieMapIterator_Free(it);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

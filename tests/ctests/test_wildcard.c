@@ -1,5 +1,6 @@
 
 #include "wildcard/wildcard.h"
+#include "suffix.h"
 #include "rmutil/alloc.h"
 #include "test_util.h"
 
@@ -12,7 +13,7 @@ int _testStarBreak(char *str, int slen, char **resArray, int reslen) {
   size_t tokenIdx[8];
   size_t tokenLen[8];
 
-  int len = Wildcard_StarBreak(str, slen, tokenIdx, tokenLen);
+  int len = Suffix_ChooseToken(str, slen, tokenIdx, tokenLen);
   ASSERT_EQUAL(len, reslen);
   for (int i = 0; i < reslen; ++i) {
     // printf("%s %ld\n", &str[tokenIdx[i]], tokenLen[i]);
@@ -24,23 +25,23 @@ int _testStarBreak(char *str, int slen, char **resArray, int reslen) {
 int test_StarBreak() {
   char *str = "foo*bar";
   char *results1[8] = {"foo", "bar"};
-  _testStarBreak(str, strlen(str), results1, 2);
+  _testStarBreak(str, strlen(str), results1, 1);
 
   str = "*foo*bar";
-  _testStarBreak(str, strlen(str), results1, 2);
+  _testStarBreak(str, strlen(str), results1, 1);
 
   str = "foo*bar*";
-  _testStarBreak(str, strlen(str), results1, 2);
+  _testStarBreak(str, strlen(str), results1, 1);
 
   str = "foo*bar*red??*l*bs?";
   char *results2[] = {"foo", "bar", "red??", "l", "bs?"};
-  _testStarBreak(str, strlen(str), results2, 5);
+  _testStarBreak(str, strlen(str), results2, 4);
 
   str = "******";
-  _testStarBreak(str, strlen(str), NULL, 0);
+  _testStarBreak(str, strlen(str), NULL, -1);
 
   str = "foobar";
-  _testStarBreak(str, strlen(str), &str, 1);
+  _testStarBreak(str, strlen(str), &str, 0);
 
   return 0;
 }

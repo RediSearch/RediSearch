@@ -311,8 +311,6 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     }
     rm_free(term);
   }
-  DFAFilter_Free(iter->ctx);
-  rm_free(iter->ctx);
   TrieIterator_Free(iter);
 
   // we are done with terms
