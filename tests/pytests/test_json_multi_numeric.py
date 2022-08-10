@@ -69,31 +69,120 @@ doc1_content = [
             },
             {
                 "name": "top2_2_3",
-                "seq": [42, 64, -1, 10E+20, -10.0e-20]
+                "seq": [42, 64, -1, 10E+20, -10.0e-5]
             }
         ]
     }
 ]
 
+doc_non_numeric_content = r'''{
+    "attr1": [2, -7, null, 131.42, null , 0, null],
+    "attr2": 131.42,
+    "attr3": [null, null],
+    "attr4": [],
+    "attr5": null,
+    "attr6": [1, 2, null, 131.42, null, "yikes" ],
+    "attr7": [1, 2, null, 131.42, null, false ],
+    "attr8": [1, 2, null, 131.42, null, {"obj": "ect"} ],
+    "attr9": [1, 2, null, 131.42, null, ["no", "noo"] ],
+    "attr10": [1, 2, null, 131.42, null, [7007] ]
+}
+'''
 
-def testNumeric(env):
+def testBasic(env):
     """ Test multi numeric values (an array of numeric values or multiple numeric values) """
 
     conn = getConnectionByEnv(env)
     
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..seq[*]', 'AS', 'seq', 'NUMERIC').ok()
     env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$[0].nested2[0].seq', 'AS', 'seq', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'idx3', 'ON', 'JSON', 'SCHEMA', '$[1].nested2[2].seq', 'AS', 'seq', 'NUMERIC').ok()
+
+    env.expect('FT.CREATE', 'idx4', 'ON', 'JSON', 'SCHEMA',
+        '$[0].nested2[0].seq', 'AS', 'seq1', 'NUMERIC',         # [1.5, 1.6, 2]
+        '$[1].nested2[2].seq', 'AS', 'seq2', 'NUMERIC').ok()     # [42, 64, -1, 10E+20, -10.0e-5]
+
     waitForIndex(env, 'idx1')
     waitForIndex(env, 'idx2')
+    waitForIndex(env, 'idx3')
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
-
+    
+    # Open/Close range and Not
     env.expect('FT.SEARCH', 'idx1', '@seq:[3 6]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx1', '-@seq:[3 6]', 'NOCONTENT').equal([0])
-    
+
+    env.expect('FT.SEARCH', 'idx1', '@seq:[-inf +inf]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx1', '-@seq:[-inf +inf]', 'NOCONTENT').equal([0])
+
     env.expect('FT.SEARCH', 'idx2', '@seq:[1.4 1.5]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '-@seq:[1.4 1.5]', 'NOCONTENT').equal([0])
 
     env.expect('FT.SEARCH', 'idx2', '-@seq:[1.4 (1.5]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '@seq:[1.4 (1.5]', 'NOCONTENT').equal([0])
 
+    env.expect('FT.SEARCH', 'idx3', '@seq:[-0.0002 -0.0001]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx3', '@seq:[-0.0002 (-0.0001]', 'NOCONTENT').equal([0])
+    
+    env.expect('FT.SEARCH', 'idx3', '-@seq:[-0.0002 (-0.0001]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx3', '@seq:[-0.0002 (-0.0001]', 'NOCONTENT').equal([0])
 
+    # Intersect
+    env.expect('FT.SEARCH', 'idx4', '@seq1:[1.5 2.5] @seq2:[10e19 10e21]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx4', '@seq1:[1.5 2.5] @seq2:[40 41]', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx4', '@seq1:[0 1]     @seq2:[10e19 10e21]', 'NOCONTENT').equal([0])
+
+
+
+def testMultiNonNumeric(env):
+    """
+    test multiple NUMERIC values which include some non-numeric values at root level (null, text, bool, array, object)
+    Skip nulls without failing
+    Fail on text, bool, object, arr of strings, arr with mixed types
+    """
+    conn = getConnectionByEnv(env)
+    
+    non_numeric_dict = json.loads(doc_non_numeric_content)
+    
+    # Create indices and a key per index, e.g.,
+    #   FT.CREATE idx1 ON JSON PREFIX 1 doc:1: SCHEMA $ AS root NUMERIC
+    #   JSON.SET doc:1: $ '[2, -7, null, 131.42, null , 0, null]'
+    #
+    # First 5 indices are OK (nulls are skipped)
+    for (i,v) in enumerate(non_numeric_dict.values()):
+        doc = 'doc:{}:'.format(i+1)
+        idx = 'idx{}'.format(i+1)
+        env.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'NUMERIC')
+        waitForIndex(env, idx)
+        conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
+        res_failures = 0 if i+1 <= 5 else 1
+        env.assertEqual(int(index_info(env, idx)['hash_indexing_failures']), res_failures, message=str(i))
+    
+    # Search good indices with content
+    env.expect('FT.SEARCH', 'idx1', '@root:[131 132]', 'NOCONTENT').equal([1, 'doc:1:'])
+    env.expect('FT.SEARCH', 'idx2', '@root:[131 132]', 'NOCONTENT').equal([1, 'doc:2:'])
+
+def testMultiNonNumericNested(env):
+    """
+    test multiple NUMERIC values which include some non-numeric values at inner level (null, text, bool, array, object)
+    Skip nulls without failing
+    Fail on text, bool, object, arr of strings, arr with mixed types
+    """
+
+    conn = getConnectionByEnv(env)
+
+    non_numeric_dict = json.loads(doc_non_numeric_content)
+    
+    # Create indices, e.g.,
+    #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr NUMERIC
+    for (i,v) in enumerate(non_numeric_dict.values()):
+        env.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'NUMERIC')
+    conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_numeric_content)
+    
+    # First 5 indices are OK (nulls are skipped)
+    for (i,v) in enumerate(non_numeric_dict.values()):
+        res_failures = 0 if i+1 <= 5 else 1
+        env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
+    
+    # Search good indices with content
+    env.expect('FT.SEARCH', 'idx1', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx2', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])
