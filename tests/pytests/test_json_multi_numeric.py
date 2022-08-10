@@ -82,12 +82,14 @@ def testNumeric(env):
     conn = getConnectionByEnv(env)
     
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..seq[*]', 'AS', 'seq', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$[0].nested2[0].seq', 'AS', 'seq', 'NUMERIC').ok()
+    waitForIndex(env, 'idx1')
+    waitForIndex(env, 'idx2')
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
 
     env.expect('FT.SEARCH', 'idx1', '@seq:[3 6]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx1', '-@seq:[3 6]', 'NOCONTENT').equal([0])
-
-    env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$[0].nested2[0].seq', 'AS', 'seq', 'NUMERIC').ok()
+    
     env.expect('FT.SEARCH', 'idx2', '@seq:[1.4 1.5]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '-@seq:[1.4 1.5]', 'NOCONTENT').equal([0])
 
