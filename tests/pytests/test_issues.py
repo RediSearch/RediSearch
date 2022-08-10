@@ -511,3 +511,24 @@ def test_MOD_3540(env):
                   .equal([10, ['t', '9'], ['t', '8'], ['t', '7'], ['t', '6'], ['t', '5'], ['t', '4'], ['t', '3'], ['t', '2'], ['t', '1'], ['t', '0']])
   env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '0', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LOAD', '*')  \
                   .equal([10])
+
+def test_RED_81612(env):
+  # TIMEOUT on crazy queries
+  env.skipOnCluster()
+  env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', '10000').ok()
+  env.expect('FT.CONFIG', 'set', 'TIMEOUT', '1').ok()
+  conn = getConnectionByEnv(env)
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT',
+                                                     'tg1', 'TAG', 'tg2', 'TAG')
+  for i in range(1000):
+    conn.execute_command('HSET', i, 't1', 'foo%s' % i, 't2', 'bar%s' % i, 'tg1', 'foo%s' % i, 'tg2', 'bar%s' % i)
+
+  # test for TEXT fields
+  env.expect('FT.SEARCH', 'idx', '(foo* bar*)|(fo* ba*)|(foo* ba*)|(fo* bar*)')                              \
+                  .contains('Timeout limit was reached')
+
+  # test for TAG fields
+  env.expect('FT.SEARCH', 'idx',
+    '(@tg1:{foo*} @tg2:{bar*})|(@tg1:{fo*} @tg2:{ba*})|(@tg1:{foo*} @tg2:{ba*})|(@tg1:{fo*} @tg2:{bar*})')  \
+                  .contains('Timeout limit was reached')
