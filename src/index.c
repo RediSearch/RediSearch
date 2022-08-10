@@ -1720,29 +1720,31 @@ typedef struct {
   IndexIterator base;
   IndexIterator *child;
   size_t counter;
-  clock_t cpuTime;
+  double cpuTime;
   int eof;
 } ProfileIterator, ProfileIteratorCtx;
 
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  clock_t begin = clock();
+  steady_clock_t t0; 
+  steady_clock_get(&t0);
   int ret = pi->child->Read(pi->child->ctx, e);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  pi->cpuTime += steady_clock_since_msec(&t0);
   return ret;
 }
 
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  clock_t begin = clock();
+  steady_clock_t t0; 
+  steady_clock_get(&t0);
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  pi->cpuTime += steady_clock_since_msec(&t0);
   return ret;
 }
 
@@ -1936,7 +1938,7 @@ PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator, "VECTOR", 1);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(ctx, pi->child, pi->counter - pi->eof, (double)pi->cpuTime / CLOCKS_PER_MILLISEC, depth, limited);
+  printIteratorProfile(ctx, pi->child, pi->counter - pi->eof, (double)pi->cpuTime, depth, limited);
 }
 
 void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
