@@ -521,3 +521,10 @@ def test_sortby_Noexist(env):
 
   # TODO: change behavior so docs which miss sortby field are at the end
   env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't').equal([2, 'doc2', ['somethingelse', '2'], 'doc1', ['t', '1']])
+
+def testDeleteIndexes(env):
+  # test cleaning of all specs from a prefix 
+  conn = getConnectionByEnv(env)
+  for i in range(10):
+    env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+    env.execute_command('FT.DROPINDEX', i)
