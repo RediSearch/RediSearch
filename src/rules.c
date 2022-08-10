@@ -541,6 +541,11 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
     for (int j = 0; j < array_len(node->index_specs); ++j) {
       if (node->index_specs[j] == spec) {
         array_del_fast(node->index_specs, j);
+        if (array_len(node->index_specs) == 0) {
+          TrieMap_Delete(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]), (freeCB)SchemaPrefixNode_Free);
+        } else {
+          node->index_specs = array_trimm_len(node->index_specs, 1);
+        }
         break;
       }
     }
