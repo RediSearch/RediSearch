@@ -307,7 +307,7 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
     return REDISMODULE_OK;
   }
 
-  suffixData *data = pl->data;
+  suffixData *data = (suffixData *)pl->data;
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
@@ -478,7 +478,7 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   // find best token
   int useIdx = Suffix_ChooseToken(pattern, len, idx, lens);
   if (useIdx == UNINITIALIZED) {
-    return 0xBAAAAAAD;
+    return (void *)0xBAAAAAAD;
   }
 
   size_t tokenidx = idx[useIdx];

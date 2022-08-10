@@ -460,7 +460,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     return NULL;
   }
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
-  return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight, type, str);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight, type, str, &q->sctx->timeout);
 }
 
 typedef struct {
@@ -535,7 +535,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
-                            QN_PREFIX, qn->pfx.tok.str);
+                            QN_PREFIX, qn->pfx.tok.str, &q->sctx->timeout);
   }
 }
 
@@ -599,7 +599,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     return NULL;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
-                            QN_WILDCARD_QUERY, qn->verb.tok.str);
+                            QN_WILDCARD_QUERY, qn->verb.tok.str, &q->sctx->timeout);
   }
 }
 
@@ -706,7 +706,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight, QN_LEXRANGE, NULL);
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight, QN_LEXRANGE, NULL, &q->sctx->timeout);
   }
 }
 
@@ -884,7 +884,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     return ret;
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_UNION, NULL);
+  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_UNION, NULL, &q->sctx->timeout);
   return ret;
 }
 
@@ -912,7 +912,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight, QN_LEXRANGE, NULL);
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight, QN_LEXRANGE, NULL, &q->sctx->timeout);
   }
 }
 
@@ -1007,7 +1007,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_PREFIX, qn->pfx.tok.str);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_PREFIX, qn->pfx.tok.str, &q->sctx->timeout);
 }
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
@@ -1033,7 +1033,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
       // No matching terms
       rm_free(its);     
       return NULL;
-    } else if (arr == 0xBAAAAAAD) {
+    } else if (arr == (void *)0xBAAAAAAD) {
       // The wildcard pattern does not include tokens that can be used with suffix trie 
       fallbackBruteForce = true;
     } else {
@@ -1094,7 +1094,8 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_WILDCARD_QUERY,
+                                  qn->pfx.tok.str, &q->sctx->timeout);
 }
 
 static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
@@ -1226,7 +1227,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
 
-  ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_TAG, NULL);
+  ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_TAG, NULL, &q->sctx->timeout);
 
 done:
   if (k) {

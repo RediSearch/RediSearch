@@ -459,7 +459,7 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
-                                     const NumericFilter *f) {
+                                     const NumericFilter *f, struct timespec *timeout) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
@@ -495,7 +495,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   Vector_Free(v);
 
   QueryNodeType type = (!f || !f->geoFilter) ? QN_NUMERIC : QN_GEO;
-  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1, type, NULL);
+  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1, type, NULL, timeout);
 
   return it;
 }
@@ -547,7 +547,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     return NULL;
   }
 
-  IndexIterator *it = createNumericIterator(ctx->spec, t, flt);
+  IndexIterator *it = createNumericIterator(ctx->spec, t, flt, &ctx->timeout);
   if (!it) {
     return NULL;
   }
