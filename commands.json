@@ -130,9 +130,10 @@
             "type": "integer"
           },
           {
-            "multiple": true,
             "name": "stopword",
-            "type": "string"
+            "type": "string",
+            "multiple": true,
+            "optional": true
           }
         ]
       },
