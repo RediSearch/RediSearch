@@ -1024,7 +1024,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     astp = &astp_s;
   }
 
-  if (IsCount(req)) {
+  if (IsNoContent(req)) {
     rp = RPCounter_New();
     up = pushRP(req, rp, up);
     return up;
@@ -1150,9 +1150,9 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   /** Create a scorer if:
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
-  if ((req->reqflags & QEXEC_F_SEND_SCORES) || sctx->spec->rule->score_field ||
-      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req) &&
-                                  reqQueryScore(req->ast.root))) {
+  if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
+      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsNoContent(req) &&
+          (sctx->spec->rule->score_field || reqQueryScore(req->ast.root)))) {
     rp = getScorerRP(req);
     if (!rp) {  
       if (req->reqflags & QEXEC_F_SEND_SCORES) {
