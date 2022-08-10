@@ -191,7 +191,8 @@ static SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *
   return node;
 }
 
-static void SchemaPrefixNode_Free(SchemaPrefixNode *node) {
+static void SchemaPrefixNode_Free(void *n) {
+  SchemaPrefixNode *node = n;
   array_free(node->index_specs);
   rm_free(node->prefix);
   rm_free(node);
@@ -498,10 +499,12 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
     for (int j = 0; j < array_len(node->index_specs); ++j) {
       if (node->index_specs[j] == spec) {
         array_del_fast(node->index_specs, j);
+        if (array_len(node->index_specs) == 0) {
+          // if all specs were deleted, remove the node
+          TrieMap_Delete(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]), SchemaPrefixNode_Free);
+        }
         break;
       }
     }
   }
 }
-
-///////////////////////////////////////////////////////////////////////////////////////////////

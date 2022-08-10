@@ -532,3 +532,11 @@ def test_RED_81612(env):
   env.expect('FT.SEARCH', 'idx',
     '(@tg1:{foo*} @tg2:{bar*})|(@tg1:{fo*} @tg2:{ba*})|(@tg1:{foo*} @tg2:{ba*})|(@tg1:{fo*} @tg2:{bar*})')  \
                   .contains('Timeout limit was reached')
+
+
+def testDeleteIndexes(env):
+  # test cleaning of all specs from a prefix 
+  conn = getConnectionByEnv(env)
+  for i in range(10):
+    env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+    env.execute_command('FT.DROPINDEX', i)
