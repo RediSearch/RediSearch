@@ -12,7 +12,7 @@ endif()
 
 # add_definitions(-DEXT_TEST_PATH="\\"${binroot}/search/tests/cpptests/example_extension/libexample_extension.so\\"")
 
-file(GLOB TEST_SOURCES "test_cpp_triem*.cpp")
+file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp)
 target_link_libraries(rstest gtest ${RS_TEST_MODULE} ${RS_LINK_LIBS} redismock)
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
