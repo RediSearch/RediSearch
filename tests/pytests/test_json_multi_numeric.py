@@ -2,6 +2,7 @@ import json
 
 from common import *
 from includes import *
+from numpy import linspace
 
 doc1_content = [
     {
@@ -102,9 +103,6 @@ def testBasic(env):
         '$[0].nested2[0].seq', 'AS', 'seq1', 'NUMERIC',         # [1.5, 1.6, 2]
         '$[1].nested2[2].seq', 'AS', 'seq2', 'NUMERIC').ok()     # [42, 64, -1, 10E+20, -10.0e-5]
 
-    waitForIndex(env, 'idx1')
-    waitForIndex(env, 'idx2')
-    waitForIndex(env, 'idx3')
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
     
     # Open/Close range and Not
@@ -186,3 +184,56 @@ def testMultiNonNumericNested(env):
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+def testInfo(env):
+    #TODO:
+    pass
+
+def testRange(env):
+    """ Test multi numeric ranges """
+
+    conn = getConnectionByEnv(env)
+
+    # TODO: remove
+    env.expect('FT.CONFIG', 'SET', 'TIMEOUT', 0).ok()
+    
+    arr_len = 20
+    sub_arrays = [
+        # positive        
+        [i for i in linspace(1, 5, num=arr_len)],       # float asc
+        [i for i in linspace(5, 1, num=arr_len)],       # float desc
+        [i for i in range(1, arr_len + 1)],             # int asc
+        [i for i in range(arr_len, 0, -1)],             # int desc
+        [0, 0],
+        # negative
+        [i for i in linspace(-1, -5, num=arr_len)],     # float desc
+        [i for i in linspace(-5, -1, num=arr_len)],     # float asc
+        [i for i in range(-1, -arr_len, -1)],           # int desc
+        [i for i in range(-arr_len, 0, 1)],             # int asc
+        [-0, -0]
+    ]
+    doc_num = 5
+    for doc in range(0, doc_num):
+        top = {}
+        for (i,arr) in enumerate(sub_arrays):
+            delta = 100 if i < len(sub_arrays) / 2 else -100
+            top['arr{}'.format(i+1)] = {'value': [v + doc * delta for v in arr]}
+        conn.execute_command('JSON.SET', 'doc:{}'.format(doc + 1), '$', json.dumps({'top': top}))
+
+    env.expect('FT.CREATE', 'idx:all', 'ON', 'JSON', 'SCHEMA', '$..value[*]', 'AS', 'val', 'NUMERIC').ok()
+    
+    max_val = (doc_num - 1) * 100 + arr_len
+    env.expect('FT.SEARCH', 'idx:all', '@val:[-inf (-{}]'.format(max_val), 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx:all', '@val:[({} +inf]'.format(max_val), 'NOCONTENT').equal([0])
+    
+    for doc in range(doc_num, 0, -1):
+        expected = [doc_num + 1 - doc]
+        max_val = (doc - 1) * 100 + arr_len
+        for i in range(doc_num, doc -1, -1):
+            expected.append('doc:{}'.format(i))
+        res = env.execute_command('FT.SEARCH', 'idx:all', '@val:[-inf -{}]'.format(max_val), 'NOCONTENT')
+        env.assertEqual(res, expected, message = '[-inf -{}]'.format(max_val))
+
+        res = env.execute_command('FT.SEARCH', 'idx:all', '@val:[{} +inf]'.format(max_val), 'NOCONTENT')
+        env.assertEqual(res, expected, message = '[{} +inf]'.format(max_val))
