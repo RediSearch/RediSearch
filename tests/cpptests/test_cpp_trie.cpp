@@ -62,7 +62,7 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
 static ElemSet trieIterRange(Trie *t, const char *begin, const char *end) {
   return trieIterRange(t, begin, begin ? strlen(begin) : 0, end, end ? strlen(end) : 0);
 }
-
+/*
 TEST_F(TrieTest, testBasicRange) {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
   rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
@@ -94,13 +94,13 @@ TEST_F(TrieTest, testBasicRange) {
   ASSERT_EQ(445, ret.size());
 
   TrieType_Free(t);
-}
+}*/
 
 /**
  * This test ensures that the stack isn't overflown from all the frames.
  * The maximum trie depth cannot be greater than the maximum length of the
  * string.
- */
+ *
 TEST_F(TrieTest, testDeepEntry) {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
   const size_t maxbuf = TRIE_INITIAL_STRING_LEN - 1;
@@ -122,11 +122,11 @@ TEST_F(TrieTest, testDeepEntry) {
   auto ret = trieIterRange(t, "1", "1Z");
   ASSERT_EQ(maxbuf, ret.size());
   TrieType_Free(t);
-}
+}*/
 
 /**
  * This test ensures payload isn't corrupted when the trie changes.
- */
+ *
 TEST_F(TrieTest, testPayload) {
   char buf1[] = "world";
 
@@ -179,7 +179,7 @@ TEST_F(TrieTest, testPayload) {
   ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 0), "world", 5), 0);
 
   TrieType_Free(t);
-}
+}*/
 
 /**
  * This test check free callback.
@@ -188,7 +188,7 @@ void trieFreeCb(void *val) {
   char **str = (char **)val;
   rm_free(*str);
 }
-
+/*
 TEST_F(TrieTest, testFreeCallback) {
   Trie *t = NewTrie(trieFreeCb, Trie_Sort_Score);
 
@@ -199,7 +199,7 @@ TEST_F(TrieTest, testFreeCallback) {
   Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload);
 
   TrieType_Free(t);
-}
+}*/
 
 void checkNext(TrieIterator *iter, const char *str) {
   char buf[16];
@@ -214,7 +214,7 @@ void checkNext(TrieIterator *iter, const char *str) {
   ASSERT_STREQ(res_str, str);
   rm_free(res_str);
 }
-
+/*
 TEST_F(TrieTest, testLexOrder) {
   Trie *t = NewTrie(trieFreeCb, Trie_Sort_Lex);
 
@@ -245,7 +245,7 @@ TEST_F(TrieTest, testLexOrder) {
   TrieIterator_Free(iter);
 
   TrieType_Free(t);
-}
+} */
 
 bool trieInsertByScore(Trie *t, const char *s, float score) {
   return Trie_InsertStringBuffer(t, s, strlen(s), score, 1, NULL);
@@ -279,6 +279,18 @@ TEST_F(TrieTest, testScoreOrder) {
   checkNext(iter, "helen");
   checkNext(iter, "help");
   TrieIterator_Free(iter);
+
+  TrieType_Free(t);
+}
+
+TEST_F(TrieTest, testbenchmark) {
+  Trie *t = NewTrie(trieFreeCb, Trie_Sort_Lex);
+  char buf[128];
+
+  for (size_t i = 0; i < 1000000; ++i) {
+    sprintf(buf, "%s", &i);
+    Trie_InsertStringBuffer(t, buf, strlen(buf), 1, 0, NULL);
+  }
 
   TrieType_Free(t);
 }
