@@ -79,24 +79,6 @@ TrieMapNode *__trieMapNode_AddChild(TrieMapNode *n, char *str, tm_len_t offset, 
   return n;
 }
 
-TrieMapNode *__trieMapNode_AddChildIdx(TrieMapNode *n, char *str, tm_len_t offset, tm_len_t len,
-                                    void *value, int idx) {
-  // make room for another child
-  n = __trieMapNode_resizeChildren(n, 1);
-
-  // a newly added child must be a terminal node
-  TrieMapNode *child = __newTrieMapNode(str, offset, len, 0, value, 1);
-
-  if (n->numChildren > 1) {
-    memmove(__trieMapNode_childKey(n, idx + 1), __trieMapNode_childKey(n, idx), n->numChildren - idx - 1);
-    memmove(__trieMapNode_children(n) + idx + 1, __trieMapNode_children(n) + idx, (n->numChildren - idx - 1) * sizeof(TrieMapNode *));
-  }
-  *__trieMapNode_childKey(n, idx) = str[offset];
-  __trieMapNode_children(n)[idx] = child;
-  // __trieNode_sortChildren(n);
-  return n;
-}
-
 TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   // Copy the current node's data and children to a new child node
   TrieMapNode *newChild = __newTrieMapNode(n->str, offset, n->len, n->numChildren, n->value,
@@ -119,27 +101,6 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   *__trieMapNode_childKey(n, 0) = newChild->str[0];
   __trieNode_sortChildren(n);
   return n;
-}
-
-static int TrieMap_BinaryScan(char *arr, char c, int len) {
-  int start = 0;
-  int cur = 0;
-  int end = len;
-  char curVal;
-  // perform binary search
-  while (start < end) {
-    curVal = arr[cur];
-    if (c == curVal) {
-      break;
-    }
-    if (c < curVal) {
-      end = cur;
-    } else {
-      start = cur + 1;
-    }
-    cur = (end + start) / 2;
-  }
-  return cur;
 }
 
 int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
@@ -169,8 +130,7 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
       n->flags |= TM_NODE_TERMINAL;
     } else {
       // we add a child
-      int idx = str[offset] > *__trieMapNode_childKey(n, 0) ? 1 : 0;
-      n = __trieMapNode_AddChildIdx(n, str, offset, len, value, idx);
+      n = __trieMapNode_AddChild(n, str, offset, len, value);
       rv++;
     }
     *np = n;
@@ -212,12 +172,7 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     __trieMapNode_children(n)[char_offset] = child;
     return rv;
   }
-  
-  ptr = childKeys; 
-  while(ptr < childKeys + n->numChildren && *ptr < c) {++ptr;}
-  *np = __trieMapNode_AddChildIdx(n, str, offset, len, value, ptr - childKeys);
-  //int idx = TrieMap_BinaryScan(childKeys, c, n->numChildren);
-  //*np = __trieMapNode_AddChildIdx(n, str, offset, len, value, idx);
+  *np = __trieMapNode_AddChild(n, str, offset, len, value);
   return ++rv;
 }
 
