@@ -27,7 +27,7 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCo
 
   if (oldFieldCount < doc->NumFields()) {
     // Pre-allocate the field specs
-    fspecs = rm_realloc(fspecs, sizeof(*fspecs) * doc->NumFields());
+    fspecs.reserve(doc->NumFields());
     fdatas = rm_realloc(fdatas, sizeof(*fdatas) * doc->NumFields());
   }
 
@@ -337,7 +337,6 @@ AddDocumentCtx::~AddDocumentCtx() {
 
   delete fwIdx;
 
-  rm_free(fspecs);
   rm_free(fdatas);
 }
 

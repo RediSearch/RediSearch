@@ -2,15 +2,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/*
-struct FuncEntry {
-  const char *name;
-  ReducerFactory fn;
-};
-
-static FuncEntry *globalRegistry = NULL;
-*/
-
 static UnorderedMap<String, ReducerFactory> g_reducersMap;
 
 //---------------------------------------------------------------------------------------------

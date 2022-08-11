@@ -43,13 +43,13 @@ struct RS_Suggestions : Object {
 
 struct SpellChecker {
   RedisSearchCtx *sctx;
-  arrayof(const char *) includeDict;
-  arrayof(const char *) excludeDict;
+  Vector<const char*> includeDict;
+  Vector<const char*> excludeDict;
   long long distance;
   bool fullScoreInfo;
   size_t results;
 
-  SpellChecker(RedisSearchCtx *sctx, arrayof(const char *) includeDict, arrayof(const char *) excludeDict,
+  SpellChecker(RedisSearchCtx *sctx, Vector<const char*> includeDict, Vector<const char*> excludeDict,
     long long distance, bool fullScoreInfo) :
       sctx(sctx), includeDict(includeDict), excludeDict(excludeDict), distance(distance),
       fullScoreInfo(fullScoreInfo) {}

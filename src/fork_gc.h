@@ -31,6 +31,8 @@ enum FGCType {
   FGC_TYPE_NOKEYSPACE
 };
 
+//---------------------------------------------------------------------------------------------
+
 enum FGCError {
   // Terms have been collected
   FGC_COLLECTED,
@@ -78,8 +80,6 @@ struct MSG_DeletedBlock {
 
 //---------------------------------------------------------------------------------------------
 
-//KHASH_MAP_INIT_INT64(cardvals, size_t)
-
 struct NumericIndexBlockRepair : IndexBlockRepair {
   NumericIndexBlockRepair(const InvertedIndex &idx);
 
@@ -94,11 +94,6 @@ struct NumericIndexBlockRepair : IndexBlockRepair {
     if (nr)
       countDeleted(nr, &blk);
 	}
-};
-
-union numUnion {
-  uint64_t u64;
-  double d48;
 };
 
 //---------------------------------------------------------------------------------------------

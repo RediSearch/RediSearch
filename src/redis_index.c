@@ -142,7 +142,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 // Format redis key for a term.
 // TODO: Add index name to it
 
-RedisModuleString *RedisSearchCtx::TermKeyName(const char *term, size_t len) { //@@ Shold we shange it to String?
+RedisModuleString *RedisSearchCtx::TermKeyName(const char *term, size_t len) { //@@ Shold we change it to String?
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
   size_t nameLen = strlen(spec->name);

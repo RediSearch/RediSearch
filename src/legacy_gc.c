@@ -166,7 +166,7 @@ NumericFieldGC::~NumericFieldGC() {
 
 void GarbageCollector::FreeNumericGCArray() {
   for (int i = 0; i < array_len(numericGC); ++i) {
-    numericGC[i]->~NumericFieldGC();
+    delete numericGC[i];
   }
   array_trimm_len(numericGC, 0);
 }

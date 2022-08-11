@@ -292,8 +292,7 @@ void PLN_GroupStep::Dump() const {
   for (size_t ii = 0; ii < nproperties; ++ii) {
     printf("    %s\n", properties[ii]);
   }
-  for (size_t ii = 0; ii < array_len(reducers); ++ii) {
-    const PLN_Reducer &r = reducers[ii];
+  for (auto r : reducers) {
     printf("  REDUCE: %s AS %s\n", r.name, r.alias);
     if (r.args.argc) {
       printf("    ARGS:[");
@@ -332,24 +331,24 @@ static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {
 
 //---------------------------------------------------------------------------------------------
 
-static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
-  const PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
-  if (stp->type == PLN_T_APPLY) {
+static void serializeMapFilter(myArgArray_t *arr, const PLN_MapFilterStep *mstp) {
+  // const PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
+  if (mstp->type == PLN_T_APPLY) {
     append_string(arr, "APPLY");
   } else {
     append_string(arr, "FILTER");
   }
   append_string(arr, mstp->rawExpr);
-  if (stp->alias) {
+  if (mstp->alias) {
     append_string(arr, "AS");
-    append_string(arr, stp->alias);
+    append_string(arr, mstp->alias);
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
-  const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
+static void serializeArrange(myArgArray_t *arr, const PLN_ArrangeStep *astp) {
+  // const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
   if (astp->limit || astp->offset) {
     append_string(arr, "LIMIT");
     append_uint(arr, astp->offset);
@@ -374,8 +373,8 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
 
 //---------------------------------------------------------------------------------------------
 
-static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
-  PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
+static void serializeLoad(myArgArray_t *arr, const PLN_LoadStep *lstp) {
+  // PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
   if (lstp->args.argc) {
     append_string(arr, "LOAD");
     append_uint(arr, lstp->args.argc);
@@ -385,23 +384,21 @@ static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
 
 //---------------------------------------------------------------------------------------------
 
-static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
-  const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
+static void serializeGroup(myArgArray_t *arr, const PLN_GroupStep *gstp) {
+  // const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
   append_string(arr, "GROUPBY");
   append_uint(arr, gstp->nproperties);
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     append_string(arr, gstp->properties[ii]);
   }
-  size_t nreducers = array_len(gstp->reducers);
-  for (size_t ii = 0; ii < nreducers; ++ii) {
-    const PLN_Reducer *r = gstp->reducers + ii;
+  for (auto r : gstp->reducers) {
     append_string(arr, "REDUCE");
-    append_string(arr, r->name);
-    append_uint(arr, r->args.argc);
-    append_ac(arr, &r->args);
-    if (r->alias) {
+    append_string(arr, r.name);
+    append_uint(arr, r.args.argc);
+    append_ac(arr, &r.args);
+    if (r.alias) {
       append_string(arr, "AS");
-      append_string(arr, r->alias);
+      append_string(arr, r.alias);
     }
   }
 }

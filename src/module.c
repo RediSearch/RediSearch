@@ -179,12 +179,13 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RSSearchOptions opts;
   size_t len;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
-  const char **includeDict = NULL, **excludeDict = NULL;
+  Vector<const char *> includeDict;
+  Vector<const char *> excludeDict;
   try {
     QueryAST qast = *new QueryAST(*sctx, opts, std::string_view(rawQuery, len), &status);
 
-    includeDict = array_new(const char *, DICT_INITIAL_SIZE);
-    excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
+    includeDict.reserve(DICT_INITIAL_SIZE);
+    excludeDict.reserve(DICT_INITIAL_SIZE);
 
     int distanceArgPos = 0;
     long long distance = DEFAULT_LEV_DISTANCE;
@@ -207,9 +208,9 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       const char *operation = RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
       const char *dictName = RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
       if (strcasecmp(operation, "INCLUDE") == 0) {
-        includeDict = array_append(includeDict, (char *)dictName);
+        includeDict.push_back((char *)dictName);
       } else if (strcasecmp(operation, "EXCLUDE") == 0) {
-        excludeDict = array_append(excludeDict, (char *)dictName);
+        excludeDict.push_back((char *)dictName);
       } else {
         throw Error("bad format, exlude/include operation was not given");
       }
@@ -228,12 +229,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 end:
   status.ClearError();
-  if (includeDict != NULL) {
-    array_free(includeDict);
-  }
-  if (excludeDict != NULL) {
-    array_free(excludeDict);
-  }
   delete sctx;
   return REDISMODULE_OK;
 }
@@ -666,9 +661,9 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < size; ++i) {
     TermData *t_data = terms_data[i];
     RedisModule_ReplyWithStringBuffer(ctx, t_data->term, strlen(t_data->term));
-    RedisModule_ReplyWithArray(ctx, array_len(t_data->ids));
-    for (size_t j = 0; j < array_len(t_data->ids); ++j) {
-      RedisModule_ReplyWithLongLong(ctx, t_data->ids[j]);
+    RedisModule_ReplyWithArray(ctx, t_data->ids.size());
+    for (auto id : t_data->ids) {
+      RedisModule_ReplyWithLongLong(ctx, id);
     }
   }
 

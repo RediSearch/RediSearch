@@ -78,8 +78,7 @@ struct CursorList : public Object {
   CursorsMap lookup;
 
   // List of spec infos; we just iterate over this
-  CursorSpecInfo **infos;
-  size_t cursorCount;
+  Vector<CursorSpecInfo *> infos;
 
   // List of idle cursors
   Vector<Cursor *> idle;

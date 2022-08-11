@@ -75,8 +75,8 @@ struct GeoFilter : Object {
   // Parse a geo filter from redis arguments. We assume the filter args start at argv[0]
   GeoFilter(ArgsCursor *ac, QueryError *status);
 
-  /* Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
-  * sane, unit is valid. Return 1 if valid, 0 if not, and set the error string into err */
+  // Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
+  // sane, unit is valid. Return 1 if valid, 0 if not, and set the error string into err
   bool Validate(QueryError *status);
 };
 

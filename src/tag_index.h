@@ -126,24 +126,20 @@ struct TagIndex : public BaseIndex {
   char **Preprocess(char sep, TagFieldFlags flags, const DocumentField *data);
 
   struct Tags {
-    arrayof(char*) tags;
+    Vector<char*> tags;
 
     // Preprocess a document tag field, returning a vector of all tags split from the content
-    Tags() : tags(NULL) {}
+    Tags() {}
     Tags(Tags &&t) : tags(std::move(t.tags)) {}
     Tags(char sep, TagFieldFlags flags, const DocumentField *data);
     ~Tags() { Clear(); }
 
     Tags &operator=(Tags &&t) { tags = std::move(t.tags); return *this; }
 
-    void Clear() {
-      array_foreach(tags, tag, { rm_free(tag); });
-      array_free(tags);
-      tags = NULL;
-    }
+    void Clear() { tags.clear(); }
 
-    size_t size() const { return array_len(tags); }
-    bool operator!() const { return !tags; }
+    size_t size() const { return tags.size(); }
+    bool operator!() const { return !tags.empty(); }
     const char *operator[](int i) const { return tags[i]; }
   };
 

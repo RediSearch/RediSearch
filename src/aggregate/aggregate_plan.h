@@ -169,11 +169,11 @@ struct PLN_GroupStep : PLN_BaseStep {
   const char **properties;
   size_t nproperties;
 
-  PLN_Reducer *reducers;
+  Vector<PLN_Reducer> reducers;
   int idx;
 
   PLN_GroupStep(const char **props, size_t nprops);
-  virtual ~PLN_GroupStep();
+  virtual ~PLN_GroupStep() {}
 
   int AddReducer(const char *name, ArgsCursor *ac, QueryError *status);
 
