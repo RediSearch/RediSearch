@@ -106,7 +106,7 @@ add_library(rscore OBJECT ${RS_SRC})
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
-	$<TARGET_OBJECTS:rmutil-cxx>
+    $<TARGET_OBJECTS:rmutil-cxx>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>)
