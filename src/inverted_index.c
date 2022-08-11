@@ -456,7 +456,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
           INDEX_BLOCK_SIZE_DOCID_ONLY;
 
   // see if we need to grow the current block
-  if (!same_doc && blk->numDocs >= blockSize) {
+  if (blk->numDocs >= blockSize && !same_doc) {
     // If same doc can span more than a single block - need to adjust IndexReader_SkipToBlock
     blk = InvertedIndex_AddBlock(idx, docId);
   } else if (blk->numDocs == 0) {

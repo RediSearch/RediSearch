@@ -448,17 +448,24 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     if (JSON_StoreInDocField(json, jsonType, fs, df) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-  } else if (fs->types == INDEXFLD_T_TAG) {
-    // Handling multiple values as a Tag list
-    rv = JSON_StoreTagsInDocField(len, jsonIter, df);
-  } else if (fs->types == INDEXFLD_T_FULLTEXT) {
-    // Handling multiple values as Text
-    rv = JSON_StoreTextInDocFieldFromIter(len, jsonIter, df);
-  } else if (fs->types == INDEXFLD_T_NUMERIC) {
-    // Handling multiple values as Numeric
-    rv = JSON_StoreNumericInDocFieldFromIter(len, jsonIter, df);
   } else {
-    rv = REDISMODULE_ERR;
+    switch (fs->types) {
+      case INDEXFLD_T_TAG:
+        // Handling multiple values as a Tag list
+        rv = JSON_StoreTagsInDocField(len, jsonIter, df);
+        break;
+      case INDEXFLD_T_FULLTEXT:
+        // Handling multiple values as Text
+        rv = JSON_StoreTextInDocFieldFromIter(len, jsonIter, df);
+        break;
+      case INDEXFLD_T_NUMERIC:
+        // Handling multiple values as Numeric
+        rv = JSON_StoreNumericInDocFieldFromIter(len, jsonIter, df);
+        break;
+      default:
+        rv = REDISMODULE_ERR;
+        break;
+    }
   }
 
   return rv;

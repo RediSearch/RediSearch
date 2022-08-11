@@ -327,8 +327,8 @@ NumericRangeTree *NewNumericRangeTree() {
 
 NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti) {
 
-  if (!isMulti && docId <= t->lastDocId) {
-    // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
+  if (docId <= t->lastDocId && !isMulti) {
+    // When not handling multi values - do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
     // from it
     return (NRN_AddRv){0, 0, 0};
   }

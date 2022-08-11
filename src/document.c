@@ -527,15 +527,10 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 
   // If this is a sortable numeric value - copy the value to the sorting vector
   if (FieldSpec_IsSortable(fs)) {
+    // Currently multi values are skipped from sorting vector
     if (field->unionType != FLD_VAR_T_ARRAY) {
       RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
-    } else {
-      if (array_len(fdata->arrNumeric)) {
-        // Currently sort by the first numeric value
-        RSSortingVector_Put(aCtx->sv, fs->sortIdx, array_elem(fdata->arrNumeric, 0), RS_SORTABLE_NUM, 0);
-      }
     }
-    
   }
   return 0;
 }
