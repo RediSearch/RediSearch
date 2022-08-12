@@ -306,4 +306,6 @@ The supported attributes are:
 
 ## Technical note
 
-The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition [at the git repo](https://github.com/RediSearch/RediSearch/blob/master/src/query_parser/v2/parser.y).
+The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the `dialect 2` grammar definition [at the git repo](https://github.com/RediSearch/RediSearch/blob/master/src/query_parser/v2/parser.y).
+
+You can also see the [DEFAULT_DIALECT](https://redis.io/docs/stack/search/configuring/#default_dialect) configuration parameter.
