@@ -282,15 +282,16 @@ TEST_F(TrieTest, testScoreOrder) {
 
   TrieType_Free(t);
 }
-
+/*
 TEST_F(TrieTest, testbenchmark) {
   Trie *t = NewTrie(trieFreeCb, Trie_Sort_Lex);
   char buf[128];
-
-  for (size_t i = 0; i < 1000000; ++i) {
-    sprintf(buf, "%s", &i);
-    Trie_InsertStringBuffer(t, buf, strlen(buf), 1, 0, NULL);
+  int count = 1024 * 1024 * 8;
+  for (size_t i = 0; i < count; ++i) {
+    int random = rand() % (count / 5);
+    sprintf(buf, "%x", random);
+    Trie_InsertStringBuffer(t, buf, strlen(buf), 1, 0,10 NULL);
   }
 
   TrieType_Free(t);
-}
+}*/
