@@ -320,7 +320,7 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
       {AC_MKBITFLAG("NOCONTENT", &reqflags, QEXEC_F_SEND_NOFIELDS)},
       {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
       {AC_MKBITFLAG("EXPLAINSCORE", &reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
-      {name: "PAYLOAD", type: AC_ARGTYPE_STRING, target: &ast->udata, len: &ast->udata.len},
+      {name: "PAYLOAD", type: AC_ARGTYPE_BUFFER, target: &ast->payload},
       {0}};
 
   while (!ac->IsAtEnd()) {
@@ -755,7 +755,7 @@ int AREQ::ApplyContext(QueryError *status) {
 
   // Go through the query options and see what else needs to be filled in!
   // 1) INFIELDS
-  if (opts.legacy.infields.size() > 0) {
+  if (!opts.legacy.infields.empty()) {
     opts.fieldmask = 0;
     for (auto infield: opts.legacy.infields) {
       t_fieldMask bit = index->GetFieldBit(infield);
@@ -768,9 +768,13 @@ int AREQ::ApplyContext(QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (opts.scorerName && g_ext.GetScorer(NULL, opts.scorerName) == NULL) {
-    status->SetErrorFmt(QUERY_EINVAL, "No such scorer %s", opts.scorerName);
-    return REDISMODULE_ERR;
+  if (opts.scorerName) {
+    try {
+      g_ext.GetScorer(opts.scorerName);
+    } catch (Error &x) {
+      status->SetErrorFmt(QUERY_EINVAL, "No such scorer %s", opts.scorerName);
+      return REDISMODULE_ERR;
+    }
   }
 
   if (!(opts.flags & Search_NoStopwrods)) {
@@ -943,14 +947,14 @@ ResultProcessor *AREQ::getScorerRP() {
   if (!scorer_name) {
     scorer_name = DEFAULT_SCORER_NAME;
   }
-  ScorerArgs scargs;
+  Scorer *scorer = g_ext.GetScorer(scorer_name);
+
+  ScorerArgs scargs{sctx->spec, ast->payload, !!(reqflags & QEXEC_F_SEND_SCOREEXPLAIN)}
   if (reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
-    scargs.scoreExplain = new RSScoreExplain;
+    scargs.scoreExplain = new ScoreExplain;
   }
-  ExtScorer *scorer = g_ext.GetScorer(&scargs, scorer_name);
-  RS_LOG_ASSERT(scorer, "Extensions::GetScorer failed");
-  sctx->spec->GetStats(&scargs.indexStats);
-  scargs.qdata = &ast->udata;
+  scargs.indexStats = sctx->spec->stats;
+  scargs.payload = ast->payload;
   return new RPScorer(scorer, &scargs);
 }
 

@@ -79,7 +79,7 @@ struct SearchResult {
 
   // not all results have score - TBD
   double score;
-  RSScoreExplain *scoreExplain;
+  ScoreExplain *scoreExplain;
 
   std::shared_ptr<RSDocumentMetadata> dmd;
 
@@ -222,7 +222,7 @@ struct RPScorer : public ResultProcessor {
 // Note: We use a min-max heap to simplify maintaining a max heap where we can pop from the bottom
 // while finding the top N results
 
-typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *udata);
+// typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *udata);
 
 struct RPSorter : public ResultProcessor {
   // The desired size of the heap - top N results
@@ -236,7 +236,7 @@ struct RPSorter : public ResultProcessor {
   MinMaxHeap<SearchResult *> *pq;
 
   // the compare function for the heap. We use it to test if a result needs to be added to the heap
-  RPSorterCompareFunc cmp;
+  // RPSorterCompareFunc cmp;
 
   // pooled result - we recycle it to avoid allocations
   SearchResult *pooledResult;

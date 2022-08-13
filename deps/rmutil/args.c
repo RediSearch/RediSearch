@@ -170,7 +170,7 @@ int ArgsCursor::GetRString(RedisModuleString **s, unsigned int flags) {
 
 //---------------------------------------------------------------------------------------------
 
-int ArgsCursor::GetString(const char **s, size_t *n, unsigned int flags) {
+int ArgsCursor::GetString(char **s, size_t *n, unsigned int flags) {
   if (offset == argc) {
     return AC_ERR_NOARG;
   }
@@ -186,6 +186,17 @@ int ArgsCursor::GetString(const char **s, size_t *n, unsigned int flags) {
       }
     }
   }
+  MaybeAdvance(flags);
+  return AC_OK;
+}
+
+//---------------------------------------------------------------------------------------------
+
+int ArgsCursor::GetBuffer(SimpleBuff *buf, unsigned int flags) {
+  if (offset == argc) {
+    return AC_ERR_NOARG;
+  }
+  *buf = SimpleBuff{CURRENT(), strlen(CURRENT())}
   MaybeAdvance(flags);
   return AC_OK;
 }
@@ -260,6 +271,8 @@ int ArgsCursor::parseSingleSpec(ACArgSpec *spec) {
       return GetUnsigned(spec->target, spec->intflags);
     case AC_ARGTYPE_STRING:
       return GetString(spec->target, spec->len, 0);
+    case AC_ARGTYPE_BUFFER:
+      return GetBuffer(spec->target);
     case AC_ARGTYPE_RSTRING:
       return GetRString(spec->target, 0);
     case AC_ARGTYPE_SUBARGS:

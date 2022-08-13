@@ -26,30 +26,25 @@
 struct QueryAST : public Object {
   size_t numTokens;
   QueryNode *root;
-  // User data and length, for use by scorers
-  SimpleBuff udata;
+  SimpleBuff payload; // used by scorers
 
-  // Copied query and length, because it seems we modify the string in the parser (FIXME).
+  // Copied query, because it seems we modify the string in the parser (FIXME).
   // Thus, if the original query is const then it explodes.
   String query;
 
   QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &sopts, std::string_view query, QueryError *status);
   ~QueryAST();
 
-  // Set global filters on the AST
   void SetGlobalFilters(const NumericFilter *numeric);
   void SetGlobalFilters(const GeoFilter *geo);
   void SetGlobalFilters(Vector<t_docId> &ids);
 
-  IndexIterator *Iterate(const RSSearchOptions &options, RedisSearchCtx &sctx,
-                         ConcurrentSearch *conc) const;
+  IndexIterator *Iterate(const RSSearchOptions &options, RedisSearchCtx &sctx, ConcurrentSearch *conc) const;
 
-  int Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx &sctx,
-             QueryError *status);
+  int Expand(const char *expanderName, RSSearchOptions *opts, RedisSearchCtx &sctx, QueryError *status);
 
   // Return a string representation of the QueryParse parse tree.
-  // The string should be freed by the caller.
-  char *DumpExplain(const IndexSpec *spec) const;
+  String DumpExplain(const IndexSpec *spec) const;
 
   // Print a representation of the query to standard output
   void Print(const IndexSpec *spec) const;
@@ -68,8 +63,7 @@ struct LexRange {
   QueryNodeOptions *opts;
   double weight;
 
-  LexRange(Query *q, QueryNodeOptions *opts, double weight = 0) :
-    q(q), opts(opts), weight(weight) {}
+  LexRange(Query *q, QueryNodeOptions *opts, double weight = 0) : q(q), opts(opts), weight(weight) {}
 
   void rangeItersAddIterator(IndexReader *ir);
 };

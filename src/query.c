@@ -115,7 +115,7 @@ void QueryAST::SetGlobalFilters(Vector<t_docId> &ids) {
 
 //---------------------------------------------------------------------------------------------
 
-void QueryNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp) {
+void QueryNode::Expand(QueryExpander *expander) {
   // Do not expand verbatim nodes
   if (opts.flags & QueryNode_Verbatim) {
     return;
@@ -123,7 +123,7 @@ void QueryNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp) {
 
   if (!expandChildren()) return;
   for (auto chi: children) {
-    chi->Expand(expander, qexp);
+    chi->Expand(expander);
   }
 }
 
@@ -148,20 +148,12 @@ IndexIterator *QueryTokenNode::EvalNode(Query *q) {
 
 //---------------------------------------------------------------------------------------------
 
-void QueryTokenNode::Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp) {
+void QueryTokenNode::Expand(QueryExpander *expander) {
   // Do not expand verbatim nodes
-  if (opts.flags & QueryNode_Verbatim) {
-    return;
-  }
+  if (opts.flags & QueryNode_Verbatim) return;
 
-  qexp.currentNode = this;
-
-  if (expandChildren()) {
-    expander(&qexp, &tok);
-    for (size_t i = 0; i < NumChildren(); ++i) {
-      children[i]->Expand(expander, qexp);
-    }
-  }
+  expander->currentNode = this;
+  expander(&tok);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -263,20 +255,18 @@ static void rangeIterCb(const rune *r, size_t n, void *p)  {
 
 IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
   Trie *t = q->sctx->spec->terms;
-  LexRange range(q, &opts);
-
   if (!t) {
     return NULL;
   }
 
+  LexRange range(q, &opts);
   Runes rbegin(begin), rend(end);
 
   t->root->IterateRange(rbegin, includeBegin, rend, includeEnd, rangeIterCb, &range);
   if (range.its.empty()) {
     return NULL;
-  } else {
-    return new UnionIterator(range.its, q->docTable, 1, opts.weight);
   }
+  return new UnionIterator(range.its, q->docTable, 1, opts.weight);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -527,8 +517,8 @@ IndexIterator *QueryTagNode::EvalNode(Query *q) {
   }
 
   // recursively eval the children
-  for (size_t i = 0; i < NumChildren(); i++) {
-    IndexIterator *it = children[i]->EvalSingleTagNode(q, idx, total_its, opts.weight);
+  for (auto chi: children) {
+    IndexIterator *it = chi->EvalSingleTagNode(q, idx, total_its, opts.weight);
     if (it) {
       iters.push_back(it);
     }
@@ -617,10 +607,9 @@ Query::Query(QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx, C
 
 IndexIterator *QueryAST::Iterate(const RSSearchOptions &opts, RedisSearchCtx &sctx,
                                  ConcurrentSearch *conc) const {
-  Query query(this, &opts, &sctx, conc);
+  Query query{this, &opts, &sctx, conc};
   IndexIterator *iter = query.Eval(root);
   if (!iter) {
-    // Return the dummy iterator
     iter = new EmptyIterator();
   }
   return iter;
@@ -644,33 +633,28 @@ QueryAST::~QueryAST() {
  * @return REDISMODULE_OK, or REDISMODULE_ERR with more detail in `status`
  */
 
-int QueryAST::Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx &sctx,
+int QueryAST::Expand(const char *expanderName, RSSearchOptions *opts, RedisSearchCtx &sctx,
                      QueryError *status) {
-  if (!root) {
-    return REDISMODULE_OK;
+  if (!root) return REDISMODULE_OK;
+
+  QueryExpander::Factory factory = g_ext.GetQueryExpander(&qexp, expanderName ? expanderName : DEFAULT_EXPANDER_NAME);
+  if (factory) {
+    QueryExpander *expaner = factory(this, sctx, opts->language, status);
+    root->Expand(expader, qexp);
+    delete expander;
   }
-  RSQueryExpander qexp{this, sctx, opts->language, status};
-  QueryExpander *xpc = g_ext.GetQueryExpander(&qexp, expander ? expander : DEFAULT_EXPANDER_NAME);
-  if (xpc && xpc->exp) {
-    root->Expand(xpc->exp, qexp);
-    if (xpc->ff) {
-      xpc->ff(qexp.privdata);
-    }
-  }
-  if (status->HasError()) {
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
+  return status->HasError() ? REDISMODULE_ERR : REDISMODULE_OK;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Set the field mask recursively on a query node. This is called by the parser to handle
 // situations like @foo:(bar baz|gaz), where a complex tree is being applied a field mask.
+
 void QueryNode::SetFieldMask(t_fieldMask mask) {
   opts.fieldMask &= mask;
-  for (size_t ii = 0; ii < NumChildren(); ++ii) {
-    children[ii]->SetFieldMask(mask);
+  for (auto chi: children) {
+    chi->SetFieldMask(mask);
   }
 }
 
@@ -769,14 +753,14 @@ sds QueryNode::DumpChildren(sds s, const IndexSpec *spec, int depth) const {
 // Return a string representation of the query parse tree.
 // The string should be freed by the caller.
 
-char *QueryAST::DumpExplain(const IndexSpec *spec) const {
+String QueryAST::DumpExplain(const IndexSpec *spec) const {
   // empty query
   if (!root) {
-    return rm_strdup("NULL");
+    return String{"NULL"};
   }
 
   sds s = root->DumpSds(sdsnew(""), spec, 0);
-  char *ret = rm_strndup(s, sdslen(s));
+  String ret{s, sdslen(s)};
   sdsfree(s);
   return ret;
 }

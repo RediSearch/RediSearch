@@ -58,11 +58,19 @@ typedef uint64_t t_fieldMask;
 
 #define RS_FIELDMASK_ALL (~(t_fieldMask(0)))
 
-struct RSSortingVector;
-struct RSScoreExplain;
-
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
+
+//---------------------------------------------------------------------------------------------
+
+struct RSSortingVector;
+struct ScoreExplain;
+struct ScorerArgs;
+struct RedisSearchCtx;
+struct QueryAST;
+struct QueryError;
+struct QueryNode;
+struct IndexSpec;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -170,11 +178,6 @@ struct RSDocumentMetadata : Object {
 
 //---------------------------------------------------------------------------------------------
 
-// Forward declaration of the opaque query object
-// struct RSQuery;
-
-struct QueryNode;
-
 // We support up to 30 user given flags for each token, flags 1 and 2 are taken by the engine
 typedef uint32_t RSTokenFlags;
 
@@ -198,48 +201,40 @@ struct RSToken {
 
 //---------------------------------------------------------------------------------------------
 
-struct RedisSearchCtx;
-struct QueryAST;
-struct QueryError;
+struct QueryExpander : Object {
+  QueryExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status):
+    qast(qast), sctx(sctx), language(lang), status(status), currentNode(NULL) {}
+  virtual ~QueryExpander() {}
 
-// RSQueryExpander is a context given to query expanders, containing callback methods and useful data
-
-struct RSQueryExpander {
-  RSQueryExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status):
-    qast(qast), sctx(sctx), language(lang), status(status) {}
-
-  // Opaque query object used internally by the engine, and should not be accessed
   QueryAST *qast;
-
   RedisSearchCtx &sctx;
-
-  // Opaque query node object used internally by the engine, and should not be accessed
-  struct QueryNode *currentNode;
-
-  // Error object. Can be used to signal an error to the user
-  struct QueryError *status;
-
-  // Private data of the extension, set on extension initialization or during expansion.
-  // If a Free callback is provided, it will be used automatically to free this data.
-  void *privdata;
-
-  // The language of the query. Defaults to "english"
+  QueryError *status;
   RSLanguage language;
 
-  virtual void ExpandToken(const char *str, size_t len, RSTokenFlags flags);
-  virtual void ExpandTokenWithPhrase(const char **toks, size_t num, RSTokenFlags flags, bool replace, bool exact);
+  QueryNode *currentNode;
+
+  virtual int Expand(RSToken *token) = 0;
+
+  virtual void ExpandToken(std::string_view str, RSTokenFlags flags);
+  virtual void ExpandTokenWithPhrase(const Vector<String> &tokens, RSTokenFlags flags, bool replace, bool exact);
 
   // SetPayload allows the query expander to set GLOBAL payload on the query (not unique per token)
   virtual void SetPayload(RSPayload payload);
+
+  typedef QueryExpander *(*Factory)(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status);
 };
 
 //---------------------------------------------------------------------------------------------
 
+#if 0
+
 // The signature for a query expander instance
-typedef int (*RSQueryTokenExpander)(RSQueryExpander *expander, RSToken *token);
+typedef int (*RSQueryTokenExpander)(QueryExpander *expander, RSToken *token);
 
 // A free function called after the query expansion phase is over, to release per-query data
 typedef void (*RSFreeFunction)(void *);
+
+#endif // 0
 
 //---------------------------------------------------------------------------------------------
 
@@ -305,43 +300,6 @@ struct RSOffsetVector {
 
   // Create an offset iterator interface  from a raw offset vector
   std::unique_ptr<RSOffsetIterator> Iterate(RSQueryTerm *t) const;
-};
-
-//---------------------------------------------------------------------------------------------
-
-// RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
-// order to completely filter out results and disregard them in the totals count
-
-#define RS_SCORE_FILTEROUT (-1.0 / 0.0)
-
-//---------------------------------------------------------------------------------------------
-
-struct RSIndexStats {
-  size_t numDocs;
-  size_t numTerms;
-  double avgDocLen;
-};
-
-//---------------------------------------------------------------------------------------------
-
-// The context given to a scoring function.
-// It includes payload set by user or expander, extension private data, and callback functions.
-
-struct ScorerArgs {
-  // Payload set by the client or by the query expander
-  SimpleBuff *qdata;
-
-  // Index statistics to be used by scoring functions
-  RSIndexStats indexStats;
-
-  // Flags controlling scoring function
-  RSScoreExplain *scrExp; // scoreflags
-
-  // The GetSlop() callback.
-  // Returns cumulative "slop" or distance between query terms, that can be used to factor the result score.
-  virtual int GetSlop(const struct IndexResult *res);
-
-  RSScoreExplain *strExpCreateParent(RSScoreExplain **child) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -439,12 +397,10 @@ struct IndexResult : public Object {
   bool withinRangeUnordered(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
 
   double TFIDFScorer(const ScorerArgs *args, const RSDocumentMetadata *dmd, double minScore, int normMode) const;
+  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, ScoreExplain *explain) const;
 
-  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
-  virtual double BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata *dmd, RSScoreExplain *expl) const;
-  virtual double dismaxScorer(const ScorerArgs *args, RSScoreExplain *expl) const;
-  virtual double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
-  virtual double dismaxRecursive(const ScorerArgs *ctx, RSScoreExplain *scrExp) const;
+  virtual double BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata *dmd) const;
+  virtual double DisMaxScorer(const ScorerArgs *args) const;
 
   // Iterate an offset vector
   virtual std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
@@ -455,22 +411,55 @@ struct IndexResult : public Object {
 
 //---------------------------------------------------------------------------------------------
 
+// RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
+// order to completely filter out results and disregard them in the totals count
+
+#define RS_SCORE_FILTEROUT (-1.0 / 0.0)
+
+//---------------------------------------------------------------------------------------------
+
+// The context given to a scoring function.
+// It includes payload set by user or expander, extension private data, and callback functions.
+
+struct ScorerArgs {
+  struct Stats {
+    Stats(const struct IndexStats &stats);
+
+    size_t numDocs;
+    size_t numTerms;
+    double avgDocLen;
+  };
+
+  ScorerArgs(const IndexSpec &spec, const SimpleBuff &ast_payload, bool bExplain);
+  ~ScorerArgs();
+
+  SimpleBuff payload;    // Payload set by the client or by the query expander
+  Stats indexStats;      // Index statistics to be used by scoring functions
+  ScoreExplain *explain; // Flags controlling scoring function
+
+  ScoreExplain *CreateNewExplainParent();
+};
+
+//---------------------------------------------------------------------------------------------
+
+#if 0
+
 // RSScoringFunction is a callback type for query custom scoring function modules
 
-typedef double (*RSScoringFunction)(const ScorerArgs *ctx, const IndexResult *res,
+typedef double (*RSScoringFunction)(const ScorerArgs *args, const IndexResult *res,
                                     const RSDocumentMetadata *dmd, double minScore);
 
 // The extension registeration context, containing the callbacks avaliable to the extension for
 // registering query expanders and scorers
 
 struct RSExtensions {
-  virtual int RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff,
-    void *privdata);
-  virtual int RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff,
-    void *privdata);
+  virtual int RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff, void *privdata);
+  virtual int RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff, void *privdata);
 };
 
 // An extension initialization function
 typedef int (*RSExtensionInitFunc)(RSExtensions *ctx);
+
+#endif // 0
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

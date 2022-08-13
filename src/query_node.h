@@ -102,7 +102,7 @@ struct QueryNode : Object {
     ctor(t);
     children.push_back(node);
   }
-  QueryNode(QueryNodeType t, QueryNodes *chi) {
+  QueryNode(QueryNodeType t, QueryNodes *chi) { //@@ QueryNodes &&chi ?
     ctor(t);
     if (chi) {
       children.swap(*chi);
@@ -125,7 +125,7 @@ struct QueryNode : Object {
   size_t NumChildren() const { return children.size(); }
   QueryNode *Child(int i) { return NumChildren() > i ? children[i] : NULL; }
 
-  virtual void Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp);
+  virtual void Expand(QueryExpander *expander);
   virtual bool expandChildren() const { return false; }
 
   typedef bool (*ForEachCallback)(QueryNode *node, void *ctx);
@@ -220,7 +220,7 @@ struct QueryTokenNode : QueryNode {
     if (q) q->numTokens++;
   }
 
-  virtual void Expand(RSQueryTokenExpander expander, RSQueryExpander &qexp);
+  virtual void Expand(QueryExpander *expander);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "%s%s", (char *)tok.str.data(), tok.expanded ? "(expanded)" : "");

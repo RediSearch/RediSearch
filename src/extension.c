@@ -11,50 +11,35 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-extern Extensions g_ext = new Extensions();
+Extensions g_ext;
 
 //---------------------------------------------------------------------------------------------
 
-int Extensions::Register(const char *alias, Scorer *scorer) {
+int Extensions::Register(const char *name, Scorer scorer) {
   if (scorer == NULL) {
-    return REDISEARCH_ERR;
+    throw Error("Cannot register %s: null scorer", name);
   }
+
   // Make sure that two scorers are never registered under the same name
-  if (scorers.find(alias) != scorers::end()->Find((char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
-    return REDISEARCH_ERR;
+  if (scorers.find(name) != scorers.end()) {
+    throw Error("Cannot register %s: already registered", name);
   }
 
-  scorers[alias] = scorer;
-  return REDISEARCH_OK;
-}
-
-//---------------------------------------------------------------------------------------------
-
-int Extensions::RegisterQueryExpander(const char *alias, RSQueryTokenExpander *exp) {
-  if (exp == NULL) {
-    return REDISEARCH_ERR;
-  }
-  // Make sure there are no two query expanders under the same name
-  if (queryExpanders.find(alias) != queryExpanders.end()) {
-    return REDISEARCH_ERR;
-  }
-  queryExpanders[alias] = exp;
-  return REDISEARCH_OK;
+  scorers[name] = scorer;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Load an extension by calling its init function. return REDISEARCH_ERR or REDISEARCH_OK
-
-int Extensions::Load(const char *name, Extension *ext) {
-  return REDISEARCH_OK;
+#if 1
+int Extensions::Load(const char *name, RS_ExtensionInit init) {
+  return init();
 }
+#endif
 
 //---------------------------------------------------------------------------------------------
 
 // Dynamically load a RediSearch extension by .so file path. Returns REDISMODULE_OK or ERR
-
-typedef int (*RS_ExtensionInit)(RSExtensions *);
 
 int Extensions::LoadDynamic(const char *path, char **errMsg) {
   *errMsg = NULL;
@@ -63,6 +48,7 @@ int Extensions::LoadDynamic(const char *path, char **errMsg) {
     FMT_ERR(errMsg, "Extension %s failed to load: %s", path, dlerror());
     return REDISMODULE_ERR;
   }
+
   RS_ExtensionInit init = reinterpret_cast<RS_ExtensionInit>(dlsym(handle, "RS_ExtensionInit"));
   if (init == NULL) {
     FMT_ERR(errMsg, "Extension %s does not export RS_ExtensionInit() symbol. Module not loaded.", path);
@@ -79,18 +65,14 @@ int Extensions::LoadDynamic(const char *path, char **errMsg) {
 
 //---------------------------------------------------------------------------------------------
 
-Scorer *Extensions::GetScorer(ScorerArgs *args, const char *name) {
-  // lookup the scorer by name (case sensitive)
+// lookup the scorer by name (case sensitive)
+
+Scorer Extensions::GetScorer(ScorerArgs *args, const char *name) {
   auto it = scorers.find(name);
   if (it == scorers.end()) {
-    return NULL;
+    throw Error("Cannot find scorer %s", name);
   }
-
-  Scorer *scorer = it->second;
-  if (args) {
-    args->GetSlop = IndexResult::MinOffsetDelta();
-  }
-  return scorer;
+  return it->second;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -104,23 +86,22 @@ Scorer *Extensions::GetScorer(ScorerArgs *args, const char *name) {
 // into a union node with the original token node and new token node as children. Or if it is
 // already a union node (in consecutive calls), it just adds a new token node as a child to it.
 
-void RSQueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
-  QueryAST *q = qast;
-  QueryNode *qn = currentNode;
+void QueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
+  QueryNode *node = currentNode;
 
   // Replace current node with a new union node if needed
-  if (qn->type != QN_UNION) {
-    QueryUnionNode *un;
+  if (node->type != QN_UNION) {
+    auto union_node = new QueryUnionNode;
 
-    un->opts.fieldMask = qn->opts.fieldMask;
+    union_node->opts.fieldMask = node->opts.fieldMask;
 
     // Append current node to the new union node as a child
-    un->AddChild(qn);
-    currentNode = un;
+    union_node->AddChild(node);
+    currentNode = union_node;
   }
 
-  QueryTokenNode *exp = q->NewTokenNodeExpanded(str, flags);
-  exp->opts.fieldMask = qn->opts.fieldMask;
+  QueryTokenNode *exp = qast->NewTokenNodeExpanded(str, flags);
+  exp->opts.fieldMask = node->opts.fieldMask;
   // Now the current node must be a union node - so we just add a new token node to it
   currentNode->AddChild(exp);
 }
@@ -137,55 +118,50 @@ void RSQueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
 // token node as children. Or if it is already a union node (in consecutive calls),
 // it just adds a new token node as a child to it.
 
-void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTokenFlags flags,
+void QueryExpander::ExpandTokenWithPhrase(const Vector<String> &tokens, RSTokenFlags flags,
                                             bool replace, bool exact) {
-  QueryAST *q = qast;
-  QueryNode *qn = currentNode;
+  QueryNode *node = currentNode;
 
-  QueryPhraseNode *ph = new QueryPhraseNode(exact);
-  for (size_t i = 0; i < num; i++) {
-    ph->AddChild(q->NewTokenNodeExpanded(toks[i], flags));
+  QueryPhraseNode *phrase_node = new QueryPhraseNode(exact);
+  for (auto &token: tokens) {
+    phrase_node->AddChild(qast->NewTokenNodeExpanded(token, flags));
   }
 
   // if we're replacing - just set the expanded phrase instead of the token
   if (replace) {
-    delete qn;
+    delete node;
 
-    currentNode = ph;
+    currentNode = phrase_node;
   } else {
-
     // Replace current node with a new union node if needed
-    if (qn->type != QN_UNION) {
-      QueryUnionNode *un;
+    if (node->type != QN_UNION) {
+      auto union_node = new QueryUnionNode;
 
       // Append current node to the new union node as a child
-      un->AddChild(qn);
-      currentNode = un;
+      union_node->AddChild(node);
+      currentNode = union_node;
     }
     // Now the current node must be a union node - so we just add a new token node to it
-    currentNode->AddChild(ph);
+    currentNode->AddChild(phrase_node);
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-// Set the query payload
-
-void RSQueryExpander::SetPayload(RSPayload payload) {
-  qast->udata = payload;
+void QueryExpander::SetPayload(RSPayload payload) {
+  qast->payload = payload;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-QueryExpander *Extensions::GetQueryExpander(RSQueryExpander *ctx, const char *name) {
+QueryExpander::Factory Extensions::GetQueryExpander(const char *name) {
   auto it = queryExpanders.find(name);
-  if (it == queryExpanders.end()) {
+  if (it != queryExpanders.end()) {
     return NULL;
   }
 
-  queryExpanders *exp = it->second;
-  ctx->privdata = exp;
-  return exp;
+  QueryExpander::Factory fact = it->second;
+  return fact;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

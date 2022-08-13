@@ -6,12 +6,14 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct RSScoreExplain {
-  RSScoreExplain(RSScoreExplain *exp);
-  ~RSScoreExplain();
+struct ScoreExplain {
+  ScoreExplain(ScoreExplain *exp = NULL);
+  ~ScoreExplain();
 
   String str;
-  Vector<struct RSScoreExplain*> children;
+  Vector<struct ScoreExplain*> children;
+
+  void explain(char *fmt, ...);
 
   void RMReply(RedisModuleCtx *ctx);
 };

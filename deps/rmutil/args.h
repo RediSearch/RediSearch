@@ -39,6 +39,7 @@ enum ACStatus {
 
 enum ACArgType {
   AC_ARGTYPE_STRING,
+  AC_ARGTYPE_BUFFER,
   AC_ARGTYPE_RSTRING,
   AC_ARGTYPE_LLONG,
   AC_ARGTYPE_ULLONG,
@@ -117,7 +118,9 @@ struct ArgsCursor {
   // These functions return AC_OK or an error code on error. Note that the
   // output value is not guaranteed to remain untouched in the case of an error
   int GetString(const char **s, size_t *n, unsigned int flags);
+  int GetString(String *s, unsigned int flags);
   int GetRString(RedisModuleString **s, unsigned int flags);
+  int GetBuffer(SimpleBuff *buf, unsigned int flags);
   int GetLongLong(long long *ll, unsigned int flags);
   int GetUnsignedLongLong(unsigned long long *ull, unsigned int flags);
   int GetUnsigned(unsigned *u, unsigned int flags);

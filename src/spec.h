@@ -263,7 +263,7 @@ struct IndexSpec : Object {
   const char *GetFieldNameByBit(t_fieldMask id) const;
   int GetFieldSortingIndex(std::string_view name);
   t_fieldMask GetFieldBit(std::string_view name) const;
-  void GetStats(RSIndexStats *stats_);
+  const IndexStats &GetStats() const;
 
   void StartGCFromSpec(float initialHZ, uint32_t gcPolicy);
   void StartGC(RedisModuleCtx *ctx, float initialHZ);

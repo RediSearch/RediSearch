@@ -36,7 +36,7 @@ static double myScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
   return 3.141;
 }
 
-static int myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+static int myExpander(RSQueryExpander *ctx, RSToken *token) {
   ctx->ExpandToken(ctx, strdup("foo"), 3, 0x00ff);
   return REDISMODULE_OK;
 }
@@ -108,7 +108,7 @@ TEST_F(ExtTest, testDynamicLoading) {
   ExtScoringFunctionCtx *sx = Extensions_GetScoringFunction(&scxp, "example_scorer");
   ASSERT_TRUE(sx != NULL);
 
-  RSQueryExpanderCtx qxcp;
+  RSQueryExpander qxcp;
   ExtQueryExpander *qx = Extensions::GetQueryExpander(&qxcp, "example_expander");
   ASSERT_TRUE(qx != NULL);
 }

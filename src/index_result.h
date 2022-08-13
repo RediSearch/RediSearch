@@ -12,7 +12,7 @@
 
 //---------------------------------------------------------------------------------------------
 
-struct RSScoreExplain;
+struct ScoreExplain;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -79,7 +79,6 @@ struct AggregateOffsetIterator : public RSOffsetIterator,
 //---------------------------------------------------------------------------------------------
 
 struct AggregateResult : IndexResult {
-  // array of recods
   Vector<IndexResult *> children;
 
   // A map of the aggregate type of the underlying results
@@ -107,7 +106,7 @@ struct AggregateResult : IndexResult {
 
   bool IsWithinRange(int maxSlop, bool inOrder) const;
 
-  size_t NumChildren() { return children.size(); }
+  size_t NumChildren() const { return children.size(); }
 
   std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
     // if we only have one sub result, just iterate that...
@@ -118,9 +117,9 @@ struct AggregateResult : IndexResult {
     }
   }
 
-  double TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, ScoreExplain *explain) const;
 
-  double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+  double BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata *dmd) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -128,7 +127,7 @@ struct AggregateResult : IndexResult {
 struct IntersectResult : AggregateResult {
   IntersectResult(size_t cap, double weight) : AggregateResult(RSResultType_Intersection, cap, weight) {}
 
-  double dismaxRecursive(const ScorerArgs *ctx, RSScoreExplain *scrExp) const;
+  double DisMaxScorer(const ScorerArgs *args) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -136,7 +135,7 @@ struct IntersectResult : AggregateResult {
 struct UnionResult : AggregateResult {
   UnionResult(size_t cap, double weight) : AggregateResult(RSResultType_Union, cap, weight) {}
 
-  double dismaxRecursive(const ScorerArgs *ctx, RSScoreExplain *scrExp) const;
+  double DisMaxScorer(const ScorerArgs *args) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -145,28 +144,24 @@ struct TermResult : public IndexResult {
   // The term that brought up this record
   RSQueryTerm *term;
 
-  // The encoded offsets in which the term appeared in the document
+  // Encoded offsets in which the term appeared in the document
   RSOffsetVector offsets;
 
-  TermResult(RSQueryTerm *term_, double weight) :
-    IndexResult(RSResultType_Term, t_docId{0}, 0, 0, weight) {
-    term = term_; //@@ ownership?
-    offsets.len = 0;
-    offsets.data = 0;
-  }
+  TermResult(RSQueryTerm *term, double weight) :
+    IndexResult(RSResultType_Term, t_docId{0}, 0, 0, weight), term(term) {} //@@ term ownership?
 
   TermResult(const TermResult &src);
 
   TermResult(const ForwardIndexEntry &ent) :
-    IndexResult(RSResultType_Term, ent.docId, ent.fieldMask, ent.freq, 0) {
+      IndexResult(RSResultType_Term, ent.docId, ent.fieldMask, ent.freq, 0) {
     offsetsSz = ent.vw ? ent.vw->GetByteLength() : 0;
-
     term = NULL;
     if (ent.vw) {
       offsets.data = ent.vw->GetByteData();
       offsets.len = ent.vw->GetByteLength();
     }
   }
+
   ~TermResult();
 
   void Print(int depth) const;
@@ -175,9 +170,9 @@ struct TermResult : public IndexResult {
 
   void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len);
 
-  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, ScoreExplain *explain) const;
 
-  double bm25Recursive(const ScorerArgs *ctx, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) const;
+  double BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata *dmd) const;
 
   std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
     return offsets.Iterate(term);

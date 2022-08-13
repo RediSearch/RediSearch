@@ -355,13 +355,13 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
 //---------------------------------------------------------------------------------------------
 
 struct RS_ApiIter {
-  IndexIterator* internal;
-  IndexResult* res;
-  const RSDocumentMetadata* lastmd;
+  IndexIterator *internal;
+  IndexResult *res;
+  const RSDocumentMetadata *lastmd;
   ScorerArgs scargs;
   Scorer *scorer;
-  double minscore;  // Used for scoring
-  QueryAST qast;    // Used for string queries..
+  double minscore;  // used for scoring
+  QueryAST qast;    // used for string queries
 };
 
 //---------------------------------------------------------------------------------------------
@@ -388,7 +388,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec *sp, QueryInput *input, char **err
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options;
   QueryError status;
-  ExtScoringFunction* scoreCtx = NULL;
+  Scorer *scorer = NULL;
   RS_ApiIter *it;
 
   if (input->qtype == QUERY_INPUT_STRING) {
@@ -406,11 +406,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec *sp, QueryInput *input, char **err
     goto end;
   }
 
-  sp->GetStats(&it->scargs.indexStats);
-  scoreCtx = g_ext.GetScorer(&it->scargs, DEFAULT_SCORER_NAME);
-  RS_LOG_ASSERT(scoreCtx, "GetScorer failed");
-  it->scorer = scoreCtx->sf;
-  it->scorerFree = scoreCtx->ff;
+  it->scargs.indexStats = sp->stats;
+  scorer = g_ext.GetScorer(DEFAULT_SCORER_NAME);
+  it->scorer = scorerCtx->sf;
   it->minscore = DBL_MAX;
 
   // dummy statement for goto

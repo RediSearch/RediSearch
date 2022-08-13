@@ -1,9 +1,18 @@
+
 #include "score_explain.h"
 #include "rmalloc.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void RSScoreExplain::RMReply(RedisModuleCtx *ctx) {
+ScoreExplain::ScoreExplain(ScoreExplain *exp) {
+  if (exp) {
+    children.push_pack(exp);
+  }
+}
+
+//---------------------------------------------------------------------------------------------
+
+void ScoreExplain::RMReply(RedisModuleCtx *ctx) {
   int numChildren = numChildren;
 
   if (children.empty()) {
@@ -20,7 +29,7 @@ void RSScoreExplain::RMReply(RedisModuleCtx *ctx) {
 
 //---------------------------------------------------------------------------------------------
 
-void RSScoreExplain::SEDestroy() {
+ScoreExplain::~ScoreExplain() {
   for (auto chi: children) {
     delete *chi;
   }

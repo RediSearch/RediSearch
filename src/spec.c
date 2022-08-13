@@ -548,11 +548,10 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
 
 // Initialize some index stats that might be useful for scoring functions
 
-void IndexSpec::GetStats(RSIndexStats *stats_) {
-  stats_->numDocs = stats.numDocuments;
-  stats_->numTerms = stats.numTerms;
-  stats_->avgDocLen =
-      stats_->numDocs ? (double)stats.numRecords / (double)stats.numDocuments : 0;
+ScorerArgs::IndexStats::IndexStats(const IndexStats &stats) {
+  numDocs = stats.numDocuments;
+  numTerms = stats.numTerms;
+  avgDocLen = stats.numDocs ? (double)stats.numRecords / (double)stats.numDocuments : 0;
 }
 
 //---------------------------------------------------------------------------------------------

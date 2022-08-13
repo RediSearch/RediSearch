@@ -143,9 +143,9 @@ int RPScorer::Next(SearchResult *res) {
 
     // Apply the scoring function
     res->score = TFIDFScorer(&args, res->indexResult, res->dmd.get(), parent->minScore);
-    if (args.scrExp) {
-      res->scoreExplain = (RSScoreExplain *)args.scrExp;
-      args.scoreExplain = new RSScoreExplain();
+    if (args.explain) {
+      res->scoreExplain = (ScoreExplain *)args.explain;
+      args.scoreExplain = new ScoreExplain();
     }
     // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
     // number of results (it's been increased by the upstream processor)
@@ -165,8 +165,6 @@ int RPScorer::Next(SearchResult *res) {
 
 //---------------------------------------------------------------------------------------------
 
-// Free impl. for scorer - frees up the scorer privdata if needed
-
 RPScorer::~RPScorer() {
   delete args;
 }
@@ -176,7 +174,7 @@ RPScorer::~RPScorer() {
 // Create a new scorer by name. If the name is not found in the scorer registry, we use the
 // defalt scorer
 
-RPScorer::RPScorer(const ExtScorer *scorer, const ScorerArgs *fnargs_) : ResultProcessor("Scorer") {
+RPScorer::RPScorer(const ExtScorer *scorer, const ScorerArgs *args_) : ResultProcessor("Scorer") {
   args = *args_;
 }
 
