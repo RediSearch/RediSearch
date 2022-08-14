@@ -27,3 +27,4 @@ callgrind.out.*
 build/
 cmake-build-debug/
 CMakeCache.txt
+wordlist.dic
