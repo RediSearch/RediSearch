@@ -33,19 +33,16 @@ uint32_t RSOffsetVectorIterator::Next(RSQueryTerm **t) {
 AggregateOffsetIterator::AggregateOffsetIterator(const AggregateResult *agg) {
   res = agg; //@@ ownership
 
-  if (agg->NumChildren() > size) {
-    size = agg->NumChildren();
-    rm_free(iters);
-    rm_free(offsets);
-    rm_free(terms);
-    iters = rm_calloc(agg->NumChildren(), sizeof(RSOffsetIterator));
-    offsets = rm_calloc(agg->NumChildren(), sizeof(uint32_t));
-    terms = rm_calloc(agg->NumChildren(), sizeof(RSQueryTerm *));
-  }
+  size_t size = agg->NumChildren();
+  iters.reserve(size);
+  offsets.reserve(size);
+  terms.reserve(size);
 
-  for (int i = 0; i < agg->NumChildren(); i++) {
-    iters[i] = *new AggregateOffsetIterator(agg->children[i]);
-    offsets[i] = iters[i].Next(&terms[i]);
+  for (int i = 0; i < size; i++) {
+    iters.push_back(AggregateOffsetIterator(agg->children[i]));
+    RSQueryTerm *temp;
+    offsets.push_back(iters.back().Next(&temp));
+    terms.push_back(temp);
   }
 }
 
@@ -79,9 +76,6 @@ uint32_t AggregateOffsetIterator::Next(RSQueryTerm **t) {
 
 AggregateOffsetIterator::~AggregateOffsetIterator() {
   delete res;
-  rm_free(offsets);
-  rm_free(iters);
-  rm_free(terms);
 }
 
 //---------------------------------------------------------------------------------------------

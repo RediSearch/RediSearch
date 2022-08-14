@@ -291,7 +291,7 @@ int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryError *status) {
   try {
     AREQ r(ctx, argv, argc, CommandType::Explain, status);
-    return r.ast->DumpExplain(r.sctx->spec);
+    return r.ast->DumpExplain(r.sctx->spec).data();
   } catch (Error &x) {
     return NULL;
   }

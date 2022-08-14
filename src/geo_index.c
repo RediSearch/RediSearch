@@ -67,7 +67,7 @@ GeoFilter::GeoFilter(ArgsCursor *ac, QueryError *status) {
   }
 
   int rv;
-  if ((rv = ac->GetString(&property.c_str(), NULL, 0)) != AC_OK) {
+  if ((rv = ac->GetString(&property, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<geo property>", rv);
     throw Error(status);
   }

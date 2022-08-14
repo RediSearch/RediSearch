@@ -188,7 +188,7 @@ double AggregateResult::BM25Scorer(const ScorerArgs *args, const RSDocumentMetad
 
   if (!explain) {
     for (auto child : children) {
-      score += child->BM25Scorer(args, dmd, NULL);
+      score += child->BM25Scorer(args, dmd);
     }
   } else {
     explain->children.clear();
@@ -229,7 +229,7 @@ double BM25Scorer(ScorerArgs *args, const IndexResult *r, const RSDocumentMetada
   ScoreExplain *explain = args->explain;
   double bm25res = r->BM25Scorer(args, dmd);
   double score = dmd->score * bm25res;
-  
+
   explain = args->CreateNewExplainParent();
 
   // no need to factor the distance if tfidf is already below minimal score
@@ -274,13 +274,13 @@ double IntersectResult::DisMaxScorer(const ScorerArgs *args) const {
   double score = 0;
   if (!explain) {
     for (auto child : children) {
-      score += child->DisMaxScorer(args, NULL);
+      score += child->DisMaxScorer(args);
     }
   } else {
     explain->children.clear();
     for (auto child : children) {
       ScoreExplain *explain;
-      score += child->DisMaxScorer(args, explain);
+      score += child->DisMaxScorer(args);
       explain->children.push_back(explain);
     }
     EXPLAIN("%.2f = Weight %.2f * children DISMAX %.2f", weight * score, weight, score);
@@ -296,13 +296,13 @@ double UnionResult::DisMaxScorer(const ScorerArgs *args) const {
   double score = 0;
   if (!explain) {
     for (auto child : children) {
-      score = MAX(score, child->DisMaxScorer(args, NULL));
+      score = MAX(score, child->DisMaxScorer(args));
     }
   } else {
     explain->children.clear();
     for (auto child : children) {
       ScoreExplain *exp;
-      score = MAX(score, child->DisMaxScorer(args, exp));
+      score = MAX(score, child->DisMaxScorer(args));
       explain->children.push_back(exp);
     }
     EXPLAIN("%.2f = Weight %.2f * children DISMAX %.2f", weight * score, weight, score);
@@ -342,14 +342,14 @@ double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const
   ScoreExplain *explain = args->explain;
 
   // the strings must be of the same length > 0
-  if (!dmd->payload || !dmd->payload.length() || dmd->payload.length() != args->payload.lenth()) {
+  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != args->payload.len) {
     EXPLAIN("Payloads provided to scorer vary in length");
     return 0; //@@@ TODO: is this a correct score?
   }
 
   size_t nbits = 0;
   size_t len = args->payload.len;
-  const unsigned char *a = (unsigned char *)args->payload;
+  const unsigned char *a = (unsigned char *)args->payload.data;
   const unsigned char *b = (unsigned char *)dmd->payload->data;
   for (size_t i = 0; i < len; ++i) {
     nbits += bitsinbyte[(unsigned char)(a[i] ^ b[i])];
@@ -422,9 +422,10 @@ int StemmerExpander::Expand(RSToken *token) {
     char *dup = rm_malloc(sl + 2);
     dup[0] = STEM_PREFIX;
     memcpy(dup + 1, stemmed, sl + 1);
-    dd->ExpandToken(dup, sl + 1, 0x0);  // TODO: Set proper flags here
+    dup[sl + 1] = '\0';
+    dd->ExpandToken(dup, 0x0);  // TODO: Set proper flags here
     if (sl != token->length() || strncmp((const char *)stemmed, token->str.data(), token->length())) {
-      dd->ExpandToken(rm_strndup((const char *)stemmed, sl), sl, 0x0);
+      dd->ExpandToken(rm_strndup((const char *)stemmed, sl), 0x0);
     }
   }
   return REDISMODULE_OK;
@@ -455,7 +456,7 @@ int PhoneticExpander::Expand(RSToken *token) {
   PhoneticManager::ExpandPhonetics(token->str.c_str(), token->length(), &primary, NULL);
 
   if (primary) {
-    ExpandToken(primary, strlen(primary), 0x0);
+    ExpandToken(primary, 0x0);
   }
   return REDISMODULE_OK;
 }
@@ -472,7 +473,7 @@ int SynonymExpander::Expand(RSToken *token) {
     return REDISMODULE_OK;
   }
 
-  TermData *t_data = spec->smap->GetIdsBySynonym(token->str, token->len);
+  TermData *t_data = spec->smap->GetIdsBySynonym(token->str.data(), token->length());
   if (t_data == NULL) {
     return REDISMODULE_OK;
   }
@@ -480,7 +481,7 @@ int SynonymExpander::Expand(RSToken *token) {
   for (auto id : t_data->ids) {
     char buff[BUFF_LEN];
     int len = SynonymMap::IdToStr(id, buff, BUFF_LEN);
-    ExpandToken(rm_strdup((const char *)buff), len, 0x0);
+    ExpandToken(rm_strdup((const char *)buff), 0x0);
   }
 
   return REDISMODULE_OK;

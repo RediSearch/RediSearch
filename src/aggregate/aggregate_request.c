@@ -934,15 +934,15 @@ ResultProcessor *AREQ::getScorerRP() {
   if (!scorer_name) {
     scorer_name = DEFAULT_SCORER_NAME;
   }
-  Scorer *scorer = g_ext.GetScorer(scorer_name);
+  Scorer scorer = g_ext.GetScorer(scorer_name);
 
-  ScorerArgs scargs{sctx->spec, ast->payload, !!(reqflags & QEXEC_F_SEND_SCOREEXPLAIN)}
+  ScorerArgs scargs{*sctx->spec, ast->payload, !!(reqflags & QEXEC_F_SEND_SCOREEXPLAIN)};
   if (reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
-    scargs.scoreExplain = new ScoreExplain;
+    scargs.explain = new ScoreExplain();
   }
   scargs.indexStats = sctx->spec->stats;
   scargs.payload = ast->payload;
-  return new RPScorer(scorer, &scargs);
+  return new RPScorer(&scorer, &scargs);
 }
 
 //---------------------------------------------------------------------------------------------

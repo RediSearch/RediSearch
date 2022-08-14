@@ -56,19 +56,12 @@ public:
 struct AggregateOffsetIterator : public RSOffsetIterator,
                                  public MemPoolObject<AggregateOffsetIteratorPool> {
   const AggregateResult *res;
-  size_t size;
-  RSOffsetIterator *iters;
-  uint32_t *offsets;
-  RSQueryTerm **terms;
+  Vector<RSOffsetIterator> iters;
+  Vector<uint32_t> offsets;
+  Vector<RSQueryTerm *> terms;
   // uint32_t lastOffset; - TODO: Avoid duplicate offsets
 
-  AggregateOffsetIterator() {
-    size = 0;
-    offsets = NULL;
-    iters = NULL;
-    terms = NULL;
-  }
-
+  AggregateOffsetIterator() {}
   AggregateOffsetIterator(const AggregateResult *agg);
   ~AggregateOffsetIterator();
 

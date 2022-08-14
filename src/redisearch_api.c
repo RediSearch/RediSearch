@@ -408,7 +408,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec *sp, QueryInput *input, char **err
 
   it->scargs.indexStats = sp->stats;
   scorer = g_ext.GetScorer(DEFAULT_SCORER_NAME);
-  it->scorer = scorerCtx->sf;
+  it->scorer = scorer;
   it->minscore = DBL_MAX;
 
   // dummy statement for goto

@@ -142,10 +142,10 @@ int RPScorer::Next(SearchResult *res) {
     }
 
     // Apply the scoring function
-    res->score = TFIDFScorer(&args, res->indexResult, res->dmd.get(), parent->minScore);
-    if (args.explain) {
-      res->scoreExplain = (ScoreExplain *)args.explain;
-      args.scoreExplain = new ScoreExplain();
+    res->score = TFIDFScorer(args, res->indexResult, res->dmd.get(), parent->minScore);
+    if (args->explain) {
+      res->scoreExplain = (ScoreExplain *)args->explain;
+      args->explain = new ScoreExplain();
     }
     // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
     // number of results (it's been increased by the upstream processor)
@@ -174,9 +174,8 @@ RPScorer::~RPScorer() {
 // Create a new scorer by name. If the name is not found in the scorer registry, we use the
 // defalt scorer
 
-RPScorer::RPScorer(const ExtScorer *scorer, const ScorerArgs *args_) : ResultProcessor("Scorer") {
-  args = *args_;
-}
+RPScorer::RPScorer(const Scorer *scorer, const ScorerArgs *args) : ResultProcessor("Scorer"),
+  scorer(scorer), args(args) {}
 
 //---------------------------------------------------------------------------------------------
 
@@ -251,7 +250,7 @@ int RPSorter::innerLoop(SearchResult *r) {
     }
 
     // if needed - pop it and insert a new result
-    if (cmp(h, minh, this) > 0) {
+    if (pq->cmp(h, minh, this) > 0) {
       h->indexResult = NULL;
       pooledResult = pq->pop_min();
       pq->insert(h);
@@ -341,13 +340,11 @@ static void srDtor(void *p) {
 //---------------------------------------------------------------------------------------------
 
 void RPSorter::ctor(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap) {
-  cmp = nkeys ? cmpByFields : cmpByScore;
   fieldcmp.ascendMap = ascmap;
   fieldcmp.keys = keys;
   fieldcmp.nkeys = nkeys;
 
-  // pq = mmh_init_with_size(maxresults + 1, cmp, this, srDtor);
-  pq = new MinMaxHeap<SearchResult *>(cmp, this);
+  pq = new MinMaxHeap<SearchResult *>(nkeys ? cmpByFields : cmpByScore, this);
   pq->reserve(maxresults + 1);
   size = maxresults;
   offset = 0;

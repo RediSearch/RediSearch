@@ -36,7 +36,7 @@ struct Extensions {
   Extensions();
   ~Extensions();
 
-  Scorer GetScorer(ScorerArgs *args, const char *name);
+  Scorer GetScorer(const char *name);
   QueryExpander::Factory GetQueryExpander(const char *name);
 
   int Register(const char *alias, Scorer scorer);

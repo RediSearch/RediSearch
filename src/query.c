@@ -153,7 +153,7 @@ void QueryTokenNode::Expand(QueryExpander *expander) {
   if (opts.flags & QueryNode_Verbatim) return;
 
   expander->currentNode = this;
-  expander(&tok);
+  expander->Expand(&tok);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -637,10 +637,10 @@ int QueryAST::Expand(const char *expanderName, RSSearchOptions *opts, RedisSearc
                      QueryError *status) {
   if (!root) return REDISMODULE_OK;
 
-  QueryExpander::Factory factory = g_ext.GetQueryExpander(&qexp, expanderName ? expanderName : DEFAULT_EXPANDER_NAME);
+  QueryExpander::Factory factory = g_ext.GetQueryExpander(expanderName ? expanderName : DEFAULT_EXPANDER_NAME);
   if (factory) {
-    QueryExpander *expaner = factory(this, sctx, opts->language, status);
-    root->Expand(expader, qexp);
+    QueryExpander *expander = factory(this, sctx, opts->language, status);
+    root->Expand(expander);
     delete expander;
   }
   return status->HasError() ? REDISMODULE_ERR : REDISMODULE_OK;

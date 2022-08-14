@@ -67,7 +67,7 @@ int Extensions::LoadDynamic(const char *path, char **errMsg) {
 
 // lookup the scorer by name (case sensitive)
 
-Scorer Extensions::GetScorer(ScorerArgs *args, const char *name) {
+Scorer Extensions::GetScorer(const char *name) {
   auto it = scorers.find(name);
   if (it == scorers.end()) {
     throw Error("Cannot find scorer %s", name);

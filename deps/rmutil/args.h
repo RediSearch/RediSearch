@@ -3,6 +3,7 @@
 
 #include "sds.h"
 #include "redismodule.h"
+#include "object.h"
 
 #include <stdlib.h>
 #include <limits.h>

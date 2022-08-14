@@ -142,26 +142,9 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 // Format redis key for a term.
 // TODO: Add index name to it
 
-RedisModuleString *RedisSearchCtx::TermKeyName(const char *term, size_t len) { //@@ Shold we change it to String?
-  char buf_s[1024] = {"ft:"};
-  size_t offset = 3;
-  size_t nameLen = strlen(spec->name);
-
-  char *buf, *bufDyn = NULL;
-  if (nameLen + len + 10 > sizeof(buf_s)) {
-    buf = bufDyn = rm_calloc(1, nameLen + len + 10);
-    strcpy(buf, "ft:");
-  } else {
-    buf = buf_s;
-  }
-
-  memcpy(buf + offset, spec->name, nameLen);
-  offset += nameLen;
-  buf[offset++] = '/';
-  memcpy(buf + offset, term, len);
-  offset += len;
-  RedisModuleString *ret = RedisModule_CreateString(redisCtx, buf, offset);
-  rm_free(bufDyn);
+RedisModuleString *RedisSearchCtx::TermKeyName(String term) {
+  String buf = "ft:" + String(spec->name) + "/" + term;
+  RedisModuleString *ret = RedisModule_CreateString(redisCtx, buf.data(), buf.length());
   return ret;
 }
 
@@ -250,7 +233,7 @@ RedisSearchCtx::~RedisSearchCtx() {
 // It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
 
 const char *Redis_SelectRandomTermByIndex(RedisSearchCtx *ctx, size_t *tlen) {
-  RedisModuleString *pf = ctx->TermKeyName("", 0);
+  RedisModuleString *pf = ctx->TermKeyName("");
   size_t pflen;
   const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
 
@@ -344,7 +327,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *sctx, const char *term, size_t len,
                                          int write, RedisModuleKey **keyp) {
-  RedisModuleString *termKey = sctx->TermKeyName(term, len);
+  RedisModuleString *termKey = sctx->TermKeyName(term);
   InvertedIndex *idx = NULL;
 
   if (sctx->spec->keysDict.empty()) {
@@ -387,7 +370,7 @@ end:
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *sctx, RSQueryTerm *term, DocTable *dt, int singleWordMode,
                               t_fieldMask fieldMask, ConcurrentSearch *csx, double weight) {
-  RedisModuleString *termKey = sctx->TermKeyName(term->str, term->length());
+  RedisModuleString *termKey = sctx->TermKeyName(term->str);
   InvertedIndex *idx = NULL;
   RedisModuleKey *k = NULL;
   IndexReader *reader = NULL;
@@ -486,7 +469,7 @@ end:
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
   // extract the term from the key
   RedisSearchCtx *sctx = opaque;
-  RedisModuleString *pf = sctx->TermKeyName("", 0);
+  RedisModuleString *pf = sctx->TermKeyName("");
   size_t pflen, len;
   RedisModule_StringPtrLen(pf, &pflen);
 
@@ -537,7 +520,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
   TrieIterator it = ctx->spec->terms->Iterate("", 0, 1);
   while (it.Next(runes, payload, score, &dist)) {
     char *res = runes.toUTF8(&termLen);
-    RedisModuleString *keyName = ctx->TermKeyName(res, strlen(res));
+    RedisModuleString *keyName = ctx->TermKeyName(res);
     Redis_DropScanHandler(redisCtx, keyName, ctx);
     RedisModule_FreeString(redisCtx, keyName);
   }

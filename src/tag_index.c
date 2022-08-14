@@ -120,7 +120,7 @@ size_t TagIndex::Put(const char *value, size_t len, t_docId docId) {
 size_t TagIndex::Index(const Tags &tags, t_docId docId) {
   if (!values) return 0;
   size_t ret = 0;
-  for (size_t i = 0; i < array_len(tags.tags); ++i) {
+  for (size_t i = 0; i < tags.tags.size(); ++i) {
     const char *tok = tags[i];
     if (tok && *tok != '\0') {
       ret += Put(tok, strlen(tok), docId);
