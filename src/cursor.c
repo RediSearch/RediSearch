@@ -94,11 +94,9 @@ CursorList *RSCursors;
 //---------------------------------------------------------------------------------------------
 
 CursorList::CursorList() {
-  cursorCount = 0;
   counter = 0;
   lastCollect = 0;
   nextIdleTimeoutNs = 0;
-  infos = NULL;
 
   srand48(getpid());
 }
@@ -106,7 +104,7 @@ CursorList::CursorList() {
 //---------------------------------------------------------------------------------------------
 
 CursorSpecInfo *CursorList::Find(const char *keyName, size_t *index) const {
-  for (size_t i = 0; i < cursorCount; ++i) {
+  for (size_t i = 0; i < infos.size(); ++i) {
     if (!strcmp(infos[i]->keyName, keyName)) {
       if (index) {
         *index = i;
@@ -188,15 +186,13 @@ int CursorList::CollectIdle() {
 
 //---------------------------------------------------------------------------------------------
 
-// Add an index spec to the cursor list.
+// Add an index spec to the cursor list if it's not exist.
 // This has the effect of adding the spec (via its key) along with its capacity.
 
 void CursorList::Add(const char *keyname, size_t capacity) {
   CursorSpecInfo *info = Find(keyname, NULL);
   if (!info) {
-    info = new CursorSpecInfo(keyname, capacity);
-    infos = rm_realloc(infos, sizeof(*infos) * ++cursorCount);
-    infos[cursorCount - 1] = info;
+    infos.push_back(new CursorSpecInfo(keyname, capacity));
   }
 }
 
@@ -206,9 +202,7 @@ void CursorList::Remove(const char *keyname) {
   size_t index;
   CursorSpecInfo *info = Find(keyname, &index);
   if (info) {
-    infos[index] = infos[cursorCount - 1];
-    infos = rm_realloc(infos, sizeof(*infos) * --cursorCount);
-    delete info;
+    infos.erase(infos.begin() + index);
   }
 }
 
@@ -372,13 +366,6 @@ void CursorList::Purge(const char *lookupName) {
 
 CursorList::~CursorList() {
   GCInternal(true);
-
-  if (infos) {
-    for (size_t i = 0; i < cursorCount; ++i) {
-      delete infos[i];
-    }
-    rm_free(infos);
-  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

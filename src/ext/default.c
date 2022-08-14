@@ -477,19 +477,18 @@ int SynonymExpander::Expand(RSToken *token) {
     return REDISMODULE_OK;
   }
 
-  for (int i = 0; i < array_len(t_data->ids); ++i) {
+  for (auto id : t_data->ids) {
     char buff[BUFF_LEN];
-    int len = SynonymMap::IdToStr(t_data->ids[i], buff, BUFF_LEN);
+    int len = SynonymMap::IdToStr(id, buff, BUFF_LEN);
     ExpandToken(rm_strdup((const char *)buff), len, 0x0);
   }
+
   return REDISMODULE_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Default query expander
-
-//@@ need to change the name - there is a struct with that name
 
 int DefaultExpander::Expand(RSToken *token) {
   int phonetic = currentNode->opts.phonetic;

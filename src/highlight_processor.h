@@ -16,7 +16,6 @@ struct HighligherDoc {
   const IndexResult *indexResult;
 
   // Array used for in/out when writing fields. Optimization cache
-  //Array<iovec *> iovsArr;
   IOVecArrays iovsArr;
 
   RLookupRow *row;

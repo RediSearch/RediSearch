@@ -18,21 +18,20 @@ static const uint64_t calculate_hash(const char* str, size_t len) {
 
 TermData::TermData(char* t) {
   term = t;
-  ids = array_new(uint32_t, INITIAL_CAPACITY);
+  ids.reserve(INITIAL_CAPACITY);
 }
 
 //---------------------------------------------------------------------------------------------
 
 TermData::~TermData() {
   rm_free(term);
-  array_free(ids);
 }
 
 //---------------------------------------------------------------------------------------------
 
-inline bool TermData::IdExists(uint32_t id) {
-  for (uint32_t i = 0; i < array_len(ids); ++i) {
-    if (ids[i] == id) {
+bool TermData::IdExists(uint32_t id) {
+  for (auto i : ids) {
+    if (i == id) {
       return true;
     }
   }
@@ -41,18 +40,18 @@ inline bool TermData::IdExists(uint32_t id) {
 
 //---------------------------------------------------------------------------------------------
 
-inline void TermData::AddId(uint32_t id) {
+void TermData::AddId(uint32_t id) {
   if (!IdExists(id)) {
-    ids = array_append(ids, id);
+    ids.push_back(id);
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-inline TermData* TermData::Copy() {
+TermData* TermData::Copy() {
   TermData* copy;
-  for (int i = 0; i < array_len(ids); ++i) {
-    copy->AddId(ids[i]);
+  for (auto i : ids) {
+    copy->AddId(i);
   }
   return copy;
 }
@@ -61,9 +60,9 @@ inline TermData* TermData::Copy() {
 
 void TermData::RdbSave(RedisModuleIO* rdb) {
   RedisModule_SaveStringBuffer(rdb, term, strlen(term) + 1);
-  RedisModule_SaveUnsigned(rdb, array_len(ids));
-  for (int i = 0; i < array_len(ids); ++i) {
-    RedisModule_SaveUnsigned(rdb, ids[0]);
+  RedisModule_SaveUnsigned(rdb, ids.size());
+  for (auto i : ids) {
+    RedisModule_SaveUnsigned(rdb, i);
   }
 }
 

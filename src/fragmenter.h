@@ -52,7 +52,6 @@ struct FragmentTerm {
 };
 
 struct FragmentTermIterator {
-
   RSByteOffsetIterator &byteIter;
   RSOffsetIterator &offsetIter;
   RSQueryTerm *curMatchRec;

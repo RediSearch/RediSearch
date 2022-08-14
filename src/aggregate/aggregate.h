@@ -197,17 +197,16 @@ struct Grouper : ResultProcessor {
   // appear in the row received from the upstream processor, and the dstkeys are
   // the keys as they are expected in the output row.
 
-  const RLookupKey **srckeys;
-  const RLookupKey **dstkeys;
-  size_t nkeys;
+  Vector<const RLookupKey*> srckeys;
+  Vector<const RLookupKey*> dstkeys;
 
-  arrayof(Reducer*) reducers;
+  Vector<Reducer> reducers;
 
   // Used for maintaining state when yielding groups
   GroupsMap::iterator iter;
   bool _yield;
 
-  Grouper(const RLookupKey **srckeys_, const RLookupKey **dstkeys, size_t nkeys);
+  Grouper(const RLookupKey **srckeys_, const RLookupKey **dstkeys_, size_t nkeys);
   virtual ~Grouper();
 
   void extractGroups(const RSValue **xarr, size_t xpos, size_t xlen, size_t arridx,

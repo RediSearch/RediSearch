@@ -425,18 +425,6 @@ char *PLN_Reducer::getAlias(const char *func) {
 
 //---------------------------------------------------------------------------------------------
 
-PLN_GroupStep::~PLN_GroupStep() {
-  if (!reducers) return;
-  size_t nreducers = array_len(reducers);
-  for (size_t ii = 0; ii < nreducers; ++ii) {
-    PLN_Reducer *gr = &reducers[ii];
-    gr->~PLN_Reducer();
-  }
-  array_free(reducers);
-}
-
-//---------------------------------------------------------------------------------------------
-
 PLN_Reducer::PLN_Reducer(const char *name_, const ArgsCursor *ac) {
   name = name_; //@@ owership
   int rv = ac->GetVarArgs(&args);
@@ -457,6 +445,8 @@ PLN_Reducer::PLN_Reducer(const char *name_, const ArgsCursor *ac) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 PLN_Reducer::~PLN_Reducer() {
   rm_free(alias);
 }
@@ -471,11 +461,10 @@ PLN_Reducer::~PLN_Reducer() {
  */
 
 int PLN_GroupStep::AddReducer(const char *name, ArgsCursor *ac, QueryError *status) {
-  PLN_Reducer *gr = array_ensure_tail(&reducers, PLN_Reducer);
   try {
-    new (gr) PLN_Reducer(name, ac);
+    PLN_Reducer gr(name, ac);
+    reducers.push_back(gr);
   } catch (const QueryError &x) {
-    array_pop(reducers);
     *status = x;
     return REDISMODULE_ERR;
   }
@@ -817,16 +806,14 @@ ResultProcessor *PLN_GroupStep::buildRP(RLookup *srclookup, QueryError *err) {
 
   Grouper *grp = new Grouper(srckeys, dstkeys, nproperties);
 
-  size_t nreducers = array_len(reducers);
-  for (size_t ii = 0; ii < nreducers; ++ii) {
+  for (auto pr : reducers) {
     // Build the actual reducer
-    PLN_Reducer *pr = reducers + ii;
-    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, err);
-    ReducerFactory ff = RDCR_GetFactory(pr->name);
+    ReducerOptions options = REDUCEROPTS_INIT(pr.name, &pr.args, srclookup, err);
+    ReducerFactory ff = RDCR_GetFactory(pr.name);
     if (!ff) {
       // No such reducer!
       delete grp;
-      err->SetErrorFmt(QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
+      err->SetErrorFmt(QUERY_ENOREDUCER, "No such reducer: %s", pr.name);
       return NULL;
     }
     Reducer *rr = ff(&options);
@@ -836,7 +823,7 @@ ResultProcessor *PLN_GroupStep::buildRP(RLookup *srclookup, QueryError *err) {
     }
 
     // Set the destination key for the grouper!
-    RLookupKey *dstkey = lookup->GetKey(pr->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+    RLookupKey *dstkey = lookup->GetKey(pr.alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
     grp->AddReducer(rr, dstkey);
   }
 

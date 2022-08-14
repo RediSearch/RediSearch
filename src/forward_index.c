@@ -160,7 +160,7 @@ void ForwardIndexTokenizer::tokenize(const Token &tok) {
     if (t_data) {
       char synonym_buff[SYNONYM_BUFF_LEN];
       size_t synonym_len;
-      for (int i = 0; i < array_len(t_data->ids); ++i) {
+      for (int i = 0; i < t_data->ids.size(); ++i) {
         synonym_len = SynonymMap::IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
         idx->HandleToken(synonym_buff, synonym_len, tok.pos,
                          fieldScore, fieldId, TOKOPT_F_COPYSTR);

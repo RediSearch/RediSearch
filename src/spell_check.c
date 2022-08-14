@@ -199,7 +199,7 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
 
 //---------------------------------------------------------------------------------------------
 
-inline bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMask fieldMask) {
+bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMask fieldMask) {
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
   if (SpellChecker::IsTermExistsInTrie(sctx->spec->terms, term, len, NULL)) {
@@ -219,10 +219,9 @@ inline bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMa
 
   // searching the term on the exclude list, if its there we just return false
   // because there is no need to return suggestions on it.
-  for (int i = 0; i < array_len(excludeDict); ++i) {
+  for (auto dict : excludeDict) {
     RedisModuleKey *k = NULL;
-    Trie *t =
-        SpellCheck_OpenDict(sctx->redisCtx, excludeDict[i], REDISMODULE_READ, &k);
+    Trie *t = SpellCheck_OpenDict(sctx->redisCtx, dict, REDISMODULE_READ, &k);
     if (t == NULL) {
       continue;
     }
@@ -240,10 +239,10 @@ inline bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMa
   // sorting results by score
 
   // searching the term on the include list for more suggestions.
-  for (int i = 0; i < array_len(includeDict); ++i) {
+  for (auto dict : includeDict) {
     RedisModuleKey *k = NULL;
     Trie *t =
-        SpellCheck_OpenDict(sctx->redisCtx, includeDict[i], REDISMODULE_READ, &k);
+        SpellCheck_OpenDict(sctx->redisCtx, dict, REDISMODULE_READ, &k);
     if (t == NULL) {
       continue;
     }
@@ -258,7 +257,7 @@ inline bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMa
 
 //---------------------------------------------------------------------------------------------
 
-inline bool SpellChecker::CheckDictExistence(const char *dict) {
+bool SpellChecker::CheckDictExistence(const char *dict) {
 #define BUFF_SIZE 1000
   RedisModuleKey *k = NULL;
   Trie *t = SpellCheck_OpenDict(sctx->redisCtx, dict, REDISMODULE_READ, &k);
@@ -274,15 +273,15 @@ inline bool SpellChecker::CheckDictExistence(const char *dict) {
 
 //---------------------------------------------------------------------------------------------
 
-inline bool SpellChecker::CheckTermDictsExistance() {
-  for (int i = 0; i < array_len(includeDict); ++i) {
-    if (!CheckDictExistence(includeDict[i])) {
+bool SpellChecker::CheckTermDictsExistance() {
+  for (auto dict : includeDict) {
+    if (!CheckDictExistence(dict)) {
       return false;
     }
   }
 
-  for (int i = 0; i < array_len(excludeDict); ++i) {
-    if (!CheckDictExistence(excludeDict[i])) {
+  for (auto dict : excludeDict) {
+    if (!CheckDictExistence(dict)) {
       return false;
     }
   }

@@ -189,7 +189,7 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
 
   // Information about each field in the document. This is read from the spec
   // and cached, so that we can look it up without holding the GIL
-  FieldSpec *fspecs;
+  Vector<FieldSpec> fspecs;
   Tokenizer *tokenizer;
 
   // Old document data. Contains sortables.

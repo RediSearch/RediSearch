@@ -312,18 +312,18 @@ void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
 
     const Document *doc = &cur->doc;
     for (size_t i = 0; i < doc->NumFields(); ++i) {
-      const FieldSpec *fs = cur->fspecs + i;
+      const FieldSpec fs = cur->fspecs[i];
       FieldIndexerData *fdata = cur->fdatas + i;
-      if (fs->name == NULL || fs->types == INDEXFLD_T_FULLTEXT || !fs->IsIndexable()) {
+      if (fs.name == NULL || fs.types == INDEXFLD_T_FULLTEXT || !fs.IsIndexable()) {
         continue;
       }
-      IndexBulkData *bulk = &bData[fs->index];
+      IndexBulkData *bulk = &bData[fs.index];
       if (!bulk->found) {
         bulk->found = 1;
         activeBulks[numActiveBulks++] = bulk;
       }
 
-      if (bulk->Add(cur, sctx, doc->fields[i], fs, fdata, &cur->status) != 0) {
+      if (bulk->Add(cur, sctx, doc->fields[i], &fs, fdata, &cur->status) != 0) {
         cur->stateFlags |= ACTX_F_ERRORED;
       }
       cur->stateFlags |= ACTX_F_OTHERINDEXED;

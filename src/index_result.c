@@ -272,12 +272,12 @@ bool IndexResult::withinRangeInOrder(RSOffsetIterators &iters, uint32_t *positio
     for (int i = 0; i < num; i++) {
       // take the current position and the position of the previous iterator.
       // For the first iterator we always advance once
-      uint32_t pos = i ? positions[i] : iters[i].Next(NULL);
+      uint32_t pos = i ? positions[i] : iters[i]->Next(NULL);
       uint32_t lastPos = i ? positions[i - 1] : 0;
 
       // read while we are not in order
       while (pos != RS_OFFSETVECTOR_EOF && pos < lastPos) {
-        pos = iters[i].Next(NULL);
+        pos = iters[i]->Next(NULL);
       }
 
       // we've read through the entire list and it's not in order relative to the last pos
@@ -339,7 +339,7 @@ static inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
 bool IndexResult::withinRangeUnordered(RSOffsetIterators &iters, uint32_t *positions, int num,
                                        int maxSlop) {
   for (int i = 0; i < num; i++) {
-    positions[i] = iters[i].Next(NULL);
+    positions[i] = iters[i]->Next(NULL);
   }
   uint32_t minPos, maxPos, min, max;
   // find the max member
@@ -359,7 +359,7 @@ bool IndexResult::withinRangeUnordered(RSOffsetIterators &iters, uint32_t *posit
     }
 
     // if we are not meeting the conditions - advance the minimal iterator
-    positions[minPos] = iters[minPos].Next(NULL);
+    positions[minPos] = iters[minPos]->Next(NULL);
     // If the minimal iterator is larger than the max iterator, the minimal iterator is the new
     // maximal iterator.
     if (positions[minPos] != RS_OFFSETVECTOR_EOF && positions[minPos] > max) {

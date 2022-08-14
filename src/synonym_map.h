@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include "rmutil/vector.h"
 #include "util/map.h"
 #include "redismodule.h"
 #include "util/arr.h"
@@ -9,15 +10,11 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/**
- * Holding a term data
- *  term - the term itself
- *  ids - array of synonyms group ids that the term is belong to
- */
+// Holding a term data
 
 struct TermData {
-  char *term;
-  uint32_t *ids;
+  char *term;            // the term itself
+  Vector<uint32_t> ids;  // array of synonyms group ids that the term is belong to
 
   TermData(char *t);
   TermData(RedisModuleIO *rdb);
@@ -30,8 +27,7 @@ struct TermData {
   void AddId(uint32_t id);
 };
 
-// static const int SynMapKhid = 90;
-// KHASH_MAP_INIT_INT64(SynMapKhid, TermData*);
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // The synonym map data structure
 

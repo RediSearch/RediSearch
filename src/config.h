@@ -50,7 +50,7 @@ struct RSConfigOptions {
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
-struct RSConfig{
+struct RSConfig {
   // Use concurrent serach (default: 1, disable with SAFEMODE)
   int concurrentMode;
   // If not null, this points at a .so file of an extension we try to load (default: NULL)
