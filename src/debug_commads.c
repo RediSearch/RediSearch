@@ -207,7 +207,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
   while ((currNode = NumericRangeTreeIterator_Next(iter))) {
     NumericRange *range = currNode->range;
     if (range) {
-      IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal);
+      IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal, true);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++resultSize;
     }

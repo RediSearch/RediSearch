@@ -209,7 +209,7 @@ def testRange(env):
         # negative
         [i for i in linspace(-1, -5, num=arr_len)],     # float desc
         [i for i in linspace(-5, -1, num=arr_len)],     # float asc
-        [i for i in range(-1, -arr_len, -1)],           # int desc
+        [i for i in range(-1, -arr_len - 1, -1)],       # int desc
         [i for i in range(-arr_len, 0, 1)],             # int asc
         [-0, -0]
     ]
@@ -233,7 +233,21 @@ def testRange(env):
         for i in range(doc_num, doc -1, -1):
             expected.append('doc:{}'.format(i))
         res = env.execute_command('FT.SEARCH', 'idx:all', '@val:[-inf -{}]'.format(max_val), 'NOCONTENT')
-        env.assertEqual(res, expected, message = '[-inf -{}]'.format(max_val))
+        env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[-inf -{}]'.format(max_val))
 
         res = env.execute_command('FT.SEARCH', 'idx:all', '@val:[{} +inf]'.format(max_val), 'NOCONTENT')
-        env.assertEqual(res, expected, message = '[{} +inf]'.format(max_val))
+        env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[{} +inf]'.format(max_val))
+
+def testDebugDump(env):
+    """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi numeric values """
+
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx:top', 'ON', 'JSON', 'SCHEMA', '$[*]', 'AS', 'val', 'NUMERIC').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps([-1, 2, 3]))
+    conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps([-2, -1, 2]))
+
+    env.expect('FT.DEBUG', 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
+    env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
+                                                                      'lastDocId', 2, 'revisionId', 0])
+
+

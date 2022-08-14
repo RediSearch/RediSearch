@@ -85,7 +85,7 @@ typedef struct {
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
 struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
-                                              const NumericFilter *f);
+                                              const NumericFilter *f, int skipMulti);
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType);

@@ -128,7 +128,9 @@ typedef struct IndexReader {
   // last docId, used for delta encoding/decoding
   t_docId lastId;
   // same docId, used for detecting same doc (with multi values)
-  bool sameId;
+  t_docId sameId;
+  // Whether to skip multi values from the same doc
+  int skipMulti;
   uint32_t currentBlock;
 
   /* The decoder's filtering context. It may be a number or a pointer. The number is used for
@@ -176,7 +178,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
  * is
  * NULL we will return all the records in the index */
 IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax);
+                              double rangeMin, double rangeMax, int skipMulti);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */

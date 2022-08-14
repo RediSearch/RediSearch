@@ -30,7 +30,7 @@ uint64_t TotalIIBlocks = 0;
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
-                                          IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
+                                          IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
                                           RSIndexResult *record);
 
 /* Add a new block to the index with a given document id as the initial id */
@@ -857,7 +857,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
 }
 
 IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax) {
+                              double rangeMin, double rangeMax, int skipMulti) {
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -865,7 +865,7 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
 
   IndexDecoderCtx ctx = {.ptr = (void *)flt, .rangeMin = rangeMin, .rangeMax = rangeMax};
   IndexDecoderProcs procs = {.decoder = readNumeric};
-  return NewIndexReaderGeneric(sp, idx, procs, ctx, res);
+  return NewIndexReaderGeneric(sp, idx, procs, ctx, skipMulti, res);
 }
 
 typedef struct {
@@ -996,20 +996,17 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       continue;
     }
 
+    if (ir->skipMulti) {
     // Avoid returning the same doc
     //
-    // Currently the only relevant predicate for multi-value is `any`, therefore a first match is enough.
-    // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
-    if (delta) {
-      // Different docId
-      ir->sameId = false;
-    } else if (ir->sameId) {
-      // Not the first encounter with same docId
-      continue;
-    } else {
-      // The first encounter with potentially same docId
-      ir->sameId = true;
+    // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
+    // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.    
+      if( ir->sameId == ir->lastId) {
+        continue;
+      }
+      ir->sameId = ir->lastId;
     }
+    
 
     ++ir->len;
     *e = record;
@@ -1152,7 +1149,7 @@ size_t IR_NumDocs(void *ctx) {
 }
 
 static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedIndex *idx,
-                             IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
+                             IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
                              RSIndexResult *record) {
   ret->currentBlock = 0;
   ret->idx = idx;
@@ -1160,7 +1157,8 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->record = record;
   ret->len = 0;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
-  ret->sameId = false;
+  ret->sameId = 0;
+  ret->skipMulti = skipMulti;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
   ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;
@@ -1170,10 +1168,10 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
 }
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
-                                          IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
+                                          IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
                                           RSIndexResult *record) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
-  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, record);
+  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, skipMulti, record);
   return ret;
 }
 
@@ -1196,7 +1194,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 
   IndexDecoderCtx dctx = {.num = fieldMask};
 
-  return NewIndexReaderGeneric(sp, idx, decoder, dctx, record);
+  return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
 }
 
 void IR_Free(IndexReader *ir) {
