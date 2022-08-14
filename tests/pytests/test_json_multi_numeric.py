@@ -195,9 +195,6 @@ def testRange(env):
 
     conn = getConnectionByEnv(env)
 
-    # TODO: remove
-    env.expect('FT.CONFIG', 'SET', 'TIMEOUT', 0).ok()
-    
     arr_len = 20
     sub_arrays = [
         # positive        
@@ -240,6 +237,8 @@ def testRange(env):
 
 def testDebugDump(env):
     """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi numeric values """
+
+    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx:top', 'ON', 'JSON', 'SCHEMA', '$[*]', 'AS', 'val', 'NUMERIC').ok()
