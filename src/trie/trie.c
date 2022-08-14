@@ -96,14 +96,8 @@ TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len,
   // a newly added child must be a terminal node
   TrieNode *child = __newTrieNode(str, offset, len, payload ? payload->data : NULL,
                                   payload ? payload->len : 0, 0, score, 1, n->sortMode);
-  TrieNode *node = __trieNode_children(n)[n->numChildren - 1];
-  rune rchar = *__trieNode_childKey(n, n->numChildren - 1);
-
-
   __trieNode_children(n)[n->numChildren - 1] = child;
   *__trieNode_childKey(n, n->numChildren - 1) = str[offset];
-  node = __trieNode_children(n)[n->numChildren - 1];
-  rchar = *__trieNode_childKey(n, n->numChildren - 1);
   // Sort children on write to avoid sorting on reads
   __trieNode_sortChildren(n);
 
@@ -390,7 +384,7 @@ int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
       // just "fill" the hole with the next node up
       while (i < n->numChildren - 1) {
         nodes[i] = nodes[i + 1];
-        *nk = *nk + 1;
+        *nk = *(nk + 1);
         n->maxChildScore = MAX(n->maxChildScore, nodes[i]->maxChildScore);
         i++;
         nk++;
@@ -403,7 +397,7 @@ int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
 
       // this node is ok!
       // if needed - merge this node with it its single child
-      if (nodes[i]->numChildren == 1) {
+      if (nodes[i] && nodes[i]->numChildren == 1) {
         nodes[i] = __trieNode_MergeWithSingleChild(nodes[i], freecb);
         rc++;
       }
@@ -463,10 +457,9 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
       t_len i = 0;
       TrieNode *nextChild = NULL;
       for (; i < n->numChildren; i++) {
-        TrieNode *child = __trieNode_children(n)[i];
-
-        if (str[offset] == child->str[0]) {
-          nextChild = child;
+        rune ckey = *__trieNode_childKey(n, i);
+        if (str[offset] == ckey) {
+          nextChild = __trieNode_children(n)[i];;
           break;
         }
       }

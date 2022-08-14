@@ -694,14 +694,6 @@ workflows:
       - build-macos:
           context: common
           <<: *on-integ-and-version-tags
-      - coverage:
-          <<: *on-any-branch
-      - sanitize:
-          name: sanitize-<< matrix.san-type >>
-          matrix:
-            parameters:
-              san-type: [address] # [address, memory]
-          <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
       - benchmark-search-oss-standalone:
@@ -712,10 +704,10 @@ workflows:
           <<: *on-perf-and-version-tags
       - benchmark-search-oss-cluster:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch # TODO: don't merge to master with this change!!
       - benchmark-search-oss-standalone-profiler:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch # TODO: don't merge to master with this change!!
       - benchmark-vecsim-oss-standalone-profiler:
           context: common
           <<: *on-perf-and-version-tags
