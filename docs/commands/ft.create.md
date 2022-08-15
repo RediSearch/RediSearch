@@ -21,7 +21,7 @@ FT.CREATE index
           [NOHL] 
           [NOFIELDS] 
           [NOFREQS] 
-          [STOPWORDS stopword [stopword ...]] 
+          [STOPWORDS count [stopword ...]] 
           SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
           [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
 {{< / highlight >}}
