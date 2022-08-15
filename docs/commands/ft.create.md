@@ -21,7 +21,7 @@ FT.CREATE index
           [NOHL] 
           [NOFIELDS] 
           [NOFREQS] 
-          [STOPWORDS count stopword [stopword ...]] 
+          [STOPWORDS stopword [stopword ...]] 
           SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
           [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
 {{< / highlight >}}
@@ -90,6 +90,13 @@ is document attribute that you use as the document rank based on the user rankin
 <summary><code>PAYLOAD_FIELD {payload_attribute}</code></summary> 
 
 is document attribute that you use as a binary safe payload string to the document that can be evaluated at query time by a custom scoring function or retrieved to the client.
+</details>
+
+<details open>
+<summary><code>STOPWORDS {count}</code></summary> 
+
+sets the index with a custom stopword list, to be ignored during indexing and search time. `{count}` is the number of stopwords, followed by a list of stopword
+  arguments exactly the length of `{count}`. If `{count}` is set to 0, the index does not have stopwords.
 </details>
 
 <details open>
