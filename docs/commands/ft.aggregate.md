@@ -86,7 +86,7 @@ sorts the pipeline up until the point of `SORTBY`, using a list of properties.
 applies a 1-to-1 transformation on one or more properties and either stores the result as a new property down the pipeline or replaces any property using this
   transformation. 
   
-`expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example, `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` evaluates this expression dynamically for each record in the pipeline and store the result as a new property called `baz`, wich can be referenced by further `APPLY`/`SORTBY`/`GROUPBY`/`REDUCE` operations down the
+`expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example, `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` evaluates this expression dynamically for each record in the pipeline and store the result as a new property called `baz`, which can be referenced by further `APPLY`/`SORTBY`/`GROUPBY`/`REDUCE` operations down the
   pipeline.
 </details>
 
@@ -95,6 +95,7 @@ applies a 1-to-1 transformation on one or more properties and either stores the 
 
 limits the number of results to return just `num` results starting at index `offset` (zero-based). It is much more efficient to use `SORTBY … MAX` if you
   are interested in just limiting the output of a sort operation.
+  If a key expires during the query, an attempt to `load` the key's value will return a null array. 
 
 However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the `MAX` from `SORTBY` results in the pipeline sorting _all_ the records and then paging over results 50-100.
 </details>
@@ -104,6 +105,13 @@ However, limit can be used to limit results without sorting, or for paging the n
 
 filters the results using predicate expressions relating to values in each result.
   They are applied post query and relate to the current state of the pipeline.
+</details>
+
+<details open>
+<summary><code>WITHCURSOR {COUNT} {read_size} [MAXIDLE {idle_time}]</code></summary> 
+
+Scan part of the results with a quicker alternative than `LIMIT`.
+See [Cursor API](/redisearch/reference/aggregations/#cursor-api) for more details.
 </details>
 
 <details open>

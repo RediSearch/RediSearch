@@ -144,7 +144,7 @@ puts the query terms in the same order in the document as in the query, regardle
 
 use a stemmer for the supplied language during search for query expansion. If querying documents in Chinese, set to `chinese` to
   properly tokenize the query terms. Defaults to English. If an unsupported language is sent, the command returns an error.
-  See `FT.CREATE` for the list of languages.
+  See `FT.CREATE` for the list of languages. 
 </details>
 
 <details open>
