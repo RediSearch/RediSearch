@@ -7,7 +7,6 @@ from RLTest import Env
 
 def testOptimizer(env):
 	env.skipOnCluster()
-	skipOnExistingEnv(env)
 	repeat = 20000
 	conn = getConnectionByEnv(env)
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric', 't', 'text', 'tag', 'TAG')
@@ -103,4 +102,4 @@ def testOptimizer(env):
 	result = env.cmd('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 1500, 'NOCONTENT')
 	env.assertEqual(result[0], 2500) # develop hybrid to get more results
 
-	#input('stop')
+	input('stop')

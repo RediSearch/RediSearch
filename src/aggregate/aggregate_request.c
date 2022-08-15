@@ -845,6 +845,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
     case QN_PHRASE:  // INTERSECT
       for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
         QueryNode *cur = checkQueryTypes(node->children[i], name, parent, otherType);
+        // fix
         if (cur != NULL && *parent != NULL) {
           if (ret != NULL || cur == INVALUD_PTR) {
             return INVALUD_PTR;
@@ -901,6 +902,7 @@ static void QAST_OptimizeNodes(IndexSpec *spec, QueryNode *root, struct qast_opt
   QueryNode *numSortbyNode = checkQueryTypes(root, name, &parentNode, &hasOther);
   if (numSortbyNode && numSortbyNode != INVALUD_PTR) {
     RS_LOG_ASSERT(numSortbyNode->type == QN_NUMERIC, "found it");
+    // If numeric is part of a complex query, remove it
     if (parentNode) {
       for (int i = 0; i < QueryNode_NumChildren(parentNode); ++i) {
         if (parentNode->children[i] == numSortbyNode) {

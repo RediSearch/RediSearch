@@ -2,6 +2,7 @@
 #include "aggregate/aggregate.h"
 
 IndexIterator *NewOptimizerIterator(qast_opt *opt) {
-  OptimizerIterator oi = rm_malloc(sizeof(*oi));
+  OptimizerIterator *oi = rm_malloc(sizeof(*oi));
 
+  return &oi->base;
 }
