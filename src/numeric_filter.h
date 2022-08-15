@@ -21,9 +21,14 @@ typedef struct NumericFilter {
   int inclusiveMin;
   int inclusiveMax;
   const void *geoFilter;
+  size_t offset;
+  size_t limit;
+  bool asc;
 } NumericFilter;
 
-NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax);
+
+NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
+                                size_t offset, size_t limit, bool asc);
 NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status);
 int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);

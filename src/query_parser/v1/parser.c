@@ -1589,7 +1589,7 @@ static YYACTIONTYPE yy_reduce(
       case 50: /* numeric_range ::= LSQB num num RSQB */
 {
   yymsp[-3].minor.yy62 = NewQueryParam(QP_NUMERIC_FILTER);
-  yymsp[-3].minor.yy62->nf = NewNumericFilter(yymsp[-2].minor.yy47.num, yymsp[-1].minor.yy47.num, yymsp[-2].minor.yy47.inclusive, yymsp[-1].minor.yy47.inclusive);
+  yymsp[-3].minor.yy62->nf = NewNumericFilter(yymsp[-2].minor.yy47.num, yymsp[-1].minor.yy47.num, yymsp[-2].minor.yy47.inclusive, yymsp[-1].minor.yy47.inclusive, 0, 0, false);
 }
         break;
       case 51: /* expr ::= modifier COLON geo_filter */

@@ -208,6 +208,9 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
     }
   }
 
+  // TODO: avoid this with opt
+  // if use optimization, use unsorted
+
   if (it->mode == MODE_SORTED && ctx->norig > RSGlobalConfig.minUnionIterHeap) {
     it->Read = UI_ReadSortedHigh;
     it->SkipTo = UI_SkipToHigh;
@@ -606,6 +609,44 @@ void UnionIterator_Free(IndexIterator *itbase) {
 
 static size_t UI_Len(void *ctx) {
   return ((UnionIterator *)ctx)->len;
+}
+
+void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool asc, bool unsort) {
+  UnionIterator *ui = (UnionIterator *)iter;
+  if (ui->norig <= 2) { // nothing to trim
+    return;
+  }
+
+  size_t curTotal = 0;
+  int i;
+  if (offset == 0) {
+    if (asc) {
+      for (i = 1; i < ui->num; ++i) {
+        curTotal += iter->NumEstimated(ui->origits);
+        if (curTotal > limit) {
+          ui->num = i + 1;
+          memset(ui->its + ui->num, 0, ui->norig - ui->num); 
+          break;
+        }
+      }
+    } else {  //desc
+      for (i = ui->num - 2; i > 0; --i) {
+        curTotal += iter->NumEstimated(ui->origits);
+        if (curTotal > limit) {
+          ui->num -= i;
+          memmove(ui->its, ui->its + i, ui->num);
+          memset(ui->its + ui->num, 0, ui->norig - ui->num); 
+          break;
+        }
+      }  
+    }
+  } else {
+    UI_SyncIterList(ui);
+    // todo:
+  }
+  if (unsort) {
+    iter->Read = UI_ReadUnsorted;
+  }
 }
 
 /* The context used by the intersection methods during iterating an intersect

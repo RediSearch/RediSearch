@@ -123,7 +123,7 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = gf->numericFilters[ii] =
-              NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
+              NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, 0, 0, false);
       filt->fieldName = rm_strdup(gf->property);
       filt->geoFilter = gf;
       struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, NULL, INDEXFLD_T_GEO);

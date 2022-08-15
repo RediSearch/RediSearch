@@ -64,6 +64,23 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
+typedef enum {
+  // No optimization
+  Q_OPT_NONE = -1,
+  // Optimization was not assigned
+  Q_OPT_UNDECIDED = 0,
+  // Reduce numeric range. No additional filter
+  Q_OPT_PARTIAL_RANGE = 1,
+  // If there is no sorting or scoring, iteration can stop as soon as heap is full
+  Q_OPT_STOP_EARLY = 2,
+  // Attempt reduced numeric range.
+  // Additional filter might reduce number of matches.
+  // May require additional iteration or change of optimization
+  Q_OPT_HYBRID = 3,
+  // Use `FILTER` result processor
+  Q_OPT_FILTER = 4,
+} Q_Optimize_Type;
+
 typedef struct {
   /* plan containing the logical sequence of steps */
   AGGPlan ap;
@@ -120,6 +137,20 @@ typedef struct {
   clock_t pipelineBuildTime;  // Time for creating the pipeline
 
   const char** requiredFields;
+
+  struct qast_opt {
+    Q_Optimize_Type type;       // type
+    size_t limit;               // number of required results
+    bool hasScorer;             // 
+
+    const char *fieldName;      // name of sortby field
+    const FieldSpec *field;     // spec of sortby field
+    QueryNode *sortbyNode;      // pointer
+    bool asc;                   // ASC/DESC order of sortby
+
+    size_t estimatedNum;
+    size_t estimatedRest;
+  } optimize;
 } AREQ;
 
 /**

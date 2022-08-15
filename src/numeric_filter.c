@@ -82,7 +82,8 @@ void NumericFilter_Free(NumericFilter *nf) {
   rm_free(nf);
 }
 
-NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax) {
+NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
+                                size_t offset, size_t limit, bool asc) {
   NumericFilter *f = rm_malloc(sizeof(NumericFilter));
 
   f->min = min;
@@ -91,5 +92,8 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;
   f->geoFilter = NULL;
+  f->asc = asc;
+  f->offset = offset;
+  f->limit = limit;
   return f;
 }

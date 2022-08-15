@@ -181,7 +181,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT needs two numeric arguments");
       return ARG_ERROR;
     }
-
+    req->optimize.limit = arng->limit + arng->offset;
     if (arng->isLimited && arng->limit == 0) {
       // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
@@ -210,6 +210,9 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (req->reqflags & QEXEC_F_IS_SEARCH && !(QEXEC_F_SEND_SCORES & req->reqflags)) {
       req->searchopts.flags |= Search_IgnoreScores;
     }
+    // get fieldspec of first sortby field
+    req->optimize.fieldName = arng->sortKeys[0];
+    req->optimize.asc = arng->sortAscMap & 0x01;
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
@@ -825,6 +828,154 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
   }
 }
 
+#define INVALUD_PTR ((void *)0xcafecafe)
+
+// TODO: think of location
+static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode **parent,
+                                  bool *otherType) {
+  QueryNode *ret = NULL;
+  switch (node->type) {
+    case QN_NUMERIC:
+      // add support for multiple ranges on field
+      if (name && !strcmp(name, node->nn.nf->fieldName)) {
+        ret = node;
+      }
+      break;
+
+    case QN_PHRASE:  // INTERSECT
+      for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
+        QueryNode *cur = checkQueryTypes(node->children[i], name, parent, otherType);
+        if (cur != NULL && *parent != NULL) {
+          if (ret != NULL || cur == INVALUD_PTR) {
+            return INVALUD_PTR;
+          }
+          ret = cur;
+        }
+      }
+      if (ret && parent) *parent = node;
+      break;
+
+    case QN_TOKEN:           // TEXT
+    case QN_FUZZY:           // TEXT
+    case QN_PREFIX:          // TEXT
+    case QN_WILDCARD_QUERY:  // TEXT
+    case QN_LEXRANGE:        // score lex        ??
+      *otherType = true;
+      break;
+
+    case QN_OPTIONAL:  // can't score optional ??
+    case QN_NOT:       // can't score not      ??
+    case QN_UNION:     // TODO
+      for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
+        // ignore return value from a union
+        checkQueryTypes(node->children[i], NULL, NULL, otherType);
+      }
+      break;
+
+    case QN_GEO:       // TODO: ADD GEO support
+    case QN_IDS:       // NO SCORE
+    case QN_TAG:       // NO SCORE
+    case QN_VECTOR:    // NO SCORE
+    case QN_WILDCARD:  // No SCORE
+    case QN_NULL:
+      break;
+  }
+  return ret;
+}
+
+static void QAST_OptimizeNodes(IndexSpec *spec, QueryNode *root, struct qast_opt *opt) {
+  const char *name = opt->fieldName;
+  const FieldSpec *field = name ? IndexSpec_GetField(spec, name, strlen(name)) : NULL;
+  bool isSortby = !!field;
+  // bool isSortable = field->options & FieldSpec_Sortable;
+  bool hasOther = false;
+
+  // TODO: finetune for cases with  scorer for statistics only like coordinator
+  if (!isSortby && opt->hasScorer) {
+    opt->type = Q_OPT_NONE;
+    return;
+  }
+
+  // find the sortby numeric node and remove it from query node tree
+  QueryNode *parentNode = NULL;
+  QueryNode *numSortbyNode = checkQueryTypes(root, name, &parentNode, &hasOther);
+  if (numSortbyNode && numSortbyNode != INVALUD_PTR) {
+    RS_LOG_ASSERT(numSortbyNode->type == QN_NUMERIC, "found it");
+    if (parentNode) {
+      for (int i = 0; i < QueryNode_NumChildren(parentNode); ++i) {
+        if (parentNode->children[i] == numSortbyNode) {
+          array_del_fast(parentNode->children, i);
+          break;
+        }
+      }
+    }
+    numSortbyNode->nn.nf->limit = opt->limit;
+    numSortbyNode->nn.nf->asc = opt->asc;
+  } else {
+    numSortbyNode = NULL;
+  }
+  opt->sortbyNode = numSortbyNode;
+
+  // there are no other filter except for our numeric
+  // if has sortby, use limited range
+  // else, return after enough result found
+  if (!hasOther) {
+    opt->type = isSortby ? Q_OPT_PARTIAL_RANGE : Q_OPT_STOP_EARLY;
+    return;
+  }
+  opt->type = Q_OPT_UNDECIDED;
+}
+
+static void QAST_OptimizeIterators(AREQ *req, struct qast_opt *opt) {
+  IndexIterator *iter = req->rootiter;
+
+  // no other filter and no sortby, can return early. nothing to do here
+  if (opt->type == Q_OPT_STOP_EARLY || opt->type == Q_OPT_NONE) {
+    return;
+  }
+
+  // limit range to number of required LIMIT
+  if (opt->type == Q_OPT_PARTIAL_RANGE) {
+    if (iter->type == UNION_ITERATOR) {
+      // trim the union numeric iterator to have the minimal number of ranges
+      trimUnionIterator(iter, 0, opt->limit, opt->asc, true);
+    } else if (iter->type == WILDCARD_ITERATOR) {
+      // replace the root iterator with a numeric iterator with minimal number of ranges
+      iter->Free(iter);
+      // TODO: check leakage
+      NumericFilter *nf = NewNumericFilter(NF_NEGATIVE_INFINITY, NF_INFINITY, 1, 1, 0,
+                                           req->optimize.limit, req->optimize.asc);
+      nf->fieldName = rm_strdup(req->optimize.fieldName);
+      req->rootiter = NewNumericFilterIterator(req->sctx, nf, NULL, INDEXFLD_T_NUMERIC);
+    }
+    return;
+  }
+
+  RS_LOG_ASSERT(opt->type == Q_OPT_UNDECIDED, "No optimization applied yet");
+
+  switch (req->rootiter->type) {
+    case WILDCARD_ITERATOR:
+      RS_LOG_ASSERT(0, "treated");
+    default:
+      break;
+      // TODO
+  }
+  /*
+    Q_OPT_NONE = -1,
+    // Optimization was not assigned
+    Q_OPT_UNDECIDED = 0,
+    // Reduce numeric range. No additional filter
+    Q_OPT_PARTIAL_RANGE = 1,
+    // If there is no sorting or scoring, iteration can stop as soon as heap is full
+    Q_OPT_STOP_EARLY = 2,
+    // Attempt reduced numeric range.
+    // Additional filter might reduce number of matches.
+    // May require additional iteration or change of optimization
+    Q_OPT_HYBRID = 3,
+    // Use `FILTER` result processor
+    Q_OPT_FILTER = 4,*/
+}
+
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -872,7 +1023,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QAST_EvalParams(ast, opts, status);
   applyGlobalFilters(opts, ast, sctx);
-  
+
   if (QAST_CheckIsValid(ast, req->sctx->spec, opts, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -883,8 +1034,14 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
+  // check possible optimization after creation of QueryNode tree
+  QAST_OptimizeNodes(req->sctx->spec, req->ast.root, &req->optimize);
+
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
+
+  // check possible optimization after creation of IndexIterator tree
+  QAST_OptimizeIterators(req, &req->optimize);
 
   TimedOut_WithStatus(&req->timeoutTime, status);
 
@@ -1052,13 +1209,14 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap,
+                              req->optimize.type == Q_OPT_STOP_EARLY);
     up = pushRP(req, rp, up);
   }
 
   // No sort? then it must be sort by score, which is the default.
   if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit);
+    rp = RPSorter_NewByScore(limit, req->optimize.type == Q_OPT_STOP_EARLY);
     up = pushRP(req, rp, up);
   }
 
@@ -1071,6 +1229,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
 }
 
 static ResultProcessor *getScorerRP(AREQ *req) {
+  req->optimize.hasScorer |= true;
   const char *scorer = req->searchopts.scorerName;
   if (!scorer) {
     scorer = DEFAULT_SCORER_NAME;
