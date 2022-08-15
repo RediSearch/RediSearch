@@ -419,15 +419,6 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
   int stackPos = 0;
   int rc = 0;
 
-  //if (n->sortMode == Trie_Sort_Score) {
-  //  TrieNode *node = TrieNode_Get(n, str, len, true, NULL);
-  //  if (node) {
-  //    node->flags |= TRIENODE_DELETED;
-  //    rc = 1;
-  //  }
-  //  return rc;
-  //}
-
   while (n && offset < len) {
     stack[stackPos++] = n;
     t_len localOffset = 0;
