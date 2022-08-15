@@ -82,7 +82,7 @@ typedef struct {
 /* Create a new DFA filter  using a Levenshtein automaton, for the given string  and maximum
  * distance. If prefixMode is 1, we match prefixes within the given distance, and then continue
  * onwards to all suffixes. */
-DFAFilter NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
+DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
 
 /* A callback function for the DFA Filter, passed to the Trie iterator */
 FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);

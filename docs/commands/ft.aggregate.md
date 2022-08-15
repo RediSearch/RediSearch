@@ -1,3 +1,4 @@
+
 ---
 syntax: 
 ---
@@ -246,3 +247,4 @@ Next, count GitHub events by user (actor), to produce the most active users.
 
 - [Aggregations](/redisearch/reference/aggregations)
 - [RediSearch](/docs/stack/search)
+

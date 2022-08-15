@@ -5,7 +5,7 @@ import os
 import argparse
 
 HERE = os.path.abspath(os.path.dirname(__file__))
-ROOT = os.path.join(HERE, "..")
+ROOT = os.path.abspath(os.path.join(HERE, ".."))
 READIES = os.path.join(ROOT, "deps/readies")
 sys.path.insert(0, READIES)
 import paella
@@ -74,7 +74,6 @@ class RediSearchSetup(paella.Setup):
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),
                  sudo=self.os != 'macos')
-        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall".format(PYTHON=self.python, READIES=READIES))
         if self.dist != "arch":
             self.install("lcov")
         else:

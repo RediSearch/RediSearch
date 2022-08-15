@@ -18,7 +18,6 @@ typedef uint16_t tm_len_t;
 
 #define TM_NODE_DELETED 0x01
 #define TM_NODE_TERMINAL 0x02
-#define TM_NODE_SORTED 0x04
 
 /* This special pointer is returned when TrieMap_Find cannot find anything */
 extern void *TRIEMAP_NOTFOUND;

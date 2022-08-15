@@ -185,7 +185,7 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
   //}
 }
 
-DFAFilter NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
+DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
   Vector *cache = NewVector(dfaNode *, 8);
 
   SparseAutomaton a = NewSparseAutomaton(str, len, maxDist);
@@ -195,14 +195,14 @@ DFAFilter NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode) {
   __dfn_putCache(cache, dr);
   dfa_build(dr, &a, cache);
 
-  DFAFilter ret;
-  ret.cache = cache;
-  ret.stack = NewVector(dfaNode *, 8);
-  ret.distStack = NewVector(int, 8);
-  ret.a = a;
-  ret.prefixMode = prefixMode;
-  Vector_Push(ret.stack, dr);
-  Vector_Push(ret.distStack, (maxDist + 1));
+  DFAFilter *ret = rm_malloc(sizeof(*ret));
+  ret->cache = cache;
+  ret->stack = NewVector(dfaNode *, 8);
+  ret->distStack = NewVector(int, 8);
+  ret->a = a;
+  ret->prefixMode = prefixMode;
+  Vector_Push(ret->stack, dr);
+  Vector_Push(ret->distStack, (maxDist + 1));
 
   return ret;
 }
