@@ -117,7 +117,7 @@ struct TrieMapIterator : public Object {
   String prefix;
   int inSuffix;
 
-  TrieMapIterator(TrieMapNode *node, String &prefix) :
+  TrieMapIterator(TrieMapNode *node, std::string_view prefix) :
       bufLen(16), bufOffset(0), prefix(prefix), inSuffix(0) {
     Push(node);
   }
@@ -147,5 +147,5 @@ struct TrieMap : public Object {
   void IterateRange(const char *min, int minlen, bool includeMin,
                     const char *max, int maxlen, bool includeMax,
                     TrieMapRangeCallback callback, void *ctx);
-  TrieMapIterator *Iterate(String &prefix);
+  TrieMapIterator *Iterate(std::string_view prefix);
 };

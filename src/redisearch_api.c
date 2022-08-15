@@ -388,7 +388,6 @@ static RS_ApiIter* handleIterCommon(IndexSpec *sp, QueryInput *input, char **err
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options;
   QueryError status;
-  Scorer *scorer = NULL;
   RS_ApiIter *it;
 
   if (input->qtype == QUERY_INPUT_STRING) {
@@ -407,8 +406,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec *sp, QueryInput *input, char **err
   }
 
   it->scargs.indexStats = sp->stats;
-  scorer = g_ext.GetScorer(DEFAULT_SCORER_NAME);
-  it->scorer = scorer;
+  *it->scorer = g_ext.GetScorer(DEFAULT_SCORER_NAME);
   it->minscore = DBL_MAX;
 
   // dummy statement for goto

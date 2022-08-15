@@ -194,7 +194,7 @@ double AggregateResult::BM25Scorer(const ScorerArgs *args, const RSDocumentMetad
     explain->children.clear();
     for (auto child : children) {
       score += child->BM25Scorer(args, dmd);
-      explain->children.push_back(child->explain); // @@@ check logic of collecting child explains. double free?
+      explain->children.push_back(args->explain); // @@@ check logic of collecting child explains. double free?
     }
     EXPLAIN("(Weight %.2f * children BM25 %.2f)", weight, score);
   }
@@ -433,7 +433,7 @@ int StemmerExpander::Expand(RSToken *token) {
 
 //---------------------------------------------------------------------------------------------
 
-StemmerExpander::StemmerExpander() {
+StemmerExpander::~StemmerExpander() {
   if (!p) {
     return;
   }
@@ -538,7 +538,7 @@ int DefaultExpander::Expand(RSToken *token) {
 //---------------------------------------------------------------------------------------------
 
 DefaultExpander::~DefaultExpander() {
-  StemmerExpanderFree(p);
+  StemmerExpanderFree(this);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////

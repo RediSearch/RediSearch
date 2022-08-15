@@ -30,7 +30,7 @@ double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const
 //---------------------------------------------------------------------------------------------
 
 struct PhoneticExpander : QueryExpander {
-  PhoneticExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) : 
+  PhoneticExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
     QueryExpander(qast, sctx, lang, status) {}
   virtual int Expand(RSToken *token);
 
@@ -42,7 +42,7 @@ struct PhoneticExpander : QueryExpander {
 //---------------------------------------------------------------------------------------------
 
 struct SynonymExpander : QueryExpander {
-  SynonymExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) : 
+  SynonymExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
     QueryExpander(qast, sctx, lang, status) {}
 
   virtual int Expand(RSToken *token);
@@ -55,8 +55,10 @@ struct SynonymExpander : QueryExpander {
 //---------------------------------------------------------------------------------------------
 
 struct StemmerExpander : QueryExpander {
-  StemmerExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) : 
+  StemmerExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
     QueryExpander(qast, sctx, lang, status) {}
+
+  ~StemmerExpander();
 
   virtual int Expand(RSToken *token);
 
@@ -68,8 +70,10 @@ struct StemmerExpander : QueryExpander {
 //---------------------------------------------------------------------------------------------
 
 struct DefaultExpander : QueryExpander {
-  DefaultExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) : 
+  DefaultExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
     QueryExpander(qast, sctx, lang, status) {}
+
+  ~DefaultExpander();
 
   bool isCn;
 

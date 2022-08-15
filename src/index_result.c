@@ -87,7 +87,7 @@ bool AggregateResult::IsWithinRange(int maxSlop, bool inOrder) const {
   }
 
   // Fill a list of iterators and the last read positions
-  Vector<std::auto_ptr<RSOffsetIterator>> iters(num);
+  RSOffsetIterators iters(num);
   uint32_t positions[num];
   int n = 0;
   for (int i = 0; i < num; i++) {

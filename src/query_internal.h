@@ -48,7 +48,7 @@ struct Query : Object {
   uint32_t tokenId;
   DocTable *docTable;
 
-  Query(QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx, ConcurrentSearch *conc);
+  Query(const QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx, ConcurrentSearch *conc);
 
   IndexIterator *Eval(QueryNode *node);
 };

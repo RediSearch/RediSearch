@@ -354,8 +354,8 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
                                rdb_load: TagIndex_RdbLoad,
                                rdb_save: TagIndex_RdbSave,
                                aof_rewrite: GenericAofRewrite_DisabledHandler,
-                               free: TagIndex_Free,
-                               mem_usage: TagIndex_MemUsage};
+                               mem_usage: TagIndex_MemUsage,
+                               free: TagIndex_Free};
 
   TagIndexType = RedisModule_CreateDataType(ctx, "ft_tagidx", TAGIDX_CURRENT_VERSION, &tm);
   if (TagIndexType == NULL) {

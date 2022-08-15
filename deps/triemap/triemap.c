@@ -481,7 +481,7 @@ void TrieMapIterator::Pop() {
 // TrieMapIterator::Next are needed to get the results from the iteration. If the
 // prefix is not found, the first call to next will return 0 */
 
-TrieMapIterator *TrieMap::Iterate(String &prefix) {
+TrieMapIterator *TrieMap::Iterate(std::string_view prefix) {
   return new TrieMapIterator(root, prefix);
 }
 

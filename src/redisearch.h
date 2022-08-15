@@ -285,7 +285,7 @@ struct RSOffsetIterator {
   };
 };
 
-typedef Vector<std::auto_ptr<RSOffsetIterator>> RSOffsetIterators;
+typedef Vector<std::unique_ptr<RSOffsetIterator>> RSOffsetIterators;
 
 //---------------------------------------------------------------------------------------------
 

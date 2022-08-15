@@ -98,7 +98,7 @@ RSOffsetIterator::Proxy::~Proxy() {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 std::unique_ptr<RSOffsetIterator> RSOffsetVector::Iterate(RSQueryTerm *t) const {
-  return std::make_unique<RSOffsetIterator>(new RSOffsetVectorIterator(this, t));
+  return std::make_unique<RSOffsetVectorIterator>(this, t);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
