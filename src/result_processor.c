@@ -613,6 +613,16 @@ void SortAscMap_Dump(uint64_t tt, size_t n) {
   printf("\n");
 }
 
+bool RPSorter_IsFull(ResultProcessor *rp) {
+  RPSorter *sorter = (RPSorter *)rp;
+  return sorter->size == sorter->pq->count;
+}
+
+double RPSorter_HeapPercentage(ResultProcessor *rp) {
+  RPSorter *sorter = (RPSorter *)rp;
+  return (double)sorter->pq->count / (double)sorter->size;
+}
+
 /*******************************************************************************************************************
  *  Paging Processor
  *

@@ -209,6 +209,9 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit);
 
+bool RPSorter_IsFull(ResultProcessor *rp);
+double RPSorter_HeapPercentage(ResultProcessor *rp);
+
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
 /*******************************************************************************************************************

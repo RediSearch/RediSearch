@@ -81,6 +81,20 @@ typedef enum {
   Q_OPT_FILTER = 4,
 } Q_Optimize_Type;
 
+typedef struct qast_opt {
+  Q_Optimize_Type type;       // type
+  size_t limit;               // number of required results
+  bool hasScorer;             // 
+
+  const char *fieldName;      // name of sortby field
+  const FieldSpec *field;     // spec of sortby field
+  QueryNode *sortbyNode;      // pointer
+  bool asc;                   // ASC/DESC order of sortby
+
+  size_t estimatedNum;
+  size_t estimatedRest;
+} qast_opt;
+
 typedef struct {
   /* plan containing the logical sequence of steps */
   AGGPlan ap;
@@ -138,19 +152,7 @@ typedef struct {
 
   const char** requiredFields;
 
-  struct qast_opt {
-    Q_Optimize_Type type;       // type
-    size_t limit;               // number of required results
-    bool hasScorer;             // 
-
-    const char *fieldName;      // name of sortby field
-    const FieldSpec *field;     // spec of sortby field
-    QueryNode *sortbyNode;      // pointer
-    bool asc;                   // ASC/DESC order of sortby
-
-    size_t estimatedNum;
-    size_t estimatedRest;
-  } optimize;
+  qast_opt optimize;
 } AREQ;
 
 /**

@@ -50,9 +50,9 @@ def testOptimizer(env):
     ### filter with score ###
     # stop after enough results were collected
 	env.expect('ft.search', 'idx', 'foo', 'limit', 0 , 1, 'NOCONTENT').equal([10000, '0'])
-	env.expect('ft.search', 'idx', 'foo', 'limit', 0 , 3, 'NOCONTENT').equal([10000, '0', '1', '2'])
+	env.expect('ft.search', 'idx', 'foo', 'limit', 0 , 3, 'NOCONTENT').equal([10000, '0', '2', '4'])
 	env.expect('ft.search', 'idx_sortable', 'foo', 'limit', 0 , 1, 'NOCONTENT').equal([10000, '0'])
-	env.expect('ft.search', 'idx_sortable', 'foo', 'limit', 0 , 3, 'NOCONTENT').equal([10000, '0', '1', '2'])
+	env.expect('ft.search', 'idx_sortable', 'foo', 'limit', 0 , 3, 'NOCONTENT').equal([10000, '0', '2', '4'])
 
     # Search only minimal number of ranges
 	env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'limit', 0 , 1, 'NOCONTENT').equal([1400, '0'])
@@ -103,4 +103,4 @@ def testOptimizer(env):
 	result = env.cmd('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 1500, 'NOCONTENT')
 	env.assertEqual(result[0], 2500) # develop hybrid to get more results
 
-	input('stop')
+	#input('stop')
