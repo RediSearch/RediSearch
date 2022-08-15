@@ -539,10 +539,11 @@ static void __trieNode_sortChildren(TrieNode *n) {
       break;
     case Trie_Sort_Score:
       qsort(__trieNode_children(n), n->numChildren, sizeof(TrieNode *), __trieNode_Cmp_Score);
-      for (int i = 0; i < n->numChildren; ++i) {
-        *__trieNode_childKey(n, i) = __trieNode_children(n)[i]->str[0];
-      }
       break;
+    }
+    // Sort the local rune array by the rune in child
+    for (int i = 0; i < n->numChildren; ++i) {
+      *__trieNode_childKey(n, i) = __trieNode_children(n)[i]->str[0];
     }
   }
 }
