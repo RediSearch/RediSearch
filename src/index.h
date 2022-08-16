@@ -82,6 +82,7 @@ void printIteratorProfile(RedisModuleCtx *ctx,
                           int depth,
                           int limited);
 
+void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool asc, bool unsorted);
 
 #ifdef __cplusplus
 }

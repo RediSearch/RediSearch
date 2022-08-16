@@ -355,7 +355,7 @@ QueryNode* RediSearch_CreateTagTokenNode(IndexSpec* sp, const char* token) {
 QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
-  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
+  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, 0, 0, true);
   ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;

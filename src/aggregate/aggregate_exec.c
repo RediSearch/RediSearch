@@ -8,6 +8,7 @@
 #include "score_explain.h"
 #include "commands.h"
 #include "profile.h"
+#include "query_optimizer.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -228,7 +229,8 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     resultsLen = 1;
   } else if (rc == RS_RESULT_ERROR) {
     resultsLen = 2;
-  } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT) {
+  } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
+           !(req->optimizer->type == Q_OPT_NO_SORTER)) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;

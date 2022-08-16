@@ -238,8 +238,8 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 }
 
 /* Recursively add a node's children to the range. */
-void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max) {
-  if (!n) return;
+void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf, size_t *total) {
+  if (!n || (nf->limit && (*total >= nf->offset + nf->limit))) return;
 
   if (n->range) {
     // printf("min %f, max %f, range %f..%f, contained? %d, overlaps? %d, leaf? %d\n", min, max,
@@ -247,25 +247,43 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max)
     //        NumericRange_Overlaps(n->range, min, max), __isLeaf(n));
     // if the range is completely contained in the search, we can just add it and not inspect any
     // downwards
-    if (NumericRange_Contained(n->range, min, max)) {
-      Vector_Push(v, n->range);
+    if (NumericRange_Contained(n->range, nf->min, nf->max)) {
+      if (!nf->offset) {
+        *total += n->range->entries->numDocs;
+        Vector_Push(v, n->range);
+      } else {
+        *total += n->range->entries->numDocs;
+        if (*total >= nf->offset) {
+          Vector_Push(v, n->range);
+        }
+      }
       return;
     }
     // No overlap at all - no need to do anything
-    if (!NumericRange_Overlaps(n->range, min, max)) {
+    if (!NumericRange_Overlaps(n->range, nf->min, nf->max)) {
       return;
     }
   }
 
   // for non leaf nodes - we try to descend into their children
   if (!NumericRangeNode_IsLeaf(n)) {
-    if(min <= n->value) {
-      __recursiveAddRange(v, n->left, min, max);
+    if (nf->asc) {
+      if(nf->min <= n->value) {
+        __recursiveAddRange(v, n->left, nf, total);
+      }
+      if(nf->max >= n->value) {
+        __recursiveAddRange(v, n->right, nf, total);
+      }
+    } else { //descending
+      if(nf->max >= n->value) {
+        __recursiveAddRange(v, n->right, nf, total);
+      }
+      if(nf->min <= n->value) {
+        __recursiveAddRange(v, n->left, nf, total);
+      }
     }
-    if(max >= n->value) {
-      __recursiveAddRange(v, n->right, min, max);
-    }
-  } else if (NumericRange_Overlaps(n->range, min, max)) {
+  } else if (NumericRange_Overlaps(n->range, nf->min, nf->max)) {
+    *total += (*total == 0) ? 1 : n->range->entries->numDocs;
     Vector_Push(v, n->range);
     return;
   }
@@ -278,10 +296,11 @@ int NumericRangeTree_DeleteNode(NumericRangeTree *t, double value) {
 
 /* Find the numeric ranges that fit the range we are looking for. We try to minimize the number of
  * nodes we'll later need to union */
-Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) {
+Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf) {
 
   Vector *leaves = NewVector(NumericRange *, 8);
-  __recursiveAddRange(leaves, n, min, max);
+  size_t total = 0;
+  __recursiveAddRange(leaves, n, nf, &total);
   // printf("Found %zd ranges for %f...%f\n", leaves->top, min, max);
   // for (int i = 0; i < leaves->top; i++) {
   //   NumericRange *rng;
@@ -347,8 +366,8 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value)
   return rv;
 }
 
-Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max) {
-  return NumericRangeNode_FindRange(t->root, min, max);
+Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf) {
+  return NumericRangeNode_FindRange(t->root, nf);
 }
 
 void NumericRangeNode_Traverse(NumericRangeNode *n,
@@ -461,7 +480,7 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
                                      const NumericFilter *f) {
 
-  Vector *v = NumericRangeTree_Find(t, f->min, f->max);
+  Vector *v = NumericRangeTree_Find(t, f);
   if (!v || Vector_Size(v) == 0) {
     if (v) {
       Vector_Free(v);

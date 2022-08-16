@@ -108,7 +108,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
 /* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
  * vector with range node pointers.  */
-Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max);
+Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf);
 
 /* Recursively free a node and its children */
 void NumericRangeNode_Free(NumericRangeNode *n);
@@ -128,7 +128,7 @@ int NumericRangeTree_DeleteNode(NumericRangeTree *t, double value);
 
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
  * Returns a vector with range node pointers. */
-Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max);
+Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf);
 
 /* Free the tree and all nodes */
 void NumericRangeTree_Free(NumericRangeTree *t);
