@@ -3,6 +3,11 @@
 #include "redismodule.h"
 #include <limits.h>
 
+typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
+                                  double* doubleVal);
+
+#if 0
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define REDISEARCH_CAPI_VERSION 1
@@ -318,3 +323,4 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx);
 int RediSearch_Init(RedisModuleCtx* ctx, int mode);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+#endif //0
