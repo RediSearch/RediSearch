@@ -466,7 +466,7 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
 end:
 
   while (stackPos--) {
-    rc += __trieNode_optimizeChildren(stack[stackPos], freecb);
+    __trieNode_optimizeChildren(stack[stackPos], freecb);
   }
   return rc;
 }
