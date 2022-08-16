@@ -15,6 +15,7 @@ extern "C" {
 #define DEFAULT_LIMIT 10
 
 typedef struct Grouper Grouper;
+struct QOptimizer;
 
 typedef enum {
   QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
@@ -120,6 +121,8 @@ typedef struct {
   clock_t pipelineBuildTime;  // Time for creating the pipeline
 
   const char** requiredFields;
+
+  struct QOptimizer *optimizer;        // Hold parameters for query optimizer
 } AREQ;
 
 /**
