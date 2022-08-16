@@ -1,2 +1,2 @@
 add_library(rmutil-cxx OBJECT
-    clock.cc)
+    chrono-clock.cc)

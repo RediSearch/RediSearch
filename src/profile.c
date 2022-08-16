@@ -102,8 +102,8 @@ static double printProfileRP(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *a
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
   size_t nelem = 0;
   
-  steady_clock_t now;
-  req->totalTime += steady_clock_since_msec(&req->initClock);
+  hires_clock_t now;
+  req->totalTime += hires_clock_since_msec(&req->initClock);
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   // Print total time

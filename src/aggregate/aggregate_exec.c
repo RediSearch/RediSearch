@@ -310,7 +310,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         QueryError *status, AREQ **r) {
 
   int rc = REDISMODULE_ERR;
-  steady_clock_t parseClock;
+  hires_clock_t parseClock;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
@@ -350,14 +350,14 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   bool is_profile = IsProfile(*r);
   if (is_profile) {
-    steady_clock_get(&parseClock);
-    (*r)->parseTime += steady_clock_diff_msec(&parseClock, &(*r)->initClock);
+    hires_clock_get(&parseClock);
+    (*r)->parseTime += hires_clock_diff_msec(&parseClock, &(*r)->initClock);
   }
 
   rc = AREQ_BuildPipeline(*r, 0, status);
 
   if (is_profile) {
-    (*r)->pipelineBuildTime = steady_clock_since_msec(&parseClock);
+    (*r)->pipelineBuildTime = hires_clock_since_msec(&parseClock);
   }
 
 done:
@@ -390,7 +390,7 @@ static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int 
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
-    steady_clock_get(&r->initClock);
+    hires_clock_get(&r->initClock);
   }
   return REDISMODULE_OK;
 }
@@ -518,7 +518,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   
   // reset profile clock for cursor reads except for 1st 
   if (IsProfile(req) && req->totalTime != 0) {
-    steady_clock_get(&req->initClock);
+    hires_clock_get(&req->initClock);
   }
 
   // update timeout for current cursor read

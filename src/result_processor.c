@@ -4,7 +4,7 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "rmutil/rm_assert.h"
-#include "rmutil/cxx/steady-clock.h"
+#include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
 
 /*******************************************************************************************************************
@@ -767,10 +767,10 @@ typedef struct {
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  steady_clock_t t0;
-  steady_clock_get(&t0);
+  hires_clock_t t0;
+  hires_clock_get(&t0);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += steady_clock_since_msec(&t0);
+  self->profileTime += hires_clock_since_msec(&t0);
   self->profileCount++;
   return rc;
 }

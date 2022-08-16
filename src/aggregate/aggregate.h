@@ -7,7 +7,7 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 #include "rmutil/rm_assert.h"
-#include "rmutil/cxx/steady-clock.h"
+#include "rmutil/cxx/chrono-clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -115,7 +115,7 @@ typedef struct {
   unsigned int dialectVersion;
 
   /** Profile variables */
-  steady_clock_t initClock;  // Time of start. Reset for each cursor call
+  hires_clock_t initClock;  // Time of start. Reset for each cursor call
   double totalTime;          // Total time. Used to accimulate cursors times
   double parseTime;          // Time for parsing the query
   double pipelineBuildTime;  // Time for creating the pipeline

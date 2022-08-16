@@ -1727,24 +1727,24 @@ typedef struct {
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  steady_clock_t t0; 
-  steady_clock_get(&t0);
+  hires_clock_t t0; 
+  hires_clock_get(&t0);
   int ret = pi->child->Read(pi->child->ctx, e);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += steady_clock_since_msec(&t0);
+  pi->cpuTime += hires_clock_since_msec(&t0);
   return ret;
 }
 
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  steady_clock_t t0; 
-  steady_clock_get(&t0);
+  hires_clock_t t0; 
+  hires_clock_get(&t0);
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += steady_clock_since_msec(&t0);
+  pi->cpuTime += hires_clock_since_msec(&t0);
   return ret;
 }
 
