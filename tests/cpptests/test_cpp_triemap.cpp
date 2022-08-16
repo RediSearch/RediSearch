@@ -112,3 +112,16 @@ TEST_F(TrieMapTest, testLexOrder) {
 
   TrieMap_Free(t, testFreeCB);
 }
+
+TEST_F(TrieMapTest, testbenchmark) {
+  TrieMap *t = NewTrieMap();
+  char buf[1028];
+
+  for (int i = 0; i < 10000000; ++i) {
+    snprintf(buf, 128, "%x", i);
+    TrieMap_Add(t, buf, strlen(buf), (void *)buf, NULL);
+  }
+
+
+  TrieMap_Free(t, testFreeCB);
+}
