@@ -532,3 +532,21 @@ def test_RED_81612(env):
   env.expect('FT.SEARCH', 'idx',
     '(@tg1:{foo*} @tg2:{bar*})|(@tg1:{fo*} @tg2:{ba*})|(@tg1:{foo*} @tg2:{ba*})|(@tg1:{fo*} @tg2:{bar*})')  \
                   .contains('Timeout limit was reached')
+
+
+def testDeleteIndexes(env):
+  # test cleaning of all specs from a prefix 
+  conn = getConnectionByEnv(env)
+  for i in range(10):
+    env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+    env.execute_command('FT.DROPINDEX', i)
+
+def test_sortby_Noexist(env):
+  conn = getConnectionByEnv(env)
+
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't', '1')
+  conn.execute_command('HSET', 'doc2', 'somethingelse', '2')
+
+  # TODO: change behavior so docs which miss sortby field are at the end
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't').equal([2, 'doc2', ['somethingelse', '2'], 'doc1', ['t', '1']])

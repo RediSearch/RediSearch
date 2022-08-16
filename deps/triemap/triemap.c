@@ -199,7 +199,7 @@ static inline void __trieNode_sortChildren(TrieMapNode *n) {
   }
 }
 
-void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
+void *TrieMapNode_Find(TrieMapNode *n, const char *str, tm_len_t len) {
   tm_len_t offset = 0;
   while (n && (offset < len || len == 0)) {
     tm_len_t localOffset = 0;
@@ -362,7 +362,7 @@ TrieMapNode *TrieMapNode_FindNode(TrieMapNode *n, char *str, tm_len_t len, tm_le
   return NULL;
 }
 
-void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len) {
+void *TrieMap_Find(TrieMap *t, const char *str, tm_len_t len) {
   return TrieMapNode_Find(t->root, str, len);
 }
 
