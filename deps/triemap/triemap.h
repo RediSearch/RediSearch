@@ -74,7 +74,7 @@ int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplace
  * constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
  * comparing to it, becase NULL can be a valid result.
  */
-void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len);
+void *TrieMap_Find(TrieMap *t, const char *str, tm_len_t len);
 
 /* Find nodes that have a given prefix. Results are placed in an array.
  */

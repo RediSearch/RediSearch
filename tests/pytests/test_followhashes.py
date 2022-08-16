@@ -540,18 +540,6 @@ def testRestore(env):
     env.expect('RESTORE', 'doc1', 0, dump)
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
 
-@skip
-# TODO fix flaky
-def testExpire(env):
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
-    conn.execute_command('HSET', 'doc1', 'test', 'foo')
-    env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-    conn.execute_command('PEXPIRE', 'doc1', '1')
-    env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-    sleep(1.1)
-    env.expect('FT.SEARCH idx foo').equal([0])
-
 def testEvicted(env):
     env.skipOnCluster()
     skipOnCrdtEnv(env)

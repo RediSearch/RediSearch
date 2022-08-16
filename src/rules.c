@@ -191,7 +191,8 @@ static SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *
   return node;
 }
 
-static void SchemaPrefixNode_Free(SchemaPrefixNode *node) {
+static void SchemaPrefixNode_Free(void *n) {
+  SchemaPrefixNode *node = n;
   array_free(node->index_specs);
   rm_free(node->prefix);
   rm_free(node);
@@ -485,25 +486,25 @@ void SchemaPrefixes_Add(const char *prefix, IndexSpec *spec) {
 }
 
 void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
-  TrieMapIterator *it = TrieMap_Iterate(ScemaPrefixes_g, "", 0);
-  while (true) {
-    char *p;
-    tm_len_t len;
-    SchemaPrefixNode *node = NULL;
-    if (!TrieMapIterator_Next(it, &p, &len, (void **)&node)) {
-      break;
+  if (!spec || !spec->rule || !spec->rule->prefixes) return;
+
+  const char **prefixes = spec->rule->prefixes;
+  for (int i = 0; i < array_len(prefixes); ++i) {
+    // retrieve list of specs matching the prefix
+    SchemaPrefixNode *node = TrieMap_Find(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]));
+    if (node == TRIEMAP_NOTFOUND) {
+      continue;
     }
-    if (!node) {
-      return;
-    }
-    for (int i = 0; i < array_len(node->index_specs); ++i) {
-      if (node->index_specs[i] == spec) {
-        array_del_fast(node->index_specs, i);
+    // iterate over specs list and remove
+    for (int j = 0; j < array_len(node->index_specs); ++j) {
+      if (node->index_specs[j] == spec) {
+        array_del_fast(node->index_specs, j);
+        if (array_len(node->index_specs) == 0) {
+          // if all specs were deleted, remove the node
+          TrieMap_Delete(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]), SchemaPrefixNode_Free);
+        }
         break;
       }
     }
   }
-  TrieMapIterator_Free(it);
 }
-
-///////////////////////////////////////////////////////////////////////////////////////////////
