@@ -350,6 +350,16 @@ void CursorList_Destroy(CursorList *cl) {
   }
   kh_destroy(cursors, cl->lookup);
 
-  dictRelease(cl->specsDict);
+  // free the dictionary
+  dictIterator *iter = dictGetIterator(cl->specsDict);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    CursorSpecInfo *sp = dictGetVal(entry);
+    rm_free(sp->keyName);
+    rm_free(sp);
+  }
+  dictReleaseIterator(iter);
+  dictEmpty(cl->specsDict, NULL);
+
   pthread_mutex_destroy(&cl->lock);
 }
