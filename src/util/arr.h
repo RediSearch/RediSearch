@@ -171,7 +171,7 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
       a__oldlen = array_len(arrpp);                                     \
       arrpp = (T *)array_grow(arrpp, n);                                \
     }                                                                   \
-    memmove(((char *)arrpp) + sizeof(T), arrpp, a__oldlen * sizeof(T)); \
+    memmove((arrpp) + a__oldlen, arrpp, a__oldlen * sizeof(T));         \
     memcpy(arrpp, src, n * sizeof(T));                                  \
     arrpp;                                                              \
   })
