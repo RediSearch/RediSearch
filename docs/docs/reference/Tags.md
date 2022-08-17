@@ -26,7 +26,7 @@ The main differences between tag and full-text fields are:
 
 ## Creating a tag field
 
-Tag fields can be added to the schema in FT.ADD with the following syntax:
+Tag fields can be added to the schema in FT.CREATE with the following syntax:
 
 ```
 FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}] [CASESENSITIVE]
