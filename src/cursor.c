@@ -142,7 +142,7 @@ void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
     info = rm_malloc(sizeof(*info));
     info->keyName = rm_strdup(k);
     info->used = 0;
-    dictAdd(cl->specsDict, k, info);
+    dictAdd(cl->specsDict, (void *)k, info);
   }
   info->cap = capacity;
 }
