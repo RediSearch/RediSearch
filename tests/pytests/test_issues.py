@@ -525,7 +525,7 @@ def test_sortby_Noexist(env):
   env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '2').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
 
   # receive a result w/o sortby field at the end. 
-  # remove in test to support test on clusteryy
+  # remove in test to support test on cluster
   res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3')
   env.assertEqual(res[0:5], [4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
  
@@ -535,3 +535,13 @@ def test_sortby_Noexist(env):
   if not env.isCluster():
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3'], 'doc2', ['somethingelse', '2']])
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1'], 'doc4', ['somethingelse', '4']])
+
+def testDeleteIndexes(env):
+  # test cleaning of all specs from a prefix 
+  conn = getConnectionByEnv(env)
+  for i in range(10):
+    env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+    env.execute_command('FT.DROPINDEX', i)
+
+  # create an additional index
+  env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')

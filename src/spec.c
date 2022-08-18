@@ -24,13 +24,13 @@
 #include "doc_types.h"
 #include "rdb.h"
 #include "commands.h"
+#include "rmutil/cxx/chrono-clock.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
-int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -2087,8 +2087,6 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
     RedisModule_FreeString(ctx.redisCtx, keyName);
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
@@ -2543,7 +2541,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
-  clock_t startDocTime  = clock();
+  hires_clock_t t0;
+  hires_clock_get(&t0);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
@@ -2579,8 +2578,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   Document_Free(&doc);
 
-  clock_t totalDocTime = clock() - startDocTime;
-  spec->stats.totalIndexTime += totalDocTime;
+  spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
 
   return REDISMODULE_OK;
 }

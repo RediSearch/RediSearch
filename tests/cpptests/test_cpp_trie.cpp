@@ -20,7 +20,7 @@ static bool trieInsert(Trie *t, const std::string &s) {
   return trieInsert(t, s.c_str(), s.size());
 }
 
-static int rangeFunc(const rune *u16, size_t nrune, void *ctx) {
+static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload) {
   size_t n;
   char *s = runesToStr(u16, nrune, &n);
   std::string xs(s, n);
@@ -197,6 +197,88 @@ TEST_F(TrieTest, testFreeCallback) {
 
   RSPayload payload = { .data = (char *)&str, .len = sizeof(str) };
   Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload);
+
+  TrieType_Free(t);
+}
+
+void checkNext(TrieIterator *iter, const char *str) {
+  char buf[16];
+  rune *rstr = (rune *)&buf;
+  t_len rlen;
+  float score;
+  RSPayload payload;
+
+  TrieIterator_Next(iter, &rstr, &rlen, &payload, &score, NULL);
+  size_t len;
+  char *res_str = runesToStr(rstr, rlen, &len);
+  ASSERT_STREQ(res_str, str);
+  rm_free(res_str);
+}
+
+TEST_F(TrieTest, testLexOrder) {
+  Trie *t = NewTrie(trieFreeCb, Trie_Sort_Lex);
+
+  trieInsert(t, "hello");
+  trieInsert(t, "world");
+  trieInsert(t, "helen");
+  trieInsert(t, "foo");
+  trieInsert(t, "bar");
+  trieInsert(t, "help");
+
+  TrieIterator *iter = Trie_Iterate(t, "", 0, 0, 1);
+  checkNext(iter, "bar");
+  checkNext(iter, "foo");
+  checkNext(iter, "helen");
+  checkNext(iter, "hello");
+  checkNext(iter, "help");
+  checkNext(iter, "world");
+  TrieIterator_Free(iter);
+
+  Trie_Delete(t, "bar", 3);
+  Trie_Delete(t, "hello", 5);
+  Trie_Delete(t, "world", 5);
+
+  iter = Trie_Iterate(t, "", 0, 0, 1);
+  checkNext(iter, "foo");
+  checkNext(iter, "helen");
+  checkNext(iter, "help");
+  TrieIterator_Free(iter);
+
+  TrieType_Free(t);
+}
+
+bool trieInsertByScore(Trie *t, const char *s, float score) {
+  return Trie_InsertStringBuffer(t, s, strlen(s), score, 1, NULL);
+}
+
+TEST_F(TrieTest, testScoreOrder) {
+  Trie *t = NewTrie(trieFreeCb, Trie_Sort_Score);
+
+  trieInsertByScore(t, "hello", 4);
+  trieInsertByScore(t, "world", 2);
+  trieInsertByScore(t, "foo", 6);
+  trieInsertByScore(t, "bar", 1);
+  trieInsertByScore(t, "help", 3);
+  trieInsertByScore(t, "helen", 5);
+
+  TrieIterator *iter = Trie_Iterate(t, "", 0, 0, 1);
+  checkNext(iter, "foo");
+  checkNext(iter, "helen");
+  checkNext(iter, "hello");
+  checkNext(iter, "help");
+  checkNext(iter, "world");
+  checkNext(iter, "bar");
+  TrieIterator_Free(iter);
+
+  Trie_Delete(t, "hello", 5);
+  Trie_Delete(t, "world", 5);
+  Trie_Delete(t, "bar", 3);
+
+  iter = Trie_Iterate(t, "", 0, 0, 1);
+  checkNext(iter, "foo");
+  checkNext(iter, "helen");
+  checkNext(iter, "help");
+  TrieIterator_Free(iter);
 
   TrieType_Free(t);
 }

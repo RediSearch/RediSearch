@@ -538,7 +538,6 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   // and when the deployment is not enterprise-crdt
   if(!isFeatureSupported(RM_SCAN_KEY_API_FIX) || isCrdt){
     rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
-
     if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
       goto done;
     }
@@ -651,6 +650,14 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
     }
   } else {
     rv = loadIndividualKeys(it, dst, options);
+  }
+  // if loading the document failed b/c it does not exist, delete the document from DocTable
+  // this will mark doc as deleted and reply with `(nil)`
+  if (rv != REDISMODULE_OK) {
+    RedisModuleCtx *ctx = options->sctx->redisCtx;
+    RedisModuleString *rmstr = DMD_CreateKeyString(options->dmd, ctx);
+    IndexSpec_DeleteDoc(options->sctx->spec, ctx, rmstr);
+    RedisModule_FreeString(ctx, rmstr);
   }
   return rv;
 }
