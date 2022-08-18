@@ -359,7 +359,7 @@ void CursorList_Destroy(CursorList *cl) {
     rm_free(sp);
   }
   dictReleaseIterator(iter);
-  dictEmpty(cl->specsDict, NULL);
+  dictRelease(cl->specsDict);
 
   pthread_mutex_destroy(&cl->lock);
 }
