@@ -2,7 +2,6 @@
 #include "rmutil/rm_assert.h"
 #include "config.h"
 #include "wildcard/wildcard.h"
-#include "config.h"
 
 #include <string.h>
 #include <strings.h>
@@ -14,7 +13,6 @@ typedef struct suffixData {
   arrayof(char *) array;   // list of words containing the string. weak pointers
 } suffixData;
 
-#define UNINITIALIZED -1
 #define Suffix_GetData(node) node ? node->payload ? \
                              (suffixData *)node->payload->data : NULL : NULL
 
@@ -211,7 +209,7 @@ int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *to
 
   // choose best option
   int score = INT32_MIN;
-  int retidx = UNINITIALIZED;
+  int retidx = REDISEARCH_UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
     if (tokenLen[i] < MIN_SUFFIX) {
       continue;
@@ -269,7 +267,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
 
   // choose best option
   int score = INT32_MIN;
-  int retidx = UNINITIALIZED;
+  int retidx = REDISEARCH_UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
     if (tokenLen[i] < MIN_SUFFIX) {
       continue;
@@ -307,7 +305,7 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
     return REDISMODULE_OK;
   }
 
-  suffixData *data = pl->data;
+  suffixData *data = (suffixData *)pl->data;
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
@@ -325,7 +323,7 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   size_t lens[sufCtx->cstrlen];
   int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
 
-  if (useIdx == UNINITIALIZED) {
+  if (useIdx == REDISEARCH_UNINITIALIZED) {
     return 0;
   }
 
@@ -477,8 +475,8 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   size_t lens[len];
   // find best token
   int useIdx = Suffix_ChooseToken(pattern, len, idx, lens);
-  if (useIdx == UNINITIALIZED) {
-    return 0xBAAAAAAD;
+  if (useIdx == REDISEARCH_UNINITIALIZED) {
+    return BAD_POINTER;
   }
 
   size_t tokenidx = idx[useIdx];
