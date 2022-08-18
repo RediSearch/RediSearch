@@ -113,6 +113,7 @@ typedef struct {
   size_t termsSize;
   size_t indexingFailures;
   size_t vectorIndexSize;
+  long double totalIndexTime; // usec
 } IndexStats;
 
 typedef enum {
@@ -138,6 +139,9 @@ typedef enum {
   Index_HasFieldAlias = 0x4000,
   Index_HasVecSim = 0x8000,
   Index_HasSuffixTrie = 0x10000,
+  // If any of the fields has undefined order. This is just a cache for quick lookup
+  Index_HasUndefinedOrder = 0x20000,
+
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -259,7 +263,7 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool cascadeDelete;             // remove keys when removing spec. used by temporary index
+  bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
 
   struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
@@ -277,6 +281,7 @@ typedef struct IndexSpec {
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
+typedef enum TimerOp { TimerOp_Add, TimerOp_Del } TimerOp;
 
 typedef struct SpecOpCtx {
   IndexSpec *spec;
@@ -357,6 +362,14 @@ t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len)
  * require it.
  */
 int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
+
+/**
+ * Check that `slop` and/or `inorder` are allowed on all fields matching the fieldmask (e.g., fields cannot have undefined ordering)
+ * (`RS_FIELDMASK_ALL` fieldmask checks all fields)
+ * Returns true if allowed, and false otherwise.
+ * If not allowed, set error message in status.
+ */
+int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *sp, t_fieldMask fm, QueryError *status);
 
 /* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
  * not sortable */
@@ -527,6 +540,7 @@ void IndexSpec_ClearAliases(IndexSpec *sp);
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
+void Indexes_SetTempSpecsTimers(TimerOp op);
 
 //---------------------------------------------------------------------------------------------
 

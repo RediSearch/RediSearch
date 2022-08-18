@@ -512,6 +512,36 @@ class TestAggregate():
                            'REDUCE', 'COUNT', 1).error()        \
                             .contains('Bad arguments for COUNT: Expected an argument, but none provided')
 
+
+    def testModulo(self):
+        
+        conn = getConnectionByEnv(self.env)
+
+        # With MIN_INF % -1
+        res = self.env.execute_command('ft.aggregate', 'games', '*',
+                                       'APPLY', '-9223372036854775808 % -1')
+        self.env.assertEqual(res[1][1], '0')
+
+        # With Integers
+        res = self.env.execute_command('ft.aggregate', 'games', '*',
+                                       'APPLY', '439974354 % 5')
+        self.env.assertEqual(res[1][1], '4')
+
+        # With Negative
+        res = self.env.execute_command('ft.aggregate', 'games', '*',
+                                       'APPLY', '-54775808 % -5')
+        self.env.assertEqual(res[1][1], '-3')
+
+        res = self.env.execute_command('ft.aggregate', 'games', '*',
+                                       'APPLY', '-14275897 % 5')
+        self.env.assertEqual(res[1][1], '-2')
+
+        # With Floats
+        res = self.env.execute_command('ft.aggregate', 'games', '*',
+                                       'APPLY', '547758.3 % 5.1')
+        self.env.assertEqual(res[1][1], '3')
+
+
     # def testLoadAfterSortBy(self):
     #     with self.env.assertResponseError():
     #         self.env.cmd('ft.aggregate', 'games', '*',

@@ -17,6 +17,7 @@ SANITIZER = os.getenv('SANITIZER', '')
 VALGRIND = os.getenv('VALGRIND', '0') == '1'
 CODE_COVERAGE = os.getenv('CODE_COVERAGE', '0') == '1'
 NO_LIBEXT = os.getenv('NO_LIBEXT', '0') == '1'
+CI = os.getenv('CI', '') != ''
 
 OSNICK = paella.Platform().osnick
 OS = paella.Platform().os

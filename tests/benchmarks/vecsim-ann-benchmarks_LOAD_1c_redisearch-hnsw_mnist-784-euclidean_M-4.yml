@@ -1,0 +1,21 @@
+version: 0.5
+name: "ann-benchmarks_LOAD_1c_redisearch-hnsw_mnist-784-euclidean_M-4"
+metadata:
+  component: "vecsim"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+timeout_seconds: 1800
+setups:
+  - oss-standalone
+  - oss-cluster-03-primaries
+  - oss-cluster-05-primaries
+  - oss-cluster-09-primaries
+dbconfig:
+  dataset_name: "hnsw__mnist-784-euclidean_M-4"
+clientconfig:
+  tool: ann-benchmarks
+  parameters:
+    build-clients: 1
+    test-clients: 0
+  arguments: ' --algorithm redisearch-hnsw --dataset mnist-784-euclidean --run-group M-4 --runs 1'

@@ -68,3 +68,14 @@ def test_curly_brackets(env):
     conn.execute_command('HSET', 'foo{bar}', 't', 'Hello world!')
     env.expect('ft.search', 'idx', 'hello').equal([1, 'foo{bar}', ['t', 'Hello world!']])
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', 1, '__key').equal([1, ['__key', 'foo{bar}']])
+
+def test_MOD_3540(env):
+    # check server does not crash when MAX argument for SORTBY is greater than 10
+    SkipOnNonCluster(env)
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    for i in range(100):
+        conn.execute_command('HSET', i, 't', i)
+    
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '20')

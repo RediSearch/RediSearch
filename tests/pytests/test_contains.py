@@ -285,20 +285,20 @@ def testContainsGC(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE')
 
   conn.execute_command('HSET', 'doc1', 't', 'hello')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['hello', 'ello', 'llo', 'lo'])
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ello', 'hello', 'llo', 'lo'])
   conn.execute_command('HSET', 'doc1', 't', 'world')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'world', 'orld', 'rld'])
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'orld', 'rld', 'world'])
 
   conn.execute_command('HSET', 'doc2', 't', 'bold')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'world', 'orld', 'old', 'rld', 'bold'])
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['bold', 'ld', 'old', 'orld', 'rld', 'world'])
   conn.execute_command('DEL', 'doc2')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['orld', 'ld', 'world', 'rld'])
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'orld', 'rld', 'world'])
 
 def testContainsGCTag(env):
   env.skipOnCluster()
@@ -308,20 +308,20 @@ def testContainsGCTag(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE', 'SORTABLE')
 
   conn.execute_command('HSET', 'doc1', 't', 'hello')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['hello', 'ello', 'llo', 'lo'])
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ello', 'hello', 'llo', 'lo'])
   conn.execute_command('HSET', 'doc1', 't', 'world')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'world', 'orld', 'rld'])
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'orld', 'rld', 'world'])
 
   conn.execute_command('HSET', 'doc2', 't', 'bold')
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'world', 'orld', 'old', 'rld', 'bold'])
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['bold', 'ld', 'old', 'orld', 'rld', 'world'])
   conn.execute_command('DEL', 'doc2')
 
   forceInvokeGC(env, 'idx')
 
-  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'world', 'orld', 'rld'])
+  env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'orld', 'rld', 'world'])
 
 def testContainsDebugCommand(env):
   env.skipOnCluster()
