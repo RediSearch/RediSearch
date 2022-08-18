@@ -143,3 +143,21 @@ def testEmptyNumericLeakCenter(env):
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs / 100 + 100)
+
+def testCardinalityCrash(env):
+    # this test reproduces crash where cardinality array was cleared on the GC
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+    count = 100
+
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
+
+    for i in range(count):
+        conn.execute_command('HSET', 'doc{}'.format(i), 'n', format(i))
+
+    for i in range(count):
+        conn.execute_command('DEL', 'doc{}'.format(i))
+    forceInvokeGC(env, 'idx')
+
+    for i in range(count):
+        conn.execute_command('HSET', 'doc{}'.format(i), 'n', format(i))
