@@ -1033,7 +1033,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
       // No matching terms
       rm_free(its);     
       return NULL;
-    } else if (arr == 0xBAAAAAAD) {
+    } else if (arr == BAD_POINTER) {
       // The wildcard pattern does not include tokens that can be used with suffix trie 
       fallbackBruteForce = true;
     } else {
