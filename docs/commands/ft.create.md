@@ -9,8 +9,8 @@ Create an index with the given specification
 {{< highlight bash >}}
   FT.CREATE index 
     [ON HASH | JSON] 
-    [ PREFIX count prefix [prefix ...]] 
-    [ FILTER {filter}]
+    [PREFIX count prefix [prefix ...]] 
+    [FILTER {filter}]
     [LANGUAGE default_lang] 
     [LANGUAGE_FIELD lang_attribute] 
     [SCORE default_score] 
@@ -23,7 +23,7 @@ Create an index with the given specification
     [NOFIELDS] 
     [NOFREQS] 
     [STOPWORDS count [stopword ...]] 
-    [ SKIPINITIALSCAN]
+    [SKIPINITIALSCAN]
     SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
     [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
 {{< / highlight >}}
