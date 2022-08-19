@@ -231,35 +231,54 @@ ENCODER(encodeRawDocIdsOnly) {
 #define NUM_ENCODING_COMMON_TYPE_POSITIVE_INT   2
 #define NUM_ENCODING_COMMON_TYPE_NEG_INT        3
 
+
+typedef struct {
+  // Common fields
+  uint8_t deltaEncoding : 3;  // representing a zero-based number of bytes that stores the docId delta (delta from the previous docId)
+                              // (zero delta is required to store multiple values in the same doc)
+                              // Max delta size is 7 bytes, allowing for max value of 2^((2^3-1)*8)-1
+  uint8_t type : 2; // (tiny, float, posint, negint)
+  // Specific fields
+  uint8_t specific : 3; // dummy field
+} NumEncodingCommon;
+
 typedef struct {
   uint8_t deltaEncoding : 3;
   uint8_t type : 2;
+  // Specific fields
   uint8_t valueByteCount : 3; //1 to 8 (encoded as 0-7, since value 0 is represented as tiny)
 } NumEncodingInt;
 
 typedef struct {
   uint8_t deltaEncoding : 3;
   uint8_t type : 2;
+  // Specific fields
   uint8_t tinyValue : 3;  // corresponds to NUM_TINYENC_MASK
 } NumEncodingTiny;
 
 typedef struct {
   uint8_t deltaEncoding : 3;
   uint8_t type : 2;
+  // Specific fields
   uint8_t isInf : 1;    // -INFINITY has the 'sign' bit set too
   uint8_t sign : 1;
   uint8_t isDouble : 1;  // Read 8 bytes rather than 4
 } NumEncodingFloat;
 
-typedef struct {
-  uint8_t deltaEncoding : 3;
-  uint8_t type : 2; //(tiny, float, posint, negint)
-  uint8_t specific : 3;
-} NumEncodingCommon;
-
+// EncodingHeader is used for encodind/decoding Inverted Index numeric values.
+// This header is written/read to/from Inverted Index entries, followed by the actual bytes representing the delta (if not zero), followed by the actual bytes representing the numeric value.
+// (see encoder `encodeNumeric` and decoder `readNumeric`)
+// Its internal structs must all be of the same size, beginning with common "base" fields, followed by specific fields per "derived" struct.
+// The specific types are:
+//  tiny - for tiny positive integers, including zero
+//  posint and negint - for none-zero integer nubmers
+//  float - for floating point numbers
 typedef union {
+  // Alternative representation as a primitive number (used for writing)
   uint8_t storage;
+  // Common struct
   NumEncodingCommon encCommon;
+  // Specific structs
   NumEncodingInt encInt;
   NumEncodingTiny encTiny;
   NumEncodingFloat encFloat;
@@ -274,7 +293,7 @@ static void dumpBits(uint64_t value, size_t numBits, FILE *fp) {
 }
 
 static void dumpEncoding(EncodingHeader header, FILE *fp) {
-  fprintf(fp, "DeltaBytes: %u\n", header.encCommon.deltaEncoding + 1);
+  fprintf(fp, "DeltaBytes: %u\n", header.encCommon.deltaEncoding);
   fprintf(fp, "Type: ");
   if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_FLOAT) {
     fprintf(fp, " FLOAT\n");
@@ -301,18 +320,20 @@ ENCODER(encodeNumeric) {
 
   EncodingHeader header = {.storage = 0};
 
+  // Write a placeholder for the header and mark its position
   size_t pos = BufferWriter_Offset(bw);
   size_t sz = Buffer_Write(bw, "\0", 1);
 
-  // Write the delta
+  // Write the delta (if not zero)
   size_t numDeltaBytes = 0;
-  do {
+  while (delta) {
     sz += Buffer_Write(bw, &delta, 1);
     numDeltaBytes++;
     delta >>= 8;
-  } while (delta);
-  header.encCommon.deltaEncoding = numDeltaBytes - 1;
+  }
+  header.encCommon.deltaEncoding = numDeltaBytes;
 
+  // Write the numeric value
   if ((double)tinyNum == realVal) {
     // Number is small enough to fit?
     header.encTiny.tinyValue = tinyNum;
@@ -362,9 +383,10 @@ ENCODER(encodeNumeric) {
     }
   }
 
+  // Write the header at its marked position
   *BufferWriter_PtrAt(bw, pos) = header.storage;
-  // printf("== Encoded ==\n");
-  // dumpEncoding(header, stdout);
+  //printf("== Encoded ==\n");
+  //dumpEncoding(header, stdout);
 
   return sz;
 }
@@ -468,7 +490,11 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   } else {
     delta = docId - blk->firstId;
   }
-  if (delta > UINT32_MAX) {
+  
+  // For non-numeric encoders the maximal delta is UINT32_MAX (since it is encoded with 4 bytes)
+  //
+  // For numeric encoder the maximal delta is practically not a limit (see structs `EncodingHeader` and `NumEncodingCommon`)
+  if (encoder != encodeNumeric && delta > UINT32_MAX) {
     blk = InvertedIndex_AddBlock(idx, docId);
     delta = 0;
   }
@@ -643,7 +669,10 @@ DECODER(readNumeric) {
   Buffer_Read(br, &header, 1);
 
   res->docId = 0;
-  Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding + 1);
+  // Read the delta (if not zero)
+  if (header.encCommon.deltaEncoding) {
+    Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding);
+  }
 
   if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_FLOAT) {
     if (header.encFloat.isInf) {
