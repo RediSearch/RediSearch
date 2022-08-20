@@ -221,7 +221,6 @@ STATIC_LIBSTDCXX ?= 1
 
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
-override SLOW=1
 endif
 
 ifneq ($(SAN),)
