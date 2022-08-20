@@ -77,8 +77,13 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     case '*':
       res = n1 * n2;
       break;
-    case '%':
-      res = (long long)n1 % (long long)n2;
+    case '%':	      
+        // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=30484
+        if (n2 == -1){ 
+          res = 0;
+        } else {
+          res = (long long)n1 % (long long)n2;
+        }
       break;
     case '^':
       res = pow(n1, n2);
@@ -305,6 +310,10 @@ EvalCtx *EvalCtx_Create() {
   r->ee.lookup = &r->lk;
   r->ee.srcrow = &r->row;
   r->ee.err = &r->status;
+
+  r->res = *RS_NullVal();
+
+  r->_expr = NULL;
 
   return r;
 }

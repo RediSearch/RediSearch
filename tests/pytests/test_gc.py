@@ -26,9 +26,7 @@ def testBasicGC(env):
 
     env.assertEqual(env.cmd('ft.del', 'idx', 'doc0'), 1)
 
-    for i in range(100):
-        # gc is random so we need to do it long enough times for it to work
-        forceInvokeGC(env, 'idx')
+    forceInvokeGC(env, 'idx')
 
     # check that the gc collected the deleted docs
     env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [int(i) for i in range(2, 102)])
@@ -271,3 +269,21 @@ def testGFreeEmpryTerms(env):
     forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal([])
 
+def testAutoMemory_MOD_3951():    
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    # create index with filter
+    conn.execute_command('FT.CREATE', 'idx', 'FILTER', '@t == "5"', 'SCHEMA', 't', 'TEXT')
+    # add docs
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('HSET', i, 't', i % 10)
+    # delete 1 doc and trigger GC
+    conn.execute_command('DEL', 0)
+    forceInvokeGC(env, 'idx')
+    # call alter to trigger rescan
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', '2nd', 'TEXT').equal('OK')
+
+    # This test should catch some leaks on the sanitizer

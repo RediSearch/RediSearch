@@ -321,21 +321,32 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   }
 
   RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
-  size_t totalSize = 0;
-  for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
-    const DocumentField *ff = aCtx->doc->fields + ii;
-    if ((ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG)) &&
-        (ff->unionType == FLD_VAR_T_CSTR || ff->unionType == FLD_VAR_T_RMS)) {
-      size_t n;
-      DocumentField_GetValueCStr(&aCtx->doc->fields[ii], &n);
-      totalSize += n;
+  
+  bool concurrentSearch = false;
+  if (AddDocumentCtx_IsBlockable(aCtx)) {
+    size_t totalSize = 0;
+    for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
+      const DocumentField *ff = aCtx->doc->fields + ii;
+      if ((ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
+        size_t n;
+        if (ff->unionType == FLD_VAR_T_CSTR || ff->unionType == FLD_VAR_T_RMS) {          
+          DocumentField_GetValueCStr(&aCtx->doc->fields[ii], &n);
+          totalSize += n;
+        } else if (ff->unionType == FLD_VAR_T_ARRAY) {
+          for (size_t jj = 0; jj < ff->arrayLen; ++jj) {
+            DocumentField_GetArrayValueCStr(&aCtx->doc->fields[ii], &n, jj);
+            totalSize += n;
+          }
+        }
+      }
     }
+    concurrentSearch = (totalSize >= SELF_EXEC_THRESHOLD); 
   }
-
-  if (totalSize >= SELF_EXEC_THRESHOLD && AddDocumentCtx_IsBlockable(aCtx)) {
-    ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
+  
+  if (!concurrentSearch) {
+    Document_AddToIndexes(aCtx);    
   } else {
-    Document_AddToIndexes(aCtx);
+    ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
   }
 }
 
@@ -406,9 +417,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       return 0;
     // Unsupported type retrun an error
     case FLD_VAR_T_NUM:
-    case FLD_VAR_T_GEO:
-    case FLD_VAR_T_ARRAY:
+    case FLD_VAR_T_GEO:    
       return -1;
+    case FLD_VAR_T_ARRAY:
     case FLD_VAR_T_CSTR:
     case FLD_VAR_T_RMS:
       /*continue*/;
@@ -416,9 +427,13 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
   size_t fl;
   const char *c = DocumentField_GetValueCStr(field, &fl);
+  size_t valueCount = (field->unionType != FLD_VAR_T_ARRAY ? 1 : field->arrayLen);
 
   if (FieldSpec_IsSortable(fs)) {
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+    // Currently multi values are skipped from sorting vector
+    if (field->unionType != FLD_VAR_T_ARRAY) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+    }
   }
 
   if (FieldSpec_IsIndexable(fs)) {
@@ -428,9 +443,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     if (aCtx->byteOffsets) {
       curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
       curOffsetWriter = &aCtx->offsetsWriter;
-    }
-
-    ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
+    }    
 
     uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
     if (FieldSpec_IsNoStem(fs)) {
@@ -439,20 +452,40 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     if (FieldSpec_IsPhonetics(fs)) {
       options |= TOKENIZE_PHONETICS;
     }
-    aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
 
-    Token tok = {0};
-    uint32_t newTokPos;
-    while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
-      forwardIndexTokenFunc(&tokCtx, &tok);
+    unsigned int multiTextOffsetDelta;
+    if (valueCount > 1 && RSGlobalConfig.multiTextOffsetDelta > 0) {
+      multiTextOffsetDelta = RSGlobalConfig.multiTextOffsetDelta - 1;
+    } else {
+      multiTextOffsetDelta = 0;
     }
-    uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
 
-    if (curOffsetField) {
-      curOffsetField->lastTokPos = lastTokPos;
+    for (size_t i = 0; i < valueCount; ++i) {
+    
+      // Already got the first value
+      if (i) {        
+        c = DocumentField_GetArrayValueCStr(field, &fl, i);
+      }
+      ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
+      aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
+      
+      Token tok = {0};
+      uint32_t newTokPos;
+      while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
+        forwardIndexTokenFunc(&tokCtx, &tok);
+      }
+      uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
+
+      if (curOffsetField) {
+        curOffsetField->lastTokPos = lastTokPos;
+      }
+      aCtx->totalTokens = lastTokPos;
+      Token_Destroy(&tok);
+
+      aCtx->tokenizer->ctx.lastOffset += multiTextOffsetDelta;
     }
-    aCtx->totalTokens = lastTokPos;
-    Token_Destroy(&tok);
+    // Decrease the last increment
+    aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
   }
   return 0;
 }
@@ -606,6 +639,9 @@ FIELD_BULK_INDEXER(tagIndexer) {
     if (!tidx) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
       return -1;
+    }
+    if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
+      tidx->suffix = NewTrieMap();
     }
   }
 
@@ -872,12 +908,36 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_CSTR:
       *len = df->strlen;
       return df->strval;
+    case FLD_VAR_T_ARRAY:
+      if (df->arrayLen > 0) {
+        // Return the first entry
+        *len = strlen(df->multiVal[0]);
+        return df->multiVal[0];
+      }
+      break;
     case FLD_VAR_T_NULL:
       break;
     case FLD_VAR_T_NUM:
-    case FLD_VAR_T_GEO:
-    case FLD_VAR_T_ARRAY:
+    case FLD_VAR_T_GEO:    
       RS_LOG_ASSERT(0, "invalid types");
   }
   return NULL;
+}
+
+const char *DocumentField_GetArrayValueCStr(const DocumentField *df, size_t *len, size_t index) {
+  if (df->unionType == FLD_VAR_T_ARRAY && index < df->arrayLen) {
+    *len = strlen(df->multiVal[index]);
+    return df->multiVal[index];
+  }
+  *len = 0;
+  return NULL;
+}
+
+size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df) {
+  RS_LOG_ASSERT(df->unionType == FLD_VAR_T_ARRAY, "must be array");
+  size_t len = 0;
+  for (size_t i = 0; i < df->arrayLen; ++i) {
+    len += strlen(df->multiVal[i]);
+  }
+  return len;
 }

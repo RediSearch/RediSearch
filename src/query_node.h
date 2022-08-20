@@ -52,6 +52,9 @@ typedef enum {
   /* Vector */
   QN_VECTOR,
 
+  /* Wildcard */
+  QN_WILDCARD_QUERY,
+
   /* Null term - take no action */
   QN_NULL
 } QueryNodeType;
@@ -82,6 +85,8 @@ typedef RSToken QueryTokenNode;
 
 typedef struct {
   RSToken tok;
+  bool prefix;
+  bool suffix;
 } QueryPrefixNode;
 
 typedef struct {
@@ -114,8 +119,13 @@ typedef struct {
   bool includeEnd;
 } QueryLexRangeNode;
 
+typedef struct {
+  RSToken tok;
+} QueryVerbatimNode;
+
 typedef enum {
   QueryNode_Verbatim = 0x01,
+  QueryNode_OverriddenInOrder = 0x02,
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
@@ -161,6 +171,7 @@ typedef struct RSQueryNode {
     QueryTagNode tag;
     QueryFuzzyNode fz;
     QueryLexRangeNode lxrng;
+    QueryVerbatimNode verb;
   };
 
   /* The node type, for resolving the union access */
@@ -174,6 +185,7 @@ typedef struct RSQueryNode {
 } QueryNode;
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
+int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool anyField, QueryError *status);
 
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);

@@ -7,7 +7,7 @@ READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
 
 if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
-	cat <<-END
+	cat <<-'END'
 		Get RedisJSON module binaries
 
 		get-redisjson [--help|help]
@@ -15,6 +15,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		Argument variables:
 		OSNICK=nick        Get binaries for given `nick`
 		BRANCH=name        Use given branch
+		OSS=1              Download JSON/OSS
 		REPO_PATH=dir      Get binary artifacts from given repo `dir`
 		BINROOT=dir        On Build, place module .so in `dir`/RedisJSON
 		BUILD=0            Do not build if unable to download
@@ -43,7 +44,7 @@ else
 			eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
 			exit 1
 		fi
-		echo "Cannot match binary artifacts - building RedisJSON from source."
+		echo "Cannot match binary artifacts - building RedisJSON from source"
 		$ROOT/sbin/build-redisjson
 		exit $?
 	fi
@@ -76,14 +77,31 @@ else
 		else
 			nick="rhel7"
 		fi
-	elif [[ ! -z $OSNICK ]]; then
+	elif [[ -n $OSNICK ]]; then
 		nick=$OSNICK
+		OSS=1
+	else
+		OSS=1
 	fi
 	platform="${os}-${nick}-${arch}"
 fi
 
-MOD_S3_URL="http://redismodules.s3.amazonaws.com/rejson/snapshots"
-MOD_RAMP="rejson.${platform}.$BRANCH.zip"
+if [[ $OSS == 1 ]]; then
+	STEM=rejson-oss
+else
+	STEM=rejson
+fi
+MOD_S3_URL="http://redismodules.s3.amazonaws.com/${STEM}/snapshots"
+MOD_RAMP="${STEM}.${platform}.$BRANCH.zip"
+
+if [[ $OSS == 1 ]]; then
+	# fallback to old storage model
+	if ! wget -q --spider $WORK_DIR $MOD_S3_URL/$MOD_RAMP; then
+		STEM=rejson
+		MOD_S3_URL="http://redismodules.s3.amazonaws.com/${STEM}/snapshots"
+		MOD_RAMP="${STEM}.${platform}.$BRANCH.zip"
+	fi
+fi
 
 DEST_REJSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
 

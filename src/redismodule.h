@@ -20,7 +20,7 @@ extern "C" {
 /* API versions. */
 #define REDISMODULE_APIVER_1 1
 
-/* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods 
+/* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods
  * structure is changed, this version number needs to be changed synchronistically. */
 #define REDISMODULE_TYPE_METHOD_VERSION 3
 

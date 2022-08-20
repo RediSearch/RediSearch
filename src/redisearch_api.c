@@ -7,6 +7,7 @@
 #include "search_options.h"
 #include "query_internal.h"
 #include "numeric_filter.h"
+#include "suffix.h"
 #include "query.h"
 #include "indexer.h"
 #include "extension.h"
@@ -98,7 +99,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
   RWLOCK_ACQUIRE_WRITE();
 
-  // TODO: add a function which can take both path and name 
+  // TODO: add a function which can take both path and name
   FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
   int numTypes = 0;
 
@@ -148,6 +149,16 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
     fs->options |= FieldSpec_Phonetics;
     sp->flags |= Index_HasPhonetic;
   }
+  if (options & RSFLDOPT_WITHSUFFIXTRIE) {
+    fs->options |= FieldSpec_WithSuffixTrie;
+    if (fs->types == INDEXFLD_T_FULLTEXT) {
+      sp->suffixMask |= FIELD_BIT(fs);
+      if (!sp->suffix) {
+        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+        sp->flags |= Index_HasSuffixTrie;
+      }
+    }
+  }
 
   RWLOCK_RELEASE();
   return fs->index;
@@ -188,12 +199,12 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
 RSDoc* RediSearch_CreateDocument2(const void* docKey, size_t len, IndexSpec* sp,
                                   double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
-  
-  RSLanguage language = lang ? RSLanguage_Find(lang, 0) : 
+
+  RSLanguage language = lang ? RSLanguage_Find(lang, 0) :
              (sp && sp->rule) ? sp->rule->lang_default : DEFAULT_LANGUAGE;
   double docScore = !isnan(score) ? score :
              (sp && sp->rule) ? sp->rule->score_default : DEFAULT_SCORE;
-  
+
   Document* ret = rm_calloc(1, sizeof(*ret));
   Document_Init(ret, docKeyStr, docScore, language, DocumentType_Hash);
   Document_MakeStringsOwner(ret);
@@ -248,7 +259,7 @@ void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, doubl
   }
 }
 
-int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname, 
+int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
                                     double lat, double lon, unsigned as) {
   if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
     // out of range
@@ -368,21 +379,55 @@ QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lat
   return ret;
 }
 
-QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
+#define NODE_PREFIX 0x1
+#define NODE_SUFFIX 0x2
+
+static QueryNode* RediSearch_CreateAffixNode(IndexSpec* sp, const char* fieldName,
+                                             const char* s, int flags) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
-  ret->pfx.tok =
-      (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
+  ret->pfx = (QueryPrefixNode){
+    .tok = (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0},
+    .prefix = flags & NODE_PREFIX,
+    .suffix = flags & NODE_SUFFIX,
+  };
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
   }
   return ret;
 }
 
-QueryNode* RediSearch_CreateTagPrefixNode(IndexSpec* sp, const char* s) {
+QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
+  return RediSearch_CreateAffixNode(sp, fieldName, s, NODE_PREFIX);
+}
+
+QueryNode* RediSearch_CreateContainsNode(IndexSpec* sp, const char* fieldName, const char* s) {
+  return RediSearch_CreateAffixNode(sp, fieldName, s, NODE_PREFIX | NODE_SUFFIX);
+}
+
+QueryNode* RediSearch_CreateSuffixNode(IndexSpec* sp, const char* fieldName, const char* s) {
+  return RediSearch_CreateAffixNode(sp, fieldName, s, NODE_SUFFIX);
+}
+
+static QueryNode* RediSearch_CreateTagAffixNode(IndexSpec* sp, const char* s, int flags) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
-  ret->pfx.tok =
-      (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
+  ret->pfx = (QueryPrefixNode){
+    .tok = (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0},
+    .prefix = flags & NODE_PREFIX,
+    .suffix = flags & NODE_SUFFIX,
+  };
   return ret;
+}
+
+QueryNode* RediSearch_CreateTagPrefixNode(IndexSpec* sp, const char* s) {
+  return RediSearch_CreateTagAffixNode(sp, s, NODE_PREFIX);
+}
+
+QueryNode* RediSearch_CreateTagContainsNode(IndexSpec* sp, const char* s) {
+  return RediSearch_CreateTagAffixNode(sp, s, NODE_PREFIX | NODE_SUFFIX);
+}
+
+QueryNode* RediSearch_CreateTagSuffixNode(IndexSpec* sp, const char* s) {
+  return RediSearch_CreateTagAffixNode(sp, s, NODE_SUFFIX);
 }
 
 QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
@@ -471,6 +516,7 @@ typedef struct RS_ApiIter {
   RSFreeFunction scorerFree;
   double minscore;  // Used for scoring
   QueryAST qast;    // Used for string queries..
+  IndexSpec* sp;
 } RS_ApiIter;
 
 #define QUERY_INPUT_STRING 1
@@ -491,6 +537,9 @@ typedef struct {
 static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
   // here we only take the read lock and we will free it when the iterator will be freed
   RWLOCK_ACQUIRE_READ();
+  /* We might have multiple readers that reads from the index,
+   * Avoid rehashing the terms dictionary */
+  dictPauseRehashing(sp->keysDict);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options = {0};
@@ -522,6 +571,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;
   it->minscore = DBL_MAX;
+  it->sp = sp;
 
   // dummy statement for goto
   ;
@@ -597,8 +647,8 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
     iter->scorerFree(iter->scargs.extdata);
   }
   QAST_Destroy(&iter->qast);
+  dictResumeRehashing(iter->sp->keysDict);
   rm_free(iter);
-
   RWLOCK_RELEASE();
 }
 
@@ -739,6 +789,9 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
   }
 
   RWLOCK_ACQUIRE_READ();
+  /* We might have multiple readers that reads from the index,
+   * Avoid rehashing the terms dictionary */
+  dictPauseRehashing(sp->keysDict);
 
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
   if (sp->rule) {
@@ -781,9 +834,23 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
     info->lastRunTimeMs = gcStats.lastRunTimeMs;
   }
 
+  dictResumeRehashing(sp->keysDict);
   RWLOCK_RELEASE();
 
   return REDISEARCH_OK;
+}
+
+size_t RediSearch_MemUsage(RSIndex* sp) {
+  size_t res = 0;
+  res += sp->docs.memsize;
+  res += sp->docs.sortablesSize;
+  res += TrieMap_MemUsage(sp->docs.dim.tm);
+  res += sp->stats.invertedSize;
+  res += sp->stats.skipIndexesSize;
+  res += sp->stats.scoreIndexesSize;
+  res += sp->stats.offsetVecsSize;
+  res += sp->stats.termsSize;
+  return res;
 }
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {

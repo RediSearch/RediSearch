@@ -16,7 +16,6 @@ from common import *
 from includes import *
 
 CREATE_INDICES_TARGET_DIR = '/tmp/test'
-BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
@@ -62,8 +61,8 @@ def downloadFiles(target_dir):
         if not os.path.exists(path_dir):
             os.makedirs(path_dir)
         if not os.path.exists(path):
-            subprocess.call(['wget', '-q', BASE_RDBS_URL + f, '-O', path])
-            _, ext = os.path.splitext(f)
+            dpath = paella.wget(BASE_RDBS_URL + f, dest=path)
+            _, ext = os.path.splitext(dpath)
             if ext == '.zip':
                 if not unzip(path, path_dir):
                     return False
@@ -473,7 +472,7 @@ def testShortReadSearch(env):
         env.skip()  # FIXME: enable coverage test
 
     env.skipOnCluster()
-    if env.env.endswith('existing-env') and os.environ.get('CI'):
+    if env.env.endswith('existing-env') and CI:
         env.skip()
 
     if OS == 'macos':

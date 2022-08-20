@@ -43,12 +43,17 @@ percent = '%';
 rsqb = ']';
 lsqb = '[';
 escape = '\\';
+squote = "'";
 escaped_character = escape (punct | space | escape);
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $ 0 ;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
+contains = (star.term.star | star.number.star | star.attr.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
+suffix = (star.term | star.number | star.attr) $1;
 as = 'AS'|'aS'|'As'|'as';
+verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
+wildcard = 'w' . verbatim $4;
 
 main := |*
 
@@ -257,7 +262,60 @@ main := |*
       fbreak;
     }
   };
+  suffix => {
+    int is_attr = (*(ts+1) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.len = te - (ts + 1 + is_attr);
+    tok.s = ts + 1 + is_attr;
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
 
+    RSQuery_Parse_v2(pParser, SUFFIX, tok, q);
+    
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  contains => {
+    int is_attr = (*(ts+1) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.len = te - (ts + 2 + is_attr);
+    tok.s = ts + 1 + is_attr;
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+
+    RSQuery_Parse_v2(pParser, CONTAINS, tok, q);
+    
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  verbatim => {
+    int is_attr = (*(ts+2) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.pos = ts-q->raw;
+    tok.len = te - (ts + 2 + is_attr);
+    tok.s = ts + 1 + is_attr;
+    tok.numval = 0;
+    RSQuery_Parse_v2(pParser, VERBATIM, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  wildcard => {
+    int is_attr = (*(ts+2) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
+    tok.pos = ts-q->raw + 2;
+    tok.len = te - (ts + 3 + is_attr);
+    tok.s = ts + 2 + is_attr;
+    tok.numval = 0;
+    RSQuery_Parse_v2(pParser, WILDCARD, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
   
 *|;
 }%%

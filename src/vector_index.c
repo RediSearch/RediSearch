@@ -62,15 +62,13 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   }
   switch (vq->type) {
     case VECSIM_QT_KNN: {
-      VecSimQueryParams qParams;
-      int err;
-      if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params),
-                                           &qParams)) != VecSim_OK) {
-        err = VecSimResolveCode_to_QueryErrorCode(err);
-        QueryError_SetErrorFmt(q->status, err, "Error parsing vector similarity parameters: %s",
-                               QueryError_Strerror(err));
+      VecSimQueryParams qParams = {0};
+      bool hybrid = (child_it != NULL);
+      if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
+                                    &qParams, hybrid, q->status) != VecSim_OK)  {
         return NULL;
       }
+
       VecSimIndexInfo info = VecSimIndex_Info(vecsim);
       size_t dim = 0;
       VecSimType type = (VecSimType)0;
@@ -101,7 +99,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .qParams = qParams,
                                       .vectorScoreField = vq->scoreField,
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
-                                      .childIt = child_it
+                                      .childIt = child_it,
+                                      .timeout = q->sctx->timeout,
       };
       return NewHybridVectorIterator(hParams);
     }
@@ -290,12 +289,49 @@ fail:
   return REDISMODULE_ERR;
 }
 
-int VecSimResolveCode_to_QueryErrorCode(int code) {
-  switch (code) {
-    case VecSim_OK: return QUERY_OK;
-    case VecSimParamResolverErr_AlreadySet: return QUERY_EDUPFIELD;
-    case VecSimParamResolverErr_UnknownParam: return QUERY_ENOOPTION;
-    case VecSimParamResolverErr_BadValue: return QUERY_EBADATTR;
+VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
+                          VecSimQueryParams *qParams, bool hybrid, QueryError *status) {
+
+  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, hybrid);
+  if (vecSimCode == VecSim_OK) {
+    return vecSimCode;
   }
-  return QUERY_EGENERIC;
+
+  QueryErrorCode RSErrorCode;
+  switch (vecSimCode) {
+    case VecSimParamResolverErr_AlreadySet: {
+      RSErrorCode = QUERY_EDUPPARAM;
+      break;
+    }
+    case VecSimParamResolverErr_UnknownParam: {
+      RSErrorCode = QUERY_ENOOPTION;
+      break;
+    }
+    case VecSimParamResolverErr_BadValue: {
+      RSErrorCode = QUERY_EBADVAL;
+      break;
+    }
+    case VecSimParamResolverErr_InvalidPolicy_NHybrid: {
+      RSErrorCode = QUERY_ENHYBRID;
+      break;
+    }
+    case VecSimParamResolverErr_InvalidPolicy_NExits: {
+      RSErrorCode = QUERY_EHYBRIDNEXIST;
+      break;
+    }
+    case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_BatchSize: {
+      RSErrorCode = QUERY_EADHOCWBATCHSIZE;
+      break;
+    }
+    case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_EfRuntime: {
+      RSErrorCode = QUERY_EADHOCWEFRUNTIME;
+      break;
+    }
+    default: {
+      RSErrorCode = QUERY_EGENERIC;
+    }
+  }
+  const char *error_msg = QueryError_Strerror(RSErrorCode);
+  QueryError_SetErrorFmt(status, RSErrorCode, "Error parsing vector similarity parameters: %s", error_msg);
+  return vecSimCode;
 }

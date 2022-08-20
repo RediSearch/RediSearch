@@ -1,27 +1,83 @@
-Gets completion suggestions for a prefix.
+---
+syntax: 
+---
 
-#### Parameters
+Get completion suggestions for a prefix
 
-- **key**: the suggestion dictionary key.
-- **prefix**: the prefix to complete on
-- **FUZZY**: if set, we do a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from
-  the prefix sent
-- **MAX num**: If set, we limit the results to a maximum of `num` (default: 5).
-- **WITHSCORES**: If set, we also return the score of each suggestion. this can be used to merge
-  results from multiple instances
-- **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no
-  payload is present for an entry, we return a Null Reply.
+## Syntax
 
-#### Returns
+{{< highlight bash >}}
+FT.SUGGET key prefix 
+          [FUZZY] 
+          [WITHSCORES] 
+          [WITHPAYLOADS] 
+          [MAX max]
+{{< / highlight >}}
 
-@array-reply: a list of the top suggestions matching the prefix, optionally with score after each entry.
+[Examples](#examples)
 
-@examples
+## Required parameters
 
-```sql
-redis> FT.SUGGET sug hell FUZZY MAX 3 WITHSCORES
+<details open>
+<summary><code>key</code></summary>
+
+is suggestion dictionary key.
+</details>
+
+<details open>
+<summary><code>prefix</code></summary>
+
+is prefix to complete on.
+</details>
+
+## Optional parameters
+
+<details open>
+<summary><code>FUZZY</code></summary> 
+
+performs a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from the prefix sent.
+</details>
+
+<details open>
+<summary><code>MAX num</code></summary> 
+
+limits the results to a maximum of `num` (default: 5).
+</details>
+
+<details open>
+<summary><code>WITHSCORES</code></summary> 
+
+also returns the score of each suggestion. This can be used to merge results from multiple instances.
+</details>
+
+<details open>
+<summary><code>WITHSCORES</code></summary> 
+
+ returns optional payloads saved along with the suggestions. If no payload is present for an entry, it returns a null reply.
+</details>
+
+## Return
+
+FT.SUGGET returns an array reply, which is a list of the top suggestions matching the prefix, optionally with score after each entry.
+
+## Examples
+
+<details open>
+<summary><b>Get completion suggestions for a prefix</b></summary>
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SUGGET sug hell FUZZY MAX 3 WITHSCORES
 1) "hell"
 2) "2147483648"
 3) "hello"
 4) "0.70710676908493042"
-```
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.SUGADD` | `FT.SUGDEL` | `FT.SUGLEN` 
+
+## Related topics
+
+[RediSearch](/docs/stack/search)

@@ -5,8 +5,7 @@ from common import *
 from RLTest import Env
 
 
-REDISEARCH_CACHE_DIR = '/tmp/'
-BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
+REDISEARCH_CACHE_DIR = '/tmp/rdbcompat'
 
 RDBS = [
     'redisearch_1.2.0.rdb',
@@ -25,7 +24,7 @@ def downloadFiles():
     for f in RDBS:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
-            subprocess.call(['wget', '-q', BASE_RDBS_URL + f, '-O', path])
+            dpath = paella.wget(BASE_RDBS_URL + f, dest=path)
         if not os.path.exists(path):
             return False
     return True
@@ -44,7 +43,7 @@ def testRDBCompatibility(env):
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
     if not downloadFiles():
-        if os.environ.get('CI'):
+        if CI:
             env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
         else:
             env.skip()

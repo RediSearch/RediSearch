@@ -41,8 +41,9 @@ For each "hit" (document/word entry), we encode:
 * Flags, that can be used to filter only specific fields or other user-defined properties.
 * An Offset Vector, of all the document offsets of the word.
 
-!!! note
-    Document ids as entered by the user are converted to internal incremental document ids, that allow delta encoding to be efficient, and let the inverted indexes be sorted by document id.
+{{% alert title="Note" color="info" %}}
+Document ids as entered by the user are converted to internal incremental document ids, that allow delta encoding to be efficient, and let the inverted indexes be sorted by document id.
+{{% /alert %}}
 
 This allows for a single index hit entry to be encoded in as little as 6 bytes
 (Note that this is the best case. depending on the number of occurrences of the word in the document, this can get much higher).

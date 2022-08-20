@@ -7,20 +7,26 @@ extern "C" {
 #endif
 
 typedef enum JSONType {
-    JSONType_String = 0,
-    JSONType_Int = 1,
-    JSONType_Double = 2,
-    JSONType_Bool = 3,
-    JSONType_Object = 4,
-    JSONType_Array = 5,
-    JSONType_Null = 6,
-    JSONType__EOF
+  JSONType_String = 0,
+  JSONType_Int = 1,
+  JSONType_Double = 2,
+  JSONType_Bool = 3,
+  JSONType_Object = 4,
+  JSONType_Array = 5,
+  JSONType_Null = 6,
+  JSONType__EOF
 } JSONType;
 
 typedef const void* RedisJSON;
 typedef const void* JSONResultsIterator;
+typedef const void* JSONPath;
 
-typedef struct RedisJSONAPI_V1 {
+typedef struct RedisJSONAPI {
+
+  ////////////////
+  // V1 entries //
+  ////////////////
+
   /* RedisJSON functions */
   RedisJSON (*openKey)(RedisModuleCtx *ctx, RedisModuleString *key_name);
   RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *path);
@@ -32,6 +38,11 @@ typedef struct RedisJSONAPI_V1 {
   void (*freeIter)(JSONResultsIterator iter);
 
   RedisJSON (*getAt)(RedisJSON json, size_t index);
+
+  /* RedisJSON value functions
+   * Return REDISMODULE_OK if RedisJSON is of the correct JSONType,
+   * else REDISMODULE_ERR is returned
+   * */
 
   // Return the length of Object/Array
   int (*getLen)(RedisJSON json, size_t *count);
@@ -58,8 +69,25 @@ typedef struct RedisJSONAPI_V1 {
   // Return 1 if type of key is JSON
   int (*isJSON)(RedisModuleKey *redis_key);
 
-} RedisJSONAPI_V1;
+  ////////////////
+  // V2 entries //
+  ////////////////
+
+  // Return a parsed JSONPath
+  // Return NULL if failed to parse, and the error message in `err_msg`
+  // The caller gains ownership of `err_msg`
+  JSONPath (*pathParse)(const char *path, RedisModuleCtx *ctx, RedisModuleString **err_msg);
+
+  // Free a parsed JSONPath
+  void (*pathFree)(JSONPath);
+  
+  // Query a parsed JSONPath
+  int (*pathIsSingle)(JSONPath);
+  int (*pathHasDefinedOrder)(JSONPath);
+
+} RedisJSONAPI;
 
 #ifdef __cplusplus
 }
 #endif
+

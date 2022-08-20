@@ -4,6 +4,7 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "rmutil/rm_assert.h"
+#include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
 
 /*******************************************************************************************************************
@@ -61,7 +62,7 @@ typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
   struct timespec timeout;  // milliseconds until timeout
-  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut()
+  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
 } RPIndexIterator;
 
 /* Next implementation */
@@ -69,7 +70,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
 
-  if (TimedOut(self->timeout, &self->timeoutLimiter)) {
+  if (TimedOut_WithCounter(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -86,10 +87,16 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   while (1) {
     rc = it->Read(it->ctx, &r);
     // This means we are done!
-    if (rc == INDEXREAD_EOF) {
+    switch (rc) {
+    case INDEXREAD_EOF:
       return RS_RESULT_EOF;
-    } else if (!r || rc == INDEXREAD_NOTFOUND) {
+    case INDEXREAD_TIMEOUT:
+      return RS_RESULT_TIMEDOUT;
+    case INDEXREAD_NOTFOUND:
       continue;
+    default: // INDEXREAD_OK
+      if (!r)
+        continue;
     }
 
     dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);
@@ -446,7 +453,12 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
                                     .status = &status};
       RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
       if (QueryError_HasError(&status)) {
-        return RS_RESULT_ERROR;
+        // failure to fetch the doc:
+        // release dmd, reduce result count and continue
+        self->pooledResult = h;
+        SearchResult_Clear(self->pooledResult);
+        rp->parent->totalResults--;
+        return RESULT_QUEUED;
       }
     }
   }
@@ -742,22 +754,23 @@ void RP_DumpChain(const ResultProcessor *rp) {
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-/// Profile RP                                                             ///
+/// Profile RP                                                               ///
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
   ResultProcessor base;
-  clock_t profileTime;
+  double profileTime;
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  clock_t rpStartTime = clock();
+  hires_clock_t t0;
+  hires_clock_get(&t0);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += clock() - rpStartTime;
+  self->profileTime += hires_clock_since_msec(&t0);
   self->profileCount++;
   return rc;
 }
@@ -780,7 +793,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
   return &rpp->base;
 }
 
-clock_t RPProfile_GetClock(ResultProcessor *rp) {
+double RPProfile_GetDurationMSec(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }

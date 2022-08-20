@@ -21,6 +21,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		MODULE=path           Path to RediSearch module .so
 		BINROOT=path          Path to repo binary root dir
 
+		RLTEST=path|'view'    Take RLTest from repo path or from local view
 		RLTEST_ARGS=args      Extra RLTest args
 		MODARGS=args          RediSearch module arguments
 
@@ -44,7 +45,11 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		REDIS_SERVER=path     Redis Server command
 		REDIS_VERBOSE=1       (legacy) Verbose ouput
 		CONFIG_FILE=file      Path to config file
-		EXT|EXISTING_ENV=1    Run the tests on existing env
+
+		EXISTING_ENV=1        Test on existing env (like EXT=1)
+		EXT=1|run             Test on existing env (1=running; run=start redis-server)
+		EXT_HOST=addr         Address if existing env (default: 127.0.0.1)
+		EXT_PORT=n            Port of existing env
 		RLEC_PORT=n           Port of RLEC database (default: 12000)
 
 		COV=1				  Run with coverage analysis
@@ -81,28 +86,31 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-# If current directory has RLTest in it, then we're good to go
-if [[ -d $HERE/RLTest ]]; then
-    true
-    # Do nothing - tests are already loaded
+if [[ $RLTEST == view ]]; then
+	if [[ ! -d $ROOT/../RLTest ]]; then
+		eprint "RLTest not found in view $ROOT"
+		exit 1
+	fi
+    RLTEST=$(cd $ROOT/../RLTest; pwd)
 fi
 
 if [[ -n $RLTEST ]]; then
-    # Specifically search for it in the specified location
-    PYTHONPATH="$PYTHONPATH:$RLTEST"
-else
-    # Assume there is a sibling directory called `RLTest`
-    PYTHONPATH="$PYTHONPATH:$HERE"
-fi
+	if [[ ! -d $RLTEST ]]; then
+		eprint "Invalid RLTest location: $RLTEST"
+		exit 1
+	fi
 
-export PYTHONPATH
+    # Specifically search for it in the specified location
+    export PYTHONPATH="$PYTHONPATH:$RLTEST"
+	[[ $VERBOSE == 1 ]] && echo "PYTHONPATH=$PYTHONPATH"
+fi
 
 #---------------------------------------------------------------------------------------------- 
 
 MODULE="${MODULE:-$1}"
 shift
 
-[[ $EXT == 1 ]] && EXISTING_ENV=1
+[[ $EXT == 1 || $EXT == run ]] && EXISTING_ENV=1
 [[ $COORD == 1 ]] && COORD=oss
 
 if [[ -z $MODULE ]]; then
@@ -140,9 +148,14 @@ SHARDS=${SHARDS:-3}
 [[ $SAN == addr ]] && SAN=address
 [[ $SAN == mem ]] && SAN=memory
 
+EXT_HOST=${EXT_HOST:-127.0.0.1}
+EXT_PORT=${EXT_PORT:-6379}
+
 RLEC_PORT=${RLEC_PORT:-12000}
 
 #---------------------------------------------------------------------------------------------- 
+
+[[ $EXT == 1 || $EXT == run || $EXISTING_ENV == 1 ]] && PARALLEL=0
 
 [[ $PARALLEL == 1 ]] && RLTEST_PARALLEL_ARG="--parallelism $($READIES/bin/nproc)"
 
@@ -259,7 +272,7 @@ if [[ -n $REJSON && $REJSON != 0 ]]; then
 		FORCE_GET=
 		[[ $REJSON == get ]] && FORCE_GET=1
 		export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
-		BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
+		OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
 		REJSON_MODULE=$(cat $MODULE_FILE)
 		REJSON_ARGS="--module $REJSON_MODULE"
 	fi
@@ -293,33 +306,45 @@ run_tests() {
 			EOF
 
 	else # existing env
-		if [[ $REJSON_MODULE ]]; then
-			XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
+		if [[ $EXT == run ]]; then
+			if [[ $REJSON_MODULE ]]; then
+				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
+			fi
+
+			xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
+			rm -f $xredis_conf
+			cat <<-EOF > $xredis_conf
+				loadmodule $MODULE $MODARGS
+				$XREDIS_REJSON_ARGS
+				EOF
+
+			rltest_config=$(mktemp "${TMPDIR:-/tmp}/xredis_rltest.XXXXXXX")
+			rm -f $rltest_config
+			cat <<-EOF > $rltest_config
+				--env existing-env
+				$RLTEST_ARGS
+
+				EOF
+
+			if [[ $VERBOSE == 1 ]]; then
+				echo "External redis-server configuration:"
+				cat $xredis_conf
+			fi
+
+			$REDIS_SERVER $xredis_conf &
+			XREDIS_PID=$!
+			echo "External redis-server pid: " $XREDIS_PID
+
+		else # EXT=1
+			rltest_config=$(mktemp "${TMPDIR:-/tmp}/xredis_rltest.XXXXXXX")
+			rm -f $rltest_config
+			cat <<-EOF > $rltest_config
+				--env existing-env
+				--existing-env-addr $EXT_HOST:$EXT_PORT
+				$RLTEST_ARGS
+
+				EOF
 		fi
-
-		xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
-		rm -f $xredis_conf
-		cat <<-EOF > $xredis_conf
-			loadmodule $MODULE $MODARGS
-			$XREDIS_REJSON_ARGS
-			EOF
-
-		rltest_config=$(mktemp "${TMPDIR:-/tmp}/xredis_rltest.XXXXXXX")
-		rm -f $rltest_config
-		cat <<-EOF > $rltest_config
-			--env existing-env
-			$RLTEST_ARGS
-
-			EOF
-
-		if [[ $VERBOSE == 1 ]]; then
-			echo "External redis-server configuration:"
-			cat $xredis_conf
-		fi
-
-		$REDIS_SERVER $xredis_conf &
-		XREDIS_PID=$!
-		echo "External redis-server pid: " $XREDIS_PID
 	fi
 
 	# Use configuration file in the current directory if it exists
@@ -342,7 +367,7 @@ run_tests() {
 
 	if [[ -n $XREDIS_PID ]]; then
 		echo "killing external redis-server: $XREDIS_PID"
-		kill -9 $XREDIS_PID
+		kill -TERM $XREDIS_PID
 	fi
 
 	return $E

@@ -23,8 +23,12 @@
 #define TAGLIST                         23
 #define TERMLIST                        24
 #define PREFIX                          25
-#define PERCENT                         26
-#define ATTRIBUTE                       27
-#define AS_S                            28
-#define AS_T                            29
-#define SEMICOLON                       30
+#define SUFFIX                          26
+#define CONTAINS                        27
+#define PERCENT                         28
+#define ATTRIBUTE                       29
+#define VERBATIM                        30
+#define WILDCARD                        31
+#define AS_S                            32
+#define AS_T                            33
+#define SEMICOLON                       34

@@ -39,7 +39,7 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
   except Exception as e:
     env.assertTrue(False, message=e.message)
 
-def testDelReplicate():
+def initEnv():
   env = Env(useSlaves=True, forceTcp=True)
 
   env.skipOnCluster()
@@ -53,6 +53,16 @@ def testDelReplicate():
   slave = env.getSlaveConnection()
   env.assertTrue(master.execute_command("ping"))
   env.assertTrue(slave.execute_command("ping"))
+
+  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+
+  return env
+
+def testDelReplicate():
+  env = initEnv()
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+
   env.assertOk(master.execute_command('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text'))
   env.cmd('set', 'indicator', '1')
   checkSlaveSynced(env, slave, ('exists', 'indicator'), 1, time_out=20)
@@ -84,21 +94,9 @@ def testDelReplicate():
       slave.execute_command('ft.get', 'idx', 'doc%d' % i))
 
 def testDropReplicate():
-  env = Env(useSlaves=True, forceTcp=True)
-
-  env.skipOnCluster()
-
-  ## on existing env we can not get a slave connection
-  ## so we can no test it
-  if env.env == 'existing-env':
-        env.skip()
-
+  env = initEnv()
   master = env.getConnection()
   slave = env.getSlaveConnection()
-  env.assertTrue(master.execute_command("ping"))
-  env.assertTrue(slave.execute_command("ping"))
-
-  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
 
   '''
   This test first creates documents
@@ -146,3 +144,165 @@ def testDropReplicate():
   slave_set = set(slave_keys)
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
+
+def testDropTempReplicate():
+  env = initEnv()
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+
+  '''
+  This test creates creates a temporary index. then it creates a document and check it exists on both shards.
+  The index is then expires and dropped.
+  The test checks consistency between master and slave where both index and document are deleted.
+  '''
+
+  # test for TEMPORARY FT.DROPINDEX
+  master.execute_command('FT.CREATE', 'idx', 'TEMPORARY', '1', 'SCHEMA', 't', 'TEXT')
+
+  master.execute_command('HSET', 'doc1', 't', 'hello')
+
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {'t': 'hello'}, time_out=5)
+
+  # check that same index and doc exist on master and slave
+  master_index = master.execute_command('FT._LIST')
+  slave_index = slave.execute_command('FT._LIST')
+  env.assertEqual(master_index, slave_index)
+
+  master_keys = master.execute_command('KEYS', '*')
+  slave_keys = slave.execute_command('KEYS', '*')
+  env.assertEqual(len(master_keys), len(slave_keys))
+  env.assertEqual(master_keys, slave_keys)
+
+  time.sleep(1)
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {}, time_out=5)
+
+  # check that index and doc were deleted by master and slave
+  env.assertEqual(master.execute_command('FT._LIST'), [])
+  env.assertEqual(slave.execute_command('FT._LIST'), [])
+
+  env.assertEqual(master.execute_command('KEYS', '*'), [])
+  env.assertEqual(slave.execute_command('KEYS', '*'), [])
+
+def testDropWith__FORCEKEEPDOCS():
+  env = initEnv()
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+
+  '''
+  This test creates creates an index. then it creates a document and check it
+  exists on both shards.
+  The index is then dropped.
+  The test checks consistency between master and slave where the index is
+  deleted and the document remains.
+  '''
+
+  cmd = ['FT.DROP', 'FT.DROPINDEX']
+  for i in range(len(cmd)):
+    master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    master.execute_command('HSET', 'doc1', 't', 'hello')
+    checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {'t': 'hello'}, time_out=5)
+
+    master.execute_command(cmd[i], 'idx', '_FORCEKEEPDOCS')
+    checkSlaveSynced(env, slave, ['FT._LIST'], [], time_out=5)
+
+    # check that index and doc were deleted by master and slave
+    env.assertEqual(master.execute_command('FT._LIST'), [])
+    env.assertEqual(slave.execute_command('FT._LIST'), [])
+
+    env.assertEqual(master.execute_command('KEYS', '*'), ['doc1'])
+    env.assertEqual(slave.execute_command('KEYS', '*'), ['doc1'])
+
+
+def testExpireDocs():
+  env = initEnv()
+  master = env.getConnection()
+  master.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+  slave = env.getSlaveConnection()
+  slave.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+  '''
+  This test creates creates an index and two documents and check they
+  exist on both shards.
+  One of the documents is expired.
+  The test checks the document is removed from both master and slave.
+  '''
+
+  for i in range(2):
+    sortby_cmd = [] if i == 0 else ['SORTBY', 't']
+    master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    master.execute_command('HSET', 'doc1', 't', 'bar')
+    master.execute_command('HSET', 'doc2', 't', 'foo')
+    
+    # both docs exist
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
+    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*'), [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']], time_out=5)
+
+    master.execute_command('PEXPIRE', 'doc1', 1)
+    time.sleep(0.01)
+
+    if i == 0:    # w/o sortby
+      # both docs exist but doc1 fail to load field since they were expired passively
+      res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+      env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'foo']])
+      res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+      env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'foo']])
+    elif i == 1:  # with sortby
+      # since there is no sortable, we loaded doc1 at sortby and found out it was deleted
+      res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+      env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+      res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+      env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+
+    # only 1 doc is left
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+    res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+
+
+    master.execute_command('FLUSHALL')
+    env.expect('WAIT', '1', '10000').equal(1)
+
+def testExpireDocsSortable():
+  env = initEnv()
+  master = env.getConnection()
+  master.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+  slave = env.getSlaveConnection()
+  slave.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+  '''
+  This test creates creates an index and two documents and check they
+  exist on both shards.
+  One of the documents is expired.
+  The test checks the document is removed from both master and slave.
+  The first iteration, the doc was deleted on redis but not on RediSearch and data is `None`. 
+  '''
+
+  for i in range(2):
+    sortby_cmd = [] if i == 0 else ['SORTBY', 't']
+    master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
+    master.execute_command('HSET', 'doc1', 't', 'bar')
+    master.execute_command('HSET', 'doc2', 't', 'foo')
+    
+    # both docs exist
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
+    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*'), [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']], time_out=5)
+
+    master.execute_command('PEXPIRE', 'doc1', 1)
+    time.sleep(0.01)
+    # both docs exist but doc1 fail to load field since they were expired passively
+    res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'foo']])
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'foo']])
+
+    # only 1 doc is left
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+    res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+
+    master.execute_command('FLUSHALL')
+    env.expect('WAIT', '1', '10000').equal(1)

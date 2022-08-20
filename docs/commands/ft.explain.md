@@ -1,23 +1,56 @@
-Returns the execution plan for a complex query.
+---
+syntax: 
+---
 
-In the returned response, a `+` on a term is an indication of stemming.
+Return the execution plan for a complex query
 
-#### Parameters
+## Syntax
 
-- **index**: The index name. The index must be first created with FT.CREATE
-- **query**: The query string, as if sent to FT.SEARCH
-- **DIALECT {dialect_version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
+{{< highlight bash >}}
+FT.EXPLAINCLI index query 
+          [DIALECT dialect]
+{{< / highlight >}}
 
-!!! tip
-    You should use `redis-cli --raw` to properly read line-breaks in the returned response.
+[Examples](#examples)
 
-@return
+## Required parameters
 
-String Response. A string representing the execution plan (see above example).
+<details open>
+<summary><code>index</code></summary>
 
-@examples
+is index name. You must first create the index using `FT.CREATE`.
+</details>
 
-```sh
+<details open>
+<summary><code>query</code></summary>
+
+is query string, as if sent to FT.SEARCH`.
+</details>
+
+## Optional parameters
+
+<details open>
+<summary><code>DIALECT {dialect_version}</code></summary>
+
+is dialect version under which to execute the query. If not specified, the query executes under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
+</details>
+
+<note><b>Notes:</b>
+
+- In the returned response, a `+` on a term is an indication of stemming.
+- Use `redis-cli --raw` to properly read line-breaks in the returned response.
+</note>
+
+## Return
+
+FT.EXPLAIN returns a string representing the execution plan.
+
+## Examples
+
+<details open>
+<summary><b>Return the execution plan for a complex query</b></summary>
+
+{{< highlight bash >}}
 $ redis-cli --raw
 
 127.0.0.1:6379> FT.EXPLAIN rd "(foo bar)|(hello world) @date:[100 200]|@date:[500 +inf]"
@@ -37,4 +70,14 @@ INTERSECT {
     NUMERIC {500.000000 <= x <= inf}
   }
 }
-```
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.CREATE` | `FT.SEARCH` | `FT.CONFIG SET`
+
+## Related topics
+
+[RediSearch](/docs/stack/search)
+

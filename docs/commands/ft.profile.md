@@ -1,35 +1,68 @@
-Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information.
+---
+syntax: 
+---
+
+Perform a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information
+
+## Syntax
+
+{{< highlight bash >}}
+FT.PROFILE index SEARCH | AGGREGATE [LIMITED] QUERY query
+{{< / highlight >}}
+
+[Examples](#examples)
+
+## Required parameters
+
+<details open>
+<summary><code>index</code></summary>
+
+is index name. You must first create the index using `FT.CREATE`.
+</details>
+
+<details open>
+<summary><code>SEARCH,AGGREGATE</code></summary>
+
+is difference between `FT.SEARCH` and `FT.AGGREGATE`.
+</details>
+
+<details open>
+<summary><code>LIMITED</code></summary>
+
+removes details of `reader` iterator.
+</details>
+
+<details open>
+<summary><code>QUERY {query}</code></summary>
+
+is query string, as if sent to FT.SEARCH.
+</details>
+
+<note><b>Note:</b> To reduce the size of the output, use `NOCONTENT` or `LIMIT 0 0` to reduce results reply or `LIMITED` to not reply with details of `reader iterators` inside builtin-unions such as `fuzzy` or `prefix`.</note>
+
+## Return
+
+FT.PROFILE returns an array reply, with the first array reply identical to the reply of `FT.SEARCH` and `FT.AGGREGATE` and a second array reply with information of time used to create the query and time and count of calls of iterators and result-processors.
+
 Return value has an array with two elements:
 
-  * **Results** - The normal reply from RediSearch, similar to a cursor.
-  * **Profile** - The details in the profile are:
-    * **Total profile time** - The total runtime of the query.
-    * **Parsing time** - Parsing time of the query and parameters into an execution plan.
-    * **Pipeline creation time** - Creation time of execution plan including iterators,
+- Results - The normal reply from RediSearch, similar to a cursor.
+- Profile - The details in the profile are:
+  - Total profile time - The total runtime of the query.
+  - Parsing time - Parsing time of the query and parameters into an execution plan.
+  - Pipeline creation time - Creation time of execution plan including iterators,
   result processors and reducers creation.
-    * **Iterators profile** - Index iterators information including their type, term, count and time data.
+  - Iterators profile - Index iterators information including their type, term, count, and time data.
   Inverted-index iterators have in addition the number of elements they contain. Hybrid vector iterators returning the top results from the vector index in batches, include the number of batches.
-    * **Result processors profile** - Result processors chain with type, count and time data.
+  - Result processors profile - Result processors chain with type, count and time data.
 
-#### Parameters
+## Examples
 
-- **index**: The index name. The index must be first created with FT.CREATE
-- **SEARCH,AGGREGATE**: Differ between `FT.SEARCH` and `FT.AGGREGATE`
-- **LIMITED**: Removes details of `reader` iterator
-- **QUERY {query}**: The query string, as if sent to FT.SEARCH
+<details open>
+<summary><b>Collect performance information about an index</b></summary>
 
-@return
-
-@array-reply - with the first @array-reply identical to the reply of FT.SEARCH and FT.AGGREGATE and a second @array-reply with information of time used to create the query and time and count of calls of iterators and result-processors.
-
-!!! tip
-    To reduce the size of the output, use `NOCONTENT` or `LIMIT 0 0` to reduce results reply or `LIMITED` to not reply with details of `reader iterators` inside builtin-unions such as `fuzzy` or `prefix`.
-
-
-@examples
-
-```sh
-FT.PROFILE idx SEARCH QUERY "hello world"
+{{< highlight bash >}}
+127.0.0.1:6379> FT.PROFILE idx SEARCH QUERY "hello world"
 1) 1) (integer) 1
    2) "doc1"
    3) 1) "t"
@@ -93,4 +126,14 @@ FT.PROFILE idx SEARCH QUERY "hello world"
          4) "0.10299999999999999"
          5) Counter
          6) (integer) 1
-```
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.SEARCH` | `FT.AGGREGATE` 
+
+## Related topics
+
+[RediSearch](/docs/stack/search)
+
