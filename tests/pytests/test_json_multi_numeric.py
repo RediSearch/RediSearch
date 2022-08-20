@@ -1,3 +1,4 @@
+from itertools import chain
 import json
 
 from common import *
@@ -149,7 +150,7 @@ def testMultiNonNumeric(env):
     for (i,v) in enumerate(non_numeric_dict.values()):
         doc = 'doc:{}:'.format(i+1)
         idx = 'idx{}'.format(i+1)
-        env.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'NUMERIC')
+        conn.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'NUMERIC')
         waitForIndex(env, idx)
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
         res_failures = 0 if i+1 <= 5 else 1
@@ -173,7 +174,7 @@ def testMultiNonNumericNested(env):
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr NUMERIC
     for (i,v) in enumerate(non_numeric_dict.values()):
-        env.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'NUMERIC')
+        conn.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'NUMERIC')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_numeric_content)
     
     # First 5 indices are OK (nulls are skipped)
@@ -229,10 +230,10 @@ def testRange(env):
         max_val = (doc - 1) * 100 + arr_len
         for i in range(doc_num, doc -1, -1):
             expected.append('doc:{}'.format(i))
-        res = env.execute_command('FT.SEARCH', 'idx:all', '@val:[-inf -{}]'.format(max_val), 'NOCONTENT')
+        res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[-inf -{}]'.format(max_val), 'NOCONTENT')
         env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[-inf -{}]'.format(max_val))
 
-        res = env.execute_command('FT.SEARCH', 'idx:all', '@val:[{} +inf]'.format(max_val), 'NOCONTENT')
+        res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[{} +inf]'.format(max_val), 'NOCONTENT')
         env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[{} +inf]'.format(max_val))
 
 def testDebugDump(env):
@@ -249,4 +250,27 @@ def testDebugDump(env):
     env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
                                                                       'lastDocId', 2, 'revisionId', 0])
 
+def testInvertedIndexBlockNum(env):
+    """ Test internal addition of new inverted index block """
 
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'arr', 'NUMERIC', '$.arr2', 'AS', 'arr2', 'NUMERIC').ok()
+    overlap = 10
+    doc_num = 200
+    for doc in range(doc_num, 0, -1):
+        conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({ 'arr':  [doc, doc + doc_num - overlap],
+                                                                                 'arr2': [doc]}))
+    expected_ids = range(1, doc_num + 1)
+    res = conn.execute_command('FT.DEBUG', 'DUMP_NUMIDX' ,'idx', 'arr')
+    env.assertListEqual(set(toSortedFlatList(res)), set(expected_ids), message='DUMP_NUMIDX')
+
+    res = to_dict(conn.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'arr'))
+    env.assertEqual(res['numEntries'], doc_num * 2)
+    env.assertEqual(res['lastDocId'], doc_num)
+
+    res = conn.execute_command('FT.SEARCH', 'idx', '@arr:[{} {}]'.format(doc_num - overlap + 1, doc_num), 'NOCONTENT')
+    expected_docs = ['doc:{}'.format(i) for i in chain(range(1, overlap + 1), range(doc_num - overlap + 1, doc_num + 1))]
+    env.assertListEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
+
+
+    

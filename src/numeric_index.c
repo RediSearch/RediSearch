@@ -24,6 +24,64 @@ typedef struct {
 void NumericRangeIterator_OnReopen(void *privdata) {
 }
 
+#ifdef _DEBUG
+void NumericRangeTree_Dump(NumericRangeTree *t, int indent) {
+  PRINT_INDENT(indent);
+  printf("NumericRangeTree {\n");
+  ++indent;
+
+  PRINT_INDENT(indent);
+  printf("numEntries %lu,  numRanges %lu, lastDocId %ld\n", t->numEntries, t->numRanges, t->lastDocId);
+  NumericRangeNode_Dump(t->root, indent + 1);
+
+  --indent;
+  PRINT_INDENT(indent);
+  printf("}\n");
+}
+void NumericRangeNode_Dump(NumericRangeNode *n, int indent) {
+  PRINT_INDENT(indent);
+  printf("NumericRangeNode {\n");
+  ++indent;
+  
+  PRINT_INDENT(indent);
+  printf("value %f, maxDepath %i\n", n->value, n->maxDepth);
+
+  if (n->range) {
+    PRINT_INDENT(indent);
+    printf("range:\n");
+    NumericRange_Dump(n->range, indent + 1);
+  }
+
+  if (n->left) {
+    PRINT_INDENT(indent);
+    printf("left:\n");
+    NumericRangeNode_Dump(n->left, indent + 1);
+  }
+  if (n->right) {
+    PRINT_INDENT(indent);
+    printf("right:\n");
+    NumericRangeNode_Dump(n->right, indent + 1);
+  }
+
+  --indent;
+  PRINT_INDENT(indent);
+  printf("}\n");
+}
+
+void NumericRange_Dump(NumericRange *r, int indent) {
+  PRINT_INDENT(indent);
+  printf("NumericRange {\n");
+  ++indent;
+  PRINT_INDENT(indent);
+  printf("minVal %f, maxVal %f, unique_sum %f, invertedIndexSize %zu, card %hu, cardCheck %hu, splitCard %u\n", r->minVal, r->maxVal, r->unique_sum, r->invertedIndexSize, r->card, r->cardCheck, r->splitCard);
+  InvertedIndex_Dump(r->entries, indent + 1);
+  --indent;
+  PRINT_INDENT(indent);
+  printf("}\n");
+}
+
+#endif // #ifdef _DEBUG
+
 /* Returns 1 if the entire numeric range is contained between min and max */
 static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
   if (!n) return 0;
@@ -217,7 +275,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1);
   ++rv.numRecords;
   int card = n->range->card;
-  // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
+  // printf("Added %ld %f to node %f..%f, card now %d, size now %d\n", docId, value,
   // n->range->minVal,
   //        n->range->maxVal, card, n->range->entries->numDocs);
   if (card * NR_CARD_CHECK >= n->range->splitCard || 
@@ -244,7 +302,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max)
   if (n->range) {
     // printf("min %f, max %f, range %f..%f, contained? %d, overlaps? %d, leaf? %d\n", min, max,
     //        n->range->minVal, n->range->maxVal, NumericRange_Contained(n->range, min, max),
-    //        NumericRange_Overlaps(n->range, min, max), __isLeaf(n));
+    //        NumericRange_Overlaps(n->range, min, max), NumericRangeNode_IsLeaf(n));
     // if the range is completely contained in the search, we can just add it and not inspect any
     // downwards
     if (NumericRange_Contained(n->range, min, max)) {

@@ -310,6 +310,38 @@ static void dumpEncoding(EncodingHeader header, FILE *fp) {
   }
 }
 
+#ifdef _DEBUG
+void InvertedIndex_Dump(InvertedIndex *idx, int indent) {
+  PRINT_INDENT(indent);
+  printf("InvertedIndex {\n");
+  ++indent;
+  PRINT_INDENT(indent);
+  printf("numDocs %u, lastId %ld, size %u\n", idx->numDocs, idx->lastId, idx->size);
+  
+  RSIndexResult *res = NULL;
+  IndexReader *ir = NewNumericReader(NULL, idx, NULL ,0, 0, false);
+  while (INDEXREAD_OK == IR_Read(ir, &res)) {
+    PRINT_INDENT(indent);
+    printf("value %f, docId %lu\n", res->num.value, res->docId);
+  }
+  --indent;
+  PRINT_INDENT(indent);
+  printf("}\n");
+}
+
+
+void IndexBlock_Dump(IndexBlock *b, int indent) {
+  PRINT_INDENT(indent);
+  printf("IndexBlock {\n");
+  ++indent;
+  PRINT_INDENT(indent);
+  printf("numDocs %u, firstId %lu, lastId %lu, \n", b->numDocs, b->firstId, b->lastId);
+  --indent;
+  PRINT_INDENT(indent);
+  printf("}\n");
+}
+#endif // #ifdef _DEBUG
+
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
   const double absVal = fabs(res->num.value);
