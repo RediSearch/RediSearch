@@ -148,7 +148,12 @@ void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
 }
 
 void CursorList_RemoveSpec(CursorList *cl, const char *k) {
-  dictDelete(cl->specsDict, k);
+  CursorSpecInfo *info = findInfo(cl, k);
+  if (info) {
+    dictDelete(cl->specsDict, k);
+    rm_free(info->keyName);
+    rm_free(info);
+  }
 }
 
 static void CursorList_IncrCounter(CursorList *cl) {
