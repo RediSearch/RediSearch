@@ -5,6 +5,20 @@
 
 struct AREQ;
 
+// decision table
+/**********************************************************
+* NUM * TEXT  *     with SORTBY       *    w/o SORTBY     *
+***********************************************************
+*  Y  *   Y   *    Q_OPT_HYBRID       *      (note1)      *
+***********************************************************
+*  Y  *   N   *  Q_OPT_PARTIAL_RANGE  *  Q_OPT_NO_SORTER  *
+***********************************************************
+*  N  *   Y   *    Q_OPT_HYBRID       *     Q_OPT_NONE    *
+***********************************************************
+*  N  *   N   *  Q_OPT_PARTIAL_RANGE  *  Q_OPT_NO_SORTER  *
+**********************************************************/
+// note1: potential for filter or no sorter
+
 typedef enum {
   // No optimization
   Q_OPT_NONE = -1,
@@ -25,7 +39,16 @@ typedef enum {
 
   // Use `FILTER` result processor instead of numeric range
   Q_OPT_FILTER = 4,
+
+  // sortby other field. currently no optimization
+  // Q_OPT_SORTBY_OTHER
 } Q_Optimize_Type;
+
+typedef enum {
+  SCORER_TYPE_NONE = 0,
+  SCORER_TYPE_TERM = 1,
+  SCORER_TYPE_DOC = 2,
+} ScorerType;
 
 typedef struct QOptimizer {
     Q_Optimize_Type type;       // type of optimization
@@ -33,12 +56,21 @@ typedef struct QOptimizer {
     size_t limit;               // number of required results
 
     bool scorerReq;             // does the query require a scorer (WITHSCORES does not count)
+    ScorerType scorerType;
 
     const char *fieldName;      // name of sortby field
     const FieldSpec *field;     // spec of sortby field
     QueryNode *sortbyNode;      // pointer to QueryNode
+    NumericFilter *nf;          // filter with required parameters
     bool asc;                   // ASC/DESC order of sortby
+
+    IndexIterator *numIter;
+    IndexIterator *root;
  } QOptimizer;
+
+QOptimizer *QOptimizer_New();
+
+void QOptimizer_Free(QOptimizer *opt);
 
 /* parse query parameter for optimizer */
 void QOptimizer_Parse(AREQ *req);

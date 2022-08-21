@@ -722,7 +722,7 @@ AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
   req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
-  req->optimizer = rm_calloc(1, sizeof(*req->optimizer));
+  req->optimizer = QOptimizer_New();
   return req;
 }
 
@@ -887,6 +887,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   // parse inputs for optimizations
   QOptimizer_Parse(req);
+
   // check possible optimization after creation of QueryNode tree
   QOptimizer_QueryNodes(req->ast.root, req->optimizer);
 
@@ -1225,7 +1226,14 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
       goto error;
     }
   }
+/*
+  if (req->optimizer->type == Q_OPT_FILTER) {
 
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, PLN_T_FILTER);
+    AGPLN_AddStep(&req->ap, &stp->base);
+    AGPLN_Prepend(&req->ap, &stp->base);
+  }
+*/
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
 

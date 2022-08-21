@@ -821,6 +821,13 @@ static void II_SortChildren(IntersectIterator *ctx) {
   array_free(unsortedIts);
 }
 
+void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter) {
+  IntersectIterator *ii = (IntersectIterator *)parentIter;
+  ii->num++;
+  ii->its = rm_realloc(ii->its, ii->num);
+  ii->its[ii->num - 1] = childIter;
+}
+
 IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *dt,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
   // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
