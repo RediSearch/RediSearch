@@ -7,23 +7,25 @@ Create an index with the given specification
 ## Syntax
 
 {{< highlight bash >}}
-FT.CREATE index 
-          [ON HASH | JSON] 
-          [ PREFIX count prefix [prefix ...]] 
-          [LANGUAGE default_lang] 
-          [LANGUAGE_FIELD lang_attribute] 
-          [SCORE default_score] 
-          [SCORE_FIELD score_attribute] 
-          [PAYLOAD_FIELD payload_attribute] 
-          [MAXTEXTFIELDS] 
-          [TEMPORARY seconds] 
-          [NOOFFSETS] 
-          [NOHL] 
-          [NOFIELDS] 
-          [NOFREQS] 
-          [STOPWORDS count [stopword ...]] 
-          SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
-          [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
+  FT.CREATE index 
+    [ON HASH | JSON] 
+    [PREFIX count prefix [prefix ...]] 
+    [FILTER {filter}]
+    [LANGUAGE default_lang] 
+    [LANGUAGE_FIELD lang_attribute] 
+    [SCORE default_score] 
+    [SCORE_FIELD score_attribute] 
+    [PAYLOAD_FIELD payload_attribute] 
+    [MAXTEXTFIELDS] 
+    [TEMPORARY seconds] 
+    [NOOFFSETS] 
+    [NOHL] 
+    [NOFIELDS] 
+    [NOFREQS] 
+    [STOPWORDS count [stopword ...]] 
+    [SKIPINITIALSCAN]
+    SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
+    [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
 {{< / highlight >}}
 
 [Examples](#examples)
