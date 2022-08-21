@@ -389,10 +389,8 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           run_pack: false
-      - benchmark-automation:
-          platform: bionic
+      - benchmark-steps:
           benchmark_glob: "search*.yml"
   
   benchmark-vecsim-oss-standalone:
@@ -400,10 +398,8 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           run_pack: false
       - benchmark-steps:
-          platform: bionic
           benchmark_glob: "vecsim*.yml"
 
   benchmark-search-oss-cluster:
@@ -411,10 +407,8 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           run_pack: false
       - benchmark-steps:
-          platform: bionic
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
@@ -424,12 +418,10 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           build_params: PROFILE=1
           run_pack: false
       - benchmark-steps:
           profile_env: "1"
-          platform: bionic
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "search*.yml"
@@ -439,12 +431,10 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           build_params: PROFILE=1
           run_pack: false
       - benchmark-steps:
           profile_env: "1"
-          platform: bionic
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "vecsim*.yml"
