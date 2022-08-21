@@ -159,7 +159,9 @@ void TrieNode_Print(TrieNode *n, int idx, int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
   }
-  printf("%d) Score %f, max ChildScore %f\n", idx, n->score, n->maxChildScore);
+  printf("%d) '", idx);
+  printfRune(n->str, n->len);
+  printf("' Score %f, max ChildScore %f\n", n->score, n->maxChildScore);
   for (int i = 0; i < n->numChildren; i++) {
     TrieNode_Print(__trieNode_children(n)[i], i, depth + 1);
   }
@@ -430,19 +432,6 @@ void TrieNode_Free(TrieNode *n, TrieFreeCallback freecb) {
   rm_free(n);
 }
 
-// comparator for node sorting by child max score
-static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
-  TrieNode *n1 = *(TrieNode **)p1;
-  TrieNode *n2 = *(TrieNode **)p2;
-
-  if (n1->maxChildScore < n2->maxChildScore) {
-    return 1;
-  } else if (n1->maxChildScore > n2->maxChildScore) {
-    return -1;
-  }
-  return 0;
-}
-
 static int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
   size_t minlen = MIN(na, nb);
   for (size_t ii = 0; ii < minlen; ++ii) {
@@ -463,6 +452,19 @@ static int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
   }
   // strings are the same
   return 0;
+}
+
+// comparator for node sorting by child max score
+static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
+  TrieNode *n1 = *(TrieNode **)p1;
+  TrieNode *n2 = *(TrieNode **)p2;
+
+  if (n1->maxChildScore < n2->maxChildScore) {
+    return 1;
+  } else if (n1->maxChildScore > n2->maxChildScore) {
+    return -1;
+  }
+  return runecmp(n1->str, n1->len, n2->str, n2->len);
 }
 
 static int __trieNode_Cmp_Lex(const void *a, const void *b) {
@@ -1098,7 +1100,7 @@ void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
       .containsStars = !!runenchr(str, nstr, '*'),
   };
 
-  // printfRune(str, nstr);
+  // printfRuneNL(str, nstr);
 
   wildcardIterate(n, &r);
 
