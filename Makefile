@@ -47,6 +47,11 @@ endif
 export SAN
 endif # SAN
 
+# override CLang default for macOS
+ifneq ($(CLANG),1)
+GCC=1
+endif
+
 #----------------------------------------------------------------------------------------------
 
 ROOT=.
@@ -69,7 +74,6 @@ make build          # compile and link
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
   DEBUG=1             # build for debugging
-  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
   NO_TESTS=1          # disable unit tests
   WHY=1               # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1             # Force CMake rerun (default)
@@ -77,6 +81,9 @@ make build          # compile and link
   VG=1                # build for Valgrind
   SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
   SLOW=1              # do not parallelize build (for diagnostics)
+  GCC=1               # build with GCC (default unless Sanitizer)
+  CLANG=1             # build with CLang
+  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
