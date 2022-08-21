@@ -189,7 +189,7 @@ commands:
           command: |
             cd build/docker
             make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
-          no_output_timeout: 30m
+          no_output_timeout: 60m
       - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
