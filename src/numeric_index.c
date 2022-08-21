@@ -519,6 +519,9 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
                                      const NumericFilter *f) {
 
+// #ifdef _DEBUG
+//  NumericRangeTree_Dump(t, 0);
+// #endif                                      
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
     if (v) {

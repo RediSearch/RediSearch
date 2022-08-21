@@ -324,6 +324,7 @@ void InvertedIndex_Dump(InvertedIndex *idx, int indent) {
     PRINT_INDENT(indent);
     printf("value %f, docId %lu\n", res->num.value, res->docId);
   }
+  IR_Free(ir);
   --indent;
   PRINT_INDENT(indent);
   printf("}\n");
