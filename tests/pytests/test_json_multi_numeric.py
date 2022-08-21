@@ -250,13 +250,26 @@ def testDebugDump(env):
     env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
                                                                       'lastDocId', 2, 'revisionId', 0])
 
-def testInvertedIndexBlockNum(env):
-    """ Test internal addition of new inverted index block """
+def testInvertedIndexMultipleBlocks(env):
+    """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
 
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'arr', 'NUMERIC', '$.arr2', 'AS', 'arr2', 'NUMERIC').ok()
     overlap = 10
-    doc_num = 200
+    doc_num = 1200
+    # The first overlap docs (in 2nd value in arr) share the same value as the last overlap docs (in 1st value in arr)
+    # So the same value is found in 2 docs, e.g., for 200 docs:
+    #   JSON.SET doc:195 $ '{\"arr\": [195, 385], \"arr2\": [195]}'
+    #   JSON.SET doc:194 $ '{\"arr\": [194, 384], \"arr2\": [194]}'
+    #   JSON.SET doc:193 $ '{\"arr\": [193, 383], \"arr2\": [193]}'
+    #   JSON.SET doc:192 $ '{\"arr\": [192, 382], \"arr2\": [192]}'
+    #   JSON.SET doc:191 $ '{\"arr\": [191, 381], \"arr2\": [191]}'
+    #   ...
+    #   JSON.SET doc:5 $ '{\"arr\": [5, 195], \"arr2\": [5]}'
+    #   JSON.SET doc:4 $ '{\"arr\": [4, 194], \"arr2\": [4]}'
+    #   JSON.SET doc:3 $ '{\"arr\": [3, 193], \"arr2\": [3]}'
+    #   JSON.SET doc:2 $ '{\"arr\": [2, 192], \"arr2\": [2]}'
+    #   JSON.SET doc:1 $ '{\"arr\": [1, 191], \"arr2\": [1]}'
     for doc in range(doc_num, 0, -1):
         conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({ 'arr':  [doc, doc + doc_num - overlap],
                                                                                  'arr2': [doc]}))
@@ -268,7 +281,10 @@ def testInvertedIndexBlockNum(env):
     env.assertEqual(res['numEntries'], doc_num * 2)
     env.assertEqual(res['lastDocId'], doc_num)
 
-    res = conn.execute_command('FT.SEARCH', 'idx', '@arr:[{} {}]'.format(doc_num - overlap + 1, doc_num), 'NOCONTENT')
+    # Should find the first and last overlap docs
+    # e.g., for 200 docs:
+    #   FT.SEARCH idx '@arr:[191 200]' NOCONTENT LIMIT 0 20
+    res = conn.execute_command('FT.SEARCH', 'idx', '@arr:[{} {}]'.format(doc_num - overlap + 1, doc_num), 'NOCONTENT', 'LIMIT', '0', overlap * 2)
     expected_docs = ['doc:{}'.format(i) for i in chain(range(1, overlap + 1), range(doc_num - overlap + 1, doc_num + 1))]
     env.assertListEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
 
