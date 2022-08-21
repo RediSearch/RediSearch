@@ -236,7 +236,7 @@ typedef struct {
   // Common fields
   uint8_t deltaEncoding : 3;  // representing a zero-based number of bytes that stores the docId delta (delta from the previous docId)
                               // (zero delta is required to store multiple values in the same doc)
-                              // Max delta size is 7 bytes, allowing for max value of 2^((2^3-1)*8)-1
+                              // Max delta size is 7 bytes (values between 0 to 7), allowing for max delta value of 2^((2^3-1)*8)-1
   uint8_t type : 2; // (tiny, float, posint, negint)
   // Specific fields
   uint8_t specific : 3; // dummy field

@@ -440,7 +440,7 @@ TEST_F(IndexTest, testNumericInverted) {
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
     // printf("written %zd bytes\n", sz);
 
-    ASSERT_TRUE(sz > 1);
+    ASSERT_TRUE(sz > (i ? 1 : 0)); // first doc has zero delta (not written)
   }
   ASSERT_EQ(75, idx->lastId);
 
@@ -470,7 +470,7 @@ TEST_F(IndexTest, testNumericVaried) {
 
   for (size_t i = 0; i < numCount; i++) {
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
-    ASSERT_GT(sz, 1);
+    ASSERT_GT(sz, (i ? 1 : 0)); // first doc has zero delta (not written)
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
@@ -495,7 +495,7 @@ typedef struct {
   size_t size;
 } encodingInfo;
 static const encodingInfo infos[] = {
-    {0, 2},                    // 0
+    {0, 1},                    // 0
     {1, 2},                    // 1
     {63, 3},                   // 2
     {-1, 3},                   // 3
@@ -525,18 +525,23 @@ static const encodingInfo infos[] = {
     {-INFINITY, 2}             // 27
 };
 
-TEST_F(IndexTest, testNumericEncoding) {
+void testNumericEncodingHelper(bool isMulti) {
   static const size_t numInfos = sizeof(infos) / sizeof(infos[0]);
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
-  // printf("TestNumericEncoding\n");
-
+  
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
     ASSERT_EQ(infos[ii].size, sz);
+    if (isMulti) {
+      size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
+      // in multi mode we do not write the zero delta
+      // (first entry has zero delta also for single mode)
+      ASSERT_EQ(infos[ii].size - (ii ? 1 : 0), sz);
+    }
   }
 
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0, false);
+  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0, isMulti);
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
 
@@ -555,6 +560,14 @@ TEST_F(IndexTest, testNumericEncoding) {
 
   InvertedIndex_Free(idx);
   it->Free(it);
+}
+
+TEST_F(IndexTest, testNumericEncoding) {
+  testNumericEncodingHelper(0);
+}
+
+TEST_F(IndexTest, testNumericEncodingMulti) {
+  testNumericEncodingHelper(1);
 }
 
 TEST_F(IndexTest, testAbort) {
