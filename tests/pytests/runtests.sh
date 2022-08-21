@@ -12,7 +12,7 @@ cd $HERE
 #----------------------------------------------------------------------------------------------
 
 if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
-	cat <<-END
+	cat <<-'END'
 		Run Python tests using RLTest
 
 		[ARGVARS...] runtests.sh [--help|help] [<module-so-path>] [extra RLTest args...]
@@ -436,8 +436,8 @@ if [[ $NOP != 1 && -n $SAN ]]; then
 fi
 
 if [[ $COLLECT_LOGS == 1 ]]; then
-	ARCH=`$READIES/bin/platform --arch`
-	OSNICK=`$READIES/bin/platform --osnick`
+	ARCH=$($READIES/bin/platform --arch)
+	OSNICK=$($READIES/bin/platform --osnick)
 	cd $ROOT
 	mkdir -p bin/artifacts/tests
 	find tests/pytests/logs -name "*.log" | tar -czf bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz -T -
@@ -448,7 +448,7 @@ if [[ -n $STATFILE ]]; then
 	if [[ -f $STATFILE ]]; then
 		# echo "STATFILE=$STATFILE"
 		# cat $STATFILE
-		(( E |= `cat $STATFILE || echo 1` )) || true
+		(( E |= $(cat $STATFILE || echo 1) )) || true
 	fi
 	echo $E > $STATFILE
 fi
