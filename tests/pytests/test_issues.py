@@ -545,3 +545,29 @@ def testDeleteIndexes(env):
 
   # create an additional index
   env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+
+def testCuckoo(env):
+  # test cleaning of all specs from a prefix 
+  conn = getConnectionByEnv(env)
+  count = 0
+
+  env.execute_command('cf.reserve CK_FID 100000000 bucketsize 10 MAXITERATIONS 10')
+  print (env.execute_command('cf.info CK_FID'))
+  for i in range(50000000):
+    res = env.execute_command('cf.AddNX', 'CK_FID', i)
+    if res == 0:
+      count += 1
+    if i % 1000000 == 0:
+      print(count)
+  print(count)
+
+
+def testToyd(env):
+  conn = getConnectionByEnv(env)
+  pl = conn.pipeline()
+  for i in range(1000):
+    pl.execute_command('ft.create', '%sidx' % i, 'SCHEMA', 'n', 'numeric', 't1', 'TEXT', 't2', 'TEXT')
+    for j in range(10):
+      pl.execute_command('hset', 'idx%sdoc%s' %(i, j), 'n', i * j, 't', 'hell%swo%sbar' % (j, i), 't2', 'bar%schee%spol' % (i, j))
+    pl.execute()
+
