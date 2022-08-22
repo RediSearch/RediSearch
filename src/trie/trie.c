@@ -454,8 +454,13 @@ static int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
   return 0;
 }
 
+inline static int __trieNode_Cmp_Lex(const void *a, const void *b) {
+  const TrieNode *na = *(const TrieNode **)a, *nb = *(const TrieNode **)b;
+  return runecmp(na->str, na->len, nb->str, nb->len);
+}
+
 // comparator for node sorting by child max score and, if score is equal, by string
-static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
+inline static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
   TrieNode *n1 = *(TrieNode **)p1;
   TrieNode *n2 = *(TrieNode **)p2;
 
@@ -464,12 +469,7 @@ static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
   } else if (n1->maxChildScore > n2->maxChildScore) {
     return -1;
   }
-  return runecmp(n1->str, n1->len, n2->str, n2->len);
-}
-
-static int __trieNode_Cmp_Lex(const void *a, const void *b) {
-  const TrieNode *na = *(const TrieNode **)a, *nb = *(const TrieNode **)b;
-  return runecmp(na->str, na->len, nb->str, nb->len);
+  return __trieNode_Cmp_Lex(n1, n2);
 }
 
 /* Sort the children of a node */
