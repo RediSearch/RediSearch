@@ -454,7 +454,7 @@ static int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
   return 0;
 }
 
-// comparator for node sorting by child max score
+// comparator for node sorting by child max score and, if score is equal, by string
 static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
   TrieNode *n1 = *(TrieNode **)p1;
   TrieNode *n2 = *(TrieNode **)p2;
