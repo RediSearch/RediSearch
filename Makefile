@@ -47,11 +47,6 @@ endif
 export SAN
 endif # SAN
 
-# override CLang default for macOS
-ifneq ($(CLANG),1)
-GCC=1
-endif
-
 #----------------------------------------------------------------------------------------------
 
 ROOT=.
@@ -226,14 +221,17 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
+# override CLang default for macOS
+ifeq ($(OS),macos)
+ifneq ($(CLANG),1)
+export GCC=1
+endif
+endif
+
 STATIC_LIBSTDCXX ?= 1
 
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
-endif
-
-ifneq ($(SAN),)
-CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 endif
 
 ifeq ($(PROFILE),1)
