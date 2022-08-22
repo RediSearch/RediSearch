@@ -16,11 +16,16 @@ typedef struct {
   TimeoutCtx timeoutCtx;           // Timeout parameters
 
   size_t offset;
+
   IndexIterator *childIter;
+  t_docId childLastId;
   IndexIterator *numericIter;
+  t_docId numericLastId;
+
   QOptimizer optim;
 
   heap_t *heap;
+  RSIndexResult *pooledResult;
 } OptimizerIterator;
 
 #ifdef __cplusplus

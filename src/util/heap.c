@@ -171,6 +171,11 @@ void *heap_peek(const heap_t *h) {
   return h->array[0];
 }
 
+int heap_cmp_root(const heap_t *h, void *item) {
+  return h->cmp(item, h->udata, NULL);
+}
+
+
 void heap_clear(heap_t *h) {
   h->count = 0;
 }

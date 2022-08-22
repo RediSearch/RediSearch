@@ -1,6 +1,8 @@
 #include "optimizer_reader.h"
 #include "aggregate/aggregate.h"
 
+#define IITER_CURRENT_RECORD(ii) ((ii)->current ? (ii)->current : 0)
+
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
   double d1 = *((double *)v1);
   double d2 = *((double *)v2);
@@ -66,9 +68,78 @@ void OptimizerIterator_Free(struct indexIterator *self) {
   rm_free(it);
 }
 
+int OPT_ReadYield(void *ctx, RSIndexResult **e) {
+  OptimizerIterator *it = ctx;
+  *e = heap_poll(it->heap);
+  return (*e == NULL) ? INDEXREAD_EOF : INDEXREAD_OK;
+}
+
 int OPT_Read(void *ctx, RSIndexResult **e) {
+  OptimizerIterator *it = ctx;
+  IndexIterator *child = it->childIter;
+  IndexIterator *numeric = it->numericIter;
+
+  if (it->pooledResult == NULL) {
+    it->pooledResult = rm_calloc(1, sizeof(*it->pooledResult));
+  } else {
+    // nothing to clean
+  }
+
+  while (1) {
+    AggregateResult_Reset(it->base.current);
+
+    RSIndexResult *childRes; //= IITER_CURRENT_RECORD(child);
+    RSIndexResult *numericRes;// = IITER_CURRENT_RECORD(numeric);
+    // skip to the next
+    int rc = INDEXREAD_OK;
+
+    int rc1 = child->Read(child->ctx, &childRes);
+    int rc2 = numeric->SkipTo(numeric->ctx, childRes->docId, &numericRes);
+
+    while (1) {
+      if (rc1 == INDEXREAD_EOF || rc2 == INDEXREAD_EOF) {
+        break;
+      }
+      if (childRes->docId == numericRes->docId) {
+        it->lastDocId = childRes->docId;
+        
+        // heap is not full. insert
+        if (heap_count(it->heap) < heap_size(it->heap)) {
+          *it->pooledResult = *numericRes;
+          heap_offer(it->heap, it->pooledResult);
+          it->pooledResult = NULL;
+        // heap is full. try to replace
+        } else if (heap_cmp_root(it->heap, numericRes)) {
+          RSIndexResult *tempRes = heap_peek(it->heap);
+          *it->pooledResult = *numericRes; 
+          heap_replace(it->heap, it->pooledResult);
+          it->pooledResult = tempRes;
+        }
+
+      } else if (childRes->docId > numericRes->docId) {
+        int rc2 = numeric->SkipTo(numeric->ctx, childRes->docId, &numericRes);
+      } else {
+        int rc1 = child->SkipTo(child->ctx, childRes->docId, &childRes);
+      }
+    }
+
+    // if heap is full or TODO no more rewinds
+    if (heap_size(it->heap) == heap_count(it->heap)) {
+      it->base.Read = OPT_ReadYield;
+      return OPT_ReadYield(ctx, e);
+    }
+
+    // use heuristic to decide next step
+    // rewind
+
 
 }
+
+
+
+
+
+
 
 IndexIterator *NewOptimizerIterator(QOptimizer *q_opt, IndexIterator *root, IndexIterator *numeric) {
   OptimizerIterator *oi = rm_malloc(sizeof(*oi));
@@ -93,7 +164,7 @@ IndexIterator *NewOptimizerIterator(QOptimizer *q_opt, IndexIterator *root, Inde
   ri->Abort = OPT_Abort;
   ri->Rewind = OPT_Rewind;
   ri->HasNext = OPT_HasNext;
-  ri->SkipTo = NULL;            // The iterator is always on top and on Read() is called
+  ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
   ri->current = NewNumericResult();
 
