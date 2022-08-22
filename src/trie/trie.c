@@ -469,7 +469,7 @@ inline static int __trieNode_Cmp_Score(const void *p1, const void *p2) {
   } else if (n1->maxChildScore > n2->maxChildScore) {
     return -1;
   }
-  return __trieNode_Cmp_Lex(n1, n2);
+  return __trieNode_Cmp_Lex(&n1, &n2);
 }
 
 /* Sort the children of a node */
