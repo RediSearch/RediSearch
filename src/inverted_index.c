@@ -1362,6 +1362,10 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
         res->docId = (*(uint32_t *)&res->docId) + firstReadId;
       }
     }
+    // Increment frags only when moving to the next doc
+    // (do not increment when moving to the next entry in the same doc)
+    int frag_incr = (isFirstRes || (lastReadId != res->docId)) ? 1 : 0;
+
     isFirstRes = false;
     lastReadId = res->docId;
     int docExists = DocTable_Exists(dt, res->docId);
@@ -1370,11 +1374,12 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     // and not write anything, so the reader will advance but the writer won't.
     // this will close the "hole" in the index
     if (!docExists) {
-      if (!frags++) {
+      if (!frags) {
         // First invalid doc; copy everything prior to this to the repair
         // buffer
         Buffer_Write(&bw, blk->buf.data, bufBegin - blk->buf.data);
       }
+      frags += frag_incr;
       params->bytesCollected += sz;
       isLastValid = 0;
     } else {

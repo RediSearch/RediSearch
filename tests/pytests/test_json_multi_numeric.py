@@ -1,5 +1,6 @@
 from itertools import chain
 import json
+import random
 
 from common import *
 from includes import *
@@ -187,10 +188,6 @@ def testMultiNonNumericNested(env):
     env.expect('FT.SEARCH', 'idx2', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])
 
 
-def testInfo(env):
-    #TODO:
-    pass
-
 def testRange(env):
     """ Test multi numeric ranges """
 
@@ -290,4 +287,89 @@ def testInvertedIndexMultipleBlocks(env):
     env.assertListEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
 
 
+def checkInfoAndGC(env, idx, doc_num, create, delete):
+    """ Helper function for testInfoAndGC """
+    conn = getConnectionByEnv(env)
     
+    # Start empty
+    env.assertEqual(True, True, message = 'check {}'.format(idx))
+    info = index_info(env, idx)
+    env.assertEqual(int(info['num_docs']), 0)
+    env.assertEqual(int(info['total_inverted_index_blocks']), 0)
+    env.assertEqual(int(info['inverted_sz_mb']), 0)
+
+    create(env, doc_num)
+
+    # Consume something
+    info = index_info(env, idx)
+    env.assertEqual(int(info['num_docs']), doc_num)
+    env.assertGreater(int(info['total_inverted_index_blocks']), doc_num / 100)
+    env.assertGreater(float(info['inverted_sz_mb']), 0)
+
+    delete(env, doc_num)
+    forceInvokeGC(env, idx)
+
+    # Cleaned up
+    info = index_info(env, idx)
+    env.assertEqual(int(info['num_docs']), 0)
+    env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might be left
+    env.assertEqual(float(info['inverted_sz_mb']), 0)
+
+
+def testInfoAndGC(env):
+    """ Test cleanup of numeric ranges """
+    env.skipOnCluster()
+    if env.env == 'existing-env':
+        env.skip()
+    conn = getConnectionByEnv(env)
+
+    # Print the random seed for reproducibility
+    seed = str(time.time())
+    env.assertNotEqual(seed, None, message='random seed ' + seed)
+    random.seed(seed)
+
+    env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+
+    # Various lambdas to create and delete docs
+    def create_json_docs_multi(env, doc_num):
+        for doc in range(1, doc_num + 1):
+            if doc % 10:
+                val_count = random.randint(1, 50)
+            else:
+                # Fill up an inverted index block with all values from the same doc
+                val_count = random.randint(100, 150)
+            val_list = [random.uniform(1, 100000) for i in range(val_count)]
+            conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'top': val_list}))
+
+    def create_json_docs_single(env, doc_num):
+        for doc in range(1, doc_num + 1):
+            conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'top': random.uniform(1, 100000)}))
+    
+    def delete_json_docs(env, doc_num):
+        for doc in range(1, doc_num + 1):
+            conn.execute_command('JSON.DEL', 'doc:{}'.format(doc), '$')
+
+    def create_hash_docs(env, doc_num):
+        for doc in range(1, doc_num + 1):
+            conn.execute_command('HSET', 'doc:{}'.format(doc), 'top', random.uniform(1, 100000))
+    
+    def delete_hash_docs(env, doc_num):
+        for doc in range(1, doc_num + 1):
+            conn.execute_command('DEL', 'doc:{}'.format(doc), '$')
+
+    # The actual test
+    doc_num = 1000
+
+    # JSON multi
+    env.expect('FT.CREATE', 'idx_json_mult', 'ON', 'JSON', 'SCHEMA', '$.top[*]', 'AS', 'val', 'NUMERIC').ok()
+    checkInfoAndGC(env, 'idx_json_mult', doc_num, create_json_docs_multi, delete_json_docs)
+
+    # JSON single
+    env.flush()    
+    env.expect('FT.CREATE', 'idx_json_single', 'ON', 'JSON', 'SCHEMA', '$.top', 'AS', 'val', 'NUMERIC').ok()
+    checkInfoAndGC(env, 'idx_json_single', doc_num, create_json_docs_single, delete_json_docs)
+
+    # Hash
+    env.flush()
+    env.expect('FT.CREATE', 'idx_hash', 'ON', 'HASH', 'SCHEMA', 'top', 'NUMERIC').ok()
+    checkInfoAndGC(env, 'idx_hash', doc_num, create_hash_docs, delete_hash_docs)
