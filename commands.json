@@ -54,6 +54,12 @@
         ]
       },
       {
+        "name": "filter",
+        "type": "string",
+        "optional": true,
+        "token": "FILTER"
+      },
+      {
         "name": "default_lang",
         "type": "string",
         "token":"LANGUAGE",
@@ -136,6 +142,12 @@
             "optional": true
           }
         ]
+      },
+      {
+        "name": "skipinitialscan",
+        "type": "pure-token",
+        "token": "SKIPINITIALSCAN",
+        "optional": true
       },
       {
         "name": "schema",
@@ -289,6 +301,12 @@
       {
         "name": "index",
         "type": "string"
+      },
+      {
+        "name": "skipinitialscan",
+        "type": "pure-token",
+        "token": "SKIPINITIALSCAN",
+        "optional": true
       },
       {
         "name": "schema",
