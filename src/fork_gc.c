@@ -667,6 +667,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     MSG_DeletedBlock *delinfo = idxData->delBlocks + i;
     rm_free(delinfo->ptr);
   }
+  TotalIIBlocks -= idxData->numDelBlocks;
   rm_free(idxData->delBlocks);
 
   // Ensure the old index is at least as big as the new index' size
