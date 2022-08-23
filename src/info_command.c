@@ -4,8 +4,6 @@
 #include "vector_index.h"
 #include "cursor.h"
 
-#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
-
 #define REPLY_KVNUM(n, k, v)                       \
   do {                                             \
     RedisModule_ReplyWithSimpleString(ctx, (k));   \
@@ -209,7 +207,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
   REPLY_KVNUM(n, "hash_indexing_failures", sp->stats.indexingFailures);
-  REPLY_KVNUM(n, "total_indexing_time", (double)sp->stats.totalIndexTime / (double)CLOCKS_PER_MILLISEC);
+  REPLY_KVNUM(n, "total_indexing_time", sp->stats.totalIndexTime / 1000.0);
   REPLY_KVNUM(n, "indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;

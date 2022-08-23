@@ -20,9 +20,8 @@ static int replyCrdtError(RedisModuleCtx *ctx) {
 ## FT.SUGGADD key string score [INCR] [PAYLOAD {payload}]
 
 Add a suggestion string to an auto-complete suggestion dictionary. This is
-disconnected from the
-index definitions, and leaves creating and updating suggestino dictionaries to
-the user.
+disconnected from the index definitions, and leaves creating and updating
+suggestion dictionaries to the user.
 
 ### Parameters:
 
@@ -33,13 +32,8 @@ the user.
    - score: a floating point number of the suggestion string's weight
 
    -INCR: if set, we increment the existing entry of the suggestion by the
-given
-score, instead
-of
-    replacing the score. This is useful for updating the dictionary based on
-user queries in
-real
-    time
+    given score, instead of replacing the score. This is useful for updating
+    the dictionary based on user queries in real time.
 
    - PAYLOAD: Add a payload to the suggestion string that will be used as additional information.
 

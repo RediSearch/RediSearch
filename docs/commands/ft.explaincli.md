@@ -1,20 +1,57 @@
-Returns the execution plan for a complex query but formatted for easier reading without using `redis-cli --raw`.
+---
+syntax: 
+---
 
-In the returned response, a `+` on a term is an indication of stemming.
+Return the execution plan for a complex query but formatted for easier reading without using `redis-cli --raw`
 
-#### Parameters
+## Syntax
 
-- **index**: The index name. The index must be first created with FT.CREATE
-- **query**: The query string, as if sent to FT.SEARCH
+{{< highlight bash >}}
+FT.EXPLAIN index query 
+          [DIALECT dialect]
+{{< / highlight >}}
+
+[Examples](#examples)
+
+## Required parameters
+
+<details open>
+<summary><code>index</code></summary>
+
+is index name. You must first create the index using `FT.CREATE`.
+</details>
+
+<details open>
+<summary><code>query</code></summary>
+
+is query string, as if sent to FT.SEARCH`.
+</details>
+
+## Optional parameters
+
+<details open>
+<summary><code>DIALECT {dialect_version}</code></summary>
+
+is dialect version under which to execute the query. If not specified, the query executes under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
+</details>
+
+
 - **DIALECT {dialect_version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
+<note><b>Notes:</b>
 
-@return
+- In the returned response, a `+` on a term is an indication of stemming.
+</note>
 
-@array-reply with a string represention the execution plan.
+## Return
 
-@examples
+FT.EXPLAINCLI returns an array reply with a string representing the execution plan.
 
-```sh
+## Examples
+
+<details open>
+<summary><b>Return the execution plan for a complex query</b></summary>
+
+{{< highlight bash >}}
 $ redis-cli
 
 127.0.0.1:6379> FT.EXPLAINCLI rd "(foo bar)|(hello world) @date:[100 200]|@date:[500 +inf]"
@@ -47,4 +84,14 @@ $ redis-cli
 27)   }
 28) }
 29)
-```
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.CREATE` | `FT.SEARCH` | `FT.CONFIG SET`
+
+## Related topics
+
+[RediSearch](/docs/stack/search)
+
