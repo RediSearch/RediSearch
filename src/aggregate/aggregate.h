@@ -54,6 +54,8 @@ typedef enum {
   /* FT.AGGREGATE load all fields */
   QEXEC_AGG_LOAD_ALL = 0x20000,
 
+  /* Optimize query */
+  QEXEC_OPTIMIZE = 0x40000,
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)

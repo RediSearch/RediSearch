@@ -400,6 +400,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
       {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
       {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
+      {AC_MKBITFLAG("OPTIMIZE", &req->reqflags, QEXEC_OPTIMIZE)},
       {.name = "PAYLOAD",
        .type = AC_ARGTYPE_STRING,
        .target = &req->ast.udata,
@@ -886,16 +887,16 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   // parse inputs for optimizations
-  QOptimizer_Parse(req);
+  OPTMZ(QOptimizer_Parse(req));
 
   // check possible optimization after creation of QueryNode tree
-  QOptimizer_QueryNodes(req->ast.root, req->optimizer);
+  OPTMZ(QOptimizer_QueryNodes(req->ast.root, req->optimizer));
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 
   // check possible optimization after creation of IndexIterator tree
-  QOptimizer_Iterators(req, req->optimizer);
+  OPTMZ(QOptimizer_Iterators(req, req->optimizer));
 
   TimedOut_WithStatus(&req->timeoutTime, status);
 
