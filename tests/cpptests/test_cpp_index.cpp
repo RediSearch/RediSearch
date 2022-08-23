@@ -819,7 +819,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
   KNNVectorQuery top_k_query = {.vector = vec, .vecLen = d, .k = 10, .order = BY_SCORE};
-  VecSimQueryParams queryParams = {{0}};
+  VecSimQueryParams queryParams = {0};
 
   // Create invalid intersection iterator (with a child iterator which is NULL).
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -1083,7 +1083,11 @@ TEST_F(IndexTest, testHugeSpec) {
   s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
+#if !defined(__arm__) && !defined(__aarch64__)
   ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetError(&err));
+#else
+  ASSERT_STREQ("Schema is limited to 64 TEXT fields", QueryError_GetError(&err));
+#endif
   freeSchemaArgs(args);
   QueryError_ClearError(&err);
 }
