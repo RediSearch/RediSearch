@@ -66,7 +66,10 @@ typedef struct QOptimizer {
 
     IndexIterator *numIter;
     IndexIterator *root;
- } QOptimizer;
+
+    RedisSearchCtx *sctx;
+    ConcurrentSearchCtx *conc;
+} QOptimizer;
 
 QOptimizer *QOptimizer_New();
 

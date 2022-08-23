@@ -253,7 +253,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
         Vector_Push(v, n->range);
       } else {
         *total += n->range->entries->numDocs;
-        if (*total >= nf->offset) {
+        if (*total > nf->offset) {
           Vector_Push(v, n->range);
         }
       }

@@ -12,6 +12,7 @@
 #include "util/heap.h"
 #include "profile.h"
 #include "hybrid_reader.h"
+#include "optimizer_reader.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit);
@@ -2008,6 +2009,7 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
     case HYBRID_ITERATOR:     { printHybridIt(ctx, root, counter, cpuTime, depth, limited);     break; }
+    case OPTIMUS_ITERATOR:    { /* TODO */;                                                     break; }
     case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
@@ -2029,6 +2031,9 @@ void Profile_AddIters(IndexIterator **root) {
       break;
     case HYBRID_ITERATOR:
       Profile_AddIters(&((HybridIterator *)((*root)->ctx))->child);
+      break;
+    case OPTIMUS_ITERATOR:
+      Profile_AddIters(&((OptimizerIterator *)((*root)->ctx))->childIter);
       break;
     case UNION_ITERATOR:
       ui = (*root)->ctx;

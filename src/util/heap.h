@@ -78,10 +78,6 @@ void heap_replace(heap_t *h, void *item);
 void *heap_peek(const heap_t * hp);
 
 /**
- * @return top item of the heap */
-bool heap_cmp_root(const heap_t * hp, void *item);
-
-/**
  * Clear all items
  *
  * NOTE:

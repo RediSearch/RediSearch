@@ -8,6 +8,7 @@
 #include "util/timeout.h"
 
 // This enum should match the VecSearchMode enum in VecSim
+typedef int (*OptimizerCompareFunc)(const void *e1, const void *e2, const void *udata);
 
 typedef struct {
   IndexIterator base;
@@ -25,6 +26,7 @@ typedef struct {
   QOptimizer optim;
 
   heap_t *heap;
+  OptimizerCompareFunc cmp;
   RSIndexResult *pooledResult;
 } OptimizerIterator;
 

@@ -16,6 +16,8 @@ void QOptimizer_Free(QOptimizer *opt) {
 
 void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
+  opt->sctx = req->sctx;
+  opt->conc = &req->conc;
 
   PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
   // get FieldSpec of sortby field and results limit
@@ -197,11 +199,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
 
     // limit range to number of required LIMIT
     case Q_OPT_PARTIAL_RANGE: {
-      // if READ_ITERATOR do nothing
-      if (root->type == UNION_ITERATOR) {
-        // trim the union numeric iterator to have the minimal number of ranges
-        trimUnionIterator(root, 0, opt->limit, opt->asc, true);
-      } else if (root->type == WILDCARD_ITERATOR) {
+      if (root->type == WILDCARD_ITERATOR) {
         // replace the root iterator with a numeric iterator with minimal number of ranges
         root->Free(root);
 
@@ -209,6 +207,18 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
                                             req->optimizer->limit, req->optimizer->asc);
         opt->nf->fieldName = rm_strdup(req->optimizer->fieldName);
         req->rootiter = NewNumericFilterIterator(req->sctx, opt->nf, &req->conc, INDEXFLD_T_NUMERIC);
+      } else if (req->ast.root->type == QN_NUMERIC) {
+        // trim the union numeric iterator to have the minimal number of ranges
+        if (root->type == UNION_ITERATOR) {
+          trimUnionIterator(root, 0, opt->limit, opt->asc, true);
+        }
+      } else {
+        opt->nf = NewNumericFilter(NF_NEGATIVE_INFINITY, NF_INFINITY, 1, 1, 0,
+                                            req->optimizer->limit, req->optimizer->asc);
+        opt->nf->fieldName = rm_strdup(req->optimizer->fieldName);
+        IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->nf,
+                                                &req->conc, INDEXFLD_T_NUMERIC);
+        req->rootiter = NewOptimizerIterator(opt, root, numericIter);          
       }
       return;
     }
@@ -239,6 +249,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         nf = NewNumericFilter(NF_NEGATIVE_INFINITY, NF_INFINITY, 1, 1, 0, estimatedRequired, opt->asc);
         nf->fieldName = rm_strdup(opt->fieldName);
       }
+      opt->nf = nf;
       IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, nf,
                                               &req->conc, INDEXFLD_T_NUMERIC);
       
