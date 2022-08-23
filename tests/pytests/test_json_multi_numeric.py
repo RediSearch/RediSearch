@@ -373,3 +373,35 @@ def testInfoAndGC(env):
     env.flush()
     env.expect('FT.CREATE', 'idx_hash', 'ON', 'HASH', 'SCHEMA', 'top', 'NUMERIC').ok()
     checkInfoAndGC(env, 'idx_hash', doc_num, create_hash_docs, delete_hash_docs)
+
+def testSortBy(env):
+    """ Test sort of multi numeric values """
+    
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.top[*]', 'AS', 'val', 'NUMERIC').ok()
+    doc_num = 200
+    for doc in range(1, doc_num + 1):
+            val_count = random.randint(0, 10)
+            val_list = [random.uniform(1, 100000) for i in range(val_count)]
+            # Allow also empty arrays
+            if val_count:
+                val_list.insert(0, -doc)
+                # Set the first value which is the sort key
+                val_list.insert(0, doc)
+            conn.execute_command('JSON.SET', '{}'.format(doc), '$', json.dumps({'top': val_list}))
+
+    # Make sure there are at least 2 result
+    query = ['FT.SEARCH', 'idx',
+        '@val:[3000 8000] | @val:[{} {}] | @val:[{} {}]'.format(int(doc_num/2), int(doc_num/2), doc_num, doc_num),
+        'NOCONTENT', 'LIMIT', 0, doc_num]
+    
+    # Results should be ascending
+    res = conn.execute_command(*query, 'SORTBY', 'val')
+    for i in range(2, len(res)):
+        env.assertGreater(int(res[i]), int(res[i - 1]))
+
+    # Results should be descending
+    res = conn.execute_command(*query, 'SORTBY', 'val', 'DESC')    
+    for i in range(2, len(res)):
+        env.assertLess(int(res[i]), int(res[i - 1]))
