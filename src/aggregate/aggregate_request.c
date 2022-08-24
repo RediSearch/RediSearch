@@ -1069,12 +1069,12 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   }
 
   // No sort? then it must be sort by score, which is the default.
-  if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH) && !(req->optimizer->type == Q_OPT_NO_SORTER)) {
+  if (rp == NULL && IsSearch(req) && !(req->optimizer->type == Q_OPT_NO_SORTER)) {
     rp = RPSorter_NewByScore(limit);
     up = pushRP(req, rp, up);
   }
 
-  if (astp->offset || (astp->limit && !rp)) {
+  if (astp->offset || ((astp->limit || IsSearch(req)) && !rp)) {
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(req, rp, up);
   }
