@@ -676,19 +676,10 @@ workflows:
   version: 2
   default-flow:
     jobs:
-      - benchmark-search-oss-standalone:
-          context: common
-          <<: *on-any-branch
-      - benchmark-vecsim-oss-standalone:
-          context: common
-          <<: *on-any-branch
       - benchmark-search-oss-cluster:
           context: common
           <<: *on-any-branch
       - benchmark-search-oss-standalone-profiler:
-          context: common
-          <<: *on-any-branch
-      - benchmark-vecsim-oss-standalone-profiler:
           context: common
           <<: *on-any-branch
 
