@@ -104,7 +104,7 @@ class Test:
         self.variant_name = ""
         if vecsim:
             self.variant_name += " +vecsim"
-        self.title = f"{self.module_name}/{self.modver}{self.variant} for RS {self.rlecver}"
+        self.title = f"{self.module_name}/{self.modver}{self.variant_name} for RS {self.rlecver}"
 
         ENV['TEST_TITLE'] = self.title
         ENV['SEARCH_VERSION'] = modver
