@@ -105,13 +105,10 @@ def testEmptyNumericLeakIncrease(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs)
 
-    num_summery_before = to_dict(env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n'))
+    num_summery_before = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
     forceInvokeGC(env, 'idx')
-    num_summery_after = to_dict(env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n'))
-    env.assertGreater(num_summery_before['numRanges'], num_summery_after['numRanges'])
-
-    # test for PR#3018. check `numEntries` is updated after GC
-    env.assertGreater(num_summery_before['numEntries'], num_summery_after['numEntries'])
+    num_summery_after = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    env.assertGreater(num_summery_before[1], num_summery_after[1])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs)
