@@ -1394,7 +1394,8 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     }
   }
 
-  // increament the number of uses
+  // Increament the number of uses. 
+  // When we move to multi readers this counter needs to be atomic.
   ++sp->counter;
 
   if ((sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
