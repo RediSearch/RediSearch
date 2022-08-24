@@ -311,8 +311,6 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     }
     rm_free(term);
   }
-  DFAFilter_Free(iter->ctx);
-  rm_free(iter->ctx);
   TrieIterator_Free(iter);
 
   // we are done with terms
@@ -879,7 +877,7 @@ static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
 
   NumericRange *r = currNone->range;
   array_free(r->values);
-  r->values = cardVals;
+  r->values = cardVals ? cardVals : array_new(CardinalityValue, 1);
 
   r->unique_sum = info->uniqueSum;
   r->card = array_len(r->values);
@@ -951,6 +949,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
+    rt->numEntries -= ninfo.info.ndocsCollected;
 
     if (ninfo.node->range->entries->numDocs == 0) {
       rt->emptyLeaves++;

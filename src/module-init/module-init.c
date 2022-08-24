@@ -234,6 +234,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Initialize_KeyspaceNotifications(ctx);
   Initialize_CommandFilter(ctx);
   Initialize_RdbNotifications(ctx);
+  Initialize_RoleChangeNotifications(ctx);
 
   // Register rm_malloc memory functions as vector similarity memory functions.
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};

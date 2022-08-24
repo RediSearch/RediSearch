@@ -69,7 +69,6 @@ make build          # compile and link
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
   DEBUG=1             # build for debugging
-  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
   NO_TESTS=1          # disable unit tests
   WHY=1               # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1             # Force CMake rerun (default)
@@ -77,6 +76,9 @@ make build          # compile and link
   VG=1                # build for Valgrind
   SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
   SLOW=1              # do not parallelize build (for diagnostics)
+  GCC=1               # build with GCC (default unless Sanitizer)
+  CLANG=1             # build with CLang
+  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -219,14 +221,17 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
+# override CLang default for macOS
+ifeq ($(OS),macos)
+ifneq ($(CLANG),1)
+export GCC=1
+endif
+endif
+
 STATIC_LIBSTDCXX ?= 1
 
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
-endif
-
-ifneq ($(SAN),)
-CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 endif
 
 ifeq ($(PROFILE),1)
@@ -284,6 +289,8 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
+export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)
+
 #----------------------------------------------------------------------------------------------
 
 HAVE_MARCH_OPTS:=$(shell $(MK)/cc-have-opts)
@@ -300,6 +307,10 @@ CMAKE_FLAGS=\
 	-DOS=$(OS) \
 	-DOSNICK=$(OSNICK) \
 	-DARCH=$(ARCH)
+
+ifeq ($(OS),macos)
+CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
+endif
 
 CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_COV) \
 	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)

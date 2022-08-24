@@ -110,6 +110,10 @@ typedef struct {
   // sets the memory limit for vector indexes to resize by (in bytes).
   // 0 indicates no limit. Default value is 0.
   unsigned int vssMaxResize;
+  // The delta used to increase positional offsets between array slots for multi text values.
+  // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
+  // Default value is 100. 0 will not increment (as if all text is a continus phrase).
+  unsigned int multiTextOffsetDelta;
 } RSConfig;
 
 typedef enum {
@@ -198,7 +202,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
-    .vssMaxResize = 0,                                                                            \
+    .vssMaxResize = 0, .multiTextOffsetDelta = 100,                                               \
   }
 
 #define REDIS_ARRAY_LIMIT 7

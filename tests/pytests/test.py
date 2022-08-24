@@ -3472,7 +3472,6 @@ def test_empty_field_name(env):
     conn.execute_command('hset', 'doc1', '', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])
 
-@unstable
 def test_free_resources_on_thread(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
@@ -3518,8 +3517,10 @@ def test_free_resources_on_thread(env):
         conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'false')
 
     # ensure freeing resources on a 2nd thread is quicker
-    # than freeing it on the main thread
-    env.assertLess(results[0], results[1])
+    # than freeing it on the main thread    
+    # (skip this check point on CI since it is not guaranteed)
+    if not CI:
+        env.assertLess(results[0], results[1])
 
     conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
 

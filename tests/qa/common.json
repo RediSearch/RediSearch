@@ -1,6 +1,6 @@
 {
   "service_id": "single_module_test_cycle",
-  "name": "redisearch automation-testing",
+  "name": "{{TEST_TITLE}}",
   "properties": {
     "sut_version": "{{RLEC_VERSION}}",
     "email_recipients": "s5i1u4h5a8c8w2d7@redislabs.slack.com",
@@ -14,8 +14,8 @@
     "global_spot_instances": "ondemand",
     "module_download_url": true,
     "module_download_urls": {
-      "{{SEARCH_DOWNLOAD_NAME}}": "http://redismodules.s3.amazonaws.com/{{SEARCH_DIR}}/{{SEARCH_FILE_PREFIX}}.Linux-$OS.{{SEARCH_VERSION}}.zip",
-      "ReJSON": "http://redismodules.s3.amazonaws.com/{{REJSON_DIR}}/{{REJSON_FILE_PREFIX}}.Linux-$OS.{{REJSON_VERSION}}.zip"
+      "{{SEARCH_DOWNLOAD_NAME}}": "http://redismodules.s3.amazonaws.com/{{SEARCH_DIR}}/{{SEARCH_FILE_PREFIX}}.$OS.{{SEARCH_VERSION}}.zip",
+      "ReJSON": "http://redismodules.s3.amazonaws.com/{{REJSON_DIR}}/{{REJSON_FILE_PREFIX}}.$OS.{{REJSON_VERSION}}.zip"
     },
     "cycle_environments_setup": [
 	  {{RLEC_ENVS}}
