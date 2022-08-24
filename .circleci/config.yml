@@ -676,71 +676,21 @@ workflows:
   version: 2
   default-flow:
     jobs:
-      - build-linux-debian:
-          name: build
-          <<: *not-on-integ-branch
-      - build-platforms:
-          <<: *on-integ-and-version-tags
-          context: common
-          matrix:
-            parameters:
-              platform: [focal, bionic, xenial, centos7, rocky8, bullseye, jammy]
-      - build-arm-platforms:
-          <<: *on-integ-and-version-tags
-          context: common
-          matrix:
-            parameters:
-              platform: [bionic]
-      - build-macos:
-          context: common
-          <<: *on-integ-and-version-tags
-      - coverage:
-          <<: *on-any-branch
-      - sanitize:
-          name: sanitize-<< matrix.san-type >>
-          matrix:
-            parameters:
-              san-type: [address] # [address, memory]
-          <<: *on-any-branch
-      - valgrind-memcheck:
-          <<: *never
       - benchmark-search-oss-standalone:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch
       - benchmark-vecsim-oss-standalone:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch
       - benchmark-search-oss-cluster:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch
       - benchmark-search-oss-standalone-profiler:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch
       - benchmark-vecsim-oss-standalone-profiler:
           context: common
-          <<: *on-perf-and-version-tags
-      - upload-artifacts:
-          name: upload-artifacts-to-staging-lab
-          staging-lab: "1"
-          context: common
-          <<: *on-integ-branch
-          requires:
-            - build-platforms
-            - build-arm-platforms
-            - build-macos
-      - upload-artifacts:
-          name: upload-release-artifacts
-          context: common
-          <<: *on-version-tags
-          requires:
-            - build-platforms
-            - build-arm-platforms
-            - build-macos
-      - release-automation:
-          <<: *on-version-tags
-          context: common
-          requires:
-            - upload-release-artifacts
+          <<: *on-any-branch
 
   nightly:
     triggers:
