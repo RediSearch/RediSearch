@@ -51,8 +51,7 @@ typedef struct CursorList {
   khash_t(cursors) * lookup;
 
   /** List of spec infos; we just iterate over this */
-  CursorSpecInfo **specs;
-  size_t specsCount;
+  dict *specsDict;
 
   /** List of idle cursors */
   Array idle;

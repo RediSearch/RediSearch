@@ -33,7 +33,6 @@ void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key, DocumentType type);
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
-void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
@@ -245,9 +244,6 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
-  if (IndexSpec_OnCreate) {
-    IndexSpec_OnCreate(sp);
-  }
 
   // set timeout for temporary index on master
   if ((sp->flags & Index_Temporary) && IsMaster()) {
@@ -1343,7 +1339,7 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
     spec->scan_in_progress = true;
   } else {
     global_spec_scanner = scanner;
-    RedisModule_Log(RSDummyContext, "notice", "Global scanner created");    
+    RedisModule_Log(RSDummyContext, "notice", "Global scanner created");
   }
 
   return scanner;
@@ -1636,9 +1632,6 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     if (sp->smap == NULL)
       goto cleanup;
   }
-  if (IndexSpec_OnCreate) {
-    IndexSpec_OnCreate(sp);
-  }
 
   sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
 
@@ -1731,9 +1724,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
-  }
-  if (IndexSpec_OnCreate) {
-    IndexSpec_OnCreate(sp);
   }
   if (encver < INDEX_MIN_EXPIRE_VERSION) {
     sp->timeout = -1;
