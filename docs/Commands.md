@@ -199,9 +199,9 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
         Numeric, tag (not supported with JSON) or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
 
     * **UNF**
-        
-        By default, SORTABLE applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using UNF (un-normalized form) it is possible to disable the normalization and keep the original form of the value. 
-  
+
+        By default, SORTABLE applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using UNF (un-normalized form) it is possible to disable the normalization and keep the original form of the value.
+
     * **NOSTEM**
 
         Text attributes can have the NOSTEM argument which will disable stemming when indexing its values.
@@ -1436,8 +1436,10 @@ Optional
 40) "0"
 41) percent_indexed
 42) "1"
-43) gc_stats
-44)  1) bytes_collected
+42) number_of_uses
+43) "1"
+44) gc_stats
+45)  1) bytes_collected
      2) "4148136"
      3) total_ms_run
      4) "14796"
@@ -1451,8 +1453,8 @@ Optional
     12) "0"
     13) gc_blocks_denied
     14) "0"
-45) cursor_stats
-46) 1) global_idle
+46) cursor_stats
+47) 1) global_idle
     2) (integer) 0
     3) global_total
     4) (integer) 0
@@ -1460,8 +1462,8 @@ Optional
     6) (integer) 128
     7) index_total
     8) (integer) 0
-47) stopwords_list
-48) 1) "tlv"
+48) stopwords_list
+49) 1) "tlv"
     2) "summer"
     3) "2020"
 ```
