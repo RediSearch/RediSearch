@@ -1390,6 +1390,10 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     }
   }
 
+  // Increament the number of uses. 
+  // When we move to multi readers this counter needs to be atomic.
+  ++sp->counter;
+
   if ((sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     if (sp->isTimerSet) {
       RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL);
