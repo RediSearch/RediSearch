@@ -471,13 +471,13 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
     return -1;
   } else {
     // printf("Scores are tied. Will compare ID Strings instead\n");
-
-    // This was reversed to be more compatible with OSS version where tie breaker was changed
-    // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
+    
+    // This was reversed to be more compatible with OSS version where tie breaker was changed 
+    // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending 
     // or decending but this still may reduce heap work.
     // Our tests are usually ascending so this will create similarity between RS and RSC.
     int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
-
+    
     // printf("ID Strings: Comparing <N=%lu> %.*s vs <N=%lu> %.*s => %d\n", r2->idLen,
     // (int)r2->idLen,
     //        r2->id, r1->idLen, (int)r1->idLen, r1->id, rv);
@@ -763,7 +763,7 @@ static void profileSearchReply(RedisModuleCtx *ctx, searchReducerCtx *rCtx,
 
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithSimpleString(ctx, "Post Proccessing time");
-  RedisModule_ReplyWithDouble(ctx, (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyWithDouble(ctx, (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC); 
   arrLen++;
 
   RedisModule_ReplySetArrayLength(ctx, arrLen);
@@ -822,7 +822,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
     goto cleanup;
   }
-
+  
   if (!profile) {
     sendSearchResults(ctx, &rCtx);
   } else {
@@ -1539,6 +1539,7 @@ void setHiredisAllocators(){
 
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  IndexSpec_OnCreate = addIndexCursor;
   /**
 
   FT.AGGREGATE gh * LOAD 1 @type GROUPBY 1 @type REDUCE COUNT 0 AS num REDUCE SUM 1 @date SORTBY 2
@@ -1548,7 +1549,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   printf("RSValue size: %lu\n", sizeof(RSValue));
 
-  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
+  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION, 
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
