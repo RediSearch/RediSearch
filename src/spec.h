@@ -82,7 +82,7 @@ struct DocumentIndexer;
        .len = &dummy2,                                                      \
        .type = AC_ARGTYPE_STRING},
 
-// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace 
+// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
@@ -265,6 +265,9 @@ typedef struct IndexSpec {
   // in favor on a newer, pending scan
   bool scan_in_progress;
   bool cascadeDelete;  // remove keys when removing spec
+
+  // Count the number of times the index was used
+  long long counter;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

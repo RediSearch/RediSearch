@@ -3460,3 +3460,10 @@ def test_free_resources_on_thread(env):
     env.assertLess(results[0], results[1])
 
     conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
+
+def test_uses_counter(env):
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
+    env.execute_command('ft.info', 'idx')
+    env.execute_command('ft.search', 'idx', '*')
+
+    assertInfoField(env, 'idx', 'number_of_uses', 3)

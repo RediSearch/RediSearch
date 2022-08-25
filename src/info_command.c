@@ -93,7 +93,7 @@ static const char *getSpecTypeNames(int idx) {
   case IXFLDPOS_TAG:      return SPEC_TAG_STR;
   case IXFLDPOS_NUMERIC:  return NUMERIC_STR;
   case IXFLDPOS_GEO:      return GEO_STR;
-  
+
   default:
     RS_LOG_ASSERT(0, "oops");
     break;
@@ -221,6 +221,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   REPLY_KVNUM(n, "percent_indexed", percent_indexed);
+
+  REPLY_KVNUM(n, "number_of_uses", sp->counter);
 
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
