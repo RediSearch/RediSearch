@@ -91,8 +91,10 @@ Optional
 42) "0"
 43) percent_indexed
 44) "1"
-45) gc_stats
-46)  1) bytes_collected
+45) number_of_uses
+46) 1
+47) gc_stats
+48)  1) bytes_collected
      2) "4148136"
      3) total_ms_run
      4) "14796"
@@ -106,8 +108,8 @@ Optional
     12) "0"
     13) gc_blocks_denied
     14) "0"
-47) cursor_stats
-48) 1) global_idle
+49) cursor_stats
+50) 1) global_idle
     2) (integer) 0
     3) global_total
     4) (integer) 0
@@ -115,8 +117,8 @@ Optional
     6) (integer) 128
     7) index_total
     8) (integer) 0
-49) stopwords_list
-50) 1) "tlv"
+51) stopwords_list
+52) 1) "tlv"
     2) "summer"
     3) "2020"
 ```
