@@ -272,6 +272,9 @@ typedef struct IndexSpec {
   // For criteria tester
   RSGetValueCallback getValue;
   void *getValueCtx;
+
+  // Count the number of times the index was used
+  long long counter;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
