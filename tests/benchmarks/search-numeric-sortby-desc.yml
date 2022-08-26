@@ -8,6 +8,10 @@ metadata:
 setups:
   - oss-standalone
   - oss-cluster-03-primaries
+  - rlec-01-primaries
+  - rlec-03-primaries
+  - rlec-01-primaries-lite
+
 dbconfig:
   - tool: ftsb_redisearch
   - parameters:
@@ -23,4 +27,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH nyc @trip_distance:[1,4]|@fare_amount:[2,7] SORTBY trip_distance DESC LIMIT 0 0'"
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH nyc @trip_distance:[1,4]|@fare_amount:[2,7] SORTBY trip_distance DESC'"
