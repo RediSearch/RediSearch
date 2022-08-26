@@ -4,39 +4,41 @@ from email import message
 from includes import *
 from common import *
 from RLTest import Env
-
 def check_sortby(env, query, params, msg=None):
-	sort_order = ['ASC', 'DESC']
+	cmds = ['ft.search', 'ft.aggregate']
+	idx = 2 if query[0] == cmds[0] else 1
+	msg = cmds[idx % 2] + ' limit %d %d : ' % (params[1], params[2]) + msg
 
+	sort_order = ['ASC', 'DESC']
 	for sort in range(len(sort_order)):
+		print_err = False
 		res = env.cmd(*query, sort_order[sort], *params)
 
 		# put all `n` values into a list
-		i = 2 if query[0] == 'ft.search' else 1
-		res_list = [int(to_dict(n)['n']) for n in res[i::i]]
-		
-		print_err = False
-		cmds = ['ft.search', 'ft.aggregate']
-		msg = cmds[i%2] + ' : ' + sort_order[sort] + ' limit %d %d : ' % (params[1], params[2]) + msg
+		res_list = [int(to_dict(n)['n']) for n in res[idx::idx]]
+		err_msg = msg + ' : ' + sort_order[sort] + ' : len=%d' % len(res_list)
+
 		for i in range(len(res_list) - 1):
 			 # ascending order
 			if sort_order[sort] == sort_order[0]:
 				# env.assertTrue(res_list[i] <= res_list[i - 1])
 				if res_list[i] > res_list[i + 1]:
-					print('index %d : ' % i + str(res_list[i])+' > '+str(res_list[i + 1]) + ' : ' + msg)
+					#print('index %d : ' % i + str(res_list[i])+' > '+str(res_list[i + 1]) + ' : ' + err_msg)
 					print_err = True
 			 # descending order
 			if sort_order[sort] == sort_order[1]:
 				# env.assertTrue(res_list[i] <= res_list[i - 1])
 				if res_list[i] < res_list[i + 1]:
-					print('index %d : ' % i + str(res_list[i])+' < '+str(res_list[i + 1]) + ' : ' + msg)
+					#print('index %d : ' % i + str(res_list[i])+' < '+str(res_list[i + 1]) + ' : ' + err_msg)
 					print_err = True
 	
 		if print_err:
-			print(res)
-			print(res_list)
-			input('stop')
-		env.assertFalse(print_err, message=msg)
+			if (len(res)) < 100:
+				env.debugPrint(str(res), force=True)
+				env.debugPrint(str(res_list), force=True)
+				# input('stop')
+
+		env.assertFalse(print_err, message=err_msg)
 
 def testSortby(env):
 	# separate test which only has queries with sortby
@@ -50,7 +52,8 @@ def testSortby(env):
 		for j in range(len(words)):
 			conn.execute_command('hset', i + j, 't', words[j], 'tag', words[j], 'n', i % 1000 + j)
 
-	limits = [[0, 5], [0, 30], [0, 150], [5, 5], [20, 30], [100, 10], [500, 1], [9900, 1010]]
+
+	limits = [[0, 5], [0, 30], [0, 150], [5, 5], [20, 30], [100, 10], [500, 100], [5000, 1000], [9900, 1010], [0, 100000]]
 	ranges = [[-5, 105], [0, 3], [30, 60], [-10, 5], [950, 1100], [2000, 3000], [42, 42]]
 	params = ['limit', 0 , 0]
 
