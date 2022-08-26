@@ -369,6 +369,7 @@ typedef struct {
   int sortAscending;
   int withSortingKeys;
   int noContent;
+  FieldType sortbyFieldType;
 
   specialCaseCtx** specialCases;
   const char** requiredFields;
@@ -534,6 +535,8 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
       req->specialCases = array_new(specialCaseCtx*, 1);
     }
   req->specialCases = array_append(req->specialCases, ctx);
+  req->sortbyFieldType = INDEXFLD_T_FULLTEXT;       // TODO: get fieldType
+  req->sortbyFieldType = INDEXFLD_T_NUMERIC;        // TODO: get fieldType
 }
 
 searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError* status) {
@@ -642,6 +645,12 @@ static int cmpStrings(const char *s1, size_t l1, const char *s2, size_t l2) {
   }
 }
 
+static int cmpNumerics(const char *s1, size_t l1, const char *s2, size_t l2) {
+  double val1 = strtod(s1 + 1, NULL);
+  double val2 = strtod(s2 + 1, NULL);
+  return val1 - val2;
+}
+
 static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
   const searchResult *r1 = p1, *r2 = p2;
@@ -654,9 +663,19 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
       double diff = r2->sortKeyNum - r1->sortKeyNum;
       cmp = diff < 0 ? -1 : (diff > 0 ? 1 : 0);
     } else if (r1->sortKey && r2->sortKey) {
-
+      switch(req->sortbyFieldType) {
+        case INDEXFLD_T_FULLTEXT:
+        case INDEXFLD_T_TAG:
+          cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
+          break;
+        case INDEXFLD_T_NUMERIC:
+          cmp = cmpNumerics(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
+          break;
+        case INDEXFLD_T_GEO:
+        case INDEXFLD_T_VECTOR:
+          cmp = 0;
+      }
       // Sort by string sort keys
-      cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
       // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
       //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
       //        cmp);
@@ -668,7 +687,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
     if (!cmp) {
       // printf("It's a tie! Comparing <N=%lu> %.*s vs <N=%lu> %.*s\n", r2->idLen, (int)r2->idLen,
       //        r2->id, r1->idLen, (int)r1->idLen, r1->id);
-      cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
+      return cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
     }
     return (req->sortAscending ? -cmp : cmp);
   }
