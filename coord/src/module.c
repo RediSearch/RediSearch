@@ -645,25 +645,27 @@ static int cmpStrings(const char *s1, size_t l1, const char *s2, size_t l2) {
   }
 }
 
-static int cmpNumerics(const char *s1, size_t l1, const char *s2, size_t l2) {
+static int cmpNumerics(const searchResult *r1, const searchResult *r2) {// const char *s1, size_t l1, const char *s2, size_t l2) {
   char *eptr;
   double val1, val2;
-
-  if (strstr(s1 + 1, "inf")) {
-    val1 = (s1[1] == '-') ? -INFINITY : INFINITY;
-  } else {
-    val1 = strtod(s1 + 1, &eptr);
-    RS_LOG_ASSERT(eptr != s1 + 1 && *eptr == 0, "reply from redis is known");
+  if (r1->sortKeyNum == HUGE_VAL) {
+    if (strstr(r1->sortKey + 1, "inf")) {
+      ((searchResult *)r1)->sortKeyNum = (r1->sortKey[1] == '-') ? -INFINITY : INFINITY;
+    } else {
+      ((searchResult *)r1)->sortKeyNum = strtod(r1->sortKey + 1, &eptr);
+      RS_LOG_ASSERT(eptr != r1->sortKey + 1 && *eptr == 0, "reply from redis is known");
+    }
   }
-  
-  if (strstr(s2 + 1, "inf")) {
-    val2 = (s2[1] == '-') ? -INFINITY : INFINITY;
-  } else {
-    val2 = strtod(s2 + 1, &eptr);
-    RS_LOG_ASSERT(eptr != s2 + 1 && *eptr == 0, "reply from redis is known");
+  if (r2->sortKeyNum == HUGE_VAL) {
+    if (strstr(r2->sortKey + 1, "inf")) {
+      ((searchResult *)r2)->sortKeyNum = (r2->sortKey[1] == '-') ? -INFINITY : INFINITY;
+    } else {
+      ((searchResult *)r2)->sortKeyNum = strtod(r2->sortKey + 1, &eptr);
+      RS_LOG_ASSERT(eptr != r2->sortKey + 1 && *eptr == 0, "reply from redis is known");
+    }
   }
 
-  return val1 > val2 ? 1 : val1 < val2 ? -1 : 0;
+  return r1->sortKeyNum > r2->sortKeyNum ? 1 : r1->sortKeyNum < r2->sortKeyNum ? -1 : 0;
 }
 
 static int cmp_results(const void *p1, const void *p2, const void *udata) {
@@ -684,7 +686,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
           cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
           break;
         case INDEXFLD_T_NUMERIC:
-          cmp = cmpNumerics(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
+          cmp = cmpNumerics(r2, r1);
           break;
         case INDEXFLD_T_GEO:
         case INDEXFLD_T_VECTOR:
