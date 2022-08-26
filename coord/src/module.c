@@ -646,9 +646,24 @@ static int cmpStrings(const char *s1, size_t l1, const char *s2, size_t l2) {
 }
 
 static int cmpNumerics(const char *s1, size_t l1, const char *s2, size_t l2) {
-  double val1 = strtod(s1 + 1, NULL);
-  double val2 = strtod(s2 + 1, NULL);
-  return val1 - val2;
+  char *eptr;
+  double val1, val2;
+
+  if (strstr(s1 + 1, "inf")) {
+    val1 = (s1[1] == '-') ? -INFINITY : INFINITY;
+  } else {
+    val1 = strtod(s1 + 1, &eptr);
+    RS_LOG_ASSERT(eptr != s1 + 1 && *eptr == 0, "reply from redis is known");
+  }
+  
+  if (strstr(s2 + 1, "inf")) {
+    val2 = (s2[1] == '-') ? -INFINITY : INFINITY;
+  } else {
+    val2 = strtod(s2 + 1, &eptr);
+    RS_LOG_ASSERT(eptr != s2 + 1 && *eptr == 0, "reply from redis is known");
+  }
+
+  return val1 > val2 ? 1 : val1 < val2 ? -1 : 0;
 }
 
 static int cmp_results(const void *p1, const void *p2, const void *udata) {

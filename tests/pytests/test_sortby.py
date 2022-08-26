@@ -4,6 +4,8 @@ from email import message
 from includes import *
 from common import *
 from RLTest import Env
+
+# check order within returned results
 def check_sortby(env, query, params, msg=None):
 	cmds = ['ft.search', 'ft.aggregate']
 	idx = 2 if query[0] == cmds[0] else 1
@@ -21,27 +23,44 @@ def check_sortby(env, query, params, msg=None):
 		for i in range(len(res_list) - 1):
 			 # ascending order
 			if sort_order[sort] == sort_order[0]:
-				# env.assertTrue(res_list[i] <= res_list[i - 1])
 				if res_list[i] > res_list[i + 1]:
-					#print('index %d : ' % i + str(res_list[i])+' > '+str(res_list[i + 1]) + ' : ' + err_msg)
+					env.assertTrue(res_list[i] <= res_list[i - 1])
 					print_err = True
 			 # descending order
 			if sort_order[sort] == sort_order[1]:
-				# env.assertTrue(res_list[i] <= res_list[i - 1])
 				if res_list[i] < res_list[i + 1]:
-					#print('index %d : ' % i + str(res_list[i])+' < '+str(res_list[i + 1]) + ' : ' + err_msg)
+					env.assertTrue(res_list[i] <= res_list[i - 1])
 					print_err = True
 	
 		if print_err:
 			if (len(res)) < 100:
 				env.debugPrint(str(res), force=True)
 				env.debugPrint(str(res_list), force=True)
-				# input('stop')
+				input('stop')
 
 		env.assertFalse(print_err, message=err_msg)
 
+# check -/+infinity 
+def check_sortby_inf(env, query, params, msg=None):
+	asc_res = env.cmd(*query, 'ASC', *params)[1:]
+	desc_res = env.cmd(*query, 'DESC', *params)[1:]
+	#env.debugPrint(str(asc_res), force=True)
+	#env.debugPrint(str(desc_res), force=True)
+
+	desc_res.reverse()
+	cmp_res = []
+	for i, j in zip(desc_res[0::2], desc_res[1::2]):
+		cmp_res.extend([j, i]) 
+	#env.debugPrint(str(cmp_res), force=True)
+
+	failed = False
+	for i in range(1,len(asc_res),2):
+		if asc_res[i][1] != cmp_res[i][1]:
+			env.assertEqual(asc_res[i][1], cmp_res[i][1], message=query)
+	env.assertFalse(failed, message = query)
+
+
 def testSortby(env):
-	# separate test which only has queries with sortby
 	repeat = 10000
 	conn = getConnectionByEnv(env)
 	env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
@@ -51,7 +70,6 @@ def testSortby(env):
 	for i in range(0, repeat, len(words)):
 		for j in range(len(words)):
 			conn.execute_command('hset', i + j, 't', words[j], 'tag', words[j], 'n', i % 1000 + j)
-
 
 	limits = [[0, 5], [0, 30], [0, 150], [5, 5], [20, 30], [100, 10], [500, 100], [5000, 1000], [9900, 1010], [0, 100000]]
 	ranges = [[-5, 105], [0, 3], [30, 60], [-10, 5], [950, 1100], [2000, 3000], [42, 42]]
@@ -119,4 +137,20 @@ def testSortby(env):
 			# aggregate only minimal number of ranges
 			check_sortby(env, ['ft.aggregate', 'idx', '*', 'SORTBY', 2, '@n'], params, 'case 11')
 
-	#input('stop')
+	# with inf values
+	for j in range(len(words)):
+		conn.execute_command('hset', repeat + j, 't', words[j], 'tag', words[j], 'n', 'inf')
+	for j in range(len(words)):
+		conn.execute_command('hset', repeat + 5 + j, 't', words[j], 'tag', words[j], 'n', '+inf')
+	for j in range(len(words)):
+		conn.execute_command('hset', repeat + 10 + j, 't', words[j], 'tag', words[j], 'n', '-inf')
+
+	params = ['limit', 0, 100, 'return', 1, 'n']
+	check_sortby_inf(env, ['ft.search', 'idx', 'foo @n:[995 inf]', 'SORTBY', 'n'], params)
+	check_sortby_inf(env, ['ft.search', 'idx', '@n:[999 inf]', 'SORTBY', 'n'], params)
+	check_sortby_inf(env, ['ft.search', 'idx', 'foo @n:[-inf 5]', 'SORTBY', 'n'], params)
+	check_sortby_inf(env, ['ft.search', 'idx', '@n:[-inf 1]', 'SORTBY', 'n'], params)
+	params[2] = 10015
+	check_sortby_inf(env, ['ft.search', 'idx', 'foo @n:[-inf inf]', 'SORTBY', 'n'], params)
+	check_sortby_inf(env, ['ft.search', 'idx', '@n:[-inf inf]', 'SORTBY', 'n'], params)
+	
