@@ -979,7 +979,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
 
   rm_free(fieldName);
 
-  //printf("empty %ld, number of ranges %ld\n", rt->emptyLeaves, rt->numRanges);
   if (rt && rt->emptyLeaves >= rt->numRanges / 2) {
     hasLock = 1;
     if (!FGC_lock(gc, rctx)) {
@@ -995,8 +994,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       hasLock = 0;
     }
   }
-  //printf("removed %d\n", rv.numRanges);
-
+  
   return status;
 }
 
@@ -1033,8 +1031,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
-    // printf("receives %s %ld\n", tagVal, tagValLen);
-
+    
     if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
@@ -1065,14 +1062,11 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       goto loop_cleanup;
     }
 
-    // printf("Child %p Parent %p\n", value, idx);
-
     FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
     FGC_updateStats(sctx, gc, info.ndocsCollected, info.nbytesCollected);
 
     // if tag value is empty, let's remove it.
     if (idx->numDocs == 0) {
-      // printf("Delete GC %s %p\n", tagVal, TrieMap_Find(tagIdx->values, tagVal, tagValLen));
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
 
       if (tagIdx->suffix) {

@@ -87,7 +87,6 @@ static inline int NumericRange_Contained(NumericRange *n, double min, double max
   if (!n) return 0;
   int rc = (n->minVal >= min && n->maxVal <= max);
 
-  // printf("range %f..%f, min %f max %f, WITHIN? %d\n", n->minVal, n->maxVal, min, max, rc);
   return rc;
 }
 
@@ -95,7 +94,7 @@ static inline int NumericRange_Contained(NumericRange *n, double min, double max
 static inline int NumericRange_Contains(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (n->minVal <= min && n->maxVal > max);
-  // printf("range %f..%f, min %f max %f, contains? %d\n", n->minVal, n->maxVal, min, max, rc);
+  
   return rc;
 }
 
@@ -103,7 +102,7 @@ static inline int NumericRange_Contains(NumericRange *n, double min, double max)
 int NumericRange_Overlaps(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (min >= n->minVal && min <= n->maxVal) || (max >= n->minVal && max <= n->maxVal);
-  // printf("range %f..%f, min %f max %f, overlaps? %d\n", n->minVal, n->maxVal, min, max, rc);
+  
   return rc;
 }
 
@@ -149,7 +148,6 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
 
   double split = (n->unique_sum) / (double)n->card;
 
-  // printf("split point :%f\n", split);
   *lp = NewLeafNode(n->entries->numDocs / 2 + 1, 
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
   *rp = NewLeafNode(n->entries->numDocs / 2 + 1,
@@ -164,10 +162,6 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
   }
   IR_Free(ir);
 
-  // printf("Splitting node %p %f..%f, card %d size %d\n", n, n->minVal, n->maxVal, n->card,
-  //        n->entries->numDocs);
-  // printf("left node: %d, right: %d\n", (*lp)->range->entries->numDocs,
-  //        (*rp)->range->entries->numDocs);
   return split;
 }
 
@@ -275,9 +269,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1);
   ++rv.numRecords;
   int card = n->range->card;
-  // printf("Added %ld %f to node %f..%f, card now %d, size now %d\n", docId, value,
-  // n->range->minVal,
-  //        n->range->maxVal, card, n->range->entries->numDocs);
+  
   if (card * NR_CARD_CHECK >= n->range->splitCard || 
       (n->range->entries->numDocs > NR_MAXRANGE_SIZE && card > 1)) {
 
@@ -300,9 +292,6 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max)
   if (!n) return;
 
   if (n->range) {
-    // printf("min %f, max %f, range %f..%f, contained? %d, overlaps? %d, leaf? %d\n", min, max,
-    //        n->range->minVal, n->range->maxVal, NumericRange_Contained(n->range, min, max),
-    //        NumericRange_Overlaps(n->range, min, max), NumericRangeNode_IsLeaf(n));
     // if the range is completely contained in the search, we can just add it and not inspect any
     // downwards
     if (NumericRange_Contained(n->range, min, max)) {
@@ -340,14 +329,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
 
   Vector *leaves = NewVector(NumericRange *, 8);
   __recursiveAddRange(leaves, n, min, max);
-  // printf("Found %zd ranges for %f...%f\n", leaves->top, min, max);
-  // for (int i = 0; i < leaves->top; i++) {
-  //   NumericRange *rng;
-  //   Vector_Get(leaves, i, &rng);
-  //   printf("%f...%f (%f). %d card, %d splitCard\n", rng->minVal, rng->maxVal,
-  //          rng->maxVal - rng->minVal, rng->entries->numDocs, rng->splitCard);
-  // }
-
+  
   return leaves;
 }
 
@@ -519,9 +501,6 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
                                      const NumericFilter *f) {
 
-// #ifdef _DEBUG
-//  NumericRangeTree_Dump(t, 0);
-// #endif                                      
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
     if (v) {

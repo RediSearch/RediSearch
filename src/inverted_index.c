@@ -418,9 +418,7 @@ ENCODER(encodeNumeric) {
 
   // Write the header at its marked position
   *BufferWriter_PtrAt(bw, pos) = header.storage;
-  //printf("== Encoded ==\n");
-  //dumpEncoding(header, stdout);
-
+  
   return sz;
 }
 
@@ -534,7 +532,6 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 
   BufferWriter bw = NewBufferWriter(&blk->buf);
 
-  // printf("Writing docId %llu, delta %llu, flags %x\n", docId, delta, (int)idx->flags);
   size_t ret = encoder(&bw, delta, entry);
 
   idx->lastId = docId;
@@ -733,19 +730,16 @@ DECODER(readNumeric) {
     }
   }
 
-  // printf("res->num.value: %lf\n", res->num.value);
-
   NumericFilter *f = ctx->ptr;
   if (f) {
     if (f->geoFilter == NULL) {
       int rv = NumericFilter_Match(f, res->num.value);
-      // printf("Checking against filter: %d\n", rv);
       return rv;
     } else {
       return isWithinRadius(f->geoFilter, res->num.value, NULL);
     }
   }
-  // printf("Field matches.. hurray!\n");
+  
   return 1;
 }
 
