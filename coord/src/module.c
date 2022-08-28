@@ -514,6 +514,9 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
         }
       }
     }
+    if (req->withSortby && req->sortbyFieldType == 0) {
+      req->sortbyFieldType = INDEXFLD_T_VECTOR;
+    }
   }
 }
 
@@ -552,7 +555,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     return NULL;
   }
 
-  searchRequestCtx *req = malloc(sizeof(searchRequestCtx));
+  searchRequestCtx *req = calloc(1, sizeof(searchRequestCtx));
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     free(req);
@@ -667,13 +670,14 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
       switch(req->sortbyFieldType) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
+        case INDEXFLD_T_VECTOR:
           cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
           break;
         case INDEXFLD_T_NUMERIC:
           cmp = cmpNumerics(r2, r1);
           break;
         case INDEXFLD_T_GEO:
-        case INDEXFLD_T_VECTOR:
+          // Not supported (yet)
           cmp = 0;
       }
       // Sort by string sort keys
