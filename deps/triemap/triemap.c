@@ -194,8 +194,6 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
   ptr = childKeys; 
   while(ptr < childKeys + n->numChildren && *ptr < c) {++ptr;}
   *np = __trieMapNode_AddChildIdx(n, str, offset, len, value, ptr - childKeys);
-  //int idx = TrieMap_BinaryScan(childKeys, c, n->numChildren);
-  //*np = __trieMapNode_AddChildIdx(n, str, offset, len, value, idx);
   return ++rv;
 }
 
