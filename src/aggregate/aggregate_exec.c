@@ -129,9 +129,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
         const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
         const RSValue *v = getReplyKey(rlk, r);
         // align field value with its type
+        RSValue rsv;
         if (rlk->fieldtype == RLOOKUP_C_DBL && v->t != RSVALTYPE_DOUBLE) {
           double d;
-          RSValue rsv;
           RSValue_ToNumber(v, &d);
           RSValue_SetNumber(&rsv, d);
           v = &rsv;
