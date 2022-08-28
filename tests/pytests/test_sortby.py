@@ -20,7 +20,7 @@ def check_order(env, item1, item2, asc=True):
 		item2 = -inf if '-inf' in item2 else inf
 
 	if float(item1) > float(item2):
-		env.assertTrue(item1 <= item2)
+		env.assertTrue(float(item1) <= float(item2))
 		return False
 	return True
 
