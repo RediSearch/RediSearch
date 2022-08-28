@@ -1372,7 +1372,7 @@ def testNumericRange(env):
         res = r.execute_command(
             'ft.search', 'idx', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent", 'limit', 0, 51)
         env.assertEqual(51, res[0])
-        #env.debugPrint(', '.join(toSortedFlatList(res[2:])), force=True)
+        env.debugPrint(', '.join(toSortedFlatList(res[2:])), force=True)
         print (r.execute_command(
             'ft.profile', 'idx', 'search', 'query', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent", 'limit', 0, 51))
         res = r.execute_command(

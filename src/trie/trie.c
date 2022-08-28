@@ -44,6 +44,13 @@ typedef struct {
 
 static void __trieNode_sortChildren(TrieNode *n);
 
+#define updateScore(n, value)                             \
+do {                                                      \
+  if (n->sortMode == Trie_Sort_Score) {                   \
+    n->maxChildScore = MAX(n->maxChildScore, value);      \
+  }                                                       \
+} while(0)
+
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * (sizeof(rune) + sizeof(TrieNode *)) + sizeof(rune) * (slen + 1);
 }
@@ -90,21 +97,6 @@ TrieNode *__trieNode_resizeChildren(TrieNode *n, int offset) {
   return n;
 }
 
-TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
-                          float score) {
-  n = __trieNode_resizeChildren(n, 1);                            
-  // a newly added child must be a terminal node
-  TrieNode *child = __newTrieNode(str, offset, len, payload ? payload->data : NULL,
-                                  payload ? payload->len : 0, 0, score, 1, n->sortMode);
-  __trieNode_children(n)[n->numChildren - 1] = child;
-  *__trieNode_childKey(n, n->numChildren - 1) = str[offset];
-  // Sort children on write to avoid sorting on reads
-  __trieNode_sortChildren(n);
-
-  return n;
-}
-
-
 TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
                              float score, int idx) {
   n = __trieNode_resizeChildren(n, 1);
@@ -142,7 +134,7 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // the parent node is now non terminal and non sorted
   n->flags &= ~(TRIENODE_TERMINAL | TRIENODE_DELETED);
 
-  n->maxChildScore = MAX(n->maxChildScore, newChild->score);
+  updateScore(n, newChild->score);
   n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
   __trieNode_children(n)[0] = newChild;
   *__trieNode_childKey(n, 0) = newChild->str[0];
@@ -239,13 +231,13 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
       // we add a child
       int idx = str[offset] > *__trieNode_childKey(n, 0) ? 1 : 0;
       n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx);
-      n->maxChildScore = MAX(n->maxChildScore, score);
+      updateScore(n, score);
     }
     *np = n;
     return 1;
   }
 
-  n->maxChildScore = MAX(n->maxChildScore, score);
+  updateScore(n, score);
 
   // we're inserting in an existing node - just replace the value
   if (offset == len) {
@@ -278,27 +270,26 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
   }
 
   // proceed to the next child or add a new child for the current rune
-  int i = 0;
-  for (; i < n->numChildren; i++) {
-    const rune *childKey = __trieNode_childKey(n, i);
+  int idx = 0;
+  for (; idx < n->numChildren; idx++) {
+    const rune *childKey = __trieNode_childKey(n, idx);
+    TrieNode *child = __trieNode_children(n)[idx];
     if (str[offset] == *childKey) {
-      TrieNode *child = __trieNode_children(n)[i];
-      TrieNode **child1 = __trieNode_children(n);
       int rc = TrieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb);
-      *__trieNode_childKey(n, i) = str[offset];
-      __trieNode_children(n)[i] = child;
+      *__trieNode_childKey(n, idx) = str[offset];
+      __trieNode_children(n)[idx] = child;
       return rc;
     }
+    // break if new node has lex value higher or score value lower than current child  
     if (n->sortMode == Trie_Sort_Lex && str[offset] < *childKey) {
       break;
     }
+    if (n->sortMode == Trie_Sort_Score && child->score < score) {
+      break;
+    }
   }
-  // score order
-  if (n->sortMode == Trie_Sort_Lex) {
-    *np = __trie_AddChildIdx(n, str, offset, len, payload, score, i);
-  } else {
-    *np = __trie_AddChild(n, str, offset, len, payload, score);
-  }
+
+  *np = __trie_AddChildIdx(n, str, offset, len, payload, score, idx);
   return 1;
 }
 
@@ -374,6 +365,7 @@ int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
   int i = 0;
   TrieNode **nodes = __trieNode_children(n);
   n->maxChildScore = n->score;
+  int updateScore = (n->sortMode == Trie_Sort_Score);
   // free deleted terminal nodes
   while (i < n->numChildren) {
 
@@ -387,7 +379,7 @@ int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
       while (i < n->numChildren - 1) {
         nodes[i] = nodes[i + 1];
         *nk = *(nk + 1);
-        n->maxChildScore = MAX(n->maxChildScore, nodes[i]->maxChildScore);
+        updateScore(n, nodes[i]->maxChildScore);
         i++;
         nk++;
       }
@@ -403,7 +395,7 @@ int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
         nodes[i] = __trieNode_MergeWithSingleChild(nodes[i], freecb);
         rc++;
       }
-      n->maxChildScore = MAX(n->maxChildScore, nodes[i]->maxChildScore);
+      updateScore(n, nodes[i]->maxChildScore);
     }
     i++;
   }
