@@ -548,6 +548,14 @@ TEST_F(LLApiTest, testRanges) {
 
   ValidateResults(index, qn, 'o', 'w', 9);
 
+  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "MarkN", NULL, 1, 1);
+
+  ValidateResults(index, qn, 'n', 'z', 13);
+
+  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, NULL, "MarkN", 0, 0);
+
+  ValidateResults(index, qn, 'a', 'n', 14);
+
   qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, NULL, NULL, 1, 1);
 
   ValidateResults(index, qn, 'a', 'z', 26);
@@ -575,6 +583,20 @@ TEST_F(LLApiTest, testRangesOnTags) {
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'o', 'w', 9);
+
+  // test without include max and min
+  tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  qn = RediSearch_CreateTagLexRangeNode(index, NULL, "Markn", 1, 1);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'n', 'z', 13);
+
+  // test without include max and min
+  tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  qn = RediSearch_CreateTagLexRangeNode(index, "Markn", NULL, 0, 0);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'a', 'n', 14);
 
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
   qn = RediSearch_CreateTagLexRangeNode(index, NULL, NULL, 1, 1);
