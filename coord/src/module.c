@@ -688,7 +688,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
     if (!cmp) {
       // printf("It's a tie! Comparing <N=%lu> %.*s vs <N=%lu> %.*s\n", r2->idLen, (int)r2->idLen,
       //        r2->id, r1->idLen, (int)r1->idLen, r1->id);
-      return cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
+      cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
     }
     return (req->sortAscending ? -cmp : cmp);
   }
