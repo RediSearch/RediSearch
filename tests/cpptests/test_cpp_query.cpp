@@ -512,6 +512,32 @@ TEST_F(QueryTest, testParser_v2) {
   assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) @title:other", ctx);
   assertInvalidQuery("hello world => [KNN 10 @vec_field $BLOB] OR other => [KNN 10 @vec_field $BLOB]", ctx);
 
+  // Test range queries
+  assertValidQuery("@v:[RANGE 0.01 $BLOB]", ctx);
+  assertValidQuery("@v:[RANGE 2 $BLOB]", ctx);
+  assertValidQuery("@v:[RANGE 2e-2 $BLOB]", ctx);
+  assertValidQuery("@v:[RANGE 2E-2 $BLOB]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB AS V_SCORE]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB AS __v_score]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB AS $V_SCORE]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon 0.1]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon $epsilon]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon 0.1 AS V_SCORE]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon $ep AS V_SCORE]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon 0.1 AS $V_SCORE]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon $ep AS $V_SCORE]", ctx);
+
+  // complex queries
+  assertValidQuery("@v:[RANGE 0.01 $BLOB] @text:foo OR bar", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB] @text:foo OR bar @v:[RANGE 0.04 $BLOB2]", ctx);
+  //TODO: cont. from here
+
+
+  assertInvalidQuery("@v:[BAD 0.01 $BLOB]", ctx);
+  assertInvalidQuery("@v:[RANGE bad $BLOB]", ctx);
+  assertInvalidQuery("@v:[RANGE 0.01 notParam]", ctx);
+  assertInvalidQuery("@v:[RANGE 0.01 paramNameWithoutVal $BLOB]", ctx);
+
   assertValidQuery("@title:((hello world)|((hello world)|(hallo world|werld) | hello world werld))", ctx);
   assertValidQuery("(hello world)|((hello world)|(hallo world|werld) | hello world werld)", ctx);
 

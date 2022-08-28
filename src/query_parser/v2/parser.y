@@ -186,6 +186,12 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type vector_command { QueryNode *}
 %destructor vector_command { QueryNode_Free($$); }
 
+%type vector_range_query { QueryNode *}
+%destructor vector_range_query { QueryNode_Free($$); }
+
+%type vector_range_command { QueryNode *}
+%destructor vector_range_command { QueryNode_Free($$); }
+
 %type vector_attribute { SingleVectorQueryParam }
 // This destructor is commented out because it's not reachable: every vector_attribute that created
 // successfuly can successfuly be reduced to vector_attribute_list.
@@ -1009,6 +1015,58 @@ vector_attribute_list(A) ::= vector_attribute(B). {
   A.needResolve = array_new(bool, 1);
   A.params = array_append(A.params, B.param);
   A.needResolve = array_append(A.needResolve, B.needResolve);
+}
+
+// Vector range queries
+expr(A) ::= modifier(B) COLON LSQB vector_range_query(C) RSQB. {
+    C->vn.vq->property = rm_strndup(B.s, B.len);
+    if (C->vn.vq->scoreField) {
+      rm_free(C->vn.vq->scoreField);
+      C->vn.vq->scoreField = NULL;
+    }
+    RedisModule_Assert(-1 != (rm_asprintf(&C->vn.vq->scoreField, "__%.*s_score", B.len, B.s)));
+    A = C;
+}
+
+vector_range_query(A) ::= vector_range_command(B). {
+    A = B;
+}
+
+vector_range_query(A) ::= vector_range_command(B) vector_attribute_list(C). {
+  B->vn.vq->params = C;
+  A = B;
+}
+
+vector_range_query(A) ::= vector_range_command(B) vector_score_field(C). {
+  B->params = array_grow(B->params, 1);
+  memset(&array_tail(B->params), 0, sizeof(*B->params));
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &C);
+  A = B;
+}
+
+vector_range_query(A) ::= vector_range_command(B) vector_attribute_list(C) vector_score_field(D). {
+  B->params = array_grow(B->params, 1);
+  memset(&array_tail(B->params), 0, sizeof(*B->params));
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
+  B->vn.vq->params = C;
+  A = B;
+}
+
+vector_range_command(A) ::= TERM(T) param_any(B) ATTRIBUTE(C). {
+  if (strncasecmp("RANGE", T.s, T.len)) {
+    reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity RANGE command");
+    A = NULL;
+  } else if (B.type != QT_NUMERIC && B.type != QT_PARAM_ANY) {
+    reportSyntaxError(ctx->status, &B, "Syntax error: Expecting parameter or numeric value");
+    A = NULL;
+  } else {
+    if (B.type == QT_PARAM_ANY) {
+      // If we got an attribute, we need to validate down the road that is indeed a number.
+      B.type = QT_PARAM_NUMERIC;
+    }
+    C.type = QT_PARAM_VEC;
+    A = NewVectorNode_WithParams(ctx, VECSIM_QT_RANGE, &B, &C);
+  }
 }
 
 /////////////////////////////////////////////////////////////////
