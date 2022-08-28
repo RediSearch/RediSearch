@@ -369,7 +369,6 @@ typedef struct {
   int sortAscending;
   int withSortingKeys;
   int noContent;
-  FieldType sortbyFieldType;
 
   specialCaseCtx** specialCases;
   const char** requiredFields;
@@ -514,9 +513,6 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
         }
       }
     }
-    if (req->withSortby && req->sortbyFieldType == 0) {
-      req->sortbyFieldType = INDEXFLD_T_VECTOR;
-    }
   }
 }
 
@@ -538,15 +534,6 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
       req->specialCases = array_new(specialCaseCtx*, 1);
     }
   req->specialCases = array_append(req->specialCases, ctx);
-  
-  // get sortby field type
-  IndexLoadOptions loadOps = { .name.rstring = argv[1],
-                               .flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING };
-  const IndexSpec *spec = IndexSpec_LoadEx(RSDummyContext, &loadOps);
-  if (!spec) return;
-  const FieldSpec *field = IndexSpec_GetField(spec, sortkey, strlen(sortkey));
-  if (!field) return;
-  req->sortbyFieldType = field->types;
 }
 
 searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError* status) {
@@ -555,7 +542,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     return NULL;
   }
 
-  searchRequestCtx *req = calloc(1, sizeof(searchRequestCtx));
+  searchRequestCtx *req = malloc(sizeof(searchRequestCtx));
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     free(req);
@@ -655,10 +642,6 @@ static int cmpStrings(const char *s1, size_t l1, const char *s2, size_t l2) {
   }
 }
 
-static int cmpNumerics(const searchResult *r1, const searchResult *r2) {// const char *s1, size_t l1, const char *s2, size_t l2) {
-  return r1->sortKeyNum > r2->sortKeyNum ? 1 : r1->sortKeyNum < r2->sortKeyNum ? -1 : 0;
-}
-
 static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
   const searchResult *r1 = p1, *r2 = p2;
@@ -666,21 +649,14 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
   // Compary by sorting keys
   if ((r1->sortKey || r2->sortKey) && req->withSortby) {
     int cmp = 0;
-    if (r1->sortKey && r2->sortKey) {
-      switch(req->sortbyFieldType) {
-        case INDEXFLD_T_FULLTEXT:
-        case INDEXFLD_T_TAG:
-        case INDEXFLD_T_VECTOR:
-          cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
-          break;
-        case INDEXFLD_T_NUMERIC:
-          cmp = cmpNumerics(r2, r1);
-          break;
-        case INDEXFLD_T_GEO:
-          // Not supported (yet)
-          cmp = 0;
-      }
+    // Sort by numeric sorting keys
+    if (r1->sortKeyNum != HUGE_VAL && r2->sortKeyNum != HUGE_VAL) {
+      double diff = r2->sortKeyNum - r1->sortKeyNum;
+      cmp = diff < 0 ? -1 : (diff > 0 ? 1 : 0);
+    } else if (r1->sortKey && r2->sortKey) {
+
       // Sort by string sort keys
+      cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
       // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
       //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
       //        cmp);
@@ -720,8 +696,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
   }
 }
 
-searchResult *newResult(searchResult *cached, MRReply *arr, int j,
-      searchReplyOffsets* offsets, int explainScores, int processSortKetAsNumeric) {
+searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOffsets* offsets, int explainScores) {
   int scoreOffset = offsets->score;
   int fieldsOffset = offsets->firstField;
   int payloadOffset = offsets->payload;
@@ -901,7 +876,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
       rCtx->errorOccured = true;
       break;
     }
-    searchResult *res = newResult(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores, false);
+    searchResult *res = newResult(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
     if (!res || !res->id) {
       RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
       rCtx->errorOccured = true;
@@ -967,7 +942,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   size_t len = MRReply_Length(arr);
 
   int step = rCtx->offsets.step;
-  int processAsNumeric = req->sortbyFieldType == INDEXFLD_T_NUMERIC;
   // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
   //         scoreOffset, fieldsOffset, sortKeyOffset);
   for (int j = 1; j < len; j += step) {
@@ -978,8 +952,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
       rCtx->errorOccured = true;
       break;
     }
-    searchResult *res = newResult(rCtx->cachedResult, arr, j, &rCtx->offsets,
-                                  req->withExplainScores, processAsNumeric);
+    searchResult *res = newResult(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
     if (!res || !res->id) {
       RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
       rCtx->errorOccured = true;
@@ -1001,14 +974,14 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
     } else {
       searchResult *smallest = heap_peek(rCtx->pq);
-      int c = cmp_results(res, smallest, req);
+      int c = cmp_results(res, smallest, rCtx->searchCtx);
       if (c < 0) {
         smallest = heap_poll(rCtx->pq);
         heap_offerx(rCtx->pq, res);
         rCtx->cachedResult = smallest;
       } else {
         rCtx->cachedResult = res;
-        if (req->withSortby) {
+        if (rCtx->searchCtx->withSortby) {
           // If the result is lower than the last result in the heap,
           // AND there is a user-defined sort order - we can stop now
           break;
