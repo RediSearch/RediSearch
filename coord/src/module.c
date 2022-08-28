@@ -473,7 +473,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
       if(paramsOffset!=0) {
         ArgsCursor ac;
         ArgsCursor_InitRString(&ac, argv+paramsOffset, argc-paramsOffset);
-          parseParams(&params, &ac, status);
+        parseParams(&params, &ac, status);
       }
       else {
         //fail
@@ -2007,7 +2007,6 @@ void setHiredisAllocators(){
 
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  IndexSpec_OnCreate = addIndexCursor;
   /**
 
   FT.AGGREGATE gh * LOAD 1 @type GROUPBY 1 @type REDUCE COUNT 0 AS num REDUCE SUM 1 @date SORTBY 2
