@@ -661,7 +661,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
       //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
       //        cmp);
     } else {
-      // If at least one of these has a sort key
+      // If at least one of these has a sort key, it gets high value regardless of asc/desc
       return r2->sortKey ? 1 : -1;
     }
     // in case of a tie - compare ids
@@ -670,7 +670,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
       //        r2->id, r1->idLen, (int)r1->idLen, r1->id);
       cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
     }
-    //     
+
     return (req->sortAscending ? -cmp : cmp);
   }
 
