@@ -3524,6 +3524,13 @@ def test_free_resources_on_thread(env):
 
     conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
 
+def testUsesCounter(env):
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
+    env.execute_command('ft.info', 'idx')
+    env.execute_command('ft.search', 'idx', '*')
+
+    assertInfoField(env, 'idx', 'number_of_uses', 3)
+
 def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
