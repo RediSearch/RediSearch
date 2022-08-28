@@ -325,7 +325,8 @@ TEST_F(TrieTest, testScoreOrder) {
 
   TrieType_Free(t);
 }
-/*
+
+/* leave for future benchmarks if needed
 TEST_F(TrieTest, testbenchmark) {
   Trie *t = NewTrie(trieFreeCb, Trie_Sort_Lex);
   char buf[128];

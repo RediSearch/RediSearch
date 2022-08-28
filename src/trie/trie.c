@@ -228,7 +228,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
 
       __trieNode_children(n)[0] = newChild;
     } else {
-      // we add a child
+      // a node after a split has a single child
       int idx = str[offset] > *__trieNode_childKey(n, 0) ? 1 : 0;
       n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx);
       updateScore(n, score);
