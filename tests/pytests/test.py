@@ -3466,4 +3466,4 @@ def test_uses_counter(env):
     env.execute_command('ft.info', 'idx')
     env.execute_command('ft.search', 'idx', '*')
 
-    assertInfoField(env, 'idx', 'number_of_uses', 3)
+    assertInfoField(env, 'idx', 'number_of_uses', '3')
