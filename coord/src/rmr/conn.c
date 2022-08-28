@@ -101,7 +101,7 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
 }
 
 /* Free the entire connection manager */
-static void MRConnManager_Free(MRConnManager *mgr) {
+void MRConnManager_Free(MRConnManager *mgr) {
   TrieMap_Free(mgr->map, MRConnPool_Free);
 }
 

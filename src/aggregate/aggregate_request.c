@@ -933,7 +933,8 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
     // Set the destination key for the grouper!
     RLookupKey *dstkey =
         RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
-    Grouper_AddReducer(grp, rr, dstkey);
+    Grouper_AddReducer(grp, rr, dstkey); // TODO: Where is this defined?!?
+    rm_free(rr);                         // As long as I don't know what Grouper_AddReducer() does...
   }
 
   return Grouper_GetRP(grp);

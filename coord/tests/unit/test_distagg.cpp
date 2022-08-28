@@ -83,7 +83,7 @@ static void testAverage() {
  */
 static void testCountDistinct() {
   AREQ *r = AREQ_New();
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
                     "REDUCE", "COUNT_DISTINCT", "1", "@title", "AS", "count_distinct(title)",  // nl
@@ -119,7 +119,7 @@ static void testCountDistinct() {
 
 static void testSplit() {
   AREQ *r = AREQ_New();
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
                     "REDUCE", "COUNT_DISTINCT", "1", "@title", "AS", "count_distinct(title)",  // nl

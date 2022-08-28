@@ -91,6 +91,7 @@ void testCluster() {
     printf("%d..%d --> %s\n", sh->startSlot, sh->endSlot, sh->nodes[0].id);
   }
 
+  MRClust_Free(cl);
 }
 
 void testClusterSharding() {
@@ -109,7 +110,8 @@ void testClusterSharding() {
   mu_check(!strcmp(sh->nodes[0].id, hosts[3]));
   printf("%d..%d --> %s\n", sh->startSlot, sh->endSlot, sh->nodes[0].id);
 
-  // MRClust_Free(cl);
+  MRCommand_Free(&cmd);
+  MRClust_Free(cl);
 }
 
 int main(int argc, char **argv) {
