@@ -271,6 +271,7 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
 
   // proceed to the next child or add a new child for the current rune
   int idx = 0;
+  int scoreIdx = REDISEARCH_UNINITIALIZED;
   for (; idx < n->numChildren; idx++) {
     const rune *childKey = __trieNode_childKey(n, idx);
     TrieNode *child = __trieNode_children(n)[idx];
@@ -278,17 +279,28 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
       int rc = TrieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb);
       *__trieNode_childKey(n, idx) = str[offset];
       __trieNode_children(n)[idx] = child;
+      // In score mode, check if the order was kept and fix as necessary
+      if (n->sortMode == Trie_Sort_Score && n->numChildren > 1) {
+        if ((idx > 0 && child->maxChildScore > __trieNode_children(n)[idx - 1]->maxChildScore) ||
+            (idx < n->numChildren - 2 && child->maxChildScore < __trieNode_children(n)[idx + 1]->maxChildScore)) {
+          __trieNode_sortChildren(n); 
+        }
+      }
       return rc;
     }
-    // break if new node has lex value higher or score value lower than current child  
+    // break if new node has lex value higher than current child  
     if (n->sortMode == Trie_Sort_Lex && str[offset] < *childKey) {
       break;
     }
-    if (n->sortMode == Trie_Sort_Score && child->score < score) {
-      break;
+    // keep the index that fits the score
+    if (n->sortMode == Trie_Sort_Score && child->maxChildScore < score) {
+      scoreIdx = idx;
     }
   }
-
+  // if there is an index that fit the score, use it, else, place at the end
+  if (n->sortMode == Trie_Sort_Score && scoreIdx != REDISEARCH_UNINITIALIZED) {
+    idx = scoreIdx;
+  }
   *np = __trie_AddChildIdx(n, str, offset, len, payload, score, idx);
   return 1;
 }
