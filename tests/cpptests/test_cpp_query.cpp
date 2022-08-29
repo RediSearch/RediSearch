@@ -521,19 +521,23 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("@v:[RANGE 0.01 $BLOB AS __v_score]", ctx);
   assertValidQuery("@v:[RANGE 0.01 $BLOB AS $V_SCORE]", ctx);
   assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon 0.1]", ctx);
-  assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon $epsilon]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon $ep]", ctx);
   assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon 0.1 AS V_SCORE]", ctx);
   assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon $ep AS V_SCORE]", ctx);
   assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon 0.1 AS $V_SCORE]", ctx);
   assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon $ep AS $V_SCORE]", ctx);
 
-  // complex queries
+  // Complex queries with range
   assertValidQuery("@v:[RANGE 0.01 $BLOB] @text:foo OR bar", ctx);
+  assertValidQuery("(@v:[RANGE 0.01 $BLOB] @text:foo) => { $weight: 2.0 }", ctx);
   assertValidQuery("@v:[RANGE 0.01 $BLOB] @text:foo OR bar @v:[RANGE 0.04 $BLOB2]", ctx);
-  //TODO: cont. from here
+  assertValidQuery("(@v:[RANGE 0.01 $BLOB] @text:foo) => [KNN 5 @v $BLOB2]", ctx);
+  assertValidQuery("@v:[RANGE 0.01 $BLOB AS first_score] => [KNN 5 @v2 $BLOB2 AS second_score]", ctx);
 
-
+  // Invalid queries
   assertInvalidQuery("@v:[BAD 0.01 $BLOB]", ctx);
+  assertInvalidQuery("@v:[RANGE 0.01]", ctx);
+  assertInvalidQuery("@v:[RANGE $BLOB]", ctx);
   assertInvalidQuery("@v:[RANGE bad $BLOB]", ctx);
   assertInvalidQuery("@v:[RANGE 0.01 notParam]", ctx);
   assertInvalidQuery("@v:[RANGE 0.01 paramNameWithoutVal $BLOB]", ctx);
