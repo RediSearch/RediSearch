@@ -967,6 +967,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
       {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
       {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
+      {AC_MKUNFLAG(SPEC_NOTRIE_STR, &spec->flags, Index_StoreTrie)},
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
       {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
       {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
@@ -1005,6 +1006,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   spec->rule = SchemaRule_Create(&rule_args, spec, status);
   if (!spec->rule) {
     goto failure;
+  }
+
+  if (Index_WithTrie(spec)) {
+    spec->terms = NewTrie(NULL, Trie_Sort_Lex);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -1053,12 +1058,15 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
 }
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
-  if (isNew) {
-    sp->stats.numTerms++;
-    sp->stats.termsSize += len;
+  if (Index_WithTrie(sp)) {
+    int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
+    if (isNew) {
+      sp->stats.numTerms++;
+      sp->stats.termsSize += len;
+    }
+    return isNew;
   }
-  return isNew;
+  return 0;
 }
 
 void Spec_AddToDict(const IndexSpec *sp) {
@@ -1132,7 +1140,7 @@ size_t weightedRandom(double weights[], size_t len) {
  * sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
  * should be enough. Returns NULL if the index is empty */
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
-
+  if (!Index_WithTrie(sp)) NULL;
   if (sampleSize > sp->terms->size) {
     sampleSize = sp->terms->size;
   }
@@ -1513,7 +1521,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->name = rm_strdup(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
-  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
+  sp->terms = NULL;
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
   sp->keysDict = NULL;

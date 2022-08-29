@@ -41,6 +41,7 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
   ADD_NEGATIVE_OPTION(Index_StoreFreqs, SPEC_NOFREQS_STR);
   ADD_NEGATIVE_OPTION(Index_StoreFieldFlags, SPEC_NOFIELDS_STR);
   ADD_NEGATIVE_OPTION(Index_StoreTermOffsets, SPEC_NOOFFSETS_STR);
+  ADD_NEGATIVE_OPTION(Index_StoreTrie, SPEC_NOTRIE_STR);
   if (sp->flags & Index_WideSchema) {
     RedisModule_ReplyWithSimpleString(ctx, SPEC_SCHEMA_EXPANDABLE_STR);
     n++;

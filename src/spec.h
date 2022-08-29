@@ -37,6 +37,7 @@ struct DocumentIndexer;
 #define SPEC_NOFIELDS_STR "NOFIELDS"
 #define SPEC_NOFREQS_STR "NOFREQS"
 #define SPEC_NOHL_STR "NOHL"
+#define SPEC_NOTRIE_STR "NOTRIE"
 #define SPEC_SCHEMA_STR "SCHEMA"
 #define SPEC_SCHEMA_EXPANDABLE_STR "MAXTEXTFIELDS"
 #define SPEC_TEMPORARY_STR "TEMPORARY"
@@ -119,9 +120,7 @@ typedef struct {
 typedef enum {
   Index_StoreTermOffsets = 0x01,
   Index_StoreFieldFlags = 0x02,
-
-  // Was StoreScoreIndexes, but these are always stored, so this option is unused
-  Index__Reserved1 = 0x04,
+  Index_StoreTrie = 0x04,
   Index_HasCustomStopwords = 0x08,
   Index_StoreFreqs = 0x010,
   Index_StoreNumeric = 0x020,
@@ -168,11 +167,11 @@ extern bool isTrimming;
 typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define INDEX_DEFAULT_FLAGS \
-  Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
+  Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets | Index_StoreTrie
 
 #define INDEX_STORAGE_MASK                                                                  \
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
-   Index_WideSchema)
+   /*Index_StoreTrie |*/ Index_WideSchema)
 
 #define INDEX_CURRENT_VERSION 20
 #define INDEX_VECSIM_2_VERSION 20
@@ -223,6 +222,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define Index_StoreFieldMask(spec) \
   ((spec)->flags & Index_StoreFieldFlags)
+
+#define Index_WithTrie(spec) ((spec)->flags & Index_StoreTrie)
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 

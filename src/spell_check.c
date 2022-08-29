@@ -199,10 +199,14 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
 
 static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, size_t len,
                                             t_fieldMask fieldMask) {
-
+  IndexSpec *spec = scCtx->sctx->spec;
+  if (!Index_WithTrie(spec)) {
+    return false;
+  }
+  Trie *t = spec->terms;
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
-  if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len, NULL)) {
+  if (SpellCheck_IsTermExistsInTrie(spec->terms, term, len, NULL)) {
     if (scCtx->fullScoreInfo) {
       // if a full score info is requested we need to send information that
       // we found the term as is on the index
@@ -231,7 +235,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   RS_Suggestions *s = RS_SuggestionsCreate();
 
-  SpellCheck_FindSuggestions(scCtx, scCtx->sctx->spec->terms, term, len, fieldMask, s, 1);
+  SpellCheck_FindSuggestions(scCtx, spec->terms, term, len, fieldMask, s, 1);
 
   // sorting results by score
 
@@ -245,7 +249,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
   }
 
   SpellCheck_SendReplyOnTerm(scCtx->sctx->redisCtx, term, len, s,
-                             (!scCtx->fullScoreInfo) ? scCtx->sctx->spec->docs.size - 1 : 0);
+                             (!scCtx->fullScoreInfo) ? spec->docs.size - 1 : 0);
 
   RS_SuggestionsFree(s);
 

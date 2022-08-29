@@ -18,7 +18,7 @@ setups:
   - oss-cluster-03-primaries
 dbconfig:
   - init_commands:
-      - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+      - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "NOTRIE" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
 clientconfig:
   - tool: ftsb_redisearch
   - parameters:

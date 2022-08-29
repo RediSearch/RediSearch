@@ -488,6 +488,9 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   IndexSpec *spec = q->sctx->spec;
+  if (!Index_WithTrie(spec)) {
+    QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "NOTRIE index not supported");
+  }
   Trie *t = spec->terms;
   ContainsCtx ctx = {.q = q, .opts = &qn->opts};
 
@@ -547,6 +550,9 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   RS_LOG_ASSERT(qn->type == QN_WILDCARD_QUERY, "query node type should be wildcard query");
   
   IndexSpec *spec = q->sctx->spec;
+  if (!Index_WithTrie(spec)) {
+    QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "NOTRIE index not supported");
+  }
   Trie *t = spec->terms;
   ContainsCtx ctx = {.q = q, .opts = &qn->opts};
   RSToken *token = &qn->verb.tok;
@@ -678,7 +684,11 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
 }
 
 static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
-  Trie *t = q->sctx->spec->terms;
+  IndexSpec *spec = q->sctx->spec;
+  if (!Index_WithTrie(spec)) {
+    QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "NOTRIE index not supported");
+  }
+  Trie *t = spec->terms;
   LexRangeCtx ctx = {.q = q, .opts = &lx->opts};
 
   if (!t) {
@@ -712,8 +722,11 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
 
 static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_FUZZY, "query node type should be fuzzy");
-
-  Trie *terms = q->sctx->spec->terms;
+  IndexSpec *spec = q->sctx->spec;
+  if (!Index_WithTrie(spec)) {
+    QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "NOTRIE index not supported");
+  }
+  Trie *terms = spec->terms;
 
   if (!terms) return NULL;
 

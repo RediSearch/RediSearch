@@ -292,6 +292,23 @@ static void sendHeaderString(ForkGC *gc, void *arg) {
 }
 
 static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
+  dictIterator *iter = dictGetIterator(sctx->spec->keysDict);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    size_t len;
+    RedisModuleString *term = dictGetVal(entry);
+    const char *termstr = RedisModule_StringPtrLen(term, &len);
+    KeysDictValue *kdv = dictGetVal(entry);
+    InvertedIndex *idx = kdv->p;
+
+    if (idx) {
+      struct iovec iov = {.iov_base = (void *)((char *)termstr + 3), len - 3};
+      FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
+    }
+  }
+  dictReleaseIterator(iter);
+
+  /*
   TrieIterator *iter = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
   rune *rstr = NULL;
   t_len slen = 0;
@@ -312,7 +329,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     rm_free(term);
   }
   TrieIterator_Free(iter);
-
+  */
   // we are done with terms
   FGC_sendTerminator(gc);
 }
@@ -725,6 +742,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   idx->numDocs -= info->ndocsCollected;
   idx->gcMarker++;
 }
+
 
 static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
   FGCError status = FGC_COLLECTED;
