@@ -59,10 +59,13 @@ void RMCK::flushdb(RedisModuleCtx *ctx) {
 
 extern "C" {
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  int err = REDISMODULE_OK;
   if (RedisModule_Init(ctx, "dummy", 0, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
-    return REDISMODULE_ERR;
+    err = REDISMODULE_ERR;
   }
-  return REDISMODULE_OK;
+
+  for (auto i : KVDB::dbs) delete i;
+  return err;
 }
 }
 
