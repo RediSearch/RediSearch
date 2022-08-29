@@ -1,18 +1,23 @@
 #pragma once
 
 #include "object.h"
+#include "rmutil/vector.h"
 
 #include <stdlib.h>
-#include <vector>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct SparseVectorEntry {
   int idx, val;
+  SparseVectorEntry(int idx = 0, int val = 0) : idx(idx), val(val) {}
 };
+
+//---------------------------------------------------------------------------------------------
 
 // sparseVector is a crude implementation of a sparse vector for our needs
 
-struct SparseVector : std::vector<SparseVectorEntry, rm_allocator<SparseVectorEntry>> {
-  typedef std::vector<SparseVectorEntry, rm_allocator<SparseVectorEntry>> Super;
+struct SparseVector : Vector<SparseVectorEntry> {
+  typedef Vector<SparseVectorEntry> Super;
   typedef SparseVectorEntry Entry;
 
   SparseVector(size_t size = 0) : Super(size) {}
@@ -25,3 +30,5 @@ struct SparseVector : std::vector<SparseVectorEntry, rm_allocator<SparseVectorEn
   // NOTE: We do not check that an entry with the same index is present in the vector
   void append(int index, int value);
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////

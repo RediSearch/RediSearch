@@ -406,15 +406,15 @@ struct rsbHelper {
 //---------------------------------------------------------------------------------------------
 
 static int rsbCompareCommon(const void *h, const void *e, bool prefix) {
-  const rsbHelper term = (const rsbHelper)h;
-  const TrieNode elem = *(const TrieNode *)e;
+  const rsbHelper *term = (const rsbHelper *) h;
+  const TrieNode *elem = *(const TrieNode **) e;
   int rc;
 
   if (prefix) {
-    size_t minLen = MIN(elem._len, term.n);
-    rc = runecmp(term.r, minLen, &elem._runes[0], minLen);
+    size_t minLen = MIN(elem->_len, term->n);
+    rc = runecmp(term->r, minLen, &elem->_runes[0], minLen);
   } else {
-    rc = runecmp(term.r, term.n, &elem._runes[0], elem._len);
+    rc = runecmp(term->r, term->n, &elem->_runes[0], elem->_len);
   }
 
   return rc;

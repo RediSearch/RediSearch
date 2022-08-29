@@ -513,15 +513,15 @@ static int nodecmp(const char *sa, size_t na, const char *sb, size_t nb) {
 //---------------------------------------------------------------------------------------------
 
 static int TrieMapNode::CompareCommon(const void *h, const void *e, bool isPrefix) {
-  const TrieMaprsbHelper term = (const TrieMaprsbHelper)h;
-  const TrieMapNode elem = *(const TrieMapNode *)e;
+  const TrieMaprsbHelper *term = (const TrieMaprsbHelper*) h;
+  const TrieMapNode *elem = *(const TrieMapNode **) e;
   size_t ntmp;
   int rc;
   if (isPrefix) {
-    size_t minLen = MIN(elem.str.length(), term.n);
-    rc = nodecmp(term.r, minLen, elem.str.c_str(), minLen);
+    size_t minLen = MIN(elem->str.length(), term->n);
+    rc = nodecmp(term->r, minLen, elem->str.c_str(), minLen);
   } else {
-    rc = nodecmp(term.r, term.n, elem.str.c_str(), elem.str.length());
+    rc = nodecmp(term->r, term->n, elem->str.c_str(), elem->str.length());
   }
   return rc;
 }

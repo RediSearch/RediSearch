@@ -26,8 +26,9 @@ void SparseVector::append(int index, int value) {
 bool SparseVector::operator==(const SparseVector &v) const {
   if (size() != v.size()) return false;
 
-  for (int i = 0; i < size(); ++i) {
-    if (at(i).idx != v.at(i).idx || at(i).val != v.at(i).val) {
+  SparseVector::const_iterator j = v.begin();
+  for (auto &entry: *this) {
+    if (entry.idx != j->idx || entry.val != j->val) {
       return false;
     }
   }

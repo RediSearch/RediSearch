@@ -363,87 +363,68 @@ double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void DefaultExpander::expandCn(RSToken *token) {
-  if (!tokenizer) {
-    tokenizer = new ChineseTokenizer(NULL, NULL, 0);
-    tokens.clear();
-  }
+// Stemmer-based query expander
 
-  tokenizer->Start(token->str.c_str(), token->length(), 0);
+StemmerExpander::StemmerExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
+  QueryExpander(qast, sctx, lang, status), cn_tokenizer(NULL), latin_stemmer(NULL) {
+  if (lang == RS_LANG_CHINESE) {
+    cn_tokenizer = new ChineseTokenizer(NULL, NULL, 0);
+  } else {
+    latin_stemmer = sb_stemmer_new(RSLanguage_ToString(lang), NULL);
+  }
+}
+
+//-------------------------------------------------------------------------------------------------------
+
+void StemmerExpander::expandCn(RSToken *token) {
+  tokens.clear();
+  cn_tokenizer->Start(token->str.c_str(), token->length(), 0);
 
   Token tok;
-  while (tokenizer->Next(&tok)) {
+  while (cn_tokenizer->Next(&tok)) {
     tokens.emplace_back(tok.tok, tok.tokLen);
   }
 
   ExpandTokenWithPhrase(tokens, token->flags, true, false);
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Stemmer based query expander
+//-------------------------------------------------------------------------------------------------------
 
 int StemmerExpander::Expand(RSToken *token) {
-  // we store the stemmer as private data on the first call to expand
-  DefaultExpander *dd = ctx->privdata;
-  struct sb_stemmer *sb;
-
-  if (!ctx->privdata) {
-    if (ctx->language == RS_LANG_CHINESE) {
-      dd->expandCn(token);
-      return REDISMODULE_OK;
-    } else {
-      dd = ctx->privdata = rm_calloc(1, sizeof(*dd));
-      dd->isCn = false;
-      sb = dd->latin = sb_stemmer_new(RSLanguage_ToString(ctx->language), NULL);
-    }
-  }
-
-  if (dd->isCn) {
-    dd->expandCn(token);
+  if (cn_tokenizer) {
+    expandCn(token);
     return REDISMODULE_OK;
   }
 
-  sb = dd->latin;
-
-  // No stemmer available for this language - just return the node so we won't
-  // be called again
-  if (!sb) {
+  // No stemmer available for this language - just return the node so we won't be called again
+  if (!latin_stemmer) {
     return REDISMODULE_OK;
   }
 
-  const sb_symbol *b = (const sb_symbol *)token->str;
-  const sb_symbol *stemmed = sb_stemmer_stem(sb, b, token->length());
-
-  if (stemmed) {
-    int sl = sb_stemmer_length(sb);
-
-    // Make a copy of the stemmed buffer with the + prefix given to stems
-    char *dup = rm_malloc(sl + 2);
-    dup[0] = STEM_PREFIX;
-    memcpy(dup + 1, stemmed, sl + 1);
-    dup[sl + 1] = '\0';
-    dd->ExpandToken(dup, 0x0);  // TODO: Set proper flags here
-    if (sl != token->length() || strncmp((const char *)stemmed, token->str.data(), token->length())) {
-      dd->ExpandToken(rm_strndup((const char *)stemmed, sl), 0x0);
-    }
+  auto sym = (const sb_symbol *) token->str.c_str();
+  const sb_symbol *stem_sym = sb_stemmer_stem(latin_stemmer, sym, token->length());
+  if (!stem_sym) {
+    return REDISMODULE_OK;
   }
+  std::string_view stem{(const char *) stem_sym, sb_stemmer_length(latin_stemmer)};
+
+  // expand with prefix
+  ExpandToken(String(STEM_PREFIX).append(stem), 0x0);  // TODO: Set proper flags here
+
+  if (stem.length() != token->length() || stem != token->str) {
+    ExpandToken(stem, 0x0);
+  }
+
   return REDISMODULE_OK;
 }
 
 //---------------------------------------------------------------------------------------------
 
 StemmerExpander::~StemmerExpander() {
-  if (!p) {
-    return;
+  delete cn_tokenizer;
+  if (latin_stemmer) {
+    sb_stemmer_delete(latin_stemmer);
   }
-  DefaultExpander *dd = p;
-  if (dd->isCn) {
-    delete dd->tokenizer;
-  } else if (dd->latin) {
-    sb_stemmer_delete(dd->latin);
-  }
-  rm_free(dd);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -452,13 +433,48 @@ StemmerExpander::~StemmerExpander() {
 
 int PhoneticExpander::Expand(RSToken *token) {
   char *primary = NULL;
-
-  PhoneticManager::ExpandPhonetics(token->str.c_str(), token->length(), &primary, NULL);
-
+  PhoneticManager::ExpandPhonetics(token->str, &primary, NULL);
   if (primary) {
-    ExpandToken(primary, 0x0);
+    ExpandToken(primary, 0);
   }
   return REDISMODULE_OK;
+}
+
+//---------------------------------------------------------------------------------------------
+
+bool PhoneticExpander::PhoneticEnabled() const {
+  int phonetic = currentNode->opts.phonetic;
+  if (phonetic == PHONETIC_DEFAULT) {
+    // Eliminate the phonetic expansion if we know that none of the fields actually use phonetic matching
+    if (sctx.spec->CheckPhoneticEnabled(currentNode->opts.fieldMask)) {
+      phonetic = PHONETIC_ENABLED;
+    }
+  } else if (phonetic == PHONETIC_ENABLED || phonetic == PHONETIC_DESABLED) {
+    // Verify that the field is actually phonetic
+    bool isValid = false;
+    if (currentNode->opts.fieldMask == RS_FIELDMASK_ALL) {
+      if (sctx.spec->flags & Index_HasPhonetic) {
+        isValid = true;
+      }
+    } else {
+      t_fieldMask mask = currentNode->opts.fieldMask;
+      size_t ii = 0;
+      for (auto &field: sctx.spec->fields) {
+        if (!(mask & (t_fieldMask)1 << ii++)) {
+          continue;
+        }
+        if (field.IsPhonetics()) {
+          isValid = true;
+        }
+      }
+    }
+    if (!isValid) {
+      status->SetError(QUERY_EINVAL, "field does not support phonetics");
+      return REDISMODULE_ERR;
+    }
+  }
+
+  return phonetic == PHONETIC_ENABLED;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -492,39 +508,9 @@ int SynonymExpander::Expand(RSToken *token) {
 // Default query expander
 
 int DefaultExpander::Expand(RSToken *token) {
-  int phonetic = currentNode->opts.phonetic;
   SynonymExpander::Expand(token);
 
-  if (phonetic == PHONETIC_DEFAULT) {
-    // Eliminate the phonetic expansion if we know that none of the fields actually use phonetic matching
-    if (sctx.spec->CheckPhoneticEnabled(currentNode->opts.fieldMask)) {
-      phonetic = PHONETIC_ENABLED;
-    }
-  } else if (phonetic == PHONETIC_ENABLED || phonetic == PHONETIC_DESABLED) {
-    // Verify that the field is actually phonetic
-    bool isValid = false;
-    if (currentNode->opts.fieldMask == RS_FIELDMASK_ALL) {
-      if (sctx.spec->flags & Index_HasPhonetic) {
-        isValid = true;
-      }
-    } else {
-      t_fieldMask fm = currentNode->opts.fieldMask;
-      for (size_t ii = 0; ii < sctx.spec->fields.size(); ++ii) {
-        if (!(fm & (t_fieldMask)1 << ii)) {
-          continue;
-        }
-        const FieldSpec fs = sctx.spec->fields[ii];
-        if (fs.IsPhonetics()) {
-          isValid = true;
-        }
-      }
-    }
-    if (!isValid) {
-      status->SetError(QUERY_EINVAL, "field does not support phonetics");
-      return REDISMODULE_ERR;
-    }
-  }
-  if (phonetic == PHONETIC_ENABLED) {
+  if (PhoneticEnabled()) {
     PhoneticExpander::Expand(token);
   }
 
@@ -533,12 +519,6 @@ int DefaultExpander::Expand(RSToken *token) {
   // @@TODO: fix the free of the 'RSToken *token' by the stemmer and allow any expnders ordering!!
   StemmerExpander::Expand(token);
   return REDISMODULE_OK;
-}
-
-//---------------------------------------------------------------------------------------------
-
-DefaultExpander::~DefaultExpander() {
-  StemmerExpanderFree(this);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -565,16 +545,16 @@ DefaultExtension::DefaultExtension() {
   Register(DOCSCORE_SCORER_NAME, DocScoreScorer);
 
   // Snowball Stemmer expander
-  Register(STEMMER_EXPENDER_NAME, StemmerExpander);
+  Register(STEMMER_EXPENDER_NAME, StemmerExpander::Factory);
 
   // Synonyms expander
-  Register(SYNONYMS_EXPENDER_NAME, SynonymExpand);
+  Register(SYNONYMS_EXPENDER_NAME, SynonymExpander::Factory);
 
   // Phonetic expander
-  Register(PHONETIC_EXPENDER_NAME, PhoneticExpand);
+  Register(PHONETIC_EXPENDER_NAME, PhoneticExpander::Factory);
 
   // Default expander
-  Register(DEFAULT_EXPANDER_NAME, DefaultExpander);
+  Register(DEFAULT_EXPANDER_NAME, DefaultExpander::Factory);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////

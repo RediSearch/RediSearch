@@ -1,11 +1,16 @@
+
 #include "phonetic_manager.h"
 #include "phonetics/double_metaphone.h"
-#include <string.h>
-#include <stdlib.h>
+
 #include "rmalloc.h"
 
-void PhoneticManager::AddPrefix(char** phoneticTerm) {
-  if (!phoneticTerm || !(*phoneticTerm)) {
+#include <string.h>
+#include <stdlib.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+void PhoneticManager::AddPrefix(char **phoneticTerm) {
+  if (!phoneticTerm || !*phoneticTerm) {
     return;
   }
   size_t len = strlen(*phoneticTerm) + 1;
@@ -14,14 +19,13 @@ void PhoneticManager::AddPrefix(char** phoneticTerm) {
   *phoneticTerm[0] = PHONETIC_PREFIX;
 }
 
-void PhoneticManager::ExpandPhonetics(const char* term, size_t len,
-                                      char** primary, char** secondary) {
-  // currently ctx is irrelevant we support only one universal algorithm for all 4 languages
-  // this phonetic manager was built for future thinking and easily add more algorithms
-  char bufTmp[len + 1];
-  bufTmp[len] = 0;
-  memcpy(bufTmp, term, len);
-  DoubleMetaphone(bufTmp, primary, secondary);
+//---------------------------------------------------------------------------------------------
+
+void PhoneticManager::ExpandPhonetics(std::string_view term, char **primary, char **secondary) {
+  // currently we support only one universal algorithm for all 4 languages
+  DoubleMetaphone(term.data(), primary, secondary);
   PhoneticManager::AddPrefix(secondary);
   PhoneticManager::AddPrefix(primary);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

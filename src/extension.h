@@ -40,19 +40,7 @@ struct Extensions {
   QueryExpander::Factory GetQueryExpander(const char *name);
 
   int Register(const char *alias, Scorer scorer);
-
-  template <class QueryExpander>
-  int Register(const char *name, QueryExpander::Factory factory) {
-    if (factory == NULL) {
-      return REDISEARCH_ERR;
-    }
-
-    if (queryExpanders.find(name) != queryExpanders.end()) {
-      throw Error("Cannot register %s: already registered", name);
-    }
-
-    queryExpanders[name] = factory;
-  }
+  int Register(const char *name, QueryExpander::Factory factory);
 
   typedef struct Extension *(*RS_ExtensionInit)();
 
@@ -74,11 +62,11 @@ extern Extensions g_ext;
 //---------------------------------------------------------------------------------------------
 
 struct Extension : Object {
-  int Register(const char *alias, Scorer scorer) {
+  int RegisterScorer(const char *alias, Scorer scorer) {
     g_ext.Register(alias, scorer);
   }
 
-  template <class QueryExpander>
+  //template <class QueryExpander>
   int Register(const char *alias, QueryExpander::Factory factory) {
     g_ext.Register(alias, factory);
   }

@@ -327,11 +327,6 @@ AddDocumentCtx::~AddDocumentCtx() {
   delete sv;
   delete tokenizer;
 
-  if (oldMd) {
-    oldMd->Decref();
-    oldMd = NULL;
-  }
-
   offsetsWriter.Cleanup();
   status.ClearError();
 

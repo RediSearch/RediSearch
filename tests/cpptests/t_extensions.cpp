@@ -36,8 +36,8 @@ static double myScorer(const ScoringFunctionArgs *ctx, const IndexResult *h,
   return 3.141;
 }
 
-static int myExpander(RSQueryExpander *ctx, RSToken *token) {
-  ctx->ExpandToken(ctx, strdup("foo"), 3, 0x00ff);
+static int myExpander(RSQueryExpander *expander, RSToken *token) {
+  expander->ExpandToken(strdup("foo"), 3, 0x00ff);
   return REDISMODULE_OK;
 }
 

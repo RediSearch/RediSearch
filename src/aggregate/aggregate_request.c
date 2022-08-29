@@ -52,25 +52,18 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
 //---------------------------------------------------------------------------------------------
 
 ReturnedField::~ReturnedField() {
-  rm_free(highlightSettings.openTag);
-  rm_free(highlightSettings.closeTag);
-  rm_free(summarizeSettings.separator);
 }
 
 //---------------------------------------------------------------------------------------------
 
-ReturnedField FieldList::GetCreateField(const char *name) {
-  size_t foundIndex = -1;
+ReturnedField &FieldList::CreateField(const char *name) {
   for (auto field : fields) {
-    if (!strcasecmp(field.name, name)) {
+    if (!strcasecmp(field.name.c_str(), name)) {
       return field;
     }
   }
-
-  ReturnedField ret;
-  ret.name = name;
-  fields.push_back(ret);
-  return ret;
+  fields.emplace_back(name);
+  return fields.back();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -80,17 +73,11 @@ void FieldList::RestrictReturn() {
     return;
   }
 
-  size_t oix = 0;
-  for (size_t ii = 0; ii < fields.size(); ++ii) {
-    if (fields[ii].explicitReturn == 0) {
-      delete &fields[ii];
-    } else if (ii != oix) {
-      fields[oix++] = fields[ii];
-    } else {
-      ++oix;
+  for (auto it = fields.begin(); it != fields.end(); ++it) {
+    if (it->explicitReturn) {
+      it = fields.erase(it);
     }
   }
-  // numFields = oix;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -376,15 +363,14 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
   if (returnFields.IsInitialized()) {
     ensureSimpleMode();
 
-    outFields.explicitReturn = 1;
+    outFields.explicitReturn = true;
     if (returnFields.argc == 0) {
       reqflags |= QEXEC_F_SEND_NOFIELDS;
     }
 
     while (!returnFields.IsAtEnd()) {
       const char *name = returnFields.GetStringNC(NULL);
-      ReturnedField *f = &outFields.GetCreateField(name);
-      f->explicitReturn = 1;
+      outFields.CreateField(name).explicitReturn = true;
     }
   }
 
@@ -1012,12 +998,11 @@ int AREQ::buildOutputPipeline(QueryError *status) {
   const RLookupKey **loadkeys = NULL;
   if (outFields.explicitReturn) {
     // Go through all the fields and ensure that each one exists in the lookup stage
-    for (size_t ii = 0; ii < outFields.NumFields(); ++ii) {
-      const ReturnedField *rf = &outFields.fields[ii];
-      RLookupKey *lk = lookup->GetKey(rf->name, RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+    for (auto &field: outFields.fields) {
+      RLookupKey *lk = lookup->GetKey(field.name, RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
       if (!lk) {
         // TODO: this is a dead code
-        status->SetErrorFmt(QUERY_ENOPROPKEY, "Property '%s' not loaded or in schema", rf->name);
+        status->SetErrorFmt(QUERY_ENOPROPKEY, "Property '%s' not loaded or in schema", field.name);
         goto error;
       }
       *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
@@ -1033,18 +1018,17 @@ int AREQ::buildOutputPipeline(QueryError *status) {
 
   if (reqflags & QEXEC_F_SEND_HIGHLIGHT) {
     RLookup *lookup = pln.GetLookup(NULL, AGPLN_GETLOOKUP_LAST);
-    for (size_t ii = 0; ii < outFields.NumFields(); ++ii) {
-      ReturnedField *ff = &outFields.fields[ii];
-      RLookupKey *kk = lookup->GetKey(ff->name, 0);
+    for (auto &field: outFields.fields) {
+      RLookupKey *kk = lookup->GetKey(field.name, 0);
       if (!kk) {
-        status->SetErrorFmt(QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
+        status->SetErrorFmt(QUERY_ENOPROPKEY, "No such property `%s`", field.name);
         goto error;
       } else if (!(kk->flags & (RLOOKUP_F_DOCSRC | RLOOKUP_F_SVSRC))) {
         // TODO: this is a dead code
-        status->SetErrorFmt(QUERY_EINVAL, "Property `%s` is not in document", ff->name);
+        status->SetErrorFmt(QUERY_EINVAL, "Property `%s` is not in document", field.name);
         goto error;
       }
-      ff->lookupKey = kk;
+      field.lookupKey = kk;
     }
     rp = new Highlighter(&searchopts, outFields, lookup);
     PUSH_RP();

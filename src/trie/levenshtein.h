@@ -5,11 +5,13 @@
 #include "rmutil/vector.h"
 
 #include <stdlib.h>
+#include <memory>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct DFANode;
 struct DFAEdge;
+struct DFACache;
 
 //---------------------------------------------------------------------------------------------
 
@@ -33,17 +35,6 @@ struct SparseAutomaton : Object {
 
   bool IsMatch(const SparseVector &v) const;
   bool CanMatch(const SparseVector &v) const;
-};
-
-//---------------------------------------------------------------------------------------------
-
-// DFAFilter is a constructed DFA used to filter the traversal on the trie
-
-struct DFACache : Vector<std::unique_ptr<DFANode>> {
-  typedef Vector<std::unique_ptr<DFANode>> Super;
-
-  DFANode *find(const SparseVector &v) const;
-  void put(DFANode *node);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -72,6 +63,15 @@ struct DFANode : Object {
 
   DFANode *getEdgeNode(rune r);
   void addEdge(rune r, DFANode *child);
+};
+
+//---------------------------------------------------------------------------------------------
+
+// DFAFilter is a constructed DFA used to filter the traversal on the trie
+
+struct DFACache : Vector<DFANode*> { // Vector<std::unique_ptr<DFANode>> {
+  DFANode *find(const SparseVector &v) const;
+  void put(DFANode *node);
 };
 
 //---------------------------------------------------------------------------------------------

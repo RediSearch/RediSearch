@@ -30,6 +30,20 @@ int Extensions::Register(const char *name, Scorer scorer) {
 
 //---------------------------------------------------------------------------------------------
 
+int Extensions::Register(const char *name, QueryExpander::Factory factory) {
+  if (factory == NULL) {
+    return REDISEARCH_ERR;
+  }
+
+  if (queryExpanders.find(name) != queryExpanders.end()) {
+    throw Error("Cannot register %s: already registered", name);
+  }
+
+  queryExpanders[name] = factory;
+}
+
+//---------------------------------------------------------------------------------------------
+
 // Load an extension by calling its init function. return REDISEARCH_ERR or REDISEARCH_OK
 #if 1
 int Extensions::Load(const char *name, RS_ExtensionInit init) {
@@ -79,12 +93,12 @@ Scorer Extensions::GetScorer(const char *name) {
 
 // ExpandToken allows the user to add an expansion of the token in the query, that will be
 // union-merged with the given token in query time.
-// str is the expanded string, len is its length, and flags is a 32 bit flag mask that
-// can be used by the extension to set private information on the token.
+// We either turn the current node into a union node with the original token node
+// and new token node as children. Or if it is already a union node (in consecutive calls),
+// we just adds a new token node as a child to it.
 
-// The implementation of the actual query expansion. This function either turns the current node
-// into a union node with the original token node and new token node as children. Or if it is
-// already a union node (in consecutive calls), it just adds a new token node as a child to it.
+// str is the expanded string. flags is a 32 bit flag mask that can be used by the extension 
+// to set private information on the token.
 
 void QueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
   QueryNode *node = currentNode;
@@ -109,17 +123,15 @@ void QueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
 //---------------------------------------------------------------------------------------------
 
 // Expand the token with a multi-word phrase, where all terms are intersected.
-// toks is an array with num its len, each member of it is a null terminated string.
-// If replace is set to 1, we replace the original token with the new phrase.
+// If replace is true, we replace the original token with the new phrase.
 // If exact is 1 the expanded phrase is an exact match phrase.
 
-// The implementation of the actual query expansion.
 // Either turn the current node into a union node with the original token node and new
 // token node as children. Or if it is already a union node (in consecutive calls),
 // it just adds a new token node as a child to it.
 
 void QueryExpander::ExpandTokenWithPhrase(const Vector<String> &tokens, RSTokenFlags flags,
-                                            bool replace, bool exact) {
+                                          bool replace, bool exact) {
   QueryNode *node = currentNode;
 
   QueryPhraseNode *phrase_node = new QueryPhraseNode(exact);

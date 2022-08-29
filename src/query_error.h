@@ -128,8 +128,7 @@ public:
 
 //---------------------------------------------------------------------------------------------
 
-class Error : public std::runtime_error {
-public:
+struct Error : std::runtime_error {
   Error(const char *fmt, ...);
   Error(QueryError *err) : std::runtime_error(err ? err->detail : "Query error") {}
 };

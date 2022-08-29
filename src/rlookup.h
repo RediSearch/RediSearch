@@ -114,8 +114,9 @@ struct RLookup {
 
   int LoadDocument(struct RLookupRow *dst, struct RLookupLoadOptions *options);
 
-  RLookupKey *GetKey(const char *name, int flags);
-  RLookupKey *GetKeyEx(const char *name, size_t n, int flags);
+  RLookupKey *GetKey(const char *name, int flags) const;
+  RLookupKey *GetKey(std::string_view name, int flags) const;
+  RLookupKey *GetKey(const char *name, size_t n, int flags) const;
   RLookupKey *genKeyFromSpec(const char *name, int flags);
   const RLookupKey *FindKeyWith(uint32_t f) const;
 

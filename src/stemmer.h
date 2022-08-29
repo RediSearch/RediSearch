@@ -31,37 +31,29 @@ enum RSLanguage {
 
 //---------------------------------------------------------------------------------------------
 
-enum StemmerType {
-  SnowballStemmer
+enum class StemmerType {
+  Snowball
 };
 
 #define DEFAULT_LANGUAGE RS_LANG_ENGLISH
-#define STEM_PREFIX '+'
+#define STEM_PREFIX "+"
 #define STEMMER_EXPANDER_NAME "stem"
 
 //---------------------------------------------------------------------------------------------
 
-// Abstract "interface" for a pluggable stemmer, ensuring we can use multiple stemmer libs
-class Stemmer : public Object {
-  void languageCtor(RSLanguage language);
-public:
-  void *ctx;
-  const char *(*Stem)(void *ctx, const char *word, size_t len, size_t *outlen);
-
-  Stemmer();
+struct Stemmer : public Object {
+  //Stemmer();
   Stemmer(StemmerType type, RSLanguage language);
   virtual ~Stemmer();
 
-  // Attempts to reset the stemmer using the given language and type. Returns false
-  // if this stemmer cannot be reused.
+  virtual std::string_view Stem(std::string_view word);
   virtual bool Reset(StemmerType type, RSLanguage language);
 
   RSLanguage language;
-  StemmerType type;  // Type of stemmer
+  StemmerType type;
 };
 
 //---------------------------------------------------------------------------------------------
-
 
 // check if a language is supported by our stemmers
 RSLanguage RSLanguage_Find(const char *language);
@@ -70,15 +62,16 @@ const char *RSLanguage_ToString(RSLanguage language);
 // Get a stemmer expander instance for registering it
 void RegisterStemmerExpander();
 
-// Snoball Stemmer wrapper implementation
-const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen);
-
 //---------------------------------------------------------------------------------------------
 
-struct sbStemmerCtx {
+struct SnowballStemmer : Stemmer {
+  SnowballStemmer(RSLanguage language);
+  ~SnowballStemmer();
+
   struct sb_stemmer *sb;
-  char *buf;
-  size_t cap;
+  String str;
+
+  std::string_view Stem(std::string_view word);
 };
 
 //---------------------------------------------------------------------------------------------

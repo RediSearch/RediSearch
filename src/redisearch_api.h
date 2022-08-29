@@ -3,11 +3,6 @@
 #include "redismodule.h"
 #include <limits.h>
 
-typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
-                                  double* doubleVal);
-
-#if 0
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define REDISEARCH_CAPI_VERSION 1
@@ -81,6 +76,8 @@ struct RSIdxOptions {
   uint32_t flags;
   int gcPolicy;
 };
+
+#if 0
 
 //---------------------------------------------------------------------------------------------
 
@@ -317,10 +314,11 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
  */
 int RediSearch_ExportCapi(RedisModuleCtx* ctx);
 
+#endif //0
+
 #define REDISEARCH_INIT_MODULE 0x01
 #define REDISEARCH_INIT_LIBRARY 0x02
 
 int RediSearch_Init(RedisModuleCtx* ctx, int mode);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-#endif //0

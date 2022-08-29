@@ -43,6 +43,8 @@ tokens. Words in between the tokens are considered as well, ensuring that every
 fragment is more or less the same size.
  */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 struct FragmentTerm {
   uint32_t tokPos;
   uint32_t bytePos;
@@ -50,6 +52,8 @@ struct FragmentTerm {
   uint32_t len;
   float score;
 };
+
+//---------------------------------------------------------------------------------------------
 
 struct FragmentTermIterator {
   RSByteOffsetIterator &byteIter;
@@ -63,6 +67,8 @@ struct FragmentTermIterator {
   FragmentTermIterator(RSByteOffsetIterator &bytesIter, RSOffsetIterator &offIter);
 };
 
+//---------------------------------------------------------------------------------------------
+
 struct TermLoc {
   uint32_t offset; // Position in current fragment (bytes)
   uint16_t len;    // Length of the token. This might be a stem, so not necessarily similar to termId
@@ -71,6 +77,8 @@ struct TermLoc {
   TermLoc(uint32_t offset, uint16_t len, uint16_t termId) :
     offset(offset), len(len), termId(termId) {}
 };
+
+//---------------------------------------------------------------------------------------------
 
 struct Fragment {
   const char *buf;
@@ -92,12 +100,16 @@ struct Fragment {
                  size_t closeLen, Vector<iovec> &iovs, const char **preamble) const;
 };
 
+//---------------------------------------------------------------------------------------------
+
 struct HighlightTags {
   const char *openTag;
   const char *closeTag;
 
   HighlightTags(HighlightSettings settings) : openTag(settings.openTag), closeTag(settings.closeTag) {}
 };
+
+//---------------------------------------------------------------------------------------------
 
 // A single term to use for searching. Used when fragmenting a buffer
 struct FragmentSearchTerm {
@@ -112,6 +124,8 @@ struct FragmentSearchTerm {
       }
     }
 };
+
+//---------------------------------------------------------------------------------------------
 
 struct FragmentList {
   // Array of fragments
@@ -147,9 +161,7 @@ struct FragmentList {
   }
   ~FragmentList();
 
-  size_t GetNumFrags() const {
-    return frags.size();
-  }
+  size_t GetNumFrags() const { return frags.size(); }
 
   void extractToken(const Token *tokInfo, const FragmentSearchTerm *terms, size_t numTerms);
 
@@ -177,6 +189,8 @@ struct FragmentList {
   void Dump() const;
 };
 
+//---------------------------------------------------------------------------------------------
+
 #define DOCLEN_NULTERM ((size_t)-1)
 
 #define FRAGMENTIZE_TOKLEN_EXACT 0x01
@@ -190,3 +204,5 @@ struct FragmentList {
 
 // First select the highest scoring elements and then sort them by position
 #define HIGHLIGHT_ORDER_SCOREPOS 0x03
+
+///////////////////////////////////////////////////////////////////////////////////////////////

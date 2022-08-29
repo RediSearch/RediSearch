@@ -25,45 +25,48 @@ enum SummarizeMode {
 #define SUMMARIZE_DEFAULT_CLOSE_TAG "</b>"
 #define SUMMARIZE_DEFAULT_SEPARATOR "... "
 
+//---------------------------------------------------------------------------------------------
+
 struct SummarizeSettings {
   uint32_t contextLen;
   uint16_t numFrags;
-  char *separator;
+  String separator;
 
   SummarizeSettings() : contextLen(SUMMARIZE_FRAGSIZE_DEFAULT),
     numFrags(SUMMARIZE_FRAGCOUNT_DEFAULT), separator(SUMMARIZE_DEFAULT_SEPARATOR) {}
 
-  void setSummarizeSettings(const SummarizeSettings *defaults);
+  SummarizeSettings &operator=(const SummarizeSettings &settings);
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct HighlightSettings {
-  char *openTag;
-  char *closeTag;
+  String openTag;
+  String closeTag;
 
   HighlightSettings() : openTag(SUMMARIZE_DEFAULT_OPEN_TAG), closeTag(SUMMARIZE_DEFAULT_CLOSE_TAG) {}
 
-  void setHighlightSettings(const HighlightSettings *defaults);
+  HighlightSettings &operator=(const HighlightSettings &settings);
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct ReturnedField {
-  const char *name;
+  String name;
 
-  const RLookupKey *lookupKey; // Lookup key associated with field
+  const RLookupKey *lookupKey; // Lookup key associated with field, @@TODO: ownership
   SummarizeSettings summarizeSettings;
   HighlightSettings highlightSettings;
   SummarizeMode mode;
-  int explicitReturn; // Whether this field was explicitly requested by `RETURN`
+  bool explicitReturn; // Whether this field was explicitly requested by `RETURN`
 
-  ReturnedField() : name(0), lookupKey(0), mode(SummarizeMode_None), explicitReturn(0) {}
+  ReturnedField() : lookupKey(NULL), mode(SummarizeMode_None), explicitReturn(false) {}
+  ReturnedField(const char *name) : name(name), lookupKey(NULL), mode(SummarizeMode_None), explicitReturn(false) {}
   ~ReturnedField();
 
-  void setFieldSettings(const ReturnedField *defaults, int isHighlight);
+  void set(const ReturnedField &field, bool isHighlight);
   char *trimField(const char *docStr, size_t *docLen, size_t estWordSize) const;
-  struct ReturnedField normalizeSettings(const ReturnedField &defaults) const;
+  ReturnedField normalizeSettings(const ReturnedField &defaults) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -76,16 +79,16 @@ struct FieldList {
   Vector<ReturnedField> fields;
 
   // Whether this list contains fields explicitly selected by `RETURN`
-  uint16_t explicitReturn;
+  bool explicitReturn;
 
-  FieldList() : explicitReturn(0) {}
+  FieldList() : explicitReturn(false) {}
 
-  ReturnedField GetCreateField(const char *name);
+  ReturnedField &CreateField(const char *name);
 
-  size_t NumFields() { return fields.size(); }
+  size_t NumFields() const { return fields.size(); }
 
   int parseArgs(ArgsCursor *ac, bool isHighlight);
-  bool parseFieldList(ArgsCursor *ac, Vector<size_t> fieldPtrs);
+  bool parseFields(ArgsCursor *ac, Vector<ReturnedField> &fields);
   void ParseSummarize(ArgsCursor *ac);
   void ParseHighlight(ArgsCursor *ac);
 

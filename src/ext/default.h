@@ -29,9 +29,11 @@ double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const
 
 //---------------------------------------------------------------------------------------------
 
-struct PhoneticExpander : QueryExpander {
+struct PhoneticExpander : virtual QueryExpander {
   PhoneticExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
     QueryExpander(qast, sctx, lang, status) {}
+
+  bool PhoneticEnabled() const;
   virtual int Expand(RSToken *token);
 
   static QueryExpander *Factory(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) {
@@ -41,7 +43,7 @@ struct PhoneticExpander : QueryExpander {
 
 //---------------------------------------------------------------------------------------------
 
-struct SynonymExpander : QueryExpander {
+struct SynonymExpander : virtual QueryExpander {
   SynonymExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
     QueryExpander(qast, sctx, lang, status) {}
 
@@ -54,12 +56,15 @@ struct SynonymExpander : QueryExpander {
 
 //---------------------------------------------------------------------------------------------
 
-struct StemmerExpander : QueryExpander {
-  StemmerExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
-    QueryExpander(qast, sctx, lang, status) {}
-
+struct StemmerExpander : virtual QueryExpander {
+  StemmerExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status);
   ~StemmerExpander();
 
+  ChineseTokenizer *cn_tokenizer;
+  Vector<String> tokens;
+  struct sb_stemmer *latin_stemmer;
+
+  void expandCn(RSToken *token);
   virtual int Expand(RSToken *token);
 
   static QueryExpander *Factory(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) {
@@ -69,19 +74,18 @@ struct StemmerExpander : QueryExpander {
 
 //---------------------------------------------------------------------------------------------
 
-struct DefaultExpander : QueryExpander {
+struct DefaultExpander : virtual QueryExpander, StemmerExpander, SynonymExpander, PhoneticExpander {
   DefaultExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
-    QueryExpander(qast, sctx, lang, status) {}
+    QueryExpander(qast, sctx, lang, status),
+    StemmerExpander(qast, sctx, lang, status),
+    SynonymExpander(qast, sctx, lang, status),
+    PhoneticExpander(qast, sctx, lang, status) {}
 
   ~DefaultExpander();
 
-  bool isCn;
-
-  ChineseTokenizer *tokenizer;
-  Vector<String> tokens;
-  struct sb_stemmer *latin;
-
-  void expandCn(RSToken *token);
+//  int PhoneticExpand(RSToken *token) { return PhoneticExpander::Expand(token); }
+//  int StemmerExpand(RSToken *token) { return StemmerExpander::Expand(token); }
+//  int SynonymExpand(RSToken *token) { return SynonymExpander::Expand(token); }
 
   virtual int Expand(RSToken *token);
 

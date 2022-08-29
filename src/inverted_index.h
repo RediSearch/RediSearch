@@ -19,6 +19,8 @@ extern uint64_t TotalIIBlocks;
 
 struct IndexBlockRepair;
 
+//---------------------------------------------------------------------------------------------
+
 // A single block of data in the index. The index is basically a list of blocks we iterate
 
 struct IndexBlock {
@@ -58,9 +60,9 @@ struct IndexBlockRepair {
 // It accepts a pre-calculated delta for encoding.
 typedef size_t (*IndexEncoder)(BufferWriter *bw, uint32_t delta, const IndexResult *record);
 
-//---------------------------------------------------------------------------------------------
-
 enum decoderType {Base, Term, Numeric};
+
+//---------------------------------------------------------------------------------------------
 
 struct IndexDecoder {
   // This context is passed to the decoder callback, and can contain either a pointer or integer.
@@ -110,6 +112,8 @@ struct IndexDecoder {
   }
 };
 
+//---------------------------------------------------------------------------------------------
+
 struct TermIndexDecoder : IndexDecoder {
   TermIndexDecoder(uint32_t flags) : IndexDecoder(flags, decoderType::Term) {}
   TermIndexDecoder(uint32_t flags, t_fieldMask mask) : IndexDecoder(flags, mask, decoderType::Term) {}
@@ -132,6 +136,8 @@ struct TermIndexDecoder : IndexDecoder {
 
   bool seekFreqOffsetsFlags(BufferReader *br, IndexReader *ir, t_docId expid, TermResult *res);
 };
+
+//---------------------------------------------------------------------------------------------
 
 struct NumericIndexDecoder : IndexDecoder {
   const NumericFilter *filter;

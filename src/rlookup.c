@@ -61,7 +61,7 @@ RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
 
 //---------------------------------------------------------------------------------------------
 
-RLookupKey *RLookup::GetKeyEx(const char *name, size_t n, int flags) {
+RLookupKey *RLookup::GetKey(const char *name, size_t n, int flags) const {
   RLookupKey *ret = NULL;
 
   for (RLookupKey *kk = head; kk; kk = kk->next) {
@@ -112,8 +112,12 @@ RLookupKey *RLookup::GetKeyEx(const char *name, size_t n, int flags) {
  * case, the key is returned, but has the F_UNRESOLVED flag set.
  */
 
-RLookupKey *RLookup::GetKey(const char *name, int flags) {
-  return GetKeyEx(name, strlen(name), flags);
+RLookupKey *RLookup::GetKey(const char *name, int flags) const {
+  return GetKey(name, strlen(name), flags);
+}
+
+RLookupKey *RLookup::GetKey(std::string_view name, int flags) const {
+  return GetKey(name.data(), name.length()), flags);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -504,7 +508,7 @@ int RLookup::HGETALL(RLookupRow *dst, RLookupLoadOptions *options) {
     RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
 
     const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
-    RLookupKey *rlk = GetKeyEx(kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
+    RLookupKey *rlk = GetKey(kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
     if (!options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
       continue;  // Can load it from the sort vector on demand.
     }

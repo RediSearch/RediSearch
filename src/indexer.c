@@ -226,16 +226,16 @@ static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
 
 bool AddDocumentCtx::makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryError *status) {
   IndexSpec *spec = sctx->spec;
-  DocTable *table = &spec->docs;
+  DocTable &table = spec->docs;
   if (replace) {
-    std::shared_ptr<RSDocumentMetadata> dmd = std::dynamic_pointer_cast<RSDocumentMetadata>(table->Pop(doc.docKey));
-    if (dmd) {
+    oldMd = std::shared_ptr<RSDocumentMetadata>(table.Pop(doc.docKey));
+    if (oldMd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
-      oldMd = dmd;
-      if (dmd->flags & Document_HasOnDemandDeletable) {
+      //oldMd = dmd;
+      if (oldMd->flags & Document_HasOnDemandDeletable) {
         // Delete all on-demand fields.. this means geo, but could mean other things..
-        handleReplaceDelete(sctx, dmd->id);
+        handleReplaceDelete(sctx, oldMd->id);
       }
       if (sctx->spec->gc) {
         sctx->spec->gc->OnDelete();
@@ -246,7 +246,7 @@ bool AddDocumentCtx::makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryErr
   size_t n;
   const char *s = RedisModule_StringPtrLen(doc.docKey, &n);
 
-  doc.docId = table->Put(s, n, doc.score, docFlags, doc.payload);
+  doc.docId = table.Put(s, n, doc.score, docFlags, doc.payload);
   if (doc.docId == 0) {
     status->SetError(QUERY_EDOCEXISTS, NULL);
     return false; //@@TODO: throw on error

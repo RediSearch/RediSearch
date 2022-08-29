@@ -343,7 +343,7 @@ DEBUG_COMMAND(DumpPhoneticHash) {
   char *primary = NULL;
   char *secondary = NULL;
 
-  PhoneticManager::ExpandPhonetics(term_c, len, &primary, &secondary);
+  PhoneticManager::ExpandPhonetics(std::string_view(term_c, len), &primary, &secondary);
 
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));

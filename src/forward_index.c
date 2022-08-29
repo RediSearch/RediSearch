@@ -42,7 +42,7 @@ ForwardIndex::ForwardIndex(Document *doc, uint32_t idxFlags_) :
     entries(ENTRIES_PER_BLOCK),
     terms(TERM_BLOCK_SIZE),
     vvw_pool(estimtateTermCount(doc)),
-    stemmer(new Stemmer(SnowballStemmer, doc->language)),
+    stemmer(new SnowballStemmer(doc->language)),
     smap(NULL) {
 
   ctor(idxFlags_);
@@ -59,13 +59,13 @@ void ForwardIndex::Reset(Document *doc, uint32_t idxFlags_) {
   delete smap;
   smap = NULL;
 
-  if (stemmer && !stemmer->Reset(SnowballStemmer, doc->language)) {
+  if (stemmer && !stemmer->Reset(StemmerType::Snowball, doc->language)) {
     delete stemmer;
     stemmer = NULL;
   }
 
   if (!stemmer) {
-    stemmer = new Stemmer(SnowballStemmer, doc->language);
+    stemmer = new SnowballStemmer(doc->language);
   }
 
   ctor(idxFlags_);

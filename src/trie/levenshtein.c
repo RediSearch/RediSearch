@@ -99,7 +99,7 @@ DFANode *DFACache::find(const SparseVector &v) const {
 //---------------------------------------------------------------------------------------------
 
 void DFACache::put(DFANode *node) {
-  push_back(std::unique_ptr<DFANode>(node));
+  emplace_back(node);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

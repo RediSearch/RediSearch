@@ -263,6 +263,18 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
   Runes rbegin(begin), rend(end);
 
   t->root->IterateRange(rbegin, includeBegin, rend, includeEnd, rangeIterCb, &range);
+  /*t->root->IterateRange(rbegin, includeBegin, rend, includeEnd, [&](const char *r, size_t n) {
+      LexRange *ctx = p;
+      Query *q = range.q;
+      RSToken tok{r, n};
+      RSQueryTerm *term = new RSQueryTerm(tok, range.q->tokenId++);
+      IndexReader *ir = new TermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, range.weight);
+      if (!ir) {
+        delete term;
+        return;
+      }
+      range.rangeItersAddIterator(ir);
+    });*/
   if (range.its.empty()) {
     return NULL;
   }

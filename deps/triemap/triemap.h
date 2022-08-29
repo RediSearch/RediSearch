@@ -1,12 +1,15 @@
 #pragma once
 
+#include "rmutil/vector.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 #include <functional>
-#include <rmutil/vector.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef uint16_t tm_len_t;
 
@@ -24,6 +27,8 @@ typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 //typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
 typedef std::function<void(const char *min, size_t minlen, void *ctx, void *val)> TrieMapRangeCallback;
 
+//---------------------------------------------------------------------------------------------
+
 struct TrieMapRangeCtx {
   char *buf;
   TrieMapRangeCallback callback;
@@ -32,10 +37,14 @@ struct TrieMapRangeCtx {
   bool includeMax;
 };
 
+//---------------------------------------------------------------------------------------------
+
 struct TrieMaprsbHelper {
   const char *r;
   int n;
 };
+
+//---------------------------------------------------------------------------------------------
 
 #pragma pack(1)
 
@@ -45,6 +54,7 @@ struct TrieMaprsbHelper {
  * interested in the triemap as a set for strings
  */
 //@@ Make Template
+
 struct TrieMapNode : public Object {
   uint8_t flags;
   void *value;
@@ -94,7 +104,8 @@ struct TrieMapNode : public Object {
   static int Cmp(const void *p1, const void *p2);
 };
 
-// trie iterator stack node. for internal use only
+//---------------------------------------------------------------------------------------------
+
 struct stackNode {
   int state;
   TrieMapNode *n;
@@ -106,6 +117,8 @@ struct stackNode {
 };
 
 #pragma pack()
+
+//---------------------------------------------------------------------------------------------
 
 struct TrieMapIterator : public Object {
   char *buf;
@@ -129,6 +142,8 @@ struct TrieMapIterator : public Object {
   stackNode current() { return stack.back(); } // the current top of the iterator stack
 };
 
+//---------------------------------------------------------------------------------------------
+
 struct TrieMap : public Object {
   TrieMapNode *root;
   size_t cardinality;
@@ -149,3 +164,5 @@ struct TrieMap : public Object {
                     TrieMapRangeCallback callback, void *ctx);
   TrieMapIterator *Iterate(std::string_view prefix);
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////

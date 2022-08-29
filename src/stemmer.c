@@ -51,81 +51,60 @@ RSLanguage RSLanguage_Find(const char *language) {
   return RS_LANG_UNSUPPORTED;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen) {
-  const sb_symbol *b = (const sb_symbol *)word;
-  struct sbStemmerCtx *stctx = ctx;
-  struct sb_stemmer *sb = stctx->sb;
+std::string_view SnowballStemmer::Stem(std::string_view word) {
+  constexpr size_t prefix_len = strlen(STEM_PREFIX);
 
-  const sb_symbol *stemmed = sb_stemmer_stem(sb, b, (int)len);
-  if (stemmed) {
-    *outlen = sb_stemmer_length(sb);
-
-    // if the stem and its origin are the same - don't do anything
-    if (*outlen == len && strncasecmp(word, (const char *)stemmed, len) == 0) {
-      return NULL;
-    }
-    // reserver one character for the '+' prefix
-    *outlen += 1;
-
-    // make sure the expansion plus the 1 char prefix fit in our static buffer
-    if (*outlen + 2 > stctx->cap) {
-      stctx->cap = *outlen + 2;
-      stctx->buf = rm_realloc(stctx->buf, stctx->cap);
-    }
-    // the first location is saved for the + prefix
-    memcpy(stctx->buf + 1, stemmed, *outlen + 1);
-    return (const char *)stctx->buf;
+  const sb_symbol *b = (const sb_symbol *) word.data();
+  const sb_symbol *stem = sb_stemmer_stem(sb, b, (int) word.length());
+  if (!stem) {
+    return std::string_view{};
   }
-  return NULL;
+  size_t outlen = sb_stemmer_length(sb);
+
+  // if the stem and its origin are the same - don't do anything
+  if (outlen == word.length() && strncasecmp(word.data(), (const char *)stem, word.length()) == 0) {
+    return std::string_view{};
+  }
+  outlen += prefix_len;
+
+  str = STEM_PREFIX;
+  str += (const char *) stem;
+  return str;
 }
 
 //---------------------------------------------------------------------------------------------
 
-Stemmer::~Stemmer() {
-  struct sbStemmerCtx *ctx_ = ctx;
-  sb_stemmer_delete(ctx_->sb);
-  rm_free(ctx_->buf);
-  rm_free(ctx_);
-}
-
-//---------------------------------------------------------------------------------------------
-
-void Stemmer::languageCtor(RSLanguage language) {
-  struct sb_stemmer *sb = sb_stemmer_new(RSLanguage_ToString(language), NULL);
+SnowballStemmer::SnowballStemmer(RSLanguage lang) : Stemmer(StemmerType::Snowball, lang) {
+  sb = sb_stemmer_new(RSLanguage_ToString(lang), NULL);
   // No stemmer available for this language
   if (!sb) {
     throw Error("No stemmer available for this language");
   }
 
-  struct sbStemmerCtx *ctx = rm_malloc(sizeof(*ctx));
-  ctx->sb = sb;
-  ctx->cap = 24;
-  ctx->buf = rm_malloc(ctx->cap);
-  ctx->buf[0] = STEM_PREFIX;
-
-  ctx = ctx;
-  Stem = __sbstemmer_Stem;
+  str.reserve(24);
+  str = STEM_PREFIX;
 }
 
 //---------------------------------------------------------------------------------------------
 
-Stemmer::Stemmer(StemmerType type, RSLanguage language) {
-  if (type == SnowballStemmer) {
-    languageCtor(language);
-  } else {
-    throw Error("Invalid stemmer type");
-  }
+SnowballStemmer::~SnowballStemmer() {
+  sb_stemmer_delete(sb);
+}
 
-  language = language;
-  type = type;
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+Stemmer::Stemmer(StemmerType type, RSLanguage language) : type(type), language(language) {
 }
 
 //---------------------------------------------------------------------------------------------
 
-bool Stemmer::Reset(StemmerType type, RSLanguage language) {
-  if (type != type || language == RS_LANG_UNSUPPORTED || language == language) {
+// Attempts to reset the stemmer using the given language and type. 
+// Returns false if this stemmer cannot be reused.
+
+bool Stemmer::Reset(StemmerType type_, RSLanguage language_) {
+  if (type != type_ || language == RS_LANG_UNSUPPORTED || language == language_) {
     return false;
   }
   return true;
