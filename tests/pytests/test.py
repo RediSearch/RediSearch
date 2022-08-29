@@ -1689,10 +1689,20 @@ def testNoStem(env):
 
 def testSortbyMissingField(env):
     # GH Issue 131
+    # 
     env.cmd('ft.create', 'ix', 'ON', 'HASH', 'schema', 'txt',
              'text', 'num', 'numeric', 'sortable')
-    env.cmd('ft.add', 'ix', 'doc1', 1.0, 'fields', 'txt', 'foo')
-    env.cmd('ft.search', 'ix', 'foo', 'sortby', 'num')
+    env.cmd('ft.add', 'ix', 'doc1', 1.0, 'fields', 'txt', 'foo', 'noexist', 3.14)
+    
+    env.expect('ft.search', 'ix', 'foo', 'sortby', 'num')                       \
+        .equal([1, 'doc1', ['txt', 'foo', 'noexist', '3.14']])
+    env.expect('ft.search', 'ix', 'foo', 'sortby', 'noexist').error()           \
+        .contains('Property `noexist` not loaded nor in schema')
+
+    env.expect('ft.aggregate', 'ix', 'foo', 'load', 2, '@__key', '@num', 'sortby', 2, '@num', 'asc')            \
+        .equal([1, ['__key', 'doc1']])
+    env.expect('ft.aggregate', 'ix', 'foo', 'load', 2, '@__key', '@noexist', 'sortby', 2, '@noexist', 'asc')    \
+        .equal([1, ['__key', 'doc1', 'noexist', '3.14']])
 
 def testParallelIndexing(env):
     # GH Issue 207
