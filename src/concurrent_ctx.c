@@ -99,7 +99,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
   cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   cmdCtx->argc = argc;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
-  RedisModule_AutoMemory(cmdCtx->ctx);
+  RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
   cmdCtx->options = options;
   // Copy command arguments so they can be released by the calling thread

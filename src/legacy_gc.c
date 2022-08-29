@@ -387,7 +387,7 @@ int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   RS_LOG_ASSERT(gc, "GC ctx should not be NULL");
 
   int status = SPEC_STATUS_OK;
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
   RedisModule_ThreadSafeContextLock(ctx);
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not reloading
