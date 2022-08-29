@@ -358,6 +358,8 @@ typedef struct {
     size_t nLoadKeys;
   } fieldcmp;
 
+  // return as soon as heap is full
+  bool quickExit;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -474,7 +476,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     if (h->score < rp->parent->minScore) {
       rp->parent->minScore = h->score;
     }
-
+    // collected `limit` results. No need to continue.
+    if (self->quickExit && self->pq->count + 1 == self->pq->size) {
+      rp->Next = rpsortNext_Yield;
+      return rpsortNext_Yield(rp, r);
+    }
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(self->pq);
@@ -569,10 +575,11 @@ static void srDtor(void *p) {
 }
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascmap) {
+                                      uint64_t ascmap, bool quickExit) {
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
   ret->cmp = nkeys ? cmpByFields : cmpByScore;
   ret->cmpCtx = ret;
+  ret->quickExit = quickExit;
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
@@ -595,8 +602,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit) {
+  return RPSorter_NewByFields(maxresults, NULL, 0, 0, quickExit);
 }
 
 void SortAscMap_Dump(uint64_t tt, size_t n) {

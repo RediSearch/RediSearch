@@ -28,7 +28,14 @@
 #define printProfileNumBatches(hybrid_reader)                         \
   do {                                                                \
     RedisModule_ReplyWithSimpleString(ctx, "Batches number");         \
-    RedisModule_ReplyWithLongLong(ctx, hybrid_reader->numIterations);\
+    RedisModule_ReplyWithLongLong(ctx, hybrid_reader->numIterations); \
+  } while (0)
+
+#define printProfileOptimizationType(oi)                              \
+  do {                                                                \
+    RedisModule_ReplyWithSimpleString(ctx, "Optimizer mode");         \
+    RedisModule_ReplyWithSimpleString(ctx,                            \
+            QOptimizer_PrintType(oi->optim));                         \
   } while (0)
 
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req);
