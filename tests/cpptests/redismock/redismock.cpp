@@ -738,6 +738,7 @@ RedisModuleCtx::~RedisModuleCtx() {
       delete it;
     }
   }
+  db->clear();
 }
 
 RedisModuleCtx::RedisModuleCtx(uint32_t id) : getApi(RMCK_GetApi), dbid(id) {
