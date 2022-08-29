@@ -293,7 +293,8 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
       break;
     }
     // keep the index that fits the score
-    if (n->sortMode == Trie_Sort_Score && child->maxChildScore < score) {
+    if (n->sortMode == Trie_Sort_Score && child->maxChildScore < score &&
+        scoreIdx == REDISEARCH_UNINITIALIZED) {
       scoreIdx = idx;
     }
   }
