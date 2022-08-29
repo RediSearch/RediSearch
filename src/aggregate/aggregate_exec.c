@@ -23,7 +23,16 @@ static const RSValue *getSortKey(AREQ *req, const SearchResult *r, const PLN_Arr
   if ((kk->flags & RLOOKUP_F_SVSRC) && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
     return r->rowdata.sv->values[kk->svidx];
   } else {
-    return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
+    // align field value with its type
+    RSValue *v = RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
+    if (kk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE) {
+      RSValue rsv;
+      double d;
+      RSValue_ToNumber(v, &d);
+      RSValue_SetNumber(&rsv, d);
+      *v = rsv;
+    }
+    return v;
   }
 }
 
@@ -74,6 +83,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   if ((options & QEXEC_F_SEND_SORTKEYS)) {
     count++;
     const RSValue *sortkey = getSortKey(req, r, cv->lastAstp);
+
     RedisModuleString *rskey = NULL;
   reeval_sortkey:
     if (sortkey) {
