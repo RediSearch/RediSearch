@@ -214,18 +214,21 @@ def testDropWith__FORCEKEEPDOCS():
 
 
 def testExpireDocs():
-  env = initEnv()
-  master = env.getConnection()
-  master.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
-  slave = env.getSlaveConnection()
-  slave.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
-
   '''
-  This test creates creates an index and two documents and check they
+  This test creates an index and two documents and check they
   exist on both shards.
   One of the documents is expired.
   The test checks the document is removed from both master and slave.
+  The first iteration, the doc was deleted on redis but not on RediSearch and data is `None`. 
+  (expiration occurs during a search)
   '''
+
+  env = initEnv()
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+  # Use "lazy" expire (expire only when key is accessed)
+  master.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+  slave.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
 
   for i in range(2):
     sortby_cmd = [] if i == 0 else ['SORTBY', 't']
@@ -236,48 +239,41 @@ def testExpireDocs():
     # both docs exist
     res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
-    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*'), [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']], time_out=5)
-
-    master.execute_command('PEXPIRE', 'doc1', 1)
-    time.sleep(0.01)
-
-    if i == 0:    # w/o sortby
-      # both docs exist but doc1 fail to load field since they were expired passively
-      res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-      env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'foo']])
-      res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-      env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'foo']])
-    elif i == 1:  # with sortby
-      # since there is no sortable, we loaded doc1 at sortby and found out it was deleted
-      res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-      env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
-      res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-      env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
-
-    # only 1 doc is left
-    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-    env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+    env.expect('WAIT', '1', '10000').equal(1)
     res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-    env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+    env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
+
+    # Allow time for expiration to occur during search
+    master.execute_command('PEXPIRE', 'doc1', 10)
+
+    msg = '{} sortby'.format('without' if i == 0 else 'with')
+    # First iteration
+    # both docs exist but doc1 fail to load field since it was lazily expired (with sortby)
+    expected_res = [2, 'doc1', None, 'doc2', ['t', 'foo']] if i == 0 else [1, 'doc2', ['t', 'foo']]   
+    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*'), expected_res, time_out=5)
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, expected_res, message=msg)
+
+    # Second iteration - only 1 doc is left (master deleted it)
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [1, 'doc2', ['t', 'foo']], message=msg)
+    res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [1, 'doc2', ['t', 'foo']], message=msg)
 
 
     master.execute_command('FLUSHALL')
     env.expect('WAIT', '1', '10000').equal(1)
 
 def testExpireDocsSortable():
+  '''
+  Same as test `testExpireDocs` only with SORTABLE
+  '''
+
   env = initEnv()
   master = env.getConnection()
   master.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
   slave = env.getSlaveConnection()
-  slave.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
-
-  '''
-  This test creates creates an index and two documents and check they
-  exist on both shards.
-  One of the documents is expired.
-  The test checks the document is removed from both master and slave.
-  The first iteration, the doc was deleted on redis but not on RediSearch and data is `None`. 
-  '''
+  slave.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')  
 
   for i in range(2):
     sortby_cmd = [] if i == 0 else ['SORTBY', 't']
@@ -288,21 +284,27 @@ def testExpireDocsSortable():
     # both docs exist
     res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
-    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*'), [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']], time_out=5)
-
-    master.execute_command('PEXPIRE', 'doc1', 1)
-    time.sleep(0.01)
-    # both docs exist but doc1 fail to load field since they were expired passively
+    env.expect('WAIT', '1', '10000').equal(1)
     res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-    env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'foo']])
-    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-    env.assertEqual(res, [2, 'doc1', None, 'doc2', ['t', 'foo']])
+    env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
 
-    # only 1 doc is left
+    # Allow time for expiration to occur during search
+    master.execute_command('PEXPIRE', 'doc1', 10)
+
+    msg = '{} sortby'.format('without' if i == 0 else 'with')
+    # First iteration
+    # both docs exist but doc1 fail to load field since it was lazily expired (with sortby)
+    expected_res = [2, 'doc1', None, 'doc2', ['t', 'foo']]
+    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*'), expected_res, time_out=5)
     res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-    env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+    env.assertEqual(res, expected_res, message=msg)
+
+    # Second iteration - only 1 doc is left (master deleted it)
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    env.assertEqual(res, [1, 'doc2', ['t', 'foo']], message=msg)
     res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-    env.assertEqual(res, [1, 'doc2', ['t', 'foo']])
+    env.assertEqual(res, [1, 'doc2', ['t', 'foo']], message=msg)
+
 
     master.execute_command('FLUSHALL')
     env.expect('WAIT', '1', '10000').equal(1)
