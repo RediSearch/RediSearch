@@ -431,10 +431,10 @@ def testInfoStats(env):
         val_list = [random.uniform(1, 100000) for i in range(val_count)]
         doc_created += 1
         # Single doc with multi value
-        conn.execute_command('JSON.SET', 'doc:multi:{}'.format(doc_created), '$', json.dumps({'top': val_list}))
+        conn.execute_command('JSON.SET', 'doc:multi:{{{}}}'.format(doc_created), '$', json.dumps({'top': val_list}))
         # Multi docs with single value
         for i in range(val_count):
-            conn.execute_command('JSON.SET', 'doc:single:{}'.format(doc_created + i), '$', json.dumps({'top': val_list[i]}))
+            conn.execute_command('JSON.SET', 'doc:single:{{{}}}'.format(doc_created + i), '$', json.dumps({'top': val_list[i]}))
         doc_created += val_count - 1
 
     interesting_attr = ['num_records', 'total_inverted_index_blocks']
@@ -465,13 +465,14 @@ def testInfoStatsAndSearchAsSingle(env):
     for doc in range(1, doc_num + 1):
         val_count = random.randint(1, max_attr_num)
         val_list = [random.uniform(-50000, 50000) for i in range(val_count)]
+        # Use slot id tag to make results from single and multi indices in same order
         # Doc with a single multi value, e.g., 
         #  JSON.SET doc:single:1 $ '{"val1": 10, "val2": 20, "val3": 30}'
-        conn.execute_command('JSON.SET', 'doc:multi:{}'.format(doc), '$', json.dumps({'val1': val_list}))
+        conn.execute_command('JSON.SET', 'doc:multi:{{{}}}'.format(doc), '$', json.dumps({'val1': val_list}))
         # Doc with several single values, e.g., 
         #  JSON.SET doc:multi:1 $ '{"val1": [10, 20, 30]}'
         json_val = {k:v for (k,v) in zip(['val{}'.format(i + 1) for i in range(val_count)], val_list)}
-        conn.execute_command('JSON.SET', 'doc:single:{}'.format(doc), '$', json.dumps(json_val))
+        conn.execute_command('JSON.SET', 'doc:single:{{{}}}'.format(doc), '$', json.dumps(json_val))
     
     # Compare INFO stats
     interesting_attr = ['num_docs', 'max_doc_id', 'num_records', 'total_inverted_index_blocks']
