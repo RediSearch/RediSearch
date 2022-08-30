@@ -12,7 +12,7 @@ INCLUDE = .
 #complie flags for devolep
 CFLAGS = -g -Wall
 #complile flags for products
-FFLAGS = -O2 -Wall -fPIC
+FFLAGS = -O3 -Wall -fPIC
 #FFLAGS = -g -Wall -fPIC
 #extension libs for friso
 ELIB = m

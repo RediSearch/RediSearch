@@ -69,7 +69,7 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
-set(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
+set(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99 -O3")
 set(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
 
 #----------------------------------------------------------------------------------------------
