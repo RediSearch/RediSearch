@@ -12,13 +12,8 @@ SearchCluster NewSearchCluster(size_t size, const char **table, size_t tableSize
   PartitionCtx_Init(&ret.part, size, table, tableSize);
   if(size){
     // assume slots are equaly distributed
-    ret.shardsStartSlots = malloc(sizeof(int) * size);
+    ret.shardsStartSlots = malloc(sizeof(size_t) * size);
     for(size_t j = 0, i = 0 ; i < tableSize - size; j++, i+=(tableSize/size)){
-    /*
-      TODO: Is "- size" correct? Cannot be up to tableSize itself,
-      as that leads to memory corruption for size that does not divide tableSize.
-      should tableSize be updated above to be the greatest number less than tableSize that is divisible by size?
-    */
       ret.shardsStartSlots[j] = i;
     }
   }
@@ -33,6 +28,13 @@ SearchCluster *GetSearchCluster() {
 
 void InitGlobalSearchCluster(size_t size, const char **table, size_t tableSize) {
   __searchCluster = NewSearchCluster(size, table, tableSize);
+}
+
+void SearchCluster_Release(SearchCluster *sc) {
+  free(sc->shardsStartSlots);
+}
+void GlobalSearchCluser_Release() {
+  SearchCluster_Release(&__searchCluster);
 }
 
 inline int SearchCluster_Ready(SearchCluster *sc) {

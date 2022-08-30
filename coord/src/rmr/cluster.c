@@ -406,8 +406,13 @@ void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh) {
 }
 
 void MRClust_Free(MRCluster *cl) {
-  MRClusterTopology_Free(cl->topo);
-  MRNodeMap_Free(cl->nodeMap);
-  MRConnManager_Free(&cl->mgr);
-  free(cl);
+  if (cl) {
+    if (cl->topo)
+      MRClusterTopology_Free(cl->topo);
+    if (cl->nodeMap)
+      MRNodeMap_Free(cl->nodeMap);
+    if (cl->mgr.map)
+      MRConnManager_Free(&cl->mgr);
+    free(cl);
+  }
 }

@@ -458,6 +458,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
       CONN_LOG(conn, "Error on ssl contex creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
+      if (ssl_context) SSL_CTX_free(ssl_context);
       return;
     }
     SSL *ssl = SSL_new(ssl_context);
@@ -465,8 +466,10 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
       CONN_LOG(conn, "Error on tls auth");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
+      if (ssl_context) SSL_CTX_free(ssl_context);
       return;
     }
+    if (ssl_context) SSL_CTX_free(ssl_context);
   }
 
 

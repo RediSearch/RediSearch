@@ -29,7 +29,7 @@ void testCommandMux() {
     if (i > 100) mu_fail("number of iterations exceeded");
   }
   cg.Free(cg.ctx);
-  free(sc.shardsStartSlots);
+  SearchCluster_Release(&sc);
 }
 
 int main(int argc, char **argv) {

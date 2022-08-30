@@ -918,8 +918,12 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
         // Current result is smaller then upper bound, replace them.
         largest = heap_poll(reduceSpecialCaseCtx->knn.pq);
         heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
+        free(rCtx->cachedResult);
         rCtx->cachedResult = largest->result;
         rm_free(largest);
+      }
+      else {
+        free(res);
       }
     }
   }
@@ -2005,6 +2009,31 @@ void setHiredisAllocators(){
   hiredisSetAllocators(&ha);
 }
 
+
+void Coordinator_CleanupModule(void) {
+  MR_Destroy();
+  GlobalSearchCluser_Release();
+}
+
+void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing Coordinator resources on shutdown");
+  Coordinator_CleanupModule();
+  RedisModule_Log(ctx, "notice", "%s", "End releasing Coordinator resources");
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
+  RediSearch_CleanupModule();
+  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
+}
+
+void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
+  // To be called after `Initialize_KeyspaceNotifications` as callbacks are overridden.
+  if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {
+    // clear resources when the server exits
+    // used only with sanitizer or valgrind
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, Coordinator_ShutdownEvent);
+  }
+}
+
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   /**
@@ -2052,6 +2081,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Init the aggregation thread pool
   DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
+
+  Initialize_CoordKeyspaceNotifications(ctx);
 
   // suggestion commands
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "readonly",

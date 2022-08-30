@@ -245,6 +245,10 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   }
   printf("Thread created\n");
 }
+void MR_Destroy() {
+  RQ_Free(rq_g);
+  MRClust_Free(cluster_g);
+}
 
 MRClusterTopology *MR_GetCurrentTopology() {
   return cluster_g ? cluster_g->topo : NULL;
