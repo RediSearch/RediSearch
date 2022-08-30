@@ -23,16 +23,16 @@ struct TimeSample {
   double IterationMS();
 };
 
-void TimeSample::Start() {
+inline void TimeSample::Start() {
   clock_gettime(CLOCK_REALTIME, &startTime);
   num = 0;
 }
 
-void TimeSample::Tick() {
+inline void TimeSample::Tick() {
   ++num;
 }
 
-void TimeSample::End() {
+inline void TimeSample::End() {
   clock_gettime(CLOCK_REALTIME, &endTime);
 
   durationNS =
@@ -40,24 +40,24 @@ void TimeSample::End() {
     ((long long)1000000000 * startTime.tv_sec + startTime.tv_nsec);
 }
 
-long long TimeSample::DurationNS() {
+inline long long TimeSample::DurationNS() {
   return durationNS;
 }
 
-long long TimeSample::DurationMS() {
+inline long long TimeSample::DurationMS() {
   return durationNS / 1000000;
 }
 
-double TimeSample::DurationSec() {
+inline double TimeSample::DurationSec() {
   return (double)durationNS / 1000000000.0;
 }
 
-double TimeSample::IterationSec() {
+inline double TimeSample::IterationSec() {
   return ((double)durationNS / 1000000000.0) /
          (double)(num ? num : 1.0);
 }
 
-double TimeSample::IterationMS() {
+inline double TimeSample::IterationMS() {
   return ((double)durationNS / 1000000.0) /
          (double)(num ? num : 1.0);
 }

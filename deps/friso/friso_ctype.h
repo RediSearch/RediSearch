@@ -16,6 +16,10 @@
 #include "friso.h"
 #include "friso_API.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** {{{ wrap interface */
 /* check if the specified string is a cn string.
  * 
@@ -256,5 +260,9 @@ FRISO_API int gbk_cn_punctuation( char * );
 //check if the given english char is a full-width char or not.
 //FRISO_API int gbk_fullwidth_char( char * ) ;
 /* }}}*/
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif    /*end _friso_charset_h*/

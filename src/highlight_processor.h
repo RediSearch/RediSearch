@@ -1,3 +1,6 @@
+
+#pragma once
+
 #include "result_processor.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -24,7 +27,7 @@ struct HighligherDoc {
     byteOffsets(byteOffsets), indexResult(indexResult), row(row) {}
 
   RSValue *summarizeField(IndexSpec *spec, const ReturnedField &field,
-    const char *fieldName, const RSValue *value, int options);
+    std::string_view fieldName, const RSValue *value, int options);
 
   void resetIovsArr(size_t newSize);
 };

@@ -164,6 +164,10 @@ typedef friso_array_entry *friso_array_t;
 // FRISO_API friso_array_t new_array_list( void );
 #define new_array_list() new_array_list_with_opacity(__DEFAULT_ARRAY_LIST_OPACITY__)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // create a new friso dynamic array with the given opacity
 FRISO_API friso_array_t new_array_list_with_opacity(uint_t);
 
@@ -390,5 +394,9 @@ FRISO_API int get_utf8_unicode(const fstring);
 FRISO_API int unicode_to_utf8(uint_t, fstring);
 
 /* }}} utf8 string interface define :: start*/
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /*end ifndef*/

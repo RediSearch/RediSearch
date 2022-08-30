@@ -1,8 +1,13 @@
 #include "document.h"
 #include "err.h"
 #include "util/logging.h"
+#include "util/mempool.h"
 #include "commands.h"
 #include "rmutil/rm_assert.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+template<> AddDocumentPool MemPoolObject<AddDocumentPool>::pool(16, 0, true);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -180,7 +185,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
     if (opts->options & DOCUMENT_ADD_NOCREATE) {
       saveopts |= REDIS_SAVEDOC_NOCREATE;
     }
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(redisCtx, sp);
+    RedisSearchCtx sctx{redisCtx, sp};
     if (Redis_SaveDocument(&sctx, &doc, saveopts, status) != REDISMODULE_OK) {
       goto error;
     }
@@ -338,6 +343,21 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   AddDocumentCtx *aCtx = NULL;
   RedisSearchCtx *sctx = NULL;
 
+  struct ReportError {
+    RedisModuleCtx *ctx;
+    QueryError &status;
+	bool error;
+	
+    ReportError(RedisModuleCtx *ctx, QueryError &status) : ctx(ctx), status(status), error(false) {}
+	~ReportError() {
+	  if (!error) return;
+      RS_LOG_ASSERT_FMT(status.HasError(), "%s%s", "Hash addition failed: ", status.detail);
+      RedisModule_ReplyWithError(ctx, status.GetError());
+      status.ClearError();
+    }
+  };
+  ReportError report_error{ctx, status};
+
   ACArgSpec specs[] =  // Comment to force newline
       {{name: "LANGUAGE", type: AC_ARGTYPE_STRING, target: &languageStr},
        {name: "REPLACE", type: AC_ARGTYPE_BOOLFLAG, target: &replace},
@@ -346,10 +366,10 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   if ((rv = ac.GetDouble(&ds, 0)) != AC_OK) {
     status.SetError(QUERY_EADDARGS, "Could not parse document score");
-    goto cleanup;
+    return REDISMODULE_OK;
   } else if (ds < 0 || ds > 1.0) {
     status.SetError(QUERY_EADDARGS, "Score must be between 0 and 1");
-    goto cleanup;
+    return REDISMODULE_OK;
   }
 
   rv = ac.ParseArgSpec(specs, &errArg);
@@ -358,28 +378,29 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   } else if (rv == AC_ERR_ENOENT) {
     const char *keyword = ac.GetStringNC(NULL);
     status.SetErrorFmt(QUERY_EADDARGS, "Unknown keyword: `%s`", keyword);
-    goto cleanup;
+    return REDISMODULE_OK;
   } else {
     status.SetErrorFmt(QUERY_EADDARGS, "Error parsing arguments for `%s`: %s",
                        errArg ? errArg->name : "", AC_Strerror(rv));
-    goto cleanup;
+    return REDISMODULE_OK;
   }
 
   language = RSLanguage_Find(languageStr);
   if (language == RS_LANG_UNSUPPORTED) {
     status.SetErrorFmt(QUERY_EADDARGS, "Unknown language: `%s`", languageStr);
-    goto cleanup;
+    return REDISMODULE_OK;
   }
 
   sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     status.SetErrorFmt(QUERY_EGENERIC, "Unknown Index name");
-    goto cleanup;
+    return REDISMODULE_OK;
   }
 
   // Load the document score
   doc = new Document(argv[2], ds, language);
-  sctx = &SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx sctx_{ctx, sp};
+  sctx = &sctx_;
   if (doc->LoadAllFields(ctx) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
@@ -403,12 +424,6 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RedisModule_Replicate(ctx, RS_SAFEADDHASH_CMD, "v", argv + 1, argc - 1);
   aCtx->Submit(sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
-  return REDISMODULE_OK;
-
-cleanup:
-  RS_LOG_ASSERT_FMT(status.HasError(), "%s%s", "Hash addition failed: ", status.detail);
-  RedisModule_ReplyWithError(ctx, status.GetError());
-  status.ClearError();
   return REDISMODULE_OK;
 }
 

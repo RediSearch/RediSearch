@@ -79,6 +79,10 @@ struct ConcurrentSearch {
   void CloseKeys();
 
   bool Tick();
+
+  // Start the concurrent search thread pool. Should be called when initializing the module
+  static void ThreadPoolStart();
+  static void ThreadPoolDestroy();
 };
 
 #include "concurrent_ctx.hxx"
@@ -87,10 +91,6 @@ struct ConcurrentSearch {
 
 extern int CONCURRENT_POOL_INDEX;
 extern int CONCURRENT_POOL_SEARCH;
-
-// Start the concurrent search thread pool. Should be called when initializing the module
-void ConcurrentSearch_ThreadPoolStart();
-void ConcurrentSearch_ThreadPoolDestroy();
 
 // Create a new thread pool, and return its identifying id
 int ConcurrentSearch_CreatePool(int numThreads);

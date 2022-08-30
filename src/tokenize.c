@@ -111,11 +111,10 @@ uint32_t SimpleTokenizer::Next(Token *t) {
 
     // if we support stemming - try to stem the word
     if (!(options & TOKENIZE_NOSTEM) && stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
-      size_t sl;
-      const char *stem = stemmer->Stem(stemmer->ctx, tok, normLen, &sl);
-      if (stem) {
-        t->stem = stem;
-        t->stemLen = sl;
+      std::string_view stem = stemmer->Stem(std::string_view{tok, normLen});
+      if (!stem.empty()) {
+        t->stem = stem.data();
+        t->stemLen = stem.length();
       }
     }
 

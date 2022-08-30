@@ -174,7 +174,9 @@ struct friso_config_struct {
 typedef struct friso_config_struct friso_config_entry;
 typedef friso_config_entry * friso_config_t;
 
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
  * Function: friso_new;
@@ -365,5 +367,9 @@ FRISO_API lex_entry_t friso_dic_get( friso_dic_t, friso_lex_t, fstring );
 FRISO_API uint_t friso_spec_dic_size( friso_dic_t, friso_lex_t );
 FRISO_API uint_t friso_all_dic_size( friso_dic_t );
 /* }}} lexicon interface define :: end*/
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /*end ifndef*/

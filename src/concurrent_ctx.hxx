@@ -25,7 +25,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void ConcurrentSearch::CloseKeys() {
+inline void ConcurrentSearch::CloseKeys() {
   for (size_t i = 0; i < concKeys.size(); i++) {
     if (concKeys[i].key) {
       RedisModule_CloseKey(concKeys[i].key);
@@ -36,7 +36,7 @@ void ConcurrentSearch::CloseKeys() {
 
 //---------------------------------------------------------------------------------------------
 
-void ConcurrentSearch::ReopenKeys() {
+inline void ConcurrentSearch::ReopenKeys() {
   for (size_t i = 0; i < concKeys.size(); i++) {
     concKeys[i].key = RedisModule_OpenKey(ctx, concKeys[i].keyName, concKeys[i].keyFlags);
     concKeys[i].Reopen();
@@ -48,7 +48,7 @@ void ConcurrentSearch::ReopenKeys() {
 // Check the elapsed timer, and release the lock if enough time has passed.
 // Return true if switching took place
 
-bool ConcurrentSearch::CheckTimer() {
+inline bool ConcurrentSearch::CheckTimer() {
   static struct timespec now;
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
 
@@ -78,7 +78,7 @@ bool ConcurrentSearch::CheckTimer() {
 
 // Reset the clock variables in the concurrent search context
 
-void ConcurrentSearch::ResetClock() {
+inline void ConcurrentSearch::ResetClock() {
   clock_gettime(CLOCK_MONOTONIC_RAW, &lastTime);
   ticker = 0;
 }
@@ -87,7 +87,7 @@ void ConcurrentSearch::ResetClock() {
 
 // Initialize a concurrent context
 
-ConcurrentSearch::ConcurrentSearch(RedisModuleCtx *rctx) {
+inline ConcurrentSearch::ConcurrentSearch(RedisModuleCtx *rctx) {
   ctx = rctx;
   isLocked = false;
   ResetClock();
@@ -95,7 +95,7 @@ ConcurrentSearch::ConcurrentSearch(RedisModuleCtx *rctx) {
 
 //---------------------------------------------------------------------------------------------
 
-ConcurrentSearch::~ConcurrentSearch() {
+inline ConcurrentSearch::~ConcurrentSearch() {
   // Release the monitored open keys
   for (size_t i = 0; i < concKeys.size(); i++) {
     RedisModule_FreeString(ctx, concKeys[i].keyName);
@@ -129,7 +129,7 @@ void ConcurrentSearch::AddKey(ConcurrentKey1 &&key) {
 
 //---------------------------------------------------------------------------------------------
 
-void ConcurrentSearch::Lock() {
+inline void ConcurrentSearch::Lock() {
   if (!isLocked) {
     throw Error("Redis GIL shouldn't be locked");
   }
@@ -140,7 +140,7 @@ void ConcurrentSearch::Lock() {
 
 //---------------------------------------------------------------------------------------------
 
-void ConcurrentSearch::Unlock() {
+inline void ConcurrentSearch::Unlock() {
   CloseKeys();
   RedisModule_ThreadSafeContextUnlock(ctx);
   isLocked = false;
@@ -151,7 +151,7 @@ void ConcurrentSearch::Unlock() {
 // This function is called by concurrent executors (currently the query only).
 // It checks if enough time has passed and releases the global lock if that is the case.
 
-bool ConcurrentSearch::Tick() {
+inline bool ConcurrentSearch::Tick() {
   if (++ticker % CONCURRENT_TICK_CHECK == 0) {
     if (CheckTimer()) {
       return true;

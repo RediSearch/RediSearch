@@ -1,11 +1,13 @@
 
 #include "redismodule.h"
 
+#if 0 //@@ API
 #ifndef RS_NO_ONLOAD
 #pragma GCC visibility push(default)
 REDISMODULE_INIT_SYMBOLS();
 #pragma GCC visibility pop
 #endif
+#endif // 0
 
 #include "module.h"
 #include "version.h"
@@ -20,6 +22,8 @@ REDISMODULE_INIT_SYMBOLS();
 #include "aggregate/aggregate.h"
 #include "ext/default.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
@@ -29,10 +33,13 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 #endif
 
+//---------------------------------------------------------------------------------------------
+
 /**
  * Check if we can run under the current AOF configuration. Returns true
  * or false
  */
+
 static int validateAofSettings(RedisModuleCtx *ctx) {
   int rc = 1;
 
@@ -68,6 +75,8 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int initAsModule(RedisModuleCtx *ctx) {
   // Check that redis supports thread safe context. RC3 or below doesn't
   if (RedisModule_GetThreadSafeContext == NULL) {
@@ -78,12 +87,14 @@ static int initAsModule(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
+#if 0 //@@ API
   if (RediSearch_ExportCapi(ctx) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Could not initialize low level api");
   } else {
     RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
                     REDISEARCH_CAPI_VERSION);
   }
+#endif // 0
 
   if (RedisModule_GetContextFlags == NULL && RSGlobalConfig.concurrentMode) {
     RedisModule_Log(ctx, "warning",
@@ -99,6 +110,8 @@ static int initAsModule(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+#if 0 //@@ API
+
 static int initAsLibrary(RedisModuleCtx *ctx) {
   // Ensure Redis symbols are initialized as well!.
   // This is copy/pasted from redismodule.h
@@ -113,6 +126,8 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   RSGlobalConfig.concurrentMode = 0;
   return REDISMODULE_OK;
 }
+
+#endif // 0
 
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
@@ -132,27 +147,30 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   if (mode == REDISEARCH_INIT_MODULE && initAsModule(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
-  } else if (mode == REDISEARCH_INIT_LIBRARY && initAsLibrary(ctx) != REDISMODULE_OK) {
+  }
+#if 0 //@@ API
+   else if (mode == REDISEARCH_INIT_LIBRARY && initAsLibrary(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
+#endif // 0
 
-  sds confstr = RSConfig_GetInfoString(&RSGlobalConfig);
+  sds confstr = RSGlobalConfig.GetInfoString();
   DO_LOG("notice", confstr);
   sdsfree(confstr);
 
   // Init extension mechanism
-  Extensions::Init();
+  // Extensions::Init();
 
   if (RSGlobalConfig.concurrentMode) {
-    ConcurrentSearch_ThreadPoolStart();
+    ConcurrentSearch::ThreadPoolStart();
   }
 
-  GC_ThreadPoolStart();
+  GC::ThreadPoolStart();
 
   // Init cursors mechanism
   RSCursors = new CursorList();
 
-  IndexAlias_InitGlobal();
+  IndexAlias::InitGlobal();
 
   // Register aggregation functions
   RegisterAllFunctions();
@@ -163,7 +181,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   if (RSGlobalConfig.extLoad != NULL) {
     char *errMsg = NULL;
     // Load the extension so TODO: pass with param
-    if (Extensions::LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
+    if (g_ext.LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
       DO_LOG("warning", "Could not load extension %s: %s", RSGlobalConfig.extLoad, errMsg);
       rm_free(errMsg);
       return REDISMODULE_ERR;
@@ -173,10 +191,13 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Register the default hard coded extension
   try {
-    Extensions::Load("DEFAULT", DefaultExtensionInit);
-  catch (Error &x) {
+    new DefaultExtension();
+    //@@ g_ext.Load("DEFAULT", DefaultExtensionInit);
+  } catch (Error &x) {
     DO_LOG("warning", "Could not register default extension");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

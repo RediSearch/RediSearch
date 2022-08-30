@@ -96,17 +96,17 @@ struct Fragment {
 
   bool HasTerm(uint32_t termId) const;
 
-  void WriteIovs(const char *openTag, size_t openLen, const char *closeTag,
-                 size_t closeLen, Vector<iovec> &iovs, const char **preamble) const;
+  void WriteIovs(std::string_view openTag, std::string_view closeTag,
+                 Vector<iovec> &iovs, const char **preamble) const;
 };
 
 //---------------------------------------------------------------------------------------------
 
 struct HighlightTags {
-  const char *openTag;
-  const char *closeTag;
+  String openTag;
+  String closeTag;
 
-  HighlightTags(HighlightSettings settings) : openTag(settings.openTag), closeTag(settings.closeTag) {}
+  HighlightTags(const HighlightSettings &settings) : openTag(settings.openTag), closeTag(settings.closeTag) {}
 };
 
 //---------------------------------------------------------------------------------------------
@@ -128,7 +128,6 @@ struct FragmentSearchTerm {
 //---------------------------------------------------------------------------------------------
 
 struct FragmentList {
-  // Array of fragments
   Vector<Fragment *> frags;
 
   // Array of indexes (in frags), sorted by score
@@ -143,8 +142,7 @@ struct FragmentList {
   // Number of tokens since last match. Used in determining 'context ratio'
   uint32_t numToksSinceLastMatch;
 
-  const char *doc;
-  uint32_t docLen;
+  std::string_view doc;
 
   // Maximum allowable distance between relevant terms to be called a 'fragment'
   uint16_t maxDistance;
@@ -153,8 +151,6 @@ struct FragmentList {
   uint8_t estAvgWordSize;
 
   FragmentList(uint16_t maxDistance, uint8_t estWordSize) : maxDistance(maxDistance), estAvgWordSize(estWordSize) {
-    doc = NULL;
-    docLen = 0;
     numFrags = 0;
     sortedFrags = NULL;
     scratchFrags = NULL;
@@ -169,20 +165,19 @@ struct FragmentList {
   Fragment *AddFragment();
   Fragment *AddMatchingTerm(uint32_t termId, uint32_t tokPos, const char *tokBuf, size_t tokLen,
                             float baseScore);
-  void FragmentizeBuffer(const char *doc_, Stemmer *stemmer, StopWordList *stopwords,
+  void FragmentizeBuffer(std::string_view doc, Stemmer *stemmer, StopWordList *stopwords,
                          const FragmentSearchTerm *terms, size_t numTerms);
-  void FragmentizeIter(const char *doc_, size_t docLen, FragmentTermIterator &iter, int options);
+  void FragmentizeIter(std::string_view doc, FragmentTermIterator &iter, int options);
 
   Vector<iovec> HighlightWholeDocV(const HighlightTags &tags) const;
   char *HighlightWholeDocS(const HighlightTags &tags) const;
 
-  void HighlightFragments(const HighlightTags &tags, size_t contextSize, IOVecArrays &iovArrays,
-                          int order);
+  void HighlightFragments(const HighlightTags &tags, size_t contextSize, IOVecArrays &iovArrays, int order);
 
   void FindContext(const Fragment *frag, const char *limitBefore, const char *limitAfter,
                    size_t contextSize, struct iovec *before, struct iovec *after) const;
 
-  bool fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText, size_t fieldLen,
+  bool fragmentizeOffsets(IndexSpec *spec, std::string_view fieldName, std::string_view fieldText,
                           const IndexResult *indexResult, const RSByteOffsets *byteOffsets, int options);
 
   void Sort();

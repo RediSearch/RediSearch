@@ -1,6 +1,6 @@
 #include "geo_index.h"
 #include "index.h"
-#include "id_list.c"
+#include "id_list.h"
 
 #include "rmutil/util.h"
 #include "rmalloc.h"

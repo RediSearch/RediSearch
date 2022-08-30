@@ -1,4 +1,6 @@
 
+#pragma once
+
 #include "index_result.h"
 #include "index_iterator.h"
 #include "rmalloc.h"
@@ -15,13 +17,13 @@ struct IdListIterator : public IndexIterator {
   ~IdListIterator();
 
   virtual IndexResult *GetCurrent();
-  virtual size_t NumEstimated() const ;
+  virtual size_t NumEstimated() const;
   virtual IndexCriteriaTester *GetCriteriaTester();
   virtual int Read(IndexResult **e);
   virtual int SkipTo(t_docId docId, IndexResult **hit);
-  virtual t_docId LastDocId() const ;
-  virtual bool HasNext() const ;
-  virtual size_t Len() const ;
+  virtual t_docId LastDocId() const;
+  virtual bool HasNext() const;
+  virtual size_t Len() const;
   virtual void Abort();
   virtual void Rewind();
 

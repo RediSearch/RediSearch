@@ -166,7 +166,7 @@ void RedisSearchCtx::ctor(RedisModuleCtx *ctx, const char *indexName, bool reset
   redisCtx = ctx;
   IndexLoadOptions loadOpts(0, indexName);
   spec = IndexSpec::LoadEx(ctx, &loadOpts);
-  key_ = loadOpts.keyp;
+  key = loadOpts.keyp;
   if (!spec) {
     throw Error("Index %s does not exist", indexName);
   }
@@ -176,14 +176,14 @@ void RedisSearchCtx::ctor(RedisModuleCtx *ctx, const char *indexName, bool reset
 
 RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, IndexSpecId id) {
   redisCtx = ctx;
-  key_ = NULL;
+  key = NULL;
   spec = NULL;
   specId = id;
 }
 
 RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, const IndexSpec *spec_) {
   redisCtx = ctx;
-  key_ = NULL;
+  key = NULL;
   spec = spec_;
   specId = spec_->uniqueId;
 }
@@ -198,7 +198,7 @@ RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName
 
 RedisSearchCtx::RedisSearchCtx(const RedisSearchCtx &sctx) {
   redisCtx = sctx.redisCtx;
-  key_ = NULL;
+  key = NULL;
   spec = sctx.spec;
   specId = sctx.specId;
 }
@@ -207,8 +207,8 @@ RedisSearchCtx::RedisSearchCtx(const RedisSearchCtx &sctx) {
 
 void RedisSearchCtx::Refresh(RedisModuleString *keyName) {
   // First we close the relevant keys we're touching
-  if (key_) {
-    RedisModule_CloseKey(key_);
+  if (key) {
+    RedisModule_CloseKey(key);
   }
 
   // now release the global lock
@@ -222,8 +222,8 @@ void RedisSearchCtx::Refresh(RedisModuleString *keyName) {
 //---------------------------------------------------------------------------------------------
 
 RedisSearchCtx::~RedisSearchCtx() {
-  if (key_) {
-    RedisModule_CloseKey(key_);
+  if (key) {
+    RedisModule_CloseKey(key);
   }
 }
 
@@ -258,7 +258,6 @@ const char *Redis_SelectRandomTermByIndex(RedisSearchCtx *ctx, size_t *tlen) {
 //---------------------------------------------------------------------------------------------
 
 const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
-
   for (int i = 0; i < 5; i++) {
     RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "RANDOMKEY", "");
     if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_STRING) {

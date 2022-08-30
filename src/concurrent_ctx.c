@@ -28,7 +28,7 @@ int ConcurrentSearch_CreatePool(int numThreads) {
 //---------------------------------------------------------------------------------------------
 
 // Start the concurrent search thread pool. Should be called when initializing the module
-void ConcurrentSearch_ThreadPoolStart() {
+void ConcurrentSearch::ThreadPoolStart() {
   if (CONCURRENT_POOL_SEARCH == -1) {
     CONCURRENT_POOL_SEARCH = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
     long numProcs = 0;
@@ -47,7 +47,7 @@ void ConcurrentSearch_ThreadPoolStart() {
 //---------------------------------------------------------------------------------------------
 
 // Stop all the concurrent threads
-void ConcurrentSearch_ThreadPoolDestroy() {
+void ConcurrentSearch::ThreadPoolDestroy() {
   if (!threadpools_g) {
     return;
   }

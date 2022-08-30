@@ -236,7 +236,7 @@ inline bool RSValue::IsNull() const {
 // A volatile string usually comes from a block allocator and is not freed in RSVAlue_Free, so just
 // discarding the pointer here is "safe"
 
-RSValue *RSValue::MakePersistent() {
+inline RSValue *RSValue::MakePersistent() {
   if (t == RSValue_String && strval.stype == RSString_Volatile) {
     strval.str = rm_strndup(strval.str, strval.len);
     strval.stype = RSString_Malloc;

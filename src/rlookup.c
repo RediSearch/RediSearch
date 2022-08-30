@@ -61,7 +61,7 @@ RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
 
 //---------------------------------------------------------------------------------------------
 
-RLookupKey *RLookup::GetKey(const char *name, size_t n, int flags) const {
+RLookupKey *RLookup::GetKey(const char *name, size_t n, int flags) {
   RLookupKey *ret = NULL;
 
   for (RLookupKey *kk = head; kk; kk = kk->next) {
@@ -112,12 +112,12 @@ RLookupKey *RLookup::GetKey(const char *name, size_t n, int flags) const {
  * case, the key is returned, but has the F_UNRESOLVED flag set.
  */
 
-RLookupKey *RLookup::GetKey(const char *name, int flags) const {
+RLookupKey *RLookup::GetKey(const char *name, int flags) {
   return GetKey(name, strlen(name), flags);
 }
 
-RLookupKey *RLookup::GetKey(std::string_view name, int flags) const {
-  return GetKey(name.data(), name.length()), flags);
+RLookupKey *RLookup::GetKey(std::string_view name, int flags) {
+  return GetKey(name.data(), name.length(), flags);
 }
 
 //---------------------------------------------------------------------------------------------

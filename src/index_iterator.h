@@ -24,8 +24,7 @@ class IndexReader;
 
 //---------------------------------------------------------------------------------------------
 
-class IndexCriteriaTester {
-public:
+struct IndexCriteriaTester {
   IndexCriteriaTester();
   ~IndexCriteriaTester();
 
@@ -37,12 +36,13 @@ public:
 // An abstract interface used by readers / intersectors / unioners etc.
 // Basically query execution creates a tree of iterators that activate each other recursively
 
-class IndexIterator : public Object {
-  void init(IndexReader *ir_);
+struct IndexIterator : Object {
+protected:
+  void init(IndexReader *ir);
 
 public:
   IndexIterator();
-  IndexIterator(IndexReader *ir_);
+  IndexIterator(IndexReader *ir);
 
   virtual ~IndexIterator();
 
@@ -80,13 +80,13 @@ public:
   virtual int SkipTo(t_docId docId, IndexResult **hit);
 
   // the last docId read
-  virtual t_docId LastDocId() const ;
+  virtual t_docId LastDocId() const;
 
   // can we continue iteration?
   virtual bool HasNext() const { return false; }
 
   // Return the number of results in this iterator. Used by the query execution on the top iterator
-  virtual size_t Len() const ;
+  virtual size_t Len() const = 0;
 
   // Abort the execution of the iterator and mark it as EOF.
   // This is used for early aborting in case of data consistency issues due to multi threading

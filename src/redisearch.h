@@ -153,7 +153,7 @@ struct RSDocumentMetadata : Object {
   // Offsets of all terms in the document (in bytes). Used by highlighter
   struct RSByteOffsets *byteOffsets;
 
-  List<struct RSDocumentMetadata>::iterator dmd_iter;
+  List<RSDocumentMetadata>::iterator dmd_iter;
   uint32_t ref_count;
 
   RSDocumentMetadata(const char *id, size_t idlen, double score, Mask(RSDocumentFlags) flags,
@@ -161,6 +161,7 @@ struct RSDocumentMetadata : Object {
   RSDocumentMetadata(RSDocumentMetadata &&dmd);
   RSDocumentMetadata(t_docId id, RedisModuleIO *rdb, int encver);
   ~RSDocumentMetadata();
+  //RSDocumentMetadata &operator=(const RSDocumentMetadata &dmd);
 
   const char *KeyPtrLen(size_t *len) const;
 
@@ -320,8 +321,6 @@ enum RSResultType {
 
 class RSOffsetEmptyIterator : public RSOffsetIterator {
 };
-
-RSOffsetEmptyIterator offset_empty_iterator;
 
 //---------------------------------------------------------------------------------------------
 

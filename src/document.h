@@ -234,8 +234,6 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status);
 
-template<> AddDocumentPool MemPoolObject<AddDocumentPool>::pool(16, 0, true);
-
 //---------------------------------------------------------------------------------------------
 
 // Document add functions:

@@ -88,7 +88,7 @@ file(GLOB RS_SRC
 file(GLOB RS_SRC_C
     "src/c/*.c")
 
-set_source_files_properties(${RS_SRC} PROPERTIES LANGUAGE CXX)
+set_source_files_properties(${RS_SRC} src/module-init/module-init.c PROPERTIES LANGUAGE CXX)
 
 add_library(rscore OBJECT ${RS_SRC} ${RS_SRC_C})
 
@@ -97,14 +97,8 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
-    $<TARGET_OBJECTS:metaphone>)
-
-#set(FINAL_OBJECTS
-#    $<TARGET_OBJECTS:rscore>
-#    $<TARGET_OBJECTS:rmutil>
-#    $<TARGET_OBJECTS:friso>
-#	)
-	
+    $<TARGET_OBJECTS:metaphone>
+	)
 
 #----------------------------------------------------------------------------------------------
 

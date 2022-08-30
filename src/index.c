@@ -14,12 +14,13 @@
 #include <sys/param.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
+/*
 IndexIterator::~IndexIterator() {
   if (current) {
     delete current;
   }
 }
+*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -345,12 +346,6 @@ int UnionIterator::SkipTo(t_docId docId, IndexResult **hit) {
   // not found...
   minDocId = minDocId1;
   return INDEXREAD_NOTFOUND;
-}
-
-//---------------------------------------------------------------------------------------------
-
-size_t UnionIterator::Len() {
-  return len;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -690,7 +685,7 @@ t_docId IntersectIterator::LastDocId() const {
 
 //---------------------------------------------------------------------------------------------
 
-size_t IntersectIterator::Len() {
+size_t IntersectIterator::Len() const {
   return len;
 }
 

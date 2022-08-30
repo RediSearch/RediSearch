@@ -300,7 +300,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     delDoc = 1;
   }
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx sctx{ctx, sp};
   RedisModuleString *docKey = argv[2];
 
   // Get the doc ID
@@ -515,7 +515,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     delDocs = 0;
   }
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx sctx{ctx, sp};
   Redis_DropIndex(&sctx, delDocs, true);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -963,7 +963,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule() {
     // Extensions_Free();
     FunctionRegistry_Free();
     // mempool_free_global();
-    ConcurrentSearch_ThreadPoolDestroy();
+    ConcurrentSearch::ThreadPoolDestroy();
     GC::ThreadPoolDestroy();
     // IndexAlias_DestroyGlobal();
     RedisModule_FreeThreadSafeContext(RSDummyContext);

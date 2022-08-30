@@ -21,12 +21,12 @@ typedef uint64_t IndexSpecId;
 
 struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
-  RedisModuleKey *key_;
+  RedisModuleKey *key;
   IndexSpec *spec;
   IndexSpecId specId;  // Unique id of the spec; used when refreshing
 
   RedisSearchCtx(RedisModuleCtx *ctx, IndexSpecId specId);
-  RedisSearchCtx(RedisModuleCtx *ctx, const IndexSpec *spec_);
+  RedisSearchCtx(RedisModuleCtx *ctx, const IndexSpec *spec);
   RedisSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
   RedisSearchCtx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
   RedisSearchCtx(const RedisSearchCtx &sctx);
@@ -44,15 +44,8 @@ struct RedisSearchCtx {
   int AddDocument(RedisModuleString *name, const AddDocumentOptions *opts, QueryError *status);
 };
 
-// #define SEARCH_CTX_STATIC(ctx, sp) \
-//   { ctx, NULL, sp, 0, 1 }
-
-//@@ Is it truly static?
-RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
-  return *new RedisSearchCtx(ctx, sp);
-}
-
 #if 0
+#define SEARCH_CTX_STATIC(ctx, sp) ctx, sp
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
 
 #define SearchCtx_Incref(sctx) \

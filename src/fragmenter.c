@@ -120,12 +120,11 @@ void FragmentList::extractToken(const Token *tokInfo, const FragmentSearchTerm *
 //
 // Returns a list of fragments.
 
-void FragmentList::FragmentizeBuffer(const char *doc_, Stemmer *stemmer, StopWordList *stopwords,
+void FragmentList::FragmentizeBuffer(std::string_view doc_, Stemmer *stemmer, StopWordList *stopwords,
                                      const FragmentSearchTerm *terms, size_t numTerms) {
   doc = doc_;
-  docLen = strlen(doc_);
   SimpleTokenizer tokenizer(stemmer, stopwords, TOKENIZE_NOMODIFY);
-  tokenizer.Start((char *)doc, docLen, 0);
+  tokenizer.Start(doc.data(), doc.length(), 0);
   Token tokInfo;
   while (tokenizer.Next(&tokInfo)) {
     extractToken(&tokInfo, terms, numTerms);
@@ -134,11 +133,11 @@ void FragmentList::FragmentizeBuffer(const char *doc_, Stemmer *stemmer, StopWor
 
 //---------------------------------------------------------------------------------------------
 
-static void addToIov(const char *s, size_t n, Vector<iovec> &b) {
-  if (n == 0 || s == NULL) {
+static void addToIov(std::string_view str, Vector<iovec> &b) {
+  if (str.empty()) {
     return;
   }
-  b.emplace_back(iovec{s, n});
+  b.emplace_back(iovec{str.data(), str.length()});
 }
 
 //---------------------------------------------------------------------------------------------
@@ -154,8 +153,8 @@ static void addToIov(const char *s, size_t n, Vector<iovec> &b) {
 //    used as the 'preamble' value for a subsequent call to this function, if the next
 //    fragment being written is after the current one.
 
-void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeTag,
-                         size_t closeLen, Vector<iovec> &iovs, const char **preamble) const {
+void Fragment::WriteIovs(std::string_view openTag, std::string_view closeTag,
+                         Vector<iovec> &iovs, const char **preamble) const {
   size_t nlocs = termLocs.size();
   const char *preamble_s = NULL;
 
@@ -172,19 +171,19 @@ void Fragment::WriteIovs(const char *openTag, size_t openLen, const char *closeT
 
     // Add any prior text
     if (preambleLen) {
-      addToIov(*preamble, preambleLen, iovs);
+      addToIov(std::string_view(*preamble, preambleLen), iovs);
     }
 
-    if (openLen) {
-      addToIov(openTag, openLen, iovs);
+    if (!openTag.empty()) {
+      addToIov(openTag, iovs);
     }
 
     // Add the token itself
-    addToIov(buf + curLoc.offset, curLoc.len, iovs);
+    addToIov(std::string_view(buf + curLoc.offset, curLoc.len), iovs);
 
     // Add close tag
-    if (closeLen) {
-      addToIov(closeTag, closeLen, iovs);
+    if (!closeTag.empty()) {
+      addToIov(closeTag, iovs);
     }
 
     *preamble = buf + curLoc.offset + curLoc.len;
@@ -199,24 +198,22 @@ Vector<iovec> FragmentList::HighlightWholeDocV(const HighlightTags &tags) const 
 
   if (!numFrags) {
     // Whole doc, but no matches found
-    addToIov(doc, docLen, iovs);
+    addToIov(doc, iovs);
     return iovs;
   }
 
-  const char *preamble = doc;
-  size_t openLen = strlen(tags.openTag);
-  size_t closeLen = strlen(tags.closeTag);
+  const char *preamble = doc.data();
 
   for (size_t i = 0; i < numFrags; ++i) {
     const Fragment *curFrag = frags[i];
-    curFrag->WriteIovs(tags.openTag, openLen, tags.closeTag, closeLen, iovs, &preamble);
+    curFrag->WriteIovs(tags.openTag, tags.closeTag, iovs, &preamble);
   }
 
   // Write the last preamble
-  size_t preambleLen = (doc + docLen) - preamble;
+  size_t preambleLen = (doc.data() + doc.length()) - preamble;
   // size_t preambleLen = strlen(preamble);
   if (preambleLen) {
-    addToIov(preamble, preambleLen, iovs);
+    addToIov(std::string_view(preamble, preambleLen), iovs);
   }
 
   return iovs;
@@ -298,10 +295,10 @@ static int sortByOrder(const void *pa, const void *pb) {
 void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, const char *limitAfter,
                                size_t contextSize, struct iovec *before, struct iovec *after) const {
   if (limitBefore == NULL) {
-    limitBefore = doc;
+    limitBefore = doc.data();
   }
   if (limitAfter == NULL) {
-    limitAfter = doc + docLen - 1;
+    limitAfter = doc.data() + doc.length() - 1;
   }
 
   // Subtract the number of context (i.e. non-match) words
@@ -364,8 +361,8 @@ void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, co
 //
 // Returns true if the fragmentation succeeded, false otherwise.
 
-bool FragmentList::fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText,
-    size_t fieldLen, const IndexResult *indexResult, const RSByteOffsets *byteOffsets, int options) {
+bool FragmentList::fragmentizeOffsets(IndexSpec *spec, std::string_view fieldName, std::string_view fieldText,
+    const IndexResult *indexResult, const RSByteOffsets *byteOffsets, int options) {
   const FieldSpec *fs = spec->GetField(fieldName);
   if (!fs || !fs->IsFieldType(INDEXFLD_T_FULLTEXT)) {
     return false;
@@ -378,12 +375,8 @@ bool FragmentList::fragmentizeOffsets(IndexSpec *spec, const char *fieldName, co
   }
 
   FragmentTermIterator fragIter(bytesIter, *offsIter);
-  FragmentizeIter(fieldText, fieldLen, fragIter, options);
-  if (numFrags == 0) {
-    return false;
-  }
-
-  return true;
+  FragmentizeIter(fieldText, fragIter, options);
+  return numFrags != 0;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -425,9 +418,6 @@ void FragmentList::HighlightFragments(const HighlightTags &tags, size_t contextS
     }
   }
 
-  size_t openLen = tags.openTag ? strlen(tags.openTag) : 0;
-  size_t closeLen = tags.closeTag ? strlen(tags.closeTag) : 0;
-
   int i = 0;
   for (auto &iovs: iovArrays) {
     const char *beforeLimit = NULL, *afterLimit = NULL;
@@ -444,9 +434,9 @@ void FragmentList::HighlightFragments(const HighlightTags &tags, size_t contextS
 
     struct iovec before, after;
     FindContext(curFrag, beforeLimit, afterLimit, contextSize, &before, &after);
-    addToIov(before.iov_base, before.iov_len, iovs);
-    curFrag->WriteIovs(tags.openTag, openLen, tags.closeTag, closeLen, iovs, NULL);
-    addToIov(after.iov_base, after.iov_len, iovs);
+    addToIov(std::string_view(before.iov_base, before.iov_len), iovs);
+    curFrag->WriteIovs(tags.openTag, tags.closeTag, iovs, NULL);
+    addToIov(std::string_view(after.iov_base, after.iov_len), iovs);
 
     ++i;
   }
@@ -470,9 +460,7 @@ FragmentList::~FragmentList() {
 //    list, then, consume the matches until the maximum distance has been reached,
 //    noting the terms for each.
 
-void FragmentList::FragmentizeIter(const char *doc_, size_t docLen,
-                                   FragmentTermIterator &iter, int options) {
-  docLen = docLen;
+void FragmentList::FragmentizeIter(std::string_view doc_, FragmentTermIterator &iter, int options) {
   doc = doc_;
   size_t lastTokPos = -1;
   size_t lastByteEnd = 0;
@@ -500,11 +488,11 @@ void FragmentList::FragmentizeIter(const char *doc_, size_t docLen,
       len = curTerm->len;
     } else {
       len = 0;
-      for (size_t i = curTerm->bytePos; i < docLen && !istoksep(doc_[i]); ++i, ++len) { //@@Is something happening here??
+      for (size_t i = curTerm->bytePos; i < doc.length() && !istoksep(doc[i]); ++i, ++len) { //@@Is something happening here??
       }
     }
 
-    AddMatchingTerm(curTerm->termId, curTerm->tokPos, doc_ + curTerm->bytePos, len, curTerm->score);
+    AddMatchingTerm(curTerm->termId, curTerm->tokPos, doc.data() + curTerm->bytePos, len, curTerm->score);
     lastTokPos = curTerm->tokPos;
     lastByteEnd = curTerm->bytePos + len;
   }
@@ -561,7 +549,7 @@ void FragmentList::Dump() const {
   printf("NumFrags: %u\n", numFrags);
   for (size_t i = 0; i < numFrags; ++i) {
     const Fragment *frag = frags[i];
-    printf("Frag[%lu]: Buf=%p, (pos=%lu), Len=%u\n", i, frag->buf, frag->buf - doc,
+    printf("Frag[%lu]: Buf=%p, (pos=%lu), Len=%u\n", i, frag->buf, frag->buf - doc.data(),
            frag->len);
     printf("  Score: %f, Rank=%u. Total Tokens=%u\n", frag->score, frag->scoreRank,
            frag->totalTokens);

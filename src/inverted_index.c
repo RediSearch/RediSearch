@@ -917,6 +917,16 @@ eof:
 
 //---------------------------------------------------------------------------------------------
 
+// Skip to a specific document ID in the index, or one position after it
+// @param ctx the index reader
+// @param docId the document ID to search for
+// @param hit where to store the result pointer
+//
+// @return:
+//  - INDEXREAD_OK if the id was found
+//  - INDEXREAD_NOTFOUND if the reader is at the next position
+//  - INDEXREAD_EOF if the ID is out of the upper range
+
 int IndexReader::SkipToBlock(t_docId docId) {
   int rc = 0;
   InvertedIndex *idx = idx;
@@ -1111,9 +1121,16 @@ void IndexReader::Rewind() {
 //---------------------------------------------------------------------------------------------
 
 IndexIterator *IndexReader::NewReadIterator() {
-	auto ri = new IndexIterator(this);
-	isValidP = ri->isValid;
-	return ri;
+	return new IndexReadIterator(this);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+IndexReadIterator::IndexReadIterator(IndexReader *ir) : _ir(ir) {
+  mode = IndexIteratorMode::Sorted;
+  isValid = !_ir->atEnd;
+  current = _ir->record;
+  _ir->isValidP = &isValid;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

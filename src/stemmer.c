@@ -9,6 +9,31 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+langPair_s __langPairs[] = {
+  { "arabic",     RS_LANG_ARABIC },
+  { "danish",     RS_LANG_DANISH },
+  { "dutch",      RS_LANG_DUTCH },
+  { "english",    RS_LANG_ENGLISH },
+  { "finnish",    RS_LANG_FINNISH },
+  { "french",     RS_LANG_FRENCH },
+  { "german",     RS_LANG_GERMAN },
+  { "hindi",      RS_LANG_HINDI },
+  { "hungarian",  RS_LANG_HUNGARIAN },
+  { "italian",    RS_LANG_ITALIAN },
+  { "norwegian",  RS_LANG_NORWEGIAN },
+  { "portuguese", RS_LANG_PORTUGUESE },
+  { "romanian",   RS_LANG_ROMANIAN },
+  { "russian",    RS_LANG_RUSSIAN },
+  { "spanish",    RS_LANG_SPANISH },
+  { "swedish",    RS_LANG_SWEDISH },
+  { "tamil",      RS_LANG_TAMIL },
+  { "turkish",    RS_LANG_TURKISH },
+  { "chinese",    RS_LANG_CHINESE },
+  { NULL,         RS_LANG_UNSUPPORTED }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 const char *RSLanguage_ToString(RSLanguage language) {
   char *ret = NULL;
   switch (language) {

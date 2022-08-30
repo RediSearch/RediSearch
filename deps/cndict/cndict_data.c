@@ -5,7 +5,8 @@
 #include "friso/friso.h"
 #include <stdlib.h>
 #include <string.h>
-const char ChineseDict[] =
+
+extern const char ChineseDict[] =
 "\x00\x00\x00\x00"
 "x\x9ct\xbd\xdbV\xeb<\xb3-:\xe7\x9b\xccG\xd8\xeb\x62_\xec\xb7#\x84\x10l\x93\x13\t\x04H\xc2\x39\xc0`@\x0e\x10 \x07\x92"
 "\xbc\xcb\xde\xb1l_\xedWXUV\xef\xb2\xf8\xfeo\xb5\x36\xda\xe8\xd5\x95\xe0\xd8\xb2T\xaa*\x95\xa4\xff\xd9\xcd\xf7\xfe\xdfn\xb4[v"
@@ -18794,8 +18795,8 @@ const char ChineseDict[] =
 "\xa7L\xb3\xf3\xa8\rO\xf6\x43\xba\xa9\r_\xe6<\x61'\x42\xad\xc5Q\xc7\xc4\xad\xad\x18\xcbL\xfb\x1f:\xde:\?\x34\x8a\xa1\?\xb5\xb4"
 "\xff\xf6w\xea\x32\xca\xabQG{Vts\xfe\?\"\x03\xa2\x8a"
 ;
-const size_t ChineseDictCompressedLength = 750852;
-const size_t ChineseDictFullLength = 1926314;
+extern const size_t ChineseDictCompressedLength = 750852;
+extern const size_t ChineseDictFullLength = 1926314;
 
 void ChineseDictConfigure(friso_t friso, friso_config_t frisoConfig) {
 frisoConfig->max_len = 5;

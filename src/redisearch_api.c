@@ -387,7 +387,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec *sp, QueryInput *input, char **err
   // here we only take the read lock and we will free it when the iterator will be freed
   RWLOCK_ACQUIRE_READ();
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
+  RedisSearchCtx sctx{NULL, sp};
   RSSearchOptions options;
   QueryError status;
   RS_ApiIter *it;

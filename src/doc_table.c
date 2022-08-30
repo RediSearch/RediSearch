@@ -30,7 +30,7 @@ DocTable::DocTable(size_t cap) {
 }
 
 DocTable::DocTable() {
-  ctor(100, t_docId{RSGlobalConfig.maxDocTableSize});
+  ctor(1000, t_docId{RSGlobalConfig.maxDocTableSize});
 }
 
 //---------------------------------------------------------------------------------------------

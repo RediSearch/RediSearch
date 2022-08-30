@@ -751,7 +751,7 @@ void IndexSpec::FreeInternals() {
 static void IndexSpec_FreeAsync(void *data) {
   IndexSpec *spec = data;
   RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
+  RedisSearchCtx sctx{threadCtx, spec};
   RedisModule_AutoMemory(threadCtx);
   RedisModule_ThreadSafeContextLock(threadCtx);
 
@@ -796,7 +796,7 @@ void IndexSpec::FreeSync() {
 
   //   Need a context for this:
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, this);
+  RedisSearchCtx sctx{ctx, this};
   RedisModule_AutoMemory(ctx);
   if (!IsKeyless()) {
     Redis_DropIndex(&sctx, 0, 1);
@@ -983,12 +983,11 @@ bool IndexSpec::IsStopWord(std::string_view term) {
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec::ctor(const char *name) {
+void IndexSpec::ctor(const char *name_) {
   fields.reserve(SPEC_MAX_FIELDS);
   sortables = new RSSortingTable();
   flags = INDEX_DEFAULT_FLAGS;
-  name = rm_strdup(name);
-  docs = new DocTable();
+  name = rm_strdup(name_);
   stopwords = DefaultStopWordList();
   terms = new Trie();
   minPrefix = RSGlobalConfig.minTermPrefix;
@@ -1173,7 +1172,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec *sp;
   sp->sortables = new RSSortingTable();
   sp->terms = NULL;
-  sp->docs = new DocTable(1000);
+  //sp->docs = new DocTable(1000);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   char *tmpName = rm_strdup(sp->name);
   RedisModule_Free(sp->name);

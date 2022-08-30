@@ -100,7 +100,7 @@ char *ReturnedField::trimField(const char *docStr, size_t *docLen, size_t estWor
 //---------------------------------------------------------------------------------------------
 
 RSValue *HighligherDoc::summarizeField(IndexSpec *spec, const ReturnedField &fieldInfo,
-    const char *fieldName, const RSValue *returnedField, int options) {
+    std::string_view fieldName, const RSValue *returnedField, int options) {
   FragmentList frags{8, 6};
 
   // Start gathering the terms
@@ -110,7 +110,7 @@ RSValue *HighligherDoc::summarizeField(IndexSpec *spec, const ReturnedField &fie
   size_t docLen;
   const char *docStr = returnedField->StringPtrLen(&docLen);
   if (byteOffsets == NULL ||
-      !frags.fragmentizeOffsets(spec, fieldName, docStr, docLen, indexResult, byteOffsets, options)) {
+      !frags.fragmentizeOffsets(spec, fieldName, std::string_view(docStr, docLen), indexResult, byteOffsets, options)) {
     if (fieldInfo.mode == SummarizeMode_Synopsis) {
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
@@ -173,13 +173,11 @@ void HighligherDoc::resetIovsArr(size_t newSize) {
 //---------------------------------------------------------------------------------------------
 
 void Highlighter::processField(HighligherDoc &doc, const ReturnedField &field) {
-  const char *fname = field.name;
   const RSValue *fval = doc.row->GetItem(field.lookupKey);
-
   if (fval == NULL || !fval->IsString()) {
     return;
   }
-  RSValue *v = doc.summarizeField(parent->sctx->spec, field, fname, fval, fragmentizeOptions);
+  RSValue *v = doc.summarizeField(parent->sctx->spec, field, field.name, fval, fragmentizeOptions);
   if (v) {
     doc.row->WriteOwnKey(field.lookupKey, v);
   }

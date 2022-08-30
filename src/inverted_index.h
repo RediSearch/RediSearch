@@ -198,102 +198,82 @@ struct InvertedIndex : BaseIndex {
 
 // An IndexReader wraps an inverted index record for reading and iteration
 
-struct IndexReader : public IndexIterator {
+struct IndexReader : IndexIterator {
   const IndexSpec *sp;
-
-  // the underlying data buffer
-  BufferReader br;
-
+  BufferReader br; // the underlying data buffer
   InvertedIndex *idx;
-
-  // last docId, used for delta encoding/decoding
-  t_docId lastId;
-
+  t_docId lastId; // last docId, used for delta encoding/decoding
   uint32_t currentBlock;
-
   IndexDecoder decoder;
-
-  // number of records read
-  size_t len;
-
-  // The record we are decoding into
-  TermResult *record;
-
+  size_t len; // number of records read
+  TermResult *record; // The record we are decoding into
   int atEnd;
 
   // If present, this pointer is updated when the end has been reached.
-  // This is an optimization to avoid calling IR_HasNext() each time.
+  // This is an optimization to avoid calling HasNext() each time.
   bool isValidP;
 
   // This marker lets us know whether the garbage collector has visited this index while the reading
   // thread was asleep, and reset the state in a deeper way
   uint32_t gcMarker;
-
-  // boosting weight
-  double weight;
+  double weight; // boosting weight
 
   //-------------------------------------------------------------------------------------------
 
   IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder, IndexResult *record,
     double weight);
 
-  // free an index reader
   virtual ~IndexReader();
 
   //-------------------------------------------------------------------------------------------
 
   void OnReopen(RedisModuleKey *k);
+  
+  int GenericRead(IndexResult *res); // Read an entry from an inverted index
+  int Read(IndexResult **e); // Read an entry from an inverted index into IndexResult
 
-  // Read an entry from an inverted index
-  int GenericRead(IndexResult *res);
-
-  // Read an entry from an inverted index into IndexResult
-  int Read(IndexResult **e);
-
-  // Move to the next entry in an inverted index, without reading the whole entry
-  int Next();
-
-  // Skip to a specific document ID in the index, or one position after it
-  // @param ctx the index reader
-  // @param docId the document ID to search for
-  // @param hit where to store the result pointer
-  //
-  // @return:
-  //  - INDEXREAD_OK if the id was found
-  //  - INDEXREAD_NOTFOUND if the reader is at the next position
-  //  - INDEXREAD_EOF if the ID is out of the upper range
-
+  int Next(); // Move to the next entry in an inverted index, without reading the whole entry
   int SkipTo(t_docId docId, IndexResult **hit);
   int SkipToBlock(t_docId docId);
-
   void Abort();
   void Rewind();
 
   IndexResult *Current(void *ctx);
+  IndexBlock &CurrentBlock(); // current block while reading the index
 
-  // The number of docs in an inverted index entry
-  size_t NumDocs() const;
-
+  size_t Len() const { return len; }
+  size_t NumDocs() const; // The number of docs in an inverted index entry
   size_t NumEstimated() const;
-
-  // LastDocId of an inverted index stateful reader
-  t_docId LastDocId() const;
+  t_docId LastDocId() const; // LastDocId of an inverted index stateful reader
 
   // Create a reader iterator that iterates an inverted index record
   IndexIterator *NewReadIterator();
 
   void SetAtEnd(bool value);
 
-  // current block while reading the index
-  IndexBlock &CurrentBlock();
-
   void AdvanceBlock();
 };
 
 //---------------------------------------------------------------------------------------------
 
-class TermIndexReader : public IndexReader {
-public:
+struct IndexReadIterator : IndexIterator {
+  IndexReader *_ir;
+
+  IndexReadIterator(IndexReader *ir);
+  ~IndexReadIterator();
+
+  virtual int Read(IndexResult **hit) { return _ir->Read(hit); }
+  virtual void Abort() { _ir->Abort(); }
+  virtual void Rewind() { _ir->Rewind(); }
+  virtual int SkipTo(t_docId docId, IndexResult **hit) { return _ir->SkipTo(docId, hit); }
+  virtual size_t NumEstimated() const { return _ir->NumEstimated(); }
+  virtual IndexCriteriaTester *GetCriteriaTester() { return _ir->GetCriteriaTester(); }
+  virtual size_t Len() const { return _ir->Len(); }
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct TermIndexReader : IndexReader {
   // Create a new index reader on an inverted index buffer,
   // optionally with a skip index, docTable and scoreIndex.
   // If singleWordMode is set to 1, we ignore the skip index and use the score index.
@@ -302,8 +282,7 @@ public:
 
 //---------------------------------------------------------------------------------------------
 
-class NumericIndexReader : public IndexReader {
-public:
+struct NumericIndexReader : IndexReader {
   // Create a new index reader for numeric records, optionally using a given filter.
   // If the filter is NULL we will return all the records in the index.
   NumericIndexReader(InvertedIndex *idx, const IndexSpec *sp = 0, const NumericFilter *flt = 0);

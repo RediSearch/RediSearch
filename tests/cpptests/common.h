@@ -25,7 +25,7 @@ bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... ar
   options.donecb = donecb;
 
   QueryError status = {QueryErrorCode(0)};
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx sctx{ctx, sp};
   int rv = RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
   RWLOCK_RELEASE();
   return rv == REDISMODULE_OK;
