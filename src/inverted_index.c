@@ -47,8 +47,12 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   int useFieldMask = flags & Index_StoreFieldFlags;
-  size_t size = useFieldMask ? sizeof(InvertedIndex) :
-                               sizeof(InvertedIndex) - sizeof(t_fieldMask);
+  int useNumEntries = flags & Index_StoreNumeric;
+  RedisModule_Assert(!(useFieldMask && useNumEntries));
+  // Avoid some of the allocation if not needed
+  size_t size = (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
+                                                  sizeof(InvertedIndex) - sizeof(t_fieldMask);
+                                                  
   InvertedIndex *idx = rm_malloc(size);
   idx->blocks = NULL;
   idx->size = 0;
@@ -56,7 +60,11 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   idx->gcMarker = 0;
   idx->flags = flags;
   idx->numDocs = 0;
-  if (useFieldMask) idx->fieldMask = (t_fieldMask)0;
+  if (useFieldMask) {
+    idx->fieldMask = (t_fieldMask)0;
+  } else if (useNumEntries) {
+    idx->numEntries = 0;
+  }
   if (initBlock) {
     InvertedIndex_AddBlock(idx, 0);
   }
@@ -540,7 +548,10 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
     ++blk->numDocs;
     ++idx->numDocs;
   }
-
+  if (encoder == encodeNumeric) {
+    ++idx->numEntries;
+  }
+  
   return ret;
 }
 
@@ -1375,6 +1386,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
       }
       frags += frag_incr;
       params->bytesCollected += sz;
+      ++params->entriesCollected;
       isLastValid = 0;
     } else {
       if (params->RepairCallback) {

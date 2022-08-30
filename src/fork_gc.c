@@ -166,6 +166,8 @@ typedef struct {
   uint64_t nbytesCollected;
   // Number of document records removed
   uint64_t ndocsCollected;
+  // Number of numeric records removed
+  uint64_t nentriesCollected;
 
   /** Specific information about the _last_ index block */
   size_t lastblkDocsRemoved;
@@ -210,6 +212,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     params->bytesCollected = 0;
     params->bytesBeforFix = 0;
     params->bytesAfterFix = 0;
+    params->entriesCollected = 0;
     IndexBlock *blk = idx->blocks + i;
     if (blk->lastId - blk->firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
@@ -247,6 +250,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
 
     ixmsg.nbytesCollected += (params->bytesBeforFix - params->bytesAfterFix);
     ixmsg.ndocsCollected += nrepaired;
+    ixmsg.nentriesCollected += params->entriesCollected;
     if (i == idx->size - 1) {
       ixmsg.lastblkBytesCollected = ixmsg.nbytesCollected;
       ixmsg.lastblkDocsRemoved = nrepaired;
@@ -769,7 +773,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
   }
 
   FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
-  FGC_updateStats(sctx, gc, info.ndocsCollected, info.nbytesCollected);
+  FGC_updateStats(sctx, gc, info.nentriesCollected, info.nbytesCollected);
 
   if (idx->numDocs == 0) {
     // inverted index was cleaned entirely lets free it
@@ -891,7 +895,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
 
   currNode->range->invertedIndexSize -= info->nbytesCollected;
-  FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
+  FGC_updateStats(sctx, gc, info->nentriesCollected, info->nbytesCollected);
 
   // TODO: fix for NUMERIC similar to TAG fix PR#2269
   // if (currNode->range->entries->numDocs == 0) {
@@ -950,7 +954,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
-    rt->numEntries -= ninfo.info.ndocsCollected;
+    rt->numEntries -= ninfo.info.nentriesCollected;
 
     if (ninfo.node->range->entries->numDocs == 0) {
       rt->emptyLeaves++;
@@ -1063,7 +1067,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
-    FGC_updateStats(sctx, gc, info.ndocsCollected, info.nbytesCollected);
+    FGC_updateStats(sctx, gc, info.nentriesCollected, info.nbytesCollected);
 
     // if tag value is empty, let's remove it.
     if (idx->numDocs == 0) {

@@ -315,6 +315,11 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might be left
     env.assertEqual(float(info['inverted_sz_mb']), 0)
 
+def printSeed(env):
+    # Print the random seed for reproducibility
+    seed = str(time.time())
+    env.assertNotEqual(seed, None, message='random seed ' + seed)
+    random.seed(seed)
 
 def testInfoAndGC(env):
     """ Test cleanup of numeric ranges """
@@ -323,10 +328,7 @@ def testInfoAndGC(env):
         env.skip()
     conn = getConnectionByEnv(env)
 
-    # Print the random seed for reproducibility
-    seed = str(time.time())
-    env.assertNotEqual(seed, None, message='random seed ' + seed)
-    random.seed(seed)
+    printSeed(env)
 
     env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
 
@@ -377,6 +379,8 @@ def testInfoAndGC(env):
 def testSortBy(env):
     """ Test sort of multi numeric values """
     
+    printSeed(env)
+
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.top[*]', 'AS', 'val', 'NUMERIC').ok()
@@ -405,3 +409,84 @@ def testSortBy(env):
     res = conn.execute_command(*query, 'SORTBY', 'val', 'DESC')    
     for i in range(2, len(res)):
         env.assertLess(int(res[i]), int(res[i - 1]))
+
+def keep_dict_keys(dict, keys):
+        return {k:v for k,v in dict.items() if k in keys}
+
+def testInfoStats(env):
+    """ Check that stats of single value are equivalent to multi value"""
+    
+    printSeed(env)
+    conn = getConnectionByEnv(env)
+    
+    env.expect('FT.CREATE', 'idx:single', 'ON', 'JSON', 'PREFIX', 1, 'doc:single:', 'SCHEMA', '$.top', 'AS', 'val', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'idx:multi', 'ON', 'JSON', 'PREFIX', 1, 'doc:multi:', 'SCHEMA', '$.top', 'AS', 'val', 'NUMERIC').ok()
+
+    doc_num = 200
+    doc_created = 0
+    while doc_created < doc_num:
+        val_count = random.randint(1, 5)
+        if doc_created + val_count > doc_num:
+            val_count = doc_num - doc_created
+        val_list = [random.uniform(1, 100000) for i in range(val_count)]
+        doc_created += 1
+        # Single doc with multi value
+        conn.execute_command('JSON.SET', 'doc:multi:{}'.format(doc_created), '$', json.dumps({'top': val_list}))
+        # Multi docs with single value
+        for i in range(val_count):
+            conn.execute_command('JSON.SET', 'doc:single:{}'.format(doc_created + i), '$', json.dumps({'top': val_list[i]}))
+        doc_created += val_count - 1
+
+    interesting_attr = ['num_records', 'total_inverted_index_blocks']
+    info_single = keep_dict_keys(index_info(env, 'idx:single'), interesting_attr)
+    info_multi = keep_dict_keys(index_info(env, 'idx:multi'), interesting_attr)
+    env.assertEqual(info_single, info_multi)
+
+def testInfoStatsAndSearchAsSingle(env):
+    """ Check that search results and relevant stats are the same for single values and equivalent multi values """
+    
+    printSeed(env)
+
+    conn = getConnectionByEnv(env)
+    max_attr_num = 5
+    schema_list = [['$.val{}'.format(i), 'AS', 'val{}'.format(i), 'NUMERIC'] for i in range(1, max_attr_num + 1)]
+    create_idx_single = ['FT.CREATE', 'idx:single', 'ON', 'JSON', 'PREFIX', 1, 'doc:single:', 'SCHEMA']
+    [create_idx_single.extend(a) for a in schema_list]
+    create_idx_multi = ['FT.CREATE', 'idx:multi', 'ON', 'JSON', 'PREFIX', 1, 'doc:multi:', 'SCHEMA']
+    create_idx_multi.extend(schema_list[0])
+    # Create 2 indeices such as
+    #  FT.CREATE idx:single ON JSON PREFIX 1 doc:single: SCHEMA $.val1 AS val1 NUMERIC $.val2 AS val2 NUMERIC ... $.val5 AS val5 NUMERIC
+    # and
+    #  FT.CREATE idx:multi ON JSON PREFIX 1 doc:multi: SCHEMA $.val1 AS val1 NUMERIC
+    env.expect(*create_idx_single).ok()
+    env.expect(*create_idx_multi).ok()
+    
+    doc_num = 200
+    for doc in range(1, doc_num + 1):
+        val_count = random.randint(1, max_attr_num)
+        val_list = [random.uniform(-50000, 50000) for i in range(val_count)]
+        # Doc with a single multi value, e.g., 
+        #  JSON.SET doc:single:1 $ '{"val1": 10, "val2": 20, "val3": 30}'
+        conn.execute_command('JSON.SET', 'doc:multi:{}'.format(doc), '$', json.dumps({'val1': val_list}))
+        # Doc with several single values, e.g., 
+        #  JSON.SET doc:multi:1 $ '{"val1": [10, 20, 30]}'
+        json_val = {k:v for (k,v) in zip(['val{}'.format(i + 1) for i in range(val_count)], val_list)}
+        conn.execute_command('JSON.SET', 'doc:single:{}'.format(doc), '$', json.dumps(json_val))
+    
+    # Compare INFO stats
+    interesting_attr = ['num_docs', 'max_doc_id', 'num_records', 'total_inverted_index_blocks']
+    info_single = keep_dict_keys(index_info(env, 'idx:single'), interesting_attr)
+    info_multi = keep_dict_keys(index_info(env, 'idx:multi'), interesting_attr)
+    env.assertEqual(info_single, info_multi)
+
+    # Compare search results
+    for _ in range(1000):
+        val_from = random.uniform(-70000, 70000)
+        val_to = max(1000, val_from + random.uniform(1, 140000 - val_from))
+        expression_for_single = '|'.join(['@val{}:[{} {}]'.format(i, val_from, val_to) for i in range(1, max_attr_num + 1)])
+        res_single = conn.execute_command('FT.SEARCH', 'idx:single', expression_for_single, 'NOCONTENT')
+        res_single = list(map(lambda v: v.replace(':single:', '::') if isinstance(v, str) else v, res_single))
+        res_multi = conn.execute_command('FT.SEARCH', 'idx:multi', '@val1:[{} {}]'.format(val_from, val_to), 'NOCONTENT')
+        res_multi = list(map(lambda v: v.replace(':multi:', '::') if isinstance(v, str) else v, res_multi))
+        env.assertEqual(res_single, res_multi, message = '[{} {}]'.format(val_from, val_to))
+        

@@ -33,9 +33,12 @@ typedef struct InvertedIndex {
   t_docId lastId;
   uint32_t numDocs;
   uint32_t gcMarker;
-  // fieldMask must remain at the end as memory is not allocate for it
-  // if not required
-  t_fieldMask fieldMask;
+  // The following union must remain at the end as memory is not allocate for it
+  // if not required (see function `NewInvertedIndex`)
+  union {
+    t_fieldMask fieldMask;
+    uint64_t numEntries;
+  };
 } InvertedIndex;
 
 struct indexReadCtx;
@@ -62,8 +65,9 @@ typedef void (*RepairCallback)(const RSIndexResult *res, void *arg);
 typedef struct {
   size_t bytesBeforFix;
   size_t bytesAfterFix;
-  size_t bytesCollected; /** out: Number of bytes collected */
-  size_t docsCollected;  /** out: Number of documents collected */
+  size_t bytesCollected;    /** out: Number of bytes collected */
+  size_t docsCollected;     /** out: Number of documents collected */
+  size_t entriesCollected;  /** out: Number of entries collected */
   size_t limit;          /** in: how many index blocks to scan at once */
 
   /** in: Callback to invoke when a document is collected */

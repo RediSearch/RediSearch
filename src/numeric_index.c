@@ -201,7 +201,7 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
 
   // free resources
   rv->sz -= temp->invertedIndexSize;
-  rv->numRecords -= temp->entries->numDocs;
+  rv->numRecords -= temp->entries->numEntries;
   InvertedIndex_Free(temp->entries);
   array_free(temp->values);
   rm_free(temp);
