@@ -413,8 +413,6 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("@number:[-inf +inf]", ctx);
   assertValidQuery("@number:[-inf +inf]|@number:[100 200]", ctx);
 
-  assertValidQuery("@number:[1.11 ((2.34 $p $p2]", ctx);
-
   assertInvalidQuery("@number:[100 foo]", ctx);
 
   // Tag queries
