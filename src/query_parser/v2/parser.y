@@ -817,25 +817,14 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
   }
 }
 
-numeric_range(A) ::= LSQB param_any(B) param_any(C) RSQB. [NUMBER] {
-  // Update token type to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-  if (B.type == QT_PARAM_ANY)
+numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
     B.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  else if (B.type != QT_NUMERIC)
-    badToken = &B;
-  if (C.type == QT_PARAM_ANY)
-    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
-  else if (!badToken && C.type != QT_NUMERIC)
-    badToken = &C;
-
-  if (!badToken) {
-    A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Expecting numeric or parameter");
-    A = NULL;
   }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -852,34 +841,17 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
   }
 }
 
-geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB. [NUMBER] {
-  // Update token type to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-
-  if (B.type == QT_PARAM_ANY)
+geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB. [NUMBER] {
+  if (B.type == QT_PARAM_NUMERIC)
     B.type = QT_PARAM_GEO_COORD;
-  else if (B.type != QT_NUMERIC)
-    badToken = &B;
-  if (C.type == QT_PARAM_ANY)
+  if (C.type == QT_PARAM_NUMERIC)
     C.type = QT_PARAM_GEO_COORD;
-  else if (!badToken && C.type != QT_NUMERIC)
-    badToken = &C;
-  if (D.type == QT_PARAM_ANY)
+  if (D.type == QT_PARAM_NUMERIC)
     D.type = QT_PARAM_NUMERIC;
-  else if (!badToken && D.type != QT_NUMERIC)
-    badToken = &D;
-  if (E.type == QT_PARAM_ANY)
+  if (E.type == QT_PARAM_TERM)
     E.type = QT_PARAM_GEO_UNIT;
-  else if (!badToken && E.type != QT_TERM)
-    badToken = &E;
 
-  if (!badToken) {
-    A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Syntax error");
-    A = NULL;
-  }
+  A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -979,7 +951,7 @@ vector_score_field(A) ::= as STOPWORD(B). {
   A.type = QT_TERM;
 }
 
-// Every vector query will have basic command part. Right now we only have KNN command.
+// Every vector query will have basic command part.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
   if (!strncasecmp("KNN", T.s, T.len)) {
@@ -1017,14 +989,12 @@ vector_attribute_list(A) ::= vector_attribute(B). {
   A.needResolve = array_append(A.needResolve, B.needResolve);
 }
 
-// Vector range queries
-expr(A) ::= modifier(B) COLON LSQB vector_range_query(C) RSQB. {
+/*** Vector range queries ***/
+expr(A) ::= modifier(B) COLON LSQB vector_range_query(C) RSQB. { // top-level parse
     C->vn.vq->property = rm_strndup(B.s, B.len);
-    if (C->vn.vq->scoreField) {
-      rm_free(C->vn.vq->scoreField);
-      C->vn.vq->scoreField = NULL;
+    if (C->vn.vq->scoreField == NULL) {
+        RedisModule_Assert(-1 != (rm_asprintf(&C->vn.vq->scoreField, "__%.*s_score", B.len, B.s)));
     }
-    RedisModule_Assert(-1 != (rm_asprintf(&C->vn.vq->scoreField, "__%.*s_score", B.len, B.s)));
     A = C;
 }
 
@@ -1052,18 +1022,11 @@ vector_range_query(A) ::= vector_range_command(B) vector_attribute_list(C) vecto
   A = B;
 }
 
-vector_range_command(A) ::= TERM(T) param_any(B) ATTRIBUTE(C). {
+vector_range_command(A) ::= TERM(T) param_num(B) ATTRIBUTE(C). {
   if (strncasecmp("RANGE", T.s, T.len)) {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity RANGE command");
     A = NULL;
-  } else if (B.type != QT_NUMERIC && B.type != QT_PARAM_ANY) {
-    reportSyntaxError(ctx->status, &B, "Syntax error: Expecting parameter or numeric value");
-    A = NULL;
   } else {
-    if (B.type == QT_PARAM_ANY) {
-      // If we got an attribute, we need to validate down the road that is indeed a number.
-      B.type = QT_PARAM_NUMERIC;
-    }
     C.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_RANGE, &B, &C);
   }
@@ -1109,19 +1072,9 @@ term(A) ::= SIZE(B). {
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
 
-param_term(A) ::= TERM(B). {
-  A = B;
-  A.type = QT_TERM;
-}
 
 // Number is treated as a term here
-param_term(A) ::= NUMBER(B). {
-  A = B;
-  A.type = QT_TERM;
-}
-
-// Number is treated as a term here
-param_term(A) ::= SIZE(B). {
+param_term(A) ::= term(B). {
   A = B;
   A.type = QT_TERM;
 }
@@ -1141,28 +1094,33 @@ param_size(A) ::= ATTRIBUTE(B). {
   A.type = QT_PARAM_SIZE;
 }
 
-//For generic parameter (param_any) its `type` could be refined by other rules which may have more accurate semantics,
-// e.g., could know it should be numeric
-
-param_any(A) ::= ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_ANY;
-  A.inclusive = 1;
+/*
+param_numeric_range(A) ::= param_num(B). {
+    A = B;
+    A.inclusive = 1;
 }
 
-param_any(A) ::= LP ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_ANY;
-  A.inclusive = 0; // Could be relevant if type is refined
+
+param_numeric_range(A) ::= LP param_num(B). {
+    A = B;
+    A.inclusive = 0;
+}
+*/
+
+param_num(A) ::= ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
 }
 
-param_any(A) ::= TERM(B). {
-  A = B;
-  A.type = QT_TERM;
-}
-
-param_any(A) ::= num(B). {
+param_num(A) ::= num(B). {
   A.numval = B.num;
   A.inclusive = B.inclusive;
   A.type = QT_NUMERIC;
+}
+
+param_num(A) ::= LP ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
 }

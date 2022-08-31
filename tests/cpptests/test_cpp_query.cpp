@@ -413,6 +413,8 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("@number:[-inf +inf]", ctx);
   assertValidQuery("@number:[-inf +inf]|@number:[100 200]", ctx);
 
+  assertValidQuery("@number:[1.11 ((2.34 $p $p2]", ctx);
+
   assertInvalidQuery("@number:[100 foo]", ctx);
 
   // Tag queries
@@ -515,6 +517,7 @@ TEST_F(QueryTest, testParser_v2) {
   // Test range queries
   assertValidQuery("@v:[RANGE 0.01 $BLOB]", ctx);
   assertValidQuery("@v:[RANGE 2 $BLOB]", ctx);
+  assertValidQuery("@v:[RANGE $radius $BLOB]", ctx);
   assertValidQuery("@v:[RANGE 2e-2 $BLOB]", ctx);
   assertValidQuery("@v:[RANGE 2E-2 $BLOB]", ctx);
   assertValidQuery("@v:[RANGE 0.01 $BLOB AS V_SCORE]", ctx);
@@ -525,7 +528,7 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon 0.1 AS V_SCORE]", ctx);
   assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon $ep AS V_SCORE]", ctx);
   assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon 0.1 AS $V_SCORE]", ctx);
-  assertValidQuery("@v:[RANGE 0.01 $BLOB epsilon $ep AS $V_SCORE]", ctx);
+  assertValidQuery("@v:[RANGE $r $BLOB epsilon $ep AS $V_SCORE]", ctx);
 
   // Complex queries with range
   assertValidQuery("@v:[RANGE 0.01 $BLOB] @text:foo OR bar", ctx);
