@@ -722,7 +722,7 @@ def testStrLen(env):
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'strlen(@t)', 'as', 'length')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'length', '2'], \
                                                                 ['t', 'aaa', 'length', '3'], \
-                                                                ['t', 'ab', 'length', '0']]))
+                                                                ['t', '', 'length', '0']]))
 
 def testLoadAll(env):
     conn = getConnectionByEnv(env)
