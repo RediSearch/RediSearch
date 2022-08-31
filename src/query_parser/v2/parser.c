@@ -2044,8 +2044,7 @@ yylhsminor.yy13 = yymsp[0].minor.yy13;
     yymsp[-4].minor.yy0.type = QT_PARAM_GEO_COORD;
   if (yymsp[-3].minor.yy0.type == QT_PARAM_NUMERIC)
     yymsp[-3].minor.yy0.type = QT_PARAM_GEO_COORD;
-  if (yymsp[-2].minor.yy0.type == QT_PARAM_NUMERIC)
-    yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC;
+
   if (yymsp[-1].minor.yy0.type == QT_PARAM_TERM)
     yymsp[-1].minor.yy0.type = QT_PARAM_GEO_UNIT;
 
@@ -2175,7 +2174,7 @@ yylhsminor.yy13 = yymsp[0].minor.yy13;
   yymsp[0].minor.yy4 = yylhsminor.yy4;
         break;
       case 82: /* expr ::= modifier COLON LSQB vector_range_query RSQB */
-{ // top-level parse
+{
     yymsp[-1].minor.yy13->vn.vq->property = rm_strndup(yymsp[-4].minor.yy0.s, yymsp[-4].minor.yy0.len);
     if (yymsp[-1].minor.yy13->vn.vq->scoreField == NULL) {
         RedisModule_Assert(-1 != (rm_asprintf(&yymsp[-1].minor.yy13->vn.vq->scoreField, "__%.*s_score", yymsp[-4].minor.yy0.len, yymsp[-4].minor.yy0.s)));

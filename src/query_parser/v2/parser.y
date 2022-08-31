@@ -846,8 +846,7 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
     B.type = QT_PARAM_GEO_COORD;
   if (C.type == QT_PARAM_NUMERIC)
     C.type = QT_PARAM_GEO_COORD;
-  if (D.type == QT_PARAM_NUMERIC)
-    D.type = QT_PARAM_NUMERIC;
+
   if (E.type == QT_PARAM_TERM)
     E.type = QT_PARAM_GEO_UNIT;
 
@@ -990,7 +989,7 @@ vector_attribute_list(A) ::= vector_attribute(B). {
 }
 
 /*** Vector range queries ***/
-expr(A) ::= modifier(B) COLON LSQB vector_range_query(C) RSQB. { // top-level parse
+expr(A) ::= modifier(B) COLON LSQB vector_range_query(C) RSQB. {
     C->vn.vq->property = rm_strndup(B.s, B.len);
     if (C->vn.vq->scoreField == NULL) {
         RedisModule_Assert(-1 != (rm_asprintf(&C->vn.vq->scoreField, "__%.*s_score", B.len, B.s)));
