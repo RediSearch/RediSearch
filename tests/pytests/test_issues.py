@@ -549,13 +549,3 @@ def testDeleteIndexes(env):
 
   # create an additional index
   env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
-
-def test_sortby_Noexist(env):
-  conn = getConnectionByEnv(env)
-
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-  conn.execute_command('HSET', 'doc1', 't', '1')
-  conn.execute_command('HSET', 'doc2', 'somethingelse', '2')
-
-  # TODO: change behavior so docs which miss sortby field are at the end
-  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't').equal([2, 'doc2', ['somethingelse', '2'], 'doc1', ['t', '1']])
