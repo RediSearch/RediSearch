@@ -68,11 +68,14 @@ InvertedIndex::~InvertedIndex() {
   TotalIIBlocks -= size;
   delete blocks;
 }
+void InvertedIndex_Free(void *ctx) {
+  delete (InvertedIndex *) ctx;
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void IndexReader::SetAtEnd(bool value) {
-  isValidP = !value;
+  if (isValidP) { *isValidP = !value; }
   atEnd = value;
 }
 
@@ -116,13 +119,10 @@ void IndexReader::OnReopen(RedisModuleKey *k) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/******************************************************************************
- * Index Encoders Implementations.
- *
- * We have 9 distinct ways to encode the index records. Based on the index flags we select the
- * correct encoder when writing to the index
- *
- ******************************************************************************/
+// Index Encoders Implementations.
+//
+// We have 9 distinct ways to encode the index records.
+// Based on the index flags we select the correct encoder when writing to the index.
 
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 static size_t encodeFull(BufferWriter *bw, uint32_t delta, TermResult *res) {
@@ -656,9 +656,13 @@ IndexDecoder::IndexDecoder(uint32_t flags, decoderType type) : type(type)  {
   ctor(flags);
 }
 
+//---------------------------------------------------------------------------------------------
+
 IndexDecoder::IndexDecoder(uint32_t flags, t_fieldMask mask, decoderType type) : mask(mask), type(type) {
   ctor(flags);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void IndexDecoder::ctor(uint32_t flags) {
   switch (flags & INDEX_STORAGE_MASK) {
@@ -704,6 +708,8 @@ void IndexDecoder::ctor(uint32_t flags) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void TermIndexDecoder::ctor(uint32_t flags) {
   switch (flags & INDEX_STORAGE_MASK) {
     // (freqs, fields, offset)
@@ -747,6 +753,8 @@ void TermIndexDecoder::ctor(uint32_t flags) {
       break;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 void NumericIndexDecoder::ctor(uint32_t flags) {
   switch (flags & INDEX_STORAGE_MASK) {
@@ -794,82 +802,69 @@ static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-class NumericIndexCriteriaTester : public IndexCriteriaTester {
-public:
-  NumericFilter nf;
-  const IndexSpec *spec;
-
-  NumericIndexCriteriaTester(IndexReader *ir, const NumericFilter &nf) : spec(ir->sp), nf(nf) {}
-
-  int Test(t_docId id) {
-    size_t len;
-    DocTable *td = (DocTable *) &spec->docs;
-    const char *externalId = td->GetKey(id, &len);
-    double n;
-    int ret = spec->getValue(spec->getValueCtx, nf.fieldName, externalId, NULL, &n);
-    RS_LOG_ASSERT(ret == RSVALTYPE_DOUBLE, "RSvalue type should be a double");
-    return (nf.min < n || nf.inclusiveMin && nf.min == n) &&
-           (nf.max > n || nf.inclusiveMax && nf.max == n);
-  }
-};
+bool NumericIndexCriteriaTester::Test(t_docId id) {
+  size_t len;
+  DocTable *td = (DocTable *) &spec->docs;
+  const char *externalId = td->GetKey(id, &len);
+  double n;
+  int ret = spec->getValue(spec->getValueCtx, nf.fieldName, externalId, NULL, &n);
+  RS_LOG_ASSERT(ret == RSVALTYPE_DOUBLE, "RSvalue type should be a double");
+  return (nf.min < n || nf.inclusiveMin && nf.min == n) &&
+         (nf.max > n || nf.inclusiveMax && nf.max == n);
+}
 
 //---------------------------------------------------------------------------------------------
 
-class TermIndexCriteriaTester : public IndexCriteriaTester {
-public:
-  String term;
-  t_fieldMask fieldMask;
-  const IndexSpec *spec;
+TermIndexCriteriaTester::TermIndexCriteriaTester(IndexReader *ir) {
+  spec = ir->sp;
+  term = ir->record->term->str;
+  fieldMask = ir->decoder.mask;
+}
 
-  TermIndexCriteriaTester(IndexReader *ir) {
-    spec = ir->sp;
-    term = ir->record->term->str;
-    fieldMask = ir->decoder.mask;
-  }
+//---------------------------------------------------------------------------------------------
 
-  int Test(t_docId id) {
-    size_t len;
-    DocTable *td = (DocTable *) &spec->docs;
-    const char *externalId = td->GetKey(id, &len);
-    for (auto field : spec->fields) {
-      if (!(field.FieldBit() & fieldMask)) {
-        // field is not requested, we are not checking this field!!
-        continue;
-      }
-      char *s;
-      int ret = spec->getValue(spec->getValueCtx, field.name, externalId, &s, NULL);
-      if (ret == RSVALTYPE_STRING) {
-        throw Error("RSvalue type should be a string");
-      }
-      if (strcmp(term.c_str(), s) == 0) {
-        return 1;
-      }
+bool TermIndexCriteriaTester::Test(t_docId id) {
+  size_t len;
+  DocTable *td = (DocTable *) &spec->docs;
+  const char *externalId = td->GetKey(id, &len);
+  for (auto field : spec->fields) {
+    if (!(field.FieldBit() & fieldMask)) {
+      // field is not requested, we are not checking this field!!
+      continue;
     }
-    return 0;
+    char *s;
+    int ret = spec->getValue(spec->getValueCtx, field.name, externalId, &s, NULL);
+    if (ret != RSVALTYPE_STRING) {
+      throw Error("RSvalue type should be a string");
+    }
+    if (term == s) {
+      return true;
+    }
   }
-};
+  return false;
+}
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexCriteriaTester *IR_GetCriteriaTester(IndexReader *ir) {
-  if (!ir->sp || !ir->sp->getValue) {
+IndexCriteriaTester *IndexReader::GetCriteriaTester() {
+  if (!sp || !sp->getValue) {
     return NULL;  // CriteriaTester is not supported!!!
   }
 
-  if (ir->decoder.type == decoderType::Term) {
-    return new TermIndexCriteriaTester(ir);
+  if (decoder.type == decoderType::Term) {
+    return new TermIndexCriteriaTester(this);
   }
   // for now, if the iterator did not took the numric filter we will avoid using the CT.
   // TODO: save the numeric filter in the numeric iterator to support CT anyway.
-  if (ir->decoder.type == decoderType::Numeric) {
-    const NumericIndexDecoder *nr = dynamic_cast<const NumericIndexDecoder*>(&ir->decoder);
-    return new NumericIndexCriteriaTester(ir, *nr->filter);
+  if (decoder.type == decoderType::Numeric) {
+    auto nr = dynamic_cast<const NumericIndexDecoder*>(&decoder);
+    return new NumericIndexCriteriaTester(this, *nr->filter);
   }
 
   return NULL;
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////
+//---------------------------------------------------------------------------------------------
 
 size_t IndexReader::NumEstimated() const {
   return idx->numDocs;
@@ -1057,15 +1052,16 @@ size_t IndexReader::NumDocs() const {
 
 IndexReader::IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
     IndexResult *record, double weight) : IndexIterator(this), sp(sp), idx(idx), decoder(decoder),
-    record(record), weight(weight), br(*new BufferReader(&CurrentBlock().buf)) {
+    record(record), weight(weight), br(&CurrentBlock().buf) {
   gcMarker = idx->gcMarker;
   lastId = CurrentBlock().firstId;
-  // br = *new BufferReader(&CurrentBlock().buf);
 
   currentBlock = 0;
   len = 0;
   SetAtEnd(false);
 }
+
+//---------------------------------------------------------------------------------------------
 
 IndexReader::~IndexReader() {
   delete record;

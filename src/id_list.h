@@ -16,16 +16,15 @@ struct IdListIterator : public IndexIterator {
   IdListIterator(Vector<t_docId> &ids, double weight);
   ~IdListIterator();
 
-  virtual IndexResult *GetCurrent();
-  virtual size_t NumEstimated() const;
-  virtual IndexCriteriaTester *GetCriteriaTester();
+  virtual IndexCriteriaTester *GetCriteriaTester() { return new CriteriaTester(this); }
   virtual int Read(IndexResult **e);
   virtual int SkipTo(t_docId docId, IndexResult **hit);
-  virtual t_docId LastDocId() const;
-  virtual bool HasNext() const;
-  virtual size_t Len() const;
   virtual void Abort();
   virtual void Rewind();
+
+  virtual size_t NumEstimated() const;
+  virtual t_docId LastDocId() const;
+  virtual size_t Len() const;
 
   void setEof(int value) { isValid = !value; }
   int isEof() const { return !isValid; }

@@ -100,7 +100,6 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 
 struct TrieIterator : public Object {
   Runes runes;
-
   Vector<StackNode> stack;
   StepFilter filter;
   float minScore;
@@ -111,7 +110,6 @@ struct TrieIterator : public Object {
 
   TrieIterator(DFAFilter *filter);
   TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, DFAFilter *filter);
-  ~TrieIterator();
 
   void Push(TrieNode *node, int skipped);
   void Pop();

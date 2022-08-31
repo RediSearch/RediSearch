@@ -270,10 +270,8 @@ RSValue *RLookupRow::GetItem(const RLookupKey *key) const {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Frees all the memory consumed by the row. Implies Wipe(). This should be used
- * when the row object will no longer be used.
- */
+// Frees all the memory consumed by the row. Implies Wipe().
+// This should be used when the row object will no longer be used.
 
 void RLookupRow::Cleanup() {
   Wipe();

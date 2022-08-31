@@ -31,11 +31,11 @@
 #include <sys/param.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-/*
+
 RSToken::RSToken(const rune *r, size_t n) {
   str = runesToStr(r, n);
 }
-*/
+
 //---------------------------------------------------------------------------------------------
 
 RSToken::RSToken(const Runes &r) {
@@ -334,11 +334,8 @@ IndexIterator *QueryPhraseNode::EvalNode(Query *q) {
 //---------------------------------------------------------------------------------------------
 
 IndexIterator *QueryWildcardNode::EvalNode(Query *q) {
-  if (!q->docTable) {
-    return NULL;
-  }
-
-  return new WildcardIterator(q->docTable->maxDocId);
+  if (!q->docTable) return NULL;
+  return new WildcardIterator{q->docTable->maxDocId};
 }
 
 //---------------------------------------------------------------------------------------------
@@ -603,6 +600,12 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
 
 Query::Query(const QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx, ConcurrentSearch *conc) :
   conc(conc), opts(opts), numTokens(ast.numTokens), docTable(&sctx->spec->docs), sctx(sctx) {}
+
+//---------------------------------------------------------------------------------------------
+
+IndexIterator *Query::Eval(QueryNode *node) {
+  return node->EvalNode(this);
+}
 
 //---------------------------------------------------------------------------------------------
 

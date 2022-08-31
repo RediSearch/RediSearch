@@ -167,7 +167,7 @@ struct NI_CriteriaTester : public IndexCriteriaTester {
 
   IndexCriteriaTester *child;
 
-  int Test(t_docId id);
+  bool Test(t_docId id);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -196,13 +196,13 @@ struct OptionalIterator : public IndexIterator {
 
   virtual int SkipTo(t_docId docId, IndexResult **hit);
   virtual IndexCriteriaTester *GetCriteriaTester();
-  virtual size_t NumEstimated() const;
   virtual bool HasNext() const;
   virtual void Abort();
-  virtual size_t Len() const;
   virtual void Rewind();
 
-  t_docId LastDocId() const;
+  virtual size_t NumEstimated() const;
+  virtual t_docId LastDocId() const;
+  virtual size_t Len() const;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -219,14 +219,15 @@ struct WildcardIterator : public IndexIterator {
   t_docId topId;
   t_docId currentId;
 
-  int Read(IndexResult **hit);
-  int SkipTo(t_docId docId, IndexResult **hit);
-  void Abort();
-  bool HasNext() const;
-  size_t Len() const;
-  t_docId LastDocId() const;
-  void Rewind();
-  size_t NumEstimated() const;
+  virtual int Read(IndexResult **hit);
+  virtual bool HasNext() const;
+  virtual int SkipTo(t_docId docId, IndexResult **hit);
+  virtual void Abort();
+  virtual void Rewind();
+  virtual IndexCriteriaTester *GetCriteriaTester() { return NULL; }
+  virtual size_t Len() const;
+  virtual t_docId LastDocId() const;
+  virtual size_t NumEstimated() const;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -67,7 +67,7 @@ struct Reducer : public Object {
 
   // Called when Add() has been invoked for the last time. This is used to
   // populate the result of the reduce function.
-  virtual RSValue *Finalize();
+  virtual RSValue *Finalize() { return RS_NumVal(0); }
 };
 
 //---------------------------------------------------------------------------------------------

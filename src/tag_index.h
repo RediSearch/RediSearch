@@ -110,13 +110,11 @@ struct TagIndex : public BaseIndex {
   uint32_t uniqueId;
   TrieMap *values;
 
-  // Create a new tag index
   TagIndex();
+  ~TagIndex();
 
   // Open the tag index key in redis
   static TagIndex *Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite, RedisModuleKey **keyp);
-
-  ~TagIndex();
 
   // Format the key name for a tag index
   static RedisModuleString *FormatName(RedisSearchCtx *sctx, const char *field);
@@ -126,7 +124,7 @@ struct TagIndex : public BaseIndex {
   char **Preprocess(char sep, TagFieldFlags flags, const DocumentField *data);
 
   struct Tags {
-    Vector<char*> tags;
+    Vector<String> tags;
 
     // Preprocess a document tag field, returning a vector of all tags split from the content
     Tags() {}
@@ -140,7 +138,7 @@ struct TagIndex : public BaseIndex {
 
     size_t size() const { return tags.size(); }
     bool operator!() const { return !tags.empty(); }
-    const char *operator[](int i) const { return tags[i]; }
+    std::string_view operator[](int i) const { return tags[i]; }
   };
 
   // Index a vector of pre-processed tags for a docId
@@ -159,7 +157,7 @@ struct TagIndex : public BaseIndex {
   void SerializeValues(RedisModuleCtx *ctx);
 
   // Ecode a single docId into a specific tag value
-  size_t Put(const char *value, size_t len, t_docId docId);
+  size_t Put(std::string_view tok, t_docId docId);
 };
 
 //---------------------------------------------------------------------------------------------

@@ -68,10 +68,10 @@ enum RSCondition {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
-                                      [IXFLDPOS_NUMERIC] = NUMERIC_STR,
-                                      [IXFLDPOS_GEO] = GEO_STR,
-                                      [IXFLDPOS_TAG] = SPEC_TAG_STR};
+const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
+                               [IXFLDPOS_NUMERIC] = NUMERIC_STR,
+                               [IXFLDPOS_GEO] = GEO_STR,
+                               [IXFLDPOS_TAG] = SPEC_TAG_STR};
 
 //---------------------------------------------------------------------------------------------
 
@@ -91,7 +91,7 @@ const enum FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FUL
 
 //---------------------------------------------------------------------------------------------
 
-static const char *RSConditionStrings[] = {
+const char *RSConditionStrings[] = {
     [RSCondition_Eq] = "==",  [RSCondition_Lt] = "<",  [RSCondition_Le] = "<=",
     [RSCondition_Gt] = ">",   [RSCondition_Ge] = ">=", [RSCondition_Ne] = "!=",
     [RSCondition_And] = "&&", [RSCondition_Or] = "||",

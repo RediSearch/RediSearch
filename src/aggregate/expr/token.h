@@ -8,7 +8,7 @@
 
 // A query-specific tokenizer, that reads symbols like quots, pipes, etc
 
-struct RSExprParseCtx {
+struct RSExprParse {
   const char *raw;
   size_t len;
   char *pos;

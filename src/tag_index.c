@@ -66,11 +66,11 @@ char *TagIndex::SepString(char sep, char **s, size_t *toklen) {
 char *strtolower(char *str);
 
 // Preprocess a document tag field, returning a vector of all tags split from the content
-char **TagIndex::Preprocess(char sep, TagFieldFlags flags, const DocumentField *data) {
+
+TagIndex::Tags::Tags(char sep, TagFieldFlags flags, const DocumentField *data) {
   size_t sz;
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
-  if (!p || sz == 0) return NULL;
-  char **ret = array_new(char *, 4);
+  if (!p || sz == 0) return;
   char *pp = p = rm_strndup(p, sz);
   while (p) {
     // get the next token
@@ -83,12 +83,10 @@ char **TagIndex::Preprocess(char sep, TagFieldFlags flags, const DocumentField *
       if (!(flags & TagField_CaseSensitive)) {
         tok = strtolower(tok);
       }
-      tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
-      ret = array_append(ret, tok);
+	  tags.emplace_back(tok, MIN(toklen, MAX_TAG_LEN));
     }
   }
   rm_free(pp);
-  return ret;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -107,10 +105,10 @@ struct InvertedIndex *TagIndex::OpenIndex(const char *value, size_t len, int cre
 //---------------------------------------------------------------------------------------------
 
 // Ecode a single docId into a specific tag value
-size_t TagIndex::Put(const char *value, size_t len, t_docId docId) {
+size_t TagIndex::Put(std::string_view tok, t_docId docId) {
   IndexEncoder enc = InvertedIndex::GetEncoder(Index_DocIdsOnly);
-  const IndexResult rec(RSResultType_Virtual, docId);
-  InvertedIndex *iv = OpenIndex(value, len, 1);
+  const IndexResult rec{RSResultType_Virtual, docId};
+  InvertedIndex *iv = OpenIndex(tok.data(), tok.length(), 1);
   return iv->WriteEntryGeneric(enc, docId, rec);
 }
 
@@ -121,9 +119,9 @@ size_t TagIndex::Index(const Tags &tags, t_docId docId) {
   if (!values) return 0;
   size_t ret = 0;
   for (size_t i = 0; i < tags.tags.size(); ++i) {
-    const char *tok = tags[i];
-    if (tok && *tok != '\0') {
-      ret += Put(tok, strlen(tok), docId);
+    std::string_view tok = tags[i];
+    if (!tok.empty()) {
+      ret += Put(tok, docId);
     }
   }
   return ret;

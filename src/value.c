@@ -71,6 +71,10 @@ size_t RSValue_NumToString(double dd, char *buf) {
 
 // Return the value itself or its referred value
 
+RSValue *RSValue::Dereference() {
+  return const_cast<RSValue*>(this)->Dereference();
+}
+
 const RSValue *RSValue::Dereference() const {
   RSValue *v = this;
   for (; v && v->t == RSValue_Reference; v = v->ref)
@@ -192,7 +196,7 @@ void RSValue::SetConstString(const char *str, size_t len) {
 // Wrap a string with length into a value object. Doesn't duplicate the string.
 // Use strdup if the value needs to be detached.
 
-inline RSValue *RS_StringVal(char *str, uint32_t len) {
+RSValue *RS_StringVal(char *str, uint32_t len) {
   RS_LOG_ASSERT(len <= (UINT32_MAX >> 4), "string length exceeds limit");
   RSValue *v = new RSValue(RSValue_String);
   v->strval.str = str;
@@ -205,7 +209,7 @@ inline RSValue *RS_StringVal(char *str, uint32_t len) {
 
 // Same as RS_StringVal but with explicit string type
 
-inline RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t) {
+RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t) {
   RSValue *v = new RSValue(RSValue_String);
   v->strval.str = str;
   v->strval.len = len;
@@ -536,10 +540,11 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
 
 // Create a new NULL RSValue
-
+/*
 inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
+*/
 
 //---------------------------------------------------------------------------------------------
 

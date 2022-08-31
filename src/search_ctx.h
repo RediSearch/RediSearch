@@ -41,7 +41,7 @@ struct RedisSearchCtx {
   RedisModuleString *ScoreIndexKeyName(const char *term, size_t len);
   RedisModuleString *NumericIndexKey(const char *field);
 
-  int AddDocument(RedisModuleString *name, const AddDocumentOptions *opts, QueryError *status);
+  int AddDocument(RedisModuleString *name, const AddDocumentOptions &opts, QueryError *status);
 };
 
 #if 0

@@ -48,10 +48,10 @@ struct mempool_t {
 
 protected:
   // stateless allocation function for the pool
-  virtual void *alloc();
+  virtual void *alloc() = 0;
 
   // free function for the pool
-  virtual void _free(void *);
+  virtual void _free(void *) = 0;
 
   static int mempoolDisable_g;
 };
@@ -78,8 +78,8 @@ class MemPool : public mempool_t {
 public:
   MemPool(size_t initialCap, size_t maxCap, bool isGlobal) : mempool_t(initialCap, maxCap, isGlobal) {}
 
-  void* alloc(std::size_t sz) { return get(); }
-  void free(void *p) { release(p); }
+  void *alloc() { return get(); }
+  void _free(void *p) { release(p); }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -87,7 +87,7 @@ public:
 template <class Pool>
 class MemPoolObject {
 public:
-	static Pool pool;
+  static Pool pool;
 
   void* operator new(std::size_t sz) { return pool.alloc(sz); }
   void operator delete(void *p) { pool.free(p); }

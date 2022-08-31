@@ -6,9 +6,15 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Initialize a static buffer and fill its data
 Buffer::Buffer(size_t cap, size_t offset) : cap(cap), offset(offset) {
   data = rm_malloc(cap);
+}
+
+//---------------------------------------------------------------------------------------------
+
+Buffer::Buffer(char *source, size_t cap, size_t offset = 0) : cap(cap), offset(offset) {
+  data = rm_malloc(cap);
+  memcpy(data, source, cap);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -91,7 +97,7 @@ RMBuffer::~RMBuffer() {
 Consme one byte from the buffer
 @return 0 if at end, 1 if consumed
 */
-inline size_t BufferReader::ReadByte(char *c) {
+size_t BufferReader::ReadByte(char *c) {
   *c = buf->data[pos++];
   return 1;
 }

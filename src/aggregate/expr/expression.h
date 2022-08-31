@@ -33,7 +33,7 @@ struct RSExpr : Object {
   };
   */
   RSExpr() {}
-  RSExpr(const char *e, size_t n, QueryError *status);
+  //RSExpr(const char *e, size_t n, QueryError *status);
   virtual ~RSExpr() {}
 
   virtual void Print() const;
@@ -114,11 +114,9 @@ struct RSArgList {
 
   RSArgList *Append(RSExpr *e = 0);
 
-  //size_t len;
-  //RSExpr *args[];
-  arrayof(RSExpr*) args;
+  Vector<RSExpr*> args;
 
-  size_t length() const { return array_len(args); }
+  size_t length() const { return args.size(); }
   const RSExpr *operator[](int i) const { return args[i]; }
 };
 
@@ -156,7 +154,7 @@ struct RSLookupExpr : public RSExpr {
 //---------------------------------------------------------------------------------------------
 
 struct RSLiteral : public RSExpr {
-  RSLiteral();
+  RSLiteral() {}
   virtual ~RSLiteral();
 
   RSValue literal;
@@ -209,12 +207,13 @@ struct ExprEval {
 //protected:
   int evalFunc(const RSFunctionExpr *f, RSValue *result);
   int evalOp(const RSExprOp *op, RSValue *result);
-  int getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition op);
   int evalInverted(const RSInverted *vv, RSValue *result);
   int evalPredicate(const RSPredicate *pred, RSValue *result);
   int evalProperty(const RSLookupExpr *e, RSValue *res);
 
-  int eval(const RSExpr *e, RSValue *res);
+  int getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition op);
+
+  int eval(const RSExpr *e, RSValue *res) { return e->Eval(*this, res); }
 };
 
 //---------------------------------------------------------------------------------------------

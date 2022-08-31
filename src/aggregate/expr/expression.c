@@ -19,9 +19,8 @@ int RSFunctionExpr::Eval(ExprEval &eval, RSValue *res) {
   for (size_t ii = 0; ii < nargs; ii++) {
     args[ii] = RSValue();
     argspp[ii] = &args[ii];
-    int internalRes = _args->args[ii]->Eval(eval, &args[ii]);
-    if (internalRes == EXPR_EVAL_ERR ||
-        (internalRes == EXPR_EVAL_NULL && Call != func_exists)) {
+    int res1 = _args->args[ii]->Eval(eval, &args[ii]);
+    if (res1 == EXPR_EVAL_ERR || res1 == EXPR_EVAL_NULL && Call != func_exists) {
       // TODO: Free other results
       goto cleanup;
     }
@@ -37,6 +36,8 @@ cleanup:
   }
   return rc;
 }
+
+//---------------------------------------------------------------------------------------------
 
 int RSFunctionExpr::GetLookupKeys(RLookup *lookup, QueryError *err) {
   for (size_t ii = 0; ii < _args->length(); ii++) {
@@ -102,6 +103,8 @@ cleanup:
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RSExprOp::GetLookupKeys(RLookup *lookup, QueryError *err) {
   auto rc = left->GetLookupKeys(lookup, err);
   if (rc != EXPR_EVAL_OK) return rc;
@@ -164,6 +167,8 @@ int RSInverted::Eval(ExprEval &eval, RSValue *result) {
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RSInverted::GetLookupKeys(RLookup *lookup, QueryError *err) {
   return child->GetLookupKeys(lookup, err);
 }
@@ -203,6 +208,8 @@ cleanup:
   r.Clear();
   return rc;
 }
+
+//---------------------------------------------------------------------------------------------
 
 int RSPredicate::GetLookupKeys(RLookup *lookup, QueryError *err) {
   auto rc = left->GetLookupKeys(lookup, err);
@@ -270,6 +277,12 @@ int RSLiteral::Eval(ExprEval &eval, RSValue *res) {
 
 int RSExpr::GetLookupKeys(RLookup *lookup, QueryError *err) {
   return EXPR_EVAL_OK;
+}
+
+//---------------------------------------------------------------------------------------------
+
+int ExprEval::Eval(RSValue *result) {
+  return eval(root, result);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -347,8 +360,7 @@ RPEvaluator::~RPEvaluator() {
 //---------------------------------------------------------------------------------------------
 
 RPEvaluator::RPEvaluator(const char *name, const RSExpr *ast, const RLookup *lookup,
-                         const RLookupKey *dstkey) :
-  ResultProcessor(name), eval(NULL, lookup, NULL, ast) {
+    const RLookupKey *dstkey) : ResultProcessor(name), eval(NULL, lookup, NULL, ast) {
   outkey = dstkey;
 }
 

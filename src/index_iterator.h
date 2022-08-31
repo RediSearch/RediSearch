@@ -25,10 +25,10 @@ class IndexReader;
 //---------------------------------------------------------------------------------------------
 
 struct IndexCriteriaTester {
-  IndexCriteriaTester();
-  ~IndexCriteriaTester();
+  IndexCriteriaTester() {}
+  virtual ~IndexCriteriaTester() {}
 
-  int Test(t_docId id) { return 1; }
+  virtual bool Test(t_docId id) { return true; }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -68,19 +68,19 @@ public:
 
   virtual IndexResult *GetCurrent() { return NULL; }
 
-  virtual size_t NumEstimated() const;
+  virtual size_t NumEstimated() const = 0;
 
-  virtual IndexCriteriaTester *GetCriteriaTester();
+  virtual IndexCriteriaTester *GetCriteriaTester() = 0;
 
   // Read the next entry from the iterator, into hit *e
   // Returns INDEXREAD_EOF if at the end
-  virtual int Read(IndexResult **e);
+  virtual int Read(IndexResult **e) = 0;
 
   // Skip to a docid, potentially reading the entry into hit, if the docId matches
-  virtual int SkipTo(t_docId docId, IndexResult **hit);
+  virtual int SkipTo(t_docId docId, IndexResult **hit) = 0;
 
   // the last docId read
-  virtual t_docId LastDocId() const;
+  virtual t_docId LastDocId() const = 0;
 
   // can we continue iteration?
   virtual bool HasNext() const { return false; }
@@ -90,10 +90,10 @@ public:
 
   // Abort the execution of the iterator and mark it as EOF.
   // This is used for early aborting in case of data consistency issues due to multi threading
-  virtual void Abort();
+  virtual void Abort() = 0;
 
   // Rewinde the iterator to the beginning and reset its state
-  virtual void Rewind();
+  virtual void Rewind() = 0;
 };
 
 //---------------------------------------------------------------------------------------------

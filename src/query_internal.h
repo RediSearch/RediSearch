@@ -28,13 +28,13 @@ struct QueryParse {
   const RSSearchOptions *opts;
   QueryError *status;
 
-  QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_,
-             const RSSearchOptions &opts_, QueryError *status_);
+  QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx,
+             const RSSearchOptions &opts, QueryError *status);
 
   QueryNode *ParseRaw();
 
   void Parse(int yymajor, const QueryToken &yyminor);
-  bool IsOk() { return status->HasError(); }
+  bool IsOk() const { return status->HasError(); }
 };
 
 //---------------------------------------------------------------------------------------------

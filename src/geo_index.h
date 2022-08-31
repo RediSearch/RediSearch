@@ -13,6 +13,8 @@
 struct GeoFilter;
 struct FieldSpec;
 
+//---------------------------------------------------------------------------------------------
+
 struct GeoIndex : Object {
   RedisSearchCtx *ctx;
   const FieldSpec fs;
@@ -31,8 +33,7 @@ struct GeoIndex : Object {
 
 //---------------------------------------------------------------------------------------------
 
-class GeoDistance {
-public:
+struct GeoDistance {
   typedef GeoDistance This;
 
   enum Unit {
@@ -55,7 +56,7 @@ public:
   const char *ToString() const;
 
   bool operator==(const This &gd) const { return dist == gd.dist; }
-  This &operator=(Unit u) { dist = u; return *this; }
+  //This &operator=(Unit u) { dist = u; return *this; }
   This &operator=(const This &x) { dist = x.dist; return *this; }
 };
 
@@ -68,15 +69,10 @@ struct GeoFilter : Object {
   GeoDistance unitType;
   String property;
 
-  // Create a geo filter from parsed strings and numbers
   GeoFilter(double lon, double lat, double radius, const char *unit);
-  ~GeoFilter();
 
-  // Parse a geo filter from redis arguments. We assume the filter args start at argv[0]
   GeoFilter(ArgsCursor *ac, QueryError *status);
 
-  // Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
-  // sane, unit is valid. Return 1 if valid, 0 if not, and set the error string into err
   bool Validate(QueryError *status);
 };
 

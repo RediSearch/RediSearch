@@ -280,9 +280,9 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr, co
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
-  IndexReader *ir = new NumericIndexReader(&nr->entries, sp, f);
-  IndexIterator *it(ir);
-  ir->isValidP = it->isValid;
+  auto ir = new NumericIndexReader(&nr->entries, sp, f);
+  IndexIterator *it = ir->NewReadIterator();
+  ir->isValidP = &it->isValid;
   return it;
 }
 

@@ -168,19 +168,19 @@ void Grouper::invokeReducers(RLookupRow &srcrow) {
 
 //---------------------------------------------------------------------------------------------
 
-int Grouper::Next(SearchResult &res) {
-  if (_yield) return Yield(res);
+int Grouper::Next(SearchResult *res) {
+  if (_yield) return Yield(*res);
 
   int rc;
-  while ((rc = upstream->Next(&res)) == RS_RESULT_OK) {
-    invokeReducers(res.rowdata);
-    res.Clear();
+  while ((rc = upstream->Next(res)) == RS_RESULT_OK) {
+    invokeReducers(res->rowdata);
+    res->Clear();
   }
   if (rc != RS_RESULT_EOF) return rc;
 
   _yield = true;
   parent->totalResults = groups.size();
-  return Yield(res);
+  return Yield(*res);
 }
 
 //---------------------------------------------------------------------------------------------

@@ -778,7 +778,7 @@ NI_CriteriaTester::NI_CriteriaTester(IndexCriteriaTester *childTester) {
 
 //---------------------------------------------------------------------------------------------
 
-int NI_CriteriaTester::Test(t_docId id) {
+bool NI_CriteriaTester::Test(t_docId id) {
   return !child->Test(id);
 }
 

@@ -458,7 +458,7 @@ RSDocumentMetadata::RSDocumentMetadata(const char *id, size_t idlen, double scor
 
 RSDocumentMetadata::RSDocumentMetadata(RSDocumentMetadata &&dmd) : id(dmd.id), keyPtr(dmd.keyPtr),
     score(dmd.score), maxFreq(dmd.maxFreq), len(dmd.len), flags(dmd.flags), payload(dmd.payload),
-    sortVector(dmd.sortVector), byteOffsets(dmd.byteOffsets), dmd_iter(dmd.dmd_iter), ref_count(dmd.ref_count) {
+    sortVector(dmd.sortVector), byteOffsets(dmd.byteOffsets), dmd_iter(dmd.dmd_iter) {
   dmd.payload = NULL;
   dmd.sortVector = NULL;
   dmd.byteOffsets = NULL;

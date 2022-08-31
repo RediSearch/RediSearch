@@ -5,15 +5,14 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
-
 RSArgList::RSArgList(RSExpr *e) {
-  args = array_new(RSExpr*, e ? 1 : 0);
-  if (e) args[0] = e;
+  if (e) args.push_back(e);
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSArgList *RSArgList::Append(RSExpr *e) {
-  *array_ensure_tail(&args, RSExpr*) = e;
+  args.push_back(e);
   return this;
 }
 
@@ -110,9 +109,8 @@ RSInverted::RSInverted(RSExpr *child) {
 //---------------------------------------------------------------------------------------------
 
 RSArgList::~RSArgList() {
-  size_t len = array_len(args);
-  for (size_t i = 0; i < len; i++) {
-    delete args[i];
+  for (auto arg: args) {
+    delete arg;
   }
 }
 
@@ -198,6 +196,10 @@ void ExprAST_Print(const RSExpr *e) {
   e->Print(e);
 }
 
+#endif // 0
+
+//---------------------------------------------------------------------------------------------
+
 RSExpr *RSExpr::ParseAST(const char *e, size_t n, QueryError *status) {
   char *errtmp = NULL;
   RS_LOG_ASSERT(!status->HasError(), "Query has error")
@@ -207,8 +209,7 @@ RSExpr *RSExpr::ParseAST(const char *e, size_t n, QueryError *status) {
     status->SetError(QUERY_EEXPR, errtmp);
   }
   rm_free(errtmp);
+  return ret;
 }
-
-#endif // 0
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

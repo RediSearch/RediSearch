@@ -33,10 +33,7 @@ void SearchResult::Clear() {
   }
 
   rowdata.Wipe();
-  if (dmd) {
-    dmd->Decref();
-    dmd = NULL;
-  }
+  dmd.reset();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -91,7 +88,6 @@ int RPIndexIterator::Next(SearchResult *res) {
   res->score = 0;
   res->dmd.reset(dmd);
   res->rowdata.sv = dmd->sortVector;
-  dmd->Incref();
   return RS_RESULT_OK;
 }
 

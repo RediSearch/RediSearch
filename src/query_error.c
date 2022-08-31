@@ -154,3 +154,14 @@ const char *QueryError::GetError() const {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
+Error::Error(const char *fmt, ...) : std::runtime_error("") {
+  va_list ap;
+  va_start(ap, fmt);
+  char *msg;
+  rm_vasprintf(&msg, fmt, ap);
+  va_end(ap);
+  *(std::runtime_error*)this = std::runtime_error(msg);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////

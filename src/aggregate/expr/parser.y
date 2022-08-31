@@ -16,7 +16,7 @@
 %left NUMBER.
 %right ARGLIST.
 
-%extra_argument { RSExprParseCtx *ctx }
+%extra_argument { RSExprParse *ctx }
 
 %token_type { RSExprToken }
 %default_type {RSExpr *}

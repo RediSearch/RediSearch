@@ -43,7 +43,6 @@ enum class StemmerType {
 
 struct Stemmer : public Object {
   Stemmer(StemmerType type, RSLanguage language);
-  virtual ~Stemmer();
 
   virtual std::string_view Stem(std::string_view word);
   virtual bool Reset(StemmerType type, RSLanguage language);

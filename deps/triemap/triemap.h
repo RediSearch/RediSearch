@@ -137,7 +137,7 @@ struct TrieMapIterator : public Object {
 
   void Push(TrieMapNode *node);
   void Pop();
-  void Free();
+  //void Free();
   bool Next(char **ptr, tm_len_t *len, void **value);
   stackNode current() { return stack.back(); } // the current top of the iterator stack
 };

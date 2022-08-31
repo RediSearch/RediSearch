@@ -98,8 +98,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         break;
 
       } else {
-        status->SetErrorFmt(QUERY_EADDARGS, "Unknown keyword `%.*s` provided", (int)narg,
-                               s);
+        status->SetErrorFmt(QUERY_EADDARGS, "Unknown keyword `%.*s` provided", (int)narg, s);
         return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below
@@ -138,33 +137,33 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
 
 //---------------------------------------------------------------------------------------------
 
-int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOptions *opts,
+int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOptions &opts,
                                 QueryError *status) {
   int rc = REDISMODULE_ERR;
   // If the ID is 0, then the document does not exist.
   IndexSpec *sp = spec;
   int exists = !!sp->docs.GetId(name);
 
-  AddDocumentCtx *aCtx = NULL;
   RedisModuleCtx *ctx = redisCtx;
-  Document doc = *new Document(name, opts->score, opts->language);
+  Document *doc = new Document(name, opts.score, opts.language); //@@@ TODO: doc leaks on error
+  AddDocumentCtx *add = NULL;
   uint32_t addOptions;
 
-  if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
+  if (exists && !(opts.options & DOCUMENT_ADD_REPLACE)) {
     status->SetError(QUERY_EDOCEXISTS, NULL);
     goto error;
   }
 
   // handle update condition, only if the document exists
-  if (exists && opts->evalExpr) {
+  if (exists && opts.evalExpr) {
     int res = 0;
-    if (Document::EvalExpression(this, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
+    if (Document::EvalExpression(this, name, opts.evalExpr, &res, status) == REDISMODULE_OK) {
       if (res == 0) {
         status->SetError(QUERY_EDOCNOTADDED, NULL);
         goto error;
       }
     } else {
-      printf("Eval failed! (%s)\n", opts->evalExpr);
+      printf("Eval failed! (%s)\n", opts.evalExpr);
       if (status->code == QUERY_ENOPROPVAL) {
         status->ClearError();
         status->SetCode(QUERY_EDOCNOTADDED);
@@ -173,42 +172,38 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
     }
   }
 
-  if (opts->payload) {
+  if (opts.payload) {
     size_t npayload = 0;
-    const char *payload = RedisModule_StringPtrLen(opts->payload, &npayload);
-    doc.SetPayload(new RSPayload{payload, npayload});
+    const char *payload = RedisModule_StringPtrLen(opts.payload, &npayload);
+    doc->SetPayload(new RSPayload{payload, npayload});
   }
-  doc.LoadPairwiseArgs(opts->fieldsArray, opts->numFieldElems);
+  doc->LoadPairwiseArgs(opts.fieldsArray, opts.numFieldElems);
 
-  if (!(opts->options & DOCUMENT_ADD_NOSAVE)) {
+  if (!(opts.options & DOCUMENT_ADD_NOSAVE)) {
     int saveopts = 0;
-    if (opts->options & DOCUMENT_ADD_NOCREATE) {
+    if (opts.options & DOCUMENT_ADD_NOCREATE) {
       saveopts |= REDIS_SAVEDOC_NOCREATE;
     }
     RedisSearchCtx sctx{redisCtx, sp};
-    if (Redis_SaveDocument(&sctx, &doc, saveopts, status) != REDISMODULE_OK) {
+    if (Redis_SaveDocument(&sctx, doc, saveopts, status) != REDISMODULE_OK) {
       goto error;
     }
   }
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL), doc.NumFields());
-  aCtx = new AddDocumentCtx(sp, &doc, status);
-  if (aCtx == NULL) {
-    goto error;
-  }
-
-  addOptions = opts->options;
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL), doc->NumFields());
+  add = new AddDocumentCtx(sp, doc, status);
+  addOptions = opts.options;
 
   if (!exists) {
     // If the document does not exist, remove replace/partial settings
     addOptions &= ~(DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_PARTIAL);
   }
   if (addOptions & DOCUMENT_ADD_CURTHREAD) {
-    aCtx->stateFlags |= ACTX_F_NOBLOCK;
+    add->stateFlags |= ACTX_F_NOBLOCK;
   }
 
-  aCtx->donecb = opts->donecb;
-  aCtx->Submit(this, addOptions);
+  add->donecb = opts.donecb;
+  add->Submit(this, addOptions);
   return REDISMODULE_OK;
 
 error:
@@ -237,12 +232,19 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
-  ArgsCursor ac;
   AddDocumentOptions opts = {.donecb = replyCallback};
   QueryError status;
-  RedisSearchCtx *sctx = NULL;
-  IndexSpec *sp;
 
+  struct Cleanup {
+    QueryError &status;
+    Cleanup(QueryError &status) : status(status) {}
+    ~Cleanup() {
+      status.ClearError();
+    }
+  };
+  Cleanup cleanup(status);
+
+  ArgsCursor ac;
   ac.InitRString(argv + 3, argc - 3);
 
   int rv = 0;
@@ -256,20 +258,20 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (status.HasError()) {
     RedisModule_ReplyWithError(ctx, status.GetError());
-    goto cleanup;
+    return REDISMODULE_OK;
   }
 
-  sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
-    goto cleanup;
+    return REDISMODULE_OK;
   }
 
   if (!CheckConcurrentSupport(ctx) || (sp->flags & Index_Temporary) || !canBlock) {
     opts.options |= DOCUMENT_ADD_CURTHREAD;
   }
-  sctx = new RedisSearchCtx(ctx, sp);
-  rv = RS_AddDocument(sctx, argv[2], &opts, &status);
+  RedisSearchCtx sctx{ctx, sp};
+  rv = sctx.AddDocument(argv[2], opts, &status);
   if (rv != REDISMODULE_OK) {
     if (status.code == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithSimpleString(ctx, "NOADD");
@@ -278,13 +280,10 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
   } else {
     // Replicate *here*
-    // note: we inject the index name manually so that we eliminate alias
-    // lookups on smaller documents
+    // note: we inject the index name manually so that we eliminate alias lookups on smaller documents
     RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "cv", sp->name, argv + 2, argc - 2);
   }
 
-cleanup:
-  status.ClearError();
   return REDISMODULE_OK;
 }
 

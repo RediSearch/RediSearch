@@ -586,7 +586,7 @@ cleanup:
  * Returns  REDISMODULE_ERR on failure, OK otherwise
  */
 
-static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
+static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *exprText,
                                     int *result, QueryError *status) {
   int rc = REDISMODULE_ERR;
   const RSDocumentMetadata *dmd = sctx->spec->docs.GetByKey(key);
@@ -597,43 +597,34 @@ static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key
   }
 
   // Try to parser the expression first, fail if we can't
+  ;
   try {
-    RSExpr e(expr, strlen(expr), status);
-
-    if (status->HasError()) {
+    std::unique_ptr<RSExpr> expr{RSExpr::ParseAST(exprText, strlen(exprText), status)};
+    if (!expr || status->HasError()) {
       return REDISMODULE_ERR;
     }
 
     RLookupRow row;
     RSValue rv;
-    RLookupLoadOptions *loadopts = NULL;
-    ExprEval *evaluator = NULL;
     IndexSpecCache *spcache = sctx->spec->GetSpecCache();
-    RLookup lookup_s(spcache);
-    if (e.GetLookupKeys(&lookup_s, status) == EXPR_EVAL_ERR) {
-      goto done;
+    RLookup lookup_s{spcache};
+    if (expr->GetLookupKeys(&lookup_s, status) == EXPR_EVAL_ERR) {
+      return REDISMODULE_ERR;
     }
 
-    loadopts = new RLookupLoadOptions(sctx, dmd, status);
-    if (lookup_s.LoadDocument(&row, loadopts) != REDISMODULE_OK) {
-      delete loadopts;
-      goto done;
+     RLookupLoadOptions loadopts{sctx, dmd, status};
+    if (lookup_s.LoadDocument(&row, &loadopts) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
     }
 
-    evaluator = new ExprEval(status, &lookup_s, &row, &e);
-    if (evaluator->Eval(&rv) != EXPR_EVAL_OK) {
-      delete evaluator;
-      goto done;
+    ExprEval evaluator{status, &lookup_s, &row, expr.get()};
+    if (evaluator.Eval(&rv) != EXPR_EVAL_OK) {
+      return REDISMODULE_ERR;
     }
 
     *result = rv.BoolTest();
     rv.Clear();
-    rc = REDISMODULE_OK;
-
-  // Clean up:
-done:
-    row.Cleanup();
-    return rc;
+    return REDISMODULE_OK;
   } catch (...) {
     return REDISMODULE_ERR;
   }

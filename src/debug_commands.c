@@ -640,9 +640,6 @@ DEBUG_COMMAND(DocInfo) {
   RedisModule_ReplyWithSimpleString(ctx, "max_freq");
   RedisModule_ReplyWithLongLong(ctx, dmd->maxFreq);
   nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "refcount");
-  RedisModule_ReplyWithLongLong(ctx, dmd->ref_count);
-  nelem += 2;
   if (dmd->sortVector) {
     RedisModule_ReplyWithSimpleString(ctx, "sortables");
     replySortVector(dmd, sctx);

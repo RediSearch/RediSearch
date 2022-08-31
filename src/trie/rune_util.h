@@ -22,10 +22,10 @@ rune runeFold(rune r);
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
 String runesToStr(const rune *in, size_t len);
 
-rune *strToFoldedRunes(const char *str, size_t *len, bool dynamic, rune *buf = NULL);
+rune *strToFoldedRunes(const char *str, size_t *len, bool &dynamic, rune *buf = NULL);
 
 // Convert a utf-8 string to constant width runes
-rune *strToRunes(const char *str, size_t *len, bool dynamic, rune *buf = NULL);
+rune *strToRunes(const char *str, size_t *len, bool &dynamic, rune *buf = NULL);
 
 // Decode a string to a rune in-place
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);

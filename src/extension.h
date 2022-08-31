@@ -33,8 +33,8 @@ struct Extensions {
   UnorderedMap<String, Scorer> scorers;
   UnorderedMap<String, QueryExpander::Factory> queryExpanders;
 
-  Extensions();
-  ~Extensions();
+  //Extensions();
+  //~Extensions();
 
   Scorer GetScorer(const char *name);
   QueryExpander::Factory GetQueryExpander(const char *name);

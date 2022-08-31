@@ -154,7 +154,7 @@ struct RSDocumentMetadata : Object {
   struct RSByteOffsets *byteOffsets;
 
   List<RSDocumentMetadata>::iterator dmd_iter;
-  uint32_t ref_count;
+  //uint32_t ref_count;
 
   RSDocumentMetadata(const char *id, size_t idlen, double score, Mask(RSDocumentFlags) flags,
     RSPayload *payload, t_docId docId);
@@ -167,8 +167,8 @@ struct RSDocumentMetadata : Object {
 
   RedisModuleString *CreateKeyString(RedisModuleCtx *ctx) const;
 
-  void Decref();
-  void Incref() { ++ref_count; }
+  //void Decref();
+  //void Incref() { ++ref_count; }
 
   bool IsDeleted() const { return !!(flags & Document_Deleted); }
 

@@ -17,11 +17,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct ResultProcessor;
-struct RLookup;
-
-//---------------------------------------------------------------------------------------------
-
 // Result Processor Chain
 //
 // We use a chain of result processors to sort, score, filter and page the results coming from the
@@ -35,7 +30,15 @@ struct RLookup;
 // The query plan builds the chain based on the request, and then the chain just processes the
 // results.
 
+//---------------------------------------------------------------------------------------------
+
+struct ResultProcessor;
+struct RLookup;
+
+//---------------------------------------------------------------------------------------------
+
 // Query processing state
+
 enum QITRState {
   QITR_S_RUNNING,
   QITR_S_ABORTED,
@@ -138,7 +141,7 @@ struct ResultProcessor : public Object {
   // The populated structure (if RS_RESULT_OK is returned) does contain references
   // to document data. Callers *MUST* ensure they are eventually freed.
 
-  virtual int Next(SearchResult *res);
+  virtual int Next(SearchResult *res) = 0;
 
   ResultProcessor(const char *name) : name(name) {}
   virtual ~ResultProcessor() {}
@@ -153,6 +156,7 @@ struct ResultProcessor : public Object {
 
 // Base Result Processor - this processor is the topmost processor of every processing chain.
 // It takes the raw index results from the index, and builds the search result to be sent downstream.
+
 struct RPIndexIterator : public ResultProcessor {
   IndexIterator *iiter;
 

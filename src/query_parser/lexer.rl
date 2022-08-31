@@ -259,6 +259,6 @@ QueryNode *QueryParse::ParseRaw() {
   return root;
 }
 
-void QueryParse::Parse(int yymajor, QueryToken yyminor) {
+void QueryParse::Parse(int yymajor, const QueryToken &yyminor) {
   RSQuery_Parse(parser, yymajor, yyminor, this);
 }

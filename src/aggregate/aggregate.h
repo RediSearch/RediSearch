@@ -214,7 +214,7 @@ struct Grouper : ResultProcessor {
 
   size_t numReducers() const;
 
-  virtual int Next(SearchResult &res);
+  virtual int Next(SearchResult *res);
   int Yield(SearchResult &res);
 
   void AddReducer(Reducer *r, RLookupKey *dstkey);

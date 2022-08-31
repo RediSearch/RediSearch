@@ -206,12 +206,12 @@ struct IndexReader : IndexIterator {
   uint32_t currentBlock;
   IndexDecoder decoder;
   size_t len; // number of records read
-  TermResult *record; // The record we are decoding into
-  int atEnd;
+  TermResult *record; // The record we are decoding into, @@@TODO: ownership
+  int atEnd; //@@ bool?
 
   // If present, this pointer is updated when the end has been reached.
   // This is an optimization to avoid calling HasNext() each time.
-  bool isValidP;
+  bool *isValidP;
 
   // This marker lets us know whether the garbage collector has visited this index while the reading
   // thread was asleep, and reset the state in a deeper way
@@ -232,19 +232,20 @@ struct IndexReader : IndexIterator {
   int GenericRead(IndexResult *res); // Read an entry from an inverted index
   int Read(IndexResult **e); // Read an entry from an inverted index into IndexResult
 
-  int Next(); // Move to the next entry in an inverted index, without reading the whole entry
-  int SkipTo(t_docId docId, IndexResult **hit);
-  int SkipToBlock(t_docId docId);
-  void Abort();
-  void Rewind();
+  virtual int SkipTo(t_docId docId, IndexResult **hit);
+  virtual int SkipToBlock(t_docId docId);
+  virtual void Abort();
+  virtual void Rewind();
+  virtual IndexCriteriaTester *GetCriteriaTester();
+
+  virtual size_t Len() const { return len; }
+  virtual size_t NumEstimated() const;
+  virtual t_docId LastDocId() const; // LastDocId of an inverted index stateful reader
 
   IndexResult *Current(void *ctx);
   IndexBlock &CurrentBlock(); // current block while reading the index
 
-  size_t Len() const { return len; }
   size_t NumDocs() const; // The number of docs in an inverted index entry
-  size_t NumEstimated() const;
-  t_docId LastDocId() const; // LastDocId of an inverted index stateful reader
 
   // Create a reader iterator that iterates an inverted index record
   IndexIterator *NewReadIterator();
@@ -260,15 +261,18 @@ struct IndexReadIterator : IndexIterator {
   IndexReader *_ir;
 
   IndexReadIterator(IndexReader *ir);
-  ~IndexReadIterator();
+  virtual ~IndexReadIterator();
 
   virtual int Read(IndexResult **hit) { return _ir->Read(hit); }
+
+  virtual int SkipTo(t_docId docId, IndexResult **hit) { return _ir->SkipTo(docId, hit); }
   virtual void Abort() { _ir->Abort(); }
   virtual void Rewind() { _ir->Rewind(); }
-  virtual int SkipTo(t_docId docId, IndexResult **hit) { return _ir->SkipTo(docId, hit); }
-  virtual size_t NumEstimated() const { return _ir->NumEstimated(); }
   virtual IndexCriteriaTester *GetCriteriaTester() { return _ir->GetCriteriaTester(); }
+
   virtual size_t Len() const { return _ir->Len(); }
+  virtual size_t NumEstimated() const { return _ir->NumEstimated(); }
+  virtual t_docId LastDocId() const { return _ir->LastDocId(); }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -282,10 +286,33 @@ struct TermIndexReader : IndexReader {
 
 //---------------------------------------------------------------------------------------------
 
+struct TermIndexCriteriaTester : IndexCriteriaTester {
+  String term;
+  t_fieldMask fieldMask;
+  const IndexSpec *spec;
+
+  TermIndexCriteriaTester(IndexReader *ir);
+
+  bool Test(t_docId id);
+};
+
+//---------------------------------------------------------------------------------------------
+
 struct NumericIndexReader : IndexReader {
   // Create a new index reader for numeric records, optionally using a given filter.
   // If the filter is NULL we will return all the records in the index.
   NumericIndexReader(InvertedIndex *idx, const IndexSpec *sp = 0, const NumericFilter *flt = 0);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct NumericIndexCriteriaTester : IndexCriteriaTester {
+  NumericFilter nf;
+  const IndexSpec *spec;
+
+  NumericIndexCriteriaTester(IndexReader *ir, const NumericFilter &nf) : spec(ir->sp), nf(nf) {}
+
+  bool  Test(t_docId id);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
