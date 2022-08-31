@@ -13,6 +13,3 @@
 [submodule "deps/VectorSimilarity"]
 	path = deps/VectorSimilarity
 	url = https://github.com/RedisAI/VectorSimilarity.git
-[submodule "deps/RedisJSON"]
-	path = deps/RedisJSON
-	url = https://github.com/RedisJSON/RedisJSON.git
