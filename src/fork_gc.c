@@ -1147,8 +1147,6 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   int gcrv = 1;
 
-  RedisModule_AutoMemory(ctx);
-
   // Check if RDB is loading - not needed after the first time we find out that rdb is not
   // reloading
   if (gc->rdbPossiblyLoading && !gc->sp) {
