@@ -918,6 +918,9 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
         rCtx->cachedResult = largest->result;
         rm_free(largest);
       }
+      else {
+        rCtx->cachedResult = res;
+      }
     }
   }
 }
