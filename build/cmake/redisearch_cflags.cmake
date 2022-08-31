@@ -74,12 +74,11 @@ set(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
 
 #----------------------------------------------------------------------------------------------
 
-#if (${OS} STREQUAL "linux")
-#	set(RS_LINK_LIBS m dl rt)
-#elseif (${OS} STREQUAL "macos")
-#	set(RS_LINK_LIBS m dl)
-#endif()
-set(RS_LINK_LIBS m dl rt)
+if (${OS} STREQUAL "linux")
+	set(RS_LINK_LIBS m dl rt)
+elseif (${OS} STREQUAL "macos")
+	set(RS_LINK_LIBS m dl)
+endif()
 
 message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
