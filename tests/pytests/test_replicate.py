@@ -257,7 +257,11 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
     # both docs exist
     res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
-    env.expect('WAIT', '1', '10000').equal(1)
+    # Enforce propagation to slave (WAIT is propagating WRITE commands and FT.CREATE is not a WRITE command)
+    master.execute_command('HSET', 'foo', 'bar', '42')
+    res = master.execute_command('WAIT', '1', '10000')
+    env.assertEqual(res, 1)
+
     res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
 
