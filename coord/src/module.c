@@ -622,6 +622,10 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
     if(strcasestr(req->queryString, "KNN")) {
       prepareOptionalTopKCase(req, argv, argc, status);
+      if (status->code != QUERY_OK) {
+        searchRequestCtx_Free(req);
+        return NULL;
+      }
     }
   }
 
