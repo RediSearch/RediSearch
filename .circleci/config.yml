@@ -679,7 +679,7 @@ workflows:
     jobs:
       - build-linux-debian:
           name: build
-          <<: *not-on-integ-branch
+          <<: *on-perf-and-version-tags
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -696,18 +696,18 @@ workflows:
           context: common
           <<: *on-integ-and-version-tags
       - coverage:
-          <<: *on-any-branch
+          <<: *on-perf-and-version-tags
       - sanitize:
           name: sanitize-<< matrix.san-type >>
           matrix:
             parameters:
               san-type: [address] # [address, memory]
-          <<: *on-any-branch
+          <<: *on-perf-and-version-tags
       - valgrind-memcheck:
           <<: *never
       - benchmark-search-oss-standalone:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch
       - benchmark-vecsim-oss-standalone:
           context: common
           <<: *on-perf-and-version-tags

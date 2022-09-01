@@ -56,8 +56,25 @@ static inline size_t Buffer_Read(BufferReader *br, void *data, size_t len) {
   // if (br->pos + len > b->cap) {
   //   return 0;
   // }
+  switch (len) {
+    case 1:
+      *(uint8_t *)data = BUFFER_READ_BYTE(br);
+      break;
+    case 2:
+      *(uint16_t *)data = /*ntohs*/(*(uint16_t *)&BUFFER_READ_BYTE(br));
+      break;
+    case 4:
+      *(uint32_t *)data = /*ntohl*/(*(uint32_t *)&BUFFER_READ_BYTE(br));
+      break;
+    case 8:
+      *(uint64_t *)data = /*ntohll*/(*(uint64_t *)&BUFFER_READ_BYTE(br));
+      break;
+    default:
+      memcpy(data, &BUFFER_READ_BYTE(br), len);
+      break;
+  }
 
-  memcpy(data, br->buf->data + br->pos, len);
+  //memcpy(data, br->buf->data + br->pos, len);
   br->pos += len;
   // b->offset += len;
 
