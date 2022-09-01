@@ -5,6 +5,11 @@
 
 #define GEO_RANGE_COUNT 9
 
+typedef union {
+    double d;
+    uint64_t u;
+} GeoBorder;
+
 /*
  * Encode longetude and latitude doubles into a single double.
  * This value can be sorted and used for distance.
@@ -22,8 +27,10 @@ int  decodeGeo(double bits, double *xy);
  * `isWithinRadiusLonLat` must be use the filter out results that are within
  * the squares but not in radius.
  */
-void calcRanges(double longitude, double latitude, double radius_meters,
+void calcRangesCircle(double longitude, double latitude, double radius_meters,
                 GeoHashRange *ranges);
+void calcRangesBox(double longitude1, double latitude1,
+                   double longitude2, double latitude2 , GeoHashRange *ranges);
 
 /*
  * Return true is distance is smaller than radius. radius must be in meters.

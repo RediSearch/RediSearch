@@ -22,6 +22,7 @@ typedef struct {
 
 QueryParam *NewQueryParam(QueryParamType type);
 QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *lon, QueryToken *lat, QueryToken *radius, QueryToken *unit);
+QueryParam *NewGeoFilterBoxQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *lon, QueryToken *lat, QueryToken *lonBox, QueryToken *latBox);
 
 QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax);
 

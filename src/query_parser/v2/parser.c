@@ -2046,16 +2046,16 @@ yylhsminor.yy27 = yymsp[0].minor.yy27;
   else if (!badToken && yymsp[-3].minor.yy0.type != QT_NUMERIC)
     badToken = &yymsp[-3].minor.yy0;
   if (yymsp[-2].minor.yy0.type == QT_PARAM_ANY)
-    yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC;
+    yymsp[-2].minor.yy0.type = QT_PARAM_GEO_COORD;
   else if (!badToken && yymsp[-2].minor.yy0.type != QT_NUMERIC)
     badToken = &yymsp[-2].minor.yy0;
   if (yymsp[-1].minor.yy0.type == QT_PARAM_ANY)
-    yymsp[-1].minor.yy0.type = QT_PARAM_GEO_UNIT;
-  else if (!badToken && yymsp[-1].minor.yy0.type != QT_TERM)
+    yymsp[-1].minor.yy0.type = QT_PARAM_GEO_COORD;
+  else if (!badToken && yymsp[-1].minor.yy0.type != QT_NUMERIC)
     badToken = &yymsp[-1].minor.yy0;
 
   if (!badToken) {
-    yymsp[-5].minor.yy6 = NewGeoFilterQueryParam_WithParams(ctx, &yymsp[-4].minor.yy0, &yymsp[-3].minor.yy0, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0);
+    yymsp[-5].minor.yy6 = NewGeoFilterBoxQueryParam_WithParams(ctx, &yymsp[-4].minor.yy0, &yymsp[-3].minor.yy0, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0);
   } else {
     reportSyntaxError(ctx->status, badToken, "Syntax error");
     yymsp[-5].minor.yy6 = NULL;

@@ -31,10 +31,18 @@ typedef enum {  // Placeholder for bad/invalid unit
 #undef X
 } GeoDistance;
 
+typedef enum {
+  GeoType_Circle = 0,
+  GeoType_Box = 1,
+} GeoType;
+
 typedef struct GeoFilter {
+  GeoType type;
   const char *property;
   double lat;
   double lon;
+  double latBox;
+  double lonBox;
   double radius;
   GeoDistance unitType;
   NumericFilter **numericFilters;
@@ -42,6 +50,7 @@ typedef struct GeoFilter {
 
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
+GeoFilter *NewGeoFilterBox(double lon1, double lat1, double lon2, double lat2);
 
 /*
  * Substitute parameters with actual values used by geo filter
@@ -72,3 +81,4 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf);
 #define INVALID_GEOHASH -1.0
 double calcGeoHash(double lon, double lat);
 int isWithinRadius(const GeoFilter *gf, double d, double *distance);
+int isWithinBox(const GeoFilter *gf, double d);

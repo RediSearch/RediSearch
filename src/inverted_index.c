@@ -665,7 +665,11 @@ DECODER(readNumeric) {
       // printf("Checking against filter: %d\n", rv);
       return rv;
     } else {
-      return isWithinRadius(f->geoFilter, res->num.value, NULL);
+      if (((GeoFilter *)f->geoFilter)->type == GeoType_Circle) {
+        return isWithinRadius(f->geoFilter, res->num.value, NULL);
+      } else {
+        return isWithinBox(f->geoFilter, res->num.value);
+      }
     }
   }
   // printf("Field matches.. hurray!\n");
