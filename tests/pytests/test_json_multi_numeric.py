@@ -490,4 +490,43 @@ def testInfoStatsAndSearchAsSingle(env):
         res_multi = conn.execute_command('FT.SEARCH', 'idx:multi', '@val1:[{} {}]'.format(val_from, val_to), 'NOCONTENT')
         res_multi = list(map(lambda v: v.replace(':multi:', '::') if isinstance(v, str) else v, res_multi))
         env.assertEqual(res_single, res_multi, message = '[{} {}]'.format(val_from, val_to))
-        
+
+def testConsecutiveValues(env):
+    """ Test with many consecutive values which should cause range tree to do rebalancing (also for code coverage) """
+    
+    env.skipOnCluster()
+    if env.env == 'existing-env':
+        env.skip()
+    
+    conn = getConnectionByEnv(env)
+
+    num_docs = 10000
+    
+    # Add values from -5000 to 5000
+    # Add to the right, rebalance to the left
+    i = -5000
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'NUMERIC').ok()
+    for doc in range(1, num_docs + 1):
+        conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'val': [i, i+1]}))
+        i = i + 1
+    
+    env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@val:[5 6]', 'NOCONTENT').equal([3, 'doc:5005', 'doc:5006', 'doc:5007'])
+    env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
+    summary1 = env.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
+
+    # Add values from 5000 to -5000
+    # Add to the left, rebalance to the right
+    env.flush()
+    i = 5000
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'NUMERIC').ok()
+    for doc in range(1, num_docs + 1):
+        conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'val': [i, i-1]}))
+        i = i - 1
+    
+    env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@val:[-6 -5]', 'NOCONTENT').equal([3, 'doc:5005', 'doc:5006', 'doc:5007'])
+    env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
+    summary2 = env.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
+
+    env.assertEqual(summary1, summary2)
