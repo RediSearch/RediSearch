@@ -271,7 +271,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   int card = n->range->card;
   
   if (card * NR_CARD_CHECK >= n->range->splitCard || 
-      (n->range->entries->numDocs > NR_MAXRANGE_SIZE && card > 1)) {
+      (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
