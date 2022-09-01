@@ -15,7 +15,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
  * Get the sorting key of the result. This will be the sorting key of the last
  * RLookup registry. Returns NULL if there is no sorting key
  */
-static const RSValue *getSortKey(AREQ *req, const SearchResult *r, const PLN_ArrangeStep *astp) {
+static const RSValue *getSortKey(AREQ *req, RSValue *rsv, const SearchResult *r, const PLN_ArrangeStep *astp) {
   if (!astp || !(astp->sortkeysLK)) {
     return NULL;
   }
@@ -23,7 +23,15 @@ static const RSValue *getSortKey(AREQ *req, const SearchResult *r, const PLN_Arr
   if ((kk->flags & RLOOKUP_F_SVSRC) && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
     return r->rowdata.sv->values[kk->svidx];
   } else {
-    return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
+    // align field value with its type
+    RSValue *v = RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
+    if (kk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE) {
+      double d;
+      RSValue_ToNumber(v, &d);
+      RSValue_SetNumber(rsv, d);
+      return rsv;
+    }
+    return v;
   }
 }
 
@@ -73,7 +81,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
   if ((options & QEXEC_F_SEND_SORTKEYS)) {
     count++;
-    const RSValue *sortkey = getSortKey(req, r, cv->lastAstp);
+    RSValue rsv;
+    const RSValue *sortkey = getSortKey(req, &rsv, r, cv->lastAstp);
+
     RedisModuleString *rskey = NULL;
   reeval_sortkey:
     if (sortkey) {
