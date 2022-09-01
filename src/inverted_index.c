@@ -1350,6 +1350,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
 
   params->bytesBeforFix = blk->buf.offset;
 
+  int docExists;
   while (!BufferReader_AtEnd(&br)) {
     static const IndexDecoderCtx empty = {0};
     const char *bufBegin = BufferReader_Current(&br);
@@ -1373,7 +1374,9 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
 
     isFirstRes = false;
     lastReadId = res->docId;
-    int docExists = DocTable_Exists(dt, res->docId);
+    
+    // Lookup the doc (for the same doc use the previous result)
+    docExists = frag_incr ? DocTable_Exists(dt, res->docId) : docExists;
 
     // If we found a deleted document, we increment the number of found "frags",
     // and not write anything, so the reader will advance but the writer won't.
