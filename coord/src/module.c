@@ -93,6 +93,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       // the arrays were empty - return an empty array
       RedisModule_ReplyWithArray(ctx, 0);
     } else {
+      TrieMap_Free(dict, NULL);
       return RedisModule_ReplyWithError(ctx, err ? (const char *)err : "Could not perfrom query");
     }
     goto cleanup;
@@ -545,7 +546,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   searchRequestCtx *req = rm_malloc(sizeof(searchRequestCtx));
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
-    free(req);
+    searchRequestCtx_Free(req);
     return NULL;
   }
 
@@ -583,7 +584,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   // Parse LIMIT argument
   RMUtil_ParseArgsAfter("LIMIT", argv + argvOffset, argc - argvOffset, "ll", &req->offset, &req->limit);
   if (req->limit < 0 || req->offset < 0) {
-    rm_free(req);
+    searchRequestCtx_Free(req);
     return NULL;
   }
   req->requestedResultsCount = req->limit + req->offset;
@@ -596,7 +597,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     req->withSortby = true;
     // Check for command error where no sortkey is given.
     if(sortByIndex + 1 >= argc) {
-      rm_free(req);
+      searchRequestCtx_Free(req);
       return NULL;
     }
     prepareSortbyCase(req, argv, argc, sortByIndex);
@@ -612,7 +613,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       ArgsCursor ac;
       ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
       if (parseDialect(&dialect, &ac, status) != REDISMODULE_OK) {
-        rm_free(req);
+        searchRequestCtx_Free(req);
         return NULL;
       }
   }
