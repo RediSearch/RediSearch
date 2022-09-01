@@ -1166,6 +1166,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // got no replies - this means timeout
   if (count == 0 || req->limit < 0) {
     int res = RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+    searchRequestCtx_Free(req);
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mc);
     RedisModule_FreeThreadSafeContext(ctx);
@@ -1176,6 +1177,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   if (MRReply_Type(*replies) == MR_REPLY_ERROR) {
     int res = MR_ReplyWithMRReply(ctx, *replies);
+    searchRequestCtx_Free(req);
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mc);
     RedisModule_FreeThreadSafeContext(ctx);
