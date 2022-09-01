@@ -425,8 +425,6 @@ CONFIG_SETTER(setGcPolicy) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcPolicy = GCPolicy_Fork;
-  } else if (!strcasecmp(policy, "LEGACY")) {
-    config->gcPolicy = GCPolicy_Sync;
   } else {
     RETURN_ERROR("Invalid GC Policy value");
     return REDISMODULE_ERR;
