@@ -271,7 +271,6 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
   char *str;
   const char *constStr;
   RedisModuleString *rstr;
-  RSValue *rs_val;
   long long ll;
   double dd;
   int i;
@@ -293,14 +292,38 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType_Array:
     case JSONType_Object:
       japi->getJSON(json, ctx, &rstr);
-      rs_val = RS_StealRedisStringVal(rstr);
-      return rs_val;
+      return RS_StealRedisStringVal(rstr);
     case JSONType_Null:
       return RS_NullVal();
     case JSONType__EOF:
       RS_LOG_ASSERT(0, "Cannot get here");
   }
   return NULL;
+}
+
+// Get the value from an iterator and free the iterator
+// Return 1, and set rsv to the value, if value exists
+// Return 0 otherwise
+static int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, RSValue **rsv) {
+
+  int res = 1;
+  if (japi->len(iter) == 1) {
+    RedisJSON jsonValue = japi->next(iter);
+    if (jsonValue) {
+      *rsv = jsonValToValue(ctx, jsonValue);
+    } else {
+      res = 0;
+    }
+  } else {
+    RedisModuleString *rstr;
+    if (japi->getJSONFromIter(iter, ctx, &rstr) == REDISMODULE_OK) {
+      *rsv = RS_StealRedisStringVal(rstr);
+    } else {
+      res = 0;
+    }
+  }
+  japi->freeIter(iter);
+  return res;
 }
 
 static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
@@ -443,12 +466,9 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
       return REDISMODULE_OK;
     }
   } else {
-    RedisJSON jsonValue = japi->next(jsonIter);
-    japi->freeIter(jsonIter);
-    if (!jsonValue) {
+    if (!jsonIterToValue(ctx, jsonIter, &rsv)) {
       return REDISMODULE_OK;
     }
-    rsv = jsonValToValue(ctx, jsonValue);
   }
 
   // Value has a reference count of 1

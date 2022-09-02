@@ -144,20 +144,30 @@ def testMultiTagString(env):
     conn.execute_command('JSON.SET', 'doc:4', '$', doc4_content)
 
     # Index multi flat values
-    env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.category[*]', 'AS', 'category', 'TAG').ok()
+    env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA',
+               '$.category[*]', 'AS', 'category', 'TAG').ok()
     # Index an array
-    env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TAG').ok()
-    
+    env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
+               '$.category', 'AS', 'category', 'TAG').ok()
+
     waitForIndex(env, 'idx1')
     waitForIndex(env, 'idx2')
-    
-    res1 = [1, 'doc:1', ['category', 'mathematics and computer science']]
-    res2 = [1, 'doc:1', ['category_arr', '["mathematics and computer science","logic","programming","database"]']]
-    
-    # Currently return a single value (only the first value)
-    env.expect('FT.SEARCH', 'idx1', '@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res1)
-    env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '1', 'category').equal(res1)
-    env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '3', '$.category', 'AS', 'category_arr').equal(res2)
+
+    res1 = [1, 'doc:1', ['category_1',
+                         'logic']]
+    res2 = [1, 'doc:1', ['category',
+                         '["mathematics and computer science","logic","programming","database"]']]
+    res3 = [1, 'doc:1', ['category_arr',
+                         '["mathematics and computer science","logic","programming","database"]']]
+
+    env.expect('FT.SEARCH', 'idx1',
+               '@category:{logic}', 'RETURN', '3', '$.category[1]', 'AS', 'category_1').equal(res1)
+    env.expect('FT.SEARCH', 'idx1',
+               '@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res2)
+    env.expect('FT.SEARCH', 'idx1',
+               '@category:{logic}', 'RETURN', '1', 'category').equal(res2)
+    env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN',
+               '3', '$.category', 'AS', 'category_arr').equal(res3)
 
     # Not indexing array
     env.assertEqual(int(index_info(env, 'idx2')['hash_indexing_failures']), 4)
@@ -184,6 +194,39 @@ def testMultiTagBool(env):
     res = env.execute_command('FT.SEARCH', 'idx_single', '@bar:{true}', 'NOCONTENT')
     env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
     env.expect('FT.SEARCH', 'idx_single', '@bar:{false}', 'NOCONTENT').equal([1, 'doc:3'])
+
+def testMultiTextReturn(env):
+    """ test multiple TAG values (array of strings) """
+    conn = getConnectionByEnv(env)
+
+    # Index multi flat values
+    env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA',
+               '$.category[*]', 'AS', 'category', 'TEXT').ok()
+    # Index an array
+    env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
+               '$.category', 'AS', 'category', 'TEXT').ok()
+
+    conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
+    conn.execute_command('JSON.SET', 'doc:2', '$', doc2_content)
+    conn.execute_command('JSON.SET', 'doc:3', '$', doc3_content)
+    conn.execute_command('JSON.SET', 'doc:4', '$', doc4_content)
+   
+    res1 = [1, 'doc:1', ['category_1',
+                         'logic']]
+    res2 = [1, 'doc:1', ['category',
+                         '["mathematics and computer science","logic","programming","database"]']]
+    res3 = [1, 'doc:1', ['category_arr',
+                         '["mathematics and computer science","logic","programming","database"]']]
+
+    env.expect('FT.SEARCH', 'idx1',
+               '@category:logic', 'RETURN', '3', '$.category[1]', 'AS', 'category_1').equal(res1)
+    env.expect('FT.SEARCH', 'idx1',
+               '@category:(mathematics and computer science)', 'RETURN', '1', 'category').equal(res2)
+    env.expect('FT.SEARCH', 'idx1',
+               '@category:logic', 'RETURN', '1', 'category').equal(res2)
+    env.expect('FT.SEARCH', 'idx1', '@category:logic', 'RETURN',
+               '3', '$.category', 'AS', 'category_arr').equal(res3)
+
 
 def testMultiText(env):
     """ test multiple TEXT values at root level (array of strings) """
