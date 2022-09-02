@@ -622,7 +622,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
     if(strcasestr(req->queryString, "KNN")) {
       prepareOptionalTopKCase(req, argv, argc, status);
-      if (status->code != QUERY_OK) {
+      if (QueryError_HasError(status)) {
         searchRequestCtx_Free(req);
         return NULL;
       }
@@ -1701,7 +1701,6 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
   MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination | MRCluster_MastersOnly);
 
   MRCtx_SetReduceFunction(mrctx, searchResultReducer);
-  MRCtx_SetRedisCtx(mrctx, bc);
   MR_Fanout(mrctx, NULL, cmd, false);
   return REDISMODULE_OK;
 }
