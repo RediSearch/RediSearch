@@ -247,7 +247,13 @@ typedef struct {
 } RSVirtualRecord;
 
 typedef struct {
-  double value;
+  union {
+    double value;
+    struct {
+      int64_t integer : 52;
+      int64_t exp : 2;
+    };
+  };
 } RSNumericRecord;
 
 /* A vector record represents a vector similarity search result which has a specific *distance* from the

@@ -492,9 +492,26 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
 FIELD_PREPROCESSOR(numericPreprocessor) {
   char *end;
+  size_t len = REDISEARCH_UNINITIALIZED;
+  const char *dblstr;
   switch (field->unionType) {
     case FLD_VAR_T_RMS:
-      if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
+      dblstr = RedisModule_StringPtrLen(field->text, &len);
+      char *period = memchr(dblstr, '.', len);
+      if (period) {
+        // remove the point and convert to integer
+        int periodPos = period - dblstr;
+        fdata->numericFactor = len - (periodPos + 1);
+        char buf[len + 1];
+        memcpy(buf, dblstr, periodPos);
+        memcpy(buf + (periodPos), period + 1, len - (periodPos));
+        buf[len - 1] = '\0';
+        fdata->numeric_int = strtoll(buf, &end, 10);
+        if (end != buf + len) {
+          QueryError_SetCode(status, QUERY_ENOTNUMERIC);
+          return -1;
+        }
+      } else if (RedisModule_StringToDouble(field->text, &fdata->numeric) != REDISMODULE_OK) {
         QueryError_SetCode(status, QUERY_ENOTNUMERIC);
         return -1;
       }
@@ -533,7 +550,9 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric);
+  double value = fdata->numeric_int ? fdata->numeric_int : fdata->numeric;
+  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, value);
+  fdata->numeric_int = 0;
   ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
   ctx->spec->stats.numRecords += rv.numRecords;
   return 0;

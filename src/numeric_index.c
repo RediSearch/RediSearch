@@ -72,7 +72,8 @@ static inline void checkCardinality(NumericRange *n, double value) {
   ++n->card;
 }
 
-size_t NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
+size_t NumericRange_Add(NumericRange *n, t_docId docId, double value, int factor, int checkCard) {
+  value *= factor;
   int add = 0;
   if (checkCard) {
     checkCardinality(n, value);

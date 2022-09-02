@@ -8,7 +8,9 @@
 #include "util/arr.h"
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
-  double numeric;  // i.e. the numeric value of the field
+  double numeric;       // i.e. the numeric value of the field
+  long long numeric_int;  // i.e. the integer value of the field
+  int numericFactor;    // i.e. factor of 10^numericFactor
   const char *geoSlon;
   const char *geoSlat;
   char **tags;
