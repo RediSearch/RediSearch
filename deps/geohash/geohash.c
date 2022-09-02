@@ -49,6 +49,10 @@
  * x and y must initially be less than 2**32 (65536).
  * From:  https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN
  */
+
+GeoHashRange geoLatLimit = {.min = GEO_LAT_MIN, .max = GEO_LAT_MAX};
+GeoHashRange geoLongLimit = {.min = GEO_LONG_MIN, .max = GEO_LONG_MAX};
+
 static inline uint64_t interleave64(uint32_t xlo, uint32_t ylo) {
     static const uint64_t B[] = {0x5555555555555555ULL, 0x3333333333333333ULL,
                                  0x0F0F0F0F0F0F0F0FULL, 0x00FF00FF00FF00FFULL,
@@ -151,14 +155,7 @@ int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
 }
 
 int geohashEncodeType(double longitude, double latitude, uint8_t step, GeoHashBits *hash) {
-    GeoHashRange r[2] = {{0}};
-    geohashGetCoordRange(&r[0], &r[1]);
-    return geohashEncode(&r[0], &r[1], longitude, latitude, step, hash);
-}
-
-int geohashEncodeWGS84(double longitude, double latitude, uint8_t step,
-                       GeoHashBits *hash) {
-    return geohashEncodeType(longitude, latitude, step, hash);
+    return geohashEncode(&geoLongLimit, &geoLatLimit, longitude, latitude, step, hash);
 }
 
 int geohashDecode(const GeoHashRange long_range, const GeoHashRange lat_range,
@@ -194,13 +191,7 @@ int geohashDecode(const GeoHashRange long_range, const GeoHashRange lat_range,
 }
 
 int geohashDecodeType(const GeoHashBits hash, GeoHashArea *area) {
-    GeoHashRange r[2] = {{0}};
-    geohashGetCoordRange(&r[0], &r[1]);
-    return geohashDecode(r[0], r[1], hash, area);
-}
-
-int geohashDecodeWGS84(const GeoHashBits hash, GeoHashArea *area) {
-    return geohashDecodeType(hash, area);
+    return geohashDecode(geoLongLimit, geoLatLimit, hash, area);
 }
 
 int geohashDecodeAreaToLongLat(const GeoHashArea *area, double *xy) {
@@ -219,10 +210,6 @@ int geohashDecodeToLongLatType(const GeoHashBits hash, double *xy) {
     if (!xy || !geohashDecodeType(hash, &area))
         return 0;
     return geohashDecodeAreaToLongLat(&area, xy);
-}
-
-int geohashDecodeToLongLatWGS84(const GeoHashBits hash, double *xy) {
-    return geohashDecodeToLongLatType(hash, xy);
 }
 
 static void geohash_move_x(GeoHashBits *hash, int8_t d) {

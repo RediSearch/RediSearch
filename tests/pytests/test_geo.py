@@ -1,3 +1,4 @@
+import random
 from RLTest import Env
 from common import *
 
@@ -127,3 +128,49 @@ def testGeoDistanceFile(env):
               'APPLY', 'geodistance(@location,-0.15036,51.50566)', 'AS', 'distance',
               'GROUPBY', '1', '@distance',
               'SORTBY', 2, '@distance', 'ASC').equal(res)
+
+def testBenchmark(env):
+  env.skip()
+  conn = getConnectionByEnv(env)
+  pl = conn.pipeline()
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO')
+
+  count = 1000 * 1000
+  repeat = 1
+  min_lon = 0
+  max_lon = float(10)
+  min_lat = 10
+  max_lat = float(10)
+
+  print('Adding {} documents'.format(count))
+  start_time = time.time()
+  for i in range(count):
+    lon = random.uniform(0, 10)
+    lat = random.uniform(0, 10)
+    pl.execute_command('HSET', 'doc%d' % i, 'g', '%f,%f' % (lon, lat))
+    pl.execute_command('GEOADD', 'geo', lon, lat, i)
+    if (i % 1000 == 0):
+      pl.execute()
+  pl.execute()
+  print('Time: {}'.format(time.time() - start_time))
+  print(conn.execute_command('FT.SEARCH', 'idx', '*'))
+
+  input('stop')
+
+  print('Searching RediSearch {} documents'.format(count))
+  start_time = time.time()
+  random.seed(0)
+  for i in range(repeat):
+    lon = random.uniform(min_lon, max_lon)
+    lat = random.uniform(min_lat, max_lat)
+    print(conn.execute_command('FT.SEARCH', 'idx', '@g:[%f %f 1000 m]' % (lon, lat), 'LIMIT', 0, count))
+  print('Time: {}'.format(time.time() - start_time))
+
+  print('Searching Redis {} documents'.format(count))
+  start_time = time.time()
+  random.seed(0)
+  for i in range(repeat):
+    lon = random.uniform(min_lon, max_lon)
+    lat = random.uniform(min_lat, max_lat)
+    conn.execute_command('GEOSEARCH', 'geo', 'FROMLONLAT', lon, lat, 'BYRADIUS', 10, 'm', 'ASC', 'WITHDIST', 'WITHCOORD')
+  print('Time: {}'.format(time.time() - start_time))

@@ -2,14 +2,14 @@
 
 int encodeGeo(double lon, double lat, double *bits) {
   GeoHashBits hash;
-  int rv = geohashEncodeWGS84(lon, lat, GEO_STEP_MAX, &hash);
+  int rv = geohashEncodeType(lon, lat, GEO_STEP_MAX, &hash);
   *bits = (double)geohashAlign52Bits(hash);
   return rv;
 }
 
 int decodeGeo(double bits, double *xy) {
   GeoHashBits hash = {.bits = (uint64_t)bits, .step = GEO_STEP_MAX};
-  return geohashDecodeToLongLatWGS84(hash, xy);
+  return geohashDecodeToLongLatType(hash, xy);
 }
 
 /* Compute the sorted set scores min (inclusive), max (exclusive) we should
