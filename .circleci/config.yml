@@ -150,8 +150,8 @@ commands:
           shell: /bin/bash -l -eo pipefail
           command: |
             make pack SHOW=1
-            make pack COORD=rlec SHOW=1
-            make pack LITE=1 SHOW=1
+#            make pack COORD=rlec SHOW=1
+#            make pack LITE=1 SHOW=1
 
   test-steps:
     parameters:
