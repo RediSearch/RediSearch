@@ -214,7 +214,7 @@ int Highlighter::Next(SearchResult *r) {
   }
 
   size_t numIovsArr = 0;
-  RSDocumentMetadata *dmd = r->dmd.get();
+  DocumentMetadata *dmd = r->dmd.get();
   if (!dmd) {
     return RS_RESULT_OK;
   }

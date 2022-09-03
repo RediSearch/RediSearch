@@ -34,6 +34,9 @@ struct IdType {
 //---------------------------------------------------------------------------------------------
 
 #define Mask(T) unsigned int
+#define Mask_i8(T) uint8_t
+#define Mask_i16(T) uint16_t
+#define Mask_i32(T) uint32_t
 
 //---------------------------------------------------------------------------------------------
 
@@ -102,7 +105,7 @@ struct RSPayload : Object {
 
 // Internally used document flags
 
-enum RSDocumentFlags {
+enum DocumentFlags {
   Document_DefaultFlags = 0x00,
   Document_Deleted = 0x01,
   Document_HasPayload = 0x02,
@@ -116,7 +119,7 @@ enum RSDocumentFlags {
 
 //---------------------------------------------------------------------------------------------
 
-/* RSDocumentMetadata describes metadata stored about a document in the index (not the document
+/* DocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
  *
  * The key is the user-defined key of the document, not the incremental id.
@@ -127,7 +130,7 @@ enum RSDocumentFlags {
  * Flags is not currently used, but should be used in the future to mark documents as deleted, etc.
  */
 
-struct RSDocumentMetadata : Object {
+struct DocumentMetadata : Object {
   t_docId id;
 
   // The actual key of the document, not the internal incremental id
@@ -143,7 +146,7 @@ struct RSDocumentMetadata : Object {
   uint32_t len : 24;
 
   // Document flags
-  Mask(RSDocumentFlags) flags : 8;
+  Mask(DocumentFlags) flags : 8;
 
   // Optional user payload
   RSPayload *payload;
@@ -153,15 +156,15 @@ struct RSDocumentMetadata : Object {
   // Offsets of all terms in the document (in bytes). Used by highlighter
   struct RSByteOffsets *byteOffsets;
 
-  List<RSDocumentMetadata>::iterator dmd_iter;
+  List<DocumentMetadata>::iterator dmd_iter;
   //uint32_t ref_count;
 
-  RSDocumentMetadata(const char *id, size_t idlen, double score, Mask(RSDocumentFlags) flags,
+  DocumentMetadata(const char *id, size_t idlen, double score, Mask(DocumentFlags) flags,
     RSPayload *payload, t_docId docId);
-  RSDocumentMetadata(RSDocumentMetadata &&dmd);
-  RSDocumentMetadata(t_docId id, RedisModuleIO *rdb, int encver);
-  ~RSDocumentMetadata();
-  //RSDocumentMetadata &operator=(const RSDocumentMetadata &dmd);
+  DocumentMetadata(DocumentMetadata &&dmd);
+  DocumentMetadata(t_docId id, RedisModuleIO *rdb, int encver);
+  ~DocumentMetadata();
+  //DocumentMetadata &operator=(const DocumentMetadata &dmd);
 
   const char *KeyPtrLen(size_t *len) const;
 
@@ -202,10 +205,10 @@ struct RSToken {
 
 //---------------------------------------------------------------------------------------------
 
-struct QueryExpander : Object {
+struct QueryExpander : virtual Object {
   QueryExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status):
     qast(qast), sctx(sctx), language(lang), status(status), currentNode(NULL) {}
-  virtual ~QueryExpander() {}
+  virtual ~QueryExpander() = default;
 
   QueryAST *qast;
   RedisSearchCtx &sctx;
@@ -241,18 +244,15 @@ typedef void (*RSFreeFunction)(void *);
 
 // A single term being evaluated in query time
 
-struct RSQueryTerm : public Object {
-  // The term string, not necessarily NULL terminated, hence the length is given as well
-  String str;
+struct RSQueryTerm : Object {
+  String str; // term string
 
   // Inverse document frequency of the term in the index.
   // See https://en.wikipedia.org/wiki/Tf%E2%80%93idf
   double idf;
 
-  // Each term in the query gets an incremental id
-  int id;
-  // Flags given by the engine or by the query expander
-  RSTokenFlags flags;
+  int id; // Each term in the query gets an incremental id
+  RSTokenFlags flags; // Flags given by the engine or by the query expander
 
   RSQueryTerm(const RSToken &tok, int id);
 
@@ -262,45 +262,45 @@ struct RSQueryTerm : public Object {
 //---------------------------------------------------------------------------------------------
 // Scoring Function API
 
-// RS_OFFSETVECTOR_EOF is returned from an RSOffsetIterator when calling next and reaching the end.
+// RS_OFFSETVECTOR_EOF is returned from an OffsetIterator when calling next and reaching the end.
 // When calling the iterator you should check for this return value.
 #define RS_OFFSETVECTOR_EOF UINT32_MAX
 
 //---------------------------------------------------------------------------------------------
 
-// RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records
+// OffsetIterator is an interface for iterating offset vectors of aggregate and token records
 
-struct RSOffsetIterator {
-  virtual ~RSOffsetIterator() {}
+struct OffsetIterator {
+  virtual ~OffsetIterator() {}
 
   virtual uint32_t Next(RSQueryTerm **term) { return RS_OFFSETVECTOR_EOF; }
   virtual void Rewind() {}
 
   struct Proxy {
-    RSOffsetIterator *it;
+    OffsetIterator *it;
 
-    Proxy(RSOffsetIterator *it) : it(it) {}
+    Proxy(OffsetIterator *it) : it(it) {}
     ~Proxy();
 
-    RSOffsetIterator *operator->() { return it; }
+    OffsetIterator *operator->() { return it; }
   };
 };
 
-typedef Vector<std::unique_ptr<RSOffsetIterator>> RSOffsetIterators;
+typedef Vector<std::unique_ptr<OffsetIterator>> RSOffsetIterators;
 
 //---------------------------------------------------------------------------------------------
 
-// RSOffsetVector represents the encoded offsets of a term in a document.
-// You can read the offsets by iterating over it with RSOffsetVector::Iterate.
+// OffsetVector represents the encoded offsets of a term in a document.
+// You can read the offsets by iterating over it with OffsetVector::Iterate.
 
-struct RSOffsetVector {
-  RSOffsetVector(char *data = 0, uint32_t len = 0) : data(data), len(len) {}
+struct OffsetVector {
+  OffsetVector(char *data = 0, uint32_t len = 0) : data(data), len(len) {}
 
   char *data;
   uint32_t len;
 
   // Create an offset iterator interface  from a raw offset vector
-  std::unique_ptr<RSOffsetIterator> Iterate(RSQueryTerm *t) const;
+  std::unique_ptr<OffsetIterator> Iterate(RSQueryTerm *t) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -319,12 +319,12 @@ enum RSResultType {
 
 #pragma pack(16)
 
-class RSOffsetEmptyIterator : public RSOffsetIterator {
+struct EmptyOffsetIterator : OffsetIterator {
 };
 
 //---------------------------------------------------------------------------------------------
 
-struct IndexResult : public Object {
+struct IndexResult : Object {
   //-------------------------------------------------------------------------------------------
   // IMPORTANT: The order of the following 4 variables must remain the same, and all
   // their type aliases must remain uint32_t. The record is decoded by casting it
@@ -358,27 +358,30 @@ struct IndexResult : public Object {
 
   //-------------------------------------------------------------------------------------------
 
-  IndexResult() {}
+  //IndexResult() {}
 
   IndexResult(RSResultType type, t_docId docId, t_fieldMask fieldMask, uint32_t freq, double weight) :
-    type(type), docId(docId), fieldMask(fieldMask), freq(freq), weight(weight) {
-    isCopy = false;
-  }
+    type(type), docId(docId), fieldMask(fieldMask), freq(freq), weight(weight), isCopy(false) {}
 
-  IndexResult(RSResultType type, t_docId docId) : type(type), docId(docId) {
-    isCopy = false;
-  }
+  IndexResult(RSResultType type, t_docId docId) : type(type), docId(docId), isCopy(false) {}
 
   // Create deep copy of results that is totall thread safe. Very slow so use with caution.
-  virtual IndexResult(const IndexResult &src) {
-    *this = src;
+  IndexResult(const IndexResult &src) {
+    docId = src.docId;
+    freq = src.freq;
+    fieldMask = src.fieldMask;
+    offsetsSz = src.offsetsSz;
+    type = src.type;
+    weight = src.weight;
     isCopy = true;
   }
+
+  virtual IndexResult *Clone() const = 0;
 
   // Reset state of an existing index hit. This can be used to recycle index hits during reads
   void Reset();
 
-  virtual void Print(int depth) const; // debug print
+  virtual void Print(int depth) const = 0; // debug print
 
   // Get the minimal delta between the terms in the result
   virtual int MinOffsetDelta() const { return 1; };
@@ -395,15 +398,15 @@ struct IndexResult : public Object {
   bool withinRangeInOrder(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
   bool withinRangeUnordered(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
 
-  double TFIDFScorer(const ScorerArgs *args, const RSDocumentMetadata *dmd, double minScore, int normMode) const;
-  virtual double TFIDFScorer(const RSDocumentMetadata *dmd, ScoreExplain *explain) const;
+  double TFIDFScorer(const ScorerArgs *args, const DocumentMetadata *dmd, double minScore, int normMode) const;
+  virtual double TFIDFScorer(const DocumentMetadata *dmd, ScoreExplain *explain) const;
 
-  virtual double BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata *dmd) const;
+  virtual double BM25Scorer(const ScorerArgs *args, const DocumentMetadata *dmd) const;
   virtual double DisMaxScorer(const ScorerArgs *args) const;
 
   // Iterate an offset vector
-  virtual std::unique_ptr<RSOffsetIterator> IterateOffsets() const {
-    return std::make_unique<RSOffsetIterator>();
+  virtual std::unique_ptr<OffsetIterator> IterateOffsets() const {
+    return std::make_unique<OffsetIterator>();
   }
 };
 #pragma pack()
@@ -443,16 +446,16 @@ struct ScorerArgs {
 
 #if 0
 
-// RSScoringFunction is a callback type for query custom scoring function modules
+// ScoringFunction is a callback type for query custom scoring function modules
 
-typedef double (*RSScoringFunction)(const ScorerArgs *args, const IndexResult *res,
-                                    const RSDocumentMetadata *dmd, double minScore);
+typedef double (*ScoringFunction)(const ScorerArgs *args, const IndexResult *res,
+                                    const DocumentMetadata *dmd, double minScore);
 
 // The extension registeration context, containing the callbacks avaliable to the extension for
 // registering query expanders and scorers
 
 struct RSExtensions {
-  virtual int RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff, void *privdata);
+  virtual int RegisterScoringFunction(const char *alias, ScoringFunction func, RSFreeFunction ff, void *privdata);
   virtual int RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff, void *privdata);
 };
 

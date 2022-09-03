@@ -59,7 +59,7 @@ int RPIndexIterator::Next(SearchResult *res) {
   }
 
   IndexResult *r;
-  RSDocumentMetadata *dmd;
+  DocumentMetadata *dmd;
   int rc;
 
   // Read from the root filter until we have a valid result

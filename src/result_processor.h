@@ -84,7 +84,7 @@ struct SearchResult {
   double score;
   ScoreExplain *scoreExplain;
 
-  std::shared_ptr<RSDocumentMetadata> dmd;
+  std::shared_ptr<DocumentMetadata> dmd;
 
   // index result should cover what you need for highlighting, but we will add a method to
   // duplicate index results to make them thread safe.
@@ -127,7 +127,7 @@ enum RPStatus {
 
 // Result processor structure. This should be "Subclassed" by the actual implementations
 
-struct ResultProcessor : public Object {
+struct ResultProcessor : Object {
   QueryIterator *parent;             // Reference to the parent structure
   struct ResultProcessor *upstream;  // Previous result processor in the chain
   const char *name;                  // For debugging purposes
@@ -144,7 +144,7 @@ struct ResultProcessor : public Object {
   virtual int Next(SearchResult *res) = 0;
 
   ResultProcessor(const char *name) : name(name) {}
-  virtual ~ResultProcessor() {}
+  virtual ~ResultProcessor() = default;
 
   void DumpChain() const;
 };

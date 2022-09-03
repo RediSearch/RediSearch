@@ -63,7 +63,7 @@ typedef char *(*NormalizeFunc)(char *, size_t *);
 
 #define STEM_TOKEN_FACTOR 0.2
 
-struct Tokenizer {
+struct Tokenizer : Object {
   char *text;
   size_t len;
   StopWordList *stopwords;
@@ -78,8 +78,8 @@ struct Tokenizer {
   // void Release();
 
   // read the next token. Return its position or 0 if we can't read anymore
-  virtual uint32_t Next(Token *tok);
-  virtual void Start(char *txt, size_t len, uint32_t options);
+  virtual uint32_t Next(Token *tok) = 0;
+  virtual void Start(char *txt, size_t len, uint32_t options) = 0;
   // virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
 };
 

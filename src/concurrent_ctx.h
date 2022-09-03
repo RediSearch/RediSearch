@@ -45,13 +45,16 @@
 struct ConcurrentKey {
   ConcurrentKey(RedisModuleKey *key, RedisModuleString *keyName, int openFlags = REDISMODULE_READ) :
     key(key), keyName(keyName), keyFlags(openFlags) {}
-  //ConcurrentKey(ConcurrentKey &&k) : key(k.key), keyName(k.keyName), keyFlags(k.openFlags) {}
+  ConcurrentKey(ConcurrentKey &&k) : key(k.key), keyName(k.keyName), keyFlags(k.keyFlags) {
+    k.key = NULL;
+    k.keyName = NULL;
+  }
 
   RedisModuleKey *key;
   RedisModuleString *keyName;
   int keyFlags; // redis key open flags
 
-  virtual void Reopen(); // @@@ TODO restore = 0;
+  virtual void Reopen() = 0;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -60,14 +63,13 @@ struct ConcurrentSearch {
   long long ticker;
   struct timespec lastTime;
   RedisModuleCtx *ctx;
-  Vector<ConcurrentKey> concKeys; //@@@ TODO Vector<std::unique_ptr<ConcurrentKey>>
+  Vector<std::unique_ptr<ConcurrentKey>> concKeys;
   bool isLocked;
 
   ConcurrentSearch(RedisModuleCtx *rctx);
   ~ConcurrentSearch();
 
-  template <class ConcurrentKey1>
-  void AddKey(ConcurrentKey1 &&concKeys);
+  template <typename T> void AddKey(T &&key);
 
   bool CheckTimer();
   void ResetClock();
@@ -84,6 +86,8 @@ struct ConcurrentSearch {
   static void ThreadPoolStart();
   static void ThreadPoolDestroy();
 };
+
+//---------------------------------------------------------------------------------------------
 
 #include "concurrent_ctx.hxx"
 
@@ -102,7 +106,7 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int, struct ConcurrentCmd *);
 
-struct ConcurrentCmd : public Object {
+struct ConcurrentCmd : Object {
   RedisModuleBlockedClient *bc;
   RedisModuleCtx *ctx;
   ConcurrentCmdHandler handler;
@@ -113,6 +117,8 @@ struct ConcurrentCmd : public Object {
   ConcurrentCmd(int options, ConcurrentCmdHandler handler, RedisModuleCtx *ctx,
                 RedisModuleString **argv, int argc);
 };
+
+//---------------------------------------------------------------------------------------------
 
 #define CMDCTX_KEEP_RCTX 0x01
 #define CMDCTX_NO_GIL 0x02
@@ -125,17 +131,18 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
 //---------------------------------------------------------------------------------------------
 
 // Check if the current request can be executed in a thread
+
 inline bool CheckConcurrentSupport(RedisModuleCtx *ctx) {
   // See if this client should be concurrent
   if (!RSGlobalConfig.concurrentMode) {
     return false;
   }
 
-  // Redis cannot use blocked contexts in lua and/or multi commands. Concurrent
-  // search relies on blocking a client. In such cases, force non-concurrent
-  // search mode.
-  if (RedisModule_GetContextFlags && (RedisModule_GetContextFlags(ctx) &
-                                     (REDISMODULE_CTX_FLAGS_LUA | REDISMODULE_CTX_FLAGS_MULTI))) {
+  // Redis cannot use blocked contexts in lua and/or multi commands.
+  // Concurrent search relies on blocking a client.
+  // In such cases, force non-concurrent search mode.
+  unsigned int conc_flags = REDISMODULE_CTX_FLAGS_LUA | REDISMODULE_CTX_FLAGS_MULTI;
+  if (RedisModule_GetContextFlags && (RedisModule_GetContextFlags(ctx) & conc_flags)) {
     return false;
   }
   return true;
@@ -143,8 +150,7 @@ inline bool CheckConcurrentSupport(RedisModuleCtx *ctx) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-class ThreadSafeCtx {
-public:
+struct ThreadSafeCtx {
   ThreadSafeCtx(RedisModuleBlockedClient *bc = NULL) {
     ctx = RedisModule_GetThreadSafeContext(bc);
   }
@@ -155,7 +161,7 @@ public:
     RedisModule_FreeThreadSafeContext(ctx);
   }
 
-  operator RedisModuleCtx *() { return ctx; }
+  operator RedisModuleCtx*() { return ctx; }
 
   RedisModuleCtx *ctx;
 };

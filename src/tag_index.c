@@ -91,12 +91,12 @@ TagIndex::Tags::Tags(char sep, TagFieldFlags flags, const DocumentField *data) {
 
 //---------------------------------------------------------------------------------------------
 
-struct InvertedIndex *TagIndex::OpenIndex(const char *value, size_t len, int create) {
-  InvertedIndex *iv = values->Find((char *)value, len);
+struct InvertedIndex *TagIndex::OpenIndex(std::string_view value, bool create) {
+  InvertedIndex *iv = values->Find(value);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
       iv = new InvertedIndex(Index_DocIdsOnly, 1);
-      values->Add((char *)value, len, iv, NULL);
+      values->Add(value, iv, NULL);
     }
   }
   return iv;
@@ -105,10 +105,11 @@ struct InvertedIndex *TagIndex::OpenIndex(const char *value, size_t len, int cre
 //---------------------------------------------------------------------------------------------
 
 // Ecode a single docId into a specific tag value
+
 size_t TagIndex::Put(std::string_view tok, t_docId docId) {
   IndexEncoder enc = InvertedIndex::GetEncoder(Index_DocIdsOnly);
-  const IndexResult rec{RSResultType_Virtual, docId};
-  InvertedIndex *iv = OpenIndex(tok.data(), tok.length(), 1);
+  VirtualResult rec{docId};
+  InvertedIndex *iv = OpenIndex(tok, true);
   return iv->WriteEntryGeneric(enc, docId, rec);
 }
 
@@ -179,13 +180,13 @@ void TagIndex::RegisterConcurrentIterators(ConcurrentSearch *conc, RedisModuleKe
 // Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
 // Returns NULL if there is no such tag in the index.
 
-IndexIterator *TagIndex::OpenReader(IndexSpec *sp, const char *value, size_t len, double weight) {
-  InvertedIndex *iv = values->Find((char *)value, len);
+IndexIterator *TagIndex::OpenReader(IndexSpec *sp, std::string_view value, double weight) {
+  InvertedIndex *iv = values->Find(value);
   if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
 
-  RSToken tok(value, len);
+  RSToken tok{value};
   RSQueryTerm *t = new RSQueryTerm(tok, 0);
   IndexReader *r = new TermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
   return r->NewReadIterator();
@@ -290,7 +291,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     char *s = RedisModule_LoadStringBuffer(rdb, &slen);
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
     RS_LOG_ASSERT(inv, "loading inverted index from rdb failed");
-    idx->values->Add(s, MIN(slen, MAX_TAG_LEN), inv, NULL);
+    idx->values->Add(std::string_view{s, MIN(slen, MAX_TAG_LEN)}, inv, NULL);
     RedisModule_Free(s);
   }
   return idx;

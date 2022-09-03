@@ -195,8 +195,7 @@ size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
   IndexSpec *spec = NULL;
   RedisModuleKey *idxKey = NULL;
   InvertedIndex *iv;
-  tm_len_t len;
-  char *randomKey = NULL;
+  std::string randomKey;
   size_t totalRemoved = 0;
   int blockNum = 0;
 
@@ -217,7 +216,7 @@ size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
     goto end;
   }
 
-  if (!indexTag->values->RandomKey(randomKey, &len, (void **)&iv)) {
+  if (!indexTag->values->RandomKey(randomKey, (void **)&iv)) {
     goto end;
   }
 
@@ -247,7 +246,7 @@ size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
     if (!indexTag) {
       break;
     }
-    iv = indexTag->values->Find(randomKey, len);
+    iv = indexTag->values->Find(randomKey);
     if (iv == TRIEMAP_NOTFOUND) {
       break;
     }
@@ -255,9 +254,6 @@ size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
 
 end:
   if (idxKey) RedisModule_CloseKey(idxKey);
-  if (randomKey) {
-    rm_free(randomKey);
-  }
 
   if (sctx) {
     delete sctx;

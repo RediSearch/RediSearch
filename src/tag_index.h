@@ -17,7 +17,7 @@ struct TagConcKey : ConcurrentKey {
   IndexIterators its;
   uint32_t uid;
 
-  void Reopen();
+  void Reopen() override;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -104,14 +104,13 @@ struct InvertedIndex;
  *
  */
 
-struct TagIndex : public BaseIndex {
+struct TagIndex : BaseIndex {
   static uint32_t niqueId;
 
   uint32_t uniqueId;
   TrieMap *values;
 
   TagIndex();
-  ~TagIndex();
 
   // Open the tag index key in redis
   static TagIndex *Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite, RedisModuleKey **keyp);
@@ -146,12 +145,12 @@ struct TagIndex : public BaseIndex {
 
   // Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
   // Returns NULL if there is no such tag in the index.
-  IndexIterator *OpenReader(IndexSpec *sp, const char *value, size_t len, double weight);
+  IndexIterator *OpenReader(IndexSpec *sp, std::string_view value, double weight);
 
   void RegisterConcurrentIterators(ConcurrentSearch *conc, RedisModuleKey *key,
                                    RedisModuleString *keyname, IndexIterators iters);
 
-  struct InvertedIndex *OpenIndex(const char *value, size_t len, int create);
+  struct InvertedIndex *OpenIndex(std::string_view value, bool create);
 
   // Serialize all the tags in the index to the redis client
   void SerializeValues(RedisModuleCtx *ctx);

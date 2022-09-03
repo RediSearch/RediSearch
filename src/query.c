@@ -352,7 +352,7 @@ IndexIterator *QueryPhraseNode::EvalSingle(Query *q, TagIndex *idx, IndexIterato
   }
 
   sds s = sdsjoin(terms, NumChildren(), " ");
-  return idx->OpenReader(q->sctx->spec, s, sdslen(s), weight);
+  return idx->OpenReader(q->sctx->spec, std::string_view{s, sdslen(s)}, weight);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -470,9 +470,8 @@ IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIterato
 
   // Find all completions of the prefix
   size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
-  while (it->Next(&s, &sl, &ptr) &&
-         (its.size() < maxExpansions || maxExpansions == -1)) {
-    IndexIterator *ret = idx->OpenReader(q->sctx->spec, s, sl, 1);
+  while (it->Next(&s, &sl, &ptr) && (its.size() < maxExpansions || maxExpansions == -1)) {
+    IndexIterator *ret = idx->OpenReader(q->sctx->spec, std::string_view{s, sl}, true);
     if (!ret) continue;
 
     // Add the reader to the iterator array

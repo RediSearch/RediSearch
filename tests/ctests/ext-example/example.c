@@ -9,13 +9,13 @@
 
 // Calculate sum(TF-IDF)*document score for each result
 
-static double myScorer(const ScorerArgs *args, const IndexResult *h, const RSDocumentMetadata *dmd, double minScore) {
+static double myScorer(const ScorerArgs *args, const IndexResult *h, const DocumentMetadata *dmd, double minScore) {
   return 3.141;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static double filterOutScorer(const ScorerArgs *args, const IndexResult *h, const RSDocumentMetadata *dmd, double minScore) {
+static double filterOutScorer(const ScorerArgs *args, const IndexResult *h, const DocumentMetadata *dmd, double minScore) {
   return RS_SCORE_FILTEROUT;
 }
 

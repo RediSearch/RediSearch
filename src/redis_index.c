@@ -505,7 +505,7 @@ static bool Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey) {
   RedisModuleCtx *redisCtx = ctx->redisCtx;
   if (deleteDocuments) {
-    ctx->spec->docs.foreach([&](RSDocumentMetadata &dmd) {
+    ctx->spec->docs.foreach([&](DocumentMetadata &dmd) {
         Redis_DeleteKey(redisCtx, dmd.CreateKeyString(redisCtx));
       });
   }

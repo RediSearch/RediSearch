@@ -158,11 +158,14 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyNa
 
 //---------------------------------------------------------------------------------------------
 
-struct NumericUnion : public Object {
+struct NumericUnion : Object {
   IndexIterator *it;
   uint32_t lastRevId;
 
   NumericUnion(IndexIterator *it, uint32_t lastRevId) : it(it), lastRevId(lastRevId) {}
+  NumericUnion(NumericUnion &&nu) : it(nu.it), lastRevId(nu.lastRevId) {
+    nu.it = NULL;
+  }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -170,10 +173,11 @@ struct NumericUnion : public Object {
 struct NumericUnionConcKey : ConcurrentKey {
   NumericUnionConcKey(RedisModuleKey *key, RedisModuleString *keyName, const NumericRangeTree &t, IndexIterator *it) :
     ConcurrentKey(key, keyName), nu(it, t.revisionId) {}
+  NumericUnionConcKey(NumericUnionConcKey &&key) : ConcurrentKey(std::move(key)), nu(std::move(key.nu)) {}
 
   NumericUnion nu;
 
-  void Reopen() {
+  void Reopen() override {
     NumericRangeTree *t = RedisModule_ModuleTypeGetValue(key);
 
     // If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF

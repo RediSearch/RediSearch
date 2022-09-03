@@ -79,7 +79,7 @@ void TrieNode::MergeWithSingleChild() {
   if (isTerminal() || _children.size() != 1) {
     return this;
   }
-  TrieNode *ch = _children[0];
+  TrieNode *ch = _children.front();
 
   _runes.append(ch->_runes);
 
@@ -434,7 +434,7 @@ static int rsbComparePrefix(const void *h, const void *e) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void TrieNode::rangeIterateSubTree(RangeCtx *r) {
+void TrieNode::rangeIterateSubTree(TrieRange *r) {
   // Push string to stack
   r->buf = array_ensure_append(r->buf, &_runes[0], _len, rune);
 
@@ -451,10 +451,10 @@ void TrieNode::rangeIterateSubTree(RangeCtx *r) {
 
 //---------------------------------------------------------------------------------------------
 
-// Try to place as many of the common arguments in rangectx, so that the stack
+// Try to place as many of the common arguments in TrieRange, so that the stack
 // size is not negatively impacted and prone to attack.
 
-void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax, RangeCtx *r) {
+void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax, TrieRange *r) {
   int endIdx, beginIdx = 0, endEqIdx = -1, beginEqIdx = -1;
 
   // Push string to stack
@@ -615,7 +615,7 @@ void TrieNode::IterateRange(const Runes &min, bool includeMin, const Runes &max,
   }
 
   // min < max we should start the scan
-  RangeCtx r = {
+  TrieRange r = {
       .callback = callback,
       .cbctx = ctx,
       .includeMin = includeMin,

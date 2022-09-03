@@ -76,6 +76,9 @@ make build         # compile and link
   VG=1               # build for Valgrind
   SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread)
   SLOW=1             # do not parallelize build (for diagnostics)
+  FILE=file          # only compile given source file
+    CTESTS=1           # pick among C unit tests source files
+	CPPTESTS=1         # pick among C++ unit tests source files
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -348,12 +351,24 @@ endif
 	$(SHOW)mkdir -p $(BINROOT)
 	$(SHOW)cd $(BINDIR) && cmake $(CMAKE_DIR) $(CMAKE_FLAGS)
 
+ifeq ($(FILE),)
+MAKE_BINDIR=$(BINDIR)
+else
+ifeq ($(CTESTS),1)
+MAKE_BINDIR=$(BINDIR)/tests/ctests
+else ifeq ($(CPPTESTS),1)
+MAKE_BINDIR=$(BINDIR)/tests/cpptests
+else
+MAKE_BINDIR=$(BINDIR)
+endif
+endif
+
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
 ifneq ($(DRY_RUN),1)
-	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J) $(CMAKE_FILE_FLAGS)
+	$(SHOW)$(MAKE) -C $(MAKE_BINDIR) $(MAKE_J) $(CMAKE_FILE_FLAGS)
 else
-	@make -C $(BINDIR) $(MAKE_J) $(CMAKE_FILE_FLAGS)
+	make -C $(MAKE_BINDIR) $(MAKE_J) $(CMAKE_FILE_FLAGS)
 endif
 
 .PHONY: build clean run

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <functional>
+#include <string_view>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -29,7 +30,7 @@ typedef std::function<void(const char *min, size_t minlen, void *ctx, void *val)
 
 //---------------------------------------------------------------------------------------------
 
-struct TrieMapRangeCtx {
+struct TrieMapRange {
   char *buf;
   TrieMapRangeCallback callback;
   void *cbctx;
@@ -58,45 +59,35 @@ struct TrieMaprsbHelper {
 struct TrieMapNode : public Object {
   uint8_t flags;
   void *value;
-  std::string str;               // the string of the current node
+  std::string str; // the string of the current node
   Vector<TrieMapNode*> _children;
+  Vector<char> _children_keys;
 
-  TrieMapNode(char *str_, tm_len_t offset, tm_len_t len_, tm_len_t numChildren,
-              void *value_, bool terminal);
+  TrieMapNode(std::string_view str, tm_len_t offset, void *value, bool terminal);
 
-  bool Add(char *str_, tm_len_t len, void *value_, TrieMapReplaceFunc cb);
-  void *Find(std::string str_, tm_len_t len);
-  bool Delete(char *str_, tm_len_t len);
+  bool Add(std::string_view str, void *value, TrieMapReplaceFunc cb);
+  void *Find(std::string_view str);
+  bool Delete(std::string_view str);
   TrieMapNode *RandomWalk(int minSteps, std::string &newstr);
-  TrieMapNode *FindNode(char *str_, tm_len_t len_, tm_len_t *poffset);
-  size_t MemUsage();
+  TrieMapNode *FindNode(std::string_view str, tm_len_t *poffset);
+  size_t MemUsage() const;
 
-  void RangeIterate(const char *min, int nmin, const char *max, int nmax,
-                    TrieMapRangeCtx *r);
+  void RangeIterate(const char *min, int nmin, const char *max, int nmax, TrieMapRange *r);
 
-  // Get a pointer to the children array of a node. This is not an actual member
-  // of the node for memory saving reasons
-  TrieMapNode **children() {
-    return ((void *)this + sizeof(TrieMapNode) + (str.length() + 1) + _children.size());
-  }
+  char childKey(tm_len_t i) const { return _children_keys[i]; }
+  char &childKey(tm_len_t i) { return _children_keys[i]; }
 
-  //std::string childKey(tm_len_t c) { //@@ Is that the child or the str of the child?
-  char *childKey(tm_len_t c) {
-    return (char *)this + sizeof(TrieMapNode) + str.length() + 1 + c;
-    //return _children[c]->str;
-  }
-
-  bool isTerminal() { return flags & TM_NODE_TERMINAL; }
-  bool isDeleted() { return flags & TM_NODE_DELETED;}
+  bool isTerminal() const { return !!(flags & TM_NODE_TERMINAL); }
+  bool isDeleted() const { return !!(flags & TM_NODE_DELETED); }
 
   TrieMapNode *MergeWithSingleChild();
-  void AddChild(char *str_, tm_len_t offset, tm_len_t len_, void *value_);
+  void AddChild(std::string_view str, tm_len_t offset, void *value);
   void Split(tm_len_t offset);
   void sortChildren();
   void optimizeChildren();
-  void rangeIterateSubTree(TrieMapRangeCtx *r);
+  void rangeIterateSubTree(TrieMapRange *r);
 
-  static size_t Sizeof(tm_len_t numChildren, tm_len_t slen);
+  size_t Sizeof();
   static int CompareCommon(const void *h, const void *e, bool isPrefix);
   static int CompareExact(const void *h, const void *e);
   static int ComparePrefix(const void *h, const void *e);
@@ -112,8 +103,7 @@ struct stackNode {
   tm_len_t stringOffset;
   tm_len_t childOffset;
 
-  stackNode(TrieMapNode *node) :
-    state(TM_ITERSTATE_SELF), n(node), stringOffset(0), childOffset(0) {}
+  stackNode(TrieMapNode *node) : state(TM_ITERSTATE_SELF), n(node), stringOffset(0), childOffset(0) {}
 };
 
 #pragma pack()
@@ -137,7 +127,7 @@ struct TrieMapIterator : public Object {
 
   void Push(TrieMapNode *node);
   void Pop();
-  //void Free();
+
   bool Next(char **ptr, tm_len_t *len, void **value);
   stackNode current() { return stack.back(); } // the current top of the iterator stack
 };
@@ -151,17 +141,16 @@ struct TrieMap : public Object {
   TrieMap();
   ~TrieMap();
 
-  bool Add(char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
-  void *Find(char *str, tm_len_t len);
-  int Delete(char *str, tm_len_t len);
+  bool Add(std::string_view str, void *value, TrieMapReplaceFunc cb);
+  void *Find(std::string_view str);
+  int Delete(std::string_view str);
   void Free(void (*freeCB)(void *));
-  bool RandomKey(std::string str, tm_len_t *len_, void **ptr);
-  void *RandomValueByPrefix(const char *prefix, tm_len_t pflen);
-  size_t MemUsage();
+  bool RandomKey(std::string &str, void **ptr);
+  void *RandomValueByPrefix(std::string_view prefix);
+  size_t MemUsage() const;
 
-  void IterateRange(const char *min, int minlen, bool includeMin,
-                    const char *max, int maxlen, bool includeMax,
-                    TrieMapRangeCallback callback, void *ctx);
+  void IterateRange(const char *min, int minlen, bool includeMin, const char *max, int maxlen,
+                    bool includeMax, TrieMapRangeCallback callback, void *ctx);
   TrieMapIterator *Iterate(std::string_view prefix);
 };
 

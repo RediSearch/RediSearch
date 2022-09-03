@@ -73,7 +73,7 @@ ScoreExplain *ScorerArgs::CreateNewExplainParent() {
 
 // recursively calculate tf-idf
 
-double TermResult::TFIDFScorer(const RSDocumentMetadata *dmd, ScoreExplain *explain) const {
+double TermResult::TFIDFScorer(const DocumentMetadata *dmd, ScoreExplain *explain) const {
   double idf = term ? term->idf : 0;
   double score = weight * ((double)freq) * idf;
   EXPLAIN("(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", score, weight, freq, idf);
@@ -82,7 +82,7 @@ double TermResult::TFIDFScorer(const RSDocumentMetadata *dmd, ScoreExplain *expl
 
 //-------------------------------------------------------------------------------------------------------
 
-double AggregateResult::TFIDFScorer(const RSDocumentMetadata *dmd, ScoreExplain *explain) const {
+double AggregateResult::TFIDFScorer(const DocumentMetadata *dmd, ScoreExplain *explain) const {
   double score = 0;
   if (!explain) {
     for (auto child : children) {
@@ -102,7 +102,7 @@ double AggregateResult::TFIDFScorer(const RSDocumentMetadata *dmd, ScoreExplain 
 
 //-------------------------------------------------------------------------------------------------------
 
-double IndexResult::TFIDFScorer(const RSDocumentMetadata *dmd, ScoreExplain *explain) const {
+double IndexResult::TFIDFScorer(const DocumentMetadata *dmd, ScoreExplain *explain) const {
   EXPLAIN("(TFIDF %.2f = Weight %.2f * Frequency %d)", weight * (double)freq, weight, freq);
   return weight * (double)freq;
 }
@@ -111,7 +111,7 @@ double IndexResult::TFIDFScorer(const RSDocumentMetadata *dmd, ScoreExplain *exp
 
 // internal common tf-idf function, where just the normalization method changes
 
-double IndexResult::TFIDFScorer(const ScorerArgs *args, const RSDocumentMetadata *dmd, double minScore, int normMode) const {
+double IndexResult::TFIDFScorer(const ScorerArgs *args, const DocumentMetadata *dmd, double minScore, int normMode) const {
   ScoreExplain *explain = args->explain;
   if (dmd->score == 0) {
     EXPLAIN("Document score is 0");
@@ -144,7 +144,7 @@ double IndexResult::TFIDFScorer(const ScorerArgs *args, const RSDocumentMetadata
 // Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
 // in this document.
 
-double TFIDFScorer(const ScorerArgs *args, const IndexResult *result, const RSDocumentMetadata *dmd, double minScore) {
+double TFIDFScorer(const ScorerArgs *args, const IndexResult *result, const DocumentMetadata *dmd, double minScore) {
   return result->TFIDFScorer(args, dmd, minScore, NORM_MAXFREQ);
 }
 
@@ -152,7 +152,7 @@ double TFIDFScorer(const ScorerArgs *args, const IndexResult *result, const RSDo
 
 // Identical scorer to TFIDFScorer, only the normalization is by total weighted frequency in the doc
 
-double TFIDFNormDocLenScorer(const ScorerArgs *args, const IndexResult *result, const RSDocumentMetadata *dmd, double minScore) {
+double TFIDFNormDocLenScorer(const ScorerArgs *args, const IndexResult *result, const DocumentMetadata *dmd, double minScore) {
 
   return result->TFIDFScorer(args, dmd, minScore, NORM_DOCLEN);
 }
@@ -163,7 +163,7 @@ double TFIDFNormDocLenScorer(const ScorerArgs *args, const IndexResult *result, 
 
 // recursively calculate score for each token, summing up sub tokens
 
-double TermResult::BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata *dmd) const {
+double TermResult::BM25Scorer(const ScorerArgs *args, const DocumentMetadata *dmd) const {
   ScoreExplain *explain = args->explain;
   static const float b = 0.5;
   static const float k1 = 1.2;
@@ -179,7 +179,7 @@ double TermResult::BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata *
 
 //-------------------------------------------------------------------------------------------------------
 
-double AggregateResult::BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata *dmd) const {
+double AggregateResult::BM25Scorer(const ScorerArgs *args, const DocumentMetadata *dmd) const {
   ScoreExplain *explain = args->explain;
   static const float b = 0.5;
   static const float k1 = 1.2;
@@ -204,7 +204,7 @@ double AggregateResult::BM25Scorer(const ScorerArgs *args, const RSDocumentMetad
 
 //-------------------------------------------------------------------------------------------------------
 
-double IndexResult::BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata *dmd) const {
+double IndexResult::BM25Scorer(const ScorerArgs *args, const DocumentMetadata *dmd) const {
   ScoreExplain *explain = args->explain;
   double f = (double)freq;
   double score = 0;
@@ -225,7 +225,7 @@ double IndexResult::BM25Scorer(const ScorerArgs *args, const RSDocumentMetadata 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 // BM25 scoring function
 
-double BM25Scorer(ScorerArgs *args, const IndexResult *r, const RSDocumentMetadata *dmd, double minScore) {
+double BM25Scorer(ScorerArgs *args, const IndexResult *r, const DocumentMetadata *dmd, double minScore) {
   ScoreExplain *explain = args->explain;
   double bm25res = r->BM25Scorer(args, dmd);
   double score = dmd->score * bm25res;
@@ -248,7 +248,7 @@ double BM25Scorer(ScorerArgs *args, const IndexResult *r, const RSDocumentMetada
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Raw document-score scorer. Just returns the document score
 
-double DocScoreScorer(const ScorerArgs *args, const IndexResult *r, const RSDocumentMetadata *dmd, double minScore) {
+double DocScoreScorer(const ScorerArgs *args, const IndexResult *r, const DocumentMetadata *dmd, double minScore) {
   ScoreExplain *explain = args->explain;
   EXPLAIN("Document's score is %.2f", dmd->score);
   return dmd->score;
@@ -315,7 +315,7 @@ double UnionResult::DisMaxScorer(const ScorerArgs *args) const {
 
 // Calculate sum(TF-IDF)*document score for each result
 
-double DisMaxScorer(const ScorerArgs *args, const IndexResult *h, const RSDocumentMetadata *dmd, double minScore) {
+double DisMaxScorer(const ScorerArgs *args, const IndexResult *h, const DocumentMetadata *dmd, double minScore) {
   return h->DisMaxScorer(args);
 }
 
@@ -338,7 +338,7 @@ static const unsigned char bitsinbyte[256] = {
 // HAMMING - Scorer using Hamming distance between the query payload and the document payload.
 // Only works if both have the payloads the same length
 
-double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const RSDocumentMetadata *dmd, double minScore) {
+double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const DocumentMetadata *dmd, double minScore) {
   ScoreExplain *explain = args->explain;
 
   // the strings must be of the same length > 0

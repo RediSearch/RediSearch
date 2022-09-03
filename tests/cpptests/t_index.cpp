@@ -19,8 +19,8 @@
 
 class IndexTest : public ::testing::Test {};
 
-static RSOffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
-  RSOffsetVector ret = {0};
+static OffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
+  OffsetVector ret = {0};
   ret.data = VVW_GetByteData(vvw);
   ret.len = VVW_GetByteLength(vvw);
   return ret;
@@ -37,9 +37,9 @@ TEST_F(IndexTest, testVarint) {
   // printf("%ld %ld\n", BufferLen(vw->bw.buf), vw->bw.buf->cap);
   VVW_Truncate(vw);
 
-  RSOffsetVector vec = offsetsFromVVW(vw);
+  OffsetVector vec = offsetsFromVVW(vw);
   // Buffer_Seek(vw->bw.buf, 0);
-  RSOffsetIterator it = RSOffsetVector_Iterate(&vec, NULL);
+  OffsetIterator it = RSOffsetVector_Iterate(&vec, NULL);
   int x = 0;
   uint32_t n = 0;
   while (RS_OFFSETVECTOR_EOF != (n = it.Next(it.ctx, NULL))) {
@@ -106,7 +106,7 @@ TEST_F(IndexTest, testDistance) {
   ASSERT_EQ(7, delta);
 
   // test merge iteration
-  RSOffsetIterator it = res->IterateOffsets();
+  OffsetIterator it = res->IterateOffsets();
   uint32_t expected[] = {1, 4, 7, 9, 13, 16, 20, 22, 25, 32, RS_OFFSETVECTOR_EOF};
 
   uint32_t rc;
@@ -961,7 +961,7 @@ TEST_F(IndexTest, testDocTable) {
     float score = &dt->GetScore(i + 1);
     ASSERT_EQ((int)score, i);
 
-    RSDocumentMetadata *dmd = &dt->Get(i + 1);
+    DocumentMetadata *dmd = &dt->Get(i + 1);
     dmd->Incref();
     ASSERT_TRUE(dmd != NULL);
     ASSERT_TRUE(dmd->flags & Document_HasPayload);

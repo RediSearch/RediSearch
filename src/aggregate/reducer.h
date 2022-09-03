@@ -37,7 +37,7 @@ enum ReducerType {
 
 //---------------------------------------------------------------------------------------------
 
-struct Reducer : public Object {
+struct Reducer : Object {
   // Most reducers only operate on a single source key. This can be used to
   // store the key. This value is not read by the grouper system.
   const RLookupKey *srckey;
@@ -51,7 +51,7 @@ struct Reducer : public Object {
   // Creates a new per-group instance of this reducer. This is used to create
   // actual data. The reducer structure itself, on the other hand, may be
   // used to retain settings common to all group.
-  virtual Reducer() {}
+  Reducer() {}
 
   // Frees the global reducer struct (this object)
   virtual ~Reducer() {
@@ -63,7 +63,7 @@ struct Reducer : public Object {
   // results internally until it can be outputted in `dstrow`.
   //
   // The function should return 1 if added successfully, or nonzero if an error occurred
-  virtual int Add(const RLookupRow *srcrow);
+  virtual int Add(const RLookupRow *srcrow) = 0;
 
   // Called when Add() has been invoked for the last time. This is used to
   // populate the result of the reduce function.
@@ -88,7 +88,7 @@ struct ReducerOptions {
 
 //---------------------------------------------------------------------------------------------
 
-struct RDCRCount : public Reducer {
+struct RDCRCount : Reducer {
   RDCRCount(const ReducerOptions *);
 
   struct Data {
@@ -101,7 +101,7 @@ struct RDCRCount : public Reducer {
 
 //---------------------------------------------------------------------------------------------
 
-struct RDCRSum : public Reducer {
+struct RDCRSum : Reducer {
   RDCRSum(const ReducerOptions *);
 
   struct Data {
@@ -112,7 +112,7 @@ struct RDCRSum : public Reducer {
   RSValue *Finalize();
 };
 
-struct RDCRAvg : public Reducer {
+struct RDCRAvg : Reducer {
   RDCRAvg(const ReducerOptions *);
 
   struct Data {
@@ -126,7 +126,7 @@ struct RDCRAvg : public Reducer {
 
 //---------------------------------------------------------------------------------------------
 
-struct RDCRToList : public Reducer {
+struct RDCRToList : Reducer {
   RDCRToList(const ReducerOptions *);
 
   struct Data {
@@ -139,7 +139,7 @@ struct RDCRToList : public Reducer {
 
 //---------------------------------------------------------------------------------------------
 
-struct RDCRMin : public Reducer {
+struct RDCRMin : Reducer {
   RDCRMin(const ReducerOptions *);
 
   struct Data {
@@ -151,7 +151,7 @@ struct RDCRMin : public Reducer {
   RSValue *Finalize();
 };
 
-struct RDCRMax : public Reducer {
+struct RDCRMax : Reducer {
   RDCRMax(const ReducerOptions *);
 
   struct Data {
@@ -164,7 +164,7 @@ struct RDCRMax : public Reducer {
 };
 //---------------------------------------------------------------------------------------------
 
-struct RDCRCountDistinct : public Reducer {
+struct RDCRCountDistinct : Reducer {
   RDCRCountDistinct(const ReducerOptions *);
 
   struct Data {
@@ -177,7 +177,7 @@ struct RDCRCountDistinct : public Reducer {
 
 //---------------------------------------------------------------------------------------------
 
-struct RDCRQuantile : public Reducer {
+struct RDCRQuantile : Reducer {
   RDCRQuantile(const ReducerOptions *);
 
   double pct;
@@ -193,7 +193,7 @@ struct RDCRQuantile : public Reducer {
 
 //---------------------------------------------------------------------------------------------
 
-struct RDCRStdDev : public Reducer {
+struct RDCRStdDev : Reducer {
   RDCRStdDev(const ReducerOptions *);
 
   struct Data {
@@ -209,7 +209,7 @@ struct RDCRStdDev : public Reducer {
 
 //---------------------------------------------------------------------------------------------
 
-struct RDCRFirstValue : public Reducer {
+struct RDCRFirstValue : Reducer {
   RDCRFirstValue(const ReducerOptions *);
   ~RDCRFirstValue();
 
@@ -231,7 +231,7 @@ struct RDCRFirstValue : public Reducer {
 
 //---------------------------------------------------------------------------------------------
 
-struct RDCRRandomSample : public Reducer {
+struct RDCRRandomSample : Reducer {
   RDCRRandomSample(const ReducerOptions *);
   ~RDCRRandomSample();
 
@@ -248,7 +248,7 @@ struct RDCRRandomSample : public Reducer {
 
 //---------------------------------------------------------------------------------------------
 
-struct RDCRHLLCommon : public Reducer {
+struct RDCRHLLCommon : Reducer {
   RDCRHLLCommon(const ReducerOptions *);
 
   struct Data {
@@ -261,13 +261,13 @@ struct RDCRHLLCommon : public Reducer {
   RSValue *Finalize();
 };
 
-struct RDCRCountDistinctish : public RDCRHLLCommon {
+struct RDCRCountDistinctish : RDCRHLLCommon {
   RDCRCountDistinctish(const ReducerOptions *);
 
   RSValue *Finalize();
 };
 
-struct RDCRHLLSum : public RDCRHLLCommon {
+struct RDCRHLLSum : RDCRHLLCommon {
   RDCRHLLSum(const ReducerOptions *);
 
   int Add(const RLookupRow *srcrow);

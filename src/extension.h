@@ -10,22 +10,11 @@
 struct Scorer {
   virtual ~Scorer() {};
 
-  virtual double Score(const ScorerArgs *args, const IndexResult *res, const RSDocumentMetadata *dmd, double minScore);
+  virtual double Score(const ScorerArgs *args, const IndexResult *res, const DocumentMetadata *dmd, double minScore);
 };
 */
 
-typedef double (*Scorer)(const ScorerArgs *args, const IndexResult *res, const RSDocumentMetadata *dmd, double minScore);
-
-//---------------------------------------------------------------------------------------------
-/*
-struct QueryExpander {
-  virtual ~QueryExpander() {}
-
-  virtual int Expand(RSToken *token) = 0;
-
-  typedef QueryExpander (*Factory)(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status);
-};
-*/
+typedef double (*Scorer)(const ScorerArgs *args, const IndexResult *res, const DocumentMetadata *dmd, double minScore);
 
 //---------------------------------------------------------------------------------------------
 

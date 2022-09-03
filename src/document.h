@@ -160,11 +160,11 @@ struct FieldIndexerData;
 
 struct DocumentIndexer;
 
-using AddDocumentPool = MemPool;
+using AddDocumentPool = MemPool<struct AddDocumentCtx>;
 
 // Context used when indexing documents
 
-struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
+struct AddDocumentCtx : Object { // MemPoolObject<AddDocumentPool> { //@@POOL
   struct AddDocumentCtx *next;  // Next context in the queue
   Document doc;                 // Document which is being indexed
 
@@ -193,10 +193,10 @@ struct AddDocumentCtx : MemPoolObject<AddDocumentPool> {
   Tokenizer *tokenizer;
 
   // Old document data. Contains sortables.
-  std::shared_ptr<RSDocumentMetadata> oldMd;
+  std::shared_ptr<DocumentMetadata> oldMd;
 
   // New flags to assign to the document
-  RSDocumentFlags docFlags;
+  DocumentFlags docFlags;
 
   // Scratch space used by per-type field preprocessors (see the source)
   struct FieldIndexerData *fdatas;

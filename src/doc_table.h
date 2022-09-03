@@ -15,7 +15,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Retrieves the pointer and length for the document's key.
-inline const char *RSDocumentMetadata::KeyPtrLen(size_t *len) const {
+inline const char *DocumentMetadata::KeyPtrLen(size_t *len) const {
   if (len) {
     *len = sdslen(keyPtr);
   }
@@ -25,7 +25,7 @@ inline const char *RSDocumentMetadata::KeyPtrLen(size_t *len) const {
 //---------------------------------------------------------------------------------------------
 
 // Convenience function to create a RedisModuleString from the document's key
-inline RedisModuleString *RSDocumentMetadata::CreateKeyString(RedisModuleCtx *ctx) const {
+inline RedisModuleString *DocumentMetadata::CreateKeyString(RedisModuleCtx *ctx) const {
   return RedisModule_CreateString(ctx, keyPtr, sdslen(keyPtr));
 }
 
@@ -60,7 +60,7 @@ struct DMDChain {
 
 //---------------------------------------------------------------------------------------------
 
-typedef List<RSDocumentMetadata> DMDChain;
+typedef List<DocumentMetadata> DMDChain;
 
 struct DocTable : public Object {
   typedef IdType<uint32_t> BucketIndex;
@@ -70,7 +70,7 @@ protected:
 
   BucketIndex GetBucketIdx(t_docId docId) const;
 
-  void Unchain(RSDocumentMetadata *md);
+  void Unchain(DocumentMetadata *md);
 
 public:
   size_t size;
@@ -91,7 +91,7 @@ public:
 
   bool Exists(t_docId docId) const;
   const char *GetKey(t_docId docId, size_t *n);
-  RSDocumentMetadata *Get(t_docId docId) const;
+  DocumentMetadata *Get(t_docId docId) const;
 
   float GetScore(t_docId docId);
   RSPayload *GetPayload(t_docId dodcId);
@@ -100,10 +100,10 @@ public:
   t_docId GetId(const std::string_view &id) const { return GetId(id.data(), id.length()); }
   t_docId GetId(RedisModuleString *r) const;
 
-  RSDocumentMetadata *GetByKey(const char *key);
-  RSDocumentMetadata *GetByKey(RedisModuleString *s) const;
+  DocumentMetadata *GetByKey(const char *key);
+  DocumentMetadata *GetByKey(RedisModuleString *s) const;
 
-  RSDocumentMetadata &Set(t_docId docId, RSDocumentMetadata &&dmd);
+  DocumentMetadata &Set(t_docId docId, DocumentMetadata &&dmd);
 
   bool SetPayload(t_docId docId, RSPayload *data);
   bool SetSortingVector(t_docId docId, RSSortingVector *v);
@@ -114,8 +114,8 @@ public:
   bool Delete(const char *key, size_t n);
   bool Delete(RedisModuleString *r);
 
-  RSDocumentMetadata *Pop(const char *s, size_t n, bool retail = false);
-  RSDocumentMetadata *Pop(RedisModuleString *r, bool retail = false);
+  DocumentMetadata *Pop(const char *s, size_t n, bool retail = false);
+  DocumentMetadata *Pop(RedisModuleString *r, bool retail = false);
 
   void RdbSave(RedisModuleIO *rdb);
   void RdbLoad(RedisModuleIO *rdb, int encver);

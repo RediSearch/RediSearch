@@ -224,7 +224,7 @@ struct RLookupLoadOptions {
   struct RedisSearchCtx *sctx;
 
   // Needed for the key name, and perhaps the sortable
-  const RSDocumentMetadata *dmd;
+  const DocumentMetadata *dmd;
 
   /// Keys to load. If present, then loadNonCached and loadAllFields is ignored
   const RLookupKey **keys;
@@ -244,7 +244,7 @@ struct RLookupLoadOptions {
 
   struct QueryError *status;
 
-  RLookupLoadOptions(RedisSearchCtx *sctx, RSDocumentMetadata *dmd, QueryError *status) :
+  RLookupLoadOptions(RedisSearchCtx *sctx, DocumentMetadata *dmd, QueryError *status) :
     sctx(sctx), dmd(dmd), status(status) {}
 };
 

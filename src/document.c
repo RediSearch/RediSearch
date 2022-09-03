@@ -589,7 +589,7 @@ cleanup:
 static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *exprText,
                                     int *result, QueryError *status) {
   int rc = REDISMODULE_ERR;
-  const RSDocumentMetadata *dmd = sctx->spec->docs.GetByKey(key);
+  const DocumentMetadata *dmd = sctx->spec->docs.GetByKey(key);
   if (!dmd) {
     // We don't know the document...
     status->SetError(QUERY_ENODOC, "");
@@ -644,7 +644,7 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
   if (docId == 0) {
     BAIL("Couldn't load old document");
   }
-  RSDocumentMetadata *md = sctx->spec->docs.Get(docId);
+  DocumentMetadata *md = sctx->spec->docs.Get(docId);
   if (!md) {
     BAIL("Couldn't load document metadata");
   }

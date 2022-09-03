@@ -193,7 +193,6 @@ struct QueryTagNode : QueryNode {
   String fieldName;
 
   QueryTagNode(const std::string_view &fieldName) : QueryNode(QN_TAG), fieldName(fieldName) {}
-  ~QueryTagNode();
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "TAG:@%.*s {\n", (int)fieldName.length(), fieldName.data());
@@ -233,7 +232,7 @@ struct QueryTokenNode : QueryNode {
 
   IndexIterator *EvalNode(Query *q);
   IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
-    return idx->OpenReader(q->sctx->spec, tok.str.data(), tok.length(), weight);
+    return idx->OpenReader(q->sctx->spec, tok.str, weight);
   }
 };
 

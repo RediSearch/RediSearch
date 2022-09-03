@@ -51,7 +51,7 @@ typedef void(TrieRangeCallback)(const rune *, size_t, void *);
 
 //---------------------------------------------------------------------------------------------
 
-struct RangeCtx {
+struct TrieRange {
   rune *buf;
   TrieRangeCallback *callback;
   void *cbctx;
@@ -174,8 +174,8 @@ struct TrieNode : public Object {
 
   void IterateRange(const Runes &min, bool includeMin, const Runes &max, bool includeMax,
                     TrieRangeCallback callback, void *ctx);
-  void rangeIterate(const rune *min, int nmin, const rune *max, int nmax, RangeCtx *r);
-  void rangeIterateSubTree(RangeCtx *r);
+  void rangeIterate(const rune *min, int nmin, const rune *max, int nmax, TrieRange *r);
+  void rangeIterateSubTree(TrieRange *r);
 
   static int Cmp(const void *p1, const void *p2);
 

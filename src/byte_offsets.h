@@ -22,7 +22,7 @@ struct __attribute__((packed)) RSByteOffsetField {
 
 struct RSByteOffsets {
   // By-Byte offsets
-  RSOffsetVector offsets;
+  OffsetVector offsets;
   // List of field-id <-> position mapping
   Vector<RSByteOffsetField> fields;
 

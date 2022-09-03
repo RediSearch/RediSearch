@@ -20,18 +20,19 @@
 
 //---------------------------------------------------------------------------------------------
 
-double TFIDFScorer(const ScorerArgs *args, const IndexResult *result, const RSDocumentMetadata *dmd, double minScore);
-double TFIDFNormDocLenScorer(const ScorerArgs *args, const IndexResult *result, const RSDocumentMetadata *dmd, double minScore);
-double BM25Scorer(ScorerArgs *args, const IndexResult *r, const RSDocumentMetadata *dmd, double minScore);
-double DocScoreScorer(const ScorerArgs *args, const IndexResult *r, const RSDocumentMetadata *dmd, double minScore);
-double DisMaxScorer(const ScorerArgs *args, const IndexResult *h, const RSDocumentMetadata *dmd, double minScore);
-double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const RSDocumentMetadata *dmd, double minScore);
+double TFIDFScorer(const ScorerArgs *args, const IndexResult *result, const DocumentMetadata *dmd, double minScore);
+double TFIDFNormDocLenScorer(const ScorerArgs *args, const IndexResult *result, const DocumentMetadata *dmd, double minScore);
+double BM25Scorer(ScorerArgs *args, const IndexResult *r, const DocumentMetadata *dmd, double minScore);
+double DocScoreScorer(const ScorerArgs *args, const IndexResult *r, const DocumentMetadata *dmd, double minScore);
+double DisMaxScorer(const ScorerArgs *args, const IndexResult *h, const DocumentMetadata *dmd, double minScore);
+double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const DocumentMetadata *dmd, double minScore);
 
 //---------------------------------------------------------------------------------------------
 
 struct PhoneticExpander : virtual QueryExpander {
   PhoneticExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
     QueryExpander(qast, sctx, lang, status) {}
+  ~PhoneticExpander() = default;
 
   bool PhoneticEnabled() const;
   virtual int Expand(RSToken *token);
@@ -46,6 +47,7 @@ struct PhoneticExpander : virtual QueryExpander {
 struct SynonymExpander : virtual QueryExpander {
   SynonymExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
     QueryExpander(qast, sctx, lang, status) {}
+  ~SynonymExpander() = default;
 
   virtual int Expand(RSToken *token);
 
@@ -74,14 +76,14 @@ struct StemmerExpander : virtual QueryExpander {
 
 //---------------------------------------------------------------------------------------------
 
-struct DefaultExpander : virtual QueryExpander, StemmerExpander, SynonymExpander, PhoneticExpander {
+struct DefaultExpander : virtual QueryExpander, virtual StemmerExpander, virtual SynonymExpander, virtual PhoneticExpander {
   DefaultExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
     QueryExpander(qast, sctx, lang, status),
     StemmerExpander(qast, sctx, lang, status),
     SynonymExpander(qast, sctx, lang, status),
     PhoneticExpander(qast, sctx, lang, status) {}
 
-  ~DefaultExpander();
+  ~DefaultExpander() {}
 
 //  int PhoneticExpand(RSToken *token) { return PhoneticExpander::Expand(token); }
 //  int StemmerExpand(RSToken *token) { return StemmerExpander::Expand(token); }

@@ -11,20 +11,18 @@ void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
 //---------------------------------------------------------------------------------------------
 
-// The byte size of a node, based on its internal string length and number of children
+// The byte size of a node, based on its internal string length and number of childr
 
-static size_t TrieMapNode::Sizeof(tm_len_t numChildren, tm_len_t slen) {
-  return (sizeof(TrieMapNode) + numChildren * sizeof(TrieMapNode *) + (slen + 1) + numChildren);
+size_t TrieMapNode::Sizeof() {
+  return sizeof(TrieMapNode) + _children.size() * (sizeof(TrieMapNode *) + 1) + str.length();
 }
 
 //---------------------------------------------------------------------------------------------
 
-// Create a new trie node. str is a string to be copied into the node,
-// starting from offset up until len. numChildren is the initial number of
-// allocated child nodes
+// Create a new trie node. str is a string to be copied into the node, starting from offset up until len.
 
-TrieMapNode::TrieMapNode(char *str, tm_len_t offset, tm_len_t len, tm_len_t numChildren,
-    void *value, bool terminal) : str(str + offset, len - offset), value(value) {
+TrieMapNode::TrieMapNode(std::string_view str, tm_len_t offset, void *value, 
+    bool terminal) : str(str.data() + offset, str.length() - offset), value(value) {
   flags = terminal ? TM_NODE_TERMINAL : 0;
 }
 
@@ -32,45 +30,42 @@ TrieMapNode::TrieMapNode(char *str, tm_len_t offset, tm_len_t len, tm_len_t numC
 
 TrieMap::TrieMap() {
   cardinality = 0;
-  root = new TrieMapNode((char *)"", 0, 0, 0, NULL, 0);
+  root = new TrieMapNode(std::string_view{""}, 0, NULL, false);
 }
 
 //---------------------------------------------------------------------------------------------
 
-void TrieMapNode::AddChild(char *str_, tm_len_t offset, tm_len_t len_, void *value_) {
+void TrieMapNode::AddChild(std::string_view str_, tm_len_t offset, void *value_) {
   // a newly added child must be a terminal node
-  TrieMapNode *child = new TrieMapNode(str_, offset, len_, 0, value_, 1);
-  // *childKey(numChildren - 1) = str_[offset];
+  TrieMapNode *child = new TrieMapNode(str_, offset, value_, true);
   _children.push_back(child);
+  _children_keys.push_back(str_[offset]);
   flags &= ~TM_NODE_SORTED;
 }
 
 //---------------------------------------------------------------------------------------------
 
 void TrieMapNode::Split(tm_len_t offset) {
-  // Copy the current node's data and children to a new child node
-  TrieMapNode *newChild = new TrieMapNode(str.c_str(), offset, str.length(), _children.size(), value, isTerminal());
+  TrieMapNode *newChild = new TrieMapNode(str, offset, value, isTerminal());
   newChild->flags = flags;
 
-  TrieMapNode **currChildren = children();
-  TrieMapNode **newChildren = newChild->children();
-  memcpy(newChildren, currChildren, sizeof(TrieMapNode *) * _children.size());
-  memcpy(newChild->childKey(0), childKey(0), _children.size());
+  // copy current node's data and children to a new child node
+  _children.swap(newChild->_children);
+  _children_keys.swap(newChild->_children_keys);
   // reduce the node to be just one child long with no score
-  //len = offset;
+  _children.push_back(newChild);
+  _children_keys.push_back(newChild->str[0]);
   value = NULL;
-  // the parent node is now non terminal and non sorted
+  // parent node is now non terminal and non sorted
   flags = 0;  //&= ~(TM_NODE_TERMINAL | TM_NODE_DELETED | TM_NODE_SORTED);
-
-  _children[0] = newChild;
-  *childKey(0) = newChild->str[0];
 }
 
 //---------------------------------------------------------------------------------------------
 
-bool TrieMapNode::Add(char *str_, tm_len_t len_, void *value_, TrieMapReplaceFunc cb) {
+bool TrieMapNode::Add(std::string_view str_, void *value_, TrieMapReplaceFunc cb) {
   tm_len_t offset = 0;
-  for (; offset < len_ && offset < str.length(); offset++) {
+  auto len_ = str_.length();
+  for (; offset < len_ && offset < len_; offset++) {
     if (str_[offset] != str[offset]) {
       break;
     }
@@ -91,7 +86,7 @@ bool TrieMapNode::Add(char *str_, tm_len_t len_, void *value_, TrieMapReplaceFun
       flags |= TM_NODE_TERMINAL;
     } else {
       // we add a child
-      AddChild(str_, offset, len_, value_);
+      AddChild(str_, offset, value_);
     }
 
     return true;
@@ -116,9 +111,8 @@ bool TrieMapNode::Add(char *str_, tm_len_t len_, void *value_, TrieMapReplaceFun
     // if it was deleted, make sure it's not now
     flags &= ~TM_NODE_DELETED;
     flags &= ~TM_NODE_SORTED;
-    // if the node existed - we return 0, otherwise return 1 as it's a new
-    // node
-    return (term && !deleted) ? 0 : 1;
+    // if the node existed - we return 0, otherwise return 1 as it's a new node
+    return !(term && !deleted);
   }
 
   // proceed to the next child or add a new child for the current char
@@ -126,14 +120,14 @@ bool TrieMapNode::Add(char *str_, tm_len_t len_, void *value_, TrieMapReplaceFun
     TrieMapNode *child = _children[i];
 
     if (str_[offset] == child->str[0]) {
-      int rc = child->Add(str_ + offset, len_ - offset, value_, cb);
+      int rc = child->Add(std::string_view{str_.data() + offset, len_ - offset}, value_, cb);
       _children[i] = child;
-      //      *n.childKey(i) = child->str[0];
+      childKey(i) = child->str[0];
       return rc;
     }
   }
 
-  AddChild(str_, offset, len_, value_);
+  AddChild(str_, offset, value_);
   return true;
 }
 
@@ -151,14 +145,15 @@ bool TrieMapNode::Add(char *str_, tm_len_t len_, void *value_, TrieMapReplaceFun
 // node, and take care of freeing any unwanted pointers. The returned value
 // can be NULL and doesn't have to be either the old or new value.
 
-bool TrieMap::Add(char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
-  bool rc = root->Add(str, len, value, cb);
+bool TrieMap::Add(std::string_view str_, void *value, TrieMapReplaceFunc cb) {
+  bool rc = root->Add(str_, value, cb);
   cardinality += rc;
   return rc;
 }
 
 //---------------------------------------------------------------------------------------------
 
+/*
 // comparator for node sorting by child max score
 
 static int TrieMapNode::Cmp(const void *p1, const void *p2) {
@@ -170,23 +165,30 @@ static int TrieMapNode::Cmp(const void *p1, const void *p2) {
 static int __cmp_chars(const void *p1, const void *p2) {
   return *(char *)p1 - *(char *)p2;
 }
+*/
 
 //---------------------------------------------------------------------------------------------
 
 // Sort the children of a node by their first letter to allow binary search
 
-inline void TrieMapNode::sortChildren() {
-  if ((0 == (flags & TM_NODE_SORTED)) && _children.size() > 3) {
-    qsort(children(), _children.size(), sizeof(TrieMapNode *), TrieMapNode::Cmp);
-    qsort(childKey(0), _children.size(), 1, __cmp_chars);
+void TrieMapNode::sortChildren() {
+  if (!(flags & TM_NODE_SORTED) && _children.size() > 3) {
+    std::sort(_children.begin(), _children.end(), [&](const TrieMapNode *a, const TrieMapNode *b) {
+        return a->str[0] - b->str[0];
+      });
+    _children_keys.clear();
+    for (auto child: _children) {
+      _children_keys.push_back(child->str[0]);
+    }
     flags |= TM_NODE_SORTED;
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-void *TrieMapNode::Find(std::string str_, tm_len_t len) {
+void *TrieMapNode::Find(std::string_view str_) {
   TrieMapNode *n = this;
+  auto len = str_.length();
   tm_len_t offset = 0;
   while (n && (offset < len || len == 0)) {
     tm_len_t localOffset = 0;
@@ -214,14 +216,9 @@ void *TrieMapNode::Find(std::string str_, tm_len_t len) {
       // let's find a child to continue to.
       tm_len_t i = 0;
       TrieMapNode *nextChild = NULL;
-
-      char *childKeys = n->childKey(0);
-      char c = str_[offset];
-
       tm_len_t nc = n->_children.size();
-
       while (i < nc) {
-        if (str_[offset] == childKeys[i]) {
+        if (str_[offset] == n->childKey(i)) {
           nextChild = n->_children[i];
           break;
         }
@@ -241,10 +238,10 @@ void *TrieMapNode::Find(std::string str_, tm_len_t len) {
 // Find a node by string. Return the node matching the string even if it is not
 // terminal. Puts the node local offset in *offset */
 
-TrieMapNode *TrieMapNode::FindNode(char *str_, tm_len_t len_, tm_len_t *poffset) {
+TrieMapNode *TrieMapNode::FindNode(std::string_view str_, tm_len_t *poffset) {
   TrieMapNode *n = this;
   tm_len_t offset = 0;
-
+  auto len_ = str_.length();
   while (offset < len_ || len_ == 0) {
     tm_len_t localOffset = 0;
     tm_len_t nlen = n->str.length();
@@ -272,12 +269,8 @@ TrieMapNode *TrieMapNode::FindNode(char *str_, tm_len_t len_, tm_len_t *poffset)
       // let's find a child to continue to
       tm_len_t i = 0;
       TrieMapNode *nextChild = NULL;
-
-      char *childKeys = n->childKey(0);
-      char c = str_[offset];
-
       while (i < n->_children.size()) {
-        if (str_[offset] == childKeys[i]) {
+        if (str_[offset] == n->childKey(i)) {
           nextChild = n->_children[i];
           break;
         }
@@ -303,8 +296,8 @@ TrieMapNode *TrieMapNode::FindNode(char *str_, tm_len_t len_, tm_len_t *poffset)
 // constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
 // comparing to it, becase NULL can be a valid result.
 
-void *TrieMap::Find(char *str_, tm_len_t len_) {
-  return root->Find(str_, len_);
+void *TrieMap::Find(std::string_view str_) {
+  return root->Find(str_);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -318,21 +311,16 @@ TrieMapNode *TrieMapNode::MergeWithSingleChild() {
     return this;
   }
 
-  TrieMapNode *ch = children()[0];
+  TrieMapNode *ch = _children.front();
 
   // Copy the current node's data and children to a new child node
-  std::string nstr = str + ch->str;
-  TrieMapNode *merged = new TrieMapNode(nstr.c_str(), 0, nstr.length(), ch->_children.size(),
-                                        ch->value, ch->isTerminal());
-  merged->flags = ch->flags;
-  merged->_children = ch->_children;
+  str += ch->str;
+  flags = ch->flags;
+  _children.swap(ch->_children);
+  _children_keys.swap(ch->_children_keys);
 
-  memcpy(merged->childKey(0), ch->childKey(0), merged->_children.size());
-
-  delete this; //@@ how should I delete it?
   delete ch;
-
-  return merged;
+  return this;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -342,42 +330,32 @@ TrieMapNode *TrieMapNode::MergeWithSingleChild() {
 // 2. If a child has a single child - merge them
 
 void TrieMapNode::optimizeChildren() {
-  int i = 0;
-  TrieMapNode **nodes = children();
   // free deleted terminal nodes
-  while (i < _children.size()) {
+  auto key_i = _children_keys.begin();
+  for (auto child_i = _children.begin(); child_i != _children.end(); ++child_i, ++key_i) {
+    auto *child = *child_i;
     // if this is a deleted node with no children - remove it
-    if (nodes[i]->_children.size() == 0 && nodes[i]->isDeleted()) {
-      delete nodes[i];
-      nodes[i] = NULL;
-
-      char *nk = childKey(i);
-      // just "fill" the hole with the next node up
-      while (i < _children.size() - 1) {
-        nodes[i] = nodes[i + 1];
-        *nk = *(nk + 1);
-        i++;
-        nk++;
-      }
-
-      memmove(((char *)nodes) - 1, (char *)nodes, sizeof(TrieMapNode *) * _children.size());
+    if (child->_children.empty() && child->isDeleted()) {
+      child_i = _children.erase(child_i);
+      key_i = _children_keys.erase(key_i);
+      child = *child_i;
     } else {
       // this node is ok!
-      // if needed - merge this node with it its single child
-      if (nodes[i] && nodes[i]->_children.size() == 1) {
-        nodes[i] = nodes[i]->MergeWithSingleChild();
+      // if needed - merge this node with its single child
+      if (child->_children.size() == 1) {
+        child->MergeWithSingleChild();
       }
     }
-    i++;
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-bool TrieMapNode::Delete(char *str_, tm_len_t len) {
+bool TrieMapNode::Delete(std::string_view str_) {
   TrieMapNode *n = this;
   tm_len_t offset = 0;
   Vector<TrieMapNode *> stack;
+  auto len = str_.length();
   bool rc = false;
   while (n && (offset < len || len == 0)) {
     stack.push_back(n);
@@ -410,7 +388,7 @@ bool TrieMapNode::Delete(char *str_, tm_len_t len) {
       // let's find a child to continue to
       TrieMapNode *nextChild = NULL;
       for (tm_len_t i = 0; i < n->_children.size(); i++) {
-        if (str[offset] == *n->childKey(i)) {
+        if (str[offset] == n->childKey(i)) {
           nextChild = _children[i];
           break;
         }
@@ -437,24 +415,23 @@ end:
 // needed. If freeCB is given, it will be used to free the value of the deleted
 // node. If it doesn't, we simply call free() */
 
-int TrieMap::Delete(char *str, tm_len_t len) {
-  int rc = root->Delete(str, len);
+int TrieMap::Delete(std::string_view str) {
+  int rc = root->Delete(str);
   cardinality -= rc;
   return rc;
 }
 
 //---------------------------------------------------------------------------------------------
 
-size_t TrieMapNode::MemUsage() {
-  size_t ret = TrieMapNode::Sizeof(_children.size(), str.length());
-  for (tm_len_t i = 0; i < _children.size(); i++) {
-    TrieMapNode *child = _children[i];
+size_t TrieMapNode::MemUsage() const {
+  size_t ret = TrieMapNode::Sizeof();
+  for (auto child: _children) {
     ret += child->MemUsage();
   }
   return ret;
 }
 
-size_t TrieMap::MemUsage() {
+size_t TrieMap::MemUsage() const {
   return root->MemUsage();
 }
 
@@ -463,7 +440,7 @@ size_t TrieMap::MemUsage() {
 // Push a new trie node on the iterator's stack
 
 void TrieMapIterator::Push(TrieMapNode *node) {
-  stack.push_back(stackNode(node));
+  stack.emplace_back(stackNode{node});
 }
 
 //---------------------------------------------------------------------------------------------
@@ -538,17 +515,15 @@ static int TrieMapNode::ComparePrefix(const void *h, const void *e) {
 
 //---------------------------------------------------------------------------------------------
 
-void TrieMapNode::rangeIterateSubTree(TrieMapRangeCtx *r) {
+void TrieMapNode::rangeIterateSubTree(TrieMapRange *r) {
   r->buf = array_ensure_append(r->buf, str.c_str(), str.length(), char);
 
   if (isTerminal()) {
     r->callback(r->buf, array_len(r->buf), r->cbctx, value);
   }
 
-  TrieMapNode **arr = children();
-
-  for (int ii = 0; ii < _children.size(); ++ii) {
-    arr[ii]->rangeIterateSubTree(r);
+  for (auto child: _children) {
+    child->rangeIterateSubTree(r);
   }
 
   array_trimm_len(r->buf, array_len(r->buf) - str.length());
@@ -556,11 +531,11 @@ void TrieMapNode::rangeIterateSubTree(TrieMapRangeCtx *r) {
 
 //---------------------------------------------------------------------------------------------
 
-// Try to place as many of the common arguments in rangectx, so that the stack
+// Try to place as many of the common arguments in TrieMapRange, so that the stack
 // size is not negatively impacted and prone to attack.
 
 void TrieMapNode::RangeIterate(const char *min, int nmin, const char *max,
-                               int nmax, TrieMapRangeCtx *r) {
+                               int nmax, TrieMapRange *r) {
   int beginIdx = 0, endIdx;
   int beginEqIdx, endEqIdx;
 
@@ -706,7 +681,7 @@ void TrieMap::IterateRange(const char *min, int minlen, bool includeMin,
     if (cmp == 0) {
       // min = max, we should just search for min and check for its existence
       if (includeMin || includeMax) {
-        void *val = root->Find((char *)min, minlen);
+        void *val = root->Find(std::string_view{(char *)min, minlen});
         if (val != TRIEMAP_NOTFOUND) {
           callback(min, minlen, ctx, val);
         }
@@ -715,7 +690,7 @@ void TrieMap::IterateRange(const char *min, int minlen, bool includeMin,
     }
   }
 
-  TrieMapRangeCtx tmctx = {
+  TrieMapRange tmctx = {
       .callback = callback,
       .cbctx = ctx,
       .includeMin = includeMin,
@@ -784,9 +759,8 @@ bool TrieMapIterator::Next(char **ptr, tm_len_t *len, void **value) {
       // push the next child that matches
       tm_len_t nch = n->_children.size();
       while (curr.childOffset < nch) {
-        if (inSuffix ||
-            n->childKey(curr.childOffset) == prefix[bufOffset]) {
-          TrieMapNode *ch = n->children()[curr.childOffset++];
+        if (inSuffix || n->childKey(curr.childOffset) == prefix[bufOffset]) {
+          TrieMapNode *ch = n->_children[curr.childOffset++];
 
           // unless in suffix mode, no need to go back here after popping the
           // child, so we just set the child offset at the end
@@ -864,8 +838,8 @@ TrieMapNode *TrieMapNode::RandomWalk(int minSteps, std::string &newstr) {
 
 // Get the value of a random element under a specific prefix. NULL if the prefix was not found
 
-void *TrieMap::RandomValueByPrefix(const char *prefix, tm_len_t pflen) {
-  TrieMapNode *root_ = root->FindNode((char *)prefix, pflen, NULL);
+void *TrieMap::RandomValueByPrefix(std::string_view prefix) {
+  TrieMapNode *root_ = root->FindNode(prefix, NULL);
   if (!root_) {
     return NULL;
   }
@@ -886,13 +860,12 @@ void *TrieMap::RandomValueByPrefix(const char *prefix, tm_len_t pflen) {
 // Assign's the key to str and saves its len (the key is NOT null terminated).
 // NOTE: It is the caller's responsibility to free the key string
 
-bool TrieMap::RandomKey(std::string str, tm_len_t *len, void **ptr) {
+bool TrieMap::RandomKey(std::string &str, void **ptr) {
   if (cardinality == 0) {
     return false;
   }
   // TODO: deduce steps from cardinality properly
   TrieMapNode *n = root->RandomWalk((int)round(log2(1 + cardinality)), str);
-  len = n->str.length();
   *ptr = n->value;
   return true;
 }

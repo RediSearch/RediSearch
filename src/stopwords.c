@@ -41,7 +41,7 @@ bool StopWordList::Contains(std::string_view term) const {
     return false;
   }
 
-  return m->Find(term.data(), term.length()) != TRIEMAP_NOTFOUND;
+  return m->Find(term) != TRIEMAP_NOTFOUND;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -83,7 +83,7 @@ void StopWordList::ctor(const char **strs, size_t len) {
       }
     }
 
-    m->Add(t, tlen, NULL, NULL);
+    m->Add(std::string_view{t, tlen}, NULL, NULL);
     rm_free(t);
   }
 }
@@ -125,7 +125,7 @@ StopWordList::StopWordList(RedisModuleIO *rdb, int encver) {
   while (elements--) {
     size_t len;
     char *str = RedisModule_LoadStringBuffer(rdb, &len);
-    m->Add(str, len, NULL, NULL);
+    m->Add(std::string_view{str, len}, NULL, NULL);
     RedisModule_Free(str);
   }
 }

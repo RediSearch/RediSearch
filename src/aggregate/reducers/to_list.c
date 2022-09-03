@@ -8,20 +8,22 @@ int RDCRToList::Add(const RLookupRow *srcrow) {
   if (!v) {
     return 1;
   }
-
+  
   // for non array values we simply add the value to the list
   if (v->t != RSValue_Array) {
     uint64_t hval = v->Hash(0);
-    if (data.values.Find((char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
-      data.values.Add((char *)&hval, sizeof(hval), v->MakePersistent()->IncrRef(), NULL);
+    std::string_view hvalstr{(char *)&hval, sizeof(hval)};
+    if (data.values.Find(hvalstr) == TRIEMAP_NOTFOUND) {
+      data.values.Add(hvalstr, v->MakePersistent()->IncrRef(), NULL);
     }
   } else {  // For array values we add each distinct element to the list
     uint32_t len = v->ArrayLen();
     for (uint32_t i = 0; i < len; i++) {
       RSValue *av = v->ArrayItem(i);
       uint64_t hval = av->Hash(0);
-      if (data.values.Find((char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
-        data.values.Add((char *)&hval, sizeof(hval), av->MakePersistent()->IncrRef(), NULL);
+      std::string_view hvalstr{(char *)&hval, sizeof(hval)};
+      if (data.values.Find(hvalstr) == TRIEMAP_NOTFOUND) {
+        data.values.Add(hvalstr, av->MakePersistent()->IncrRef(), NULL);
       }
     }
   }

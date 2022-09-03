@@ -545,7 +545,7 @@ bool TermIndexDecoder::readFreqOffsetsFlagsWide(BufferReader *br, TermResult *re
 
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(*br);
-  res->offsets = (RSOffsetVector){.data = br->Current(), .len = res->offsetsSz};
+  res->offsets = (OffsetVector){.data = br->Current(), .len = res->offsetsSz};
   br->Skip(res->offsetsSz);
   return CHECK_FLAGS(res);
 }
@@ -610,7 +610,7 @@ bool IndexDecoder::readFlagsWide(BufferReader *br, IndexResult *res) {
 
 bool TermIndexDecoder::readFlagsOffsets(BufferReader *br, TermResult *res) {
   qint_decode3(br, (uint32_t *)&res->docId, (uint32_t *)&res->fieldMask, &res->offsetsSz);
-  res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
+  res->offsets = OffsetVector(br->Current(), res->offsetsSz);
   br->Skip(res->offsetsSz);
   return CHECK_FLAGS(res);
 }
@@ -618,7 +618,7 @@ bool TermIndexDecoder::readFlagsOffsets(BufferReader *br, TermResult *res) {
 bool TermIndexDecoder::readFlagsOffsetsWide(BufferReader *br, TermResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(*br);
-  res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
+  res->offsets = OffsetVector(br->Current(), res->offsetsSz);
 
   br->Skip(res->offsetsSz);
   return CHECK_FLAGS(res);
@@ -626,14 +626,14 @@ bool TermIndexDecoder::readFlagsOffsetsWide(BufferReader *br, TermResult *res) {
 
 bool TermIndexDecoder::readOffsets(BufferReader *br, TermResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->offsetsSz);
-  res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
+  res->offsets = OffsetVector(br->Current(), res->offsetsSz);
   br->Skip(res->offsetsSz);
   return true;
 }
 
 bool TermIndexDecoder::readFreqsOffsets(BufferReader *br, TermResult *res) {
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, &res->offsetsSz);
-  res->offsets = RSOffsetVector(br->Current(), res->offsetsSz);
+  res->offsets = OffsetVector(br->Current(), res->offsetsSz);
   br->Skip(res->offsetsSz);
   return true;
 }

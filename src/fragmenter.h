@@ -57,14 +57,14 @@ struct FragmentTerm {
 
 struct FragmentTermIterator {
   RSByteOffsetIterator &byteIter;
-  RSOffsetIterator &offsetIter;
+  OffsetIterator &offsetIter;
   RSQueryTerm *curMatchRec;
   uint32_t curTokPos;
   uint32_t curByteOffset;
   FragmentTerm aTerm;
 
   int Next(FragmentTerm **termInfo);
-  FragmentTermIterator(RSByteOffsetIterator &bytesIter, RSOffsetIterator &offIter);
+  FragmentTermIterator(RSByteOffsetIterator &bytesIter, OffsetIterator &offIter);
 };
 
 //---------------------------------------------------------------------------------------------

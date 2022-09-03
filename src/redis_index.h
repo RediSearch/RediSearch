@@ -9,13 +9,13 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct TermIndexReaderConcKey : public ConcurrentKey {
+struct TermIndexReaderConcKey : ConcurrentKey {
   TermIndexReader *reader;
 
   TermIndexReaderConcKey(RedisModuleKey *key, RedisModuleString *keyName, TermIndexReader *reader) :
     ConcurrentKey(key, keyName), reader(reader) {}
 
-  void Reopen() {
+  void Reopen() override {
     reader->OnReopen(key);
   }
 };

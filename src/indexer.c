@@ -228,7 +228,7 @@ bool AddDocumentCtx::makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryErr
   IndexSpec *spec = sctx->spec;
   DocTable &table = spec->docs;
   if (replace) {
-    oldMd = std::shared_ptr<RSDocumentMetadata>(table.Pop(doc.docKey));
+    oldMd = std::shared_ptr<DocumentMetadata>(table.Pop(doc.docKey));
     if (oldMd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
@@ -280,7 +280,7 @@ void AddDocumentCtx::doAssignIds(RedisSearchCtx *ctx) {
       continue;
     }
 
-    RSDocumentMetadata *md = spec->docs.Get(cur->doc.docId);
+    DocumentMetadata *md = spec->docs.Get(cur->doc.docId);
     md->maxFreq = cur->fwIdx->maxFreq;
     md->len = cur->fwIdx->totalFreq;
 

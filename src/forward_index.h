@@ -13,7 +13,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct VarintVectorWriterPool : MemPool {
+struct VarintVectorWriterPool : MemPool<struct ForwardIndexEntry> {
 };
 
 struct ForwardIndexEntry {

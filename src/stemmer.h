@@ -41,10 +41,10 @@ enum class StemmerType {
 
 //---------------------------------------------------------------------------------------------
 
-struct Stemmer : public Object {
+struct Stemmer : Object {
   Stemmer(StemmerType type, RSLanguage language);
 
-  virtual std::string_view Stem(std::string_view word);
+  virtual std::string_view Stem(std::string_view word) = 0;
   virtual bool Reset(StemmerType type, RSLanguage language);
 
   RSLanguage language;
@@ -74,8 +74,7 @@ struct SnowballStemmer : Stemmer {
 
 //---------------------------------------------------------------------------------------------
 
-struct langPair_s
-{
+struct langPair_s {
   const char *str;
   RSLanguage lang;
 };

@@ -359,7 +359,7 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
 struct RS_ApiIter {
   IndexIterator *internal;
   IndexResult *res;
-  const RSDocumentMetadata *lastmd;
+  const DocumentMetadata *lastmd;
   ScorerArgs scargs;
   Scorer *scorer;
   double minscore;  // used for scoring
@@ -463,7 +463,7 @@ int RediSearch_QueryNodeType(QueryNode* qn) {
 
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
   while (iter->internal->Read(&iter->res) != INDEXREAD_EOF) {
-    const RSDocumentMetadata* md = sp->docs.Get(iter->res->docId);
+    const DocumentMetadata* md = sp->docs.Get(iter->res->docId);
     if (md == NULL || ((md)->flags & Document_Deleted)) {
       continue;
     }

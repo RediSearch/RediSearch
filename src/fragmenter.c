@@ -368,7 +368,7 @@ bool FragmentList::fragmentizeOffsets(IndexSpec *spec, std::string_view fieldNam
     return false;
   }
 
-  std::unique_ptr<RSOffsetIterator> offsIter = indexResult->IterateOffsets();
+  std::unique_ptr<OffsetIterator> offsIter = indexResult->IterateOffsets();
   RSByteOffsetIterator bytesIter(*byteOffsets, fs->ftId);
   if (!bytesIter.valid) {
     return false;
@@ -500,7 +500,7 @@ void FragmentList::FragmentizeIter(std::string_view doc_, FragmentTermIterator &
 
 //---------------------------------------------------------------------------------------------
 
-FragmentTermIterator::FragmentTermIterator(RSByteOffsetIterator &byteOffsets, RSOffsetIterator &offIter) :
+FragmentTermIterator::FragmentTermIterator(RSByteOffsetIterator &byteOffsets, OffsetIterator &offIter) :
     byteIter(byteOffsets), offsetIter(offIter) {
   curByteOffset = byteIter.Next();
 

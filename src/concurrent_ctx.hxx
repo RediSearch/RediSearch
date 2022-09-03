@@ -26,10 +26,10 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 inline void ConcurrentSearch::CloseKeys() {
-  for (size_t i = 0; i < concKeys.size(); i++) {
-    if (concKeys[i].key) {
-      RedisModule_CloseKey(concKeys[i].key);
-      concKeys[i].key = NULL;
+  for (auto &ckey: concKeys) {
+    if (ckey->key) {
+      RedisModule_CloseKey(ckey->key);
+      ckey.release();
     }
   }
 }
@@ -37,9 +37,9 @@ inline void ConcurrentSearch::CloseKeys() {
 //---------------------------------------------------------------------------------------------
 
 inline void ConcurrentSearch::ReopenKeys() {
-  for (size_t i = 0; i < concKeys.size(); i++) {
-    concKeys[i].key = RedisModule_OpenKey(ctx, concKeys[i].keyName, concKeys[i].keyFlags);
-    concKeys[i].Reopen();
+  for (auto &ckey: concKeys) {
+    ckey->key = RedisModule_OpenKey(ctx, ckey->keyName, ckey->keyFlags);
+    ckey->Reopen();
   }
 }
 
@@ -97,8 +97,8 @@ inline ConcurrentSearch::ConcurrentSearch(RedisModuleCtx *rctx) {
 
 inline ConcurrentSearch::~ConcurrentSearch() {
   // Release the monitored open keys
-  for (size_t i = 0; i < concKeys.size(); i++) {
-    RedisModule_FreeString(ctx, concKeys[i].keyName);
+  for (auto &ckey: concKeys) {
+    RedisModule_FreeString(ctx, ckey->keyName);
   }
 
   CloseKeys();
@@ -121,10 +121,9 @@ inline ConcurrentSearch::~ConcurrentSearch() {
 // for notification, and private callback data. if freePrivDataCallback is provided, we will call it
 // when the context is freed to release the private data. If NULL is passed, we do nothing
 
-template <class ConcurrentKey1>
-void ConcurrentSearch::AddKey(ConcurrentKey1 &&key) {
-  concKeys.emplace_back(std::move(key));
-  //RedisModule_RetainString(ctx, concKeys[0].keyName); //@@ TODO: ensure valid
+template <typename T>
+void ConcurrentSearch::AddKey(T &&key) {
+  concKeys.emplace_back(std::make_unique<T>(std::move(key)));
 }
 
 //---------------------------------------------------------------------------------------------

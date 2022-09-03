@@ -37,13 +37,13 @@ typedef UnorderedMap<std::string, MergeMapEntry*> MergeMap;
 
 //---------------------------------------------------------------------------------------------
 
-struct DocumentIndexerConcurrentKey : public ConcurrentKey {
+struct DocumentIndexerConcurrentKey : ConcurrentKey {
   RedisSearchCtx sctx;
 
   DocumentIndexerConcurrentKey(RedisModuleString *keyName, RedisSearchCtx sctx, RedisModuleKey *key = NULL) :
     ConcurrentKey(key, keyName, REDISMODULE_READ | REDISMODULE_WRITE), sctx(sctx) {}
 
-  void Reopen() {
+  void Reopen() override {
     // we do not allow empty indexes when loading an existing index
     if (key == NULL || RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY ||
         RedisModule_ModuleTypeGetType(key) != IndexSpecType) {
@@ -60,7 +60,7 @@ struct DocumentIndexerConcurrentKey : public ConcurrentKey {
 
 //---------------------------------------------------------------------------------------------
 
-struct DocumentIndexer : public Object {
+struct DocumentIndexer : Object {
   List<AddDocumentCtx*> addQueue;
 
   pthread_t thr;

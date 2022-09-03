@@ -184,23 +184,20 @@ struct Group {
 
 struct Grouper : ResultProcessor {
   // Map of group_name => `Group` structure
-  // static const int khid;
-  // khash_t(khid) *groups;
   typedef UnorderedMap<uint64_t, Group*> GroupsMap;
   GroupsMap groups;
 
   // Backing store for the groups themselves
   BlkAlloc<Group> groupsAlloc;
 
-  // Keys to group by. Both srckeys and dstkeys are used because different lookups
-  // are employed. The srckeys are the lookup keys for the properties as they
-  // appear in the row received from the upstream processor, and the dstkeys are
-  // the keys as they are expected in the output row.
+  // Keys to group by. Both srckeys and dstkeys are used because different lookups are employed.
+  // The srckeys are the lookup keys for the properties as they appear in the row received from 
+  // the upstream processor, and the dstkeys are the keys as they are expected in the output row.
 
   Vector<const RLookupKey*> srckeys;
   Vector<const RLookupKey*> dstkeys;
 
-  Vector<Reducer> reducers;
+  Vector<Reducer*> reducers;
 
   // Used for maintaining state when yielding groups
   GroupsMap::iterator iter;

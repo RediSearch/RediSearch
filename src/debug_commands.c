@@ -300,7 +300,7 @@ DEBUG_COMMAND(IdToDocId) {
   }
   GET_SEARCH_CTX(argv[0])
   long long id;
-  RSDocumentMetadata *doc = NULL;
+  DocumentMetadata *doc = NULL;
   if (RedisModule_StringToLongLong(argv[1], &id) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     goto end;
@@ -565,7 +565,7 @@ end:
 
 //---------------------------------------------------------------------------------------------
 
-static void replyDocFlags(const RSDocumentMetadata *dmd, RedisModuleCtx *ctx) {
+static void replyDocFlags(const DocumentMetadata *dmd, RedisModuleCtx *ctx) {
   char buf[1024] = {0};
   sprintf(buf, "(0x%x):", dmd->flags);
   if (dmd->flags & Document_Deleted) {
@@ -585,7 +585,7 @@ static void replyDocFlags(const RSDocumentMetadata *dmd, RedisModuleCtx *ctx) {
 
 //---------------------------------------------------------------------------------------------
 
-static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx) {
+static void replySortVector(const DocumentMetadata *dmd, RedisSearchCtx *sctx) {
   RSSortingVector *sv = dmd->sortVector;
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   size_t nelem = 0;
@@ -617,7 +617,7 @@ DEBUG_COMMAND(DocInfo) {
   }
   GET_SEARCH_CTX(argv[0]);
 
-  const RSDocumentMetadata *dmd = sctx->spec->docs.GetByKey(argv[1]);
+  const DocumentMetadata *dmd = sctx->spec->docs.GetByKey(argv[1]);
   if (!dmd) {
     delete sctx;
     return RedisModule_ReplyWithError(ctx, "Document not found in index");

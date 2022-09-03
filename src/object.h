@@ -11,8 +11,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-class Object {
-public:
+struct Object {
   void* operator new(std::size_t sz) { return rm_calloc(1, sz); }
   void operator delete(void *p) { rm_free(p); }
 };

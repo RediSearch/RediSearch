@@ -186,8 +186,10 @@ struct IndexLoadOptions {
 //---------------------------------------------------------------------------------------------
 
 struct BaseIndex : Object {
-  virtual ~BaseIndex() {}
+  virtual ~BaseIndex() = default;
 };
+
+//---------------------------------------------------------------------------------------------
 
 struct IndexSpec : Object {
   typedef IndexSpecId Id;

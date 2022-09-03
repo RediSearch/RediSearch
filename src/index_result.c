@@ -10,36 +10,48 @@
 
 #define __absdelta(x, y) (x > y ? x - y : y - x)
 
-//------------------------------------------------------------------------------`---------------
+//---------------------------------------------------------------------------------------------
 
-AggregateResult::AggregateResult(const AggregateResult &src) {
-  *this = src;
-  isCopy = true;
+AggregateResult::AggregateResult(const AggregateResult &res) : IndexResult(res) {
+  typeMask = res.typeMask;
   // deep copy recursively all children
-  for (auto child : src.children) {
-    children.push_back(new IndexResult(*child));
+  for (auto child : res.children) {
+    children.push_back(child->Clone());
   }
 }
 
-//------------------------------------------------------------------------------`---------------
+//---------------------------------------------------------------------------------------------
+
+AggregateResult::~AggregateResult() {
+  if (isCopy) {
+    for (auto child : children) {
+      delete child;
+    }
+  }
+}
+
+//---------------------------------------------------------------------------------------------
 
 void AggregateResult::Print(int depth) const {
-  for (int i = 0; i < depth; i++) printf("  ");
-  printf("%s => %llu{ \n", type == RSResultType_Intersection ? "Inter" : "Union",
-         (unsigned long long)docId);
+  for (int i = 0; i < depth; i++) {
+    printf("  ");
+  }
+  printf("%s => %llu{ \n", type == RSResultType_Intersection ? "Inter" : "Union", (unsigned long long)docId);
 
-  for (auto child : children) child->Print(depth + 1);
+  for (auto child : children) {
+    child->Print(depth + 1);
+  }
   for (int i = 0; i < depth; i++) printf("  ");
   printf("},\n");
 }
 
-//------------------------------------------------------------------------------`---------------
+//---------------------------------------------------------------------------------------------
 
 bool AggregateResult::HasOffsets() const {
   return typeMask != RSResultType_Virtual && typeMask != RSResultType_Numeric;
 }
 
-//------------------------------------------------------------------------------`---------------
+//---------------------------------------------------------------------------------------------
 
 void AggregateResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) {
   if (len == cap) return;
@@ -48,7 +60,7 @@ void AggregateResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &le
   }
 }
 
-//------------------------------------------------------------------------------`---------------
+//---------------------------------------------------------------------------------------------
 
 // Reset aggregate result's child vector
 
@@ -58,7 +70,7 @@ void AggregateResult::Reset() {
   typeMask = (RSResultType) 0;
 }
 
-//------------------------------------------------------------------------------`---------------
+//---------------------------------------------------------------------------------------------
 
 // Append a child to an aggregate result
 
@@ -72,7 +84,7 @@ void AggregateResult::AddChild(IndexResult *child) {
   fieldMask |= child->fieldMask;
 }
 
-//------------------------------------------------------------------------------`---------------
+//---------------------------------------------------------------------------------------------
 
 // Test the result offset vectors to see if they fall within a max "slop" or distance between the
 // terms. That is the total number of non matched offsets between the terms is no bigger than
@@ -130,7 +142,7 @@ int AggregateResult::MinOffsetDelta() const {
     return 1;
   }
 
-  std::unique_ptr<RSOffsetIterator> v1, v2;
+  std::unique_ptr<OffsetIterator> v1, v2;
   int i = 0;
   while (i < num) {
     // if either
@@ -173,10 +185,7 @@ int AggregateResult::MinOffsetDelta() const {
 
 //---------------------------------------------------------------------------------------------
 
-TermResult::TermResult(const TermResult &src) {
-  *this = src;
-  isCopy = true;
-
+TermResult::TermResult(const TermResult &src) : IndexResult(src) {
   // copy the offset vectors
   if (src.offsets.data) {
     offsets.data = rm_malloc(offsets.len);
@@ -187,6 +196,7 @@ TermResult::TermResult(const TermResult &src) {
 //---------------------------------------------------------------------------------------------
 
 TermResult::~TermResult() {
+  //@@@TODO: handle ownership properly
   if (isCopy) {
     rm_free(offsets.data);
   } else {  // non copy result...
@@ -200,10 +210,7 @@ TermResult::~TermResult() {
 //---------------------------------------------------------------------------------------------
 
 void TermResult::Print(int depth) const {
-  for (int i = 0; i < depth; i++) printf("  ");
-
-  printf("Term{%llu: %s},\n", (unsigned long long)docId,
-         term ? term->str : "nil");
+  printf("%*sTerm{%llu: %s},\n", depth, "", (unsigned long long)docId, term ? term->str : "nil");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -227,15 +234,13 @@ void TermResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) {
 //---------------------------------------------------------------------------------------------
 
 void NumericResult::Print(int depth) const {
-  for (int i = 0; i < depth; i++) printf("  ");
-  printf("Numeric{%llu:%f},\n", (unsigned long long)docId, value);
+  printf("%*sNumeric{%llu:%f},\n", depth, "", (unsigned long long)docId, value);
 }
 
 //---------------------------------------------------------------------------------------------
 
 void VirtualResult::Print(int depth) const {
-  for (int i = 0; i < depth; i++) printf("  ");
-  printf("Virtual{%llu},\n", (unsigned long long)docId);
+  printf("%*sVirtual{%llu},\n", depth, "", (unsigned long long)docId);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -266,7 +271,7 @@ size_t IndexResult::GetMatchedTerms(RSQueryTerm **arr, size_t cap) {
 
 bool IndexResult::withinRangeInOrder(RSOffsetIterators &iters, uint32_t *positions, int num,
                                      int maxSlop) {
-  while (1) {
+  for (;;) {
     // we start from the beginning, and a span of 0
     int span = 0;
     for (int i = 0; i < num; i++) {

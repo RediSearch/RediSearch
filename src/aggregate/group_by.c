@@ -53,11 +53,10 @@ int Grouper::Yield(SearchResult &r) {
       writeGroupValues(gr, r);
     }
     // else...
-    for (size_t i = 0; i < numReducers(); ++i) {
-      Reducer rd = reducers[i];
-      RSValue *v = rd.Finalize();
+    for (auto rd: reducers) {
+      RSValue *v = rd->Finalize();
       if (v) {
-        r.rowdata.WriteOwnKey(rd.dstkey, v);
+        r.rowdata.WriteOwnKey(rd->dstkey, v);
         writeGroupValues(gr, r);
       } else {
         throw Error("Couldn't get value");
@@ -73,9 +72,8 @@ int Grouper::Yield(SearchResult &r) {
 //---------------------------------------------------------------------------------------------
 
 void Grouper::invokeGroupReducers(Group *gr, RLookupRow &srcrow) {
-  size_t nreducers = numReducers();
-  for (size_t i = 0; i < nreducers; i++) {
-    reducers[i].Add(&srcrow);
+  for (auto reducer: reducers) {
+    reducer->Add(&srcrow);
   }
 }
 
@@ -249,7 +247,7 @@ Grouper::Grouper(const RLookupKey **srckeys_, const RLookupKey **dstkeys_, size_
 
 void Grouper::AddReducer(Reducer *r, RLookupKey *dstkey) {
   r->dstkey = dstkey;
-  reducers.push_back(*r);
+  reducers.push_back(r);
 }
 
 //---------------------------------------------------------------------------------------------

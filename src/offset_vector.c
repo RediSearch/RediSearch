@@ -9,12 +9,12 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-RSOffsetEmptyIterator offset_empty_iterator;
+EmptyOffsetIterator offset_empty_iterator;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Rewind an offset vector iterator and start reading it from the beginning
-void RSOffsetVectorIterator::Rewind() {
+void OffsetVectorIterator::Rewind() {
   lastValue = 0;
   buf.offset = 0;
   br.pos = 0;
@@ -23,7 +23,7 @@ void RSOffsetVectorIterator::Rewind() {
 //---------------------------------------------------------------------------------------------
 
 // Get the next entry, or return RS_OFFSETVECTOR_EOF
-uint32_t RSOffsetVectorIterator::Next(RSQueryTerm **t) {
+uint32_t OffsetVectorIterator::Next(RSQueryTerm **t) {
   if (!br.AtEnd()) {
     lastValue += ReadVarint(br);
     if (t) *t = term;
@@ -95,7 +95,7 @@ void AggregateOffsetIterator::Rewind() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-RSOffsetIterator::Proxy::~Proxy() {
+OffsetIterator::Proxy::~Proxy() {
   if (it != &offset_empty_iterator) {
     delete it;
   }
@@ -103,8 +103,8 @@ RSOffsetIterator::Proxy::~Proxy() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-std::unique_ptr<RSOffsetIterator> RSOffsetVector::Iterate(RSQueryTerm *t) const {
-  return std::make_unique<RSOffsetVectorIterator>(this, t);
+std::unique_ptr<OffsetIterator> OffsetVector::Iterate(RSQueryTerm *t) const {
+  return std::make_unique<OffsetVectorIterator>(this, t);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

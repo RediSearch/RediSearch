@@ -12,6 +12,7 @@ function(RSTEST name)
 endfunction()
 
 file(GLOB TEST_SOURCES "test_*.c")
+set_source_files_properties(${TEST_SOURCES} PROPERTIES LANGUAGE CXX)
 
 foreach(n ${TEST_SOURCES})
     get_filename_component(test_name ${n} NAME_WE)

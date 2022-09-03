@@ -34,9 +34,8 @@ struct HighligherDoc {
 
 //---------------------------------------------------------------------------------------------
 
-struct Highlighter : public ResultProcessor {
+struct Highlighter : ResultProcessor {
   Highlighter(const RSSearchOptions *searchopts, const FieldList &fields, const RLookup *lookup);
-  virtual ~Highlighter();
 
   int fragmentizeOptions;
   const FieldList fields;
@@ -46,7 +45,7 @@ struct Highlighter : public ResultProcessor {
 
   void processField(HighligherDoc &doc, const ReturnedField &field);
 
-  virtual int Next(SearchResult *res);
+  int Next(SearchResult *res) override;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

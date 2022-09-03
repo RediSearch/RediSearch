@@ -56,16 +56,6 @@ protected:
   static int mempoolDisable_g;
 };
 
-//---------------------------------------------------------------------------------------------
-
-#if 0
-
-#define MEMPOOOL_STATIC_ALLOCATOR(name, sz) \
-  void *name() {                            \
-    return rm_malloc(sz);                   \
-  }
-
-#endif // 0
 
 //---------------------------------------------------------------------------------------------
 
@@ -73,24 +63,25 @@ protected:
 
 //---------------------------------------------------------------------------------------------
 
-class MemPool : public mempool_t {
-	const char *name;
-public:
+template <class T>
+struct MemPool : mempool_t {
+  const char *name;
+
   MemPool(size_t initialCap, size_t maxCap, bool isGlobal) : mempool_t(initialCap, maxCap, isGlobal) {}
 
-  void *alloc() { return get(); }
-  void _free(void *p) { release(p); }
+  void *alloc() { return rm_malloc(sizeof(T)); }
+  void *alloc(size_t n) { return rm_malloc(n); }
+  void _free(void *p) { rm_free(p); }
 };
 
 //---------------------------------------------------------------------------------------------
 
 template <class Pool>
-class MemPoolObject {
-public:
+struct MemPoolObject {
   static Pool pool;
 
   void* operator new(std::size_t sz) { return pool.alloc(sz); }
-  void operator delete(void *p) { pool.free(p); }
+  void operator delete(void *p) { pool._free(p); }
 
   template <class P>
   void* operator new(std::size_t sz, P &pool) { return pool.alloc(sz); }

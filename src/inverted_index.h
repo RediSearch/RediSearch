@@ -261,7 +261,6 @@ struct IndexReadIterator : IndexIterator {
   IndexReader *_ir;
 
   IndexReadIterator(IndexReader *ir);
-  virtual ~IndexReadIterator();
 
   virtual int Read(IndexResult **hit) { return _ir->Read(hit); }
 
