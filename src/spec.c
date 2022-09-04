@@ -24,15 +24,14 @@
 #include "doc_types.h"
 #include "rdb.h"
 #include "commands.h"
+#include "rmutil/cxx/chrono-clock.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
-int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
-void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
@@ -291,9 +290,6 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
-  if (IndexSpec_OnCreate) {
-    IndexSpec_OnCreate(sp);
-  }
 
   // set timeout for temporary index on master
   if ((sp->flags & Index_Temporary) && IsMaster()) {
@@ -1394,6 +1390,10 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     }
   }
 
+  // Increament the number of uses. 
+  // When we move to multi readers this counter needs to be atomic.
+  ++sp->counter;
+
   if ((sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     if (sp->isTimerSet) {
       RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL);
@@ -1784,7 +1784,7 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
     spec->scan_in_progress = true;
   } else {
     global_spec_scanner = scanner;
-    RedisModule_Log(RSDummyContext, "notice", "Global scanner created");    
+    RedisModule_Log(RSDummyContext, "notice", "Global scanner created");
   }
 
   return scanner;
@@ -2219,9 +2219,6 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     if (sp->smap == NULL)
       goto cleanup;
   }
-  if (IndexSpec_OnCreate) {
-    IndexSpec_OnCreate(sp);
-  }
 
   sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
 
@@ -2318,9 +2315,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
-  }
-  if (IndexSpec_OnCreate) {
-    IndexSpec_OnCreate(sp);
   }
   if (encver < INDEX_MIN_EXPIRE_VERSION) {
     sp->timeout = -1;
@@ -2541,7 +2535,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
-  clock_t startDocTime  = clock();
+  hires_clock_t t0;
+  hires_clock_get(&t0);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
@@ -2577,8 +2572,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   Document_Free(&doc);
 
-  clock_t totalDocTime = clock() - startDocTime;
-  spec->stats.totalIndexTime += totalDocTime;
+  spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
 
   return REDISMODULE_OK;
 }

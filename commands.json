@@ -54,6 +54,12 @@
         ]
       },
       {
+        "name": "filter",
+        "type": "string",
+        "optional": true,
+        "token": "FILTER"
+      },
+      {
         "name": "default_lang",
         "type": "string",
         "token":"LANGUAGE",
@@ -130,11 +136,18 @@
             "type": "integer"
           },
           {
-            "multiple": true,
             "name": "stopword",
-            "type": "string"
+            "type": "string",
+            "multiple": true,
+            "optional": true
           }
         ]
+      },
+      {
+        "name": "skipinitialscan",
+        "type": "pure-token",
+        "token": "SKIPINITIALSCAN",
+        "optional": true
       },
       {
         "name": "schema",
@@ -186,6 +199,12 @@
                 "token": "VECTOR"
               }
             ]
+          },
+          {
+            "name": "withsuffixtrie",
+            "type": "pure-token",
+            "token": "WITHSUFFIXTRIE",
+            "optional": true
           },
           {
             "name": "sortable",
@@ -282,6 +301,12 @@
       {
         "name": "index",
         "type": "string"
+      },
+      {
+        "name": "skipinitialscan",
+        "type": "pure-token",
+        "token": "SKIPINITIALSCAN",
+        "optional": true
       },
       {
         "name": "schema",
