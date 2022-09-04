@@ -1362,9 +1362,10 @@ def test_rdb_memory_limit():
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
 def test_timeout_reached():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
+    timeout_expected = 0 if env.isCluster() else 'Timeout limit was reached'
 
     vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 10000 * nshards)]
     hybrid_modes = ['BATCHES', 'ADHOC_BF']
@@ -1377,17 +1378,17 @@ def test_timeout_reached():
                    'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(env, 'idx')
 
-        # STANDART KNN
+        # STANDARD KNN
         # run query with no timeout. should succeed.
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                    'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 0)
         env.assertEqual(res[0], n_vec)
-        # run query with 1 milisecond timeout. should fail.
+        # run query with 1 millisecond timeout. should fail.
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                    'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 1)
-        env.assertEqual(res[0], 0)
+        env.assertEqual(res[0], timeout_expected)
 
         # HYBRID MODES
         for mode in hybrid_modes:
@@ -1399,6 +1400,6 @@ def test_timeout_reached():
             res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                        'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
                                        'TIMEOUT', 1)
-            env.assertEqual(res[0], 0)
+            env.assertEqual(res[0], timeout_expected)
 
         conn.flushall()
