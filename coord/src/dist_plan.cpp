@@ -476,7 +476,6 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
     v.push_back(tmp[ii]);
   }
   array_free(tmp);
-  // rm_free(dstp);
   return REDISMODULE_OK;
 }
 

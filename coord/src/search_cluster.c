@@ -13,7 +13,7 @@ SearchCluster NewSearchCluster(size_t size, const char **table, size_t tableSize
   if(size){
     // assume slots are equaly distributed
     ret.shardsStartSlots = rm_malloc(size * sizeof *ret.shardsStartSlots);
-    for(size_t j = 0, i = 0 ; j < size; j++, i+=(tableSize/size)){
+    for(size_t j = 0, i = 0; j < size; j++, i+=((tableSize+size-1)/size)){
       ret.shardsStartSlots[j] = i;
     }
   }
