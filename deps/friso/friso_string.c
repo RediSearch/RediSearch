@@ -186,7 +186,7 @@ FRISO_API string_buffer_t string_buffer_trim( string_buffer_t sb )
  * free the given fstring buffer.
  * and this function will not free the allocations of the 
  *     string_buffer_t->buffer, we return it to you, if there is
- *     a necessary you could free it youself by calling free();
+ *     a necessary you could free it youself by calling rm_free();
  */
 FRISO_API fstring string_buffer_devote( string_buffer_t sb ) 
 {

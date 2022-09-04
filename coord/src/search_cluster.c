@@ -103,7 +103,7 @@ done:
 char *writeTaggedId(const char *key, size_t keyLen, const char *tag, size_t tagLen,
                     size_t *taggedLen) {
   size_t total = keyLen + tagLen + 3;  // +3 because of '{', '}', and NUL
-  char *tagged = malloc(total);
+  char *tagged = rm_malloc(total);
   tagged[total - 1] = 0;
   if (taggedLen) {
     *taggedLen = total - 1;
@@ -337,16 +337,16 @@ void SCCommandMuxIterator_Free(void *ctx) {
   SCCommandMuxIterator *it = ctx;
   if (it->cmd) MRCommand_Free(it->cmd);
   it->cmd = NULL;
-  free(it->keyAlias);
-  free(it);
+  rm_free(it->keyAlias);
+  rm_free(it);
 }
 
 void NoPartitionCommandMuxIterator_Free(void *ctx) {
   SCCommandMuxIterator *it = ctx;
   if (it->cmd) MRCommand_Free(it->cmd);
   it->cmd = NULL;
-  free(it->keyAlias);
-  free(it);
+  rm_free(it->keyAlias);
+  rm_free(it);
 }
 
 MRCommandGenerator noPartitionCommandGenerator = {.Next = NoPartitionCommandMuxIterator_Next,
@@ -380,7 +380,7 @@ MRCommandGenerator SearchCluster_GetCommandGenerator(SCCommandMuxIterator *mux, 
  * iteration, based on the original command */
 MRCommandGenerator SearchCluster_MultiplexCommand(SearchCluster *c, MRCommand *cmd) {
 
-  SCCommandMuxIterator *mux = malloc(sizeof(SCCommandMuxIterator));
+  SCCommandMuxIterator *mux = rm_malloc(sizeof(SCCommandMuxIterator));
   *mux = (SCCommandMuxIterator){
       .cluster = c, .cmd = cmd, .keyOffset = MRCommand_GetShardingKey(cmd), .offset = 0};
   if (MRCommand_GetFlags(cmd) & MRCommand_Aliased) {
@@ -389,7 +389,7 @@ MRCommandGenerator SearchCluster_MultiplexCommand(SearchCluster *c, MRCommand *c
       size_t newlen = 0;
       const char *target = lookupAlias(cmd->strs[mux->keyOffset], &newlen);
       if (oldlen != newlen) {
-        mux->keyAlias = strndup(target, newlen);
+        mux->keyAlias = rm_strndup(target, newlen);
       }
     }
   }

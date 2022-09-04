@@ -175,7 +175,7 @@ static void freeDistStep(PLN_BaseStep *bstp) {
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)bstp;
   if (dstp->plan) {
     AGPLN_FreeSteps(dstp->plan);
-    free(dstp->plan);
+    rm_free(dstp->plan);
     dstp->plan = NULL;
   }
   if (dstp->serialized) {
@@ -193,7 +193,7 @@ static void freeDistStep(PLN_BaseStep *bstp) {
   }
   BlkAlloc_FreeAll(&dstp->alloc, NULL, NULL, 0);
   RLookup_Cleanup(&dstp->lk);
-  free(dstp);
+  rm_free(dstp);
 }
 
 static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {

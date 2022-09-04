@@ -8,7 +8,7 @@ void testChan() {
   mu_assert_int_eq(0, MRChannel_MaxSize(c));
 
   for (int i = 0; i < 100; i++) {
-    int *ptr = malloc(sizeof(*ptr));
+    int *ptr = rm_malloc(sizeof(*ptr));
     *ptr = i;
     int rc = MRChannel_Push(c, ptr);
     mu_assert_int_eq(1, rc);
@@ -20,7 +20,7 @@ void testChan() {
   while (MRChannel_Size(c) && (p = MRChannel_Pop(c))) {
     mu_assert_int_eq(*(int *)p, count);
     count++;
-    free(p);
+    rm_free(p);
   }
   mu_assert_int_eq(100, count);
   mu_assert_int_eq(0, MRChannel_Size(c));

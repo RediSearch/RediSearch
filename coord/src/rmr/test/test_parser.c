@@ -72,7 +72,7 @@ void testParser() {
   mu_check(topo == NULL);
   mu_check(err != NULL);
   printf("\n%s\n", err);
-  free(err);
+  rm_free(err);
 }
 
 void testHashFunc() {
@@ -126,7 +126,7 @@ void testHashFunc() {
   topo = MR_ParseTopologyRequest(q, strlen(q), &err);
   mu_check(topo == NULL);
   mu_check(err != NULL);
-  free(err);
+  rm_free(err);
 
   // Test error in slotnum
   q = "MYID 1 HASHFUNC CRC13 NUMSLOTS 1337 "
@@ -138,7 +138,7 @@ void testHashFunc() {
   topo = MR_ParseTopologyRequest(q, strlen(q), &err);
   mu_check(topo == NULL);
   mu_check(err != NULL);
-  free(err);
+  rm_free(err);
 
   // Test error
 }

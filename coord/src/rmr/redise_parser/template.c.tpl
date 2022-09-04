@@ -63,7 +63,7 @@
 **                       which is ParseTOKENTYPE.  The entry in the union
 **                       for terminal symbols is called "yy0".
 **    YYSTACKDEPTH       is the maximum depth of the parser's stack.  If
-**                       zero the stack is dynamically sized using realloc()
+**                       zero the stack is dynamically sized using rm_realloc()
 **    ParseARG_SDECL     A static variable declaration for the %extra_argument
 **    ParseARG_PDECL     A parameter declaration for the %extra_argument
 **    ParseARG_STORE     Code to store %extra_argument into yypParser
@@ -287,10 +287,10 @@ static int yyGrowStack(yyParser *p){
   newSize = p->yystksz*2 + 100;
   idx = p->yytos ? (int)(p->yytos - p->yystack) : 0;
   if( p->yystack==&p->yystk0 ){
-    pNew = malloc(newSize*sizeof(pNew[0]));
+    pNew = rm_malloc(newSize*sizeof(pNew[0]));
     if( pNew ) pNew[0] = p->yystk0;
   }else{
-    pNew = realloc(p->yystack, newSize*sizeof(pNew[0]));
+    pNew = rm_realloc(p->yystack, newSize*sizeof(pNew[0]));
   }
   if( pNew ){
     p->yystack = pNew;
@@ -421,7 +421,7 @@ void MRTopologyRequest_ParseFinalize(void *p){
   yyParser *pParser = (yyParser*)p;
   while( pParser->yytos>pParser->yystack ) yy_pop_parser_stack(pParser);
 #if YYSTACKDEPTH<=0
-  if( pParser->yystack!=&pParser->yystk0 ) free(pParser->yystack);
+  if( pParser->yystack!=&pParser->yystk0 ) rm_free(pParser->yystack);
 #endif
 }
 
