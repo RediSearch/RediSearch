@@ -164,11 +164,11 @@ commands:
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: make test SHOW=1
-      - run:
-          name: Test (OSS Coordinator)
-          shell: /bin/bash -l -eo pipefail
-          no_output_timeout: 30m
-          command: make test COORD=oss SHOW=1
+#      - run:
+#          name: Test (OSS Coordinator)
+#          shell: /bin/bash -l -eo pipefail
+#          no_output_timeout: 30m
+#          command: make test COORD=oss SHOW=1
       - save-tests-logs
 
   build-platforms-steps:

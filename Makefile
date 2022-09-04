@@ -614,7 +614,7 @@ COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
 coverage:
 	$(SHOW)$(MAKE) build COV=1
-	$(SHOW)$(MAKE) build COORD=oss COV=1
+#	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
 	-$(SHOW)$(MAKE) test COV=1
 #	-$(SHOW)$(MAKE) test COORD=oss COV=1
