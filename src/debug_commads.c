@@ -297,7 +297,6 @@ void NumericRangeTree_DebugReply(RedisModuleCtx *ctx, NumericRangeTree *rt) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, len);
   REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, len);
-  REPLY_WITH_LONG_LONG("cardinality", rt->card, len);
   REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, len);
   REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, len);
   REPLY_WITH_LONG_LONG("uniqueId", rt->uniqueId, len);
