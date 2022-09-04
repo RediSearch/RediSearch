@@ -431,9 +431,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
   if (FieldSpec_IsSortable(fs)) {
     // Currently multi values are skipped from sorting vector
-    if (field->unionType != FLD_VAR_T_ARRAY) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
-    }
+    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
   }
 
   if (FieldSpec_IsIndexable(fs)) {
