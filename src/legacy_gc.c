@@ -111,7 +111,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
   }
   RedisModule_Log(ctx, "debug", "Garbage collecting for term '%s'", term);
   // Open the term's index
-  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
+  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, NULL, &idxKey);
   if (idx) {
     int blockNum = 0;
     do {
@@ -139,7 +139,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
       }
 
       // reopen the inverted index - it might have gone away
-      idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
+      idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, NULL, &idxKey);
     } while (idx != NULL);
   }
   if (totalRemoved) {
