@@ -1511,6 +1511,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
+  sp->nameLen = strlen(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
@@ -1586,7 +1587,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
-    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
+    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, sp->nameLen);
     sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
     GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
@@ -1934,7 +1935,7 @@ void ReindexPool_ThreadPoolDestroy() {
 #ifdef FTINFO_FOR_INFO_MODULES
 void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   char *temp = "info";
-  char name[strlen(sp->name) + strlen(temp) + 2];
+  char name[sp->nameLen + strlen(temp) + 2];
   sprintf(name, "%s_%s", temp, sp->name);
   RedisModule_InfoAddSection(ctx, name);
 
@@ -2401,7 +2402,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     IndexSpec *sp = dictGetVal(entry);
     // we save the name plus the null terminator
-    RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name) + 1);
+    RedisModule_SaveStringBuffer(rdb, sp->name, sp->nameLen + 1);
     RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
     RedisModule_SaveUnsigned(rdb, sp->numFields);
     for (int i = 0; i < sp->numFields; i++) {
