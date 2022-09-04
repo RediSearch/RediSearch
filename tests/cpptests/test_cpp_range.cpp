@@ -175,7 +175,7 @@ void testRangeIteratorHelper(bool isMulti) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, !isMulti ? 14 : 41);
+  ASSERT_EQ(t->numRanges, !isMulti ? 14 : 42);
   ASSERT_EQ(t->numEntries, !isMulti ? N : N * MULT_COUNT);
   NumericRangeTree_Free(t);
 }
