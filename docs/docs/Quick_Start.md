@@ -42,6 +42,8 @@ To download and run RediSearch from a precompiled binary:
 
 To build and run RediSearch from the source code:
 
+1. Requirements: `git` & `make`
+
 1. Clone the [RediSearch repository](https://github.com/RediSearch/RediSearch) (make sure you include the `--recursive` option to properly clone submodules):
 
     ```sh
@@ -51,14 +53,8 @@ To build and run RediSearch from the source code:
 
 1. Install dependencies:
 
-    On macOS:
     ```sh
     $ make setup
-    ```
-
-    On Linux:
-    ```sh
-    $ sudo make setup
     ```
 
 1. Build:
@@ -67,6 +63,8 @@ To build and run RediSearch from the source code:
     ```
 
 1. Run Redis with RediSearch:
+    Requirements: [redis-server](https://redis.io/docs/getting-started/)
+
     ```sh
     $ make run
     ```
