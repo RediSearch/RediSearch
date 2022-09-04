@@ -103,7 +103,6 @@ static PLN_BaseStep *distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN
   rdctx.currentLocal = &grLocal->base;
 
   int rc = REDISMODULE_OK;
-  bool ok = true;
 
   for (size_t ii = 0; ii < nreducers; ii++) {
     rdctx.srcReducer = gr->reducers + ii;
@@ -111,28 +110,11 @@ static PLN_BaseStep *distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN
     if (fn) {
       rc = fn(&rdctx, status);
     } else {
-      // printf("Couldn't find distribution implementationf for %s\n", gr->reducers[ii].name);
-      AGPLN_AddBefore(origPlan, &grLocal->base, step);
-      AGPLN_PopStep(origPlan, &grLocal->base);
-      grLocal->base.dtor(&grLocal->base);
-      grRemote->base.dtor(&grRemote->base);
-
-      // Clear any added steps..
-      for (auto stp : rdctx.addedRemoteSteps) {
-        AGPLN_PopStep(remote, stp);
-        stp->dtor(stp);
-      }
-
-      for (auto stp : rdctx.addedLocalSteps) {
-        AGPLN_PopStep(origPlan, stp);
-        stp->dtor(stp);
-      }
-      *cont = 0;
-      return NULL;
+      goto cleanup;
     }
 
     if (rc != REDISMODULE_OK) {
-      return NULL;
+      goto cleanup;
     }
   }
 
@@ -141,22 +123,31 @@ static PLN_BaseStep *distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN
   // our own
   array_ensure_append(dstp->oldSteps, &step, 1, PLN_GroupStep *);
 
-  // we didn't manage to distribute all reducers, we have to revert to
-  // classic "get all rows" mode
-  if (rc != REDISMODULE_OK) {
-    // printf("Couldn't distribute: %s\n", QueryError_GetError(status));
-    grRemote->base.dtor(&grRemote->base);
-    return NULL;
-  }
-
   // Add remote step
   AGPLN_AddStep(remote, &grRemote->base);
 
   // Return step after current local step
-  if (!ok) {
-    return NULL;
-  }
   return PLN_NEXT_STEP(rdctx.currentLocal);
+
+cleanup:
+    // printf("Couldn't find distribution implementationf for %s\n", gr->reducers[ii].name);
+    AGPLN_AddBefore(origPlan, &grLocal->base, step);
+    AGPLN_PopStep(origPlan, &grLocal->base);
+    grLocal->base.dtor(&grLocal->base);
+    grRemote->base.dtor(&grRemote->base);
+
+    // Clear any added steps..
+    for (auto stp : rdctx.addedRemoteSteps) {
+      AGPLN_PopStep(remote, stp);
+      stp->dtor(stp);
+    }
+
+    for (auto stp : rdctx.addedLocalSteps) {
+      AGPLN_PopStep(origPlan, stp);
+      stp->dtor(stp);
+    }
+    *cont = 0;
+    return NULL;
 }
 
 /**
@@ -403,6 +394,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
       case PLN_T_GROUP:
         current = distributeGroupStep(src, remote, current, dstp, &cont, status);
         if (!current && QueryError_HasError(status)) {
+          delete dstp->serialized;
           rm_free(dstp);
           return REDISMODULE_ERR;
         }

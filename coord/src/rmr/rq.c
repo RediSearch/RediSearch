@@ -104,7 +104,7 @@ void RQ_Free(MRWorkQueue *q) {
     free(req);
   }
 
-  uv_close(&q->async, NULL);
+  uv_close((uv_handle_t *)&q->async, NULL);
   uv_mutex_destroy(&q->lock);
 
   free(q);
