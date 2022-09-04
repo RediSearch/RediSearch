@@ -403,6 +403,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
       case PLN_T_GROUP:
         current = distributeGroupStep(src, remote, current, dstp, &cont, status);
         if (!current && QueryError_HasError(status)) {
+          rm_free(dstp);
           return REDISMODULE_ERR;
         }
         break;
