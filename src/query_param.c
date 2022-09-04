@@ -15,6 +15,7 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
 
   GeoFilter *gf = NewGeoFilter(0, 0, 0, NULL, 0); // TODO: Just call rm_calloc ?
   ret->gf = gf;
+  gf->type = GeoType_Circle;
   QueryParam_InitParams(ret, 4);
   QueryParam_SetParam(q, &ret->params[0], &gf->lon, NULL, lon);
   QueryParam_SetParam(q, &ret->params[1], &gf->lat, NULL, lat);
@@ -25,6 +26,20 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
   } else {
     QueryParam_SetParam(q, &ret->params[3], &gf->unitType, NULL, unit);
   }
+  return ret;
+}
+
+QueryParam *NewGeoFilterBoxQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *lon, QueryToken *lat, QueryToken *lonBox, QueryToken *latBox) {
+  QueryParam *ret = NewQueryParam(QP_GEO_FILTER);
+
+  GeoFilter *gf = NewGeoFilter(0, 0, 0, NULL, 0); // TODO: Just call rm_calloc ?
+  ret->gf = gf;
+  gf->type = GeoType_Box;
+  QueryParam_InitParams(ret, 4);
+  QueryParam_SetParam(q, &ret->params[0], &gf->lon, NULL, lon);
+  QueryParam_SetParam(q, &ret->params[1], &gf->lat, NULL, lat);
+  QueryParam_SetParam(q, &ret->params[2], &gf->lonBox, NULL, lonBox);
+  QueryParam_SetParam(q, &ret->params[3], &gf->latBox, NULL, latBox);
   return ret;
 }
 

@@ -66,56 +66,28 @@ void GeoFilter_Free(GeoFilter *gf) {
   rm_free(gf);
 }
 
-static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
-  *num = 0;
-  t_docId *docIds = NULL;
-  RedisModuleString *s = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
-  RS_LOG_ASSERT(s, "failed to retrive key");
-  /*GEORADIUS key longitude latitude radius m|km|ft|mi */
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
-  RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
-  RedisModuleString *slat = RedisModule_CreateStringPrintf(ctx, "%f", gf->lat);
-  RedisModuleString *srad = RedisModule_CreateStringPrintf(ctx, "%f", gf->radius);
-  const char *unitstr = GeoDistance_ToString(gf->unitType);
-  RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "GEORADIUS", "ssssc", s, slon, slat, srad, unitstr);
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-    goto done;
-  }
-
-  size_t sz = RedisModule_CallReplyLength(rep);
-  docIds = rm_calloc(sz, sizeof(t_docId));
-  for (size_t i = 0; i < sz; i++) {
-    const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);
-    if (!s) continue;
-
-    docIds[i] = (t_docId)atol(s);
-  }
-
-  *num = sz;
-
-done:
-  RedisModule_FreeString(ctx, slon);
-  RedisModule_FreeString(ctx, slat);
-  RedisModule_FreeString(ctx, srad);
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
-  }
-
-  return docIds;
-}
-
 IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
   // check input parameters are valid
-  if (gf->radius <= 0 ||
+  if ((gf->type == GeoType_Circle && (gf->radius <= 0)) ||
       gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
       gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN) {
     return NULL;
   }
 
+  // order the lat and lon
+  GeoFilter *filter = (GeoFilter *)gf;
+  double minLat = MIN(gf->lat, gf->latBox);
+  double maxLat = MAX(gf->lat, gf->latBox);
+  double minLon = MIN(gf->lon, gf->lonBox);
+  double maxLon = MAX(gf->lon, gf->lonBox);
+  filter->lat = minLat;
+  filter->lon = minLon;
+  filter->latBox = maxLat;
+  filter->lonBox = maxLon;
+
   GeoHashRange ranges[GEO_RANGE_COUNT] = {{0}};
   double radius_meter = gf->radius * extractUnitFactor(gf->unitType);
-  calcRanges(gf->lon, gf->lat, radius_meter, ranges);
+  calcRangesBox(gf->lon, gf->lat, gf->lonBox, gf->latBox, ranges);
 
   IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
   ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
@@ -267,29 +239,24 @@ static double extractUnitFactor(GeoDistance unit) {
 }
 
 /**
- * Populates the numeric range to search for within a given square direction
- * specified by `dir`
- */
-static int populateRange(const GeoFilter *gf, GeoHashRange *ranges) {
-  double xy[2] = {gf->lon, gf->lat};
-
-  double radius_meters = gf->radius * extractUnitFactor(gf->unitType);
-  if (radius_meters < 0) {
-    return -1;
-  }
-  calcRanges(gf->lon, gf->lat, radius_meters, ranges);
-  return 0;
-}
-
-/**
  * Checks if the given coordinate d is within the radius gf
  */
 int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
+  return 1;
   double xy[2];
   decodeGeo(d, xy);
   double radius_meters = gf->radius * extractUnitFactor(gf->unitType);
   int rv = isWithinRadiusLonLat(gf->lon, gf->lat, xy[0], xy[1], radius_meters, distance);
   return rv;
+}
+
+int isWithinBox(const GeoFilter *gf, double d) {
+  double xy[2];
+  decodeGeo(d, xy);
+  if (xy[0] < gf->lon || xy[0] > gf->lonBox || xy[1] < gf->lat || xy[1] > gf->latBox) {
+    return 0;
+  }
+  return 1;
 }
 
 static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {

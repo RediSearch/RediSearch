@@ -84,10 +84,50 @@ static void calcAllNeighbors(GeoHashRadius *n, double lon, double lat, double ra
 
 /* Calculate range for relevant squares around center.
  * If min == max, range is included in other ranges */
-void calcRanges(double longitude, double latitude, double radius_meters, GeoHashRange *ranges) {
+void calcRangesCircle(double longitude, double latitude, double radius_meters, GeoHashRange *ranges) {
   GeoHashRadius georadius = geohashGetAreasByRadiusWGS84(longitude, latitude, radius_meters);
 
   calcAllNeighbors(&georadius, longitude, latitude, radius_meters, ranges);
+}
+
+
+/* Calculate range for relevant squares around center.
+ * If min == max, range is included in other ranges */
+void calcRangesBox(double longitude1, double latitude1, double longitude2, double latitude2 , GeoHashRange *ranges) {
+  double centerLong = (longitude1 + longitude2) / 2;
+  double centerLat = (latitude1 + latitude2) / 2;
+  double radius_meters = geohashGetDistance(longitude1, latitude1, centerLong, centerLat);
+
+  calcRangesCircle(centerLong, centerLat, radius_meters, ranges);
+
+  //GeoBorder minLon, maxLon, minLat, maxLat;
+  //encodeGeo(MIN(longitude1, longitude2), -90, &minLon.d);
+  //encodeGeo(MAX(longitude1, longitude2), -90, &maxLon.d);
+  //encodeGeo(-180, MIN(latitude1, latitude2), &minLat.d);
+  //encodeGeo(-180, MAX(latitude1, latitude2), &maxLat.d);
+  //
+  //uint64_t lonFilter = 0xaaaaaaaaaaaaaaaaULL;
+  //uint64_t latFilter = 0x5555555555555555ULL;
+
+  double maxLon = MAX(longitude1, longitude2);
+  double minLon = MIN(longitude1, longitude2);
+  double maxLat = MAX(latitude1, latitude2);
+  double minLat = MIN(latitude1, latitude2);
+
+
+  double minPoint, maxPoint;
+  encodeGeo(MIN(longitude1, longitude2), MIN(latitude1, latitude2), &minPoint);
+  encodeGeo(MAX(longitude1, longitude2), MAX(latitude1, latitude2), &maxPoint);
+
+  for (int i = 0; i < GEO_RANGE_COUNT; i++) {
+    if (ranges[i].min == ranges[i].max) {
+      continue;
+    }
+
+    if (ranges[i].min > maxPoint || ranges[i].max < minPoint) {
+      ranges[i].min = ranges[i].max = 0;
+    }
+  }
 }
 
 bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, double radius,
@@ -136,7 +176,7 @@ int isWithinRadius(double center, double point, double radius, double *distance)
 
 IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
   GeoHashRange ranges[GEO_RANGE_COUNT] = {0};
-  calcRanges(gf, ranges);
+  calcRangesCircle(gf, ranges);
 
   int iterCount = 0;
   IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));

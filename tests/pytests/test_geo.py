@@ -127,3 +127,22 @@ def testGeoDistanceFile(env):
               'APPLY', 'geodistance(@location,-0.15036,51.50566)', 'AS', 'distance',
               'GROUPBY', '1', '@distance',
               'SORTBY', 2, '@distance', 'ASC').equal(res)
+
+def testGeoBox():
+  #env.skipOnCluster()
+  env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE idx SCHEMA g GEO').ok()
+  conn.execute_command('HSET', 'geo1', 'g', '1,1')
+  conn.execute_command('HSET', 'geo2', 'g', '1,2')
+  conn.execute_command('HSET', 'geo3', 'g', '2,1')
+  conn.execute_command('HSET', 'geo4', 'g', '2,2')
+  env.expect('FT.SEARCH', 'idx', '@g:[0 0 3 3]', 'nocontent').equal([4, 'geo1', 'geo2', 'geo3', 'geo4'])
+  env.expect('FT.SEARCH', 'idx', '@g:[0 0 1.5 1.5]', 'nocontent').equal([1, 'geo1'])
+  env.expect('FT.SEARCH', 'idx', '@g:[0 1.5 1.5 3]', 'nocontent').equal([1, 'geo2'])
+  env.expect('FT.SEARCH', 'idx', '@g:[1.5 0 3 1.5]', 'nocontent').equal([1, 'geo3'])
+  env.expect('FT.SEARCH', 'idx', '@g:[1.5 1.5 3 3]', 'nocontent').equal([1, 'geo4'])
+  env.expect('FT.SEARCH', 'idx', '@g:[0 0 1.5 3]', 'nocontent').equal([2, 'geo1', 'geo2'])
+  env.expect('FT.SEARCH', 'idx', '@g:[0 0 3 1.5]', 'nocontent').equal([2, 'geo1', 'geo3'])
+  env.expect('FT.SEARCH', 'idx', '@g:[0 1.5 3 3]', 'nocontent').equal([2, 'geo2', 'geo4'])
+  env.expect('FT.SEARCH', 'idx', '@g:[1.5 0 3 3]', 'nocontent').equal([2, 'geo3', 'geo4'])

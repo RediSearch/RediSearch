@@ -860,16 +860,16 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
   else if (!badToken && C.type != QT_NUMERIC)
     badToken = &C;
   if (D.type == QT_PARAM_ANY)
-    D.type = QT_PARAM_NUMERIC;
+    D.type = QT_PARAM_GEO_COORD;
   else if (!badToken && D.type != QT_NUMERIC)
     badToken = &D;
   if (E.type == QT_PARAM_ANY)
-    E.type = QT_PARAM_GEO_UNIT;
-  else if (!badToken && E.type != QT_TERM)
+    E.type = QT_PARAM_GEO_COORD;
+  else if (!badToken && E.type != QT_NUMERIC)
     badToken = &E;
-
+@dropoff_location_long_lat:[-73.990036 40.760719 -73.99 40.76 ]" nocontent
   if (!badToken) {
-    A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
+    A = NewGeoFilterBoxQueryParam_WithParams(ctx, &B, &C, &D, &E);
   } else {
     reportSyntaxError(ctx->status, badToken, "Syntax error");
     A = NULL;
