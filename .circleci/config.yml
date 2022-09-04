@@ -707,16 +707,16 @@ workflows:
           <<: *never
       - benchmark-search-oss-standalone:
           context: common
-          <<: *on-any-branch
+          <<: *on-perf-and-version-tags
       - benchmark-vecsim-oss-standalone:
           context: common
           <<: *on-perf-and-version-tags
       - benchmark-search-oss-cluster:
           context: common
-          <<: *on-any-branch
+          <<: *on-perf-and-version-tags
       - benchmark-search-oss-standalone-profiler:
           context: common
-          <<: *on-any-branch
+          <<: *on-perf-and-version-tags
       - benchmark-vecsim-oss-standalone-profiler:
           context: common
           <<: *on-perf-and-version-tags
