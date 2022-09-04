@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include "rmalloc.h"
+
 void *MRCHANNEL_CLOSED = (void *)"MRCHANNEL_CLOSED";
 
 typedef struct chanItem {

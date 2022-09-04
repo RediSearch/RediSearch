@@ -1,6 +1,7 @@
 
 #include "common.h"
 #include "command.h"
+#include "rmalloc.h"
 
 #include "version.h"
 

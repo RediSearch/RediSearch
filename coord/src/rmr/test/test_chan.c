@@ -1,4 +1,5 @@
 #include "minunit.h"
+#include "rmalloc.h"
 #include <chan.h>
 
 void testChan() {

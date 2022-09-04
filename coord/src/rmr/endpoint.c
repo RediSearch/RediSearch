@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "endpoint.h"
 #include "hiredis/hiredis.h"
+#include "rmalloc.h"
 
 int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
 
