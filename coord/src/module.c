@@ -1168,27 +1168,16 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   searchReducerCtx rCtx = {NULL};
   int profile = (req->profileArgs > 0);
 
+  int res = REDISMODULE_OK;
   // got no replies - this means timeout
   if (count == 0 || req->limit < 0) {
-    int res = RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
-    searchRequestCtx_Free(req);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
-    RedisModule_UnblockClient(bc, mc);
-    RedisModule_FreeThreadSafeContext(ctx);
-    MR_requestCompleted();
-    MRCtx_Free(mc);
-    return res;
+    res = RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+    goto cleanup;
   }
 
   if (MRReply_Type(*replies) == MR_REPLY_ERROR) {
-    int res = MR_ReplyWithMRReply(ctx, *replies);
-    searchRequestCtx_Free(req);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
-    RedisModule_UnblockClient(bc, mc);
-    RedisModule_FreeThreadSafeContext(ctx);
-    MR_requestCompleted();
-    MRCtx_Free(mc);
-    return res;
+    res = MR_ReplyWithMRReply(ctx, *replies);
+    goto cleanup;
   }
 
   rCtx.searchCtx = req;
@@ -1249,11 +1238,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     postProccesTime = clock();
     profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccesTime);
   }
+
 cleanup:
   if (rCtx.pq) {
-    searchResult *res;
-    while ((res = heap_poll(rCtx.pq))) {
-      rm_free(res);
+    searchResult *sr;
+    while ((sr = heap_poll(rCtx.pq))) {
+      rm_free(sr);
     }
     heap_free(rCtx.pq);
   }
@@ -1264,7 +1254,7 @@ cleanup:
   RedisModule_FreeThreadSafeContext(ctx);
   MR_requestCompleted();
   MRCtx_Free(mc);
-  return REDISMODULE_OK;
+  return res;
 }
 
 int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
