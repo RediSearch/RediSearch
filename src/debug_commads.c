@@ -222,6 +222,120 @@ end:
   return REDISMODULE_OK;
 }
 
+void InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *idx) {
+  size_t len = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+  REPLY_WITH_LONG_LONG("numDocs", idx->numDocs, len);
+  REPLY_WITH_LONG_LONG("lastId", idx->lastId, len);
+  REPLY_WITH_LONG_LONG("size", idx->size, len);
+  
+  RedisModule_ReplyWithStringBuffer(ctx, "values", strlen("values"));
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  len += 2;
+  size_t len_values = 0;
+  RSIndexResult *res = NULL;
+  IndexReader *ir = NewNumericReader(NULL, idx, NULL ,0, 0, false);
+  while (INDEXREAD_OK == IR_Read(ir, &res)) {
+    REPLY_WITH_LONG_LONG("value", res->num.value, len_values);
+    REPLY_WITH_LONG_LONG("docId", res->docId, len_values);
+  }  
+  IR_Free(ir);
+  RedisModule_ReplySetArrayLength(ctx, len_values);
+  
+  RedisModule_ReplySetArrayLength(ctx, len);
+}
+
+void NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r) {
+  size_t len = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  if (r) {
+    REPLY_WITH_LONG_LONG("minVal", r->minVal, len);
+    REPLY_WITH_LONG_LONG("maxVal", r->maxVal, len);
+    REPLY_WITH_LONG_LONG("unique_sum", r->unique_sum, len);
+    REPLY_WITH_LONG_LONG("invertedIndexSize", r->invertedIndexSize, len);
+    REPLY_WITH_LONG_LONG("card", r->card, len);
+    REPLY_WITH_LONG_LONG("cardCheck", r->cardCheck, len);
+    REPLY_WITH_LONG_LONG("splitCard", r->splitCard, len);
+
+    RedisModule_ReplyWithStringBuffer(ctx, "entries", strlen("entries"));
+    InvertedIndex_DebugReply(ctx, r->entries);
+    
+    len += 2;
+  }
+
+  RedisModule_ReplySetArrayLength(ctx, len);
+}
+
+void NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRangeNode *n) {
+  
+  size_t len = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  if (n) {
+    REPLY_WITH_LONG_LONG("value", n->value, len);
+    REPLY_WITH_LONG_LONG("maxDepth", n->maxDepth, len);
+    
+    RedisModule_ReplyWithStringBuffer(ctx, "range", strlen("range"));
+    NumericRange_DebugReply(ctx, n->range);
+    len += 2;
+    
+    RedisModule_ReplyWithStringBuffer(ctx, "left", strlen("left"));
+    NumericRangeNode_DebugReply(ctx, n->left);
+    len += 2;
+
+    RedisModule_ReplyWithStringBuffer(ctx, "right", strlen("right"));
+    NumericRangeNode_DebugReply(ctx, n->right);
+    len += 2;
+  }
+  
+  RedisModule_ReplySetArrayLength(ctx, len);
+}
+  
+void NumericRangeTree_DebugReply(RedisModuleCtx *ctx, NumericRangeTree *rt) {
+
+  size_t len = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, len);
+  REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, len);
+  REPLY_WITH_LONG_LONG("cardinality", rt->card, len);
+  REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, len);
+  REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, len);
+  REPLY_WITH_LONG_LONG("uniqueId", rt->uniqueId, len);
+
+  RedisModule_ReplyWithStringBuffer(ctx, "root", strlen("root"));
+  NumericRangeNode_DebugReply(ctx, rt->root);
+  len += 2;
+
+  RedisModule_ReplySetArrayLength(ctx, len);
+}
+
+DEBUG_COMMAND(DumpNumericIndexTree) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RedisModuleKey *keyp = NULL;
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_NUMERIC);
+  if (!keyName) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+    goto end;
+  }
+  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  if (!rt) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    goto end;
+  }
+
+  NumericRangeTree_DebugReply(sctx->redisCtx, rt);
+
+  end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 DEBUG_COMMAND(DumpTagIndex) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
@@ -766,6 +880,7 @@ typedef struct DebugCommandType {
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"DUMP_NUMIDX", DumpNumericIndex},
+                               {"DUMP_NUMIDXTREE", DumpNumericIndexTree},
                                {"DUMP_TAGIDX", DumpTagIndex},
                                {"INFO_TAGIDX", InfoTagIndex},
                                {"IDTODOCID", IdToDocId},
