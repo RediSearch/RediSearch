@@ -550,3 +550,84 @@ def testDebugRangeTree(env):
                 'entries', ['numDocs', 3, 'lastId', 3, 'size', 1, 'values',
                     ['value', 1, 'docId', 1, 'value', 2, 'docId', 1, 'value', 3, 'docId', 1, 'value', 1, 'docId', 2, 'value', 2, 'docId', 2, 'value', 3, 'docId', 2, 'value', 3, 'docId', 3, 'value', 4, 'docId', 3, 'value', 5, 'docId', 3]]],
             'left', [], 'right', []]])
+
+def checkUpdateNumRecords(env, is_json):
+    """ Helper function for testing update of `num_records` """
+
+    env.skipOnCluster()
+    if env.env == 'existing-env':
+        env.skip()
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+
+    if is_json:
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'NUMERIC').ok()
+        conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps({'val': [1, 2, 3]}))
+        conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps({'val': [1, 2, 3]}))
+        conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
+    else:
+        env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'val1', 'NUMERIC', 'val2', 'NUMERIC', 'val3', 'NUMERIC').ok()
+        conn.execute_command('HSET', 'doc:1', 'val1', 1, 'val2', 2, 'val3', 3)
+        conn.execute_command('HSET', 'doc:2', 'val1', 1, 'val2', 2, 'val3', 3)
+        conn.execute_command('HSET', 'doc:3', 'val1', 3, 'val2', 4, 'val3', 5)
+
+    info = index_info(env, 'idx')
+    env.assertEqual(info['num_records'], '9')
+    
+    # Update doc to have one value less
+    if is_json:
+        conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps({'val': [1, 2]}))
+    else:
+        conn.execute_command('HDEL', 'doc:1', 'val3')
+
+    # INFO is not accurately updated before GC
+    info = index_info(env, 'idx')
+    env.assertEqual(info['num_records'], '11')
+
+    forceInvokeGC(env, 'idx')
+
+    # Info is accurately updated after GC
+    info = index_info(env, 'idx')
+    env.assertEqual(info['num_records'], '8')
+
+    # Delete doc
+    if is_json:
+        conn.execute_command('JSON.DEL', 'doc:1', '$')
+    else:
+        conn.execute_command('DEL', 'doc:1')
+
+    # INFO is not accurately updated before GC
+    info = index_info(env, 'idx')
+    env.assertEqual(info['num_records'], '8')
+
+    forceInvokeGC(env, 'idx')
+
+    # Info is accurately updated after GC
+    info = index_info(env, 'idx')
+    env.assertEqual(info['num_records'], '6')
+
+    if is_json:
+        conn.execute_command('JSON.DEL', 'doc:2', '$')
+        conn.execute_command('JSON.DEL', 'doc:3', '$')
+    else:
+        conn.execute_command('DEL', 'doc:2')
+        conn.execute_command('DEL', 'doc:3')
+
+    # Info is not accurately updated after GC
+    info = index_info(env, 'idx')
+    env.assertEqual(info['num_records'], '6')
+
+    forceInvokeGC(env, 'idx')
+
+    # Info is accurately updated after GC
+    info = index_info(env, 'idx')
+    env.assertEqual(info['num_records'], '0')
+
+def testUpdateNumRecordsJson(env):
+    """ Test update of `num_records` when using JSON """
+    checkUpdateNumRecords(env, True)
+
+def testUpdateNumRecordsHash(env):
+    """ Test update of `num_records` when using Hashes """
+    checkUpdateNumRecords(env, False)
