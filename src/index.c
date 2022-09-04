@@ -386,11 +386,10 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
     int rc = it->SkipTo(it->ctx, nextValidId, &res);
 
     // refresh heap with iterator with updated minId
-    it->minId = res->docId;
     if (rc == INDEXREAD_EOF) {
       heap_poll(hp);
     } else {
-      RS_LOG_ASSERT(res, "should not be NULL");
+      it->minId = res->docId;
       heap_replace(hp, it);
       // after SkipTo, try test again for validity
       if (ui->quickExit && it->minId == nextValidId) {
@@ -1720,29 +1719,31 @@ typedef struct {
   IndexIterator base;
   IndexIterator *child;
   size_t counter;
-  clock_t cpuTime;
+  double cpuTime;
   int eof;
 } ProfileIterator, ProfileIteratorCtx;
 
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  clock_t begin = clock();
+  hires_clock_t t0; 
+  hires_clock_get(&t0);
   int ret = pi->child->Read(pi->child->ctx, e);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  pi->cpuTime += hires_clock_since_msec(&t0);
   return ret;
 }
 
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  clock_t begin = clock();
+  hires_clock_t t0; 
+  hires_clock_get(&t0);
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  pi->cpuTime += hires_clock_since_msec(&t0);
   return ret;
 }
 
@@ -1936,7 +1937,7 @@ PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator, "VECTOR", 1);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(ctx, pi->child, pi->counter - pi->eof, (double)pi->cpuTime / CLOCKS_PER_MILLISEC, depth, limited);
+  printIteratorProfile(ctx, pi->child, pi->counter - pi->eof, (double)pi->cpuTime, depth, limited);
 }
 
 void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,

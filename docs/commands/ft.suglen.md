@@ -1,16 +1,44 @@
-Gets the size of an auto-complete suggestion dictionary
+---
+syntax: 
+---
 
-#### Parameters
+Get the size of an auto-complete suggestion dictionary
 
-* **key**: the suggestion dictionary key.
+## Syntax
 
-@return
+{{< highlight bash >}}
+FT.SUGLEN key
+{{< / highlight >}}
 
-@integer-reply: the current size of the suggestion dictionary.
+[Examples](#examples)
 
-@examples
+## Required parameters
 
-```sql
-FT.SUGLEN sug
+<details open>
+<summary><code>key</code></summary>
+
+is suggestion dictionary key.
+</details>
+
+## Return
+
+FT.SUGLEN returns an integer reply, which is the current size of the suggestion dictionary.
+
+## Examples
+
+<details open>
+<summary><b>Get the size of an auto-complete suggestion dictionary</b></summary>
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SUGLEN sug
 (integer) 2
-```
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.SUGADD` | `FT.SUGDEL` | `FT.SUGGET` 
+
+## Related topics
+
+[RediSearch](/docs/stack/search)
