@@ -533,7 +533,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   // For non-numeric encoders the maximal delta is UINT32_MAX (since it is encoded with 4 bytes)
   //
   // For numeric encoder the maximal delta is practically not a limit (see structs `EncodingHeader` and `NumEncodingCommon`)
-  if (encoder != encodeNumeric && delta > UINT32_MAX) {
+  if (delta > UINT32_MAX && encoder != encodeNumeric) {
     blk = InvertedIndex_AddBlock(idx, docId);
     delta = 0;
   }
