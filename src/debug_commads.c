@@ -87,7 +87,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   RedisModuleKey *keyp = NULL;
   size_t len;
   const char *invIdxName = RedisModule_StringPtrLen(argv[1], &len);
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, NULL, &keyp);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -134,7 +134,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
   RedisModuleKey *keyp = NULL;
   size_t len;
   const char *invIdxName = RedisModule_StringPtrLen(argv[1], &len);
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, NULL, &keyp);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
