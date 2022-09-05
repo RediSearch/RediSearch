@@ -302,8 +302,8 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
 }
 
 // Get the value from an iterator and free the iterator
-// Return 1, and set rsv to the value, if value exists
-// Return 0 otherwise
+// Return REDISMODULE_OK, and set rsv to the value, if value exists
+// Return REDISMODULE_ERR otherwise
 static int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, RSValue **rsv) {
 
   int res = REDISMODULE_ERR;
@@ -464,7 +464,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
       return REDISMODULE_OK;
     }
   } else {
-    if (!jsonIterToValue(ctx, jsonIter, &rsv)) {
+    if (jsonIterToValue(ctx, jsonIter, &rsv) == REDISMODULE_ERR) {
       return REDISMODULE_OK;
     }
   }
