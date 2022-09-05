@@ -31,7 +31,7 @@ static void parseCtx_Free(parseCtx *ctx) {
 }  
   
 %default_type { char * }
-%default_destructor {  rm_free($$); }
+%default_destructor {  free($$); }
 %extra_argument { parseCtx *ctx }
 %type shard { RLShard }
 %destructor shard {
@@ -147,7 +147,7 @@ shard(A) ::= SHARD shardid(B) SLOTRANGE INTEGER(C) INTEGER(D) endpoint(E) master
 
 
 shardid(A) ::= STRING(B). {
-	A = rm_strdup(B.strval);
+	A = strdup(B.strval);
 }
 
 shardid(A) ::= INTEGER(B). {
@@ -169,7 +169,7 @@ tcp_addr(A) ::= ADDR STRING(B) . {
 } 
 
 unix_addr(A) ::= UNIXADDR STRING(B). {
-	A = rm_strdup(B.strval);
+	A = strdup(B.strval);
 }
 
 master(A) ::= MASTER . {

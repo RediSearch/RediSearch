@@ -143,6 +143,7 @@ void testHashFunc() {
   // Test error
 }
 int main(int argc, char **argv) {
+  RMUTil_InitAlloc();
   MU_RUN_TEST(testParser);
   MU_RUN_TEST(testHashFunc);
 

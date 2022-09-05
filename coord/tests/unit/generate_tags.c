@@ -44,5 +44,6 @@ void bruteforce_crc16(int numSlots) {
 }
 
 int main(int argc, char **argv) {
+  RMUTil_InitAlloc();
   bruteforce_crc16(16384);
 }

@@ -1,6 +1,7 @@
 #include "minunit.h"
-#include "rmalloc.h"
 #include <chan.h>
+#include "rmalloc.h"
+#include "../../rmutil/alloc.h"
 
 void testChan() {
   MRChannel *c = MR_NewChannel(0);
@@ -30,6 +31,7 @@ void testChan() {
 }
 
 int main(int argc, char **argv) {
+  RMUTil_InitAlloc();
   MU_RUN_TEST(testChan);
   MU_REPORT();
 
