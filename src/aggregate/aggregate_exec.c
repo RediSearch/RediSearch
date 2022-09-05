@@ -128,6 +128,14 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
         count++;
         const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
         const RSValue *v = getReplyKey(rlk, r);
+        // align field value with its type
+        RSValue rsv;
+        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE) {
+          double d;
+          RSValue_ToNumber(v, &d);
+          RSValue_SetNumber(&rsv, d);
+          v = &rsv;
+        }
         reeval_key(outctx, v);
       }
   }
@@ -159,7 +167,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
       RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
-      RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
+      RedisModule_ReplyWithStringBuffer(outctx, kk->name, kk->name_len);
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
     }
   }

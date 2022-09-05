@@ -301,7 +301,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
     RedisModuleKey *idxKey = NULL;
-    InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
+    InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, NULL, &idxKey);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
@@ -760,7 +760,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
     goto cleanup;
   }
 
-  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, &idxKey);
+  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, NULL, &idxKey);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;
@@ -1147,8 +1147,6 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   }
 
   int gcrv = 1;
-
-  RedisModule_AutoMemory(ctx);
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not
   // reloading

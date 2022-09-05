@@ -99,7 +99,6 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
  *  Provide info and stats about an index
  */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
@@ -214,6 +213,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
   REPLY_KVNUM(n, "percent_indexed", percent_indexed);
+
+  REPLY_KVINT(n, "number_of_uses", sp->counter);
 
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
