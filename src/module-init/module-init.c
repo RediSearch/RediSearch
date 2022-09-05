@@ -31,6 +31,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 #endif
 
+struct timespec MAX_TIMESPEC = { .tv_sec = LONG_MAX };
+
 /**
  * Check if we can run under the current AOF configuration. Returns true
  * or false

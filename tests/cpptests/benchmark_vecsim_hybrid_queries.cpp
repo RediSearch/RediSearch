@@ -14,6 +14,7 @@
 #include "src/tokenize.h"
 #include "src/varint.h"
 #include "src/hybrid_reader.h"
+#include "util/timeout.h"
 
 #include "rmutil/alloc.h"
 #include "index_utils.h"
@@ -64,7 +65,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       for (size_t i = 0; i < percent; i++) {
         irs[i] = NewReadIterator(ind_readers[i]);
       }
-      IndexIterator *ui = NewUnionIterator(irs, percent, NULL, 0, 1, QN_UNION, NULL);
+      IndexIterator *ui = NewUnionIterator(irs, percent, NULL, 0, 1, QN_UNION, NULL, &MAX_TIMESPEC);
       std::cout << "Expected child res: " << ui->NumEstimated(ui->ctx) << std::endl;
 
       float query[NUM_ITERATIONS][d];
