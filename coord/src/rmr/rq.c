@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <uv.h>
 #include "rq.h"
+#include "rmalloc.h"
 
 struct queueItem {
   void *privdata;
