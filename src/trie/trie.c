@@ -378,7 +378,6 @@ int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
   int i = 0;
   TrieNode **nodes = __trieNode_children(n);
   n->maxChildScore = n->score;
-  int updateScore = (n->sortMode == Trie_Sort_Score);
   // free deleted terminal nodes
   while (i < n->numChildren) {
 
