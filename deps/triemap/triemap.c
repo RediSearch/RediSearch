@@ -1123,3 +1123,79 @@ void TrieMap_Free(TrieMap *t, freeCB func) {
     rm_free(t);
   }
 }
+
+TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str, tm_len_t *len) {
+  // create an iteration stack we walk up and down
+  size_t stackCap = minSteps;
+  size_t stackSz = 1;
+  TrieMapNode **stack = rm_calloc(stackCap, sizeof(TrieMapNode *));
+  stack[0] = n;
+
+  if (stackSz == stackCap) {
+    stackCap += minSteps;
+    stack = rm_realloc(stack, stackCap * sizeof(TrieMapNode *));
+  }
+
+  size_t bufCap = n->len;
+
+  int steps = 0;
+
+  while (steps < minSteps || !__trieMapNode_isTerminal(stack[stackSz - 1])) {
+    n = stack[stackSz - 1];
+
+    /* select the next step - -1 means walk back up one level */
+    int rnd = rand() % (n->numChildren + 1) - 1;
+    if (rnd == -1) {
+      /* we can't walk up the top level */
+      if (stackSz > 1) {
+        steps++;
+        stackSz--;
+        bufCap -= n->len;
+      }
+      continue;
+    }
+
+    /* Push a child on the stack */
+    stack[stackSz++] = n = __trieMapNode_children(n)[rnd];
+    steps++;
+    if (stackSz == stackCap) {
+      stackCap += minSteps;
+      stack = rm_realloc(stack, stackCap * sizeof(TrieMapNode *));
+    }
+
+    bufCap += n->len;
+  }
+
+  /* Return the node at the top of the stack */
+  n = stack[stackSz - 1];
+
+  /* build the string by walking the stack and copying all node strings */
+  char *buf = rm_malloc(bufCap + 1);
+  buf[bufCap] = 0;
+  tm_len_t bufSize = 0;
+  for (size_t i = 0; i < stackSz; i++) {
+    memcpy(buf + bufSize, stack[i]->str, stack[i]->len);
+    bufSize += stack[i]->len;
+  }
+  *str = buf;
+  *len = bufSize;
+  rm_free(stack);
+  return n;
+}
+
+void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen) {
+
+  char *str;
+  tm_len_t len;
+  TrieMapNode *root = TrieMapNode_FindNode(t->root, (char *)prefix, pflen, NULL);
+  if (!root) {
+    return NULL;
+  }
+
+  TrieMapNode *n = TrieMapNode_RandomWalk(root, (int)round(log2(1 + t->cardinality)), &str, &len);
+  if (n) {
+    rm_free(str);
+    return n->value;
+  }
+  return NULL;
+}
