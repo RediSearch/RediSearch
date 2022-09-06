@@ -23,9 +23,15 @@ Vector similarity provides these functionalities:
 
     - L2 - Euclidean distance between two vectors
 
+         $d(u, v) = \sqrt{ \displaystyle\sum_{ki=1}^n{(u_i - v_i)^2}}$
+
     - IP - Internal product of two vectors
 
-    - COSINE - Cosine similarity of two vectors
+         $d(u, v) = 1 -u\cdot v$
+
+    - COSINE - Cosine distance of two vectors
+
+         $d(u, v) = 1 -\frac{u \cdot v}{\lVert u \rVert \lVert v  \rVert}$
 
 ## Create a vector field
 
