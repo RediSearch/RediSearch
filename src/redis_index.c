@@ -278,15 +278,21 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
 }
 
 static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *termKey,
-                                        int write) {
+                                        int write, bool *outIsNew) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, termKey);
   if (kdv) {
+    if (outIsNew) {
+      *outIsNew = false;
+    }
     return kdv->p;
   }
   if (!write) {
     return NULL;
   }
 
+  if (outIsNew) {
+    *outIsNew = true;
+  }
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
   kdv->p = NewInvertedIndex(ctx->spec->flags, 1);
@@ -295,7 +301,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
 }
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, RedisModuleKey **keyp) {
+                                         int write, bool *outIsNew, RedisModuleKey **keyp) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
   InvertedIndex *idx = NULL;
 
@@ -305,6 +311,9 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
 
     // check that the key is empty
     if (k == NULL) {
+      if (outIsNew) {
+        *outIsNew = false;
+      }
       goto end;
     }
 
@@ -312,6 +321,9 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
 
     if (kType == REDISMODULE_KEYTYPE_EMPTY) {
       if (write) {
+        if (outIsNew) {
+          *outIsNew = true;
+        }
         idx = NewInvertedIndex(ctx->spec->flags, 1);
         RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
       }
@@ -327,7 +339,7 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
       }
     }
   } else {
-    idx = openIndexKeysDict(ctx, termKey, write);
+    idx = openIndexKeysDict(ctx, termKey, write, outIsNew);
   }
 end:
   RedisModule_FreeString(ctx->redisCtx, termKey);
@@ -352,7 +364,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
 
     idx = RedisModule_ModuleTypeGetValue(k);
   } else {
-    idx = openIndexKeysDict(ctx, termKey, 0);
+    idx = openIndexKeysDict(ctx, termKey, 0, NULL);
     if (!idx) {
       goto err;
     }
