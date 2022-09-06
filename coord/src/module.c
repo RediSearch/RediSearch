@@ -933,6 +933,8 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
         heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
         rCtx->cachedResult = largest->result;
         rm_free(largest);
+      } else {
+        rCtx->cachedResult = res;
       }
     }
   }
