@@ -1103,27 +1103,6 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
   rm_free(c);
 }
 
-/// given an array of random weights, return the a weighted random selection, as the index in the
-/// array
-size_t weightedRandom(double weights[], size_t len) {
-
-  double totalWeight = 0;
-  for (size_t i = 0; i < len; i++) {
-    totalWeight += weights[i];
-  }
-  double selection = totalWeight * ((double)rand() / (double)(RAND_MAX));
-
-  totalWeight = 0;
-  for (size_t i = 0; i < len; i++) {
-    if (selection >= totalWeight && selection <= (totalWeight + weights[i])) {
-      return i;
-    }
-    totalWeight += weights[i];
-  }
-  // fallback
-  return 0;
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static threadpool cleanPool = NULL;
