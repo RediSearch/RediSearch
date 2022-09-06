@@ -274,11 +274,12 @@ typedef struct {
 } NumEncodingFloat;
 
 // EncodingHeader is used for encodind/decoding Inverted Index numeric values.
-// This header is written/read to/from Inverted Index entries, followed by the actual bytes representing the delta (if not zero), followed by the actual bytes representing the numeric value.
+// This header is written/read to/from Inverted Index entries, followed by the actual bytes representing the delta (if not zero),
+// followed by the actual bytes representing the numeric value (if not tiny)
 // (see encoder `encodeNumeric` and decoder `readNumeric`)
-// Its internal structs must all be of the same size, beginning with common "base" fields, followed by specific fields per "derived" struct.
+// EncodingHeader internal structs must all be of the same size, beginning with common "base" fields, followed by specific fields per "derived" struct.
 // The specific types are:
-//  tiny - for tiny positive integers, including zero
+//  tiny - for tiny positive integers, including zero (the value is encoded in the header itself)
 //  posint and negint - for none-zero integer nubmers
 //  float - for floating point numbers
 typedef union {
@@ -715,30 +716,39 @@ DECODER(readNumeric) {
     Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding);
   }
 
-  if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_FLOAT) {
-    if (header.encFloat.isInf) {
-      res->num.value = INFINITY;
-    } else if (header.encFloat.isDouble) {
-      Buffer_Read(br, &res->num.value, 8);
-    } else {
-      float f;
-      Buffer_Read(br, &f, 4);
-      res->num.value = f;
-    }
-    if (header.encFloat.sign) {
-      res->num.value = -res->num.value;
-    }
-  } else if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_TINY) {
-    // Is embedded into the header
-    res->num.value = header.encTiny.tinyValue;
-  } else {
-    // Is a whole number
-    uint64_t num = 0;
-    Buffer_Read(br, &num, header.encInt.valueByteCount + 1);
-    res->num.value = num;
-    if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_NEG_INT) {
-      res->num.value = -res->num.value;
-    }
+  switch (header.encCommon.type) {
+    case NUM_ENCODING_COMMON_TYPE_FLOAT:
+      if (header.encFloat.isInf) {
+        res->num.value = INFINITY;
+      } else if (header.encFloat.isDouble) {
+        Buffer_Read(br, &res->num.value, 8);
+      } else {
+        float f;
+        Buffer_Read(br, &f, 4);
+        res->num.value = f;
+      }
+      if (header.encFloat.sign) {
+        res->num.value = -res->num.value;
+      }
+      break;
+
+    case NUM_ENCODING_COMMON_TYPE_TINY:
+      // Is embedded into the header
+      res->num.value = header.encTiny.tinyValue;
+      break;
+
+    case NUM_ENCODING_COMMON_TYPE_POSITIVE_INT:
+    case NUM_ENCODING_COMMON_TYPE_NEG_INT:
+      {
+        // Is a none-zero integer (zero is represented as tiny)
+        uint64_t num = 0;
+        Buffer_Read(br, &num, header.encInt.valueByteCount + 1);
+        res->num.value = num;
+        if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_NEG_INT) {
+          res->num.value = -res->num.value;
+        }
+      }
+      break;
   }
 
   NumericFilter *f = ctx->ptr;
