@@ -33,8 +33,8 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     IndexBlock *blk = &idx->blocks[actualSize];
     blk->firstId = RedisModule_LoadUnsigned(rdb);
     blk->lastId = RedisModule_LoadUnsigned(rdb);
-    blk->numDocs = RedisModule_LoadUnsigned(rdb);
-    if (blk->numDocs > 0) {
+    blk->numEntries = RedisModule_LoadUnsigned(rdb);
+    if (blk->numEntries > 0) {
       ++actualSize;
     }
 
@@ -68,7 +68,7 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   uint32_t readSize = 0;
   for (uint32_t i = 0; i < idx->size; i++) {
     IndexBlock *blk = &idx->blocks[i];
-    if (blk->numDocs == 0) {
+    if (blk->numEntries == 0) {
       continue;
     }
     ++readSize;
@@ -77,12 +77,12 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
 
   for (uint32_t i = 0; i < idx->size; i++) {
     IndexBlock *blk = &idx->blocks[i];
-    if (blk->numDocs == 0) {
+    if (blk->numEntries == 0) {
       continue;
     }
     RedisModule_SaveUnsigned(rdb, blk->firstId);
     RedisModule_SaveUnsigned(rdb, blk->lastId);
-    RedisModule_SaveUnsigned(rdb, blk->numDocs);
+    RedisModule_SaveUnsigned(rdb, blk->numEntries);
     if (IndexBlock_DataLen(blk)) {
       RedisModule_SaveStringBuffer(rdb, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
     } else {

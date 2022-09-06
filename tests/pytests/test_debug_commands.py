@@ -149,11 +149,11 @@ class TestDebugCommands(object):
     def testInvertedIndexSummary(self):
         self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'lastId', 1, 'flags',
                                                                             83, 'numberOfBlocks', 1, 'blocks',
-                                                                            ['firstId', 1, 'lastId', 1, 'numDocs', 1]])
+                                                                            ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
         self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'lastId', 1, 'flags',
                                                                             83, 'numberOfBlocks', 1, 'blocks',
-                                                                            ['firstId', 1, 'lastId', 1, 'numDocs', 1]])
+                                                                            ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
     def testUnexistsInvertedIndexSummary(self):
         self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir1').raiseError()

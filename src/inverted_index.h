@@ -23,7 +23,7 @@ typedef struct {
   t_docId firstId;
   t_docId lastId;
   Buffer buf;
-  uint16_t numDocs;
+  uint16_t numEntries;
 } IndexBlock;
 
 typedef struct InvertedIndex {

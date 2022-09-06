@@ -344,7 +344,7 @@ void IndexBlock_Dump(IndexBlock *b, int indent) {
   printf("IndexBlock {\n");
   ++indent;
   PRINT_INDENT(indent);
-  printf("numDocs %u, firstId %lu, lastId %lu, \n", b->numDocs, b->firstId, b->lastId);
+  printf("numEntries %u, firstId %lu, lastId %lu, \n", b->numEntries, b->firstId, b->lastId);
   --indent;
   PRINT_INDENT(indent);
   printf("}\n");
@@ -517,10 +517,10 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
           INDEX_BLOCK_SIZE_DOCID_ONLY;
 
   // see if we need to grow the current block
-  if (blk->numDocs >= blockSize && !same_doc) {
+  if (blk->numEntries >= blockSize && !same_doc) {
     // If same doc can span more than a single block - need to adjust IndexReader_SkipToBlock
     blk = InvertedIndex_AddBlock(idx, docId);
-  } else if (blk->numDocs == 0) {
+  } else if (blk->numEntries == 0) {
     blk->firstId = blk->lastId = docId;
   }
 
@@ -544,8 +544,8 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 
   idx->lastId = docId;
   blk->lastId = docId;
-  if (!same_doc) {
-    ++blk->numDocs;
+  ++blk->numEntries;
+  if (!same_doc) {    
     ++idx->numDocs;
   }
   if (encoder == encodeNumeric) {
@@ -1370,13 +1370,12 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     }
     // Increment frags only when moving to the next doc
     // (do not increment when moving to the next entry in the same doc)
-    int frag_incr = (isFirstRes || (lastReadId != res->docId)) ? 1 : 0;
-
+    int fragsIncr = (isFirstRes || (lastReadId != res->docId)) ? 1 : 0;
     isFirstRes = false;
     lastReadId = res->docId;
     
     // Lookup the doc (for the same doc use the previous result)
-    docExists = frag_incr ? DocTable_Exists(dt, res->docId) : docExists;
+    docExists = fragsIncr ? DocTable_Exists(dt, res->docId) : docExists;
 
     // If we found a deleted document, we increment the number of found "frags",
     // and not write anything, so the reader will advance but the writer won't.
@@ -1387,7 +1386,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
         // buffer
         Buffer_Write(&bw, blk->buf.data, bufBegin - blk->buf.data);
       }
-      frags += frag_incr;
+      frags += fragsIncr;
       params->bytesCollected += sz;
       ++params->entriesCollected;
       isLastValid = 0;
@@ -1427,14 +1426,14 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     }
   }
   if (frags) {
-    // If we deleted stuff from this block, we need to change the number of docs and the data
+    // If we deleted stuff from this block, we need to change the number of entries and the data
     // pointer
-    blk->numDocs -= frags;
+    blk->numEntries -= params->entriesCollected;
     Buffer_Free(&blk->buf);
     blk->buf = repair;
     Buffer_ShrinkToSize(&blk->buf);
   }
-  if (blk->numDocs == 0) {
+  if (blk->numEntries == 0) {
     // if we left with no elements we do need to keep the
     // first id so the binary search on the block will still working.
     // The last_id will turn zero indicating there is no records in

@@ -172,7 +172,8 @@ typedef struct {
   /** Specific information about the _last_ index block */
   size_t lastblkDocsRemoved;
   size_t lastblkBytesCollected;
-  size_t lastblkNumDocs;
+  size_t lastblkNumEntries;
+  size_t lastblkEntriesRemoved;
 } MSG_IndexInfo;
 
 /** Structure sent describing an index block */
@@ -235,7 +236,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       continue;
     }
 
-    if (blk->numDocs == 0) {
+    if (blk->numEntries == 0) {
       // this block should be removed
       MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
       *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
@@ -254,7 +255,8 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     if (i == idx->size - 1) {
       ixmsg.lastblkBytesCollected = ixmsg.nbytesCollected;
       ixmsg.lastblkDocsRemoved = nrepaired;
-      ixmsg.lastblkNumDocs = blk->numDocs + nrepaired;
+      ixmsg.lastblkEntriesRemoved = params->entriesCollected;
+      ixmsg.lastblkNumEntries = blk->numEntries + params->entriesCollected;
     }
   }
 
@@ -619,12 +621,12 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
     // didn't touch last block in child
     return;
   }
-  if (info->lastblkNumDocs == lastOld->numDocs) {
+  if (info->lastblkNumEntries == lastOld->numEntries) {
     // didn't touch last block in parent
     return;
   }
 
-  if (info->lastblkDocsRemoved == info->lastblkNumDocs) {
+  if (info->lastblkEntriesRemoved == info->lastblkNumEntries) {
     // Last block was deleted entirely while updates on the main process.
     // We need to remove it from delBlocks list
     idxData->numDelBlocks--;
