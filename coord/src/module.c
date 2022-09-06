@@ -543,7 +543,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     return NULL;
   }
 
-  searchRequestCtx *req = rm_malloc(sizeof(searchRequestCtx));
+  searchRequestCtx *req = malloc(sizeof *req);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -707,7 +707,7 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
   int fieldsOffset = offsets->firstField;
   int payloadOffset = offsets->payload;
   int sortKeyOffset = offsets->sortKey;
-  searchResult *res = cached ? cached : rm_malloc(sizeof(searchResult));
+  searchResult *res = cached ? cached : malloc(sizeof *res);
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
   if (MRReply_Type(MRReply_ArrayElement(arr, j)) != MR_REPLY_STRING) {
@@ -1027,9 +1027,9 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         if (c < 0) {
           smallest = heap_poll(rCtx->pq);
           heap_offerx(rCtx->pq, res);
-          rm_free(smallest);
+          free(smallest);
         } else {
-          rm_free(res);
+          free(res);
         }
       }
     }
@@ -1102,7 +1102,7 @@ static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
 
   // Free the sorted results
   for (pos = 0; pos < qlen; pos++) {
-    rm_free(results[pos]);
+    free(results[pos]);
   }
 }
 
@@ -1218,7 +1218,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     rCtx.processReply(reply, (struct searchReducerCtx *)&rCtx, ctx);
   }
   if (rCtx.cachedResult) {
-    rm_free(rCtx.cachedResult);
+    free(rCtx.cachedResult);
   }
   // If we didn't get any results and we got an error - return it.
   // If some shards returned results and some errors - we prefer to show the results we got an not
@@ -1243,7 +1243,7 @@ cleanup:
   if (rCtx.pq) {
     searchResult *sr;
     while ((sr = heap_poll(rCtx.pq))) {
-      rm_free(sr);
+      free(sr);
     }
     heap_free(rCtx.pq);
   }
