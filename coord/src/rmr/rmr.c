@@ -156,7 +156,7 @@ static int timeoutHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 /* handler for unblocking redis commands, that calls the actual reducer */
 static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
   MRCtx *mc = RedisModule_GetBlockedClientPrivateData(ctx);
   clock_gettime(CLOCK_REALTIME, &mc->endTime);
 
