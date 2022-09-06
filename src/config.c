@@ -425,8 +425,11 @@ CONFIG_SETTER(setGcPolicy) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcPolicy = GCPolicy_Fork;
+  } else if (!strcasecmp(policy, "LEGACY")) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
+    return REDISMODULE_ERR;
   } else {
-    RETURN_ERROR("Invalid GC Policy value");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid GC Policy value");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;

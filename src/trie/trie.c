@@ -641,6 +641,68 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
   return 0;
 }
 
+TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len) {
+  // create an iteration stack we walk up and down
+  minSteps = MAX(minSteps, 4);
+
+  size_t stackCap = minSteps;
+  size_t stackSz = 1;
+  TrieNode **stack = rm_calloc(stackCap, sizeof(TrieNode *));
+  stack[0] = n;
+
+  int bufCap = n->len;
+
+  int steps = 0;
+
+  while (steps < minSteps || !__trieNode_isTerminal(stack[stackSz - 1])) {
+
+    n = stack[stackSz - 1];
+
+    /* select the next step - -1 means walk back up one level */
+    int rnd = (rand() % (n->numChildren + 1)) - 1;
+    if (rnd == -1) {
+      /* we can't walk up the top level */
+      if (stackSz > 1) {
+        steps++;
+        stackSz--;
+
+        bufCap -= n->len;
+      }
+      continue;
+    }
+    /* Push a child on the stack */
+    TrieNode *child = __trieNode_children(n)[rnd];
+    stack[stackSz++] = child;
+
+    steps++;
+    if (stackSz == stackCap) {
+      stackCap += minSteps;
+      stack = rm_realloc(stack, stackCap * sizeof(TrieNode *));
+    }
+
+    bufCap += child->len;
+  }
+
+  /* Return the node at the top of the stack */
+
+  n = stack[stackSz - 1];
+
+  /* build the string by walking the stack and copying all node strings */
+  rune *buf = rm_calloc(bufCap + 1, sizeof(rune));
+
+  t_len bufSize = 0;
+  for (size_t i = 0; i < stackSz; i++) {
+    memcpy(&buf[bufSize], stack[i]->str, sizeof(rune) * stack[i]->len);
+    bufSize += stack[i]->len;
+  }
+
+  *str = buf;
+  *len = bufSize;
+  //(*str)[bufSize] = '\0';
+  rm_free(stack);
+  return n;
+}
+
 typedef struct {
   const rune *r;
   uint16_t n;
