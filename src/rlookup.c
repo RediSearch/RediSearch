@@ -307,18 +307,11 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
 static int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, RSValue **rsv) {
 
   int res = REDISMODULE_ERR;
-  if (japi->len(iter) == 1) {
-    RedisJSON jsonValue = japi->next(iter);
-    if (jsonValue) {
-      *rsv = jsonValToValue(ctx, jsonValue);
-      res = REDISMODULE_OK;
-    }
-  } else {
-    RedisModuleString *rstr;
-    if (japi->getJSONFromIter(iter, ctx, &rstr) == REDISMODULE_OK) {
-      *rsv = RS_StealRedisStringVal(rstr);
-      res = REDISMODULE_OK;
-    }
+  
+  RedisModuleString *rstr;
+  if (japi->getJSONFromIter(iter, ctx, &rstr) == REDISMODULE_OK) {
+    *rsv = RS_StealRedisStringVal(rstr);
+    res = REDISMODULE_OK;
   }
   japi->freeIter(iter);
   return res;

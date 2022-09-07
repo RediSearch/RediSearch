@@ -154,11 +154,11 @@ def testMultiTagString(env):
     waitForIndex(env, 'idx2')
 
     res1 = [1, 'doc:1', ['category_1',
-                         'logic']]
+                         '["logic"]']]
     res2 = [1, 'doc:1', ['category',
                          '["mathematics and computer science","logic","programming","database"]']]
     res3 = [1, 'doc:1', ['category_arr',
-                         '["mathematics and computer science","logic","programming","database"]']]
+                         '[["mathematics and computer science","logic","programming","database"]]']]
 
     env.expect('FT.SEARCH', 'idx1',
                '@category:{logic}', 'RETURN', '3', '$.category[1]', 'AS', 'category_1').equal(res1)
@@ -212,11 +212,11 @@ def testMultiTextReturn(env):
     conn.execute_command('JSON.SET', 'doc:4', '$', doc4_content)
    
     res1 = [1, 'doc:1', ['category_1',
-                         'logic']]
+                         '["logic"]']]
     res2 = [1, 'doc:1', ['category',
                          '["mathematics and computer science","logic","programming","database"]']]
     res3 = [1, 'doc:1', ['category_arr',
-                         '["mathematics and computer science","logic","programming","database"]']]
+                         '[["mathematics and computer science","logic","programming","database"]]']]
 
     env.expect('FT.SEARCH', 'idx1',
                '@category:logic', 'RETURN', '3', '$.category[1]', 'AS', 'category_1').equal(res1)
