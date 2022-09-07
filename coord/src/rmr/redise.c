@@ -12,7 +12,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     totalLen += lens[i - 1] + 1;
   }
 
-  char *str = calloc(totalLen + 2, 1);
+  char *str = rm_calloc(totalLen + 2, 1);
   char *p = str;
   for (int i = 0; i < argc - 1; i++) {
     strncpy(p, cargs[i], lens[i]);
@@ -29,7 +29,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     RedisModule_ReplyWithError(ctx, err);
     return NULL;
   }
-  free(str);
+  rm_free(str);
 
   return topo;
 }

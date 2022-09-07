@@ -15,13 +15,13 @@ void bf_recursive(char *str, int len, int pos, int numSlots, char **keys, int *c
 
       uint16_t hash = crc16(str, pos + 1) % numSlots;
       if (keys[hash] == NULL) {
-        keys[hash] = strndup(str, pos + 1);
+        keys[hash] = rm_strndup(str, pos + 1);
         ++*count;
         // printf("Found new hash: %s, count now %d\n", keys[hash], *count);
       } else if (strlen(keys[hash]) > pos + 1) {
         // printf("Replaces hash: %s => %s, count now %d\n", keys[hash], str, *count);
-        free(keys[hash]);
-        keys[hash] = strndup(str, pos + 1);
+        rm_free(keys[hash]);
+        keys[hash] = rm_strndup(str, pos + 1);
       }
 
       bf_recursive(str, len, pos + 1, numSlots, keys, count);
@@ -44,5 +44,6 @@ void bruteforce_crc16(int numSlots) {
 }
 
 int main(int argc, char **argv) {
+  RMUTil_InitAlloc();
   bruteforce_crc16(16384);
 }
