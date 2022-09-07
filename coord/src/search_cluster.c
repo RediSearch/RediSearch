@@ -32,7 +32,7 @@ void InitGlobalSearchCluster(size_t size, const char **table, size_t tableSize) 
 
 void SearchCluster_Release(SearchCluster *sc) {
   if (!sc->shardsStartSlots) return;
-  free(sc->shardsStartSlots);
+  rm_free(sc->shardsStartSlots);
   sc->shardsStartSlots = NULL;
 }
 void GlobalSearchCluser_Release() {

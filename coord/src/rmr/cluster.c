@@ -413,6 +413,6 @@ void MRClust_Free(MRCluster *cl) {
       MRNodeMap_Free(cl->nodeMap);
     if (cl->mgr.map)
       MRConnManager_Free(&cl->mgr);
-    free(cl);
+    rm_free(cl);
   }
 }

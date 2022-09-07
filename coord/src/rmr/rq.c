@@ -102,11 +102,11 @@ MRWorkQueue *RQ_New(size_t cap, int maxPending) {
 void RQ_Free(MRWorkQueue *q) {
   struct queueItem *req = NULL;
   while (NULL != (req = rqPop(q))) {
-    free(req);
+    rm_free(req);
   }
 
   uv_close((uv_handle_t *)&q->async, NULL);
   uv_mutex_destroy(&q->lock);
 
-  free(q);
+  rm_free(q);
 }
