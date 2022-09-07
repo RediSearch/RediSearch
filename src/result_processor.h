@@ -242,13 +242,13 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
  *  Counter Processor
  *
  * This processor counts the search results.
- * 
+ *
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
 
 void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+double RPProfile_GetDurationMSec(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 // Return string for RPType

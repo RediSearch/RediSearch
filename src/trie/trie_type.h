@@ -18,6 +18,8 @@ extern RedisModuleType *TrieType;
 typedef struct {
   TrieNode *root;
   size_t size;
+  TrieFreeCallback freecb;
+  TrieSortMode sortMode;
 } Trie;
 
 typedef struct {
@@ -30,12 +32,25 @@ typedef struct {
 
 #define SCORE_TRIM_FACTOR 10.0
 
-Trie *NewTrie();
+/* Creates a new Trie.
+ * Trie can be sorted by lexicographic order using `Trie_Sort_Lex` or by
+ * score using `Trie_Sort_Score.                            */
+Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode);
+
 int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload);
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
                             RSPayload *payload);
+int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
+                            RSPayload *payload);
+
+/* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len 
+   Use for debug only! */
+void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact);
+void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact);
+
 /* Delete the string from the trie. Return 1 if the node was found and deleted, 0 otherwise */
 int Trie_Delete(Trie *t, const char *s, size_t len);
+int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len);
 
 void TrieSearchResult_Free(TrieSearchResult *e);
 Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
@@ -56,6 +71,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, int savePayloads);
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
 void TrieType_Digest(RedisModuleDigest *digest, void *value);
+size_t TrieType_MemUsage(void *value);
 void TrieType_Free(void *value);
 
 #ifdef __cplusplus

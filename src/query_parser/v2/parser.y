@@ -29,9 +29,10 @@
 
 %left TAGLIST.
 %left TERMLIST.
-%left PREFIX.
+%left PREFIX SUFFIX CONTAINS.
 %left PERCENT.
 %left ATTRIBUTE.
+%left VERBATIM WILDCARD.
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
@@ -146,8 +147,17 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type attribute_list {QueryAttribute *}
 %destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
 
-%type prefix { QueryNode * }
-%destructor prefix { QueryNode_Free($$); }
+%type affix { QueryNode * }
+%destructor affix { QueryNode_Free($$); }
+
+%type suffix { QueryNode * } 
+%destructor suffix { QueryNode_Free($$); }
+
+%type contains { QueryNode * } 
+%destructor contains { QueryNode_Free($$); }
+
+%type verbatim { QueryNode * }
+%destructor verbatim { QueryNode_Free($$); }
 
 %type termlist { QueryNode * }
 %destructor termlist { QueryNode_Free($$); }
@@ -565,7 +575,11 @@ text_expr(A) ::= param_term(B) . [LOWEST]  {
   A = NewTokenNode_WithParams(ctx, &B);
 }
 
-text_expr(A) ::= prefix(B) . [PREFIX]  {
+text_expr(A) ::= affix(B) . [PREFIX]  {
+A = B;
+}
+
+text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 A = B;
 }
 
@@ -632,8 +646,24 @@ text_expr(A) ::= TILDE text_expr(B) . {
 // Prefix experessions
 /////////////////////////////////////////////////////////////////
 
-prefix(A) ::= PREFIX(B) . [PREFIX] {
-    A = NewPrefixNode_WithParams(ctx, &B);
+affix(A) ::= PREFIX(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, true, false);
+}
+
+affix(A) ::= SUFFIX(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, false, true);
+}
+
+affix(A) ::= CONTAINS(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, true, true);
+}
+
+// verbatim(A) ::= VERBATIM(B) . {
+//    A = NewVerbatimNode_WithParams(ctx, &B);
+// }
+
+verbatim(A) ::= WILDCARD(B) . {
+    A = NewWildcardNode_WithParams(ctx, &B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -723,7 +753,12 @@ tag_list(A) ::= STOPWORD(B) . [TAGLIST] {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
 }
 
-tag_list(A) ::= prefix(B) . [TAGLIST] {
+tag_list(A) ::= affix(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, B);
+}
+
+tag_list(A) ::= verbatim(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
 }
@@ -747,7 +782,12 @@ tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
     A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
+    QueryNode_AddChild(B, C);
+    A = B;
+}
+
+tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
     QueryNode_AddChild(B, C);
     A = B;
 }
@@ -771,25 +811,14 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
   }
 }
 
-numeric_range(A) ::= LSQB param_any(B) param_any(C) RSQB. [NUMBER] {
-  // Update token type to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-  if (B.type == QT_PARAM_ANY)
+numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
     B.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  else if (B.type != QT_NUMERIC)
-    badToken = &B;
-  if (C.type == QT_PARAM_ANY)
-    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
-  else if (!badToken && C.type != QT_NUMERIC)
-    badToken = &C;
-
-  if (!badToken) {
-    A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Expecting numeric or parameter");
-    A = NULL;
   }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -806,34 +835,16 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
   }
 }
 
-geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB. [NUMBER] {
-  // Update token type to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-
-  if (B.type == QT_PARAM_ANY)
+geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB. [NUMBER] {
+  if (B.type == QT_PARAM_NUMERIC)
     B.type = QT_PARAM_GEO_COORD;
-  else if (B.type != QT_NUMERIC)
-    badToken = &B;
-  if (C.type == QT_PARAM_ANY)
+  if (C.type == QT_PARAM_NUMERIC)
     C.type = QT_PARAM_GEO_COORD;
-  else if (!badToken && C.type != QT_NUMERIC)
-    badToken = &C;
-  if (D.type == QT_PARAM_ANY)
-    D.type = QT_PARAM_NUMERIC;
-  else if (!badToken && D.type != QT_NUMERIC)
-    badToken = &D;
-  if (E.type == QT_PARAM_ANY)
-    E.type = QT_PARAM_GEO_UNIT;
-  else if (!badToken && E.type != QT_TERM)
-    badToken = &E;
 
-  if (!badToken) {
-    A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Syntax error");
-    A = NULL;
-  }
+  if (E.type == QT_PARAM_TERM)
+    E.type = QT_PARAM_GEO_UNIT;
+
+  A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -1011,19 +1022,9 @@ term(A) ::= SIZE(B). {
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
 
-param_term(A) ::= TERM(B). {
-  A = B;
-  A.type = QT_TERM;
-}
 
 // Number is treated as a term here
-param_term(A) ::= NUMBER(B). {
-  A = B;
-  A.type = QT_TERM;
-}
-
-// Number is treated as a term here
-param_term(A) ::= SIZE(B). {
+param_term(A) ::= term(B). {
   A = B;
   A.type = QT_TERM;
 }
@@ -1043,28 +1044,20 @@ param_size(A) ::= ATTRIBUTE(B). {
   A.type = QT_PARAM_SIZE;
 }
 
-//For generic parameter (param_any) its `type` could be refined by other rules which may have more accurate semantics,
-// e.g., could know it should be numeric
-
-param_any(A) ::= ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_ANY;
-  A.inclusive = 1;
+param_num(A) ::= ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
 }
 
-param_any(A) ::= LP ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_ANY;
-  A.inclusive = 0; // Could be relevant if type is refined
-}
-
-param_any(A) ::= TERM(B). {
-  A = B;
-  A.type = QT_TERM;
-}
-
-param_any(A) ::= num(B). {
+param_num(A) ::= num(B). {
   A.numval = B.num;
   A.inclusive = B.inclusive;
   A.type = QT_NUMERIC;
+}
+
+param_num(A) ::= LP ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
 }

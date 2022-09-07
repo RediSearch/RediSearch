@@ -51,8 +51,7 @@ typedef struct CursorList {
   khash_t(cursors) * lookup;
 
   /** List of spec infos; we just iterate over this */
-  CursorSpecInfo **specs;
-  size_t specsCount;
+  dict *specsDict;
 
   /** List of idle cursors */
   Array idle;
@@ -173,6 +172,10 @@ int Cursors_CollectIdle(CursorList *cl);
 void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
 
 void Cursors_RenderStats(CursorList *cl, const char *key, RedisModuleCtx *ctx);
+
+#ifdef FTINFO_FOR_INFO_MODULES
+void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInfoCtx *ctx);
+#endif
 
 void Cursor_FreeExecState(void *);
 #endif

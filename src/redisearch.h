@@ -30,6 +30,7 @@ struct RSSortingVector;
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 #define REDISEARCH_UNINITIALIZED -1
+#define BAD_POINTER ((void *)0xBAAAAAAD)
 
 #define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
 do {                                                                                    \
@@ -45,7 +46,7 @@ extern "C" {
 typedef enum {
   DocumentType_Hash,
   DocumentType_Json,
-  DocumentType_None,
+  DocumentType_Unsupported,
 } DocumentType;
 
 #define isSpecHash(spec) (spec->rule && spec->rule->type == DocumentType_Hash)

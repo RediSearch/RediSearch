@@ -7,7 +7,6 @@ from time import sleep
 from RLTest import Env
 
 
-
 def testSuggestions(env):
     r = env
     skipOnCrdtEnv(env)
@@ -113,7 +112,7 @@ def testSuggestMax(env):
 def testSuggestMax2(env):
     skipOnCrdtEnv(env)
     for i in range(10):
-        env.expect('ft.sugadd', 'sug', 'test %d' % i, 1).equal(i + 1)
+        env.expect('ft.sugadd', 'sug', 'test %d' % i, 10 - i).equal(i + 1)
 
     expected_res = ['test 0', 'test 1', 'test 2', 'test 3', 'test 4', 'test 5']
     for i in range(1,7):

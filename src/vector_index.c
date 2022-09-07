@@ -3,24 +3,6 @@
 #include "query_param.h"
 #include "rdb.h"
 
-// taken from parser.c
-void unescape(char *s, size_t *sz) {
-  
-  char *dst = s;
-  char *src = dst;
-  char *end = s + *sz;
-  while (src < end) {
-      // unescape 
-      if (*src == '\\' && src + 1 < end &&
-         (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          --*sz;
-          continue;
-      }
-      *dst++ = *src++;
-  }
-}
-
 static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
   IndexSpec *spec = ctx->spec;
@@ -36,8 +18,9 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
   const char *fieldStr = RedisModule_StringPtrLen(keyName, &fieldLen);
   FieldSpec *fieldSpec = NULL;
   for (int i = 0; i < spec->numFields; ++i) {
-    if (!strncasecmp(fieldStr, spec->fields[i].name, fieldLen)) {
+    if (!strcasecmp(fieldStr, spec->fields[i].name)) {
       fieldSpec = &spec->fields[i];
+      break;
     }
   }
   if (fieldSpec == NULL) {
@@ -79,15 +62,13 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   }
   switch (vq->type) {
     case VECSIM_QT_KNN: {
-      VecSimQueryParams qParams;
-      int err;
-      if ((err = VecSimIndex_ResolveParams(vecsim, vq->params.params, array_len(vq->params.params),
-                                           &qParams)) != VecSim_OK) {
-        err = VecSimResolveCode_to_QueryErrorCode(err);
-        QueryError_SetErrorFmt(q->status, err, "Error parsing vector similarity parameters: %s",
-                               QueryError_Strerror(err));
+      VecSimQueryParams qParams = {0};
+      bool hybrid = (child_it != NULL);
+      if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
+                                    &qParams, hybrid, q->status) != VecSim_OK)  {
         return NULL;
       }
+
       VecSimIndexInfo info = VecSimIndex_Info(vecsim);
       size_t dim = 0;
       VecSimType type = (VecSimType)0;
@@ -118,7 +99,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .qParams = qParams,
                                       .vectorScoreField = vq->scoreField,
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
-                                      .childIt = child_it
+                                      .childIt = child_it,
+                                      .timeout = q->sctx->timeout,
       };
       return NewHybridVectorIterator(hParams);
     }
@@ -235,6 +217,10 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
 }
 
 int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  QueryError status = {0};
+  int rv;
+  
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
 
   switch (vecsimParams->algo) {
@@ -255,18 +241,97 @@ int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
     vecsimParams->hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
     break;
   }
-  return REDISMODULE_OK;
+  // Checking if the loaded parameters fits the current server limits.
+  rv = VecSimIndex_validate_params(ctx, vecsimParams, &status);
+  if (REDISMODULE_OK != rv) {
+    size_t old_block_size = 0;
+    size_t old_initial_cap = 0;
+    RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: %s", QueryError_GetError(&status));
+    // We change the initial size to 0 and block size to default and try again.
+    // setting block size to 0 will later set it to default. 
+    switch (vecsimParams->algo) {
+      case VecSimAlgo_BF:
+        old_block_size = vecsimParams->bfParams.blockSize;
+        old_initial_cap = vecsimParams->bfParams.initialCapacity;
+        vecsimParams->bfParams.blockSize = 0;
+        vecsimParams->bfParams.initialCapacity = 0;
+        break;
+      case VecSimAlgo_HNSWLIB:
+        old_block_size = vecsimParams->hnswParams.blockSize;
+        old_initial_cap = vecsimParams->hnswParams.initialCapacity;
+        vecsimParams->hnswParams.blockSize = 0;
+        vecsimParams->hnswParams.initialCapacity = 0;
+        break;
+    }
+    // If we changed the initial capacity, log the change
+    if (old_initial_cap) {
+      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing initial capacity from %zu to 0", old_initial_cap);
+    }
+    QueryError_ClearError(&status);
+    // We don't know yet what the block size will be (default value can be effected by memory limit),
+    // so we first validating the new parameters.
+    rv = VecSimIndex_validate_params(ctx, vecsimParams, &status);
+    // Now default block size is set. we can log this change now.
+    if (VecSimAlgo_HNSWLIB == vecsimParams->algo && vecsimParams->hnswParams.blockSize != old_block_size) {
+      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing block size from %zu to %zu", old_block_size, vecsimParams->hnswParams.blockSize);
+    } else if (VecSimAlgo_BF == vecsimParams->algo && vecsimParams->bfParams.blockSize != old_block_size) {
+      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing block size from %zu to %zu", old_block_size, vecsimParams->bfParams.blockSize);
+    }
+    // If the second validation failed, we fail.
+    if (REDISMODULE_OK != rv) {
+      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: second load with default parameters failed! %s", QueryError_GetError(&status));
+    }
+  }
+  QueryError_ClearError(&status);
+  return rv;
 
 fail:
   return REDISMODULE_ERR;
 }
 
-int VecSimResolveCode_to_QueryErrorCode(int code) {
-  switch (code) {
-    case VecSim_OK: return QUERY_OK;
-    case VecSimParamResolverErr_AlreadySet: return QUERY_EDUPFIELD;
-    case VecSimParamResolverErr_UnknownParam: return QUERY_ENOOPTION;
-    case VecSimParamResolverErr_BadValue: return QUERY_EBADATTR;
+VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
+                          VecSimQueryParams *qParams, bool hybrid, QueryError *status) {
+
+  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, hybrid);
+  if (vecSimCode == VecSim_OK) {
+    return vecSimCode;
   }
-  return QUERY_EGENERIC;
+
+  QueryErrorCode RSErrorCode;
+  switch (vecSimCode) {
+    case VecSimParamResolverErr_AlreadySet: {
+      RSErrorCode = QUERY_EDUPPARAM;
+      break;
+    }
+    case VecSimParamResolverErr_UnknownParam: {
+      RSErrorCode = QUERY_ENOOPTION;
+      break;
+    }
+    case VecSimParamResolverErr_BadValue: {
+      RSErrorCode = QUERY_EBADVAL;
+      break;
+    }
+    case VecSimParamResolverErr_InvalidPolicy_NHybrid: {
+      RSErrorCode = QUERY_ENHYBRID;
+      break;
+    }
+    case VecSimParamResolverErr_InvalidPolicy_NExits: {
+      RSErrorCode = QUERY_EHYBRIDNEXIST;
+      break;
+    }
+    case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_BatchSize: {
+      RSErrorCode = QUERY_EADHOCWBATCHSIZE;
+      break;
+    }
+    case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_EfRuntime: {
+      RSErrorCode = QUERY_EADHOCWEFRUNTIME;
+      break;
+    }
+    default: {
+      RSErrorCode = QUERY_EGENERIC;
+    }
+  }
+  const char *error_msg = QueryError_Strerror(RSErrorCode);
+  QueryError_SetErrorFmt(status, RSErrorCode, "Error parsing vector similarity parameters: %s", error_msg);
+  return vecSimCode;
 }

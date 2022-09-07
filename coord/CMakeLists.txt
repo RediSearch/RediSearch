@@ -84,14 +84,15 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
     $<TARGET_OBJECTS:rmutil>
+    $<TARGET_OBJECTS:rmutil-cxx>
     $<TARGET_OBJECTS:rmr>)
 
 if (APPLE)
-	include_directories(/usr/local/opt/openssl/include)
-	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
+	include_directories(${LIBSSL_DIR}/include)
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L${LIBSSL_DIR}/lib")
 	set(SSL_LIBS crypto ssl)
 else()
-	set(SSL_LIBS crypt ssl)
+	set(SSL_LIBS crypto crypt ssl)
 endif()
 
 macro(MODULE_TARGET TYPE)
@@ -119,11 +120,20 @@ macro(MODULE_TARGET TYPE)
     set_target_properties(${_moduleName} PROPERTIES PREFIX "")
     set_target_properties(${_moduleName} PROPERTIES SUFFIX ".so")
 
-    if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG AND NOT APPLE)
-        add_custom_command(TARGET ${_moduleName} POST_BUILD
-            COMMAND objcopy --only-keep-debug $<TARGET_FILE:${_moduleName}> $<TARGET_FILE:${_moduleName}>.debug
-            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:${_moduleName}>.debug $<TARGET_FILE:${_moduleName}>
-            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:${_moduleName}>)
+    if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG)
+		if (NOT APPLE)
+			add_custom_command(TARGET ${_moduleName} POST_BUILD
+				COMMAND cp $<TARGET_FILE:${_moduleName}> $<TARGET_FILE:${_moduleName}>.debug
+				COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:${_moduleName}>.debug $<TARGET_FILE:${_moduleName}>
+				COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:${_moduleName}>)
+		else()
+			add_custom_command(TARGET ${_moduleName} POST_BUILD
+				COMMAND cp $<TARGET_FILE:${_moduleName}> $<TARGET_FILE:${_moduleName}>.debug)
+		endif()
+#        add_custom_command(TARGET ${_moduleName} POST_BUILD
+#            COMMAND objcopy --only-keep-debug $<TARGET_FILE:${_moduleName}> $<TARGET_FILE:${_moduleName}>.debug
+#            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:${_moduleName}>.debug $<TARGET_FILE:${_moduleName}>
+#            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:${_moduleName}>)
     endif()
 endmacro()
 

@@ -8,9 +8,9 @@ description: >
 
 # Upgrade to 2.0 when running in Redis OSS
 
-!!! note
-    For enterprise upgrade please refer to the following [link](https://docs.redislabs.com/latest/modules/redisearch/).
-
+{{% alert title="Note" color="info" %}}
+For enterprise upgrade please refer to the following [link](https://docs.redislabs.com/latest/modules/redisearch/).
+{{% /alert %}}
 
 v2 of RediSearch re-architects the way indices are kept in sync with the data. Instead of using `FT.ADD` command to index documents, RediSearch 2.0 follows hashes that match the index description regardless of how those were inserted or changed on Redis (`HSET`, `HINCR`, `HDEL`). The index description will filter hashes on a prefix of the key, and allows you to construct fine-grained filters with the `FILTER` option. This description can be defined during index creation (`FT.CREATE`). 
 

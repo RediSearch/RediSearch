@@ -3,5 +3,5 @@ title: "Reference"
 linkTitle: "Reference"
 weight: 6
 description: >
-    Reference
+    Details about query syntax, aggregation, scoring, and other search query options
 ---

@@ -190,6 +190,14 @@ def testRename(env):
     env.cmd('SET foo bar')
     env.cmd('RENAME foo fubu')
 
+def testRenameChangePrefix(env):
+    env.skipOnCluster()
+    env.cmd('ft.create idx1 PREFIX 1 1: SCHEMA name text')
+    env.cmd('ft.create idx2 PREFIX 1 2: SCHEMA name text')
+
+    env.cmd('SET 1:1 bar')
+    env.expect('RENAME 1:1 2:1').ok()
+
 def testCopy(env):
     env.skipOnCluster()
     if not server_version_at_least(env, "6.2.0"):
@@ -531,16 +539,6 @@ def testRestore(env):
     env.expect('FT.SEARCH idx foo').equal([0])
     env.expect('RESTORE', 'doc1', 0, dump)
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-
-def testExpire(env):
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
-    conn.execute_command('HSET', 'doc1', 'test', 'foo')
-    env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-    conn.execute_command('PEXPIRE', 'doc1', '1')
-    env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-    sleep(1.1)
-    env.expect('FT.SEARCH idx foo').equal([0])
 
 def testEvicted(env):
     env.skipOnCluster()

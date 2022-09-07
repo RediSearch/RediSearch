@@ -68,6 +68,7 @@ include_directories(${PROJECT_SOURCE_DIR}/deps/VectorSimilarity/src)
 include_directories(${PROJECT_SOURCE_DIR})
 
 add_subdirectory(deps/rmutil)
+add_subdirectory(deps/rmutil/cxx)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
@@ -97,6 +98,7 @@ file(GLOB RS_SRC
     "deps/base64/*.c"
     "deps/thpool/*.c"
     "deps/triemap/*.c"
+    "deps/wildcard/*.c"
     "deps/geohash/*.c")
 
 add_library(rscore OBJECT ${RS_SRC})
@@ -104,6 +106,7 @@ add_library(rscore OBJECT ${RS_SRC})
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
+    $<TARGET_OBJECTS:rmutil-cxx>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>)
@@ -155,11 +158,20 @@ else() # OSS RediSearch
         set_target_properties(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
     endif()
 
-	if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG AND NOT APPLE)
-        add_custom_command(TARGET redisearch POST_BUILD
-            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
-            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
-            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
+	if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG)
+		if (NOT APPLE)
+			add_custom_command(TARGET redisearch POST_BUILD
+				COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+				COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
+				COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
+		else()
+			add_custom_command(TARGET redisearch POST_BUILD
+				COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug)
+		endif()
+#        add_custom_command(TARGET redisearch POST_BUILD
+#            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+#            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
+#            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
     endif()
 	
 	add_dependencies(redisearch VectorSimilarity)

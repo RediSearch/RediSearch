@@ -10,6 +10,7 @@
 #include "extension.h"
 #include "profile.h"
 #include "config.h"
+#include "util/timeout.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -329,6 +330,10 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   // MAX is not included in the normal SORTBY arglist.. so we need to switch
   // back to `ac`
   if (AC_AdvanceIfMatch(ac, "MAX")) {
+    if (isLegacy) {
+      QERR_MKBADARGS_FMT(status, "SORTBY MAX is not supported by FT.SEARCH");
+      goto err;
+    }
     unsigned mx = 0;
     if ((rv = AC_GetUnsigned(ac, &mx, 0) != AC_OK)) {
       QERR_MKBADARGS_AC(status, "MAX", rv);
@@ -715,6 +720,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
+  req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
   return req;
 }
 
@@ -781,6 +787,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       goto error;
     }
   }
+
+  // Set timeout for the query
+  updateTimeout(&req->timeoutTime, req->reqTimeout);
+
   return REDISMODULE_OK;
 
 error:
@@ -819,6 +829,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
+  sctx->timeout = req->timeoutTime;
   req->sctx = sctx;
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
@@ -854,13 +865,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), req->dialectVersion, status);
+  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
   QAST_EvalParams(ast, opts, status);
   applyGlobalFilters(opts, ast, sctx);
+  
+  if (QAST_CheckIsValid(ast, req->sctx->spec, opts, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   if (!(opts->flags & Search_Verbatim)) {
     if (QAST_Expand(ast, opts->expanderName, opts, sctx, status) != REDISMODULE_OK) {
@@ -870,6 +885,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
+
+  TimedOut_WithStatus(&req->timeoutTime, status);
+
   if (QueryError_HasError(status))
     return REDISMODULE_ERR;
   if (IsProfile(req)) {

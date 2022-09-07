@@ -71,7 +71,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
     // match `name` to the name/path of the field
-    if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) || 
+    if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) ||
         (kk->path != kk->name && !strncmp(kk->path, name, n))) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
@@ -499,7 +499,7 @@ done:
     switch (type) {
     case DocumentType_Hash: RedisModule_CloseKey(key); break;
     case DocumentType_Json: break;
-    case DocumentType_None: RS_LOG_ASSERT(1, "placeholder");
+    case DocumentType_Unsupported: RS_LOG_ASSERT(1, "placeholder");
     }
   }
   return rc;
@@ -534,11 +534,10 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
       RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
-  // We can only use the scan API from Redis version 6.0.6 and above 
+  // We can only use the scan API from Redis version 6.0.6 and above
   // and when the deployment is not enterprise-crdt
   if(!isFeatureSupported(RM_SCAN_KEY_API_FIX) || isCrdt){
     rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
-
     if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
       goto done;
     }
@@ -651,6 +650,14 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
     }
   } else {
     rv = loadIndividualKeys(it, dst, options);
+  }
+  // if loading the document failed b/c it does not exist, delete the document from DocTable
+  // this will mark doc as deleted and reply with `(nil)`
+  if (rv != REDISMODULE_OK) {
+    RedisModuleCtx *ctx = options->sctx->redisCtx;
+    RedisModuleString *rmstr = DMD_CreateKeyString(options->dmd, ctx);
+    IndexSpec_DeleteDoc(options->sctx->spec, ctx, rmstr);
+    RedisModule_FreeString(ctx, rmstr);
   }
   return rv;
 }

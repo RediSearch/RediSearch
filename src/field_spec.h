@@ -52,6 +52,8 @@ typedef enum {
   FieldSpec_Phonetics = 0x08,
   FieldSpec_Dynamic = 0x10,
   FieldSpec_UNF = 0x20,
+  FieldSpec_WithSuffixTrie = 0x40,
+  FieldSpec_UndefinedOrder = 0x80,
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
@@ -114,9 +116,15 @@ typedef struct FieldSpec {
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
 #define FieldSpec_IsPhonetics(fs) ((fs)->options & FieldSpec_Phonetics)
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
+#define FieldSpec_HasSuffixTrie(fs) ((fs)->options & FieldSpec_WithSuffixTrie)
+#define FieldSpec_IsUndefinedOrder(fs) ((fs)->options & FieldSpec_UndefinedOrder)
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
+/**
+ * Convert field type given by integer to the name type in string form.
+ */
+const char *FieldSpec_GetTypeNames(int idx);
 
 RSValueType fieldTypeToValueType(FieldType ft);
 

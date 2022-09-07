@@ -27,7 +27,7 @@ void testEndpoint() {
 }
 
 void testShardingFunc() {
-  
+
   MRCommand cmd = MR_NewCommand(2, "foo", "baz");
   mr_slot_t shard = CRC16ShardFunc(&cmd, 4096);
   mu_assert_int_eq(shard, 717);
@@ -37,7 +37,7 @@ void testShardingFunc() {
 
 
 static MRClusterTopology *getTopology(size_t numSlots, size_t numNodes,  const char **hosts){
-  
+
   MRClusterTopology *topo = malloc(sizeof(*topo));
   topo->numShards = numNodes;
   topo->numSlots = numSlots;

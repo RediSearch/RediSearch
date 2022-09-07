@@ -69,7 +69,6 @@ make build          # compile and link
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
   DEBUG=1             # build for debugging
-  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
   NO_TESTS=1          # disable unit tests
   WHY=1               # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1             # Force CMake rerun (default)
@@ -77,6 +76,9 @@ make build          # compile and link
   VG=1                # build for Valgrind
   SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
   SLOW=1              # do not parallelize build (for diagnostics)
+  GCC=1               # build with GCC (default unless Sanitizer)
+  CLANG=1             # build with CLang
+  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -123,9 +125,6 @@ common options for upload operations:
   FORCE=1               # allow operation outside CI environment
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
-
-make docs          # create documentation
-make deploy-docs   # deploy documentation
 
 make docker        # build for specified platform
   OSNICK=nick        # platform to build for (default: host platform)
@@ -222,14 +221,17 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
+# override CLang default for macOS
+ifeq ($(OS),macos)
+ifneq ($(CLANG),1)
+export GCC=1
+endif
+endif
+
 STATIC_LIBSTDCXX ?= 1
 
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
-endif
-
-ifneq ($(SAN),)
-CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 endif
 
 ifeq ($(PROFILE),1)
@@ -287,6 +289,8 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
+export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)
+
 #----------------------------------------------------------------------------------------------
 
 HAVE_MARCH_OPTS:=$(shell $(MK)/cc-have-opts)
@@ -303,6 +307,10 @@ CMAKE_FLAGS=\
 	-DOS=$(OS) \
 	-DOSNICK=$(OSNICK) \
 	-DARCH=$(ARCH)
+
+ifeq ($(OS),macos)
+CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
+endif
 
 CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_COV) \
 	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
@@ -455,15 +463,18 @@ ifeq ($(TESTDEBUG),1)
 override CTEST_ARGS.debug += --debug
 endif
 
-ifneq ($(SLOW),1)
-ifneq ($(SAN),)
-CTEST_PARALLEL=8
-else ifeq ($(COV),1)
-CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
+ifeq ($(SLOW),1)
+	override CTEST_PARALLEL=
 else
-CTEST_PARALLEL=
-endif
-endif # SLOW
+	ifneq ($(SAN),)
+		override CTEST_PARALLEL=
+	else ifeq ($(COV),1)
+		override CTEST_PARALLEL=
+	else
+		# CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
+		override CTEST_PARALLEL=
+	endif
+endif # !SLOW
 
 ifneq ($(CTEST_PARALLEL),)
 CTEST_ARGS.parallel += -j$(CTEST_PARALLEL)
@@ -472,10 +483,10 @@ endif
 override CTEST_ARGS += \
 	--output-on-failure \
 	--timeout 15000 \
-	$(CTEST.debug) \
-	$(CTEST.parallel)
+	$(CTEST_ARGS.debug) \
+	$(CTEST_ARGS.parallel)
 
-CTESTS_DEFS += \
+CTEST_DEFS += \
 	BINROOT=$(BINROOT)
 
 override FLOW_TESTS_ARGS+=\
@@ -502,17 +513,18 @@ endif
 ifeq ($(SLOW),1)
 _RLTEST_PARALLEL=0
 else
-_RLTEST_PARALLEL=1
+# _RLTEST_PARALLEL=1
+_RLTEST_PARALLEL=8
 endif
 
 test: $(REJSON_SO)
 ifneq ($(TEST),)
-	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) RLTEST_ARGS+="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
 ifeq ($(ARCH),arm64v8)
 	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
-	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) ctest $(CTEST_ARGS)
+	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) ctest $(CTEST_ARGS)
 endif
 ifeq ($(COORD),oss)
 	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
@@ -585,7 +597,6 @@ callgrind: $(TARGET)
 RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 
 RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
-# RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
 ifneq ($(RAMP_YAML),)
 
@@ -672,25 +683,7 @@ else
 endif
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
-# CTEST_PARALLEL=8
-
-show-cov:
-	$(SHOW)lcov -l $(COV_INFO)
-
-upload-cov:
-	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
-
-.PHONY: coverage show-cov upload-cov
-
-#----------------------------------------------------------------------------------------------
-
-docs:
-	$(SHOW)mkdocs build
-
-deploy-docs:
-	$(SHOW)mkdocs gh-deploy
-
-.PHONY: docs deploy-docs
+.PHONY: coverage
 
 #----------------------------------------------------------------------------------------------
 

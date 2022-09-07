@@ -35,17 +35,16 @@ def testSanity(env):
 		conn.execute_command('hset', i, 'n', i % 100)
 	env.expect('ft.search', 'idx', ('@n:[0 %d]' % (repeat)), 'limit', 0 ,0).equal([repeat])
 	env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'n') \
-				.equal(['numRanges', 12, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 11])
+				.equal(['numRanges', 15, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 14])
 
 def testCompressionConfig(env):
 	env.skipOnCluster()
-	conn = getConnectionByEnv(env)
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
 
 	# w/o compression. exact number match.
 	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'false').equal('OK')
 	for i in range(100):
-	  env.execute_command('hset', i, 'n', str(1 + i / 100.0))
+	  	env.execute_command('hset', i, 'n', str(1 + i / 100.0))
 	for i in range(100):
 		num = str(1 + i / 100.0)
 		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1, str(i), ['n', num]])
@@ -68,13 +67,12 @@ def testCompressionConfig(env):
 def testRangeParentsConfig(env):
 	env.skipOnCluster()
 	elements = 1000
-	conn = getConnectionByEnv(env)
 
 	concurrent = env.cmd('ft.config', 'get', 'CONCURRENT_WRITE_MODE')
 	if str(concurrent[0][1]) == 'true':
 		env.skip()
 
-	result = [['numRanges', 6], ['numRanges', 8]]
+	result = [['numRanges', 4], ['numRanges', 6]]
 	for test in range(2):
 		# check number of ranges
 		env.cmd('ft.create', 'idx0', 'SCHEMA', 'n', 'numeric')
@@ -107,10 +105,13 @@ def testEmptyNumericLeakIncrease(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs)
 
-    num_summery_before = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    num_summery_before = to_dict(env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n'))
     forceInvokeGC(env, 'idx')
-    num_summery_after = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
-    env.assertGreater(num_summery_before[1], num_summery_after[1])
+    num_summery_after = to_dict(env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n'))
+    env.assertGreater(num_summery_before['numRanges'], num_summery_after['numRanges'])
+
+    # test for PR#3018. check `numEntries` is updated after GC
+    env.assertGreater(num_summery_before['numEntries'], num_summery_after['numEntries'])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs)
@@ -145,3 +146,21 @@ def testEmptyNumericLeakCenter(env):
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs / 100 + 100)
+
+def testCardinalityCrash(env):
+    # this test reproduces crash where cardinality array was cleared on the GC
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+    count = 100
+
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
+
+    for i in range(count):
+        conn.execute_command('HSET', 'doc{}'.format(i), 'n', format(i))
+
+    for i in range(count):
+        conn.execute_command('DEL', 'doc{}'.format(i))
+    forceInvokeGC(env, 'idx')
+
+    for i in range(count):
+        conn.execute_command('HSET', 'doc{}'.format(i), 'n', format(i))

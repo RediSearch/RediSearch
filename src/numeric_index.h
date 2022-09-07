@@ -16,6 +16,8 @@
 extern "C" {
 #endif
 
+#define NR_CARD_CHECK 10
+
 typedef struct {
   double value;
   size_t appearances;
@@ -36,6 +38,7 @@ typedef struct {
   size_t invertedIndexSize;
 
   u_int16_t card;
+  u_int16_t cardCheck;
   uint32_t splitCard;
   CardinalityValue *values;
   InvertedIndex *entries;
@@ -97,7 +100,7 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
                           NRN_AddRv *rv);
 
 /* Create a new range node with the given capacity, minimum and maximum values */
-NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard);
+NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard);
 
 /* Add a value to a tree node or its children recursively. Splits the relevant node if needed.
  * Returns 0 if no nodes were split, 1 if we splitted nodes */

@@ -8,6 +8,8 @@
 #include "util/strconv.h"
 #include <stdbool.h>
 
+#define SYNONYM_PREFIX_CHAR '~'
+
 /**
  * Holding a term data
  *  term - the term itself

@@ -22,6 +22,14 @@ typedef uint16_t t_len;
 #define TRIENODE_SORTED_SCORE 1
 #define TRIENODE_SORTED_LEX 2
 
+typedef enum {
+  Trie_Sort_Lex = 0,
+  Trie_Sort_Score = 1,
+} TrieSortMode;
+
+typedef void (*TrieFreeCallback)(void *node);
+struct timespec;
+
 #pragma pack(1)
 typedef struct {
   uint32_t len;  // 4G payload is more than enough!!!!
@@ -47,7 +55,7 @@ typedef struct {
   t_len numChildren;
 
   uint8_t flags : 2;
-  uint8_t sortmode : 2;
+  TrieSortMode sortMode : 1;
 
   // the node's score. Non termn
   float score;
@@ -61,6 +69,7 @@ typedef struct {
 
   // the string of the current node
   rune str[];
+  // ... here come the first letters of each child childRunes[]
   // ... now come the children, to be accessed with __trieNode_children
 } TrieNode;
 #pragma pack()
@@ -75,13 +84,14 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
-                        t_len numChildren, float score, int terminal);
+                        t_len numChildren, float score, int terminal, TrieSortMode sortMode);
 
 /* Get a pointer to the children array of a node. This is not an actual member
- * of the node for
- * memory saving reasons */
+ * of the node for memory saving reasons */
 #define __trieNode_children(n) \
-  ((TrieNode **)((void *)n + sizeof(TrieNode) + (n->len + 1) * sizeof(rune)))
+  ((TrieNode **)((void *)n + sizeof(TrieNode) + ((n->len + 1) + (n->numChildren)) * sizeof(rune)))
+
+#define __trieNode_childKey(n, c) (rune *)((void *)n + sizeof(TrieNode) + (n->len + 1 + c) * sizeof(rune))
 
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
 
@@ -107,7 +117,7 @@ typedef enum {
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
 int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
-                 float score, TrieAddOp op);
+                 float score, TrieAddOp op, TrieFreeCallback freecb);
 
 /* Find the entry with a given string and length, and return its score. Returns
  * 0 if the entry was
@@ -115,14 +125,19 @@ int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
  * Note that you cannot put entries with zero score */
 float TrieNode_Find(TrieNode *n, rune *str, t_len len);
 
+/* Find the entry with a given string and length, and return it. */
+TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut);
+/* Returns the payload of the node. */
+void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact);
+
 /* Mark a node as deleted. For simplicity for now we don't actually delete
  * anything,
  * but the node will not be persisted to disk, thus deleted after reload.
  * Returns 1 if the node was indeed deleted, 0 otherwise */
-int TrieNode_Delete(TrieNode *n, const rune *str, t_len len);
+int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb);
 
 /* Free the trie's root and all its children recursively */
-void TrieNode_Free(TrieNode *n);
+void TrieNode_Free(TrieNode *n, TrieFreeCallback freecb);
 
 /* trie iterator stack node. for internal use only */
 typedef struct {
@@ -203,7 +218,8 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
 
 TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
 
-typedef void(TrieRangeCallback)(const rune *, size_t, void *);
+typedef int(TrieRangeCallback)(const rune *, size_t, void *, void *);
+typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
 
 /**
  * Iterate all nodes within range.
@@ -221,6 +237,22 @@ typedef void(TrieRangeCallback)(const rune *, size_t, void *);
 void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includeMin,
                            const rune *max, int maxlen, bool includeMax, TrieRangeCallback callback,
                            void *ctx);
+
+/**
+ * Iterate all nodes within range.
+ * @param n the node to iterateo
+ * @param str the string to check
+ * @param nstr the length of str
+ * @param prefix is the string prefix
+ * @param suffix is the string suffix
+ * @param callback the callback to invoke
+ * @param ctx data to be passed to the callback
+ */
+void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout);
+
+void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout);
 
 #ifdef __cplusplus
 }

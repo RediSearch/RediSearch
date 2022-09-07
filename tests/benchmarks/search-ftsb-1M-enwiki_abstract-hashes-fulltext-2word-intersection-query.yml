@@ -11,10 +11,22 @@ description: "
 remote:
  - type: oss-standalone
  - setup: redisearch-m5
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+  - oss-cluster-03-primaries
 dbconfig:
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:
-  - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.rdb"
+    - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
 clientconfig:
+  - benchmark_type: "read-only"
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64

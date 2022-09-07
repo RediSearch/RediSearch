@@ -8,9 +8,9 @@ description: >
 
 # RediSearch Aggregations
 
-Aggregations are a way to process the results of a search query, group, sort and transform them - and extract analytic insights from them. Much like aggregation queries in other databases and search engines, they can be used to create analytics reports, or perform [Faceted Search](https://en.wikipedia.org/wiki/Faceted_search) style queries. 
+Aggregations are a way to process the results of a search query, group, sort and transform them - and extract analytic insights from them. Much like aggregation queries in other databases and search engines, they can be used to create analytics reports, or perform [Faceted Search](https://en.wikipedia.org/wiki/Faceted_search) style queries.
 
-For example, indexing a web-server's logs, we can create a report for unique users by hour, country or any other breakdown; or create different reports for errors, warnings, etc. 
+For example, indexing a web-server's logs, we can create a report for unique users by hour, country or any other breakdown; or create different reports for errors, warnings, etc.
 
 ## Core concepts
 
@@ -21,10 +21,10 @@ The basic idea of an aggregate query is this:
   * **Group and Reduce**: grouping by fields in the results, and applying reducer functions on each group.
   * **Sort**: sort the results based on one or more fields.
   * **Apply Transformations**: Apply mathematical and string functions on fields in the pipeline, optionally creating new fields or replacing existing ones
-  * **Limit**: Limit the result, regardless of sorting the result. 
-  * **Filter**: Filter the results (post-query) based on predicates relating to its values. 
+  * **Limit**: Limit the result, regardless of sorting the result.
+  * **Filter**: Filter the results (post-query) based on predicates relating to its values.
 
-The pipeline is dynamic and re-entrant, and every operation can be repeated. For example, you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output. 
+The pipeline is dynamic and re-entrant, and every operation can be repeated. For example, you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output.
 
 Figure 1: Aggregation Pipeline Example
 ![Aggregation Pipeline](https://docs.google.com/drawings/d/e/2PACX-1vRFyP17ingsG86OYNaienojHHA8DwnlVVv67-WlKxv7a7xTJCluWvs3SzXYQSS6QqwB9QZ1vqDuoJ-0/pub?w=518&h=163)
@@ -77,20 +77,20 @@ country, one would specify `SORTBY 6 firstName ASC lastName DESC country ASC`.
 The document ID can be loaded using `@__key`.
 
 * **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them or performing multiple aggregate operations (see below).
-  
+
 * **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example, COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers.
 
-    The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`. 
+    The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`.
 
-* **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for each property. `nargs` is the number of sorting parameters, including ASC and DESC. for example: `SORTBY 4 @foo ASC @bar DESC`. 
+* **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY, using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for each property. `nargs` is the number of sorting parameters, including ASC and DESC. for example: `SORTBY 4 @foo ASC @bar DESC`.
 
-    `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries. 
+    `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries.
 
-* **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transformation. `expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. 
+* **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transformation. `expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline.
 
 * **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the output of a sort operation.
 
-     However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
+     However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100.
 
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. They are is applied post-query and relate to the current state of the pipeline. See FILTER Expressions below for full details.
 
@@ -100,7 +100,7 @@ The document ID can be loaded using `@__key`.
 Let's assume we have log of visits to our website, each record containing the following fields/properties:
 
 * **url** (text, sortable)
-* **timestamp** (numeric, sortable) - unix timestamp of visit entry. 
+* **timestamp** (numeric, sortable) - unix timestamp of visit entry.
 * **country** (tag, sortable)
 * **user_id** (text, sortable, not indexed)
 
@@ -124,7 +124,7 @@ Now we want to group the results by hour, and count the distinct user ids in eac
 ```
 FT.AGGREGATE myIndex "*"
   APPLY "@timestamp - (@timestamp % 3600)" AS hour
-  
+
   GROUPBY 1 @hour
   	REDUCE COUNT_DISTINCT 1 @user_id AS num_users
 ```
@@ -134,10 +134,10 @@ Now we'd like to sort the results by hour, ascending:
 ```
 FT.AGGREGATE myIndex "*"
   APPLY "@timestamp - (@timestamp % 3600)" AS hour
-  
+
   GROUPBY 1 @hour
   	REDUCE COUNT_DISTINCT 1 @user_id AS num_users
-  	
+
   SORTBY 2 @hour ASC
 ```
 
@@ -146,24 +146,24 @@ And as a final step, we can format the hour as a human readable timestamp. This 
 ```
 FT.AGGREGATE myIndex "*"
   APPLY "@timestamp - (@timestamp % 3600)" AS hour
-  
+
   GROUPBY 1 @hour
   	REDUCE COUNT_DISTINCT 1 @user_id AS num_users
-  	
+
   SORTBY 2 @hour ASC
-  
+
   APPLY timefmt(@hour) AS hour
 ```
 
 ### Example 2: Sort visits to a specific URL by day and country:
 
-In this example we filter by the url, transform the timestamp to its day part, and group by the day and country, simply counting the number of visits per group. sorting by day ascending and country descending. 
+In this example we filter by the url, transform the timestamp to its day part, and group by the day and country, simply counting the number of visits per group. sorting by day ascending and country descending.
 
 ```
 FT.AGGREGATE myIndex "@url:\"about.html\""
     APPLY "@timestamp - (@timestamp % 86400)" AS day
     GROUPBY 2 @day @country
-    	REDUCE count 0 AS num_visits 
+    	REDUCE count 0 AS num_visits
     SORTBY 4 @day ASC @country DESC
 ```
 
@@ -171,9 +171,9 @@ FT.AGGREGATE myIndex "@url:\"about.html\""
 
 `GROUPBY` step work similarly to SQL `GROUP BY` clauses, and create groups of results based on one or more properties in each record. For each group, we return the "group keys", or the values common to all records in the group, by which they were grouped together - along with the results of zero or more `REDUCE` clauses.
 
-Each `GROUPBY` step in the pipeline may be accompanied by zero or more `REDUCE` clauses. Reducers apply some accumulation function to each record in the group and reduce them into a single record representing the group. When we are finished processing all the records upstream of the `GROUPBY` step, each group emits its reduced record. 
+Each `GROUPBY` step in the pipeline may be accompanied by zero or more `REDUCE` clauses. Reducers apply some accumulation function to each record in the group and reduce them into a single record representing the group. When we are finished processing all the records upstream of the `GROUPBY` step, each group emits its reduced record.
 
-For example, the simplest reducer is COUNT, which simply counts the number of records in each group. 
+For example, the simplest reducer is COUNT, which simply counts the number of records in each group.
 
 If multiple `REDUCE` clauses exist for a single `GROUPBY` step, each reducer works independently on each result and writes its final output once. Each reducer may have its own alias determined using the `AS` optional parameter. If `AS` is not specified, the alias is the reduce function and its parameters, e.g. `count_distinct(foo,bar)`.
 
@@ -189,7 +189,7 @@ REDUCE COUNT 0
 
 **Description**
 
-Count the number of records in each group 
+Count the number of records in each group
 
 #### COUNT_DISTINCT
 
@@ -201,14 +201,15 @@ REDUCE COUNT_DISTINCT 1 {property}
 
 **Description**
 
-Count the number of distinct values for `property`. 
+Count the number of distinct values for `property`.
 
-!!! note
-    The reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.
+{{% alert title="Note" color="info" %}}
+The reducer creates a hash-set per group, and hashes each record. This can be memory heavy if the groups are big.
+{{% /alert %}}
 
 #### COUNT_DISTINCTISH
 
-**Format** 
+**Format**
 
 ```
 REDUCE COUNT_DISTINCTISH 1 {property}
@@ -216,10 +217,11 @@ REDUCE COUNT_DISTINCTISH 1 {property}
 
 **Description**
 
-Same as COUNT_DISTINCT - but provide an approximation instead of an exact count, at the expense of less memory and CPU in big groups. 
+Same as COUNT_DISTINCT - but provide an approximation instead of an exact count, at the expense of less memory and CPU in big groups.
 
-!!! note
-    The reducer uses [HyperLogLog](https://en.wikipedia.org/wiki/HyperLogLog) counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case. 
+{{% alert title="Note" color="info" %}}
+The reducer uses [HyperLogLog](https://en.wikipedia.org/wiki/HyperLogLog) counters per group, at ~3% error rate, and 1024 Bytes of constant space allocation per group. This means it is ideal for few huge groups and not ideal for many small groups. In the former case, it can be an order of magnitude faster and consume much less memory than COUNT_DISTINCT, but again, it does not fit every user case.
+{{% /alert %}}
 
 #### SUM
 
@@ -293,7 +295,7 @@ REDUCE QUANTILE 2 {property} {quantile}
 
 Return the value of a numeric property at a given quantile of the results. Quantile is expressed as a number between 0 and 1. For example, the median can be expressed as the quantile at 0.5, e.g. `REDUCE QUANTILE 2 @foo 0.5 AS median` .
 
-If multiple quantiles are required, just repeat  the QUANTILE reducer for each quantile. e.g. `REDUCE QUANTILE 2 @foo 0.5 AS median REDUCE QUANTILE 2 @foo 0.99 AS p99` 
+If multiple quantiles are required, just repeat  the QUANTILE reducer for each quantile. e.g. `REDUCE QUANTILE 2 @foo 0.5 AS median REDUCE QUANTILE 2 @foo 0.99 AS p99`
 
 #### TOLIST
 
@@ -305,7 +307,7 @@ REDUCE TOLIST 1 {property}
 
 **Description**
 
-Merge all **distinct** values of a given property into a single array. 
+Merge all **distinct** values of a given property into a single array.
 
 #### FIRST_VALUE
 
@@ -341,11 +343,11 @@ Perform a reservoir sampling of the group elements with a given size, and return
 
 ## APPLY expressions
 
-`APPLY` performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transformation. 
+`APPLY` performs a 1-to-1 transformation on one or more properties in each record. It either stores the result as a new property down the pipeline, or replaces any property using this transformation.
 
 The transformations are expressed as a combination of arithmetic expressions and built in functions. Evaluating functions and expressions is recursively nested and can be composed without limit. For example: `sqrt(log(foo) * floor(@bar/baz)) + (3^@qaz % 6)` or simply `@foo/@bar`.
 
-If an expression or a function is applied to values that do not match the expected types, no error is emitted but a NULL value is set as the result. 
+If an expression or a function is applied to values that do not match the expected types, no error is emitted but a NULL value is set as the result.
 
 APPLY steps must have an explicit alias determined by the `AS` parameter.
 
@@ -357,7 +359,7 @@ APPLY steps must have an explicit alias determined by the `AS` parameter.
 
 ### Arithmetic operations
 
-For numeric expressions and properties, we support addition (`+`), subtraction (`-`), multiplication (`*`), division (`/`), modulo (`%`) and power (`^`). We currently do not support bitwise logical operators.  
+For numeric expressions and properties, we support addition (`+`), subtraction (`-`), multiplication (`*`), division (`/`), modulo (`%`) and power (`^`). We currently do not support bitwise logical operators.
 
 Note that these operators apply only to numeric values and numeric sub expressions. Any attempt to multiply a string by a number, for instance, will result in a NULL output.
 
@@ -387,6 +389,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | lower(s)                         | Return the lowercase conversion of s                         | `lower("HELLO WORLD")`                                   |
 | startswith(s1,s2)                | Return `1` if s2 is the prefix of s1, `0` otherwise.         | `startswith(@field, "company")`                          |
 | contains(s1,s2)                  | Return the number of occurrences of s2 in s1, `0` otherwise. If s2 is an empty string, return `length(s1) + 1`.  | `contains(@field, "pa")`                                 |
+| strlen(s)                        | Return the length of s                                       | `strlen(@t)`                                             |
 | substr(s, offset, count)         | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`  |
 | format( fmt, ...)                | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
 | matched_terms([max_terms=100])   | Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order. | `matched_terms()`                                        |
@@ -447,14 +450,14 @@ Use FILTER to make sure you do the sorting on all valid locations.
 
 FILTER expressions filter the results using predicates relating to values in the result set.
 
-The FILTER expressions are evaluated post-query and relate to the current state of the pipeline. Thus they can be useful to prune the results based on group calculations. Note that the filters are not indexed and will not speed the processing per se. 
+The FILTER expressions are evaluated post-query and relate to the current state of the pipeline. Thus they can be useful to prune the results based on group calculations. Note that the filters are not indexed and will not speed the processing per se.
 
-Filter expressions follow the syntax of APPLY expressions, with the addition of the conditions `==`, `!=`, `<`, `<=`, `>`, `>=`. Two or more predicates can be combined with logical AND (`&&`) and OR (`||`). A single predicate can be negated with a NOT prefix (`!`).  
+Filter expressions follow the syntax of APPLY expressions, with the addition of the conditions `==`, `!=`, `<`, `<=`, `>`, `>=`. Two or more predicates can be combined with logical AND (`&&`) and OR (`||`). A single predicate can be negated with a NOT prefix (`!`).
 
 For example, filtering all results where the user name is 'foo' and the age is less than 20 is expressed  as:
 
 ```
-FT.AGGREGATE 
+FT.AGGREGATE
   ...
   FILTER "@name=='foo' && @age < 20"
   ...
