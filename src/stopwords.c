@@ -18,18 +18,24 @@ static const char *DEFAULT_STOPWORDS[] = {
     "if",   "in",    "into",  "it",   "no",   "not", "of",  "on",   "or",   "such", "that", "their",
     "then", "there", "these", "they", "this", "to",  "was", "will", "with", NULL};
 
-static StopWordList default_stopwords(DEFAULT_STOPWORDS, sizeof(DEFAULT_STOPWORDS)/sizeof(const char *) - 1);
+static StopWordList *default_stopwords = NULL;
 
 StopWordList *DefaultStopWordList() {
-  return &default_stopwords;
+  if (default_stopwords == NULL) {
+    default_stopwords = new StopWordList(DEFAULT_STOPWORDS, sizeof(DEFAULT_STOPWORDS)/sizeof(const char *) - 1);
+  }
+  return default_stopwords;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static StopWordList empty_stopwords;
+static StopWordList *empty_stopwords = NULL;
 
 StopWordList *EmptyStopWordList() {
-  return &empty_stopwords;
+  if (empty_stopwords == NULL) {
+    empty_stopwords = new StopWordList();
+  }
+  return empty_stopwords;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

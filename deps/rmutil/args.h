@@ -167,25 +167,25 @@ struct ArgsCursor {
     return AC_OK;
   }
 
-  void InitCString(const char **argv, int argc) {
+  void InitCString(const char **argv, int argc_) {
     objs = (void **)argv;
     type = AC_TYPE_CHAR;
     offset = 0;
-    argc = argc;
+    argc = argc_;
   }
 
-  void InitSDS(const sds *argv, int argc) {
+  void InitSDS(const sds *argv, int argc_) {
     objs = (void **)argv;
     type = AC_TYPE_SDS;
     offset = 0;
-    argc = argc;
+    argc = argc_;
   }
 
-  void InitRString(RedisModuleString **argv, int argc) {
+  void InitRString(RedisModuleString **argv, int argc_) {
     objs = (void **)argv;
     type = AC_TYPE_RSTRING;
     offset = 0;
-    argc = argc;
+    argc = argc_;
   }
 };
 

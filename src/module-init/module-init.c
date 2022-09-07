@@ -29,7 +29,7 @@ REDISMODULE_INIT_SYMBOLS();
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #ifndef RS_NO_ONLOAD
-int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+extern "C" int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   BB;
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR)
