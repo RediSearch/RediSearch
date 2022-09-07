@@ -416,7 +416,7 @@ void SearchCluster_EnsureSize(RedisModuleCtx *ctx, SearchCluster *c, MRClusterTo
     if(c->shardsStartSlots){
       rm_free(c->shardsStartSlots);
     }
-    c->shardsStartSlots = rm_malloc(c->size * sizeof *c->shardsStartSlots);
+    c->shardsStartSlots = rm_malloc(sizeof(int) * c->size);
     for(size_t i = 0 ; i < c->size ; ++i){
       c->shardsStartSlots[i] = topo->shards[i].startSlot;
     }
