@@ -113,6 +113,7 @@ typedef struct {
   size_t termsSize;
   size_t indexingFailures;
   size_t vectorIndexSize;
+  long double totalIndexTime; // usec
 } IndexStats;
 
 typedef enum {
@@ -138,6 +139,9 @@ typedef enum {
   Index_HasFieldAlias = 0x4000,
   Index_HasVecSim = 0x8000,
   Index_HasSuffixTrie = 0x10000,
+  // If any of the fields has undefined order. This is just a cache for quick lookup
+  Index_HasUndefinedOrder = 0x20000,
+
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -274,6 +278,9 @@ typedef struct IndexSpec {
   // For criteria tester
   RSGetValueCallback getValue;
   void *getValueCtx;
+
+  // Count the number of times the index was used
+  long long counter;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -358,6 +365,14 @@ t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len)
  * require it.
  */
 int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
+
+/**
+ * Check that `slop` and/or `inorder` are allowed on all fields matching the fieldmask (e.g., fields cannot have undefined ordering)
+ * (`RS_FIELDMASK_ALL` fieldmask checks all fields)
+ * Returns true if allowed, and false otherwise.
+ * If not allowed, set error message in status.
+ */
+int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *sp, t_fieldMask fm, QueryError *status);
 
 /* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
  * not sortable */
@@ -477,9 +492,6 @@ typedef struct {
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 //---------------------------------------------------------------------------------------------
-
-// Global hook called when an index spec is created
-extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 

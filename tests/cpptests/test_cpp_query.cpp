@@ -517,6 +517,12 @@ TEST_F(QueryTest, testParser_v2) {
 
   assertValidQuery("hello 13 again", ctx);
 
+  assertValidQuery("w'hello'", ctx);
+  assertValidQuery("w'\\hello'", ctx);
+  assertValidQuery("w'\\\\hello'", ctx);
+  assertValidQuery("w'he\\\\llo'", ctx);
+  assertValidQuery("w'he\\\\llo'", ctx);
+
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;
   ast.setContext(&ctx);
@@ -829,5 +835,29 @@ TEST_F(QueryTest, testTags) {
 
   ASSERT_EQ(QN_TOKEN, n->children[3]->type);
   ASSERT_STREQ("lorem\\ ipsum", n->children[3]->tn.str);
+  IndexSpec_Free(ctx.spec);
+}
+
+TEST_F(QueryTest, testWildcard) {
+  static const char *args[] = {"SCHEMA", "title", "text"};
+  QueryError err = {QUERY_OK};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+
+  const char *qt = "w'hello world'";
+  QASTCXX ast(ctx);
+  ASSERT_TRUE(ast.parse(qt, 2)) << ast.getError();
+  QueryNode *n = ast.root;
+  ASSERT_EQ(n->type, QN_WILDCARD_QUERY);
+  ASSERT_EQ(11, n->verb.tok.len);
+  ASSERT_STREQ("hello world", n->verb.tok.str);
+
+  qt = "w'?*?*?'";
+  ASSERT_TRUE(ast.parse(qt, 2)) << ast.getError();
+  n = ast.root;
+  ASSERT_EQ(n->type, QN_WILDCARD_QUERY);
+  ASSERT_EQ(5, n->verb.tok.len);
+  ASSERT_STREQ("?*?*?", n->verb.tok.str);
+
   IndexSpec_Free(ctx.spec);
 }

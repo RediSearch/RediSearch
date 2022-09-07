@@ -6,7 +6,7 @@
 	url = https://github.com/google/googletest.git
 [submodule "deps/hiredis"]
 	path = deps/hiredis
-	url = https://github.com/redis/hiredis.git
+	url = https://github.com/redisfab/hiredis.git
 [submodule "deps/libuv"]
 	path = deps/libuv
 	url = https://github.com/libuv/libuv.git

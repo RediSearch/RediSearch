@@ -301,7 +301,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
     RedisModuleKey *idxKey = NULL;
-    InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
+    InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, NULL, &idxKey);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
@@ -311,8 +311,6 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     }
     rm_free(term);
   }
-  DFAFilter_Free(iter->ctx);
-  rm_free(iter->ctx);
   TrieIterator_Free(iter);
 
   // we are done with terms
@@ -762,7 +760,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
     goto cleanup;
   }
 
-  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, &idxKey);
+  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, NULL, &idxKey);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;
@@ -879,7 +877,7 @@ static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
 
   NumericRange *r = currNone->range;
   array_free(r->values);
-  r->values = cardVals;
+  r->values = cardVals ? cardVals : array_new(CardinalityValue, 1);
 
   r->unique_sum = info->uniqueSum;
   r->card = array_len(r->values);
@@ -951,6 +949,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
+    rt->numEntries -= ninfo.info.ndocsCollected;
 
     if (ninfo.node->range->entries->numDocs == 0) {
       rt->emptyLeaves++;
@@ -1148,8 +1147,6 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   }
 
   int gcrv = 1;
-
-  RedisModule_AutoMemory(ctx);
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not
   // reloading

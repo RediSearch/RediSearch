@@ -51,6 +51,7 @@ RLEC_VER_ENVS = {
     '6.2.8': ['xenial', 'bionic', 'centos7', 'rocky8'],
     '6.2.10': ['xenial', 'bionic', 'centos7', 'rocky8'],
     '6.2.12': ['xenial', 'bionic', 'centos7', 'rocky8'],
+    '6.2.18': ['xenial', 'bionic', 'centos7', 'rocky8'],
     '100.0.0': ['xenial', 'bionic', 'centos7', 'rocky8']
 }
 
@@ -100,7 +101,12 @@ class Test:
         self.light = light
         self.vecsim = vecsim
         self.module_name = "RediSearchLight" if self.light else "RediSearch"
+        self.variant_name = ""
+        if vecsim:
+            self.variant_name += " +vecsim"
+        self.title = f"{self.module_name}/{self.modver}{self.variant_name} for RS {self.rlecver}"
 
+        ENV['TEST_TITLE'] = self.title
         ENV['SEARCH_VERSION'] = modver
         os.environ['SEARCH_DIR'] = 'redisearch'
 
@@ -125,14 +131,15 @@ class Test:
 
         ENV['SEARCH_VECSIM'] = 'true' if vecsim else 'false'
 
-        self.xtx_vars = ['SEARCH_VERSION', 'SEARCH_DIR', 'SEARCH_FILE_PREFIX',
+        self.xtx_vars = ['TEST_TITLE',
+                         'SEARCH_VERSION', 'SEARCH_DIR', 'SEARCH_FILE_PREFIX',
                          'SEARCH_TEST_NAME', 'SEARCH_DOWNLOAD_NAME', 'SEARCH_VECSIM',
                          'RLEC_VERSION', 'RLEC_ENVS', 'RLEC_ARCH',
                          'REJSON_VERSION', 'REJSON_DIR', 'REJSON_FILE_PREFIX']
 
     def run(self):
         if VERBOSE:
-            click.echo(f"{self.module_name}/{self.modver} for RS {self.rlecver}:")
+            click.echo(f"{self.title}:")
         rlec_envs = ""
         if self.rlecver_base in RLEC_VER_ENVS:
             envs = RLEC_VER_ENVS[self.rlecver_base]
@@ -158,7 +165,7 @@ class Test:
             ret = f"error: osnick {osnick}: not found"
         else:
             ret = self.run_envs(rlec_envs)
-        click.echo(f"{self.module_name}/{self.modver} for RS {self.rlecver}: {ret}")
+        click.echo(f"{self.module_name}/{self.modver}{self.variant_name} for RS {self.rlecver}: {ret}")
 
     def run_envs(self, rlec_envs):
         ENV['RLEC_ENVS'] = rlec_envs

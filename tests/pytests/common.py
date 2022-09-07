@@ -1,5 +1,8 @@
 
-from collections import Iterable
+try:
+    from collections.abc import Iterable
+except ImportError:
+    from collections import Iterable
 import time
 from packaging import version
 from functools import wraps
@@ -8,8 +11,11 @@ import platform
 import itertools
 from redis.client import NEVER_DECODE
 import RLTest
-
+from typing import Any, Callable
+from RLTest.env import Query
 from includes import *
+
+BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 
 
 class TimeLimit(object):
@@ -244,3 +250,30 @@ def get_redisearch_index_memory(env, index_key):
 
 def get_redisearch_vector_index_memory(env, index_key):
     return float(index_info(env, index_key)["vector_index_sz_mb"])
+
+def module_ver_filter(env, module_name, ver_filter):
+    info = env.getConnection().info()
+    for module in info['modules']:
+        if module['name'] == module_name:
+            ver = int(module['ver'])
+            return ver_filter(ver)
+    return False
+
+def has_json_api_v2(env):
+    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver == 20200 else False)
+
+class ConditionalExpected:
+    
+    def __init__(self, env, cond):
+        self.env = env
+        self.cond_val = cond(env)
+        self.query = None
+
+    def call(self, *query):
+        self.query = query
+        return self
+
+    def expect_when(self, cond_val, func: Callable[[Query], Any]):
+        if cond_val == self.cond_val:
+            func(self.env.expect(*self.query))
+        return self

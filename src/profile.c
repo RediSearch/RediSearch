@@ -88,7 +88,7 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
     return upstreamTime;
   }
 
-  double totalRPTime = (double)RPProfile_GetClock(rp) / CLOCKS_PER_MILLISEC;
+  double totalRPTime = RPProfile_GetDurationMSec(rp);
   if (PROFILE_VERBOSE) { printProfileTime(totalRPTime - upstreamTime); }
   printProfileCounter(RPProfile_GetCount(rp) - 1);
   ++(*arrlen);
@@ -101,28 +101,30 @@ static double printProfileRP(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *a
 
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
   size_t nelem = 0;
-  req->totalTime += clock() - req->initClock;
+  
+  hires_clock_t now;
+  req->totalTime += hires_clock_since_msec(&req->initClock);
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   // Print total time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Total profile time");
   if (PROFILE_VERBOSE)
-      RedisModule_ReplyWithDouble(ctx, (double)req->totalTime / CLOCKS_PER_MILLISEC);
+      RedisModule_ReplyWithDouble(ctx, (double)req->totalTime);
   nelem++;
 
   // Print query parsing time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Parsing time");
   if (PROFILE_VERBOSE)
-      RedisModule_ReplyWithDouble(ctx, (double)req->parseTime / CLOCKS_PER_MILLISEC);
+      RedisModule_ReplyWithDouble(ctx, (double)req->parseTime);
   nelem++;
 
   // Print iterators creation time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Pipeline creation time");
   if (PROFILE_VERBOSE)
-      RedisModule_ReplyWithDouble(ctx, (double)req->pipelineBuildTime / CLOCKS_PER_MILLISEC);
+      RedisModule_ReplyWithDouble(ctx, (double)req->pipelineBuildTime);
   nelem++;
 
   // print into array with a recursive function over result processors

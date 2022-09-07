@@ -15,12 +15,13 @@
 #include <string.h>
 #include <limits.h>
 
-Trie *NewTrie(TrieFreeCallback freecb) {
+Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode) {
   Trie *tree = rm_malloc(sizeof(Trie));
   rune *rs = strToRunes("", 0);
-  tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0);
+  tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0, sortMode);
   tree->size = 0;
   tree->freecb = freecb;
+  tree->sortMode = sortMode;
   rm_free(rs);
   return tree;
 }
@@ -116,8 +117,8 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
     }
     return NULL;
   }
-  DFAFilter *fc = rm_malloc(sizeof(*fc));
-  *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+
+  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(t->root, FilterFunc, StackPop, fc);
   rm_free(runes);
@@ -141,9 +142,9 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   heap_t *pq = rm_malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
-  DFAFilter fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
+  DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
-  TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, &fc);
+  TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, fc);
   // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
@@ -250,7 +251,6 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
 
   rm_free(runes);
   TrieIterator_Free(it);
-  DFAFilter_Free(&fc);
   heap_free(pq);
 
   return ret;
@@ -294,12 +294,13 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   return TrieType_GenericLoad(rdb, encver > TRIE_ENCVER_NOPAYLOADS);
 }
+
 void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
 
   Trie *tree = NULL;
   char *str = NULL;
   uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
-  tree = NewTrie(NULL);
+  tree = NewTrie(NULL, Trie_Sort_Score);
 
   while (elements--) {
     size_t len;
@@ -384,13 +385,22 @@ void TrieType_Free(void *value) {
   rm_free(tree);
 }
 
+size_t TrieType_MemUsage(void *value) {
+  Trie *t = value;
+  return t->size * (sizeof(TrieNode) +    // size of struct
+                    sizeof(TrieNode *) +  // size of ptr to struct in parent node
+                    sizeof(rune) +        // rune key to children in parent node
+                    2 * sizeof(rune));    // each node contains some runes as str[]
+}
+
 int TrieType_Register(RedisModuleCtx *ctx) {
 
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = TrieType_RdbLoad,
                                .rdb_save = TrieType_RdbSave,
                                .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .free = TrieType_Free};
+                               .free = TrieType_Free,
+                               .mem_usage = TrieType_MemUsage};
 
   TrieType = RedisModule_CreateDataType(ctx, "trietype0", TRIE_ENCVER_CURRENT, &tm);
   if (TrieType == NULL) {

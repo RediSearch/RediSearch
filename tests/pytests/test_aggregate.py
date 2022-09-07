@@ -5,7 +5,7 @@ import os
 from RLTest import Env
 import pprint
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import getConnectionByEnv, toSortedFlatList
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -514,7 +514,6 @@ class TestAggregate():
 
 
     def testModulo(self):
-        
         conn = getConnectionByEnv(self.env)
 
         # With MIN_INF % -1
@@ -666,8 +665,8 @@ def testStartsWith(env):
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'startswith(@t, "aa")', 'as', 'prefix')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'prefix', '1'], \
-                                                                 ['t', 'aaa', 'prefix', '1'], \
-                                                                 ['t', 'ab', 'prefix', '0']]))
+                                                                ['t', 'aaa', 'prefix', '1'], \
+                                                                ['t', 'ab', 'prefix', '0']]))
 
 def testContains(env):
     conn = getConnectionByEnv(env)
@@ -682,11 +681,11 @@ def testContains(env):
     # check count of contains
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'contains(@t, "bb")', 'as', 'substring')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'substring', '0'], \
-                                                             ['t', 'bba', 'substring', '1'], \
-                                                             ['t', 'aba', 'substring', '0'], \
-                                                             ['t', 'abb', 'substring', '1'], \
-                                                             ['t', 'abba', 'substring', '1'], \
-                                                             ['t', 'abbabb', 'substring', '2']]))
+                                                                ['t', 'bba', 'substring', '1'], \
+                                                                ['t', 'aba', 'substring', '0'], \
+                                                                ['t', 'abb', 'substring', '1'], \
+                                                                ['t', 'abba', 'substring', '1'], \
+                                                                ['t', 'abbabb', 'substring', '2']]))
 
     # check filter by contains
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'filter', 'contains(@t, "bb")')
@@ -712,6 +711,18 @@ def testContains(env):
                                                                  ['t', 'abb'], \
                                                                  ['t', 'abba'], \
                                                                  ['t', 'abbabb']]))
+
+def testStrLen(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
+    conn.execute_command('hset', 'doc1', 't', 'aa')
+    conn.execute_command('hset', 'doc2', 't', 'aaa')
+    conn.execute_command('hset', 'doc3', 't', '')
+
+    res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'strlen(@t)', 'as', 'length')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'length', '2'], \
+                                                                ['t', 'aaa', 'length', '3'], \
+                                                                ['t', '', 'length', '0']]))
 
 def testLoadAll(env):
     conn = getConnectionByEnv(env)

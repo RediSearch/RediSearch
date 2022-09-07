@@ -4,6 +4,7 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "rmutil/rm_assert.h"
+#include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
 
 /*******************************************************************************************************************
@@ -452,7 +453,12 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
                                     .status = &status};
       RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
       if (QueryError_HasError(&status)) {
-        return RS_RESULT_ERROR;
+        // failure to fetch the doc:
+        // release dmd, reduce result count and continue
+        self->pooledResult = h;
+        SearchResult_Clear(self->pooledResult);
+        rp->parent->totalResults--;
+        return RESULT_QUEUED;
       }
     }
   }
@@ -532,9 +538,9 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     if (!v1 || !v2) {
       int rc;
       if (v1) {
-        rc = 1;
+        return 1;
       } else if (v2) {
-        rc = -1;
+        return -1;
       } else {
         rc = h1->docId < h2->docId ? -1 : 1;
       }
@@ -754,16 +760,17 @@ void RP_DumpChain(const ResultProcessor *rp) {
 
 typedef struct {
   ResultProcessor base;
-  clock_t profileTime;
+  double profileTime;
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  clock_t rpStartTime = clock();
+  hires_clock_t t0;
+  hires_clock_get(&t0);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += clock() - rpStartTime;
+  self->profileTime += hires_clock_since_msec(&t0);
   self->profileCount++;
   return rc;
 }
@@ -786,7 +793,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
   return &rpp->base;
 }
 
-clock_t RPProfile_GetClock(ResultProcessor *rp) {
+double RPProfile_GetDurationMSec(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }

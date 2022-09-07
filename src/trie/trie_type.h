@@ -19,6 +19,7 @@ typedef struct {
   TrieNode *root;
   size_t size;
   TrieFreeCallback freecb;
+  TrieSortMode sortMode;
 } Trie;
 
 typedef struct {
@@ -31,7 +32,11 @@ typedef struct {
 
 #define SCORE_TRIM_FACTOR 10.0
 
-Trie *NewTrie(TrieFreeCallback freecb);
+/* Creates a new Trie.
+ * Trie can be sorted by lexicographic order using `Trie_Sort_Lex` or by
+ * score using `Trie_Sort_Score.                            */
+Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode);
+
 int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload);
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
                             RSPayload *payload);
@@ -66,6 +71,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, int savePayloads);
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
 void TrieType_Digest(RedisModuleDigest *digest, void *value);
+size_t TrieType_MemUsage(void *value);
 void TrieType_Free(void *value);
 
 #ifdef __cplusplus

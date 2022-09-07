@@ -111,7 +111,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
   }
   RedisModule_Log(ctx, "debug", "Garbage collecting for term '%s'", term);
   // Open the term's index
-  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
+  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, NULL, &idxKey);
   if (idx) {
     int blockNum = 0;
     do {
@@ -139,7 +139,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
       }
 
       // reopen the inverted index - it might have gone away
-      idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
+      idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, NULL, &idxKey);
     } while (idx != NULL);
   }
   if (totalRemoved) {
@@ -387,7 +387,7 @@ int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   RS_LOG_ASSERT(gc, "GC ctx should not be NULL");
 
   int status = SPEC_STATUS_OK;
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
   RedisModule_ThreadSafeContextLock(ctx);
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not reloading

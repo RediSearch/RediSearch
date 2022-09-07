@@ -115,7 +115,7 @@ static struct RMUtilTimer *updateTopoTimer;
 
 static int updateTopoCB(RedisModuleCtx *ctx, void *p) {
   RedisModule_ThreadSafeContextLock(ctx);
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   RedisModuleCallReply *r = RedisModule_Call(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", "");
   if (RedisModule_CallReplyType(r) == REDIS_REPLY_ERROR) {

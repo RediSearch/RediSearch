@@ -473,7 +473,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
       if(paramsOffset!=0) {
         ArgsCursor ac;
         ArgsCursor_InitRString(&ac, argv+paramsOffset, argc-paramsOffset);
-          parseParams(&params, &ac, status);
+        parseParams(&params, &ac, status);
       }
       else {
         //fail
@@ -661,8 +661,8 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
       //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
       //        cmp);
     } else {
-      // If at least one of these has a sort key
-      cmp = r2->sortKey ? 1 : -1;
+      // If at least one of these has a sort key, it gets high value regardless of asc/desc
+      return r2->sortKey ? 1 : -1;
     }
     // in case of a tie - compare ids
     if (!cmp) {
@@ -670,6 +670,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
       //        r2->id, r1->idLen, (int)r1->idLen, r1->id);
       cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
     }
+
     return (req->sortAscending ? -cmp : cmp);
   }
 
@@ -750,6 +751,8 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
       if (eptr != res->sortKey + 1 && *eptr == 0) {
         res->sortKeyNum = d;
       }
+    } else if (!strncmp(res->sortKey, "none", 4)) {
+      res->sortKey = NULL;
     }
     // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
@@ -917,6 +920,8 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
         heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
         rCtx->cachedResult = largest->result;
         rm_free(largest);
+      } else {
+        rCtx->cachedResult = res;
       }
     }
   }
@@ -1275,7 +1280,7 @@ int FirstShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
 
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   struct MRCtx *mrCtx = MR_CreateCtx(ctx, NULL);
 
@@ -1291,7 +1296,7 @@ int SynAddCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
 
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   struct MRCtx *mrCtx = MR_CreateCtx(ctx, NULL);
 
@@ -1312,7 +1317,7 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   /* Replace our own FT command with _FT. command */
@@ -1347,7 +1352,7 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   /* Replace our own FT command with _FT. command */
@@ -1372,7 +1377,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   /* Replace our own FT command with _FT. command */
@@ -1395,7 +1400,7 @@ static int mastersCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, i
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   /* Replace our own FT command with _FT. command */
@@ -1427,7 +1432,7 @@ int FanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   /* Replace our own FT command with _FT. command */
@@ -1479,7 +1484,7 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   /* Replace our own FT command with _FT. command */
@@ -1500,7 +1505,7 @@ int BroadcastCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc - 1, &argv[1]);
   struct MRCtx *mctx = MR_CreateCtx(ctx, NULL);
@@ -1525,7 +1530,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetPrefix(&cmd, "_FT");
 
@@ -1547,7 +1552,7 @@ int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   QueryError status = {0};
   searchRequestCtx *req = rscParseRequest(argv, argc, &status);
@@ -1757,7 +1762,7 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   int n = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -1832,7 +1837,7 @@ int UnsuportedOnCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 // A special command for redis cluster OSS, that refreshes the cluster state
 int RefreshClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
 
   SearchCluster_EnsureSize(ctx, GetSearchCluster(), topo);
@@ -1844,7 +1849,7 @@ int RefreshClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
   MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc);
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
@@ -2004,7 +2009,6 @@ void setHiredisAllocators(){
 
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  IndexSpec_OnCreate = addIndexCursor;
   /**
 
   FT.AGGREGATE gh * LOAD 1 @type GROUPBY 1 @type REDUCE COUNT 0 AS num REDUCE SUM 1 @date SORTBY 2

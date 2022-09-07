@@ -478,3 +478,70 @@ def test_MOD_3372(env):
     env.expect('FT.EXPLAINCLI', 'idx', 'foo', 'verbatim').equal(['foo', ''])
     env.expect('FT.EXPLAINCLI', 'non-exist', 'foo').error().equal('non-exist: no such index')
 
+def test_MOD_3540(env):
+  # disable SORTBY MAX for FT.SEARCH
+  conn = getConnectionByEnv(env)
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  for i in range(10):
+    conn.execute_command('HSET', i, 't', i)
+  
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '1').error()  \
+                  .contains('SORTBY MAX is not supported by FT.SEARCH')
+
+  env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LOAD', '*')  \
+                  .equal([10, ['t', '9']])
+
+  # SORTBY MAX followed by LIMIT 
+  env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LIMIT', '0', '2', 'LOAD', '*')  \
+                  .equal([10, ['t', '9'], ['t', '8']])
+  env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '2', 'LIMIT', '0', '1', 'LOAD', '*')  \
+                  .equal([10, ['t', '9']])
+  env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LIMIT', '0', '0', 'LOAD', '*')  \
+                  .equal([10])
+  env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '0', 'LIMIT', '0', '1', 'LOAD', '*')  \
+                  .equal([10, ['t', '9']])
+
+  # LIMIT followed by SORTBY MAX 
+  env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '2', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LOAD', '*')  \
+                  .equal([10, ['t', '9']])
+  env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '1', 'SORTBY', '2', '@t', 'DESC', 'MAX', '2', 'LOAD', '*')  \
+                  .equal([10, ['t', '9'], ['t', '8']])
+  env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '1', 'SORTBY', '2', '@t', 'DESC', 'MAX', '0', 'LOAD', '*')  \
+                  .equal([10, ['t', '9'], ['t', '8'], ['t', '7'], ['t', '6'], ['t', '5'], ['t', '4'], ['t', '3'], ['t', '2'], ['t', '1'], ['t', '0']])
+  env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '0', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LOAD', '*')  \
+                  .equal([10])
+
+def test_sortby_Noexist(env):
+  conn = getConnectionByEnv(env)
+
+  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't', '1')
+  conn.execute_command('HSET', 'doc2', 'somethingelse', '2')
+  conn.execute_command('HSET', 'doc3', 't', '3')
+  conn.execute_command('HSET', 'doc4', 'somethingelse', '4')
+
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '2').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '2').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
+
+  # receive a result w/o sortby field at the end. 
+  # remove in test to support test on cluster
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3')
+  env.assertEqual(res[0:5], [4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
+ 
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3')
+  env.assertEqual(res[0:5], [4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
+
+  if not env.isCluster():
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3'], 'doc2', ['somethingelse', '2']])
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1'], 'doc4', ['somethingelse', '4']])
+
+def testDeleteIndexes(env):
+  # test cleaning of all specs from a prefix 
+  conn = getConnectionByEnv(env)
+  for i in range(10):
+    env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+    env.execute_command('FT.DROPINDEX', i)
+
+  # create an additional index
+  env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')

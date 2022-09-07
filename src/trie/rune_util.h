@@ -38,6 +38,9 @@ rune *strToRunes(const char *str, size_t *len);
 /* Decode a string to a rune in-place */
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
 
+/* similar to strchr */
+const rune *runenchr(const rune *r, size_t len, rune c);
+
 static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
   /**
    * Assumption: the number of bytes in a utf8 string is always greater than the
@@ -61,6 +64,19 @@ static inline void runeBufFree(runeBuf *buf) {
   if (buf->isDynamic) {
     rm_free(buf->u.p);
   }
+}
+
+/* used for debug */
+static inline void printfRune(const rune *rune, size_t len) {
+  size_t newlen;
+  char *str = runesToStr(rune, len, &newlen);
+  printf("%s", str);
+  rm_free(str);
+}
+
+static inline void printfRuneNL(const rune *rune, size_t len) {
+  printfRune(rune, len);
+  puts("");
 }
 
 #ifdef __cplusplus
