@@ -409,7 +409,7 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
 }
 
 void searchRequestCtx_Free(searchRequestCtx *r) {
-  free(r->queryString);
+  rm_free(r->queryString);
   if(r->specialCases) {
     size_t specialCasesLen = array_len(r->specialCases);
     for(size_t i = 0; i< specialCasesLen; i ++) {
@@ -424,7 +424,7 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
   if(r->requiredFields) {
     array_free(r->requiredFields);
   }
-  free(r);
+  rm_free(r);
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
@@ -554,12 +554,12 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   searchRequestCtx *req = rm_malloc(sizeof *req);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
-    free(req);
+    searchRequestCtx_Free(req);
     return NULL;
   }
 
   int argvOffset = 2 + req->profileArgs;
-  req->queryString = strdup(RedisModule_StringPtrLen(argv[argvOffset++], NULL));
+  req->queryString = rm_strdup(RedisModule_StringPtrLen(argv[argvOffset++], NULL));
   req->limit = 10;
   req->offset = 0;
   // marks the user set WITHSCORES. internally it's always set
@@ -592,7 +592,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   // Parse LIMIT argument
   RMUtil_ParseArgsAfter("LIMIT", argv + argvOffset, argc - argvOffset, "ll", &req->offset, &req->limit);
   if (req->limit < 0 || req->offset < 0) {
-    free(req);
+    searchRequestCtx_Free(req);
     return NULL;
   }
   req->requestedResultsCount = req->limit + req->offset;
@@ -605,7 +605,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     req->withSortby = true;
     // Check for command error where no sortkey is given.
     if(sortByIndex + 1 >= argc) {
-      free(req);
+      searchRequestCtx_Free(req);
       return NULL;
     }
     prepareSortbyCase(req, argv, argc, sortByIndex);
@@ -621,7 +621,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       ArgsCursor ac;
       ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
       if (parseDialect(&dialect, &ac, status) != REDISMODULE_OK) {
-        free(req);
+        searchRequestCtx_Free(req);
         return NULL;
       }
   }
@@ -1034,9 +1034,9 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         if (c < 0) {
           smallest = heap_poll(rCtx->pq);
           heap_offerx(rCtx->pq, res);
-          free(smallest);
+          rm_free(smallest);
         } else {
-          free(res);
+          rm_free(res);
         }
       }
     }
@@ -1109,7 +1109,7 @@ static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
 
   // Free the sorted results
   for (pos = 0; pos < qlen; pos++) {
-    free(results[pos]);
+    rm_free(results[pos]);
   }
 }
 
@@ -1225,7 +1225,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     rCtx.processReply(reply, (struct searchReducerCtx *)&rCtx, ctx);
   }
   if (rCtx.cachedResult) {
-    free(rCtx.cachedResult);
+    rm_free(rCtx.cachedResult);
   }
   // If we didn't get any results and we got an error - return it.
   // If some shards returned results and some errors - we prefer to show the results we got an not
@@ -1966,13 +1966,13 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
  * cursor name, and use the real name as the entry.
  */
 static void addIndexCursor(const IndexSpec *sp) {
-  char *s = strdup(sp->name);
+  char *s = rm_strdup(sp->name);
   char *end = strchr(s, '{');
   if (end) {
     *end = '\0';
     CursorList_AddSpec(&RSCursors, s, RSCURSORS_DEFAULT_CAPACITY);
   }
-  free(s);
+  rm_free(s);
 }
 
 #define RM_TRY(expr)                                                  \

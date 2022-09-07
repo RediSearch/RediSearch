@@ -166,7 +166,7 @@ static void freeDistStep(PLN_BaseStep *bstp) {
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)bstp;
   if (dstp->plan) {
     AGPLN_FreeSteps(dstp->plan);
-    free(dstp->plan);
+    rm_free(dstp->plan);
     dstp->plan = NULL;
   }
   if (dstp->serialized) {
@@ -184,7 +184,7 @@ static void freeDistStep(PLN_BaseStep *bstp) {
   }
   BlkAlloc_FreeAll(&dstp->alloc, NULL, NULL, 0);
   RLookup_Cleanup(&dstp->lk);
-  free(dstp);
+  rm_free(dstp);
 }
 
 static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
@@ -352,13 +352,13 @@ reducerDistributionFunc getDistributionFunc(const char *key) {
 }
 
 int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
-  AGGPlan *remote = (AGGPlan *)malloc(sizeof(*remote));
+  AGGPlan *remote = (AGGPlan *)rm_malloc(sizeof(*remote));
   AGPLN_Init(remote);
 
   auto current = const_cast<PLN_BaseStep *>(AGPLN_FindStep(src, NULL, NULL, PLN_T_ROOT));
   int cont = 1;
 
-  PLN_DistributeStep *dstp = (PLN_DistributeStep *)calloc(1, sizeof(*dstp));
+  PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
   dstp->base.type = PLN_T_DISTRIBUTE;
   dstp->plan = remote;
   dstp->serialized = new std::vector<char *>();
