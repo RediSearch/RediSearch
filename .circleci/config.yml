@@ -40,7 +40,7 @@ commands:
             apt-get -q install -y git openssh-client curl ca-certificates make tar gzip
             bash <(curl -fsSL https://raw.githubusercontent.com/docker/docker-install/master/install.sh)
       - setup_remote_docker:
-          version: 20.10.7
+          version: 20.10.14
           docker_layer_caching: true
 
   checkout-all:
@@ -296,6 +296,7 @@ commands:
             export BENCHMARK_GLOB=<< parameters.benchmark_glob >>
             export PERF_CALLGRAPH_MODE="dwarf"
             export MAX_PROFILERS=3
+            if [[ -n $CIRCLE_BRANCH ]]; then branch="$CIRCLE_BRANCH"; else branch="$CIRCLE_TAG"; fi
             redisbench-admin run-remote \
               --module_path $(cat $ROOT/bin/REJSON_PATH) \
               --module_path $ROOT/<< parameters.module_path >> \
@@ -304,7 +305,7 @@ commands:
               --github_org $CIRCLE_PROJECT_USERNAME \
               --required-module search \
               --github_sha $CIRCLE_SHA1 \
-              --github_branch $CIRCLE_BRANCH \
+              --github_branch $branch \
               --upload_results_s3 \
               --fail_fast \
               --triggering_env << parameters.triggering_env >> \
@@ -316,7 +317,7 @@ commands:
 jobs:
   build-linux-debian:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     parameters:
       redis_version:
         type: string
@@ -399,6 +400,17 @@ jobs:
       - benchmark-automation:
           platform: bionic
           benchmark_glob: "search*.yml"
+  
+  benchmark-vecsim-oss-standalone:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          platform: bionic
+          run_pack: false
+      - benchmark-automation:
+          platform: bionic
+          benchmark_glob: "vecsim*.yml"
 
   benchmark-search-oss-cluster:
     docker:
@@ -428,9 +440,24 @@ jobs:
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "search*.yml"
 
+  benchmark-vecsim-oss-standalone-profiler:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          platform: bionic
+          build_params: PROFILE=1
+          run_pack: false
+      - benchmark-automation:
+          profile_env: "1"
+          platform: bionic
+          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          benchmark_glob: "vecsim*.yml"
+
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - early-returns
       - checkout-all
@@ -468,7 +495,7 @@ jobs:
 
   valgrind-memcheck:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - early-returns
       - checkout-all
@@ -531,7 +558,7 @@ jobs:
         type: string
         default: "0"
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - early-returns
       - early-return-for-forked-pull-requests
@@ -552,7 +579,7 @@ jobs:
 
   release-automation:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - early-returns
       - early-return-for-forked-pull-requests
@@ -674,9 +701,23 @@ workflows:
       - benchmark-search-oss-cluster:
           context: common
           <<: *on-any-branch
+      - valgrind-memcheck:
+          <<: *never
+      - benchmark-search-oss-standalone:
+          context: common
+          <<: *on-perf-and-version-tags
+      - benchmark-vecsim-oss-standalone:
+          context: common
+          <<: *on-perf-and-version-tags
+      - benchmark-search-oss-cluster:
+          context: common
+          <<: *on-perf-and-version-tags
       - benchmark-search-oss-standalone-profiler:
           context: common
-          <<: *on-any-branch
+          <<: *on-perf-and-version-tags
+      - benchmark-vecsim-oss-standalone-profiler:
+          context: common
+          <<: *on-perf-and-version-tags
       - upload-artifacts:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"
@@ -729,6 +770,10 @@ workflows:
 
     jobs:
       - benchmark-search-oss-standalone:
+          context: common
+      - benchmark-vecsim-oss-standalone:
+          context: common
+      - benchmark-vecsim-oss-standalone-profiler:
           context: common
       - benchmark-search-oss-standalone-profiler:
           context: common

@@ -1686,10 +1686,20 @@ def testNoStem(env):
 
 def testSortbyMissingField(env):
     # GH Issue 131
+    # 
     env.cmd('ft.create', 'ix', 'ON', 'HASH', 'schema', 'txt',
              'text', 'num', 'numeric', 'sortable')
-    env.cmd('ft.add', 'ix', 'doc1', 1.0, 'fields', 'txt', 'foo')
-    env.cmd('ft.search', 'ix', 'foo', 'sortby', 'num')
+    env.cmd('ft.add', 'ix', 'doc1', 1.0, 'fields', 'txt', 'foo', 'noexist', 3.14)
+    
+    env.expect('ft.search', 'ix', 'foo', 'sortby', 'num')                       \
+        .equal([1, 'doc1', ['txt', 'foo', 'noexist', '3.14']])
+    env.expect('ft.search', 'ix', 'foo', 'sortby', 'noexist').error()           \
+        .contains('Property `noexist` not loaded nor in schema')
+
+    env.expect('ft.aggregate', 'ix', 'foo', 'load', 2, '@__key', '@num', 'sortby', 2, '@num', 'asc')            \
+        .equal([1, ['__key', 'doc1']])
+    env.expect('ft.aggregate', 'ix', 'foo', 'load', 2, '@__key', '@noexist', 'sortby', 2, '@noexist', 'asc')    \
+        .equal([1, ['__key', 'doc1', 'noexist', '3.14']])
 
 def testParallelIndexing(env):
     # GH Issue 207
@@ -2459,7 +2469,7 @@ def testIssue_848(env):
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test1', 'foo').equal('OK')
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'test2', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'test1', 'foo', 'test2', 'bar').equal('OK')
-    env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2, 'doc1', ['test1', 'foo'], 'doc2', ['test2', 'bar', 'test1', 'foo']])
+    env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2, 'doc2', ['test2', 'bar', 'test1', 'foo'], 'doc1', ['test1', 'foo']])
 
 def testMod_309(env):
     n = 10000 if VALGRIND else 100000
@@ -3523,7 +3533,35 @@ def test_free_resources_on_thread(env):
 
     conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
 
+def testUsesCounter(env):
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
+    env.execute_command('ft.info', 'idx')
+    env.execute_command('ft.search', 'idx', '*')
+
+    assertInfoField(env, 'idx', 'number_of_uses', 3)
+
 def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'RETURN', '1', 'test').error().contains("RETURN is not supported on FT.AGGREGATE")
+
+def test_emoji(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx_tag', 'ON', 'HASH', 'SCHEMA', 'test', 'TAG').equal('OK')
+
+    conn.execute_command('HSET', 'doc1', 'test', 'a📌')
+    env.expect('ft.search', 'idx', 'a📌').equal([1, 'doc1', ['test', 'a📌']])
+    env.expect('ft.search', 'idx_tag', '@test:{a📌}').equal([1, 'doc1', ['test', 'a📌']])
+    conn.execute_command('HSET', 'doc2', 'test', '💮a')
+    env.expect('ft.search', 'idx', '💮a').equal([1, 'doc2', ['test', '💮a']])
+    env.expect('ft.search', 'idx_tag', '@test:{💮a}').equal([1, 'doc2', ['test', '💮a']])
+    conn.execute_command('HSET', 'doc3', 'test', '💩')
+    env.expect('ft.search', 'idx', '💩').equal([1, 'doc3', ['test', '💩']])
+    env.expect('ft.search', 'idx_tag', '@test:{💩}').equal([1, 'doc3', ['test', '💩']])
+    '''
+    conn.execute_command('HSET', 'doc4', 'test', '😀😁🙂')
+    env.expect('ft.search', 'idx', '😀😁*').equal([1, 'doc4', ['test', '😀😁🙂']])
+    env.expect('ft.search', 'idx', '%😀😁%').equal([1, 'doc4', ['test', '😀😁🙂']])
+    conn.execute_command('HSET', 'doc4', 'test', '')
+    '''

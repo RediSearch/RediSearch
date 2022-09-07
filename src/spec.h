@@ -272,6 +272,9 @@ typedef struct IndexSpec {
   // For criteria tester
   RSGetValueCallback getValue;
   void *getValueCtx;
+
+  // Count the number of times the index was used
+  long long counter;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -475,9 +478,6 @@ typedef struct {
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 //---------------------------------------------------------------------------------------------
-
-// Global hook called when an index spec is created
-extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
