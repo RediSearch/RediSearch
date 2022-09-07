@@ -53,11 +53,11 @@ typedef struct {
 } MRConnPool;
 
 static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
-  MRConnPool *pool = malloc(sizeof(*pool));
+  MRConnPool *pool = rm_malloc(sizeof(*pool));
   *pool = (MRConnPool){
       .num = num,
       .rr = 0,
-      .conns = calloc(num, sizeof(MRConn *)),
+      .conns = rm_calloc(num, sizeof(MRConn *)),
   };
 
   /* Create the connection */
@@ -74,8 +74,8 @@ static void MRConnPool_Free(void *p) {
     /* We stop the connections and the disconnect callback frees them */
     MRConn_Stop(pool->conns[i]);
   }
-  free(pool->conns);
-  free(pool);
+  rm_free(pool->conns);
+  rm_free(pool);
 }
 
 /* Get a connection from the connection pool. We select the next available connected connection with
@@ -225,7 +225,7 @@ static void freeConn(MRConn *conn) {
     }
     uv_close(conn->timer, (uv_close_cb)free);
   }
-  free(conn);
+  rm_free(conn);
 }
 
 static void signalCallback(uv_timer_t *tm) {
@@ -264,7 +264,7 @@ static void signalCallback(uv_timer_t *tm) {
 /* Safely transition to current state */
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   if (!conn->timer) {
-    conn->timer = malloc(sizeof(uv_timer_t));
+    conn->timer = rm_malloc(sizeof(uv_timer_t));
     uv_timer_init(uv_default_loop(), conn->timer);
     ((uv_timer_t *)conn->timer)->data = conn;
   }
@@ -504,7 +504,7 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
 }
 
 static MRConn *MR_NewConn(MREndpoint *ep) {
-  MRConn *conn = malloc(sizeof(MRConn));
+  MRConn *conn = rm_malloc(sizeof(MRConn));
   *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL};
   MREndpoint_Copy(&conn->ep, ep);
   return conn;

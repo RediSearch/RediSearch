@@ -63,7 +63,7 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
 
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopolgy, ShardFunc sf,
                          long long minTopologyUpdateInterval) {
-  MRCluster *cl = malloc(sizeof(MRCluster));
+  MRCluster *cl = rm_malloc(sizeof(MRCluster));
   cl->sf = sf;
   cl->topologyUpdateMinInterval = minTopologyUpdateInterval;
   cl->lastTopologyUpdate = 0;
@@ -287,10 +287,10 @@ void MRClusterTopology_Free(MRClusterTopology *t) {
     for (int n = 0; n < t->shards[s].numNodes; n++) {
       MRClusterNode_Free(&t->shards[s].nodes[n]);
     }
-    free(t->shards[s].nodes);
+    rm_free(t->shards[s].nodes);
   }
-  free(t->shards);
-  free(t);
+  rm_free(t->shards);
+  rm_free(t);
 }
 
 int MRClusterTopology_IsValid(MRClusterTopology *t) {
@@ -315,7 +315,7 @@ size_t MRCluster_NumShards(MRCluster *cl) {
 
 void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
-  free((char *)n->id);
+  rm_free((char *)n->id);
 }
 
 void _clusterConnectAllCB(uv_work_t *wrk) {
@@ -375,7 +375,7 @@ MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlot, size_t
       .endSlot = endSlot,
       .capNodes = capNodes,
       .numNodes = 0,
-      .nodes = calloc(capNodes, sizeof(MRClusterNode)),
+      .nodes = rm_calloc(capNodes, sizeof(MRClusterNode)),
   };
   return ret;
 }
@@ -383,24 +383,24 @@ MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlot, size_t
 void MRClusterShard_AddNode(MRClusterShard *sh, MRClusterNode *n) {
   if (sh->capNodes == sh->numNodes) {
     sh->capNodes += 1;
-    sh->nodes = realloc(sh->nodes, sh->capNodes * sizeof(MRClusterNode));
+    sh->nodes = rm_realloc(sh->nodes, sh->capNodes * sizeof(MRClusterNode));
   }
   sh->nodes[sh->numNodes++] = *n;
 }
 
 MRClusterTopology *MR_NewTopology(size_t numShards, size_t numSlots) {
-  MRClusterTopology *topo = calloc(1, sizeof(*topo));
+  MRClusterTopology *topo = rm_calloc(1, sizeof(*topo));
   topo->capShards = numShards;
   topo->numShards = 0;
   topo->numSlots = numSlots;
-  topo->shards = calloc(topo->capShards, sizeof(MRClusterShard));
+  topo->shards = rm_calloc(topo->capShards, sizeof(MRClusterShard));
   return topo;
 }
 
 void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh) {
   if (topo->capShards == topo->numShards) {
     topo->capShards++;
-    topo->shards = realloc(topo->shards, topo->capShards * sizeof(MRClusterShard));
+    topo->shards = rm_realloc(topo->shards, topo->capShards * sizeof(MRClusterShard));
   }
   topo->shards[topo->numShards++] = *sh;
 }
