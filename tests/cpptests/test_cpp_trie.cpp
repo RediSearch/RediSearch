@@ -325,3 +325,17 @@ TEST_F(TrieTest, testScoreOrder) {
 
   TrieType_Free(t);
 }
+
+/* leave for future benchmarks if needed
+TEST_F(TrieTest, testbenchmark) {
+  Trie *t = NewTrie(trieFreeCb, Trie_Sort_Lex);
+  char buf[128];
+  int count = 1024 * 1024 * 8;
+  for (size_t i = 0; i < count; ++i) {
+    int random = rand() % (count / 5);
+    sprintf(buf, "%x", random);
+    Trie_InsertStringBuffer(t, buf, strlen(buf), 1, 0,10 NULL);
+  }
+
+  TrieType_Free(t);
+}*/
