@@ -4,6 +4,7 @@
 #include "rmutil/rm_assert.h"
 #include <util/arr.h>
 #include "doc_types.h"
+#include "value.h"
 
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx) {
@@ -296,9 +297,9 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType_Null:
       return RS_NullVal();
     case JSONType__EOF:
-      RS_LOG_ASSERT(0, "Cannot get here");
+      break;
   }
-  return NULL;
+  RS_LOG_ASSERT(0, "Cannot get here");
 }
 
 // Get the value from an iterator and free the iterator
@@ -307,14 +308,47 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
 static int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, RSValue **rsv) {
 
   int res = REDISMODULE_ERR;
-  
-  RedisModuleString *rstr;
-  if (japi->getJSONFromIter(iter, ctx, &rstr) == REDISMODULE_OK) {
-    *rsv = RS_StealRedisStringVal(rstr);
+  RedisModuleString *serialized = NULL;
+
+  size_t len = japi->len(iter);
+  if (len > 0) {
+    // First get the JSON serialized value (since it does not consume the iterator)
+    
+    if (japi->getJSONFromIter(iter, ctx, &serialized) == REDISMODULE_ERR) {
+      goto done;
+    }
+    
+    // Second, get the first JSON value
+    RedisJSON json = japi->next(iter);
+    if (!json) {
+      goto cleanup;
+    }
+    // If the value is a single array
+    if (len == 1) {
+      JSONType type = japi->getType(json);
+      if (type == JSONType_Array) {
+        size_t count;
+        japi->getLen(json, &count);
+        if( count > 0) {
+          json = japi->getAt(json, 0);
+        }
+      }
+    }
+    RSValue *val = jsonValToValue(ctx, json);
+    RSValue *otherval = RS_StealRedisStringVal(serialized);
+    *rsv = RS_DuoVal(val, otherval);
     res = REDISMODULE_OK;
   }
+  
+done:
   japi->freeIter(iter);
   return res;
+
+cleanup:
+  if (serialized) {
+    RedisModule_FreeString(ctx, serialized);
+  }
+  goto done;
 }
 
 static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {

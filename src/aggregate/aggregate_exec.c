@@ -38,6 +38,8 @@ static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
   else {
     if(key->t == RSValue_Reference) {
       key = RSValue_Dereference(key);
+    } else if (key->t == RSValue_Duo) {
+      key = key->duoval.val;
     }
     switch (key->t) {
       case RSValue_Number:
@@ -58,6 +60,7 @@ static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
       case RSValue_Undef:
       case RSValue_Array:
       case RSValue_Reference:
+      case RSValue_Duo:
         break;
     }
     if (rskey) {
@@ -127,8 +130,11 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       for(; currentField < requiredFieldsCount; currentField++) {
         count++;
         const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
-        const RSValue *v = getReplyKey(rlk, r);
-        // align field value with its type
+        RSValue *v = (RSValue*)getReplyKey(rlk, r);
+        if (v->t == RSValue_Duo) {
+          // For duo value, we use `val` as the value
+          v = v->duoval.val;
+        }
         RSValue rsv;
         if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE) {
           double d;

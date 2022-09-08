@@ -38,6 +38,8 @@ typedef enum {
   RSValue_OwnRstring = 7,
   // Reference to another value
   RSValue_Reference = 8,
+  // Duo value
+  RSValue_Duo = 9,
 
 } RSValueType;
 
@@ -75,7 +77,7 @@ typedef struct RSValue {
     // array value
     struct {
       struct RSValue **vals;
-      uint32_t len : 31;
+      uint32_t len : 30;
 
       /**
        * Whether the storage space of the array itself
@@ -83,6 +85,19 @@ typedef struct RSValue {
        */
       uint8_t staticarray : 1;
     } arrval;
+
+    struct {
+      /**
+       * Duo value
+       * 
+       * Allows keeping a value, together with an addition value.
+       * 
+       * For example, keeping a value and, in addition, a different value for serialization, such as a JSON String representation.
+       */ 
+      
+      struct RSValue *val;
+      struct RSValue *otherval;
+    } duoval;
 
     // redis string value
     struct RedisModuleString *rstrval;
@@ -280,6 +295,9 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
     }
     case RSValue_Undef:
       return 0;
+
+    case RSValue_Duo:
+      return RSValue_Hash(v->duoval.val, hval);
   }
 
   return 0;
@@ -325,6 +343,9 @@ RSValue *RS_StringArray(char **strs, uint32_t sz);
 
 /* Initialize all strings in the array with a given string type */
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
+
+/* Wrap a pair of RSValue into an RSValue Duo */
+RSValue *RS_DuoVal(RSValue *val, RSValue *otherval);
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
