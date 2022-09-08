@@ -30,6 +30,8 @@ def compare_optimized_to_not(env, query, params, msg=None):
 	# check length of list to avoid errors
 	if len(not_res) == 1 or len(opt_res) == 1:
 		env.assertEqual(len(not_res), len(opt_res))
+		#env.debugPrint(str(not_res), force=True)
+		#env.debugPrint(str(opt_res), force=True)
 		return
 
 	# put all `n` values into a list
@@ -529,8 +531,8 @@ def testCoordinator(env):
 		for j in range(len(words)):
 			conn.execute_command('hset', i + j, 't', words[j], 'tag', words[j], 'n', i % 1000 + j)
 
-	limits = [[0, 5], [0, 30], [0, 150], [5, 5], [20, 30], [100, 10], [500, 1]]
-	ranges = [[-5, 105], [0, 3], [30, 60], [-10, 5], [95, 110], [200, 300], [42, 42]]
+	limits = [[0, 150]]
+	ranges = [[-5, 105]]
 	params = ['limit', 0 , 0]
 
 	for _ in env.retry_with_rdb_reload():
@@ -540,27 +542,18 @@ def testCoordinator(env):
 			for j in range(len(ranges)):
 				numRange = '@n:[%d %d]' % (ranges[j][0],ranges[j][1])
 
-				### (1) TEXT and range with sort ###
-				compare_optimized_to_not(env, ['ft.search', 'idx', 'foo ' + numRange, 'SORTBY', 'n'], params, 'case 1 ' + numRange)
-
-				### (3) TAG and range with sort ###
-				compare_optimized_to_not(env, ['ft.search', 'idx', '@tag:{foo} ' + numRange, 'SORTBY', 'n'], params, 'case 3 ' + numRange)
-
-				### (5) numeric range with sort ###
-				compare_optimized_to_not(env, ['ft.search', 'idx', numRange, 'SORTBY', 'n'], params, 'case 5 ' + numRange)
-
-			### (7) filter with sort ###
-			# Search only minimal number of ranges
-			compare_optimized_to_not(env, ['ft.search', 'idx', 'foo', 'SORTBY', 'n'], params, 'case 7')
-
-			### (9) no sort, no score, with sortby ###
-			# Search only minimal number of ranges
-			compare_optimized_to_not(env, ['ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n'], params, 'case 9')
-
-			### (11) wildcard with sort ###
-			# Search only minimal number of ranges
-			compare_optimized_to_not(env, ['ft.search', 'idx', '*', 'SORTBY', 'n'], params, 'case 11')
-
+			#	### (3) TAG and range with sort ###
+			#	compare_optimized_to_not(env, ['ft.search', 'idx', '@tag:{foo} ' + numRange, 'SORTBY', 'n'], params, 'case 3 ' + numRange)
+			#	#compare_optimized_to_not(env, ['ft.profile', 'idx', 'search', 'query', '@tag:{foo} ' + numRange, 'SORTBY', 'n'], params, 'case 3 ' + numRange)
+			#	print(env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} ' + numRange, 'SORTBY', 'n', *params))
+			#	print(env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} ' + numRange, 'OPTIMIZE', 'SORTBY', 'n', *params))
+#
+			#### (9) no sort, no score, with sortby ###
+			## Search only minimal number of ranges
+			#compare_optimized_to_not(env, ['ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n'], params, 'case 9')
+			##compare_optimized_to_not(env, ['ft.profile', 'idx', 'search',  '@tag:{foo}', 'SORTBY', 'n'], params, 'case 9')
+			#print(env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', 'SORTBY', 'n', *params))
+			#print(env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', 'OPTIMIZE', 'SORTBY', 'n', *params))
 
 	# update parameters for ft.aggregate
 	params = ['limit', 0 , 0, 'LOAD', 4, '@__key', '@n', '@t', '@tag']
@@ -573,11 +566,10 @@ def testCoordinator(env):
 			for j in range(len(ranges)):
 				numRange = '@n:[%d %d]' % (ranges[j][0],ranges[j][1])
 
-				### (1) TEXT and range with sort ###
-				compare_optimized_to_not(env, ['ft.aggregate', 'idx', 'foo ' + numRange, 'SORTBY', 2, '@n', 'ASC'], params, 'case 1 ' + numRange)
-
 				### (3) TAG and range with sort ###
 				compare_optimized_to_not(env, ['ft.aggregate', 'idx', '@tag:{foo} ' + numRange, 'SORTBY', 2, '@n', 'ASC'], params, 'case 3 ' + numRange)
+				print(env.cmd('ft.profile', 'idx', 'aggregate', 'query', '@tag:{foo} ' + numRange, 'SORTBY', 2, '@n', 'ASC', *params))
+				print(env.cmd('ft.profile', 'idx', 'aggregate', 'query', '@tag:{foo} ' + numRange, 'OPTIMIZE', 'SORTBY', 2, '@n', 'ASC', *params))
 
 				### (5) numeric range with sort ###
 				compare_optimized_to_not(env, ['ft.aggregate', 'idx', numRange, 'SORTBY', 2, '@n', 'ASC'], params, 'case 5 ' + numRange)
@@ -589,6 +581,8 @@ def testCoordinator(env):
 			### (9) no sort, no score, with sortby ###
 			# aggregate only minimal number of ranges
 			compare_optimized_to_not(env, ['ft.aggregate', 'idx', '@tag:{foo}', 'SORTBY', 2, '@n', 'ASC'], params, 'case 9')
+			print(env.cmd('ft.profile', 'idx', 'aggregate', 'query', '@tag:{foo}', 'SORTBY', 2, '@n', 'ASC', *params))
+			print(env.cmd('ft.profile', 'idx', 'aggregate', 'query', '@tag:{foo}', 'OPTIMIZE', 'SORTBY', 2, '@n', 'ASC', *params))
 
 			### (11) wildcard with sort ###
 			# aggregate only minimal number of ranges
