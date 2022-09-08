@@ -226,6 +226,17 @@ def no_msan(f):
         return f(env, *args, **kwargs)
     return wrapper
 
+def no_asan(f):
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if SANITIZER in ['address', 'addr']:
+            fname = f.func_name
+            env.debugPrint("skipping {} due to address sanitizer".format(fname), force=True)
+            env.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
+
 def unstable(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
