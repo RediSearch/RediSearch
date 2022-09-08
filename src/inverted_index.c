@@ -740,7 +740,7 @@ SKIPPER(seekRawDocIdsOnly) {
       break;
     }
     if (curVal > delta) {
-      end = cur;
+      end = cur - 1;
     } else {
       start = cur + 1;
     }
