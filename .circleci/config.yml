@@ -481,11 +481,11 @@ jobs:
       - early-returns
       - checkout-all
       - install-prerequisites
-      - run:
-          name: Build & test (Search)
-          shell: /bin/bash -l -eo pipefail
-          command: make SAN=<<parameters.san-type>> build test SHOW=1
-          no_output_timeout: 30m
+      # - run:
+      #     name: Build & test (Search)
+      #     shell: /bin/bash -l -eo pipefail
+      #     command: make SAN=<<parameters.san-type>> build test SHOW=1
+      #     no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
