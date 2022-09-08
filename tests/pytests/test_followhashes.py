@@ -92,7 +92,7 @@ def testManyPrefixes(env):
     env.debugPrint(str(time.time() - start_time), force=True)
     start_time = time.time()
     conn.execute_command('FLUSHALL')
-    env.assertLess(time.time() - start_time, 5)
+    env.assertLess(time.time() - start_time, 50)
 
 def testFilter2(env):
     conn = getConnectionByEnv(env)
