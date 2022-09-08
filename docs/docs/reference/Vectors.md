@@ -2,6 +2,7 @@
 title: "Vector similarity"
 linkTitle: "Vector similarity"
 weight: 15
+math: true
 description: >
     Learn how to use vector fields and vector similarity queries
 ---
@@ -19,11 +20,11 @@ Vector similarity provides these functionalities:
 
 * Realtime vector update/delete, triggering an update of the index.
 
-* K-nearest neighbors queries supporting three distance metrics to measure the degree of similarity between vectors:
+* K-nearest neighbors queries supporting three distance metrics to measure the degree of similarity between two vectors $u$, $v$ $\in \mathbb{R}^n$ where $n$ is the length of the vectors:
 
     - L2 - Euclidean distance between two vectors
 
-         $d(u, v) = \sqrt{ \displaystyle\sum_{ki=1}^n{(u_i - v_i)^2}}$
+         $d(u, v) = \sqrt{ \displaystyle\sum_{i=1}^n{(u_i - v_i)^2}}$
 
     - IP - Internal product of two vectors
 
