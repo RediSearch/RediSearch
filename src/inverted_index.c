@@ -740,7 +740,7 @@ SKIPPER(seekRawDocIdsOnly) {
       break;
     }
     if (curVal > delta) {
-      end = cur;
+      end = cur - 1;
     } else {
       start = cur + 1;
     }
@@ -751,6 +751,9 @@ SKIPPER(seekRawDocIdsOnly) {
   // we cannot get out of range since we check in
   if (curVal < delta) {
     cur++;
+    if (cur >= (br->buf->offset) / 4) {
+      return 0;
+    }
   }
 
   // skip to position and read
