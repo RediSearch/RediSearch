@@ -4,6 +4,7 @@
 #include "search_cluster.h"
 #include "alias.h"
 #include "minunit.h"
+#include "../rmutil/alloc.h"
 
 const char *FNVTagFunc(const char *key, size_t len, size_t k);
 // void testTagFunc() {
@@ -33,10 +34,7 @@ void testCommandMux() {
 
 int main(int argc, char **argv) {
   // MU_RUN_TEST(testTagFunc);
-  RedisModule_Alloc = malloc;
-  RedisModule_Calloc = calloc;
-  RedisModule_Realloc = realloc;
-  RedisModule_Free = free;
+  RMUTil_InitAlloc();
   IndexAlias_InitGlobal();
   MU_RUN_TEST(testCommandMux);
 

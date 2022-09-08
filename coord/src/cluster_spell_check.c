@@ -20,14 +20,14 @@ typedef struct {
 
 static spellCheckReducerTerm* spellCheckReducerTerm_Create(const char* termStr) {
   spellCheckReducerTerm* ret = rm_malloc(sizeof(spellCheckReducerTerm));
-  ret->term = strdup(termStr);
+  ret->term = rm_strdup(termStr);
   ret->suggestions = RS_SuggestionsCreate();
   ret->foundInIndex = false;
   return ret;
 }
 
 static void spellCheckReducerTerm_Free(spellCheckReducerTerm* t) {
-  free(t->term);
+  rm_free(t->term);
   RS_SuggestionsFree(t->suggestions);
   rm_free(t);
 }
