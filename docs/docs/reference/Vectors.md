@@ -20,7 +20,7 @@ Vector similarity provides these functionalities:
 
 * Realtime vector update/delete, triggering an update of the index.
 
-* K-nearest neighbors queries supporting three distance metrics to measure the degree of similarity between two vectors $u$, $v$ $\in \mathbb{R}^n$:
+* K-nearest neighbors queries supporting three distance metrics to measure the degree of similarity between two vectors $u$, $v$ $\in \mathbb{R}^n$ where $n$ is the length of the vectors:
 
     - L2 - Euclidean distance between two vectors
 
