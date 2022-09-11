@@ -2278,6 +2278,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = rm_strdup(name);
+  sp->nameLen = strlen(sp->name);
   RedisModule_Free(name);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
