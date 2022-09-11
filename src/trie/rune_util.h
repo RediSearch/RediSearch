@@ -40,19 +40,17 @@ struct Runes {
   enum class Folded { No, Yes };
 
   Runes(const char *str = "", Folded folded = Folded::No) {
-    rune *p;
     if (folded == Folded::No) {
       _runes = strToRunes(str, &_len, _dynamic, _runes_s);
     } else {
       _runes = strToFoldedRunes(str, &_len, _dynamic, _runes_s);
     }
+	_nbytes = _len + 1;
   }
 
   Runes(const char *str, size_t len) { copy(str, len); }
   Runes(const Runes &runes) { copy(runes); }
-#if 0
-  Runes(const rune *runes, size_t len) { copy(runes, len); }
-#endif // 0
+  Runes(const Runes &runes, size_t offset) { copy(runes, offset); }
 
   ~Runes();
 
@@ -60,7 +58,7 @@ struct Runes {
   rune _runes_s[RUNE_STATIC_ALLOC_SIZE + 1];
   rune *_runes;
   size_t _len; // logical size of rune (not allocated bytes)
-  size_t _nbytes;
+  size_t _nbytes; // size of storage
 
   void setup_storage(size_t nbytes) {
     _dynamic = nbytes > RUNE_STATIC_ALLOC_SIZE;
@@ -80,15 +78,6 @@ struct Runes {
     }
     _nbytes = new_nbytes;
   }
-
-#if 0
-  void copy(const rune *runes, size_t len) {
-    setup_storage((nbytes + 1) * sizeof(rune));
-    memcpy(_runes, runes, len);
-    _runes[len] = 0;
-    _len = len;
-  }
-#endif // 0
 
   void copy(const char *str, size_t str_len) {
     _runes = strToRunes(str, &_nbytes, _dynamic, _runes_s);
@@ -122,6 +111,17 @@ struct Runes {
   void copy(const Runes &runes) {
     setup_storage(runes._nbytes); // sets _nbytes
     memcpy(_runes, runes._runes, runes._nbytes);
+    _runes[_nbytes] = 0;
+    _len = runes._len;
+  }
+
+  void copy(const Runes &runes, size_t offset) {
+    if (offset > runes._len) {
+	  _runes[0] = 0;
+	  return;
+	}
+    setup_storage(runes._nbytes - offset); // sets _nbytes
+    memcpy(_runes, runes._runes + offset, runes._nbytes);
     _runes[_nbytes] = 0;
     _len = runes._len;
   }

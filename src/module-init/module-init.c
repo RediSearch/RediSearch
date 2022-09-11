@@ -30,7 +30,6 @@ REDISMODULE_INIT_SYMBOLS();
 
 #ifndef RS_NO_ONLOAD
 extern "C" int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  BB;
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
@@ -143,7 +142,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     RedisModule_Log(ctx, ##__VA_ARGS__);          \
   }
 
-  BB;
   // Print version string!
   DO_LOG("notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
          REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());

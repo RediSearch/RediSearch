@@ -21,7 +21,7 @@ TriePayload::TriePayload(const char *payload, uint32_t plen) {
 // given score
 
 TrieNode::TrieNode(const Runes &runes, t_len offset, const char *payload, size_t payload_size,
-                   t_len numChildren, float score_, bool terminal) : _runes(runes[offset]) {
+                   t_len numChildren, float score_, bool terminal) : _runes(runes, offset) {
   _children.reserve(numChildren);
   _score = score_;
   _flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
