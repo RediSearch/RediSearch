@@ -41,9 +41,9 @@ struct Runes {
 
   Runes(const char *str = "", Folded folded = Folded::No) {
     if (folded == Folded::No) {
-      _runes = strToRunes(str, _len, _dynamic, _runes_s);
+      _runes = strToRunes(str, &_len, _dynamic, _runes_s);
     } else {
-      _runes = strToFoldedRunes(str, _len, _dynamic, _runes_s);
+      _runes = strToFoldedRunes(str, &_len, _dynamic, _runes_s);
     }
 	_nbytes = _len + 1;
   }

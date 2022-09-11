@@ -105,11 +105,11 @@ rune *strToFoldedRunes(const char *str, size_t *len, bool &dynamic, rune *buf) {
 
 // Convert a utf-8 string to constant width runes
 
-rune *strToRunes(const char* str, size_t& len, bool& dynamic, rune* buf) {
+rune *strToRunes(const char* str, size_t *len, bool& dynamic, rune* buf) {
   // Determine the length
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
   if (rlen > MAX_RUNESTR_LEN) {
-    len = 0;
+    if (len) *len = 0;
     return NULL;
   }
 
@@ -123,7 +123,7 @@ rune *strToRunes(const char* str, size_t& len, bool& dynamic, rune* buf) {
 
   strToRunesN(str, strlen(str), ret);
   ret[rlen] = '\0';
-  len = rlen;
+  if (len) *len = rlen;
   return ret;
 }
 
