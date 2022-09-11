@@ -29,7 +29,7 @@ TEST_F(RangeTest, testRangeTree) {
 
   for (size_t i = 0; i < 50000; i++) {
 
-    NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000));
+    NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000), false);
   }
   ASSERT_EQ(t->numRanges, 12);
   ASSERT_EQ(t->numEntries, 50000);
@@ -57,35 +57,51 @@ TEST_F(RangeTest, testRangeTree) {
   NumericRangeTree_Free(t);
 }
 
-TEST_F(RangeTest, testRangeIterator) {
+const size_t MULT_COUNT = 3;
+struct d_arr {
+  double v[MULT_COUNT];
+};
+struct uint8_arr {
+  uint8_t v[MULT_COUNT];
+};
+
+void testRangeIteratorHelper(bool isMulti) {
   NumericRangeTree *t = NewNumericRangeTree();
   ASSERT_TRUE(t != NULL);
 
+  
   const size_t N = 100000;
-  std::vector<double> lookup;
-  std::vector<uint8_t> matched;
+  std::vector<d_arr> lookup;
+  std::vector<uint8_arr> matched;
   lookup.resize(N + 1);
   matched.resize(N + 1);
+  size_t mult_count = (!isMulti ? 1 : MULT_COUNT);
   for (size_t i = 0; i < N; i++) {
     t_docId docId = i + 1;
-    double value = (double)(1 + prng() % (N / 5));
-    lookup[docId] = value;
-    // printf("Adding %d > %f\n", docId, value);
-    NumericRangeTree_Add(t, docId, value);
+    for( size_t mult = 0; mult < mult_count; ++mult) {
+      double value = (double)(1 + prng() % (N / 5));
+      lookup[docId].v[mult] = value;
+      // printf("Adding %ld > %f\n", docId, value);
+      NumericRangeTree_Add(t, docId, value, isMulti);
+    }
   }
 
   for (size_t i = 0; i < 5; i++) {
     double min = (double)(1 + prng() % (N / 5));
     double max = (double)(1 + prng() % (N / 5));
-    memset(&matched[0], 0, sizeof(uint8_t) * (N + 1));
+    memset(&matched[0], 0, sizeof(uint8_arr) * (N + 1));
     NumericFilter *flt = NewNumericFilter(std::min(min, max), std::max(min, max), 1, 1);
 
     // count the number of elements in the range
     size_t count = 0;
     for (size_t i = 1; i <= N; i++) {
-      if (NumericFilter_Match(flt, lookup[i])) {
-        matched[i] = 1;
-        count++;
+      for( size_t mult = 0; mult < mult_count; ++mult) {
+        if (NumericFilter_Match(flt, lookup[i].v[mult])) {
+          // Mark as being in filter range
+          matched[i].v[mult] = 1;
+          count++;
+          // printf("count %lu, i %lu, mult %lu, val %f\n", count, i, mult, lookup[i].v[mult]);
+        }
       }
     }
 
@@ -102,30 +118,53 @@ TEST_F(RangeTest, testRangeIterator) {
         break;
       }
 
-      ASSERT_EQ(matched[res->docId], 1);
+      size_t found_mult = -1;
+      for( size_t mult = 0; mult < mult_count; ++mult) {
+        if (matched[res->docId].v[mult] == 1) {
+          matched[res->docId].v[mult] = (uint8_t)2;
+          found_mult = mult; // at least one is matching
+          xcount++;
+        }
+      }
+      ASSERT_NE(found_mult, -1);
       if (res->type == RSResultType_Union) {
         res = res->agg.children[0];
       }
 
-      matched[res->docId] = (uint8_t)2;
       // printf("rc: %d docId: %d, n %f lookup %f, flt %f..%f\n", rc, res->docId, res->num.value,
       //        lookup[res->docId], flt->min, flt->max);
 
-      ASSERT_EQ(res->num.value, lookup[res->docId]);
-
-      ASSERT_TRUE(NumericFilter_Match(flt, lookup[res->docId]));
-
+      found_mult = -1;
+      for( size_t mult = 0; mult < mult_count; ++mult) {
+        if (res->num.value == lookup[res->docId].v[mult]) {
+          ASSERT_TRUE(NumericFilter_Match(flt, lookup[res->docId].v[mult]));
+          found_mult = mult;
+        }
+      }
+      ASSERT_NE(found_mult, -1);
+      
       ASSERT_EQ(res->type, RSResultType_Numeric);
       // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
       ASSERT_TRUE(!RSIndexResult_HasOffsets(res));
       ASSERT_TRUE(!RSIndexResult_IsAggregate(res));
       ASSERT_TRUE(res->docId > 0);
-      ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);
-
-      xcount++;
+      ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);      
     }
+
     for (int i = 1; i <= N; i++) {
-      if (matched[i] == 1) {
+      bool missed = false;
+      for( size_t mult = 0; mult < mult_count; ++mult) {
+        auto match = matched[i].v[mult];
+        if (match == 2) {
+          missed = false;
+          break;
+        } else if (match == 1) {
+          missed = true;
+          // Keep trying - could be found
+        }
+      }
+      
+      if (missed) {
         printf("Miss: %d\n", i);
       }
     }
@@ -136,9 +175,17 @@ TEST_F(RangeTest, testRangeIterator) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, 14);
-  ASSERT_EQ(t->numEntries, N);
+  ASSERT_EQ(t->numRanges, !isMulti ? 14 : 42);
+  ASSERT_EQ(t->numEntries, !isMulti ? N : N * MULT_COUNT);
   NumericRangeTree_Free(t);
+}
+
+TEST_F(RangeTest, testRangeIterator) {
+  testRangeIteratorHelper(false);
+}
+
+TEST_F(RangeTest, testRangeIteratorMulti) {
+  testRangeIteratorHelper(true);
 }
 
 // int benchmarkNumericRangeTree() {
