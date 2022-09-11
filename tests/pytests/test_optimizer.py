@@ -21,6 +21,16 @@ from RLTest import Env
 # *  N  *   N   *  N  * Q_OPT_PARTIAL_RANGE (11) * Q_OPT_NO_SORTER (12) *
 # **********************************************************************/
 
+# transfer query to be a profile query
+def print_profile(env, query, params, optimize=False):
+	isSearch = query[0] == 'ft.search'
+	query[0] = 'ft.profile'
+	query.insert(2, 'search' if isSearch else 'aggregate')
+	query.insert(3, 'QUERY')
+	if optimize:
+		params.append('OPTIMIZE')
+	env.debugPrint(env.cmd(*query, *params))
+
 def compare_optimized_to_not(env, query, params, msg=None):
 	not_res = env.cmd(*query, *params)
 	opt_res = env.cmd(*query, 'OPTIMIZE', *params)
@@ -51,6 +61,8 @@ def compare_optimized_to_not(env, query, params, msg=None):
 	if not_list != opt_list:
 		print(str(not_res))
 		print(str(opt_res))
+		print_profile(env, query, params, optimize=False)
+		print_profile(env, query, params, optimize=True)
 
 def testOptimizer(env):
 	env.skipOnCluster()
