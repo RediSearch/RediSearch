@@ -12,8 +12,8 @@ SearchCluster NewSearchCluster(size_t size, const char **table, size_t tableSize
   PartitionCtx_Init(&ret.part, size, table, tableSize);
   if(size){
     // assume slots are equaly distributed
-    ret.shardsStartSlots = rm_malloc(sizeof(int) * size);
-    for(size_t j = 0, i = 0 ; i < tableSize ; j++, i+=(tableSize/size)){
+    ret.shardsStartSlots = rm_malloc(size * sizeof *ret.shardsStartSlots);
+    for(size_t j = 0, i = 0; j < size; j++, i+=((tableSize+size-1)/size)){
       ret.shardsStartSlots[j] = i;
     }
   }
@@ -416,7 +416,7 @@ void SearchCluster_EnsureSize(RedisModuleCtx *ctx, SearchCluster *c, MRClusterTo
     if(c->shardsStartSlots){
       rm_free(c->shardsStartSlots);
     }
-    c->shardsStartSlots = rm_malloc(sizeof(int) * c->size);
+    c->shardsStartSlots = rm_malloc(c->size * sizeof *c->shardsStartSlots);
     for(size_t i = 0 ; i < c->size ; ++i){
       c->shardsStartSlots[i] = topo->shards[i].startSlot;
     }

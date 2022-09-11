@@ -551,7 +551,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     return NULL;
   }
 
-  searchRequestCtx *req = rm_rm_malloc(sizeof *req);
+  searchRequestCtx *req = rm_malloc(sizeof *req);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
