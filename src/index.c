@@ -387,11 +387,10 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
     int rc = it->SkipTo(it->ctx, nextValidId, &res);
 
     // refresh heap with iterator with updated minId
-    it->minId = res->docId;
     if (rc == INDEXREAD_EOF) {
       heap_poll(hp);
     } else {
-      RS_LOG_ASSERT(res, "should not be NULL");
+      it->minId = res->docId;
       heap_replace(hp, it);
       // after SkipTo, try test again for validity
       if (ui->quickExit && it->minId == nextValidId) {

@@ -811,25 +811,14 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
   }
 }
 
-numeric_range(A) ::= LSQB param_any(B) param_any(C) RSQB. [NUMBER] {
-  // Update token type to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-  if (B.type == QT_PARAM_ANY)
+numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
     B.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  else if (B.type != QT_NUMERIC)
-    badToken = &B;
-  if (C.type == QT_PARAM_ANY)
-    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
-  else if (!badToken && C.type != QT_NUMERIC)
-    badToken = &C;
-
-  if (!badToken) {
-    A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Expecting numeric or parameter");
-    A = NULL;
   }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -846,34 +835,16 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
   }
 }
 
-geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB. [NUMBER] {
-  // Update token type to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-
-  if (B.type == QT_PARAM_ANY)
+geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB. [NUMBER] {
+  if (B.type == QT_PARAM_NUMERIC)
     B.type = QT_PARAM_GEO_COORD;
-  else if (B.type != QT_NUMERIC)
-    badToken = &B;
-  if (C.type == QT_PARAM_ANY)
+  if (C.type == QT_PARAM_NUMERIC)
     C.type = QT_PARAM_GEO_COORD;
-  else if (!badToken && C.type != QT_NUMERIC)
-    badToken = &C;
-  if (D.type == QT_PARAM_ANY)
-    D.type = QT_PARAM_NUMERIC;
-  else if (!badToken && D.type != QT_NUMERIC)
-    badToken = &D;
-  if (E.type == QT_PARAM_ANY)
-    E.type = QT_PARAM_GEO_UNIT;
-  else if (!badToken && E.type != QT_TERM)
-    badToken = &E;
 
-  if (!badToken) {
-    A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Syntax error");
-    A = NULL;
-  }
+  if (E.type == QT_PARAM_TERM)
+    E.type = QT_PARAM_GEO_UNIT;
+
+  A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -1051,19 +1022,9 @@ term(A) ::= SIZE(B). {
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
 
-param_term(A) ::= TERM(B). {
-  A = B;
-  A.type = QT_TERM;
-}
 
 // Number is treated as a term here
-param_term(A) ::= NUMBER(B). {
-  A = B;
-  A.type = QT_TERM;
-}
-
-// Number is treated as a term here
-param_term(A) ::= SIZE(B). {
+param_term(A) ::= term(B). {
   A = B;
   A.type = QT_TERM;
 }
@@ -1083,28 +1044,20 @@ param_size(A) ::= ATTRIBUTE(B). {
   A.type = QT_PARAM_SIZE;
 }
 
-//For generic parameter (param_any) its `type` could be refined by other rules which may have more accurate semantics,
-// e.g., could know it should be numeric
-
-param_any(A) ::= ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_ANY;
-  A.inclusive = 1;
+param_num(A) ::= ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
 }
 
-param_any(A) ::= LP ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_ANY;
-  A.inclusive = 0; // Could be relevant if type is refined
-}
-
-param_any(A) ::= TERM(B). {
-  A = B;
-  A.type = QT_TERM;
-}
-
-param_any(A) ::= num(B). {
+param_num(A) ::= num(B). {
   A.numval = B.num;
   A.inclusive = B.inclusive;
   A.type = QT_NUMERIC;
+}
+
+param_num(A) ::= LP ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
 }

@@ -168,7 +168,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
       RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
-      RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
+      RedisModule_ReplyWithStringBuffer(outctx, kk->name, kk->name_len);
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
     }
   }

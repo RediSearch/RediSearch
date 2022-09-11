@@ -810,6 +810,15 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   return self->profileCount;
 }
 
+void Profile_AddRPs(QueryIterator *qiter) {
+  ResultProcessor *cur = qiter->endProc = RPProfile_New(qiter->endProc, qiter);
+  while (cur && cur->upstream && cur->upstream->upstream) {
+    cur = cur->upstream;
+    cur->upstream = RPProfile_New(cur->upstream, qiter);
+    cur = cur->upstream;
+  }
+}
+
 /*******************************************************************************************************************
  *  Scoring Processor
  *
