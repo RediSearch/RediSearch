@@ -41,9 +41,9 @@ struct Runes {
 
   Runes(const char *str = "", Folded folded = Folded::No) {
     if (folded == Folded::No) {
-      _runes = strToRunes(str, &_len, _dynamic, _runes_s);
+      _runes = strToRunes(str, _len, _dynamic, _runes_s);
     } else {
-      _runes = strToFoldedRunes(str, &_len, _dynamic, _runes_s);
+      _runes = strToFoldedRunes(str, _len, _dynamic, _runes_s);
     }
 	_nbytes = _len + 1;
   }
@@ -55,10 +55,10 @@ struct Runes {
   ~Runes();
 
   bool _dynamic;
-  rune _runes_s[RUNE_STATIC_ALLOC_SIZE + 1];
-  rune *_runes;
   size_t _len; // logical size of rune (not allocated bytes)
   size_t _nbytes; // size of storage
+  rune _runes_s[RUNE_STATIC_ALLOC_SIZE + 1];
+  rune *_runes;
 
   void setup_storage(size_t nbytes) {
     _dynamic = nbytes > RUNE_STATIC_ALLOC_SIZE;
