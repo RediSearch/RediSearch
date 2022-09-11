@@ -79,6 +79,7 @@ def testPrefix2(env):
     env.assertIn('that:foo', res)
     env.assertIn('this:foo', res)
 
+@no_asan
 def testManyPrefixes(env):
     # this test checks that releasing all indexes is faster
     # it went down from 10 to less than 1 second for 10,000 indexes
