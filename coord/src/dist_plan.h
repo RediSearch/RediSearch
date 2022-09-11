@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-typedef struct {
+typedef struct PLN_DistributeStep {
   PLN_BaseStep base;
   RLookup lk;
   AGGPlan *plan;
