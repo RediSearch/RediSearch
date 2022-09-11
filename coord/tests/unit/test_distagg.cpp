@@ -25,7 +25,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 static void testAverage() {
   AREQ *r = AREQ_New();
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "sony",                                        // nl
                     "GROUPBY", "1", "@brand",                           // nl
                     "REDUCE", "avg", "1", "@price", "as", "avg_price",  // nl
@@ -83,7 +83,7 @@ static void testAverage() {
  */
 static void testCountDistinct() {
   AREQ *r = AREQ_New();
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
                     "REDUCE", "COUNT_DISTINCT", "1", "@title", "AS", "count_distinct(title)",  // nl
@@ -115,11 +115,12 @@ static void testCountDistinct() {
   for (size_t ii = 0; ii < us.nserialized; ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
+  AREQ_Free(r);
 }
 
 static void testSplit() {
   AREQ *r = AREQ_New();
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
                     "REDUCE", "COUNT_DISTINCT", "1", "@title", "AS", "count_distinct(title)",  // nl
@@ -151,12 +152,13 @@ static void testSplit() {
   for (size_t ii = 0; ii < us.nserialized; ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
+  AREQ_Free(r);
 }
 
 int main(int, char **) {
   RMCK_Bootstrap(my_OnLoad, NULL, 0);
   RMCK::init();
-  // testAverage();
+  testAverage();
   testCountDistinct();
 }
 
