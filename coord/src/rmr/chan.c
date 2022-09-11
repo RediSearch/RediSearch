@@ -26,9 +26,10 @@ typedef struct MRChannel {
 } MRChannel;
 
 #include "chan.h"
+#include "rmalloc.h"
 
 MRChannel *MR_NewChannel(size_t max) {
-  MRChannel *chan = malloc(sizeof(*chan));
+  MRChannel *chan = rm_malloc(sizeof(*chan));
   *chan = (MRChannel){
       .head = NULL,
       .tail = NULL,
@@ -58,7 +59,7 @@ void MRChannel_Free(MRChannel *chan) {
 
   pthread_mutex_destroy(&chan->lock);
   pthread_cond_destroy(&chan->cond);
-  free(chan);
+  rm_free(chan);
 }
 
 size_t MRChannel_Size(MRChannel *chan) {
@@ -84,7 +85,7 @@ int MRChannel_Push(MRChannel *chan, void *ptr) {
     goto end;
   }
 
-  chanItem *item = malloc(sizeof(*item));
+  chanItem *item = rm_malloc(sizeof(*item));
   item->next = NULL;
   item->ptr = ptr;
   if (chan->tail) {
@@ -116,7 +117,7 @@ void *MRChannel_ForcePop(MRChannel *chan) {
   pthread_mutex_unlock(&chan->lock);
   // discard the item (TODO: recycle items)
   void* ret = item->ptr;
-  free(item);
+  rm_free(item);
   return ret;
 }
 
@@ -149,7 +150,7 @@ void *MRChannel_Pop(MRChannel *chan) {
   pthread_mutex_unlock(&chan->lock);
   // discard the item (TODO: recycle items)
   ret = item->ptr;
-  free(item);
+  rm_free(item);
   return ret;
 }
 

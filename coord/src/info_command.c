@@ -181,7 +181,7 @@ static void processKvArray(InfoFields *ctx, MRReply *array, InfoValue *dsts, Inf
 }
 
 static void cleanInfoReply(InfoFields *fields) {
-  free(fields->errorIndexes);
+  rm_free(fields->errorIndexes);
 }
 
 static size_t replyKvArray(InfoFields *fields, RedisModuleCtx *ctx, InfoValue *values,
@@ -272,7 +272,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   for (size_t ii = 0; ii < count; ++ii) {
     if (MRReply_Type(replies[ii]) == MR_REPLY_ERROR) {
       if (!fields.errorIndexes) {
-        fields.errorIndexes = calloc(count, sizeof(*fields.errorIndexes));
+        fields.errorIndexes = rm_calloc(count, sizeof(*fields.errorIndexes));
       }
       fields.errorIndexes[ii] = 1;
       numErrored++;

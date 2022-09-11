@@ -52,6 +52,7 @@ contains = (star.term.star | star.number.star | star.attr.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
 suffix = (star.term | star.number | star.attr) $1;
 as = 'AS'|'aS'|'As'|'as';
+vector_range = ['vV']['eE']['cC']['tT']['oO']['rR']'_'['rR']['aA']['nN']['gG']['eE'];
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
 
@@ -114,6 +115,19 @@ main := |*
       RSQuery_Parse_v2(pParser, AS_S, tok, q);
     } else {
       RSQuery_Parse_v2(pParser, AS_T, tok, q);
+    }
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  vector_range => {
+    tok.pos = ts-q->raw;
+    tok.len = te - ts;
+    tok.s = ts;
+    if (StopWordList_Contains(q->opts->stopwords, "vector_range", strlen("vector_range"))) {
+      RSQuery_Parse_v2(pParser, VECTOR_RANGE_S, tok, q);
+    } else {
+      RSQuery_Parse_v2(pParser, VECTOR_RANGE_T, tok, q);
     }
     if (!QPCTX_ISOK(q)) {
       fbreak;

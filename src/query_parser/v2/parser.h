@@ -31,4 +31,6 @@
 #define WILDCARD                        31
 #define AS_S                            32
 #define AS_T                            33
-#define SEMICOLON                       34
+#define VECTOR_RANGE_S                  34
+#define VECTOR_RANGE_T                  35
+#define SEMICOLON                       36
