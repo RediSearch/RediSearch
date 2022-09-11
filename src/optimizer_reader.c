@@ -160,6 +160,14 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
           *it->pooledResult = *(child);
         }
 
+        // handle expired results
+        RSDocumentMetadata *dmd = DocTable_Get(&opt->sctx->spec->docs, childRes->docId);
+        if (!dmd) {
+          continue;
+        }   
+        DMD_Incref(dmd);
+        it->pooledResult->num.dmd = dmd;
+
         // heap is not full. insert
         if (heap_count(it->heap) < heap_size(it->heap)) {
           heap_offer(&it->heap, it->pooledResult);

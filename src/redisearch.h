@@ -248,6 +248,7 @@ typedef struct {
 
 typedef struct {
   double value;
+  RSDocumentMetadata *dmd;
 } RSNumericRecord;
 
 /* A vector record represents a vector similarity search result which has a specific *distance* from the

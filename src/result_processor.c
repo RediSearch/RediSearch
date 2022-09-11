@@ -99,7 +99,12 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
         continue;
     }
 
-    dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);
+    // We have a result - now we need to get the document metadata and check if it's valid
+    if (r->type == RSResultType_Numeric && r->num.dmd) {
+      dmd = r->num.dmd;
+    } else {
+      dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);
+    }
     if (!dmd || (dmd->flags & Document_Deleted)) {
       continue;
     }

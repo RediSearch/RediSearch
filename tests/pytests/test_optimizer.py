@@ -30,8 +30,9 @@ def compare_optimized_to_not(env, query, params, msg=None):
 	# check length of list to avoid errors
 	if len(not_res) == 1 or len(opt_res) == 1:
 		env.assertEqual(len(not_res), len(opt_res))
-		#env.debugPrint(str(not_res), force=True)
-		#env.debugPrint(str(opt_res), force=True)
+		if len(not_res) != len(opt_res):
+			env.debugPrint(str(not_res), force=True)
+			env.debugPrint(str(opt_res), force=True)
 		return
 
 	# put all `n` values into a list
@@ -48,10 +49,8 @@ def compare_optimized_to_not(env, query, params, msg=None):
 	env.assertEqual(len(not_res), len(opt_res))
 	env.assertEqual(not_list, opt_list, message=msg)
 	if not_list != opt_list:
-		#print(not_res)
-		#print(opt_res)
-		#input('stop')
-		pass
+		print(str(not_res))
+		print(str(opt_res))
 
 def testOptimizer(env):
 	env.skipOnCluster()
