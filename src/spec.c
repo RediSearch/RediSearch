@@ -1935,7 +1935,7 @@ void ReindexPool_ThreadPoolDestroy() {
 #ifdef FTINFO_FOR_INFO_MODULES
 void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   char *temp = "info";
-  char name[sp->nameLen + strlen(temp) + 2];
+  char name[sp->nameLen + 4 + 2]; // 4 for info and 2 for null termination
   sprintf(name, "%s_%s", temp, sp->name);
   RedisModule_InfoAddSection(ctx, name);
 
