@@ -30,7 +30,7 @@ uint64_t TotalIIBlocks = 0;
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
-                                          IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
+                                          IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
                                           RSIndexResult *record);
 
 /* Add a new block to the index with a given document id as the initial id */
@@ -47,8 +47,12 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   int useFieldMask = flags & Index_StoreFieldFlags;
-  size_t size = useFieldMask ? sizeof(InvertedIndex) :
-                               sizeof(InvertedIndex) - sizeof(t_fieldMask);
+  int useNumEntries = flags & Index_StoreNumeric;
+  RedisModule_Assert(!(useFieldMask && useNumEntries));
+  // Avoid some of the allocation if not needed
+  size_t size = (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
+                                                  sizeof(InvertedIndex) - sizeof(t_fieldMask);
+                                                  
   InvertedIndex *idx = rm_malloc(size);
   idx->blocks = NULL;
   idx->size = 0;
@@ -56,7 +60,11 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   idx->gcMarker = 0;
   idx->flags = flags;
   idx->numDocs = 0;
-  if (useFieldMask) idx->fieldMask = (t_fieldMask)0;
+  if (useFieldMask) {
+    idx->fieldMask = (t_fieldMask)0;
+  } else if (useNumEntries) {
+    idx->numEntries = 0;
+  }
   if (initBlock) {
     InvertedIndex_AddBlock(idx, 0);
   }
@@ -95,7 +103,7 @@ void IndexReader_OnReopen(void *privdata) {
     // the GC might have deleted it by now.
     RedisSearchCtx sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
     InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
-                                                   ir->record->term.term->len, 0, NULL);
+                                                   ir->record->term.term->len, 0, NULL, NULL);
     if (!idx || ir->idx != idx) {
       // the inverted index was collected entirely by GC, lets stop searching.
       // notice, it might be that a new inverted index was created, we will not
@@ -226,37 +234,60 @@ ENCODER(encodeRawDocIdsOnly) {
 
 #define NUM_TINYENC_MASK 0x07  // This flag is set if the number is 'tiny'
 
+#define NUM_ENCODING_COMMON_TYPE_TINY           0
+#define NUM_ENCODING_COMMON_TYPE_FLOAT          1
+#define NUM_ENCODING_COMMON_TYPE_POSITIVE_INT   2
+#define NUM_ENCODING_COMMON_TYPE_NEG_INT        3
+
+
 typedef struct {
-  uint8_t deltaEncoding : 2;
-  uint8_t zero : 2;
-  uint8_t valueByteCount : 3;
-  uint8_t sign : 1;
+  // Common fields
+  uint8_t deltaEncoding : 3;  // representing a zero-based number of bytes that stores the docId delta (delta from the previous docId)
+                              // (zero delta is required to store multiple values in the same doc)
+                              // Max delta size is 7 bytes (values between 0 to 7), allowing for max delta value of 2^((2^3-1)*8)-1
+  uint8_t type : 2; // (tiny, float, posint, negint)
+  // Specific fields
+  uint8_t specific : 3; // dummy field
+} NumEncodingCommon;
+
+typedef struct {
+  uint8_t deltaEncoding : 3;
+  uint8_t type : 2;
+  // Specific fields
+  uint8_t valueByteCount : 3; //1 to 8 (encoded as 0-7, since value 0 is represented as tiny)
 } NumEncodingInt;
 
 typedef struct {
-  uint8_t deltaEncoding : 2;
-  uint8_t zero : 1;
-  uint8_t isTiny : 1;
-  uint8_t tinyValue : 4;
+  uint8_t deltaEncoding : 3;
+  uint8_t type : 2;
+  // Specific fields
+  uint8_t tinyValue : 3;  // corresponds to NUM_TINYENC_MASK
 } NumEncodingTiny;
 
 typedef struct {
-  uint8_t deltaEncoding : 2;
-  uint8_t isFloat : 1;  // Always set to 1
+  uint8_t deltaEncoding : 3;
+  uint8_t type : 2;
+  // Specific fields
   uint8_t isInf : 1;    // -INFINITY has the 'sign' bit set too
   uint8_t sign : 1;
   uint8_t isDouble : 1;  // Read 8 bytes rather than 4
 } NumEncodingFloat;
 
-typedef struct {
-  uint8_t deltaEncoding : 2;
-  uint8_t isFloat : 1;
-  uint8_t specific : 5;
-} NumEncodingCommon;
-
+// EncodingHeader is used for encodind/decoding Inverted Index numeric values.
+// This header is written/read to/from Inverted Index entries, followed by the actual bytes representing the delta (if not zero),
+// followed by the actual bytes representing the numeric value (if not tiny)
+// (see encoder `encodeNumeric` and decoder `readNumeric`)
+// EncodingHeader internal structs must all be of the same size, beginning with common "base" fields, followed by specific fields per "derived" struct.
+// The specific types are:
+//  tiny - for tiny positive integers, including zero (the value is encoded in the header itself)
+//  posint and negint - for none-zero integer nubmers
+//  float - for floating point numbers
 typedef union {
+  // Alternative representation as a primitive number (used for writing)
   uint8_t storage;
+  // Common struct
   NumEncodingCommon encCommon;
+  // Specific structs
   NumEncodingInt encInt;
   NumEncodingTiny encTiny;
   NumEncodingFloat encFloat;
@@ -271,22 +302,55 @@ static void dumpBits(uint64_t value, size_t numBits, FILE *fp) {
 }
 
 static void dumpEncoding(EncodingHeader header, FILE *fp) {
-  fprintf(fp, "DeltaBytes: %u\n", header.encCommon.deltaEncoding + 1);
+  fprintf(fp, "DeltaBytes: %u\n", header.encCommon.deltaEncoding);
   fprintf(fp, "Type: ");
-  if (header.encCommon.isFloat) {
+  if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_FLOAT) {
     fprintf(fp, " FLOAT\n");
     fprintf(fp, "  SubType: %s\n", header.encFloat.isDouble ? "Double" : "Float");
     fprintf(fp, "  INF: %s\n", header.encFloat.isInf ? "Yes" : "No");
     fprintf(fp, "  Sign: %c\n", header.encFloat.sign ? '-' : '+');
-  } else if (header.encTiny.isTiny) {
+  } else if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_TINY) {
     fprintf(fp, " TINY\n");
     fprintf(fp, "  Value: %u\n", header.encTiny.tinyValue);
   } else {
     fprintf(fp, " INT\n");
     fprintf(fp, "  Size: %u\n", header.encInt.valueByteCount + 1);
-    fprintf(fp, "  Sign: %c\n", header.encInt.sign ? '-' : '+');
+    fprintf(fp, "  Sign: %c\n", header.encCommon.type == NUM_ENCODING_COMMON_TYPE_NEG_INT ? '-' : '+');
   }
 }
+
+#ifdef _DEBUG
+void InvertedIndex_Dump(InvertedIndex *idx, int indent) {
+  PRINT_INDENT(indent);
+  printf("InvertedIndex {\n");
+  ++indent;
+  PRINT_INDENT(indent);
+  printf("numDocs %u, lastId %ld, size %u\n", idx->numDocs, idx->lastId, idx->size);
+  
+  RSIndexResult *res = NULL;
+  IndexReader *ir = NewNumericReader(NULL, idx, NULL ,0, 0, false);
+  while (INDEXREAD_OK == IR_Read(ir, &res)) {
+    PRINT_INDENT(indent);
+    printf("value %f, docId %lu\n", res->num.value, res->docId);
+  }
+  IR_Free(ir);
+  --indent;
+  PRINT_INDENT(indent);
+  printf("}\n");
+}
+
+
+void IndexBlock_Dump(IndexBlock *b, int indent) {
+  PRINT_INDENT(indent);
+  printf("IndexBlock {\n");
+  ++indent;
+  PRINT_INDENT(indent);
+  printf("numEntries %u, firstId %lu, lastId %lu, \n", b->numEntries, b->firstId, b->lastId);
+  --indent;
+  PRINT_INDENT(indent);
+  printf("}\n");
+}
+#endif // #ifdef _DEBUG
 
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
@@ -298,22 +362,24 @@ ENCODER(encodeNumeric) {
 
   EncodingHeader header = {.storage = 0};
 
+  // Write a placeholder for the header and mark its position
   size_t pos = BufferWriter_Offset(bw);
   size_t sz = Buffer_Write(bw, "\0", 1);
 
-  // Write the delta
+  // Write the delta (if not zero)
   size_t numDeltaBytes = 0;
-  do {
+  while (delta) {
     sz += Buffer_Write(bw, &delta, 1);
     numDeltaBytes++;
     delta >>= 8;
-  } while (delta);
-  header.encCommon.deltaEncoding = numDeltaBytes - 1;
+  }
+  header.encCommon.deltaEncoding = numDeltaBytes;
 
+  // Write the numeric value
   if ((double)tinyNum == realVal) {
     // Number is small enough to fit?
     header.encTiny.tinyValue = tinyNum;
-    header.encTiny.isTiny = 1;
+    header.encCommon.type = NUM_ENCODING_COMMON_TYPE_TINY;
 
   } else if ((double)(uint64_t)absVal == absVal) {
     // Is a whole number
@@ -321,7 +387,9 @@ ENCODER(encodeNumeric) {
     NumEncodingInt *encInt = &header.encInt;
 
     if (realVal < 0) {
-      encInt->sign = 1;
+      encInt->type = NUM_ENCODING_COMMON_TYPE_NEG_INT;
+    } else {
+      encInt->type = NUM_ENCODING_COMMON_TYPE_POSITIVE_INT;
     }
 
     size_t numValueBytes = 0;
@@ -333,7 +401,7 @@ ENCODER(encodeNumeric) {
     encInt->valueByteCount = numValueBytes - 1;
 
   } else if (!isfinite(realVal)) {
-    header.encCommon.isFloat = 1;
+    header.encCommon.type = NUM_ENCODING_COMMON_TYPE_FLOAT;
     header.encFloat.isInf = 1;
     if (realVal == -INFINITY) {
       header.encFloat.sign = 1;
@@ -351,16 +419,15 @@ ENCODER(encodeNumeric) {
       encFloat->isDouble = 1;
     }
 
-    encFloat->isFloat = 1;
+    encFloat->type = NUM_ENCODING_COMMON_TYPE_FLOAT;
     if (realVal < 0) {
       encFloat->sign = 1;
     }
   }
 
+  // Write the header at its marked position
   *BufferWriter_PtrAt(bw, pos) = header.storage;
-  // printf("== Encoded ==\n");
-  // dumpEncoding(header, stdout);
-
+  
   return sz;
 }
 
@@ -430,9 +497,17 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry) {
 
-  // do not allow the same document to be written to the same index twice.
-  // this can happen with duplicate tags for example
-  if (idx->lastId && idx->lastId == docId) return 0;
+  int same_doc = 0;
+  if (idx->lastId && idx->lastId == docId) {
+    if (encoder != encodeNumeric) {
+      // do not allow the same document to be written to the same index twice.
+      // this can happen with duplicate tags for example
+      return 0;
+    } else {
+      // for numeric it is allowed (to support multi values)
+      same_doc = 1;
+    }
+  }
 
   t_docId delta = 0;
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
@@ -443,9 +518,10 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
           INDEX_BLOCK_SIZE_DOCID_ONLY;
 
   // see if we need to grow the current block
-  if (blk->numDocs >= blockSize) {
+  if (blk->numEntries >= blockSize && !same_doc) {
+    // If same doc can span more than a single block - need to adjust IndexReader_SkipToBlock
     blk = InvertedIndex_AddBlock(idx, docId);
-  } else if (blk->numDocs == 0) {
+  } else if (blk->numEntries == 0) {
     blk->firstId = blk->lastId = docId;
   }
 
@@ -454,21 +530,29 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   } else {
     delta = docId - blk->firstId;
   }
-  if (delta > UINT32_MAX) {
+  
+  // For non-numeric encoders the maximal delta is UINT32_MAX (since it is encoded with 4 bytes)
+  //
+  // For numeric encoder the maximal delta is practically not a limit (see structs `EncodingHeader` and `NumEncodingCommon`)
+  if (delta > UINT32_MAX && encoder != encodeNumeric) {
     blk = InvertedIndex_AddBlock(idx, docId);
     delta = 0;
   }
 
   BufferWriter bw = NewBufferWriter(&blk->buf);
 
-  // printf("Writing docId %llu, delta %llu, flags %x\n", docId, delta, (int)idx->flags);
   size_t ret = encoder(&bw, delta, entry);
 
   idx->lastId = docId;
   blk->lastId = docId;
-  ++blk->numDocs;
-  ++idx->numDocs;
-
+  ++blk->numEntries;
+  if (!same_doc) {    
+    ++idx->numDocs;
+  }
+  if (encoder == encodeNumeric) {
+    ++idx->numEntries;
+  }
+  
   return ret;
 }
 
@@ -627,48 +711,56 @@ DECODER(readNumeric) {
   Buffer_Read(br, &header, 1);
 
   res->docId = 0;
-  Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding + 1);
-
-  if (header.encCommon.isFloat) {
-    if (header.encFloat.isInf) {
-      res->num.value = INFINITY;
-    } else if (header.encFloat.isDouble) {
-      Buffer_Read(br, &res->num.value, 8);
-    } else {
-      float f;
-      Buffer_Read(br, &f, 4);
-      res->num.value = f;
-    }
-    if (header.encFloat.sign) {
-      res->num.value = -res->num.value;
-    }
-  } else if (header.encTiny.isTiny) {
-    // Is embedded into the header
-    res->num.value = header.encTiny.tinyValue;
-
-  } else {
-    // Is a whole number
-    uint64_t num = 0;
-    Buffer_Read(br, &num, header.encInt.valueByteCount + 1);
-    res->num.value = num;
-    if (header.encInt.sign) {
-      res->num.value = -res->num.value;
-    }
+  // Read the delta (if not zero)
+  if (header.encCommon.deltaEncoding) {
+    Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding);
   }
 
-  // printf("res->num.value: %lf\n", res->num.value);
+  switch (header.encCommon.type) {
+    case NUM_ENCODING_COMMON_TYPE_FLOAT:
+      if (header.encFloat.isInf) {
+        res->num.value = INFINITY;
+      } else if (header.encFloat.isDouble) {
+        Buffer_Read(br, &res->num.value, 8);
+      } else {
+        float f;
+        Buffer_Read(br, &f, 4);
+        res->num.value = f;
+      }
+      if (header.encFloat.sign) {
+        res->num.value = -res->num.value;
+      }
+      break;
+
+    case NUM_ENCODING_COMMON_TYPE_TINY:
+      // Is embedded into the header
+      res->num.value = header.encTiny.tinyValue;
+      break;
+
+    case NUM_ENCODING_COMMON_TYPE_POSITIVE_INT:
+    case NUM_ENCODING_COMMON_TYPE_NEG_INT:
+      {
+        // Is a none-zero integer (zero is represented as tiny)
+        uint64_t num = 0;
+        Buffer_Read(br, &num, header.encInt.valueByteCount + 1);
+        res->num.value = num;
+        if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_NEG_INT) {
+          res->num.value = -res->num.value;
+        }
+      }
+      break;
+  }
 
   NumericFilter *f = ctx->ptr;
   if (f) {
     if (f->geoFilter == NULL) {
       int rv = NumericFilter_Match(f, res->num.value);
-      // printf("Checking against filter: %d\n", rv);
       return rv;
     } else {
       return isWithinRadius(f->geoFilter, res->num.value, NULL);
     }
   }
-  // printf("Field matches.. hurray!\n");
+  
   return 1;
 }
 
@@ -740,7 +832,7 @@ SKIPPER(seekRawDocIdsOnly) {
       break;
     }
     if (curVal > delta) {
-      end = cur;
+      end = cur - 1;
     } else {
       start = cur + 1;
     }
@@ -780,6 +872,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
   procs.decoder = reader;                \
   procs.seeker = seeker_;                \
   return procs;
+
   IndexDecoderProcs procs = {0};
   switch (flags & INDEX_STORAGE_MASK) {
 
@@ -841,7 +934,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
 }
 
 IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax) {
+                              double rangeMin, double rangeMax, int skipMulti) {
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -849,7 +942,7 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
 
   IndexDecoderCtx ctx = {.ptr = (void *)flt, .rangeMin = rangeMin, .rangeMax = rangeMax};
   IndexDecoderProcs procs = {.decoder = readNumeric};
-  return NewIndexReaderGeneric(sp, idx, procs, ctx, res);
+  return NewIndexReaderGeneric(sp, idx, procs, ctx, skipMulti, res);
 }
 
 typedef struct {
@@ -979,6 +1072,18 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     if (!rv) {
       continue;
     }
+
+    if (ir->skipMulti) {
+    // Avoid returning the same doc
+    //
+    // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
+    // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.    
+      if( ir->sameId == ir->lastId) {
+        continue;
+      }
+      ir->sameId = ir->lastId;
+    }
+    
 
     ++ir->len;
     *e = record;
@@ -1121,7 +1226,7 @@ size_t IR_NumDocs(void *ctx) {
 }
 
 static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedIndex *idx,
-                             IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
+                             IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
                              RSIndexResult *record) {
   ret->currentBlock = 0;
   ret->idx = idx;
@@ -1129,6 +1234,8 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->record = record;
   ret->len = 0;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
+  ret->sameId = 0;
+  ret->skipMulti = skipMulti;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
   ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;
@@ -1138,10 +1245,10 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
 }
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
-                                          IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
+                                          IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
                                           RSIndexResult *record) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
-  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, record);
+  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, skipMulti, record);
   return ret;
 }
 
@@ -1164,7 +1271,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 
   IndexDecoderCtx dctx = {.num = fieldMask};
 
-  return NewIndexReaderGeneric(sp, idx, decoder, dctx, record);
+  return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
 }
 
 void IR_Free(IndexReader *ir) {
@@ -1253,6 +1360,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
 
   params->bytesBeforFix = blk->buf.offset;
 
+  int docExists;
   while (!BufferReader_AtEnd(&br)) {
     static const IndexDecoderCtx empty = {0};
     const char *bufBegin = BufferReader_Current(&br);
@@ -1270,20 +1378,27 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
         res->docId = (*(uint32_t *)&res->docId) + firstReadId;
       }
     }
+    // Increment frags only when moving to the next doc
+    // (do not increment when moving to the next entry in the same doc)
+    int fragsIncr = (isFirstRes || (lastReadId != res->docId)) ? 1 : 0;
     isFirstRes = false;
     lastReadId = res->docId;
-    int docExists = DocTable_Exists(dt, res->docId);
+    
+    // Lookup the doc (for the same doc use the previous result)
+    docExists = fragsIncr ? DocTable_Exists(dt, res->docId) : docExists;
 
     // If we found a deleted document, we increment the number of found "frags",
     // and not write anything, so the reader will advance but the writer won't.
     // this will close the "hole" in the index
     if (!docExists) {
-      if (!frags++) {
+      if (!frags) {
         // First invalid doc; copy everything prior to this to the repair
         // buffer
         Buffer_Write(&bw, blk->buf.data, bufBegin - blk->buf.data);
       }
+      frags += fragsIncr;
       params->bytesCollected += sz;
+      ++params->entriesCollected;
       isLastValid = 0;
     } else {
       if (params->RepairCallback) {
@@ -1321,14 +1436,14 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     }
   }
   if (frags) {
-    // If we deleted stuff from this block, we need to change the number of docs and the data
+    // If we deleted stuff from this block, we need to change the number of entries and the data
     // pointer
-    blk->numDocs -= frags;
+    blk->numEntries -= params->entriesCollected;
     Buffer_Free(&blk->buf);
     blk->buf = repair;
     Buffer_ShrinkToSize(&blk->buf);
   }
-  if (blk->numDocs == 0) {
+  if (blk->numEntries == 0) {
     // if we left with no elements we do need to keep the
     // first id so the binary search on the block will still working.
     // The last_id will turn zero indicating there is no records in

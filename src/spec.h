@@ -235,6 +235,7 @@ typedef struct {
 
 typedef struct IndexSpec {
   char *name;                     // Index name
+  size_t nameLen;                 // Index name length
   uint64_t uniqueId;              // Id of index
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields

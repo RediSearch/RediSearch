@@ -68,6 +68,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, int savePayloads);
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
 void TrieType_Digest(RedisModuleDigest *digest, void *value);
+size_t TrieType_MemUsage(void *value);
 void TrieType_Free(void *value);
 
 #ifdef __cplusplus

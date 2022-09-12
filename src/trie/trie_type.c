@@ -362,13 +362,22 @@ void TrieType_Free(void *value) {
   rm_free(tree);
 }
 
+size_t TrieType_MemUsage(void *value) {
+  Trie *t = value;
+  return t->size * (sizeof(TrieNode) +    // size of struct
+                    sizeof(TrieNode *) +  // size of ptr to struct in parent node
+                    sizeof(rune) +        // rune key to children in parent node
+                    2 * sizeof(rune));    // each node contains some runes as str[]
+}
+
 int TrieType_Register(RedisModuleCtx *ctx) {
 
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = TrieType_RdbLoad,
                                .rdb_save = TrieType_RdbSave,
                                .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .free = TrieType_Free};
+                               .free = TrieType_Free,
+                               .mem_usage = TrieType_MemUsage};
 
   TrieType = RedisModule_CreateDataType(ctx, "trietype0", TRIE_ENCVER_CURRENT, &tm);
   if (TrieType == NULL) {
