@@ -71,7 +71,6 @@ typedef struct {
   NumericRangeNode *root;
   size_t numRanges;
   size_t numEntries;
-  size_t card;
   t_docId lastDocId;
 
   uint32_t revisionId;
@@ -85,7 +84,7 @@ typedef struct {
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
 struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
-                                              const NumericFilter *f);
+                                              const NumericFilter *f, int skipMulti);
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType);
@@ -120,7 +119,7 @@ NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
 NumericRangeTree *NewNumericRangeTree();
 
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
-NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
+NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti);
 
 /* Remove a node containing a range with value.
    Returns 1 if node was found, 0 otherwise */
@@ -147,6 +146,16 @@ void NumericIndexType_Free(void *value);
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
+
+#ifdef _DEBUG
+static inline void PRINT_INDENT(int indent) {
+  for (int i = 0; i < indent; ++i)
+    printf("  ");
+}
+
+void NumericRangeNode_Dump(NumericRangeNode *n, int indent);
+void NumericRange_Dump(NumericRange *r, int indent);
+#endif // #ifdef _DEBUG
 
 #ifdef __cplusplus
 }

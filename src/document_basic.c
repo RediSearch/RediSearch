@@ -351,11 +351,16 @@ void Document_Clear(Document *d) {
           rm_free(field->strval);
           break;
         case FLD_VAR_T_ARRAY:
-          for (int i = 0; i < field->arrayLen; ++i) {
-            rm_free(field->multiVal[i]);
+          if (field->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG)) {
+            for (int i = 0; i < field->arrayLen; ++i) {
+              rm_free(field->multiVal[i]);
+            }
+            rm_free(field->multiVal);
+            field->arrayLen = 0;
+          } else if (field->indexAs & INDEXFLD_T_NUMERIC) {
+            array_free(field->arrNumval);
           }
-          rm_free(field->multiVal);
-          field->arrayLen = 0;
+          break;
         case FLD_VAR_T_GEO:
         case FLD_VAR_T_NUM:
         case FLD_VAR_T_NULL:

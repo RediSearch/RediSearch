@@ -23,7 +23,7 @@ typedef struct {
   t_docId firstId;
   t_docId lastId;
   Buffer buf;
-  uint16_t numDocs;
+  uint16_t numEntries;
 } IndexBlock;
 
 typedef struct InvertedIndex {
@@ -33,9 +33,12 @@ typedef struct InvertedIndex {
   t_docId lastId;
   uint32_t numDocs;
   uint32_t gcMarker;
-  // fieldMask must remain at the end as memory is not allocate for it
-  // if not required
-  t_fieldMask fieldMask;
+  // The following union must remain at the end as memory is not allocate for it
+  // if not required (see function `NewInvertedIndex`)
+  union {
+    t_fieldMask fieldMask;
+    uint64_t numEntries;
+  };
 } InvertedIndex;
 
 struct indexReadCtx;
@@ -62,8 +65,9 @@ typedef void (*RepairCallback)(const RSIndexResult *res, void *arg);
 typedef struct {
   size_t bytesBeforFix;
   size_t bytesAfterFix;
-  size_t bytesCollected; /** out: Number of bytes collected */
-  size_t docsCollected;  /** out: Number of documents collected */
+  size_t bytesCollected;    /** out: Number of bytes collected */
+  size_t docsCollected;     /** out: Number of documents collected */
+  size_t entriesCollected;  /** out: Number of entries collected */
   size_t limit;          /** in: how many index blocks to scan at once */
 
   /** in: Callback to invoke when a document is collected */
@@ -127,6 +131,10 @@ typedef struct IndexReader {
   InvertedIndex *idx;
   // last docId, used for delta encoding/decoding
   t_docId lastId;
+  // same docId, used for detecting same doc (with multi values)
+  t_docId sameId;
+  // Whether to skip multi values from the same doc
+  int skipMulti;
   uint32_t currentBlock;
 
   /* The decoder's filtering context. It may be a number or a pointer. The number is used for
@@ -174,7 +182,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
  * is
  * NULL we will return all the records in the index */
 IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax);
+                              double rangeMin, double rangeMax, int skipMulti);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */
@@ -232,6 +240,11 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
 static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
   return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
 }
+
+#ifdef _DEBUG
+void InvertedIndex_Dump(InvertedIndex *idx, int indent);
+void IndexBlock_Dump(IndexBlock *b, int indent);
+#endif // #ifdef _DEBUG
 
 #ifdef __cplusplus
 }
