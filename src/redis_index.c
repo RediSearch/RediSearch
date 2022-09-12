@@ -127,7 +127,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len) {
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
-  size_t nameLen = strlen(ctx->spec->name);
+  size_t nameLen = ctx->spec->nameLen;
 
   char *buf, *bufDyn = NULL;
   if (nameLen + len + 10 > sizeof(buf_s)) {

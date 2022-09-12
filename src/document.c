@@ -175,7 +175,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->indexer = sp->indexer;
   aCtx->spec = sp;
   if (aCtx->specFlags & Index_Async) {
-    size_t len = strlen(sp->name) + 1;
+    size_t len = sp->nameLen + 1;
     if (aCtx->specName == NULL) {
       aCtx->specName = rm_malloc(len);
     } else if (len > aCtx->specNameLen) {
