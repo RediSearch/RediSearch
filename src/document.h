@@ -57,6 +57,7 @@ typedef struct DocumentField{
       size_t strlen;
     };
     double numval;
+    arrayof(double) arrNumval;
     struct {
       double lon, lat;
     };
