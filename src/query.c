@@ -1855,7 +1855,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     //                                          will be enable if field was declared phonetic
 
   } else if (STR_EQCASE(attr->name, attr->namelen, YIELD_DISTANCE_ATTRIBUTE) && qn->opts.flags & QueryNode_YieldsDistance) {
-    qn->opts.distField = strdup(attr->value);
+    qn->opts.distField = rm_strndup(attr->value, attr->vallen);
     res = 1;
 
   } else if (qn->type == QN_VECTOR) {

@@ -14,9 +14,9 @@ def test_sanity():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
-    score_field_syntax = {'AS': 'AS score]', 'attribute': ']=>{$yield_distance_as:score}'}
+    score_field_syntaxs = ['AS score]', ']=>{$yield_distance_as:score}']
     for vs_type in vecsim_type:
-        for opt in score_field_syntax:
+        for score_field_syntax in score_field_syntaxs:
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
             conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
             conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
@@ -27,14 +27,14 @@ def test_sanity():
                       'b', ['score', '3.09485009821e+26', 'v', 'aaaabaaa'],
                       'c', ['score', '2.02824096037e+31', 'v', 'aaaaabaa'],
                       'd', ['score', '1.32922799578e+36', 'v', 'aaaaaaba']]
-            env.expect('FT.SEARCH', 'idx', f'*=>[KNN 4 @v $blob {score_field_syntax[opt]}', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'score', 'ASC').equal(res)
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN 4 @v $blob {score_field_syntax}', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'score', 'ASC').equal(res)
 
             # todo: make test work on coordinator
             res = [4, 'c', ['score', '0', 'v', 'aaaaabaa'],
                       'b', ['score', '2.01242627636e+31', 'v', 'aaaabaaa'],
                       'a', ['score', '2.02824096037e+31', 'v', 'aaaaaaaa'],
                       'd', ['score', '1.31886368448e+36', 'v', 'aaaaaaba']]
-            env.expect('FT.SEARCH', 'idx', f'*=>[KNN 4 @v $blob {score_field_syntax[opt]}', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'score', 'ASC').equal(res)
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN 4 @v $blob {score_field_syntax}', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'score', 'ASC').equal(res)
 
             expected_res = ['__v_score', '0', 'v', 'aaaaaaaa']
             res = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 1 @v $blob]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
@@ -363,6 +363,7 @@ def testSearchErrors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 5 EF_RUNTIME 6]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_FUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EF_RUNTIME: 5; $EF_RUNTIME: 6;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
 
     # ef_runtime is invalid for FLAT index.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v_flat $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
