@@ -1560,10 +1560,10 @@ static void WI_Free(IndexIterator *it) {
 /* Read reads the next consecutive id, unless we're at the end */
 static int WI_Read(void *ctx, RSIndexResult **hit) {
   WildcardIteratorCtx *nc = ctx;
+  CURRENT_RECORD(nc)->docId = ++nc->current;
   if (nc->current > nc->topId) {
     return INDEXREAD_EOF;
   }
-  CURRENT_RECORD(nc)->docId = ++nc->current;
   if (hit) {
     *hit = CURRENT_RECORD(nc);
   }
