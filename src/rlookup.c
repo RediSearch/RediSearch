@@ -660,25 +660,16 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
     goto done;
   }
 
-  RedisModuleString *value = NULL;
-  RedisJSON jsonValue = japi->next(jsonIter);
-  if (!jsonValue || japi->getJSON(jsonRoot, ctx, &value) != REDISMODULE_OK) {
-    if (value) {
-      RedisModule_FreeString(ctx, value);
+  RSValue *vptr;
+  if (jsonIterToValue(ctx, jsonIter, &vptr) == REDISMODULE_ERR) {
+      goto done;
     }
-    goto done;
-  }
-
   RLookupKey *rlk = RLookup_GetKeyEx(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
-  RSValue *vptr = RS_StealRedisStringVal(value);
   RLookup_WriteOwnKey(rlk, dst, vptr);
 
   rc = REDISMODULE_OK;
 
 done:
-  if (jsonIter) {
-    japi->freeIter(jsonIter);
-  }
   return rc;
 }
 
