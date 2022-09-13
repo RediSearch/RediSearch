@@ -33,6 +33,27 @@ def testBasicGC(env):
     env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[int(i) for i in range(2, 102)]])
     env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [int(i) for i in range(2, 102)]]])
 
+def testBasicGCWithEmptyInvIdx(env):
+    if env.isCluster():
+        raise unittest.SkipTest()
+    if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
+        # this test is not relevent for legacy gc cause its not squeshing inverted index
+        raise unittest.SkipTest()
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
+    waitForIndex(env, 'idx')
+    env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                         'title', 'hello world'))
+
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [1])
+
+    env.assertEqual(env.cmd('ft.del', 'idx', 'doc1'), 1)
+
+    forceInvokeGC(env, 'idx')
+
+    # check that the gc collected the deleted docs
+    env.expect('ft.debug', 'DUMP_INVIDX', 'idx', 'world').error().contains('Can not find the inverted index')
+
 def testNumericGCIntensive(env):
     if env.isCluster():
         raise unittest.SkipTest()
