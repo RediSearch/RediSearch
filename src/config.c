@@ -28,7 +28,6 @@
     RETURN_PARSE_ERROR(rc); \
   }
 
-#define CONFIG_SETTER(name) static int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
 
 #define CONFIG_GETTER(name) static sds name(const RSConfig *config)
 
