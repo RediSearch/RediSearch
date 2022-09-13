@@ -228,7 +228,7 @@ This predefined value is set by `RediSearch` configuration parameter `MULTI_TEXT
 
 ## Index JSON arrays as NUMERIC
 
-Starting with RediSearch 2.6.0, search can be done on array of numerical values or on a JSONPath leading to multiple numerical values.
+Starting with RediSearch 2.6.1, search can be done on an array of numerical values or on a JSONPath leading to multiple numerical values.
 
 If you want to index multiple numerical values as NUMERIC, either use a JSONPath leading to a single array of numbers, or a JSONPath leading to multiple numbers, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 

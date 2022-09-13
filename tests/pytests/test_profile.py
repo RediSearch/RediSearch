@@ -2,7 +2,7 @@
 
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, server_version_less_than, server_version_at_least
+from common import *
 from time import sleep
 from RLTest import Env
 
@@ -147,6 +147,13 @@ def testProfileAggregate(env):
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
                 'load', 1, 't',
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix')
+  env.assertEqual(actual_res[1][4], expected_res)
+
+  expected_res = ['Result processors profile',
+                  ['Type', 'Index', 'Counter', 2],
+                  ['Type', 'Sorter', 'Counter', 2],
+                  ['Type', 'Loader', 'Counter', 2]]
+  actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*', 'sortby', 2, '@t', 'asc', 'limit', 0, 10, 'LOAD', 2, '@__key', '@t')
   env.assertEqual(actual_res[1][4], expected_res)
 
 def testProfileCursor(env):
