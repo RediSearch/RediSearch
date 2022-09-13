@@ -109,6 +109,12 @@ struct ArgsCursor {
   size_t argc;
   size_t offset;
 
+  ArgsCursor() {
+    type = AC_TYPE_UNINIT;
+    argc = 0;
+    offset = 0;
+  }
+
   bool IsInitialized() const { return type != AC_TYPE_UNINIT; }
   void *CURRENT() { return objs[offset]; }
   void Clear() {}

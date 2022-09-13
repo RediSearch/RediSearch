@@ -16,12 +16,9 @@
  * calling this function).
  */
 
-Document::Document(RedisModuleString *docKey, double score, RSLanguage lang) {
-  docKey = docKey;
-  score = (float) score;
-  language = lang ? lang : DEFAULT_LANGUAGE;
-  payload = NULL;
-}
+Document::Document(RedisModuleString *docKey, double score, RSLanguage lang) :
+  docKey(docKey), score((float) score), language(lang ? lang : DEFAULT_LANGUAGE),
+  payload(NULL) {}
 
 //---------------------------------------------------------------------------------------------
 
@@ -211,7 +208,7 @@ done:
 void Document::LoadPairwiseArgs(RedisModuleString **args, size_t nargs) {
   fields.reserve(nargs/2);
   for (size_t ii = 0; ii < nargs; ii += 2) {
-    DocumentField *dst;
+    DocumentField *dst = new DocumentField();
     const char *name = RedisModule_StringPtrLen(args[ii], NULL);
     dst->name = name;
     dst->text = args[ii + 1];

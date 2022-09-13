@@ -170,7 +170,7 @@ void GC::Stop() {
   }
 
   RedisModuleCtx* ctx = RSDummyContext;
-  Stop();
+  stopped = true;
 
   GCTask *task = NULL;
   if (RedisModule_StopTimer(ctx, timerID, (void**)&task) == REDISMODULE_OK) {

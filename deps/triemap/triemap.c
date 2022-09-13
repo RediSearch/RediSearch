@@ -21,7 +21,7 @@ size_t TrieMapNode::Sizeof() {
 
 // Create a new trie node. str is a string to be copied into the node, starting from offset up until len.
 
-TrieMapNode::TrieMapNode(std::string_view str, tm_len_t offset, void *value, 
+TrieMapNode::TrieMapNode(std::string_view str, tm_len_t offset, void *value,
     bool terminal) : str(str.data() + offset, str.length() - offset), value(value) {
   flags = terminal ? TM_NODE_TERMINAL : 0;
 }
