@@ -385,8 +385,8 @@ void TrieType_Free(void *value) {
   rm_free(tree);
 }
 
-size_t TrieType_MemUsage(void *value) {
-  Trie *t = value;
+size_t TrieType_MemUsage(const void *value) {
+  const Trie *t = value;
   return t->size * (sizeof(TrieNode) +    // size of struct
                     sizeof(TrieNode *) +  // size of ptr to struct in parent node
                     sizeof(rune) +        // rune key to children in parent node
