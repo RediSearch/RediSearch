@@ -101,6 +101,10 @@ def test_param_errors(env):
     env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').raiseError().contains('Invalid numeric value')
     env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').raiseError().contains('Invalid numeric value')
     env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', 'zzz', 'EF', '10').raiseError().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').raiseError().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').raiseError().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
     env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'ph', 'maybe').raiseError().contains('Invalid value')
 
     # # Test Attribute names must begin with alphanumeric?
@@ -348,6 +352,18 @@ def test_vector(env):
     res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN $k @v $vec EF_RUNTIME $runtime]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args)
     env.assertEqual(res2[1:], res1)
     res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN $k @v $vec EF_RUNTIME 100]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args)
+    env.assertEqual(res2[1:], res1)
+
+    # with query attributes syntax
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec]=>{$yield_distance_as:$score; $EF_RUNTIME:100;}', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'score', '__v_score', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec]=>{$yield_distance_as:$score; $EF_RUNTIME:$ef;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'ef', '100', 'score', '__v_score', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec]=>{$yield_distance_as:score; $EF_RUNTIME:$ef;}', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'ef', '100', 'NOCONTENT')
+    env.assertEqual(res2[1:],  ['b', 'a'])
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec AS __v_score]=>{$EF_RUNTIME:$ef;}', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'ef', '100', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec EF_RUNTIME $ef]=>{$yield_distance_as:__v_score;}', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'ef', '100', *args)
     env.assertEqual(res2[1:], res1)
 
 

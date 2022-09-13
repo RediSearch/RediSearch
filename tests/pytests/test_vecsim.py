@@ -14,38 +14,40 @@ def test_sanity():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     vecsim_type = ['FLAT', 'HNSW']
+    score_field_syntax = {'AS': 'AS score]', 'attribute': ']=>{$yield_distance_as:score}'}
     for vs_type in vecsim_type:
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
-        conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
-        conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
-        conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
-        conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
+        for opt in score_field_syntax:
+            env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', vs_type, '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+            conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+            conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
+            conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
+            conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
 
-        res = [4, 'a', ['score', '0', 'v', 'aaaaaaaa'],
-                  'b', ['score', '3.09485009821e+26', 'v', 'aaaabaaa'],
-                  'c', ['score', '2.02824096037e+31', 'v', 'aaaaabaa'],
-                  'd', ['score', '1.32922799578e+36', 'v', 'aaaaaaba']]
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'score', 'ASC').equal(res)
+            res = [4, 'a', ['score', '0', 'v', 'aaaaaaaa'],
+                      'b', ['score', '3.09485009821e+26', 'v', 'aaaabaaa'],
+                      'c', ['score', '2.02824096037e+31', 'v', 'aaaaabaa'],
+                      'd', ['score', '1.32922799578e+36', 'v', 'aaaaaaba']]
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN 4 @v $blob {score_field_syntax[opt]}', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', 'score', 'ASC').equal(res)
 
-        # todo: make test work on coordinator
-        res = [4, 'c', ['score', '0', 'v', 'aaaaabaa'],
-                  'b', ['score', '2.01242627636e+31', 'v', 'aaaabaaa'],
-                  'a', ['score', '2.02824096037e+31', 'v', 'aaaaaaaa'],
-                  'd', ['score', '1.31886368448e+36', 'v', 'aaaaaaba']]
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS score]', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'score', 'ASC').equal(res)
+            # todo: make test work on coordinator
+            res = [4, 'c', ['score', '0', 'v', 'aaaaabaa'],
+                      'b', ['score', '2.01242627636e+31', 'v', 'aaaabaaa'],
+                      'a', ['score', '2.02824096037e+31', 'v', 'aaaaaaaa'],
+                      'd', ['score', '1.31886368448e+36', 'v', 'aaaaaaba']]
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN 4 @v $blob {score_field_syntax[opt]}', 'PARAMS', '2', 'blob', 'aaaaabaa', 'SORTBY', 'score', 'ASC').equal(res)
 
-        expected_res = ['__v_score', '0', 'v', 'aaaaaaaa']
-        res = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 1 @v $blob]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[2], expected_res)
+            expected_res = ['__v_score', '0', 'v', 'aaaaaaaa']
+            res = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 1 @v $blob]', 'PARAMS', '2', 'blob', 'aaaaaaaa', 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
+            env.assertEqual(res[2], expected_res)
 
-        #####################
-        ## another example ##
-        #####################
-        message = 'aaaaabaa'
-        res = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b]', 'PARAMS', '2', 'b', message, 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[2], ['__v_score', '0', 'v', 'aaaaabaa'])
+            #####################
+            ## another example ##
+            #####################
+            message = 'aaaaabaa'
+            res = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b]', 'PARAMS', '2', 'b', message, 'SORTBY', '__v_score', 'ASC', 'LIMIT', 0, 1)
+            env.assertEqual(res[2], ['__v_score', '0', 'v', 'aaaaabaa'])
 
-        env.execute_command('FT.DROPINDEX', 'idx', 'DD')
+            env.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 def testDel():
@@ -355,6 +357,7 @@ def testSearchErrors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS s]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `s` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS t]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS $score]', 'PARAMS', '4', 'score', 't', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `v` already exists in schema')
 
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME -42]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
@@ -376,10 +379,17 @@ def testSearchErrors():
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 34_not_a_number]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 8 BATCH_SIZE 0]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY bad_policy]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('invalid hybrid policy was given')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY: bad_policy;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('invalid hybrid policy was given')
 
     # Invalid hybrid attributes combinations.
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for 'ADHOC_BF' policy")
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF EF_RUNTIME 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")
+
+    # Invalid query combination with query attributes syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score2;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score2')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 100]=>{$EF_RUNTIME:200;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS $score_1]=>{$yield_distance_as:$score_2;}', 'PARAMS', '6', 'b', 'abcdefgh', 'score_1', 'score_1_val', 'score_2', 'score_2_val').error().contains('Distance field was specified twice for vector query: score_1_val and score_2_val')
+    env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:__v_score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and __v_score')
 
 
 def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors):
@@ -1167,7 +1177,7 @@ def test_hybrid_query_change_policy():
     execute_hybrid_query(env, query_string, vectors[0], 'tag2',
                          hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal([0])
     # Ask explicitly to use AD-HOC policy.
-    query_string_adhoc_bf = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param HYBRID_POLICY ADHOC_BF]'
+    query_string_adhoc_bf = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param]=>{$HYBRID_POLICY: ADHOC_BF}'
     execute_hybrid_query(env, query_string_adhoc_bf, vectors[0], 'tag2', hybrid_mode='HYBRID_ADHOC_BF').equal([0])
 
     # Add one valid document and re-run the query (still expect to change to AD-HOC BF)

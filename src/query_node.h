@@ -126,7 +126,10 @@ typedef struct {
 typedef enum {
   QueryNode_Verbatim = 0x01,
   QueryNode_OverriddenInOrder = 0x02,
+  QueryNode_YieldsDistance = 0x04,
 } QueryNodeFlags;
+
+#define YIELD_DISTANCE_ATTRIBUTE "yield_distance_as"
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
  * Currently supported are `weight`, `slop`, and `inorder`.
@@ -150,6 +153,7 @@ typedef struct {
   int inOrder;
   double weight;
   int phonetic;
+  char *distField;
 } QueryNodeOptions;
 
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;

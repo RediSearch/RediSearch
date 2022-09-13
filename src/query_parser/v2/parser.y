@@ -40,6 +40,10 @@
 %fallback STOPWORD AS_S.
 %fallback TERM AS_T.
 
+// Use the same fallback directives for the keyword "vector_range"
+%fallback STOPWORD VECTOR_RANGE_S.
+%fallback TERM VECTOR_RANGE_T.
+
 %token_type {QueryToken}
 
 %name RSQueryParser_v2_
@@ -185,9 +189,6 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type vector_command { QueryNode *}
 %destructor vector_command { QueryNode_Free($$); }
-
-%type vector_range_query { QueryNode *}
-%destructor vector_range_query { QueryNode_Free($$); }
 
 %type vector_range_command { QueryNode *}
 %destructor vector_range_command { QueryNode_Free($$); }
@@ -499,6 +500,21 @@ text_expr(A) ::= LP text_expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
+  const char *value = rm_strndup(C.s, C.len);
+  size_t value_len = C.len;
+  if (C.type == QT_PARAM_TERM) {
+    size_t found_value_len;
+    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
+    if (found_value) {
+      rm_free((char*)value);
+      value = rm_strndup(found_value, found_value_len);
+      value_len = found_value_len;
+    }
+  }
+  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = value, .vallen = value_len };
+}
+
+attribute(A) ::= ATTRIBUTE(B) COLON STOPWORD(C). {
   const char *value = rm_strndup(C.s, C.len);
   size_t value_len = C.len;
   if (C.type == QT_PARAM_TERM) {
@@ -950,6 +966,52 @@ vector_score_field(A) ::= as STOPWORD(B). {
   A.type = QT_TERM;
 }
 
+// Use query attributes syntax
+query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+  if (A) {
+    QueryNode_AddChild(B, A);
+  }
+  if (B && C) {
+     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+  }
+}
+
+query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+    if (B && C) {
+       QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+    }
+  if (A) {
+    QueryNode_AddChild(B, A);
+  }
+}
+
+query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+    if (B && C) {
+       QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+    }
+}
+
 // Every vector query will have basic command part.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
@@ -957,6 +1019,7 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->property = rm_strndup(C.s, C.len);
+    A->opts.flags |= QueryNode_YieldsDistance;
     RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s)));
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
@@ -989,46 +1052,18 @@ vector_attribute_list(A) ::= vector_attribute(B). {
 }
 
 /*** Vector range queries ***/
-expr(A) ::= modifier(B) COLON LSQB vector_range_query(C) RSQB. {
+expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
     C->vn.vq->property = rm_strndup(B.s, B.len);
-    if (C->vn.vq->scoreField == NULL) {
-        RedisModule_Assert(-1 != (rm_asprintf(&C->vn.vq->scoreField, "__%.*s_score", B.len, B.s)));
-    }
     A = C;
 }
 
-vector_range_query(A) ::= vector_range_command(B). {
-    A = B;
-}
+vector_range ::= VECTOR_RANGE_S .
+vector_range ::= VECTOR_RANGE_T .
 
-vector_range_query(A) ::= vector_range_command(B) vector_attribute_list(C). {
-  B->vn.vq->params = C;
-  A = B;
-}
-
-vector_range_query(A) ::= vector_range_command(B) vector_score_field(C). {
-  B->params = array_grow(B->params, 1);
-  memset(&array_tail(B->params), 0, sizeof(*B->params));
-  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &C);
-  A = B;
-}
-
-vector_range_query(A) ::= vector_range_command(B) vector_attribute_list(C) vector_score_field(D). {
-  B->params = array_grow(B->params, 1);
-  memset(&array_tail(B->params), 0, sizeof(*B->params));
-  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
-  B->vn.vq->params = C;
-  A = B;
-}
-
-vector_range_command(A) ::= TERM(T) param_num(B) ATTRIBUTE(C). {
-  if (strncasecmp("RANGE", T.s, T.len)) {
-    reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity RANGE command");
-    A = NULL;
-  } else {
+vector_range_command(A) ::= vector_range param_num(B) ATTRIBUTE(C). {
     C.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_RANGE, &B, &C);
-  }
+    A->opts.flags |= QueryNode_YieldsDistance;
 }
 
 /////////////////////////////////////////////////////////////////
