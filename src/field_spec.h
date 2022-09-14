@@ -89,6 +89,7 @@ struct FieldSpec {
   // TODO: More options here..
 
   FieldSpec(int idx, char *name) : index(idx), name(rm_strdup(name)) {
+    types = 0;
     ftId = (t_fieldId)-1;
     ftWeight = 1.0;
     sortIdx = -1;
@@ -98,7 +99,7 @@ struct FieldSpec {
 
   void SetSortable();
   void Cleanup();
-  void Initialize(FieldType types);
+  void Initialize(FieldType type);
 
   bool IsSortable() const { return options & FieldSpec_Sortable; }
   bool IsNoStem() const { return options & FieldSpec_NoStemming; }
