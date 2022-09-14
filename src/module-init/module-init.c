@@ -25,6 +25,7 @@ REDISMODULE_INIT_SYMBOLS();
 #include "alias.h"
 #include "aggregate/aggregate.h"
 #include "ext/default.h"
+#include "rwlock.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -128,6 +129,8 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
 
   // Disable concurrent mode:
   RSGlobalConfig.concurrentMode = 0;
+  RSGlobalConfig.minTermPrefix = 0;
+  RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
   return REDISMODULE_OK;
 }
 
@@ -140,6 +143,10 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #define DO_LOG(...)                               \
   if (ctx && (mode != REDISEARCH_INIT_LIBRARY)) { \
     RedisModule_Log(ctx, ##__VA_ARGS__);          \
+  }
+
+  if (RediSearch_LockInit(ctx) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
   }
 
   // Print version string!
@@ -159,7 +166,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #endif // 0
 
   sds confstr = RSGlobalConfig.GetInfoString();
-  DO_LOG("notice", confstr);
+  DO_LOG("notice", "%s", confstr);
   sdsfree(confstr);
 
   // Init extension mechanism
@@ -169,7 +176,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     ConcurrentSearch::ThreadPoolStart();
   }
 
-  GC::ThreadPoolStart();
+  // GC::ThreadPoolStart();
 
   // Init cursors mechanism
   RSCursors = new CursorList();

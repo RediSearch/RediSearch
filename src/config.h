@@ -51,10 +51,14 @@ struct RSConfigOptions {
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
 struct RSConfig {
+  // Version of Redis server
+  int serverVersion;
   // Use concurrent serach (default: 1, disable with SAFEMODE)
   int concurrentMode;
   // If not null, this points at a .so file of an extension we try to load (default: NULL)
   const char *extLoad;
+  // Path to friso.ini for chinese dictionary file
+  const char *frisoIni;
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   int enableGC;
 
@@ -68,8 +72,6 @@ struct RSConfig {
   // 0 means unlimited
   long long queryTimeoutMS;
 
-  long long timeoutPolicy;
-
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
 
@@ -77,31 +79,36 @@ struct RSConfig {
   // longer ones
   long long cursorMaxIdle;
 
-  size_t maxDocTableSize;
+  long long timeoutPolicy;
 
+  size_t maxDocTableSize;
+  size_t maxSearchResults;
   size_t searchPoolSize;
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
 
   size_t gcScanSize;
-  GCPolicy gcPolicy;
-
-  size_t forkGcRunIntervalSec;
-  size_t forkGcRetryInterval;
-  size_t forkGcSleepBeforeExit;
-  size_t forkGcCleanThreshold;
 
   size_t minPhoneticTermLen;
+
+  GCPolicy gcPolicy;
+  size_t forkGcRunIntervalSec;
+  size_t forkGcCleanThreshold;
+  size_t forkGcRetryInterval;
+  size_t forkGcSleepBeforeExit;
+
+  // Chained configuration data
+  void *chainedConfig;
 
   long long maxResultsToUnsortedMode;
 
   int noMemPool;
 
-  // Chained configuration data
-  void *chainedConfig;
+  // compress double to float
+  int numericCompress;
 
-  // Path to friso.ini for chinese dictionary file
-  const char *frisoIni;
+  // FT.ADD with REPLACE deletes old field
+  int replaceDeleteField;
 
   void DumpProto(const RSConfigOptions *options, const char *name,
                  RedisModuleCtx *ctx, int isHelp) const;
@@ -136,6 +143,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err);
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 10
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
+#define SEARCH_REQUEST_RESULTS_MAX 1000000
 
 // default configuration
 #define RS_DEFAULT_CONFIG  \
@@ -146,20 +154,31 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err);
     minTermPrefix: 2,  \
     maxPrefixExpansions: 200,  \
     queryTimeoutMS: 500,  \
-    timeoutPolicy: TimeoutPolicy_Return,  \
     cursorReadSize: 1000,  \
     cursorMaxIdle: 300000,  \
+    timeoutPolicy: TimeoutPolicy_Return,  \
     maxDocTableSize: DEFAULT_DOC_TABLE_SIZE,  \
+    maxSearchResults: SEARCH_REQUEST_RESULTS_MAX, \
     searchPoolSize: CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,  \
     indexPoolSize: CONCURRENT_INDEX_POOL_DEFAULT_SIZE,  \
     poolSizeNoAuto: 0,  \
     gcScanSize: GC_SCANSIZE,  \
+    minPhoneticTermLen: DEFAULT_MIN_PHONETIC_TERM_LEN,  \
     gcPolicy: GCPolicy_Fork,  \
     forkGcRunIntervalSec: DEFAULT_FORK_GC_RUN_INTERVAL,  \
+    forkGcCleanThreshold: 0,  \
     forkGcRetryInterval: 5,  \
     forkGcSleepBeforeExit: 0,  \
-    forkGcCleanThreshold: 0,  \
-    minPhoneticTermLen: DEFAULT_MIN_PHONETIC_TERM_LEN,  \
     maxResultsToUnsortedMode: DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE,  \
     noMemPool: 0,  \
+    numericCompress: 1, \
+    replaceDeleteField: 0, \
   }
+
+#define REDIS_ARRAY_LIMIT 7
+#define NO_REPLY_DEPTH_LIMIT 0x00060020
+
+static inline int isFeatureSupported(int feature) {
+  return feature <= RSGlobalConfig.serverVersion;
+}
+

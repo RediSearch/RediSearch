@@ -35,7 +35,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
+// pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \

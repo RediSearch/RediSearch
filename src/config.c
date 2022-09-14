@@ -38,6 +38,21 @@
     return sdsnew(cv ? "true" : "false");        \
   }
 
+#define CONFIG_BOOLEAN_SETTER(name, var)                        \
+  CONFIG_SETTER(name) {                                         \
+    const char *tf;                                             \
+    int acrc = ac->GetString(&tf, NULL, 0);                     \
+    CHECK_RETURN_PARSE_ERROR(acrc);                             \
+    if (!strcmp(tf, "true") || !strcmp(tf, "TRUE")) {           \
+      config->var = 1;                                          \
+    } else if (!strcmp(tf, "false") || !strcmp(tf, "FALSE")) {  \
+      config->var = 0;                                          \
+    } else {                                                    \
+      acrc = AC_ERR_PARSE;                                      \
+    }                                                           \
+    RETURN_STATUS(acrc);                                        \
+  }
+
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
   int acrc = ac->GetString(&config->extLoad, NULL, 0);
@@ -119,6 +134,26 @@ CONFIG_SETTER(setMaxDocTableSize) {
 CONFIG_GETTER(getMaxDocTableSize) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->maxDocTableSize);
+}
+
+// MAXSEARCHRESULTS
+CONFIG_SETTER(setMaxSearchResults) {  
+  long long newsize = 0;
+  int acrc = ac->GetLongLong(&newsize, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newsize == -1) {
+    newsize = UINT64_MAX;
+  }
+  config->maxSearchResults = newsize;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxSearchResults) {
+  sds ss = sdsempty();
+  if (config->maxSearchResults == UINT64_MAX) {
+    return sdscatprintf(ss, "unlimited"); 
+  }
+  return sdscatprintf(ss, "%lu", config->maxSearchResults);
 }
 
 // MAXEXPANSIONS
@@ -267,6 +302,14 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
   return sdscatprintf(ss, "%lu", config->minPhoneticTermLen);
 }
 
+// _NUMERIC_COMPRESS
+CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
+CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
+
+// REPLACE_DELETE_HASH_FIELD
+CONFIG_BOOLEAN_SETTER(setReplaceDeleteField, replaceDeleteField)
+CONFIG_BOOLEAN_GETTER(getReplaceDeleteField, replaceDeleteField, 0)
+
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = ac->GetString(&policy, NULL, 0);
@@ -303,6 +346,10 @@ static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *nam
 int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   *err = NULL;
   QueryError status;
+
+  if (RedisModule_GetServerVersion) {   // for rstest
+    RSGlobalConfig.serverVersion = RedisModule_GetServerVersion();
+  }
 
   if (getenv("RS_MIN_THREADS")) {
     printf("Setting thread pool sizes to 1\n");
@@ -371,6 +418,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          setValue: setMaxDocTableSize,
          getValue: getMaxDocTableSize,
          flags: RSCONFIGVAR_F_IMMUTABLE},
+        {name: "MAXSEARCHRESULTS",
+         helpText: "Maximum number of results from ft.search command",
+         setValue: setMaxSearchResults,
+         getValue: getMaxSearchResults},
         {name: "MAXEXPANSIONS",
          helpText: "Maximum prefix expansions to be used in a query",
          setValue: setMaxExpansions,
@@ -436,6 +487,14 @@ RSConfigOptions RSGlobalConfigOptions = {
          setValue: setNoMemPools,
          getValue: getNoMemPools,
          flags: RSCONFIGVAR_F_IMMUTABLE},
+        {name: "_NUMERIC_COMPRESS",
+         helpText: "Enable legacy compression of double to float.",
+         setValue: setNumericCompress,
+         getValue: getNumericCompress},
+        {name: "REPLACE_DELETE_HASH_FIELD",
+         helpText: "Change behavior of FT.ADD with REPLACE to delete the document before reinsertion.",
+         setValue: setReplaceDeleteField,
+         getValue: getReplaceDeleteField},
         {name: NULL}}};
 
 sds RSConfig::GetInfoString() const {
@@ -450,6 +509,9 @@ sds RSConfig::GetInfoString() const {
   ss = sdscatprintf(ss, "cursor read size: %lld, ", cursorReadSize);
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", maxDocTableSize);
+  ss = sdscatprintf(ss, "max number of search results: ");
+  ss = maxSearchResults == UINT64_MAX ? // value for MaxSearchResults
+       sdscatprintf(ss, "unlimited, ") : sdscatprintf(ss, " %lu, ", maxSearchResults);
   ss = sdscatprintf(ss, "search pool size: %lu, ", searchPoolSize);
   ss = sdscatprintf(ss, "index pool size: %lu, ", indexPoolSize);
 

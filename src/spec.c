@@ -1323,22 +1323,4 @@ void IndexSpec::delAlias(ssize_t idx) {
   aliases = array_del_fast(aliases, idx);
 }
 
-//---------------------------------------------------------------------------------------------
-
-void IndexSpec::ClearAliases() {
-  if (!aliases) {
-    return;
-  }
-  for (size_t i = 0; i < array_len(aliases); ++i) {
-    char **pp = &aliases[i];
-    QueryError e;
-    int rc = IndexAlias::Del(*pp, this, INDEXALIAS_NO_BACKREF, &e);
-    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
-    rm_free(*pp);
-    // set to NULL so IndexAlias::Del skips over this
-    *pp = NULL;
-  }
-  array_free(aliases);
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -3,6 +3,9 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 RDCRCount::RDCRCount(const ReducerOptions *options) {
+  if (options->args->argc != 0) {
+    throw Error("Count accepts 0 values only");
+  }
   if (!options->GetKey(&srckey)) {
     throw Error("RDCRCount: no key found");
   }

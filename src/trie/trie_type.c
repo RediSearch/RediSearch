@@ -158,7 +158,7 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
       }
 
     } else {
-      if (ent->score >= it.minScore) {
+      if (ent->score > it.minScore) {
         pooledEntry = pq.poll();
         pooledEntry->clear();
         ent->str = it_runes.toUTF8();
@@ -310,7 +310,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
       count++;
     }
     if (count != tree->size) {
-      RedisModule_Log(ctx, "warning", "Trie: saving %zd nodes actually iterated only %zd nodes",
+      RedisModule_Log(ctx, "warning", "Trie: saving %zd nodes actually iterated only %d nodes",
                       tree->size, count);
     }
   }
