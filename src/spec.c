@@ -1025,7 +1025,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     goto failure;
   }
 
-  if (spec->rule->filter_exp) {
+  if (RuleHasFilter(spec->rule)) {
     SchemaRule_FilterFields(spec->rule);
   }
 
@@ -2688,7 +2688,6 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
 
   if (runFilters) {
 
-    EvalCtx *r = NULL;
     for (size_t i = 0; i < array_len(res->specsOps); ++i) {
       SpecOpCtx *specOp = res->specsOps + i;
       SchemaRule *rule = specOp->spec->rule;
@@ -2696,12 +2695,8 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         continue;
       }
 
-      if (!r) {
-        // load hash only if required
-        r = EvalCtx_Create();
-
-        RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
-      }
+      EvalCtx *r = rule->filterCtx;
+      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
 
       if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
         IndexSpec *spec = rule->spec;
@@ -2709,11 +2704,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
           specOp->op = SpecOp_Del;
         }
       }
+      RLookupRow_Cleanup(&r->row);
+      //RLookup_Cleanup(&r->lk);
       QueryError_ClearError(r->ee.err);
-    }
-
-    if (r) {
-      EvalCtx_Destroy(r);
     }
   }
   return res;

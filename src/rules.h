@@ -18,6 +18,7 @@ extern "C" {
 #define RULE_TYPE_HASH "HASH"
 #define RULE_TYPE_JSON "JSON"
 
+struct EvalCtx;
 struct RSExpr;
 struct IndexSpec;
 
@@ -42,16 +43,21 @@ typedef struct SchemaRule {
   DocumentType type;
   struct IndexSpec *spec;
   arrayof(const char *) prefixes;
+  
+  // filter expression
   char *filter_exp_str;
   struct RSExpr *filter_exp;
-  char **filter_fields;
-  int *filter_fields_index;
+  struct EvalCtx *filterCtx;
+
+  // Parameters for language, score and payload
   char *lang_field;
   char *score_field;
   char *payload_field;
   double score_default;
   RSLanguage lang_default;
 } SchemaRule;
+
+#define RuleHasFilter(rule) ((rule)->filter_exp_str)
 
 /*
  * Free SchemaRuleArgs structure, use this function

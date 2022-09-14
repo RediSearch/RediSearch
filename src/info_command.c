@@ -67,7 +67,7 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
     n += 2;
   }
 
-  if (rule->filter_exp_str) {
+  if (RuleHasFilter(rule)) {
     REPLY_KVSTR(n, "filter", rule->filter_exp_str);
   }
 

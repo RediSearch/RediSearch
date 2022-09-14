@@ -114,12 +114,14 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
 
   rule->spec = spec;
 
-  if (rule->filter_exp_str) {
+  if (RuleHasFilter(rule)) {
     rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, strlen(rule->filter_exp_str), status);
     if (!rule->filter_exp) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid expression");
       goto error;
     }
+
+    rule->filterCtx = EvalCtx_Create();
   }
 
   for (int i = 0; i < array_len(rule->prefixes); ++i) {
@@ -147,24 +149,27 @@ void SchemaRule_FilterFields(SchemaRule *rule) {
   IndexSpec *spec = rule->spec;
   RSExpr_GetProperties(rule->filter_exp, &properties);
   int propLen = array_len(properties);
+
   if (array_len(properties) > 0) {
-    rule->filter_fields = properties;
-    rule->filter_fields_index = rm_calloc(propLen, sizeof(int));
     for (int i = 0; i < propLen; ++i) {
+      int found = 0;
+      RLookup *lk = &rule->filterCtx->lk;
       for (int j = 0; j < spec->numFields; ++j) {
         // a match. save the field index for fast access
         FieldSpec *fs = spec->fields + j;
         if (!strcmp(properties[i], fs->name) || !strcmp(properties[i], fs->path)) {
-          rule->filter_fields_index[i] = j;
+          RLookup_GetKey(lk, fs->path, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC | RLOOKUP_F_DOCSRC);
+          found = 1;
           break;
         }
-        // no match was found we will load the field by the name provided.
-        rule->filter_fields_index[i] = -1;
+      }
+      // no match was found we will load the field by the name provided.
+      if (!found) {
+        RLookup_GetKey(lk, properties[i], RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC | RLOOKUP_F_DOCSRC);
       }
     }
-  } else {
-    array_free(properties);
   }
+  array_free(properties);
 }
 
 void SchemaRule_Free(SchemaRule *rule) {
@@ -174,10 +179,9 @@ void SchemaRule_Free(SchemaRule *rule) {
   rm_free((void *)rule->filter_exp_str);
   if (rule->filter_exp) {
     ExprAST_Free((RSExpr *)rule->filter_exp);
+    EvalCtx_Destroy(rule->filterCtx);
   }
   array_free_ex(rule->prefixes, rm_free(*(char **)ptr));
-  array_free_ex(rule->filter_fields, rm_free(*(char **)ptr));
-  rm_free(rule->filter_fields_index);
   rm_free((void *)rule);
 }
 
@@ -386,13 +390,15 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   SchemaRule *rule = SchemaRule_Create(&args, sp, &status);
   if (!rule) {
     RedisModule_LogIOError(rdb, "warning", "%s", QueryError_GetError(&status));
-    RedisModule_Assert(rule);
-  } else {
-    rule->score_default = score_default;
-    rule->lang_default = lang_default;
-    sp->rule = rule;
+    RS_LOG_ASSERT(rule, "Failed to create schema rule");
   }
-  SchemaRule_FilterFields(rule);
+
+  rule->score_default = score_default;
+  rule->lang_default = lang_default;
+  sp->rule = rule;
+  if (RuleHasFilter(rule)) {
+    SchemaRule_FilterFields(rule);
+  }
 
 cleanup:
   if (args.type) {
@@ -430,7 +436,7 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   for (size_t i = 0; i < array_len(rule->prefixes); ++i) {
     RedisModule_SaveStringBuffer(rdb, rule->prefixes[i], strlen(rule->prefixes[i]) + 1);
   }
-  if (rule->filter_exp_str) {
+  if (RuleHasFilter(rule)) {
     RedisModule_SaveUnsigned(rdb, 1);
     RedisModule_SaveStringBuffer(rdb, rule->filter_exp_str, strlen(rule->filter_exp_str) + 1);
   } else {
