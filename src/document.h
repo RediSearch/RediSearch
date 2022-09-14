@@ -226,7 +226,7 @@ struct AddDocumentCtx : Object { // MemPoolObject<AddDocumentPool> { //@@POOL
   void UpdateNoIndex(RedisSearchCtx *sctx);
   bool ReplaceMerge(RedisSearchCtx *sctx);
 
-  bool SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCount);
+  bool SetDocument(IndexSpec *sp, Document *d, size_t oldFieldCount);
 };
 
 // Don't create document if it does not exist. Replace only

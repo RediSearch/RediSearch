@@ -20,18 +20,18 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCount) {
+bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *d, size_t oldFieldCount) {
   stateFlags &= ~ACTX_F_INDEXABLES;
   stateFlags &= ~ACTX_F_TEXTINDEXED;
   stateFlags &= ~ACTX_F_OTHERINDEXED;
 
-  if (oldFieldCount < doc->NumFields()) {
+  if (oldFieldCount < d->NumFields()) {
     // Pre-allocate the field specs
-    fspecs.reserve(doc->NumFields());
-    fdatas = rm_realloc(fdatas, sizeof(*fdatas) * doc->NumFields());
+    fspecs.reserve(d->NumFields());
+    fdatas = rm_realloc(fdatas, sizeof(*fdatas) * d->NumFields());
   }
 
-  for (size_t i = 0; i < doc->NumFields(); ++i) {
+  for (size_t i = 0; i < d->NumFields(); ++i) {
     // zero out field data. We check at the destructor to see if there is any
     // left-over tag data here; if we've realloc'd, then this contains garbage
     fdatas[i].tags = TagIndex::Tags();
@@ -42,8 +42,8 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCo
   int hasTextFields = 0;
   int hasOtherFields = 0;
 
-  for (size_t i = 0; i < doc->NumFields(); i++) {
-    DocumentField *f = doc->fields[i];
+  for (size_t i = 0; i < d->NumFields(); i++) {
+    DocumentField *f = d->fields[i];
     const FieldSpec *fs = sp->GetField(f->name);
     if (!fs || !f->text) {
       fspecs[i].name = NULL;
@@ -71,7 +71,7 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCo
       // Verify the flags:
       if ((f->indexAs & fs->types) != f->indexAs) {
         status.SetErrorFmt(QUERY_EUNSUPPTYPE,
-                               "Tried to index field %s as type not specified in schema", fs->name);
+                           "Tried to index field %s as type not specified in schema", fs->name);
         return false;
       }
     }
@@ -126,7 +126,7 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *doc, size_t oldFieldCo
     offsetsWriter = *new ByteOffsetWriter();
   }
 
-  Document::Move(doc, doc);
+  Document::Move(&doc, d);
   return true;
 }
 
@@ -568,6 +568,12 @@ int Document::AddToIndexes(AddDocumentCtx *aCtx) {
       }
     }
   }
+
+  // if (!aCtx->indexer->Add(aCtx)) {
+  //   goto cleanup;
+  // }
+
+  return REDISMODULE_OK;
 
 cleanup:
   aCtx->status.SetCode(QUERY_EGENERIC);

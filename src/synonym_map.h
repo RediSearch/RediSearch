@@ -56,7 +56,7 @@ struct SynonymMap : Object {
   SynonymMap* GenerateReadOnlyCopy();
   void CopyEntry(uint64_t key, TermData *t_data); // private
 
-  TermData** DumpAllTerms(size_t *size);
+  Vector<TermData*> DumpAllTerms(size_t *size);
 
   SynonymMap* GetReadOnlyCopy();
 

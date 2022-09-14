@@ -71,16 +71,10 @@ struct Tokenizer : Object {
   uint32_t options;
 
   Tokenizer(StopWordList *stopwords, uint32_t opts) : stopwords(stopwords), options(opts) {}
-  virtual ~Tokenizer() {
-    delete stopwords;
-  }
-
-  // void Release();
 
   // read the next token. Return its position or 0 if we can't read anymore
   virtual uint32_t Next(Token *tok) = 0;
   virtual void Start(char *txt, size_t len, uint32_t options) = 0;
-  // virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
 };
 
 //---------------------------------------------------------------------------------------------

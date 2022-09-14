@@ -63,17 +63,9 @@ size_t Buffer::WriteVarintBuffer(uint32_t value) {
 
 //---------------------------------------------------------------------------------------------
 
-VarintVectorWriter::~VarintVectorWriter() {
-  delete &buf;
-}
-
-//---------------------------------------------------------------------------------------------
-
-VarintVectorWriter::VarintVectorWriter(size_t cap) {
-  lastValue = 0;
-  nmemb = 0;
-  buf = new Buffer(cap);
-}
+VarintVectorWriter::VarintVectorWriter(size_t cap)
+  : lastValue(0), nmemb(0), buf(cap)
+{}
 
 //---------------------------------------------------------------------------------------------
 

@@ -107,7 +107,7 @@ SynonymMap::~SynonymMap() {
     delete read_only_copy;
   }
 
-  delete &h_table;
+  h_table.clear();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -208,12 +208,12 @@ TermData* SynonymMap::GetIdsBySynonym(const char* synonym, size_t len) {
 // Return array of all terms and the group ids they belong to
 // size - a pointer to size_t to retrieve the result size
 
-TermData** SynonymMap::DumpAllTerms(size_t* size) {
+Vector<TermData*> SynonymMap::DumpAllTerms(size_t* size) {
   *size = h_table.size();
-  TermData** dump;
-  int j = 0;
-  for( const auto& [key, val] : h_table ) {
-    dump[j++] = val;
+  Vector<TermData*> dump;
+  dump.reserve(*size);
+  for(const auto& [_, val] : h_table) {
+    dump.push_back(val);
   }
   return dump;
 }

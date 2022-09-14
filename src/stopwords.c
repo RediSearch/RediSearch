@@ -21,6 +21,7 @@ static const char *DEFAULT_STOPWORDS[] = {
 static StopWordList *default_stopwords = NULL;
 
 StopWordList *DefaultStopWordList() {
+  //@@ TODO: need to be released
   if (default_stopwords == NULL) {
     default_stopwords = new StopWordList(DEFAULT_STOPWORDS, sizeof(DEFAULT_STOPWORDS)/sizeof(const char *) - 1);
   }

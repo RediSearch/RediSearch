@@ -320,7 +320,7 @@ int ArgsCursor::ParseArgSpec(ACArgSpec *specs, ACArgSpec **errSpec) {
   size_t n;
   int rv;
 
-  if (errSpec) {
+  if (*errSpec) {
     *errSpec = NULL;
   }
 

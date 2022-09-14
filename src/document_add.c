@@ -291,9 +291,9 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 /* FT.ADDHASH <index> <docId> <score> [LANGUAGE <lang>] [REPLACE]
 *  Index a document that's already saved in redis as a HASH object, unrelated to
-* the module.
+*  the module.
 *  This will not modify the document, just add it to the index if it is not
-* already there.
+*  already there.
 
 ## Parameters:
 
@@ -346,7 +346,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     RedisModuleCtx *ctx;
     QueryError &status;
 	bool error;
-	
+
     ReportError(RedisModuleCtx *ctx, QueryError &status) : ctx(ctx), status(status), error(false) {}
 	~ReportError() {
 	  if (!error) return;
