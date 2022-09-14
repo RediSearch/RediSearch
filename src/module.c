@@ -436,8 +436,9 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   RedisModule_ReplicateVerbatim(ctx);
   QueryError status;
 
-  IndexSpec *sp = new IndexSpec(ctx, argv, argc, &status);
-  if (sp == NULL) {
+  try {
+    IndexSpec *sp = new IndexSpec(ctx, argv, argc, &status);
+  } catch(...) {
     RedisModule_ReplyWithError(ctx, status.GetError());
     status.ClearError();
     return REDISMODULE_OK;
