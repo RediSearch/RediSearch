@@ -105,7 +105,7 @@ def test_param_errors(env):
     env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').raiseError().contains('Invalid numeric value')
     env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').raiseError().contains('Invalid numeric value')
     env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
-    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'ph', 'maybe').raiseError().contains('Invalid value')
+    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph;}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'ph', 'maybe').raiseError().contains('Invalid value')
 
     # # Test Attribute names must begin with alphanumeric?
     # env.expect('FT.SEARCH', 'idx', '@g:[$3 $_4 $p_5 $_]', 'NOCONTENT',

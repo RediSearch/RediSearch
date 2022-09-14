@@ -146,10 +146,10 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %destructor expr { QueryNode_Free($$); }
 
 %type attribute { QueryAttribute }
-%destructor attribute { rm_free((char*)$$.value); }
+%destructor attribute { rm_free((char*)$$.name); rm_free((char*)$$.value); }
 
 %type attribute_list {QueryAttribute *}
-%destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
+%destructor attribute_list {  array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value)); }
 
 %type affix { QueryNode * }
 %destructor affix { QueryNode_Free($$); }
@@ -511,7 +511,7 @@ attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
       value_len = found_value_len;
     }
   }
-  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = value, .vallen = value_len };
+  A = (QueryAttribute){ .name = rm_strndup(B.s, B.len), .namelen = B.len, .value = value, .vallen = value_len };
 }
 
 attribute(A) ::= ATTRIBUTE(B) COLON STOPWORD(C). {
@@ -526,7 +526,7 @@ attribute(A) ::= ATTRIBUTE(B) COLON STOPWORD(C). {
       value_len = found_value_len;
     }
   }
-  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = value, .vallen = value_len };
+  A = (QueryAttribute){ .name = rm_strndup(B.s, B.len), .namelen = B.len, .value = value, .vallen = value_len };
 }
 
 attribute_list(A) ::= attribute(B) . {
@@ -551,7 +551,7 @@ expr(A) ::= expr(B) ARROW LB attribute_list(C) RB . {
     if (B && C) {
         QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
     }
-    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
     A = B;
 }
 
@@ -560,7 +560,7 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
     if (B && C) {
         QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
     }
-    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
     A = B;
 }
 
@@ -981,6 +981,8 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB.
   if (B && C) {
      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
+  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+
 }
 
 query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
@@ -994,6 +996,8 @@ query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C
     if (B && C) {
        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
     }
+    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+
   if (A) {
     QueryNode_AddChild(B, A);
   }
@@ -1010,6 +1014,8 @@ query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
     if (B && C) {
        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
     }
+    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+
 }
 
 // Every vector query will have basic command part.

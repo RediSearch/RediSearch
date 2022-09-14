@@ -1026,12 +1026,12 @@ static void yy_destructor(
       break;
     case 38: /* attribute */
 {
- rm_free((char*)(yypminor->yy25).value); 
+ rm_free((char*)(yypminor->yy25).name); rm_free((char*)(yypminor->yy25).value); 
 }
       break;
     case 39: /* attribute_list */
 {
- array_free_ex((yypminor->yy9), rm_free((char*)((QueryAttribute*)ptr )->value)); 
+  array_free_ex((yypminor->yy9), rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value)); 
 }
       break;
     case 50: /* geo_filter */
@@ -1771,7 +1771,7 @@ static YYACTIONTYPE yy_reduce(
       value_len = found_value_len;
     }
   }
-  yylhsminor.yy25 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = value, .vallen = value_len };
+  yylhsminor.yy25 = (QueryAttribute){ .name = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len), .namelen = yymsp[-2].minor.yy0.len, .value = value, .vallen = value_len };
 }
   yymsp[-2].minor.yy25 = yylhsminor.yy25;
         break;
@@ -1806,7 +1806,7 @@ static YYACTIONTYPE yy_reduce(
     if (yymsp[-4].minor.yy65 && yymsp[-1].minor.yy9) {
         QueryNode_ApplyAttributes(yymsp[-4].minor.yy65, yymsp[-1].minor.yy9, array_len(yymsp[-1].minor.yy9), ctx->status);
     }
-    array_free_ex(yymsp[-1].minor.yy9, rm_free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(yymsp[-1].minor.yy9, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
     yylhsminor.yy65 = yymsp[-4].minor.yy65;
 }
   yymsp[-4].minor.yy65 = yylhsminor.yy65;
@@ -2178,6 +2178,8 @@ yylhsminor.yy65 = yymsp[0].minor.yy65;
   if (yymsp[-5].minor.yy65 && yymsp[-1].minor.yy9) {
      QueryNode_ApplyAttributes(yymsp[-5].minor.yy65, yymsp[-1].minor.yy9, array_len(yymsp[-1].minor.yy9), ctx->status);
   }
+  array_free_ex(yymsp[-1].minor.yy9, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+
 }
         break;
       case 80: /* query ::= text_expr ARROW LSQB vector_query RSQB ARROW LB attribute_list RB */
@@ -2192,6 +2194,8 @@ yylhsminor.yy65 = yymsp[0].minor.yy65;
     if (yymsp[-5].minor.yy65 && yymsp[-1].minor.yy9) {
        QueryNode_ApplyAttributes(yymsp[-5].minor.yy65, yymsp[-1].minor.yy9, array_len(yymsp[-1].minor.yy9), ctx->status);
     }
+    array_free_ex(yymsp[-1].minor.yy9, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+
   if (yymsp[-8].minor.yy65) {
     QueryNode_AddChild(yymsp[-5].minor.yy65, yymsp[-8].minor.yy65);
   }
@@ -2210,6 +2214,8 @@ yylhsminor.yy65 = yymsp[0].minor.yy65;
     if (yymsp[-5].minor.yy65 && yymsp[-1].minor.yy9) {
        QueryNode_ApplyAttributes(yymsp[-5].minor.yy65, yymsp[-1].minor.yy9, array_len(yymsp[-1].minor.yy9), ctx->status);
     }
+    array_free_ex(yymsp[-1].minor.yy9, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+
 }
 }
         break;
