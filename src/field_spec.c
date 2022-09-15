@@ -27,8 +27,8 @@ void FieldSpec::SetSortable() {
   options |= FieldSpec_Sortable;
 }
 
-void FieldSpec::Initialize(FieldType types) {
-  types |= types;
+void FieldSpec::Initialize(FieldType type) {
+  types |= type;
   if (IsFieldType(INDEXFLD_T_TAG)) {
     tagFlags = TAG_FIELD_DEFAULT_FLAGS;
     tagSep = TAG_FIELD_DEFAULT_SEP;

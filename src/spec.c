@@ -210,11 +210,11 @@ IndexSpec::IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     } else {
       status->SetCode(QUERY_EINDEXEXISTS);
     }
-    delete this;
     if (k) {
       RedisModule_CloseKey(k);
     }
-    return;
+
+    throw Error("Key already exist");
   }
 
   uniqueId = spec_unique_ids++;
@@ -522,9 +522,11 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
   timeout = timeout;
 
   if (acStopwords.IsInitialized()) {
-    if (stopwords) {
-      delete stopwords;
-    }
+    // Can't remove the global default stopwords list!
+    // if (stopwords) {
+    //   delete stopwords;
+    //   stopwords = NULL;
+    // }
     stopwords = new StopWordList((const char **)acStopwords.objs, acStopwords.argc);
     flags |= Index_HasCustomStopwords;
   }
@@ -637,7 +639,6 @@ size_t weightedRandom(double weights[], size_t len) {
 // should be enough. Returns NULL if the index is empty
 
 char *IndexSpec::GetRandomTerm(size_t sampleSize) {
-
   if (sampleSize > terms->size) {
     sampleSize = terms->size;
   }
@@ -740,7 +741,7 @@ void IndexSpec::FreeInternals() {
 
   ClearAliases();
 
-  delete &keysDict;
+  keysDict.clear();
 }
 
 //---------------------------------------------------------------------------------------------
