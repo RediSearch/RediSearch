@@ -751,3 +751,16 @@ def testFilterWithNot(env):
     conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
 
     env.expect('ft.search', 'things', 'foo').equal([0])
+
+def testMultiIdxMultiFilter(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'idx1', 'FILTER', 'exists(@country)', 'SCHEMA', 'business', 'text', 'country', 'text')
+    env.cmd('ft.create', 'idx2', 'FILTER', 'exists(@business)', 'SCHEMA', 'business', 'text', 'country', 'text')
+
+    conn.execute_command('hset', 'address:1', 'business', 'foo', 'country', 'usa')
+    conn.execute_command('hset', 'address:2', 'business', 'bar', 'country', 'israel')
+    conn.execute_command('hset', 'address:3', 'business', 'foo')
+    conn.execute_command('hset', 'address:4', 'country', 'israel')
+
+    env.expect('ft.search', 'idx1', '*', 'nocontent').equal([3, 'address:1', 'address:2', 'address:4'])
+    env.expect('ft.search', 'idx2', '*', 'nocontent').equal([3, 'address:1', 'address:2', 'address:3'])
