@@ -482,6 +482,8 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     } else {
       // fail
     }
+  }
+  if (params) {
     Param_DictFree(params);
   }
 
