@@ -24,7 +24,7 @@ Create an index with the given specification
     [NOFREQS] 
     [STOPWORDS count [stopword ...]] 
     [SKIPINITIALSCAN]
-    SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
+    SCHEMA {identifier} AS {attribute} TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
     [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
 {{< / highlight >}}
 
