@@ -328,13 +328,13 @@ def test_vector(env):
 
     args = ['SORTBY', '__v_score', 'ASC', 'RETURN', 1, '__v_score', 'LIMIT', 0, 2]
 
-    env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
+    env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT').ok()
     waitForIndex(env, 'idx')
 
-    conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
-    conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
-    conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
-    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+    conn.execute_command('HSET', 'b', 'v', 'aaaabaaa', 't', 'title')
+    conn.execute_command('HSET', 'c', 'v', 'aaaaabaa', 't', 'title')
+    conn.execute_command('HSET', 'd', 'v', 'aaaaaaba', 't', 'title')
+    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa', 't', 'title')
 
     res1 = ['a', ['__v_score', '0'], 'b', ['__v_score', '3.09485009821e+26']]
     res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', *args)
@@ -349,7 +349,12 @@ def test_vector(env):
     env.assertEqual(res2[1:], res1)
     res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN $k @v $vec EF_RUNTIME 100]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args)
     env.assertEqual(res2[1:], res1)
-
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN $k @v $vec EF_RUNTIME 100]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '@t:$text=>[KNN 2 @v $vec EF_RUNTIME 100]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'text', 'title', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '@t:$text=>{$weight:$w}=>[KNN 2 @v $vec EF_RUNTIME 100]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'text', 'title', 'w', '2.0', *args)
+    env.assertEqual(res2[1:], res1)
 
 def test_fuzzy(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
