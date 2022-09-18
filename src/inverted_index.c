@@ -753,9 +753,8 @@ DECODER(readNumeric) {
 
   NumericFilter *f = ctx->ptr;
   if (f) {
-    if (f->geoFilter == NULL) {
-      int rv = NumericFilter_Match(f, res->num.value);
-      return rv;
+    if (NumericFilter_IsNumeric(f)) {
+      return NumericFilter_Match(f, res->num.value);
     } else {
       return isWithinRadius(f->geoFilter, res->num.value, NULL);
     }
