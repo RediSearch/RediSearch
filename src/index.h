@@ -233,7 +233,7 @@ struct WildcardIterator : public IndexIterator {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct EOFIterator : public IndexIterator {
-  virtual IndexResult *GetCurrent() {}
+  //virtual IndexResult *GetCurrent() {}
   virtual size_t NumEstimated() const { return 0; }
   virtual IndexCriteriaTester *GetCriteriaTester() { return NULL; }
   virtual int Read(IndexResult **e) { return INDEXREAD_EOF; }

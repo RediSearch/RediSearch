@@ -555,9 +555,12 @@ done:
 
 QueryParse::QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_,
                        const RSSearchOptions &opts_, QueryError *status_) {
+  parser = NULL;
   raw =  query;
   len = nquery;
+  numTokens = 0;
   sctx = (RedisSearchCtx *)&sctx_;
+  root = NULL;
   opts = &opts_;
   status = status_;
 }
@@ -576,7 +579,6 @@ QueryParse::QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_,
 
 QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
                    std::string_view query, QueryError *status) : query(query) {
-
   QueryParse qp(query.data(), query.length(), sctx, opts, status);
 
   root = qp.ParseRaw();

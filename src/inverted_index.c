@@ -1271,7 +1271,7 @@ IndexIterator::IndexIterator() {
   ir = NULL;
   mode = IndexIteratorMode::Sorted;
   isValid = false;
-  current = ir->record;
+  current = NULL;
 }
 
 IndexIterator::IndexIterator(IndexReader *ir_) {
