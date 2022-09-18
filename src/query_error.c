@@ -17,7 +17,7 @@ QueryError::QueryError(QueryErrorCode code, const char *fmt, ...) : code(code) {
 }
 
 QueryError::~QueryError() {
-    if (detail) rm_free(detail);
+  if (detail) rm_free(detail);
 }
 
 //---------------------------------------------------------------------------------------------

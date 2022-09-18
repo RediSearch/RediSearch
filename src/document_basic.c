@@ -207,12 +207,9 @@ done:
 
 void Document::LoadPairwiseArgs(RedisModuleString **args, size_t nargs) {
   fields.reserve(nargs/2);
-  for (size_t ii = 0; ii < nargs; ii += 2) {
-    DocumentField *dst = new DocumentField();
-    const char *name = RedisModule_StringPtrLen(args[ii], NULL);
-    dst->name = name;
-    dst->text = args[ii + 1];
-    fields.push_back(dst);
+  for (size_t i = 0; i < nargs; i += 2) {
+    const char *name = RedisModule_StringPtrLen(args[i], NULL);
+    fields.emplace(name, args[i + 1]);
   }
 }
 
