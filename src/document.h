@@ -44,7 +44,7 @@ struct DocumentField : Object {
   FieldType indexAs;
 
   DocumentField() {}
-  
+
   DocumentField(const char *name, RedisModuleString *text) :
     name(name), text(text) {}
 
