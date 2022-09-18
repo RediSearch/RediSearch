@@ -455,7 +455,9 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
   if(paramsOffset > 1) {
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv+paramsOffset, argc-paramsOffset);
-    parseParams(&params, &ac, status);
+    if (parseParams(&params, &ac, status) != REDISMODULE_OK) {
+        return;
+    }
   }
   RedisSearchCtx sctx = {0};
   RSSearchOptions opts = {0};
