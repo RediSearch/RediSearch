@@ -146,12 +146,11 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
 
   RedisModuleCtx *ctx = redisCtx;
   Document *doc = new Document(name, opts.score, opts.language); //@@@ TODO: doc leaks on error
-  AddDocumentCtx *add = NULL;
   uint32_t addOptions;
 
   if (exists && !(opts.options & DOCUMENT_ADD_REPLACE)) {
     status->SetError(QUERY_EDOCEXISTS, NULL);
-    goto error;
+    return REDISMODULE_ERR;
   }
 
   // handle update condition, only if the document exists
@@ -160,7 +159,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
     if (Document::EvalExpression(this, name, opts.evalExpr, &res, status) == REDISMODULE_OK) {
       if (res == 0) {
         status->SetError(QUERY_EDOCNOTADDED, NULL);
-        goto error;
+        return REDISMODULE_ERR;
       }
     } else {
       printf("Eval failed! (%s)\n", opts.evalExpr);
@@ -168,7 +167,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
         status->ClearError();
         status->SetCode(QUERY_EDOCNOTADDED);
       }
-      goto error;
+      return REDISMODULE_ERR;
     }
   }
 
@@ -186,12 +185,12 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
     }
     RedisSearchCtx sctx{redisCtx, sp};
     if (Redis_SaveDocument(&sctx, doc, saveopts, status) != REDISMODULE_OK) {
-      goto error;
+      return REDISMODULE_ERR;
     }
   }
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL), doc->NumFields());
-  add = new AddDocumentCtx(sp, doc, status);
+  AddDocumentCtx *add = new AddDocumentCtx{sp, doc, status};
   addOptions = opts.options;
 
   if (!exists) {
@@ -205,9 +204,6 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
   add->donecb = opts.donecb;
   add->Submit(this, addOptions);
   return REDISMODULE_OK;
-
-error:
-  return REDISMODULE_ERR;
 }
 
 //---------------------------------------------------------------------------------------------

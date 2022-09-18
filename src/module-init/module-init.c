@@ -176,7 +176,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     ConcurrentSearch::ThreadPoolStart();
   }
 
-  // GC::ThreadPoolStart();
+  GC::ThreadPoolStart();
 
   // Init cursors mechanism
   RSCursors = new CursorList();

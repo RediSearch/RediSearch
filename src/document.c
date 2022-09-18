@@ -569,9 +569,7 @@ int Document::AddToIndexes(AddDocumentCtx *aCtx) {
     }
   }
 
-  // if (!aCtx->indexer->Add(aCtx)) {
-  //   goto cleanup;
-  // }
+  aCtx->indexer->Add(aCtx);
 
   return REDISMODULE_OK;
 
