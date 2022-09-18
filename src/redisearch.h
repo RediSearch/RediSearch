@@ -20,12 +20,15 @@
 template <class T = size_t>
 struct IdType {
   T _id;
+
   explicit IdType(T id = 0): _id(id) {}
+  IdType<T> &operator=(T id) { _id = id; return *this; }
+
   operator T() const { return _id; }
   T operator+() const { return _id; }
   IdType<T> &operator++() { ++_id; return *this; }
   //IdType<T> operator=(IdType<T> id) { _id = id; return *this; }
-  IdType<T> operator=(T id) { _id = id; return *this; }
+
   bool operator==(IdType<T> id) const { return _id == id._id; }
   bool operator<(IdType<T> id) const { return _id < id._id; }
   bool operator>(IdType<T> id) const { return _id > id._id; }
@@ -159,7 +162,7 @@ struct DocumentMetadata : Object {
   List<DocumentMetadata>::iterator dmd_iter;
   //uint32_t ref_count;
 
-  DocumentMetadata(const char *id, size_t idlen, double score, Mask(DocumentFlags) flags,
+  DocumentMetadata(const char *key, size_t keylen, double score, Mask(DocumentFlags) flags,
     RSPayload *payload, t_docId docId);
   DocumentMetadata(DocumentMetadata &&dmd);
   DocumentMetadata(t_docId id, RedisModuleIO *rdb, int encver);

@@ -442,10 +442,9 @@ RSPayload::~RSPayload() {
 
 //---------------------------------------------------------------------------------------------
 
-DocumentMetadata::DocumentMetadata(const char *id, size_t idlen, double score_, Mask(DocumentFlags) flags_,
+DocumentMetadata::DocumentMetadata(const char *key, size_t keylen, double score_, Mask(DocumentFlags) flags_,
     RSPayload *payload_, t_docId docId) {
-
-  keyPtr = sdsnewlen(id, idlen);
+  keyPtr = sdsnewlen(key, keylen);
   score = score_;
   flags = flags_ | (payload ? Document_HasPayload : 0);
   payload = payload_;
