@@ -11,7 +11,16 @@ function(RSTEST name)
     add_test(NAME "${name}" COMMAND "${name}" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 endfunction()
 
-file(GLOB TEST_SOURCES "test_*.c")
+# file(GLOB TEST_SOURCES "test_*.c")
+set(TEST_SOURCES
+#	"test_array.c"
+#	"test_blkalloc.c"
+	"test_cntokenize.c"
+	"test_quantile.c"
+	"test_stemmer.c"
+	"test_summarize.c"
+	"test_synonym_map.c"
+	"test_trie.c")
 set_source_files_properties(${TEST_SOURCES} PROPERTIES LANGUAGE CXX)
 
 foreach(n ${TEST_SOURCES})
