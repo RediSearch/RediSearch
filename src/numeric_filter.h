@@ -23,6 +23,8 @@ typedef struct NumericFilter {
   const void *geoFilter;
 } NumericFilter;
 
+#define NumericFilter_IsNumeric(f) (!(f)->geoFilter)
+
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax);
 NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status);
 int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
