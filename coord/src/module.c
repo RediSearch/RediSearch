@@ -447,40 +447,48 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
 
 // Prepare a TOPK special case.
 void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, int argc, QueryError *status) {
+
+  // First, parse the query params if exists, to set the params in the query parser ctx.
+  dict *params = NULL;
+  int paramsOffset = RMUtil_ArgExists("PARAMS", argv, argc, 1)+1;
+  if(paramsOffset > 1) {
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv+paramsOffset, argc-paramsOffset);
+    if (parseParams(&params, &ac, status) != REDISMODULE_OK) {
+        return;
+    }
+  }
   RedisSearchCtx sctx = {0};
   RSSearchOptions opts = {0};
+  opts.params = params;
   QueryParseCtx qpCtx = {
-                         .raw = req->queryString,
-                         .len = strlen(req->queryString),
-                         .sctx = &sctx,
-                         .opts = &opts,
-                         .status = status,
+      .raw = req->queryString,
+      .len = strlen(req->queryString),
+      .sctx = &sctx,
+      .opts = &opts,
+      .status = status,
 #ifdef PARSER_DEBUG
-                         .trace_log = NULL
+      .trace_log = NULL
 #endif
   };
+
   // KNN queries are parsed only on dialect versions >=2
   QueryNode* queryNode = RSQuery_ParseRaw_v2(&qpCtx);
   if(status->code != 0 ) {
     //fail.
   }
-  if(queryNode!= NULL && queryNode->type == QN_VECTOR) {
-
-    // In we need to parse the parameters
-    if(QueryNode_NumParams(queryNode)>0) {
-      dict *params = NULL;
-      int paramsOffset = RMUtil_ArgExists("PARAMS", argv, argc, 1)+1;
-      if(paramsOffset!=0) {
-        ArgsCursor ac;
-        ArgsCursor_InitRString(&ac, argv+paramsOffset, argc-paramsOffset);
-        parseParams(&params, &ac, status);
-      }
-      else {
-        //fail
-      }
+  if (queryNode!= NULL && QueryNode_NumParams(queryNode)>0) {
+    if (paramsOffset != 0) {
       QueryNode_EvalParamsCommon(params, queryNode, status);
-      Param_DictFree(params);
+    } else {
+      // fail
     }
+  }
+  if (params) {
+    Param_DictFree(params);
+  }
+
+  if(queryNode!= NULL && queryNode->type == QN_VECTOR) {
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
     const char* scoreField = queryVectorNode.vq->scoreField;
