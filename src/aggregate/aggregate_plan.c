@@ -34,7 +34,7 @@ static const char *steptypeToString(PLN_StepType type) {
 
 // add a step to the plan at its end (before the dummy tail)
 void AGGPlan::AddStep(PLN_BaseStep *step) {
-  RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  if (!(step->type > PLN_T_INVALID)) throw Error("Step type connot be PLN_T_INVALID");
   steps.push_back(step);
   steptypes |= (1 << (step->type - 1));
 }
@@ -49,7 +49,7 @@ bool AGGPlan::HasStep(PLN_StepType t) const {
 
 #if 0
 void AGGPlan::AddBefore(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
-  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  if (!(newstp->type > PLN_T_INVALID)) throw Error("Step type connot be PLN_T_INVALID");
   if (posstp == NULL || steps.front() == posstp) {
     steps.push_front(posstp);
   } else {
@@ -60,7 +60,7 @@ void AGGPlan::AddBefore(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
 //---------------------------------------------------------------------------------------------
 
 void AGGPlan::AddAfter(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
-  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  if (!(newstp->type > PLN_T_INVALID)) throw Error("Step type connot be PLN_T_INVALID");
   if (posstp == NULL || steps.back() == posstp) {
     AddStep(newstp);
   } else {

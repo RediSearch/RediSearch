@@ -23,7 +23,7 @@
  * @param status the error object
  */
 void AREQ::ensureSimpleMode() {
-  RS_LOG_ASSERT(!(reqflags & QEXEC_F_IS_EXTENDED), "Single mod test failed");
+  if (reqflags & QEXEC_F_IS_EXTENDED) throw Error("Single mod test failed");
   reqflags |= QEXEC_F_IS_SEARCH;
 }
 
@@ -132,9 +132,9 @@ int AREQ::handleCommonArgs(ArgsCursor *ac, bool allowLegacy, QueryError *status)
     if (arng->limit == 0) {
       // LIMIT 0 0
       reqflags |= QEXEC_F_NOROWS;
-    } else if ((arng->limit > SEARCH_REQUEST_RESULTS_MAX) && (reqflags & QEXEC_F_IS_SEARCH)) {
+    } else if ((arng->limit > RSGlobalConfig.maxSearchResults) && (reqflags & QEXEC_F_IS_SEARCH)) {
       status->SetErrorFmt(QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
-                             SEARCH_REQUEST_RESULTS_MAX);
+                          RSGlobalConfig.maxSearchResults);
       return ARG_ERROR;
     }
   } else if (ac->AdvanceIfMatch("SORTBY")) {
@@ -172,6 +172,12 @@ int AREQ::handleCommonArgs(ArgsCursor *ac, bool allowLegacy, QueryError *status)
 //---------------------------------------------------------------------------------------------
 
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int isLegacy) {
+  // Prevent multiple SORTBY steps
+  if (arng->sortKeys != NULL) {
+    QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    return REDISMODULE_ERR;
+  }
+
   // Assume argument is at 'SORTBY'
   ArgsCursor subArgs;
   int rv;
@@ -348,6 +354,11 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
         break;
       }
     }
+  }
+
+  if ((reqflags & QEXEC_F_SEND_SCOREEXPLAIN) && !(reqflags & QEXEC_F_SEND_SCORES)) {
+    QERR_MKBADARGS_FMT(status, "EXPLAINSCORE must be accompanied with WITHSCORES");
+    return REDISMODULE_ERR;
   }
 
   for (int i = 0; i < inKeys.argc; ++i) {
@@ -771,7 +782,7 @@ int AREQ::ApplyContext(QueryError *status) {
 
   conc = std::make_unique<ConcurrentSearch>(sctx->redisCtx);
   rootiter = ast->Iterate(opts, *sctx, conc.get());
-  RS_LOG_ASSERT(rootiter, "QAST_Iterate failed");
+  if (!rootiter) throw Error("QAST_Iterate failed");
 
   return REDISMODULE_OK;
 }
@@ -856,7 +867,7 @@ ResultProcessor *AREQ::getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstre
     if (kklist != NULL) {
       ResultProcessor *loader = new ResultsLoader(firstLk, kklist, array_len(kklist));
       array_free(kklist);
-      RS_LOG_ASSERT(loader, "Failed to create ResultsLoader");
+      if (!loader) throw Error("Failed to create ResultsLoader");
       rpUpstream = pushRP(loader, rpUpstream);
     }
   }
@@ -921,7 +932,7 @@ ResultProcessor *AREQ::getScorerRP() {
     scorer_name = DEFAULT_SCORER_NAME;
   }
   Scorer scorer = g_ext.GetScorer(scorer_name);
-
+  if (!scorer) throw Error("Invalid scorer: %s", scorer_name);
   ScorerArgs scargs{*sctx->spec, ast->payload, !!(reqflags & QEXEC_F_SEND_SCOREEXPLAIN)};
   if (reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.explain = new ScoreExplain();

@@ -14,7 +14,7 @@
 // Returns NULL if there is no sorting key.
 
 const RSValue *AREQ::getSortKey(const SearchResult *r, const PLN_ArrangeStep *astp) {
-  if (!astp) {
+  if (!astp || !astp->sortkeysLK) {
     return NULL;
   }
   const RLookupKey *kk = astp->sortkeysLK[0];

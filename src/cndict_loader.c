@@ -1,5 +1,6 @@
 #include "cndict_loader.h"
 #include "buffer.h"
+#include "query_error.h"
 
 #include "miniz/miniz.h"
 #include "rmalloc.h"
@@ -89,7 +90,7 @@ int ChineseDictLoad(friso_dic_t d) {
   const char *inbuf = ChineseDict;
   version = htonl(*(uint32_t *)inbuf);
   inbuf += 4;
-  RS_LOG_ASSERT(version == 0, "Chinese dictionary version should be 0");
+  if (version != 0) throw Error("Chinese dictionary version should be 0");
 
   // First load the symbol..
   char *expanded = rm_malloc(ChineseDictFullLength);

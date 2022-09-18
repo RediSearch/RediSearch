@@ -502,6 +502,11 @@ tag_list(A) ::= LB term(B) . [TAGLIST] {
     A->AddChild(new QueryTokenNode(ctx, str_unescape_lcase(B.s, B.len)));
 }
 
+tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    A->AddChild(new QueryTokenNode(ctx, strdupcase(B.s, B.len), -1));
+}
+
 tag_list(A) ::= LB prefix(B) . [TAGLIST] {
     A = new QueryPhraseNode(0);
     A->AddChild(B);
@@ -513,6 +518,11 @@ tag_list(A) ::= LB termlist(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
+    B->AddChild(new QueryTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    A = B;
+}
+
+tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
     B->AddChild(new QueryTokenNode(ctx, strdupcase(C.s, C.len), -1));
     A = B;
 }

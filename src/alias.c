@@ -4,13 +4,30 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+void IndexAlias::InitGlobal() {
+  AliasTable_g = new AliasTable();
+}
+
+//---------------------------------------------------------------------------------------------
+
+void IndexAlias::DestroyGlobal() {
+  if (!AliasTable_g) {
+    return;
+  }
+
+  delete AliasTable_g;
+  AliasTable_g = NULL;
+}
+
+
+//---------------------------------------------------------------------------------------------
+
 int AliasTable::Add(const char *alias, IndexSpec *spec, int options, QueryError *error) {
   bool success = d.insert({alias, spec}).second;
   if (!success) {
     error->SetError(QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;
   }
-
   if (!(options & INDEXALIAS_NO_BACKREF)) {
     spec->addAlias(alias);
   }
@@ -48,7 +65,7 @@ int AliasTable::Del(const char *alias, IndexSpec *spec, int options, QueryError 
   }
 
   int rc = d.erase(alias);
-  // RS_LOG_ASSERT(rc == DICT_OK, "Dictionary delete failed");
+  if (!rc) throw Error("Alias '%s' delete failed", alias);
   return REDISMODULE_OK;
 }
 
@@ -63,22 +80,6 @@ IndexSpec *AliasTable::Get(const char *alias) {
 AliasTable *IndexAlias::AliasTable_g = NULL;
 
 //---------------------------------------------------------------------------------------------
-
-void IndexAlias::InitGlobal() {
-  AliasTable_g = new AliasTable();
-}
-
-//---------------------------------------------------------------------------------------------
-
-void IndexAlias::DestroyGlobal() {
-  if (!AliasTable_g) {
-    return;
-  }
-
-  delete AliasTable_g;
-  AliasTable_g = NULL;
-}
-
 int IndexAlias::Add(const char *alias, IndexSpec *spec, int options, QueryError *status) {
   return AliasTable_g->Add(alias, spec, options, status);
 }
@@ -93,6 +94,24 @@ int IndexAlias::Del(const char *alias, IndexSpec *spec, int options, QueryError 
 
 IndexSpec *IndexAlias::Get(const char *alias) {
   return AliasTable_g->Get(alias);
+}
+
+//---------------------------------------------------------------------------------------------
+
+void IndexSpec::ClearAliases() {
+  if (!aliases) {
+    return;
+  }
+  for (size_t i = 0; i < array_len(aliases); ++i) {
+    char **pp = &aliases[i];
+    QueryError e;
+    int rc = IndexAlias::Del(*pp, this, INDEXALIAS_NO_BACKREF, &e);
+    if (rc != REDISMODULE_OK) throw Error("Alias delete has failed");
+    rm_free(*pp);
+    // set to NULL so IndexAlias::Del skips over this
+    *pp = NULL;
+  }
+  array_free(aliases);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

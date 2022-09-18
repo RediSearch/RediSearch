@@ -202,7 +202,7 @@ void ExprAST_Print(const RSExpr *e) {
 
 RSExpr *RSExpr::ParseAST(const char *e, size_t n, QueryError *status) {
   char *errtmp = NULL;
-  RS_LOG_ASSERT(!status->HasError(), "Query has error")
+  assert(!status->HasError());
 
   RSExpr *ret = RSExpr::Parse(e, n, &errtmp);
   if (!ret) {
