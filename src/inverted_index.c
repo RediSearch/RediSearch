@@ -757,7 +757,7 @@ DECODER(readNumeric) {
       int rv = NumericFilter_Match(f, res->num.value);
       return rv;
     } else {
-      return isWithinRadius(f->geoFilter, res->num.value, NULL);
+      return isWithinRadius(f->geoFilter, res->num.value, &res->num.value);
     }
   }
   
