@@ -183,8 +183,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
     if (opts.options & DOCUMENT_ADD_NOCREATE) {
       saveopts |= REDIS_SAVEDOC_NOCREATE;
     }
-    RedisSearchCtx sctx{redisCtx, sp};
-    if (Redis_SaveDocument(&sctx, doc, saveopts, status) != REDISMODULE_OK) {
+    if (Redis_SaveDocument(this, doc, saveopts, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   }

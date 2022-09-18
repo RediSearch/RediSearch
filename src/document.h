@@ -43,6 +43,11 @@ struct DocumentField : Object {
   RedisModuleString *text;
   FieldType indexAs;
 
+  DocumentField() {}
+  
+  DocumentField(const char *name, RedisModuleString *text) :
+    name(name), text(text) {}
+
   bool CheckIdx(FieldType t) { return (indexAs) & (t); }
 };
 
