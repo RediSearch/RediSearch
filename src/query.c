@@ -1802,7 +1802,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
 
   int res = 0;
   // Apply slop: [-1 ... INF]
-  if (STR_EQCASE(attr->name, attr->namelen, "slop")) {
+  if (STR_EQCASE(attr->name, attr->namelen, SLOP_ATTR)) {
     long long n;
     if (!ParseInteger(attr->value, &n) || n < -1) {
       MK_INVALID_VALUE();
@@ -1811,7 +1811,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     qn->opts.maxSlop = n;
     res = 1;
 
-  } else if (STR_EQCASE(attr->name, attr->namelen, "inorder")) {
+  } else if (STR_EQCASE(attr->name, attr->namelen, INORDER_ATTR)) {
     // Apply inorder: true|false
     int b;
     if (!ParseBoolean(attr->value, &b)) {
@@ -1822,7 +1822,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     qn->opts.flags |= QueryNode_OverriddenInOrder;
     res = 1;
 
-  } else if (STR_EQCASE(attr->name, attr->namelen, "weight")) {
+  } else if (STR_EQCASE(attr->name, attr->namelen, WEIGHT_ATTR)) {
     // Apply weight: [0  ... INF]
     double d;
     if (!ParseDouble(attr->value, &d) || d < 0) {
@@ -1832,7 +1832,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     qn->opts.weight = d;
     res = 1;
 
-  } else if (STR_EQCASE(attr->name, attr->namelen, "phonetic")) {
+  } else if (STR_EQCASE(attr->name, attr->namelen, PHONETIC_ATTR)) {
     // Apply phonetic: true|false
     int b;
     if (!ParseBoolean(attr->value, &b)) {
@@ -1849,7 +1849,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     // qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
     //                                          will be enable if field was declared phonetic
 
-  } else if (STR_EQCASE(attr->name, attr->namelen, YIELD_DISTANCE_ATTRIBUTE) && qn->opts.flags & QueryNode_YieldsDistance) {
+  } else if (STR_EQCASE(attr->name, attr->namelen, YIELD_DISTANCE_ATTR) && qn->opts.flags & QueryNode_YieldsDistance) {
     qn->opts.distField = rm_strndup(attr->value, attr->vallen);
     res = 1;
 

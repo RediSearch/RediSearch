@@ -129,8 +129,6 @@ typedef enum {
   QueryNode_YieldsDistance = 0x04,
 } QueryNodeFlags;
 
-#define YIELD_DISTANCE_ATTRIBUTE "yield_distance_as"
-
 /* Query attribute is a dynamic attribute that can be applied to any query node.
  * Currently supported are `weight`, `slop`, and `inorder`.
  */
@@ -144,6 +142,14 @@ typedef struct {
 #define PHONETIC_ENABLED 1
 #define PHONETIC_DISABLED 2
 #define PHONETIC_DEFAULT 0
+
+/* Define the attributes' names */
+#define YIELD_DISTANCE_ATTR "yield_distance_as"
+#define SLOP_ATTR "slop"
+#define INORDER_ATTR "inorder"
+#define WEIGHT_ATTR "weight"
+#define PHONETIC_ATTR "phonetic"
+
 
 /* Various modifiers and options that can apply to the entire query or any sub-query of it */
 typedef struct {
