@@ -492,7 +492,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
   if(queryNode!= NULL && queryNode->type == QN_VECTOR) {
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
-    const char* scoreField = queryVectorNode.vq->scoreField;
+    const char* scoreField = queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
     ctx->knn.fieldName = scoreField;
