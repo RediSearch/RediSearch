@@ -184,7 +184,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
-#define MAX_DIALECT_VERSION 2
+#define MAX_DIALECT_VERSION 3
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
