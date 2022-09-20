@@ -115,7 +115,7 @@ struct InvertedIndexRepair : IndexRepair {
 
 struct NumericAndTagIndexRepair : IndexRepair {
   NumericAndTagIndexRepair(struct ForkGC &fgc, const FieldSpec &field, uint64_t uniqueId) :
-	  IndexRepair(fgc), field(field.name), uniqueId(uniqueId), idx(NULL), sentFieldName(false) {}
+	  IndexRepair(fgc), field(field.name.c_str()), uniqueId(uniqueId), idx(NULL), sentFieldName(false) {}
 
   const char *field;
   uint64_t uniqueId;

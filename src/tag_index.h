@@ -116,7 +116,7 @@ struct TagIndex : BaseIndex {
   static TagIndex *Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite, RedisModuleKey **keyp);
 
   // Format the key name for a tag index
-  static RedisModuleString *FormatName(RedisSearchCtx *sctx, const char *field);
+  static RedisModuleString *FormatName(RedisSearchCtx *sctx, String field);
 
   static char *SepString(char sep, char **s, size_t *toklen);
 

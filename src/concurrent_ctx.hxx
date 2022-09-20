@@ -102,7 +102,7 @@ inline ConcurrentSearch::~ConcurrentSearch() {
   }
 
   CloseKeys();
-  delete ctx;
+  // delete ctx; //@@ check validity
 }
 
 //---------------------------------------------------------------------------------------------

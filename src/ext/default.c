@@ -225,7 +225,7 @@ double IndexResult::BM25Scorer(const ScorerArgs *args, const DocumentMetadata *d
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 // BM25 scoring function
 
-double BM25Scorer(ScorerArgs *args, const IndexResult *r, const DocumentMetadata *dmd, double minScore) {
+double BM25Scorer(const ScorerArgs *args, const IndexResult *r, const DocumentMetadata *dmd, double minScore) {
   ScoreExplain *explain = args->explain;
   double bm25res = r->BM25Scorer(args, dmd);
   double score = dmd->score * bm25res;

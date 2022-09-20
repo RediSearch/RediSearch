@@ -39,13 +39,13 @@
 //---------------------------------------------------------------------------------------------
 
 struct DocumentField : Object {
-  const char *name;  // Can either be char or RMString
+  String name;  // Can either be char or RMString
   RedisModuleString *text;
   FieldType indexAs;
 
   DocumentField() {}
 
-  DocumentField(const char *name, RedisModuleString *text) :
+  DocumentField(String name, RedisModuleString *text) :
     name(name), text(text) {}
 
   bool CheckIdx(FieldType t) { return (indexAs) & (t); }
@@ -224,7 +224,7 @@ struct AddDocumentCtx : Object { // MemPoolObject<AddDocumentPool> { //@@POOL
   void Finish();
   int AddToIndexes();
 
-  bool IsValid(size_t i) const { return fspecs[i].name != NULL; }
+  bool IsValid(size_t i) const { return fspecs[i].name != ""; }
   bool IsBlockable() const { return !(stateFlags & ACTX_F_NOBLOCK); }
   bool IsIndexed() const;
 

@@ -2,7 +2,6 @@ from includes import *
 
 
 def testBasicSynonymsUseCase(env):
-    BB()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))

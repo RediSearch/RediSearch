@@ -97,7 +97,6 @@ void Document::MakeStringsOwner() {
   }
 
   for (auto f : fields) {
-    f->name = rm_strdup(f->name);
     if (f->text) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
@@ -140,14 +139,14 @@ int Document::LoadSchemaFields(RedisSearchCtx *sctx) {
   fields.clear();
 
   for (size_t ii = 0; ii < sctx->spec->fields.size(); ++ii) {
-    const char *fname = sctx->spec->fields[ii].name;
+    String fname = sctx->spec->fields[ii].name;
     RedisModuleString *v = NULL;
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fname, &v, NULL);
+    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fname.c_str(), &v, NULL);
     if (v == NULL) {
       continue;
     }
     DocumentField* f;
-    f->name = rm_strdup(fname);
+    f->name = fname;
     f->text = v;  // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
     fields.push_back(f);
   }
@@ -221,7 +220,7 @@ void Document::Clear() {
   if (flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
     for (auto f : fields) {
       if (flags & DOCUMENT_F_OWNSTRINGS) {
-        rm_free(f->name);
+        //rm_free(f->name);
       }
       if (f->text) {
         RedisModule_FreeString(RSDummyContext, f->text);
@@ -287,7 +286,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
 int Document::ReplyFields(RedisModuleCtx *ctx) {
   RedisModule_ReplyWithArray(ctx, fields.size() * 2);
   for (auto f : fields) {
-    RedisModule_ReplyWithStringBuffer(ctx, f->name, strlen(f->name));
+    RedisModule_ReplyWithStringBuffer(ctx, f->name.c_str(), f->name.length());
     if (f->text) {
       RedisModule_ReplyWithString(ctx, f->text);
     } else {

@@ -18,10 +18,6 @@ RSValueType fieldTypeToValueType(FieldType ft) {
 
 //---------------------------------------------------------------------------------------------
 
-void FieldSpec::Cleanup() {
-  delete name;
-}
-
 void FieldSpec::SetSortable() {
   RS_LOG_ASSERT(!(options & FieldSpec_Dynamic), "dynamic fields cannot be sortable");
   options |= FieldSpec_Sortable;

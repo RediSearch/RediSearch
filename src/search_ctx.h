@@ -39,7 +39,7 @@ struct RedisSearchCtx {
   RedisModuleString *TermKeyName(String term);
   RedisModuleString *SkipIndexKeyName(const char *term, size_t len);
   RedisModuleString *ScoreIndexKeyName(const char *term, size_t len);
-  RedisModuleString *NumericIndexKey(const char *field);
+  RedisModuleString *NumericIndexKey(String field);
 
   int AddDocument(RedisModuleString *name, const AddDocumentOptions &opts, QueryError *status);
 };

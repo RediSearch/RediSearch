@@ -67,7 +67,7 @@ struct DocumentField;
 struct FieldIndexerData;
 
 struct FieldSpec {
-  char* name;
+  String name;
   Mask(FieldType) types : 8;
   Mask(FieldSpecOptions) options : 8;
 
@@ -88,7 +88,7 @@ struct FieldSpec {
 
   // TODO: More options here..
 
-  FieldSpec(int idx, char *name) : index(idx), name(rm_strdup(name)) {
+  FieldSpec(int idx, String name = "") : index(idx), name(name) {
     types = 0;
     ftId = (t_fieldId)-1;
     ftWeight = 1.0;
@@ -98,7 +98,6 @@ struct FieldSpec {
   }
 
   void SetSortable();
-  void Cleanup();
   void Initialize(FieldType type);
 
   bool IsSortable() const { return options & FieldSpec_Sortable; }

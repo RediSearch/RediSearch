@@ -980,8 +980,8 @@ void AREQ::buildImplicitPipeline(QueryError *status) {
   IndexSpecCache *cache = sctx->spec->GetSpecCache();
   RS_LOG_ASSERT(cache, "IndexSpec::GetSpecCache failed")
 
-  RLookup *first = ap.GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
-  first->Reset(cache);
+  RLookup *first{cache}; //= ap.GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
+  //first->Reset(cache);
 
   ResultProcessor *rp = new RPIndexIterator(rootiter);
   ResultProcessor *rpUpstream = NULL;

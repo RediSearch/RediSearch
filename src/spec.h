@@ -217,7 +217,7 @@ struct IndexSpec : Object {
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
-  struct IndexSpecCache *spcache;
+  std::shared_ptr<struct IndexSpecFields> spcache;
   long long timeout;
   UnorderedMap<RedisModuleString*, BaseIndex*> keysDict;
   long long minPrefix;
@@ -254,15 +254,14 @@ struct IndexSpec : Object {
 
   ~IndexSpec();
 
-  IndexSpecCache *GetSpecCache() const;
-  IndexSpecCache *BuildSpecCache() const;
+  std::shared_ptr<IndexSpecFields> GetSpecCache() const;
 
   FieldSpec CreateField(const char *name);
 
   const FieldSpec *GetField(std::string_view name) const;
   const FieldSpec * GetFieldCase(std::string_view name) const;
   const FieldSpec *GetFieldBySortingIndex(uint16_t idx) const;
-  const char *GetFieldNameByBit(t_fieldMask id) const;
+  String GetFieldNameByBit(t_fieldMask id) const;
   int GetFieldSortingIndex(std::string_view name);
   t_fieldMask GetFieldBit(std::string_view name) const;
   const IndexStats &GetStats() const;
@@ -323,11 +322,13 @@ extern RedisModuleType *IndexAliasType;
  * It is freed when its reference count hits 0
  */
 
-struct IndexSpecCache {
-  Vector<FieldSpec> fields;
-  size_t refcount;
-
-  void Decref();
+struct IndexSpecFields : Vector<FieldSpec> {
+  IndexSpecFields(Vector<FieldSpec> fields_) {
+    reserve(fields_.size());
+    for (auto f : fields_) {
+      emplace_back(f.index, f.name);
+    }
+  }
 };
 
 //---------------------------------------------------------------------------------------------

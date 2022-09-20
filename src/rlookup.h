@@ -58,6 +58,8 @@ enum RLookupCoerceType {
  */
 
 struct RLookup;
+struct RLookupRow;
+struct RLookupLoadOptions;
 
 struct RLookupKey : public Object {
   // The index into the array where the value resides
@@ -105,14 +107,14 @@ struct RLookup {
 
   // If present, then GetKey will consult this list if the value is not found in
   // the existing list of keys.
-  IndexSpecCache *spcache; // TODO: ownership
+  std::shared_ptr<IndexSpecFields> spcache; // TODO: ownership
 
-  RLookup(struct IndexSpecCache *cache);
+  RLookup(std::shared_ptr<IndexSpecFields> cache);
   ~RLookup();
 
-  void Reset(struct IndexSpecCache *cache);
+  void Reset(std::shared_ptr<IndexSpecFields> cache);
 
-  int LoadDocument(struct RLookupRow *dst, struct RLookupLoadOptions *options);
+  int LoadDocument(RLookupRow *dst, RLookupLoadOptions *options);
 
   RLookupKey *GetKey(const char *name, int flags);
   RLookupKey *GetKey(std::string_view name, int flags);

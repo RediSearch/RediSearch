@@ -22,9 +22,6 @@ struct Extensions {
   UnorderedMap<String, Scorer> scorers;
   UnorderedMap<String, QueryExpander::Factory> queryExpanders;
 
-  //Extensions();
-  //~Extensions();
-
   Scorer GetScorer(const char *name);
   QueryExpander::Factory GetQueryExpander(const char *name);
 
@@ -51,11 +48,10 @@ extern Extensions g_ext;
 //---------------------------------------------------------------------------------------------
 
 struct Extension : Object {
-  int RegisterScorer(const char *alias, Scorer scorer) {
+  int Register(const char *alias, Scorer scorer) {
     g_ext.Register(alias, scorer);
   }
 
-  //template <class QueryExpander>
   int Register(const char *alias, QueryExpander::Factory factory) {
     g_ext.Register(alias, factory);
   }

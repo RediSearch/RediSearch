@@ -314,7 +314,7 @@ void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
     for (size_t i = 0; i < doc->NumFields(); ++i) {
       const FieldSpec fs = cur->fspecs[i];
       FieldIndexerData *fdata = cur->fdatas + i;
-      if (fs.name == NULL || fs.types == INDEXFLD_T_FULLTEXT || !fs.IsIndexable()) {
+      if (fs.name == "" || fs.types == INDEXFLD_T_FULLTEXT || !fs.IsIndexable()) {
         continue;
       }
       IndexBulkData *bulk = &bData[fs.index];

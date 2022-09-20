@@ -723,8 +723,8 @@ sds QueryNode::DumpSds(sds s, const IndexSpec *spec, int depth) const {
       while (fm) {
         t_fieldMask bit = (fm & 1) << i;
         if (bit) {
-          const char *f = spec->GetFieldNameByBit(bit);
-          s = sdscatprintf(s, "%s%s", n ? "|" : "", f ? f : "n/a");
+          String f = spec->GetFieldNameByBit(bit);
+          s = sdscatprintf(s, "%s%s", n ? "|" : "", f != "" ? f.c_str() : "n/a");
           n++;
         }
         fm = fm >> 1;

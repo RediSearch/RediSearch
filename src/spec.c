@@ -33,16 +33,16 @@ static uint64_t spec_unique_ids = 1;
 
 const FieldSpec *IndexSpec::getFieldCommon(std::string_view name, bool useCase) const {
   for (size_t i = 0; i < fields.size(); i++) {
-    if (name.length() != strlen(fields[i].name)) {
+    if (name.length() != fields[i].name.length()) {
       continue;
     }
     const FieldSpec fs = fields[i];
     if (useCase) {
-      if (!strcmp(fs.name, name.data())) {
+      if (!strcmp(fs.name.c_str(), name.data())) {
         return &fs;
       }
     } else {
-      if (!str_casecmp(name, fs.name, strlen(fs.name))) {
+      if (!str_casecmp(name, fs.name)) {
         return &fs;
       }
     }
@@ -130,14 +130,14 @@ const FieldSpec *IndexSpec::GetFieldBySortingIndex(uint16_t idx) const {
 
 //---------------------------------------------------------------------------------------------
 
-const char *IndexSpec::GetFieldNameByBit(t_fieldMask id) const {
+String IndexSpec::GetFieldNameByBit(t_fieldMask id) const {
   for (auto field : fields) {
     if (field.FieldBit() == id && field.IsFieldType(INDEXFLD_T_FULLTEXT) &&
         field.IsIndexable()) {
       return field.name;
     }
   }
-  return NULL;
+  return "";
 }
 
 //---------------------------------------------------------------------------------------------
@@ -374,7 +374,6 @@ error:
     status->SetErrorFmt(QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
                            sp->name);
   }
-  sp->Cleanup();
   return false;
 }
 
@@ -408,8 +407,8 @@ int IndexSpec::CreateTextId() const {
 
 bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew) {
   if (spcache) {
-    spcache->Decref();
-    spcache = NULL;
+    // delete spcache;
+    spcache.reset();
   }
 
   const size_t prevSortLen = sortables->len;
@@ -572,41 +571,12 @@ int IndexSpec::AddTerm(const char *term, size_t len) {
 // Retrieves the current spec cache from the index, incrementing its
 // reference count by 1. Use IndexSpecCache_Decref to free
 
-IndexSpecCache *IndexSpec::GetSpecCache() const {
+std::shared_ptr<IndexSpecFields> IndexSpec::GetSpecCache() const {
   if (!spcache) {
-    ((IndexSpec *)this)->spcache = BuildSpecCache();
+    ((IndexSpec *)this)->spcache = std::make_shared<IndexSpecFields>(fields);;
   }
 
-  spcache->refcount++;
   return spcache;
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Create a new copy of the spec cache from the current index spec
-
-IndexSpecCache *IndexSpec::BuildSpecCache() const {
-  IndexSpecCache *ret;
-  ret->refcount = 1;
-  for (size_t i = 0; i < fields.size(); ++i) {
-    ret->fields.push_back(fields[i]);
-    ret->fields[i].name = rm_strdup(ret->fields[i].name);
-  }
-  return ret;
-}
-
-//---------------------------------------------------------------------------------------------
-
-// Decrement the reference count of the spec cache. Should be matched
-// with a previous call of GetSpecCache()
-
-void IndexSpecCache::Decref() {
-  if (--refcount) {
-    return;
-  }
-
-  fields.clear();
-  rm_free(this);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -723,8 +693,8 @@ void IndexSpec::FreeInternals() {
     delete smap;
   }
   if (spcache) {
-    spcache->Decref();
-    spcache = NULL;
+    // delete spcache;
+    spcache.reset();
   }
 
   if (indexStrs) {
@@ -1052,9 +1022,9 @@ int bit(t_fieldMask id) {
 static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  char *tmpName = rm_strdup(f->name);
-  RedisModule_Free(f->name);
-  f->name = tmpName;
+  // char *tmpName = rm_strdup(f->name);
+  RedisModule_Free(f->name.c_str());
+  // f->name = tmpName;
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -1076,7 +1046,7 @@ static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encve
 //---------------------------------------------------------------------------------------------
 
 static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
-  RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
+  RedisModule_SaveStringBuffer(rdb, f->name.c_str(), f->name.length() + 1);
   RedisModule_SaveUnsigned(rdb, f->types);
   RedisModule_SaveUnsigned(rdb, f->options);
   RedisModule_SaveSigned(rdb, f->sortIdx);
@@ -1103,9 +1073,7 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  char *tmpName = rm_strdup(f->name);
-  RedisModule_Free(f->name);
-  f->name = tmpName;
+  RedisModule_Free(f->name.c_str());
 
   f->types = RedisModule_LoadUnsigned(rdb);
   f->options = RedisModule_LoadUnsigned(rdb);

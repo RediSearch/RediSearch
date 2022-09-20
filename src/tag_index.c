@@ -197,8 +197,8 @@ IndexIterator *TagIndex::OpenReader(IndexSpec *sp, std::string_view value, doubl
 #define TAG_INDEX_KEY_FMT "tag:%s/%s"
 
 // Format the key name for a tag index
-static RedisModuleString *TagIndex::FormatName(RedisSearchCtx *sctx, const char *field) {
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
+static RedisModuleString *TagIndex::FormatName(RedisSearchCtx *sctx, String field) {
+  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field.c_str());
 }
 
 //---------------------------------------------------------------------------------------------

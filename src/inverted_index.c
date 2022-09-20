@@ -833,7 +833,7 @@ bool TermIndexCriteriaTester::Test(t_docId id) {
       continue;
     }
     char *s;
-    int ret = spec->getValue(spec->getValueCtx, field.name, externalId, &s, NULL);
+    int ret = spec->getValue(spec->getValueCtx, field.name.c_str(), externalId, &s, NULL);
     if (ret != RSVALTYPE_STRING) {
       throw Error("RSvalue type should be a string");
     }

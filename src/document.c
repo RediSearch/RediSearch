@@ -46,12 +46,11 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *d, size_t oldFieldCoun
     DocumentField *f = d->fields[i];
     const FieldSpec *fs = sp->GetField(f->name);
     if (!fs || !f->text) {
-      fspecs[i].name = NULL;
-      fspecs[i].types = 0;
+      fspecs.emplace_back(0);
       continue;
     }
 
-    fspecs[i] = *fs;
+    fspecs.emplace_back(*fs);
     if (dedupe[fs->index]) {
       status.SetErrorFmt(QUERY_EDUPFIELD, "Tried to insert `%s` twice", fs->name);
       return false;
@@ -297,7 +296,7 @@ void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
   size_t totalSize = 0;
   for (size_t ii = 0; ii < doc.NumFields(); ++ii) {
     const DocumentField *ff = doc.fields[ii];
-    if (fspecs[ii].name && (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
+    if (fspecs[ii].name != "" && (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
       size_t n;
       RedisModule_StringPtrLen(doc.fields[ii]->text, &n);
       totalSize += n;
@@ -539,7 +538,7 @@ int Document::AddToIndexes(AddDocumentCtx *aCtx) {
     FieldIndexerData *fdata = &aCtx->fdatas[i];
     ++i;
 
-    if (fs.name == NULL || ff->indexAs == 0) {
+    if (fs.name == "" || ff->indexAs == 0) {
       LG_DEBUG("Skipping field %s not in index!", ff->name);
       continue;
     }
@@ -610,7 +609,7 @@ static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key
 
     RLookupRow row;
     RSValue rv;
-    IndexSpecCache *spcache = sctx->spec->GetSpecCache();
+    std::shared_ptr<IndexSpecFields> spcache = sctx->spec->GetSpecCache();
     RLookup lookup_s{spcache};
     if (expr->GetLookupKeys(&lookup_s, status) == EXPR_EVAL_ERR) {
       return REDISMODULE_ERR;
@@ -714,7 +713,7 @@ DocumentField *Document::GetField(const char *fieldName) {
   if (!fieldName) return NULL;
 
   for (auto f : fields) {
-    if (!strcasecmp(f->name, fieldName)) {
+    if (!strcasecmp(f->name.c_str(), fieldName)) {
       return f;
     }
   }

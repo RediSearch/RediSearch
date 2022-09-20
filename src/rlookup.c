@@ -33,8 +33,9 @@ RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
   }
 
   const FieldSpec *fs = NULL;
-  for (auto field : spcache->fields) {
-    if (!strcmp(field.name, name)) {
+  IndexSpecFields fields = *spcache.get();
+  for (auto field : fields) {
+    if (!strcmp(field.name.c_str(), name)) {
       fs = &field;
       break;
     }
@@ -148,14 +149,15 @@ size_t RLookup::GetLength(const RLookupRow *r, int requiredFlags, int excludeFla
  * alternate source for lookups whose fields are absent
  */
 
-RLookup::RLookup(IndexSpecCache *spcache) : head(NULL), tail(NULL), rowlen(0), options(0),
+RLookup::RLookup(std::shared_ptr<IndexSpecFields> spcache) : head(nullptr), tail(nullptr), rowlen(0), options(0),
   spcache(spcache) {
 }
 
 //---------------------------------------------------------------------------------------------
 
-void RLookup::Reset(struct IndexSpecCache *cache) {
-  head = tail = NULL;
+void RLookup::Reset(std::shared_ptr<IndexSpecFields> cache) {
+  head = nullptr;
+  tail = nullptr;
   rowlen = 0;
   options = 0;
   spcache = cache;
@@ -342,8 +344,8 @@ RLookup::~RLookup() {
     cur = next;
   }
   if (spcache) {
-    spcache->Decref(); // TODO: refactor
-    spcache = NULL;
+    // delete spcache;
+    spcache.reset();
   }
 }
 
