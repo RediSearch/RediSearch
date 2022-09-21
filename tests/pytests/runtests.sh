@@ -26,6 +26,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		REDIS_VERBOSE=1       (legacy) Verbose ouput
 		CONFIG_FILE=file      Path to config file
 		EXISTING_ENV=1        Run the tests on existing env
+		EXT_PORT=n            Port of existing env
 
 		VG=1                  Use valgrind
 		VG_LEAKS=0            Do not detect leaks
@@ -144,8 +145,14 @@ if [[ $EXISTING_ENV == 1 ]]; then
 
 	rltest_config=$(mktemp "${TMPDIR:-/tmp}/xredis_rltest.XXXXXXX")
 	rm -f $rltest_config
+	if [[ -n $EXT_PORT ]]; then
+		EXT_ENV="--existing-env-addr localhost:$EXT_PORT"
+	else
+		EXT_ENV=""
+	fi
 	cat <<-EOF > $rltest_config
 		--env existing-env
+		$EXT_ENV
 		$RLTEST_ARGS
 		$@
 
