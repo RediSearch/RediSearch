@@ -95,8 +95,9 @@ typedef struct RSValue {
        * For example, keeping a value and, in addition, a different value for serialization, such as a JSON String representation.
        */ 
       
-      struct RSValue *val;
-      struct RSValue *otherval;
+      // An array of 2 RSValue *'s
+      // The first entry is the value, the second entry is the additional value
+      struct RSValue **vals;
     } duoval;
 
     // redis string value
@@ -118,6 +119,9 @@ typedef struct RSValue {
 #endif
 } RSValue;
 #pragma pack()
+
+#define RS_DUOVAL_VAL(v) ((v).duoval.vals[0])
+#define RS_DUOVAL_OTHERVALUE(v) ((v).duoval.vals[1])
 
 /**
  * Clears the underlying storage of the value, and makes it
@@ -297,7 +301,7 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
       return 0;
 
     case RSValue_Duo:
-      return RSValue_Hash(v->duoval.val, hval);
+      return RSValue_Hash(RS_DUOVAL_VAL(*v), hval);
   }
 
   return 0;

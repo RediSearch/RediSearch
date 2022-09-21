@@ -104,8 +104,9 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
     case RSValue_Duo:
-      RSValue_Decref(v->duoval.val);
-      RSValue_Decref(v->duoval.otherval);
+      RSValue_Decref(RS_DUOVAL_VAL(*v));
+      RSValue_Decref(RS_DUOVAL_OTHERVALUE(*v));
+      rm_free(v->duoval.vals);
       break;
     default:   // no free
       break;
@@ -247,7 +248,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
       return RSValue_ToString(dst, v->ref);
 
     case RSValue_Duo:
-      return RSValue_ToString(dst, v->duoval.val);
+      return RSValue_ToString(dst, RS_DUOVAL_VAL(*v));
 
     case RSValue_Null:
     default:
@@ -294,7 +295,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
       break;
 
     case RSValue_Duo:
-      return RSValue_ToNumber(v->duoval.val, d);
+      return RSValue_ToNumber(RS_DUOVAL_VAL(*v), d);
 
     case RSValue_Null:
     case RSValue_Array:
@@ -356,7 +357,7 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
     case RSValue_OwnRstring:
       return RedisModule_StringPtrLen(value->rstrval, lenp);
     case RSValue_Duo:
-      return RSValue_StringPtrLen(value->duoval.val, lenp);
+      return RSValue_StringPtrLen(RS_DUOVAL_VAL(*value), lenp);
     default:
       return NULL;
   }
@@ -473,8 +474,9 @@ inline RSValue *RS_NullVal() {
 
 RSValue *RS_DuoVal(RSValue *val, RSValue *otherval) {
   RSValue *duo = RS_NewValue(RSValue_Duo);
-  duo->duoval.val = val;
-  duo->duoval.otherval = otherval;
+  duo->duoval.vals = rm_calloc(2, sizeof(*duo->duoval.vals));
+  duo->duoval.vals[0] = val;
+  duo->duoval.vals[1] = otherval;
   return duo;
 }
 
@@ -525,7 +527,7 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
       return cmp_strings(s1, s2, l1, l2);
     }
     case RSValue_Duo:
-      return RSValue_CmpNC(v1->duoval.val, v2->duoval.val);
+      return RSValue_CmpNC(RS_DUOVAL_VAL(*v1), RS_DUOVAL_VAL(*v2));
     case RSValue_Null:
       return 0;
     case RSValue_Array:  // can't compare arrays ATM
@@ -640,7 +642,7 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
       }
       return REDISMODULE_OK;
     case RSValue_Duo:
-      return RSValue_SendReply(ctx, v->duoval.otherval, isTyped);
+      return RSValue_SendReply(ctx, RS_DUOVAL_OTHERVALUE(*v), isTyped);
     default:
       RedisModule_ReplyWithNull(ctx);
   }
@@ -684,7 +686,7 @@ void RSValue_Print(const RSValue *v) {
       break;
 
     case RSValue_Duo:
-      RSValue_Print(v->duoval.val);
+      RSValue_Print(RS_DUOVAL_VAL(*v));
       break;
   }
 }
