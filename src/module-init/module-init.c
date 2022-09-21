@@ -113,7 +113,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Module version
   RedisModule_InfoAddSection(ctx, "version");
   char rs_version[50];
-  sprintf(rs_version, "%d.%d.%d", redisVersion.majorVersion, redisVersion.minorVersion, redisVersion.patchVersion);
+  sprintf(rs_version, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH);
   RedisModule_InfoAddFieldCString(ctx, "RedisSearch_version", rs_version);
 
   // Numer of indexes
