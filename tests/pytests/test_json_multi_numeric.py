@@ -631,3 +631,73 @@ def testUpdateNumRecordsJson(env):
 def testUpdateNumRecordsHash(env):
     """ Test update of `num_records` when using Hashes """
     checkUpdateNumRecords(env, False)
+
+def testMultiNumericReturn(env):
+    """ test RETURN with multiple NUMERIC values """
+
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.arr[*]', 'AS', 'val', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'val', 'NUMERIC').ok()
+    doc1_content = {"arr":[1, 2, 3]}
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
+
+    res1 = [1, 'doc:1', ['arr_1', '[2]']]
+    res2 = [1, 'doc:1', ['val', '[1,2,3]']]
+    res3 = [1, 'doc:1', ['val', '[[1,2,3]]']]
+
+    # Multi flat
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', 'DIALECT', 3).equal(res1)
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '1', 'val', 'DIALECT', 3).equal(res2)
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr[*]', 'AS', 'val', 'DIALECT', 3).equal(res2)
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr', 'AS', 'val', 'DIALECT', 3).equal(res3)
+
+    # Array
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', 'DIALECT', 3).equal(res1)
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '1', 'val', 'DIALECT', 3).equal(res3)
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr[*]', 'AS', 'val', 'DIALECT', 3).equal(res2)
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr', 'AS', 'val', 'DIALECT', 3).equal(res3)
+
+    # RETURN ALL
+    res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'DIALECT', 3)
+    env.assertEqual(json.loads(res[2][1]), [doc1_content])
+    
+    #
+    # Test backward compatibility (before DIALECT 3)
+    #
+    res1_single = [1, 'doc:1', ['arr_1', '2']]
+    res2_single = [1, 'doc:1', ['val', '1']]
+    res3_single = [1, 'doc:1', ['val', '[1,2,3]']]
+
+    # Multi flat
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1').equal(res1_single)
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '1', 'val').equal(res2_single)
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr[*]', 'AS', 'val').equal(res2_single)
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr', 'AS', 'val').equal(res3_single)
+
+    # Array
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1').equal(res1_single)
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '1', 'val').equal(res3_single)
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr[*]', 'AS', 'val').equal(res2_single)
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr', 'AS', 'val').equal(res3_single)
+
+    # RETURN ALL
+    res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]')
+    env.assertEqual(json.loads(res[2][1]), doc1_content)
+    

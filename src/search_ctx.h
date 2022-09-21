@@ -26,6 +26,7 @@ typedef struct RedisSearchCtx {
   int isStatic;
   uint64_t specId;  // Unique id of the spec; used when refreshing
   struct timespec timeout;
+  unsigned int apiVersion; // API Version to allow for backwards compatibility
 } RedisSearchCtx;
 
 #define SEARCH_CTX_STATIC(ctx, sp) \

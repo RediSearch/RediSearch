@@ -4,6 +4,8 @@ from common import *
 from includes import *
 import numpy as np
 
+MAX_DIALECT = 3
+
 def test_dialect_config_get_set_from_default(env):
     env.skipOnCluster()
     # skip when default MODARGS for pytest is DEFAULT_DIALECT 2. RediSearch>=2.4 is loading with dialect v1 as default.
@@ -13,7 +15,7 @@ def test_dialect_config_get_set_from_default(env):
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 0").error()
     env.expect("FT.CONFIG SET DEFAULT_DIALECT -1").error()
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 3").error()
+    env.expect("FT.CONFIG SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
 
 def test_dialect_config_get_set_from_config(env):
     env.skipOnCluster()
@@ -23,7 +25,7 @@ def test_dialect_config_get_set_from_config(env):
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 0").error()
     env.expect("FT.CONFIG SET DEFAULT_DIALECT -1").error()
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 3").error()
+    env.expect("FT.CONFIG SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
 
 def test_dialect_query_errors(env):
     conn = getConnectionByEnv(env)

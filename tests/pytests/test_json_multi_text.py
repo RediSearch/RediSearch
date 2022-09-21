@@ -161,13 +161,36 @@ def testMultiTagString(env):
                          '[["mathematics and computer science","logic","programming","database"]]']]
 
     env.expect('FT.SEARCH', 'idx1',
-               '@category:{logic}', 'RETURN', '3', '$.category[1]', 'AS', 'category_1').equal(res1)
+               '@category:{logic}', 'RETURN', '3', '$.category[1]', 'AS', 'category_1', 'DIALECT', 3).equal(res1)
     env.expect('FT.SEARCH', 'idx1',
-               '@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res2)
+               '@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category', 'DIALECT', 3).equal(res2)
     env.expect('FT.SEARCH', 'idx1',
-               '@category:{logic}', 'RETURN', '1', 'category').equal(res2)
+               '@category:{logic}', 'RETURN', '1', 'category', 'DIALECT', 3).equal(res2)
     env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN',
-               '3', '$.category', 'AS', 'category_arr').equal(res3)
+               '3', '$.category', 'AS', 'category_arr', 'DIALECT', 3).equal(res3)
+    # RETURN ALL
+    res = conn.execute_command('FT.SEARCH', 'idx1', '@category:{logic}', 'DIALECT', 3)
+    env.assertEqual(json.loads(res[2][1]), [json.loads(doc1_content)])
+    
+    # Test backward compatibility (before DIALECT 3)
+    res1_single = [1, 'doc:1', ['category_1',
+                         'logic']]
+    res2_single = [1, 'doc:1', ['category',
+                         'mathematics and computer science']]
+    res3_single = [1, 'doc:1', ['category_arr',
+                         '["mathematics and computer science","logic","programming","database"]']]
+
+    env.expect('FT.SEARCH', 'idx1',
+               '@category:{logic}', 'RETURN', '3', '$.category[1]', 'AS', 'category_1').equal(res1_single)
+    env.expect('FT.SEARCH', 'idx1',
+               '@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res2_single)
+    env.expect('FT.SEARCH', 'idx1',
+               '@category:{logic}', 'RETURN', '1', 'category').equal(res2_single)
+    env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN',
+               '3', '$.category', 'AS', 'category_arr').equal(res3_single)
+    # RETURN ALL
+    res = conn.execute_command('FT.SEARCH', 'idx1', '@category:{logic}')
+    env.assertEqual(json.loads(res[2][1]), json.loads(doc1_content))
 
     # Not indexing array
     env.assertEqual(int(index_info(env, 'idx2')['hash_indexing_failures']), 4)
@@ -196,14 +219,14 @@ def testMultiTagBool(env):
     env.expect('FT.SEARCH', 'idx_single', '@bar:{false}', 'NOCONTENT').equal([1, 'doc:3'])
 
 def testMultiTextReturn(env):
-    """ test multiple TAG values (array of strings) """
+    """ test multiple TEXT values (array of strings) """
     conn = getConnectionByEnv(env)
 
     # Index multi flat values
-    env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA',
+    env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA',
                '$.category[*]', 'AS', 'category', 'TEXT').ok()
     # Index an array
-    env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
+    env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA',
                '$.category', 'AS', 'category', 'TEXT').ok()
 
     conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
@@ -215,17 +238,60 @@ def testMultiTextReturn(env):
                          '["logic"]']]
     res2 = [1, 'doc:1', ['category',
                          '["mathematics and computer science","logic","programming","database"]']]
-    res3 = [1, 'doc:1', ['category_arr',
+    res3 = [1, 'doc:1', ['category',
                          '[["mathematics and computer science","logic","programming","database"]]']]
-
-    env.expect('FT.SEARCH', 'idx1',
-               '@category:logic', 'RETURN', '3', '$.category[1]', 'AS', 'category_1').equal(res1)
-    env.expect('FT.SEARCH', 'idx1',
-               '@category:(mathematics and computer science)', 'RETURN', '1', 'category').equal(res2)
-    env.expect('FT.SEARCH', 'idx1',
-               '@category:logic', 'RETURN', '1', 'category').equal(res2)
-    env.expect('FT.SEARCH', 'idx1', '@category:logic', 'RETURN',
-               '3', '$.category', 'AS', 'category_arr').equal(res3)
+    # Multi flat
+    env.expect('FT.SEARCH', 'idx_flat',
+               '@category:logic', 'RETURN', '3', '$.category[1]', 'AS', 'category_1', 'DIALECT', 3).equal(res1)
+    env.expect('FT.SEARCH', 'idx_flat',
+               '@category:(mathematics and computer science)', 'RETURN', '1', 'category', 'DIALECT', 3).equal(res2)
+    env.expect('FT.SEARCH', 'idx_flat',
+               '@category:logic', 'RETURN', '1', 'category', 'DIALECT', 3).equal(res2)
+    env.expect('FT.SEARCH', 'idx_flat', '@category:logic', 'RETURN',
+               '3', '$.category', 'AS', 'category', 'DIALECT', 3).equal(res3)
+    # Array
+    env.expect('FT.SEARCH', 'idx_arr',
+               '@category:logic', 'RETURN', '3', '$.category[1]', 'AS', 'category_1', 'DIALECT', 3).equal(res1)
+    env.expect('FT.SEARCH', 'idx_arr',
+               '@category:(mathematics and computer science)', 'RETURN', '1', 'category', 'DIALECT', 3).equal(res3)
+    env.expect('FT.SEARCH', 'idx_arr',
+               '@category:logic', 'RETURN', '1', 'category', 'DIALECT', 3).equal(res3)
+    env.expect('FT.SEARCH', 'idx_arr', '@category:logic', 'RETURN',
+               '3', '$.category', 'AS', 'category', 'DIALECT', 3).equal(res3)
+    # RETURN ALL
+    res = conn.execute_command('FT.SEARCH', 'idx_flat', '@category:logic', 'DIALECT', 3)
+    env.assertEqual(json.loads(res[2][1]), [json.loads(doc1_content)])
+    
+    #
+    # Test backward compatibility (before DIALECT 3)
+    #
+    res1_single = [1, 'doc:1', ['category_1',
+                         'logic']]
+    res2_single = [1, 'doc:1', ['category',
+                         'mathematics and computer science']]
+    res3_single = [1, 'doc:1', ['category',
+                         '["mathematics and computer science","logic","programming","database"]']]
+    # Multi flat
+    env.expect('FT.SEARCH', 'idx_flat',
+               '@category:logic', 'RETURN', '3', '$.category[1]', 'AS', 'category_1').equal(res1_single)
+    env.expect('FT.SEARCH', 'idx_flat',
+               '@category:(mathematics and computer science)', 'RETURN', '1', 'category').equal(res2_single)
+    env.expect('FT.SEARCH', 'idx_flat',
+               '@category:logic', 'RETURN', '1', 'category').equal(res2_single)
+    env.expect('FT.SEARCH', 'idx_flat', '@category:logic', 'RETURN',
+               '3', '$.category', 'AS', 'category').equal(res3_single)
+    # Array
+    env.expect('FT.SEARCH', 'idx_arr',
+               '@category:logic', 'RETURN', '3', '$.category[1]', 'AS', 'category_1').equal(res1_single)
+    env.expect('FT.SEARCH', 'idx_arr',
+               '@category:(mathematics and computer science)', 'RETURN', '1', 'category').equal(res3_single)
+    env.expect('FT.SEARCH', 'idx_arr',
+               '@category:logic', 'RETURN', '1', 'category').equal(res3_single)
+    env.expect('FT.SEARCH', 'idx_arr', '@category:logic', 'RETURN',
+               '3', '$.category', 'AS', 'category').equal(res3_single)
+    # RETURN ALL
+    res = conn.execute_command('FT.SEARCH', 'idx_flat', '@category:logic')
+    env.assertEqual(json.loads(res[2][1]), json.loads(doc1_content))
 
 
 def testMultiText(env):

@@ -77,7 +77,7 @@ typedef struct RSValue {
     // array value
     struct {
       struct RSValue **vals;
-      uint32_t len : 30;
+      uint32_t len : 31;
 
       /**
        * Whether the storage space of the array itself

@@ -305,10 +305,23 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
 // Get the value from an iterator and free the iterator
 // Return REDISMODULE_OK, and set rsv to the value, if value exists
 // Return REDISMODULE_ERR otherwise
-static int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, RSValue **rsv) {
+//
+// Multi value is supported with apiVersion >=3
+static int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv) {
 
   int res = REDISMODULE_ERR;
   RedisModuleString *serialized = NULL;
+  
+  if (apiVersion < 3) {
+    // Preserve single value behavior for backward compatibility
+    RedisJSON json = japi->next(iter);
+    if (!json) {
+      goto done;
+    }
+    *rsv = jsonValToValue(ctx, json);
+    res = REDISMODULE_OK;
+    goto done;
+  }
 
   size_t len = japi->len(iter);
   if (len > 0) {
@@ -322,17 +335,6 @@ static int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, RSValu
     RedisJSON json = japi->next(iter);
     if (!json) {
       goto cleanup;
-    }
-    // If the value is a single array
-    if (len == 1) {
-      JSONType type = japi->getType(json);
-      if (type == JSONType_Array) {
-        size_t count;
-        japi->getLen(json, &count);
-        if( count > 0) {
-          json = japi->getAt(json, 0);
-        }
-      }
     }
     RSValue *val = jsonValToValue(ctx, json);
     RSValue *otherval = RS_StealRedisStringVal(serialized);
@@ -491,7 +493,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
       return REDISMODULE_OK;
     }
   } else {
-    if (jsonIterToValue(ctx, jsonIter, &rsv) == REDISMODULE_ERR) {
+    if (jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &rsv) == REDISMODULE_ERR) {
       return REDISMODULE_OK;
     }
   }
@@ -661,7 +663,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   }
 
   RSValue *vptr;
-  if (jsonIterToValue(ctx, jsonIter, &vptr) == REDISMODULE_ERR) {
+  if (jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr) == REDISMODULE_ERR) {
       goto done;
     }
   RLookupKey *rlk = RLookup_GetKeyEx(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
