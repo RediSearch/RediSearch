@@ -105,7 +105,7 @@ void RSValue_Clear(RSValue *v) {
       return;  // prevent changing global RS_NULL to RSValue_Undef
     case RSValue_Duo:
       RSValue_Decref(RS_DUOVAL_VAL(*v));
-      RSValue_Decref(RS_DUOVAL_OTHERVALUE(*v));
+      RSValue_Decref(RS_DUOVAL_OTHERVAL(*v));
       rm_free(v->duoval.vals);
       break;
     default:   // no free
@@ -642,7 +642,7 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
       }
       return REDISMODULE_OK;
     case RSValue_Duo:
-      return RSValue_SendReply(ctx, RS_DUOVAL_OTHERVALUE(*v), isTyped);
+      return RSValue_SendReply(ctx, RS_DUOVAL_OTHERVAL(*v), isTyped);
     default:
       RedisModule_ReplyWithNull(ctx);
   }

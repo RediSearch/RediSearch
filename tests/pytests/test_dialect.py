@@ -32,8 +32,8 @@ def test_dialect_query_errors(env):
     env.expect("FT.CREATE idx SCHEMA t TEXT").ok()
     conn.execute_command("HSET", "h", "t", "hello")
     env.expect("FT.SEARCH idx 'hello' DIALECT").error().contains("Need an argument for DIALECT")
-    env.expect("FT.SEARCH idx 'hello' DIALECT 0").error().contains("DIALECT requires a non negative integer >=1 and <= 3")
-    env.expect("FT.SEARCH idx 'hello' DIALECT 4").error().contains("DIALECT requires a non negative integer >=1 and <= 3")
+    env.expect("FT.SEARCH idx 'hello' DIALECT 0").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
+    env.expect("FT.SEARCH idx 'hello' DIALECT 4").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
 
 def test_v1_vs_v2(env):
     env.expect("FT.CREATE idx SCHEMA title TAG t1 TEXT t2 TEXT t3 TEXT num NUMERIC v VECTOR HNSW 6 TYPE FLOAT32 DIM 1 DISTANCE_METRIC COSINE").ok()

@@ -326,7 +326,6 @@ static int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsign
   size_t len = japi->len(iter);
   if (len > 0) {
     // First get the JSON serialized value (since it does not consume the iterator)
-    
     if (japi->getJSONFromIter(iter, ctx, &serialized) == REDISMODULE_ERR) {
       goto done;
     }

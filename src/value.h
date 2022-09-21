@@ -121,7 +121,7 @@ typedef struct RSValue {
 #pragma pack()
 
 #define RS_DUOVAL_VAL(v) ((v).duoval.vals[0])
-#define RS_DUOVAL_OTHERVALUE(v) ((v).duoval.vals[1])
+#define RS_DUOVAL_OTHERVAL(v) ((v).duoval.vals[1])
 
 /**
  * Clears the underlying storage of the value, and makes it
