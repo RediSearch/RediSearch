@@ -19,7 +19,7 @@ dbconfig:
       - '"FT.CREATE" "nyc" "SCHEMA" "total_amount" "NUMERIC" "SORTABLE" "improvement_surcharge" "NUMERIC" "SORTABLE" "fare_amount" "NUMERIC" "SORTABLE" "trip_distance" "NUMERIC" "SORTABLE"'
   - dataset_load_timeout_secs: 180
   - check:
-      keyspacelen: 1000000
+      keyspacelen: 100000
 
 clientconfig:
   benchmark_type: "read-only"
