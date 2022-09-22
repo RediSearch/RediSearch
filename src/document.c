@@ -490,34 +490,47 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   return 0;
 }
 
-FIELD_PREPROCESSOR(numericPreprocessor) {
-  char *end;
+FIELD_PREPROCESSOR(numericPreprocessor) {  
   switch (field->unionType) {
     case FLD_VAR_T_RMS:
+      fdata->isMulti = 0;
       if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
         QueryError_SetCode(status, QUERY_ENOTNUMERIC);
         return -1;
       }
       break;
     case FLD_VAR_T_CSTR:
-      fdata->numeric = strtod(field->strval, &end);
-      if (*end) {
-        QueryError_SetCode(status, QUERY_ENOTNUMERIC);
-        return -1;
+      {
+        char *end;
+        fdata->isMulti = 0;
+        fdata->numeric = strtod(field->strval, &end);
+        if (*end) {
+          QueryError_SetCode(status, QUERY_ENOTNUMERIC);
+          return -1;
+        }        
       }
       break;
     case FLD_VAR_T_NUM:
+      fdata->isMulti = 0;
       fdata->numeric = field->numval;
       break;
     case FLD_VAR_T_NULL:
       return 0;
+    case FLD_VAR_T_ARRAY:
+      fdata->isMulti = 1;
+      // Borrow values
+      fdata->arrNumeric = field->arrNumval;
+      break;
     default:
       return -1;
   }
 
   // If this is a sortable numeric value - copy the value to the sorting vector
   if (FieldSpec_IsSortable(fs)) {
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
+    // Currently multi values are skipped from sorting vector
+    if (field->unionType != FLD_VAR_T_ARRAY) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
+    }
   }
   return 0;
 }
@@ -533,9 +546,19 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric);
-  ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
-  ctx->spec->stats.numRecords += rv.numRecords;
+  
+  if (!fdata->isMulti) {
+    NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
+    ctx->spec->stats.invertedSize += rv.sz;
+    ctx->spec->stats.numRecords += rv.numRecords;
+  } else {
+    for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
+      double numval = fdata->arrNumeric[i];
+      NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
+      ctx->spec->stats.invertedSize += rv.sz;
+      ctx->spec->stats.numRecords += rv.numRecords;
+    }    
+  }  
   return 0;
 }
 
@@ -603,6 +626,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   if (geohash == INVALID_GEOHASH) {
     return REDISMODULE_ERR;
   }
+  fdata->isMulti = 0;
   fdata->numeric = geohash;
 
   if (FieldSpec_IsSortable(fs)) {
@@ -786,14 +810,12 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
   if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
-    // printf("Couldn't load document!\n");
     goto done;
   }
 
   ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
   RSValue rv = RSVALUE_STATIC;
   if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
-    // printf("Eval not OK!!! SAD!!\n");
     goto done;
   }
 

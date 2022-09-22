@@ -710,25 +710,6 @@ def testconfigMultiTextOffsetDeltaSlop0(env):
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
 
-def testconfigMultiTextOffsetDeltaSlopNeg(env):
-    """ test ft.config `MULTI_TEXT_SLOP` -1 """
-
-    if env.env == 'existing-env':
-        env.skip()
-    
-    # MULTI_TEXT_SLOP = -1
-    err_msg = None
-    try:
-        # Module should fail to load and should prevent redis from launching
-        env = Env(moduleArgs = 'MULTI_TEXT_SLOP -1')
-    except Exception as e:
-        if 'Cannot establish connection' in str(e):
-            err_msg = 'module init should fail due to invalid module configuration'
-
-    env.assertIsNotNone(err_msg)
-    env = Env()
-
-
 def testMultiNoHighlight(env):
     """ highlight is not supported with multiple TEXT """
     pass
