@@ -695,11 +695,13 @@ workflows:
       - build-macos:
           context: common
           <<: *on-integ-and-version-tags
-      - benchmark-search-oss-standalone:
-          context: common
+      - coverage:
           <<: *on-any-branch
-      - benchmark-search-oss-cluster:
-          context: common
+      - sanitize:
+          name: sanitize-<< matrix.san-type >>
+          matrix:
+            parameters:
+              san-type: [address] # [address, memory]
           <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
