@@ -24,4 +24,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH nyc @trip_distance:[6,8] SORTBY trip_distance LIMIT 0 0'"
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH nyc @trip_distance:[6,8] LIMIT 0 0'"
