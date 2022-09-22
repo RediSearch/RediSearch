@@ -36,6 +36,7 @@ static const char *steptypeToString(PLN_StepType type) {
 void AGGPlan::AddStep(PLN_BaseStep *step) {
   if (!(step->type > PLN_T_INVALID)) throw Error("Step type connot be PLN_T_INVALID");
   steps.push_back(step);
+  step->list_node = --steps.end();
   steptypes |= (1 << (step->type - 1));
 }
 
@@ -130,22 +131,12 @@ const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseS
   return NULL;
 }
 
-//---------------------------------------------------------------------------------------------
-
-PLN_ArrangeStep::~PLN_ArrangeStep() {
-  if (sortKeys) {
-    array_free(sortKeys);
-  }
-  rm_free(sortkeysLK);
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Gets the last arrange step for the current pipeline stage. If no arrange step exists, return NULL.
 
 PLN_ArrangeStep *AGGPlan::GetArrangeStep() {
   // Go backwards.. and stop at the cutoff
-  //for (const DLLIST_node *nn = steps.prev; nn != &steps; nn = nn->prev) {
   for (PLN_BaseStep *step = steps.back(); step; step = step->PrevStep()) {
     if (step->IsReduce()) {
       break;
@@ -268,9 +259,9 @@ void PLN_ArrangeStep::Dump() const {
   if (offset || limit) {
     printf("  OFFSET:%lu LIMIT:%lu\n", (unsigned long) offset, (unsigned long) limit);
   }
-  if (sortKeys) {
+  if (sortKeys.size() > 0) {
     printf("  SORT:\n");
-    for (size_t ii = 0; ii < array_len(sortKeys); ++ii) {
+    for (size_t ii = 0; ii < sortKeys.size(); ++ii) {
       const char *dir = SORTASCMAP_GETASC(sortAscMap, ii) ? "ASC" : "DESC";
       printf("    %s:%s\n", sortKeys[ii], dir);
     }
@@ -354,13 +345,13 @@ static void serializeArrange(myArgArray_t *arr, const PLN_ArrangeStep *astp) {
     append_uint(arr, astp->offset);
     append_uint(arr, astp->limit);
   }
-  if (astp->sortKeys) {
-    size_t numsort = array_len(astp->sortKeys);
+  if (astp->sortKeys.size() > 0) {
+    size_t numsort = astp->sortKeys.size();
     append_string(arr, "SORTBY");
     append_uint(arr, numsort * 2);
     for (size_t ii = 0; ii < numsort; ++ii) {
       char *stmp;
-      rm_asprintf(&stmp, "@%s", astp->sortKeys[ii]);
+      rm_asprintf(&stmp, "@%s", astp->sortKeys[ii].c_str());
       *arr = array_append(*arr, stmp);
       if (SORTASCMAP_GETASC(astp->sortAscMap, ii)) {
         append_string(arr, "ASC");

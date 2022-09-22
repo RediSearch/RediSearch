@@ -13,8 +13,6 @@ ScoreExplain::ScoreExplain(ScoreExplain *exp) {
 //---------------------------------------------------------------------------------------------
 
 void ScoreExplain::RMReply(RedisModuleCtx *ctx) {
-  int numChildren = numChildren;
-
   if (children.empty()) {
     RedisModule_ReplyWithSimpleString(ctx, str.data());
   } else {

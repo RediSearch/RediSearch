@@ -34,7 +34,7 @@ struct QueryParse {
   QueryNode *ParseRaw();
 
   void Parse(int yymajor, const QueryToken &yyminor);
-  bool IsOk() const { return status->HasError(); }
+  bool IsOk() const { return !status->HasError(); }
 };
 
 //---------------------------------------------------------------------------------------------

@@ -93,7 +93,7 @@ struct SearchResult {
   // Row data. Use RLookup* functions to access
   RLookupRow rowdata;
 
-  SearchResult();
+  SearchResult() {}
   ~SearchResult();
 
   // Resets the search result, so that it may be reused. Internal caches are reset but not freed.
@@ -237,7 +237,7 @@ struct RPSorter : public ResultProcessor {
   uint32_t offset;
 
   // The heap. We use a min-max heap here
-  MinMaxHeap<SearchResult *> *pq;
+  MinMaxHeap<SearchResult *> pq;
 
   // the compare function for the heap. We use it to test if a result needs to be added to the heap
   // RPSorterCompareFunc cmp;
@@ -245,22 +245,26 @@ struct RPSorter : public ResultProcessor {
   // pooled result - we recycle it to avoid allocations
   SearchResult *pooledResult;
 
+  // start accumulating and then change to yield operation
+  bool accum;
+
   struct Cmp {
-    const RLookupKey **keys;
-    size_t nkeys;
+    Vector<RLookupKey *> keys;
     uint64_t ascendMap;
   } fieldcmp;
 
-  void ctor(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap);
-
-  RPSorter(size_t maxresults, const RLookupKey **keys = NULL, size_t nkeys = 0, uint64_t ascmap = 0) :
-    ResultProcessor("") {
-    ctor(maxresults, keys, nkeys, ascmap);
-  }
+  RPSorter(size_t maxresults, Vector<RLookupKey *> keys = {}, uint64_t ascmap = 0);
 
   ~RPSorter();
 
-  int Next(SearchResult *r);
+  int Next(SearchResult *r) {
+    if (accum) {
+      return Accum(r);
+    } else {
+      return Yield(r);
+    }
+  }
+  int Yield(SearchResult *r);
   int Accum(SearchResult *r);
   int innerLoop(SearchResult *r);
 };

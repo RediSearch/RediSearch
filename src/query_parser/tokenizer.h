@@ -30,6 +30,8 @@ struct QueryToken {
   int pos;
   char *field;
   double numval;
+
+  // QueryToken() : s(NULL), len(0), pos(0), field(NULL), numval(0) {}
 };
 
 //----------------------------------------------------------------------------------------------

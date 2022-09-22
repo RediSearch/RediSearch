@@ -118,11 +118,14 @@ struct PLN_MapFilterStep : PLN_BaseStep {
 // ARRANGE covers sort, limit, and so on
 
 struct PLN_ArrangeStep : PLN_BaseStep {
-  PLN_ArrangeStep() : PLN_BaseStep(PLN_T_ARRANGE) {}
-  virtual ~PLN_ArrangeStep();
+  PLN_ArrangeStep() : PLN_BaseStep(PLN_T_ARRANGE) {
+    offset = 0;
+    limit = 0;
+  }
+  virtual ~PLN_ArrangeStep() {}
 
-  const RLookupKey **sortkeysLK;  // simple array
-  const char **sortKeys;          // array_*
+  Vector<RLookupKey *> sortkeysLK;  // simple array
+  Vector<String> sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output

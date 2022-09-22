@@ -97,7 +97,7 @@ Scorer Extensions::GetScorer(const char *name) {
 // and new token node as children. Or if it is already a union node (in consecutive calls),
 // we just adds a new token node as a child to it.
 
-// str is the expanded string. flags is a 32 bit flag mask that can be used by the extension 
+// str is the expanded string. flags is a 32 bit flag mask that can be used by the extension
 // to set private information on the token.
 
 void QueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
@@ -105,7 +105,7 @@ void QueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
 
   // Replace current node with a new union node if needed
   if (node->type != QN_UNION) {
-    auto union_node = new QueryUnionNode;
+    auto union_node = new QueryUnionNode();
 
     union_node->opts.fieldMask = node->opts.fieldMask;
 
@@ -169,7 +169,7 @@ void QueryExpander::SetPayload(RSPayload payload) {
 QueryExpander::Factory Extensions::GetQueryExpander(const char *name) {
   auto it = queryExpanders.find(name);
   if (it != queryExpanders.end()) {
-    return NULL;
+    return it->second;
   }
 
   QueryExpander::Factory fact = it->second;

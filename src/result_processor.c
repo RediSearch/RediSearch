@@ -38,11 +38,6 @@ void SearchResult::Clear() {
 
 //---------------------------------------------------------------------------------------------
 
-SearchResult::SearchResult() {
-}
-
-//---------------------------------------------------------------------------------------------
-
 SearchResult::~SearchResult() {
   Clear();
   rowdata.Cleanup();
@@ -93,9 +88,8 @@ int RPIndexIterator::Next(SearchResult *res) {
 
 //---------------------------------------------------------------------------------------------
 
-RPIndexIterator::RPIndexIterator(IndexIterator *root) : ResultProcessor("Index") {
-  iiter = root;
-}
+RPIndexIterator::RPIndexIterator(IndexIterator *root) :
+  ResultProcessor("Index"), iiter(root) {}
 
 //---------------------------------------------------------------------------------------------
 
@@ -175,16 +169,16 @@ RPScorer::RPScorer(const Scorer *scorer, const ScorerArgs *args) : ResultProcess
 
 //---------------------------------------------------------------------------------------------
 
-// Next - pops the current top result from the heap
+// Yield - pops the current top result from the heap
 
-int RPSorter::Next(SearchResult *r) {
+int RPSorter::Yield(SearchResult *r) {
   // make sure we don't overshoot the heap size, unless the heap size is dynamic
-  if (pq->size() > 0 && (!size || offset++ < size)) {
-    SearchResult *sr = pq->pop_max();
+  if (pq.size() > 0 && (!size || offset++ < size)) {
+    SearchResult *sr = pq.pop_max();
     RLookupRow oldrow = r->rowdata;
     *r = *sr;
 
-    rm_free(sr);
+    delete sr;
     oldrow.Cleanup();
     return RS_RESULT_OK;
   }
@@ -197,8 +191,6 @@ RPSorter::~RPSorter() {
   if (pooledResult) {
     delete pooledResult;
   }
-
-  delete pq;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -207,7 +199,7 @@ RPSorter::~RPSorter() {
 
 int RPSorter::innerLoop(SearchResult *r) {
   if (pooledResult == NULL) {
-    pooledResult = rm_calloc(1, sizeof(*pooledResult));
+    pooledResult = new SearchResult();
   } else {
     pooledResult->rowdata.Wipe();
   }
@@ -218,6 +210,7 @@ int RPSorter::innerLoop(SearchResult *r) {
   // if our upstream has finished - just change the state to not accumulating, and Next
   if (rc == RS_RESULT_EOF) {
     // Transition state:
+    accum = false;
     return Next(r);
   } else if (rc != RS_RESULT_OK) {
     // whoops!
@@ -226,11 +219,10 @@ int RPSorter::innerLoop(SearchResult *r) {
 
   // If the queue is not full - we just push the result into it
   // If the pool size is 0 we always do that, letting the heap grow dynamically
-  if (pq->empty() || pq->size() + 1 < pq->capacity()) {
-
+  if (pq.empty() || pq.size() + 1 < pq.capacity()) {
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
-    pq->insert(h);
+    pq.insert(h);
     pooledResult = NULL;
     if (h->score < parent->minScore) {
       parent->minScore = h->score;
@@ -238,7 +230,7 @@ int RPSorter::innerLoop(SearchResult *r) {
 
   } else {
     // find the min result
-    SearchResult *minh = pq->peek_min();
+    SearchResult *minh = pq.peek_min();
 
     // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
     if (minh->score > parent->minScore) {
@@ -246,10 +238,10 @@ int RPSorter::innerLoop(SearchResult *r) {
     }
 
     // if needed - pop it and insert a new result
-    if (pq->cmp(h, minh, this) > 0) {
+    if (pq.cmp(h, minh, this) > 0) {
       h->indexResult = NULL;
-      pooledResult = pq->pop_min();
-      pq->insert(h);
+      pooledResult = pq.pop_min();
+      pq.insert(h);
       pooledResult->Clear();
     } else {
       // The current should not enter the pool, so just leave it as is
@@ -297,7 +289,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *sorter_) {
     qerr = sorter->parent->err;
   }
 
-  for (size_t i = 0; i < sorter->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
+  for (size_t i = 0; i < sorter->fieldcmp.keys.size() && i < SORTASCMAP_MAXFIELDS; i++) {
     const RSValue *v1 = h1->rowdata.GetItem(sorter->fieldcmp.keys[i]);
     const RSValue *v2 = h2->rowdata.GetItem(sorter->fieldcmp.keys[i]);
     // take the ascending bit for this property from the ascending bitmap
@@ -335,15 +327,19 @@ static void srDtor(void *p) {
 
 //---------------------------------------------------------------------------------------------
 
-void RPSorter::ctor(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap) {
-  fieldcmp.ascendMap = ascmap;
-  fieldcmp.keys = keys;
-  fieldcmp.nkeys = nkeys;
+RPSorter::RPSorter(size_t maxresults, Vector<RLookupKey *> keys = {}, uint64_t ascmap = 0) :
+  ResultProcessor(""),
+  pq(!keys.empty() ? cmpByFields : cmpByScore, this),
+  size(maxresults),
+  offset(0),
+  accum(true) {
 
-  pq = new MinMaxHeap<SearchResult *>(nkeys ? cmpByFields : cmpByScore, this);
-  pq->reserve(maxresults + 1);
-  size = maxresults;
+  fieldcmp.ascendMap = ascmap;
+  fieldcmp.keys = keys;  size = maxresults;
+  offset = 0;  size = maxresults;
   offset = 0;
+
+  pq.reserve(maxresults + 1);
   pooledResult = NULL;
   name = "Sorter";
 }

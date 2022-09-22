@@ -173,7 +173,7 @@ int AREQ::handleCommonArgs(ArgsCursor *ac, bool allowLegacy, QueryError *status)
 
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int isLegacy) {
   // Prevent multiple SORTBY steps
-  if (arng->sortKeys != NULL) {
+  if (!arng->sortKeys.empty()) {
     QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
     return REDISMODULE_ERR;
   }
@@ -186,7 +186,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 0 desc
   // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
   uint64_t ascMap = SORTASCMAP_INIT;
-  const char **keys = NULL;
+  Vector<String> keys;
 
   if (isLegacy) {
     if (ac->NumRemaining() > 0) {
@@ -208,13 +208,11 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     }
   }
 
-  keys = array_new(const char *, 8);
-
   if (isLegacy) {
     // Legacy demands one field and an optional ASC/DESC parameter. Both
     // of these are handled above, so no need for argument parsing
     const char *s = subArgs.GetStringNC(NULL);
-    keys = array_append(keys, s);
+    keys.push_back(s);
 
     if (legacyDesc) {
       SORTASCMAP_SETDESC(ascMap, 0);
@@ -223,19 +221,19 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     while (!subArgs.IsAtEnd()) {
       const char *s = subArgs.GetStringNC(NULL);
       if (*s == '@') {
-        if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
+        if (keys.size() >= SORTASCMAP_MAXFIELDS) {
           QERR_MKBADARGS_FMT(status, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
           goto err;
         }
         s++;
-        keys = array_append(keys, s);
+        keys.push_back(s);
         continue;
       }
 
       if (!strcasecmp(s, "ASC")) {
-        SORTASCMAP_SETASC(ascMap, array_len(keys) - 1);
+        SORTASCMAP_SETASC(ascMap, keys.size() - 1);
       } else if (!strcasecmp(s, "DESC")) {
-        SORTASCMAP_SETDESC(ascMap, array_len(keys) - 1);
+        SORTASCMAP_SETDESC(ascMap, keys.size() - 1);
       } else {
         // Unknown token - neither a property nor ASC/DESC
         QERR_MKBADARGS_FMT(status, "MISSING ASC or DESC after sort field (%s)", s);
@@ -261,9 +259,6 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   return REDISMODULE_OK;
 err:
   QERR_MKBADARGS_FMT(status, "Bad SORTBY arguments");
-  if (keys) {
-    array_free(keys);
-  }
   return REDISMODULE_ERR;
 }
 
@@ -473,7 +468,7 @@ int PLN_GroupStep::AddReducer(const char *name, ArgsCursor *ac, QueryError *stat
 
 PLN_BaseStep::~PLN_BaseStep() {
   if (alias) {
-    rm_free((void *)alias);
+    //rm_free((void *)alias);
   }
 }
 
@@ -830,7 +825,7 @@ ResultProcessor *PLN_GroupStep::buildRP(RLookup *srclookup, QueryError *err) {
 //---------------------------------------------------------------------------------------------
 
 /** Pushes a processor up the stack. Returns the newly pushed processor
-  * @param rp the processor to push
+ * @param rp the processor to push
  * @param rpUpstream previous processor (used as source for rp)
  * @return the processor passed in `rp`.
  */
@@ -879,34 +874,29 @@ ResultProcessor *AREQ::getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstre
 
 #define DEFAULT_LIMIT 10
 
-ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, const PLN_BaseStep *stp, ResultProcessor *up,
+ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, PLN_ArrangeStep &astp, ResultProcessor *up,
                                     QueryError *status) {
   ResultProcessor *rp = NULL;
-  PLN_ArrangeStep astp;
 
   size_t limit = astp.offset + astp.limit;
   if (!limit) {
     limit = DEFAULT_LIMIT;
   }
 
-  if (astp.sortKeys) {
-    size_t nkeys = array_len(astp.sortKeys);
-    astp.sortkeysLK = rm_malloc(sizeof(*astp.sortKeys) * nkeys);
+  if (!astp.sortKeys.empty()) {
+    RLookup *lk = pln->GetLookup(&astp, AGPLN_GETLOOKUP_PREV);
 
-    const RLookupKey **sortkeys = astp.sortkeysLK;
-
-    RLookup *lk = pln->GetLookup(stp, AGPLN_GETLOOKUP_PREV);
-
-    for (size_t ii = 0; ii < nkeys; ++ii) {
-      sortkeys[ii] = lk->GetKey(astp.sortKeys[ii], RLOOKUP_F_NOINCREF);
-      if (!sortkeys[ii]) {
-        status->SetErrorFmt(QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema",
-                            astp.sortKeys[ii]);
+    //@@ move to PLN_ArrangeStep class
+    for (const auto &key: astp.sortKeys) {
+      auto rlkey = lk->GetKey(key, RLOOKUP_F_NOINCREF);
+      if (!rlkey) {
+        status->SetErrorFmt(QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", key.c_str());
         return NULL;
       }
+      astp.sortkeysLK.push_back(rlkey);
     }
 
-    rp = new RPSorter(limit, sortkeys, nkeys, astp.sortAscMap);
+    rp = new RPSorter(limit, astp.sortkeysLK, astp.sortAscMap);
     up = pushRP(rp, up);
   }
 
@@ -948,13 +938,13 @@ bool AGGPlan::hasQuerySortby() const {
   const PLN_BaseStep *bstp = FindStep(NULL, NULL, PLN_T_GROUP);
   if (bstp != NULL) {
     const PLN_ArrangeStep *arng = FindStep(NULL, bstp, PLN_T_ARRANGE);
-    if (arng && arng->sortKeys) {
+    if (arng && !arng->sortKeys.empty()) {
       return true;
     }
   } else {
     // no group... just see if we have an arrange step
     const PLN_ArrangeStep *arng = FindStep(NULL, NULL, PLN_T_ARRANGE);
-    return arng && arng->sortKeys;
+    return arng && !arng->sortKeys.empty();
   }
   return false;
 }
@@ -973,15 +963,18 @@ bool AGGPlan::hasQuerySortby() const {
 // subsequent execution stages actually have data to operate on.
 
 void AREQ::buildImplicitPipeline(QueryError *status) {
+  qiter = std::make_unique<QueryIterator>();
   qiter->conc = &*conc;
   qiter->sctx = &*sctx;
   qiter->err = status;
 
-  IndexSpecCache *cache = sctx->spec->GetSpecCache();
+  std::shared_ptr<IndexSpecFields> cache = sctx->spec->GetSpecCache();
   RS_LOG_ASSERT(cache, "IndexSpec::GetSpecCache failed")
 
-  RLookup *first{cache}; //= ap.GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
-  //first->Reset(cache);
+  RLookup *first = ap.GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
+  if (first) {
+    first->Reset(cache);
+  }
 
   ResultProcessor *rp = new RPIndexIterator(rootiter);
   ResultProcessor *rpUpstream = NULL;
@@ -1066,7 +1059,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
 
-  for (const PLN_BaseStep *step = pln->steps.front(); step; step = step->NextStep()) {
+  for (PLN_BaseStep *step = pln->steps.front(); step; step = step->NextStep()) {
     switch (step->type) {
       case PLN_T_GROUP: {
         rpUpstream = getGroupRP((PLN_GroupStep *)step, rpUpstream, status);
@@ -1077,7 +1070,8 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
       }
 
       case PLN_T_ARRANGE: {
-        rp = getArrangeRP(pln, step, rpUpstream, status);
+        auto astp = *dynamic_cast<PLN_ArrangeStep*>(step);
+        rp = getArrangeRP(pln, astp, rpUpstream, status);
         if (!rp) {
           goto error;
         }
@@ -1159,7 +1153,8 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
   if (!hasArrange && (reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = getArrangeRP(pln, NULL, rpUpstream, status);
+    PLN_ArrangeStep astp;
+    rp = getArrangeRP(pln, astp, rpUpstream, status);
     if (!rp) {
       goto error;
     }
@@ -1214,6 +1209,7 @@ AREQ::~AREQ() {
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);
   }
+
   rm_free(args);
 }
 

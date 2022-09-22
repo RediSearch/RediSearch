@@ -148,7 +148,7 @@ struct AREQ : public Object {
   ResultProcessor *RP() { return qiter->endProc; }
   ResultProcessor *pushRP(ResultProcessor *rp, ResultProcessor *rpUpstream);
   ResultProcessor *getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstream, QueryError *status);
-  ResultProcessor *getArrangeRP(AGGPlan *pln, const PLN_BaseStep *stp, ResultProcessor *up, QueryError *status);
+  ResultProcessor *getArrangeRP(AGGPlan *pln, PLN_ArrangeStep &stp, ResultProcessor *up, QueryError *status);
   ResultProcessor *getScorerRP();
 
   void buildImplicitPipeline(QueryError *status);
@@ -191,7 +191,7 @@ struct Grouper : ResultProcessor {
   BlkAlloc<Group> groupsAlloc;
 
   // Keys to group by. Both srckeys and dstkeys are used because different lookups are employed.
-  // The srckeys are the lookup keys for the properties as they appear in the row received from 
+  // The srckeys are the lookup keys for the properties as they appear in the row received from
   // the upstream processor, and the dstkeys are the keys as they are expected in the output row.
 
   Vector<const RLookupKey*> srckeys;
