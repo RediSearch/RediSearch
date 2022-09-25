@@ -21,4 +21,5 @@
 .cproject
 VSCODE.DB*
 callgrind.out.*
+/tests/pytests/logs/
 /1/

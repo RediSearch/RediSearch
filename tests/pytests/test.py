@@ -116,7 +116,7 @@ def testUnion(env):
     for i in range(N):
 
         env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'f', 'hello world' if i % 2 == 0 else 'hallo werld').ok()
+                   'f', 'hello world' if i % 2 == 0 else 'hallo werld').ok()
 
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')

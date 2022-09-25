@@ -166,7 +166,7 @@ def testProfileErrors(env):
   env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH` or `AGGREGATE` provided')
   # miss `QUERY` keyword
   if not env.isCluster():
-    env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyward is expected')
+    env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
 
 def testProfileNumeric(env):
   env.skipOnCluster()

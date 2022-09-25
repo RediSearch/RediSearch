@@ -1,10 +1,15 @@
 
 get_filename_component(RS_DIR ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
-message("# search root: " ${RS_DIR})
-message("# search binroot: " ${binroot})
+if(NOT DEFINED root)
+	set(root ${RS_DIR})
+endif()
+message("# RediSearch root: " ${RS_DIR})
+message("# RediSearch binroot: " ${binroot})
 
 include(build/cmake/common.cmake)
+
+#----------------------------------------------------------------------------------------------
 
 option(RS_BUILD_STATIC "Build a static library" OFF)
 # RS_BUILD_COORDINATOR
@@ -134,9 +139,13 @@ else() # OSS RediSearch
 
 	if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG AND NOT APPLE)
         add_custom_command(TARGET redisearch POST_BUILD
-            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+            COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
             COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
-            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
+            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
+#        add_custom_command(TARGET redisearch POST_BUILD
+#            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+#            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
+#            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
     endif()
 endif()
 
