@@ -146,6 +146,7 @@ struct RLookup {
 // Row data for a lookup key. This abstracts the question of "where" the data comes from
 
 struct RLookupRow {
+  RLookupRow() : rmkey(NULL), sv(NULL) {}
   ~RLookupRow() { Wipe(); }
 
   // Sorting vector attached to document

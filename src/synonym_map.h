@@ -62,7 +62,7 @@ struct SynonymMap : Object {
 
   void RdbSave(RedisModuleIO *rdb);
 
-  static size_t IdToStr(uint32_t id, char *buff, size_t len);
+  static String IdToStr(uint32_t id);
   static const char **RedisStringArrToArr(RedisModuleString **synonyms, size_t size);
 };
 

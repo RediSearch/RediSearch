@@ -20,6 +20,7 @@ enum TokenFlags {
 };
 
 // Represents a token found in a document
+
 struct Token {
   // Normalized string
   const char *tok;

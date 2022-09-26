@@ -71,10 +71,10 @@ void QueryNode::ctor(QueryNodeType t) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-QueryTokenNode *QueryAST::NewTokenNodeExpanded(std::string_view s, RSTokenFlags flags) {
-  QueryTokenNode *ret = new QueryTokenNode(NULL, s, 1, flags);
-  numTokens++;
-  return ret;
+QueryTokenNode *QueryAST::NewExpandedTokenNode(std::string_view s, RSTokenFlags flags) {
+  QueryTokenNode *node = new QueryTokenNode{NULL, s, 1, flags};
+  ++numTokens;
+  return node;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -115,16 +115,20 @@ void QueryAST::SetGlobalFilters(Vector<t_docId> &ids) {
 
 //---------------------------------------------------------------------------------------------
 
-void QueryNode::Expand(QueryExpander *expander) {
+QueryNode *QueryNode::Expand(QueryExpander &expander) {
   // Do not expand verbatim nodes
-  if (opts.flags & QueryNode_Verbatim) {
-    return;
+  if (opts.flags & QueryNode_Verbatim) return;
+  if (!expandChildren()) return;
+
+  for (auto &chi: children) {
+    auto expanded = chi->Expand(expander);
+    if (expanded != chi) {
+      delete chi;
+      chi = expanded;
+    }
   }
 
-  if (!expandChildren()) return;
-  for (auto chi: children) {
-    chi->Expand(expander);
-  }
+  return this;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -148,12 +152,13 @@ IndexIterator *QueryTokenNode::EvalNode(Query *q) {
 
 //---------------------------------------------------------------------------------------------
 
-void QueryTokenNode::Expand(QueryExpander *expander) {
+QueryNode *QueryTokenNode::Expand(QueryExpander &expander) {
   // Do not expand verbatim nodes
-  if (opts.flags & QueryNode_Verbatim) return;
+  if (opts.flags & QueryNode_Verbatim) return this;
 
-  expander->currentNode = this;
-  expander->Expand(&tok);
+  expander.currentNode = this;
+  expander.Expand(&tok);
+  return this;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -656,8 +661,14 @@ int QueryAST::Expand(const char *expanderName, RSSearchOptions *opts, RedisSearc
   QueryExpander::Factory factory = g_ext.GetQueryExpander(expanderName ? expanderName : DEFAULT_EXPANDER_NAME);
   if (factory) {
     QueryExpander *expander = factory(this, sctx, opts->language, status);
-    root->Expand(expander);
-    delete expander;
+    if (expander) {
+      auto expanded = root->Expand(*expander);
+      if (expanded != root) {
+        delete root;
+        root = expanded;
+      }
+      delete expander;
+    }
   }
   return status->HasError() ? REDISMODULE_ERR : REDISMODULE_OK;
 }

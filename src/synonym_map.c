@@ -112,7 +112,7 @@ SynonymMap::~SynonymMap() {
 
 //---------------------------------------------------------------------------------------------
 
-static inline const char** SynonymMap::RedisStringArrToArr(RedisModuleString** synonyms, size_t size) {
+const char** SynonymMap::RedisStringArrToArr(RedisModuleString** synonyms, size_t size) {
   const char** arr = rm_malloc(sizeof(char*) * size);
   for (size_t i = 0; i < size; ++i) {
     arr[i] = RedisModule_StringPtrLen(synonyms[i], NULL);
@@ -226,15 +226,13 @@ Vector<TermData*> SynonymMap::DumpAllTerms(size_t* size) {
 // len - the buff len
 // return the size of the str writen to buff
 
-static size_t SynonymMap::IdToStr(uint32_t id, char* buff, size_t len) {
-  int bytes_written = snprintf(buff, len, SYNONYM_PREFIX "%d", id);
-  RS_LOG_ASSERT(bytes_written >= 0 && bytes_written < len, "buffer is not big enough");
-  return bytes_written;
+String SynonymMap::IdToStr(uint32_t id) {
+  return stringf(SYNONYM_PREFIX "%d", id);
 }
 
 //---------------------------------------------------------------------------------------------
 
-inline void SynonymMap::CopyEntry(uint64_t key, TermData* t_data) {
+void SynonymMap::CopyEntry(uint64_t key, TermData* t_data) {
   h_table.insert({key, t_data->Copy()});
 }
 

@@ -48,6 +48,8 @@ enum QueryNodeFlags {
 #define PHONETIC_DESABLED 2
 #define PHONETIC_DEFAULT 0
 
+//---------------------------------------------------------------------------------------------
+
 // Various modifiers and options that can apply to the entire query or any sub-query of it
 
 struct QueryNodeOptions {
@@ -89,9 +91,9 @@ struct QueryAttributes : Vector<QueryAttribute*> {
 
 //---------------------------------------------------------------------------------------------
 
-typedef Vector<struct QueryNode *> QueryNodes;
+using QueryNodes = Vector<struct QueryNode *>;
 
-// QueryNode reqresents any query node in the query tree.
+// QueryNode reqresents a node in a query tree
 
 struct QueryNode : Object {
   void ctor(QueryNodeType t);
@@ -125,7 +127,7 @@ struct QueryNode : Object {
   size_t NumChildren() const { return children.size(); }
   QueryNode *Child(int i) { return NumChildren() > i ? children[i] : NULL; }
 
-  virtual void Expand(QueryExpander *expander);
+  virtual QueryNode *Expand(QueryExpander &expander);
   virtual bool expandChildren() const { return false; }
 
   typedef bool (*ForEachCallback)(QueryNode *node, void *ctx);
@@ -214,12 +216,12 @@ struct QueryTagNode : QueryNode {
 struct QueryTokenNode : QueryNode {
   RSToken tok;
 
-  QueryTokenNode(QueryParse *q, std::string_view str, uint8_t expanded = 0, RSTokenFlags flags = 0) :
+  QueryTokenNode(QueryParse *query, std::string_view str, uint8_t expanded = 0, RSTokenFlags flags = 0) :
     QueryNode(QN_TOKEN), tok(str, expanded, flags) {
-    if (q) q->numTokens++;
+    if (query) query->numTokens++;
   }
 
-  virtual void Expand(QueryExpander *expander);
+  virtual QueryNode *Expand(QueryExpander &expander);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "%s%s", (char *)tok.str.data(), tok.expanded ? "(expanded)" : "");
@@ -263,7 +265,7 @@ struct QueryFuzzyNode : QueryNode {
 
   QueryFuzzyNode(QueryParse *q, const std::string_view &str, int maxDist) :
       QueryNode(QN_FUZZY), tok(str, 0, 0), maxDist(maxDist) {
-    q->numTokens++;
+    if (q) q->numTokens++;
   }
 
   IndexIterator *EvalNode(Query *q);

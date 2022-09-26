@@ -75,20 +75,6 @@ bool operator!=(rm_allocator<T> const& x, rm_allocator<U> const& y) noexcept { r
 
 //---------------------------------------------------------------------------------------------
 
-/*
-template<class CharT, class Traits = std::char_traits<CharT>>
-struct BasicString : std::basic_string<CharT, Traits, rm_allocator<CharT>> {
-	typedef std::basic_string<CharT, Traits, rm_allocator<CharT>> Super;
-	BasicString() {}
-	BasicString(const Super &s) : Super(s) {}
-	BasicString(Super &&s) : Super(s) {}
-	BasicString(const CharT* s) : Super(s) {}
-	BasicString(const CharT* s, size_t len) : Super(s, len) {}
-};
-
-typedef BasicString<char> String;
-*/
-
 template<class CharT, class Traits = std::char_traits<CharT>>
 using BasicString = std::basic_string<CharT, Traits, rm_allocator<CharT>>;
 
@@ -151,5 +137,78 @@ struct DynaBuff {
 		len = 0;
 	}
 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+#define VA_ARGS_MEMORY_THRESHOLD (1024 * 1024)
+
+#define ALLOC_VA_ARGS_BUFFER(F, N, P) \
+	char P##_s[N]; \
+	va_list P##_args; \
+	va_start(P##_args, F); \
+	char *P = alloc_va_args_buffer(F, P##_s, N, P##_args); \
+	va_args_buffer_deallocator P##_free(P, P##_s); \
+	va_end(P##_args)
+
+#define ALLOC_VA_ARGS_BUFFER_1(F, N, P, A) \
+	char P##_s[N]; \
+	char *P = alloc_va_args_buffer(F, P##_s, N, A); \
+	va_args_buffer_deallocator P##_free(P, P##_s)
+
+//---------------------------------------------------------------------------------------------
+
+inline char *alloc_va_args_buffer(const char *fmt, char *buf, size_t buf_size, va_list args) {
+  char *p = buf;
+  size_t size = buf_size;
+  for (;;) {
+    int chars = vsnprintf(p, size, fmt, args);
+    p[size - 1] = '\0';
+    if (chars >= 0 && (size_t) chars < size) {
+      return buf;
+	}
+    size *= 2;
+    p = (char *) (size == 2 * buf_size ? rm_malloc(size) : rm_realloc(p, size));
+    if (!p || size > VA_ARGS_MEMORY_THRESHOLD) {
+      if (p != buf) rm_free(p);
+      throw std::runtime_error("out of memory");
+    }
+  }
+}
+
+//---------------------------------------------------------------------------------------------
+
+struct va_args_buffer_deallocator {
+  char *p, *buf;
+  va_args_buffer_deallocator(char *p, char *buf) : p(p), buf(buf) {}
+  ~va_args_buffer_deallocator() {
+    if (p != buf) rm_free(p);
+  }
+};
+
+//---------------------------------------------------------------------------------------------
+
+inline String stringf(const char *fmt, ...) {
+  ALLOC_VA_ARGS_BUFFER(fmt, 1024, p);
+  return String(p);
+}
+
+//---------------------------------------------------------------------------------------------
+
+inline String vstringf(const char *fmt, va_list args) {
+  ALLOC_VA_ARGS_BUFFER_1(fmt, 1024, p, args);
+  return String(p);
+}
+
+//---------------------------------------------------------------------------------------------
+
+inline const char *operator+(const std::string_view &s) {
+	return s.data();
+}
+
+//---------------------------------------------------------------------------------------------
+
+inline bool operator!(const std::string_view &s) {
+	return s.empty();
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

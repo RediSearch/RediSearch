@@ -13,6 +13,7 @@
 #define ENTRIES_PER_BLOCK 32
 #define TERM_BLOCK_SIZE 128
 #define CHARS_PER_TERM 5
+
 #define TOKOPT_F_STEM 0x01
 #define TOKOPT_F_COPYSTR 0x02
 
@@ -73,8 +74,8 @@ void ForwardIndex::Reset(Document *doc, uint32_t idxFlags_) {
 
 //---------------------------------------------------------------------------------------------
 
-int ForwardIndex::hasOffsets() const {
-  return idxFlags & Index_StoreTermOffsets;
+bool ForwardIndex::hasOffsets() const {
+  return !!(idxFlags & Index_StoreTermOffsets);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -86,17 +87,17 @@ ForwardIndex::~ForwardIndex() {
 
 //---------------------------------------------------------------------------------------------
 
-ForwardIndexEntry::ForwardIndexEntry(ForwardIndex &idx, const char *tok, size_t tokLen, float fieldScore,
+ForwardIndexEntry::ForwardIndexEntry(ForwardIndex &idx, std::string_view tok, float fieldScore,
     t_fieldId fieldId, int options) {
   fieldMask = 0;
   next = NULL;
   if (options & TOKOPT_F_COPYSTR) {
-    term = idx.terms.strncpy(tok, tokLen);
+    term = idx.terms.strncpy(tok);
   } else {
-    term = tok;
+    term = tok.data();
   }
 
-  len = tokLen;
+  len = tok.size();
   freq = 0;
 
   vw = idx.hasOffsets() ? idx.vvw_pool.Alloc(VarintVectorWriter()) : NULL;
@@ -104,9 +105,9 @@ ForwardIndexEntry::ForwardIndexEntry(ForwardIndex &idx, const char *tok, size_t 
 
 //---------------------------------------------------------------------------------------------
 
-void ForwardIndex::HandleToken(const char *tok, size_t tokLen, uint32_t pos,
+void ForwardIndex::HandleToken(std::string_view tok, uint32_t pos,
                                float fieldScore, t_fieldId fieldId, int options) {
-  ForwardIndexEntry *h = entries.Alloc(ForwardIndexEntry(*this, tok, tokLen, fieldScore, fieldId, options));
+  ForwardIndexEntry *h = entries.Alloc(ForwardIndexEntry(*this, tok, fieldScore, fieldId, options));
   h->fieldMask |= ((t_fieldMask)1) << fieldId;
   float score = (float)fieldScore;
 
@@ -121,7 +122,7 @@ void ForwardIndex::HandleToken(const char *tok, size_t tokLen, uint32_t pos,
     h->vw->Write(pos);
   }
 
-  std::string key{tok, tokLen};
+  String key{tok};
 
   if (hits.contains(key)) {
     hits[key].push_back(h);
@@ -134,14 +135,12 @@ void ForwardIndex::HandleToken(const char *tok, size_t tokLen, uint32_t pos,
 
 //---------------------------------------------------------------------------------------------
 
-#define SYNONYM_BUFF_LEN 100
-
 void ForwardIndexTokenizer::tokenize(const Token &tok) {
   int options = 0;
   if (tok.flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
   }
-  idx->HandleToken(tok.tok, tok.tokLen, tok.pos, fieldScore, fieldId, options);
+  idx->HandleToken(tok.tok, tok.pos, fieldScore, fieldId, options);
 
   if (allOffsets) {
     allOffsets->Write(tok.raw - doc);
@@ -152,24 +151,21 @@ void ForwardIndexTokenizer::tokenize(const Token &tok) {
     if (tok.flags & Token_CopyStem) {
       stemopts |= TOKOPT_F_COPYSTR;
     }
-    idx->HandleToken(tok.stem, tok.stemLen, tok.pos, fieldScore, fieldId, stemopts);
+    idx->HandleToken(tok.stem, tok.pos, fieldScore, fieldId, stemopts);
   }
 
   if (idx->smap) {
     TermData *t_data = idx->smap->GetIdsBySynonym(tok.tok, tok.tokLen);
     if (t_data) {
-      char synonym_buff[SYNONYM_BUFF_LEN];
-      size_t synonym_len;
-      for (int i = 0; i < t_data->ids.size(); ++i) {
-        synonym_len = SynonymMap::IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
-        idx->HandleToken(synonym_buff, synonym_len, tok.pos,
-                         fieldScore, fieldId, TOKOPT_F_COPYSTR);
+      for (auto const &id: t_data->ids) {
+        String synonym = SynonymMap::IdToStr(id);
+        idx->HandleToken(synonym, tok.pos, fieldScore, fieldId, TOKOPT_F_COPYSTR);
       }
     }
   }
 
   if (tok.phoneticsPrimary) {
-    idx->HandleToken(tok.phoneticsPrimary, strlen(tok.phoneticsPrimary),
+    idx->HandleToken(std::string_view{tok.phoneticsPrimary, strlen(tok.phoneticsPrimary)},
                      tok.pos, fieldScore, fieldId, TOKOPT_F_COPYSTR);
   }
 }

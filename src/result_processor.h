@@ -93,7 +93,7 @@ struct SearchResult {
   // Row data. Use RLookup* functions to access
   RLookupRow rowdata;
 
-  SearchResult() {}
+  SearchResult() : score(0), scoreExplain(NULL), indexResult(NULL) {}
   ~SearchResult();
 
   // Resets the search result, so that it may be reused. Internal caches are reset but not freed.

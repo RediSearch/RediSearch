@@ -106,7 +106,6 @@ void QueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
   // Replace current node with a new union node if needed
   if (node->type != QN_UNION) {
     auto union_node = new QueryUnionNode();
-
     union_node->opts.fieldMask = node->opts.fieldMask;
 
     // Append current node to the new union node as a child
@@ -114,35 +113,35 @@ void QueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
     currentNode = union_node;
   }
 
-  QueryTokenNode *exp = qast->NewTokenNodeExpanded(str, flags);
-  exp->opts.fieldMask = node->opts.fieldMask;
-  // Now the current node must be a union node - so we just add a new token node to it
-  currentNode->AddChild(exp);
+  QueryTokenNode *expanded = qast->NewExpandedTokenNode(str, flags);
+  expanded->opts.fieldMask = node->opts.fieldMask;
+
+  // Now the current node is a union node - so we add the expanded node to it
+  currentNode->AddChild(expanded);
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Expand the token with a multi-word phrase, where all terms are intersected.
 // If replace is true, we replace the original token with the new phrase.
-// If exact is 1 the expanded phrase is an exact match phrase.
+// If exact is true, the expanded phrase is an exact match phrase.
 
 // Either turn the current node into a union node with the original token node and new
 // token node as children. Or if it is already a union node (in consecutive calls),
 // it just adds a new token node as a child to it.
 
 void QueryExpander::ExpandTokenWithPhrase(const Vector<String> &tokens, RSTokenFlags flags,
-                                          bool replace, bool exact) {
+    bool replace, bool exact) {
   QueryNode *node = currentNode;
 
   QueryPhraseNode *phrase_node = new QueryPhraseNode(exact);
   for (auto &token: tokens) {
-    phrase_node->AddChild(qast->NewTokenNodeExpanded(token, flags));
+    phrase_node->AddChild(qast->NewExpandedTokenNode(token, flags));
   }
 
   // if we're replacing - just set the expanded phrase instead of the token
   if (replace) {
     delete node;
-
     currentNode = phrase_node;
   } else {
     // Replace current node with a new union node if needed
@@ -153,7 +152,8 @@ void QueryExpander::ExpandTokenWithPhrase(const Vector<String> &tokens, RSTokenF
       union_node->AddChild(node);
       currentNode = union_node;
     }
-    // Now the current node must be a union node - so we just add a new token node to it
+
+    // Now the current node is a union node - so we add then expanded node to it
     currentNode->AddChild(phrase_node);
   }
 }

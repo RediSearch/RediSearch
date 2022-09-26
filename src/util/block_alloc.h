@@ -78,6 +78,7 @@ struct StringBlkAlloc : BlkAllocBase {
 
   // gets non-null terminated string, copies into pool, returns pointer from pool
   char *strncpy(const char *str, size_t len);
+  char *strncpy(std::string_view str) { return strncpy(str.data(), str.size()); }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

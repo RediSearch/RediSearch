@@ -13,11 +13,10 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct VarintVectorWriterPool : MemPool<struct ForwardIndexEntry> {
-};
+using VarintVectorWriterPool = MemPool<struct ForwardIndexEntry>;
 
 struct ForwardIndexEntry {
-  ForwardIndexEntry(ForwardIndex &idx, const char *tok, size_t tokLen, float fieldScore,
+  ForwardIndexEntry(ForwardIndex &idx, std::string_view tok, float fieldScore,
     t_fieldId fieldId, int options);
 
   struct ForwardIndexEntry *next;
@@ -34,7 +33,7 @@ struct ForwardIndexEntry {
 
 //---------------------------------------------------------------------------------------------
 
-typedef UnorderedMap<std::string, Vector<ForwardIndexEntry *>> ForwardIndexHitMap;
+using ForwardIndexHitMap = UnorderedMap<String, Vector<ForwardIndexEntry *>>;
 
 struct ForwardIndexIterator {
   ForwardIndexIterator(const ForwardIndex &idx);
@@ -45,6 +44,8 @@ struct ForwardIndexIterator {
 
   ForwardIndexEntry *Next();
 };
+
+//---------------------------------------------------------------------------------------------
 
 struct ForwardIndex : Object {
   ForwardIndexHitMap hits;
@@ -57,18 +58,17 @@ struct ForwardIndex : Object {
   BlkAlloc<ForwardIndexEntry> entries;
   BlkAlloc<VarintVectorWriter> vvw_pool;
 
-  void ctor(uint32_t idxFlags_);
-  ForwardIndex(Document *doc, uint32_t idxFlags_);
+  void ctor(uint32_t idxFlags);
+  ForwardIndex(Document *doc, uint32_t idxFlags);
   ~ForwardIndex();
-  void Reset(Document *doc, uint32_t idxFlags_);
+
+  void Reset(Document *doc, uint32_t idxFlags);
 
   ForwardIndexIterator Iterate() const { return ForwardIndexIterator(*this); }
 
-  void HandleToken(const char *tok, size_t tokLen, uint32_t pos,
-                   float fieldScore, t_fieldId fieldId, int options);
+  void HandleToken(std::string_view tok, uint32_t pos, float fieldScore, t_fieldId fieldId, int options);
 
-  // private
-  int hasOffsets() const;
+  bool hasOffsets() const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -80,10 +80,8 @@ struct ForwardIndexTokenizer {
   t_fieldId fieldId;
   float fieldScore;
 
-  // ctor
-  ForwardIndexTokenizer(ForwardIndex *idx, const char *doc, VarintVectorWriter *vvw,
-                        t_fieldId fieldId, float score) :
-  idx(idx), fieldId(fieldId), fieldScore(score), doc(doc), allOffsets(vvw) {}
+  ForwardIndexTokenizer(ForwardIndex *idx, const char *doc, VarintVectorWriter *vvw, t_fieldId fieldId,
+    float score) : idx(idx), fieldId(fieldId), fieldScore(score), doc(doc), allOffsets(vvw) {}
 
   void tokenize(const Token &tok);
 };
