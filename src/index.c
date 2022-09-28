@@ -1546,6 +1546,7 @@ typedef struct {
   IndexIterator base;
   t_docId topId;
   t_docId current;
+  t_docId numDocs;
 } WildcardIterator, WildcardIteratorCtx;
 
 /* Free a wildcard iterator */
@@ -1559,10 +1560,10 @@ static void WI_Free(IndexIterator *it) {
 /* Read reads the next consecutive id, unless we're at the end */
 static int WI_Read(void *ctx, RSIndexResult **hit) {
   WildcardIteratorCtx *nc = ctx;
+  CURRENT_RECORD(nc)->docId = ++nc->current;
   if (nc->current > nc->topId) {
     return INDEXREAD_EOF;
   }
-  CURRENT_RECORD(nc)->docId = nc->current++;
   if (hit) {
     *hit = CURRENT_RECORD(nc);
   }
@@ -1615,18 +1616,20 @@ static t_docId WI_LastDocId(void *ctx) {
 
 static void WI_Rewind(void *p) {
   WildcardIteratorCtx *ctx = p;
-  ctx->current = 1;
+  ctx->current = 0;
 }
 
 static size_t WI_NumEstimated(void *p) {
-  return SIZE_MAX;
+  WildcardIteratorCtx *ctx = p;
+  return ctx->numDocs;
 }
 
 /* Create a new wildcard iterator */
-IndexIterator *NewWildcardIterator(t_docId maxId) {
+IndexIterator *NewWildcardIterator(t_docId maxId, size_t numDocs) {
   WildcardIteratorCtx *c = rm_calloc(1, sizeof(*c));
-  c->current = 1;
+  c->current = 0;
   c->topId = maxId;
+  c->numDocs = numDocs;
 
   CURRENT_RECORD(c) = NewVirtualResult(1);
   CURRENT_RECORD(c)->freq = 1;
