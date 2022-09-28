@@ -276,12 +276,12 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
       rm_free(df->blobArr);
       return REDISMODULE_ERR;
     }
-    size_t len;
-    if ((REDISMODULE_OK != japi->getLen(element, &len)) || (len != dim)) {
+    size_t cur_dim;
+    if ((REDISMODULE_OK != japi->getLen(element, &cur_dim)) || (cur_dim != dim)) {
       rm_free(df->blobArr);
       return REDISMODULE_ERR;
     }
-    if (REDISMODULE_OK != JSON_StoreVectorAt(element, len, getElement, df->blobArr + df->blobSize * count, step)) {
+    if (REDISMODULE_OK != JSON_StoreVectorAt(element, cur_dim, getElement, df->blobArr + df->blobSize * count, step)) {
       rm_free(df->blobArr);
       return REDISMODULE_ERR;
     }
