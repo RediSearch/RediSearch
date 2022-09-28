@@ -111,6 +111,7 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
     break;
   case FLD_VAR_T_GEO:
   case FLD_VAR_T_NUM:
+  case FLD_VAR_T_BLOB_ARRAY:
     RS_LOG_ASSERT(0, "nope")
   }
   return ret;
@@ -144,7 +145,7 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
     const char *tok = values[ii];
     if (tok && *tok != '\0') {
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
-      if (idx->suffix) { // add to suffix triemap if exist 
+      if (idx->suffix) { // add to suffix triemap if exist
         addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
     }

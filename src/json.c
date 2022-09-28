@@ -21,7 +21,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 
   if (!GetJSONAPIs(ctx, 0)) {
     RedisModule_Log(ctx, "error", "Detected RedisJSON: failed to acquire ReJSON API");
-  }  
+  }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -164,10 +164,37 @@ static int JSON_getFloat64(RedisJSON json, double *val) {
   }
 }
 
-int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df) {
+typedef int (*getJSONElementFunc)(RedisJSON, void *);
+int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement, char *target, unsigned char step) {
+  for (int i = 0; i < len; ++i) {
+    RedisJSON json = japi->getAt(arr, i);
+    if (getElement(json, target) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+    target += step;
+  }
+  return REDISMODULE_OK;
+}
+
+getJSONElementFunc VecSimGetJSONCallback(VecSimType type) {
+  // The right function will put a value of the right type in the address given, or return REDISMODULE_ERR
+  switch (type) {
+    default:
+    case VecSimType_FLOAT32:
+      return (getJSONElementFunc)JSON_getFloat32;
+     case VecSimType_FLOAT64:
+      return (getJSONElementFunc)JSON_getFloat64;
+    // Uncomment when support for more types is added
+    // case VecSimType_INT32:
+    //   return (getJSONElementFunc)JSON_getInt32;
+    // case VecSimType_INT64:
+    //   return (getJSONElementFunc)japi->getInt;
+  }
+}
+
+int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df) {
   VecSimType type;
   size_t dim;
-  typedef int (*getJSONElementFunc)(RedisJSON, void *);
   getJSONElementFunc getElement;
 
   switch (fs->vectorOpts.vecSimParams.algo) {
@@ -187,66 +214,119 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
     return REDISMODULE_ERR;
   }
 
-  // The right function will put a value of the right type in the address given, or return REDISMODULE_ERR
-  switch (type) {
-    default:
-    case VecSimType_FLOAT32:
-      getElement = (getJSONElementFunc)JSON_getFloat32;
-      break;
-     case VecSimType_FLOAT64:
-       getElement = (getJSONElementFunc)JSON_getFloat64;
-       break;
-    // Uncomment when support for more types is added
-    // case VecSimType_INT32:
-    //   getElement = (getJSONElementFunc)JSON_getInt32;
-    //   break;
-    // case VecSimType_INT64:
-    //   getElement = (getJSONElementFunc)japi->getInt;
-    //   break;
-  }
+  getElement = VecSimGetJSONCallback(type);
 
   if (!(df->strval = rm_malloc(fs->vectorOpts.expBlobSize))) {
     return REDISMODULE_ERR;
   }
   df->strlen = fs->vectorOpts.expBlobSize;
 
-  unsigned char step = VecSimType_sizeof(type);
-  char *offset = df->strval;
   // At this point array length matches blob length
-  for (int i = 0; i < arrLen; ++i) {
-    RedisJSON json = japi->getAt(arr, i);
-    if (getElement(json, offset) != REDISMODULE_OK) {
-      rm_free(df->strval);
-      return REDISMODULE_ERR;
-    }
-    offset += step;
+  if (JSON_StoreVectorAt(arr, arrLen, getElement, df->strval, VecSimType_sizeof(type)) != REDISMODULE_OK) {
+    rm_free(df->strval);
+    return REDISMODULE_ERR;
   }
   df->unionType = FLD_VAR_T_CSTR;
   return REDISMODULE_OK;
 }
 
-typedef enum {
-  ITERABLE_ITER = 0,
-  ITERABLE_ARRAY = 1
-} JSONIterableType;
+int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len, struct DocumentField *df) {
+  VecSimType type;
+  size_t dim;
+  bool multi;
+  getJSONElementFunc getElement;
+  RedisJSON element;
 
-// An adapter for iterator operations, such as `next`, over an underlying container/collection or iterator
-typedef struct {
-  JSONIterableType type;
-  union {
-    JSONResultsIterator iter;
-    struct {
-      RedisJSON arr;
-      size_t index;
-    } array;
-  };
-} JSONIterable;
+  switch (fs->vectorOpts.vecSimParams.algo) {
+    case VecSimAlgo_HNSWLIB:
+      type = fs->vectorOpts.vecSimParams.hnswParams.type;
+      dim = fs->vectorOpts.vecSimParams.hnswParams.dim;
+      multi = fs->vectorOpts.vecSimParams.hnswParams.multi;
+      break;
+    case VecSimAlgo_BF:
+      type = fs->vectorOpts.vecSimParams.bfParams.type;
+      dim = fs->vectorOpts.vecSimParams.bfParams.dim;
+      multi = fs->vectorOpts.vecSimParams.bfParams.multi;
+      break;
+    default: return REDISMODULE_ERR;
+  }
+
+  if (!multi) {
+    if (len == 1) { // TODO: should we accept?
+      return JSON_StoreSingleVectorInDocField(fs, JSONIterable_Next(itr), df);
+    } else {
+      return REDISMODULE_ERR;
+    }
+  }
+
+  getElement = VecSimGetJSONCallback(type);
+  unsigned char step = VecSimType_sizeof(type);
+
+  if (!(df->blobArr = rm_malloc(fs->vectorOpts.expBlobSize * len))) {
+    return REDISMODULE_ERR;
+  }
+  df->blobSize = fs->vectorOpts.expBlobSize;
+  size_t count = 0;
+
+  while ((element = JSONIterable_Next(itr))) {
+    JSONType jsonType = japi->getType(element);
+    if (JSONType_Null == jsonType) {
+      continue; // Skips Nulls.
+    } else if (JSONType_Array != jsonType) {
+      rm_free(df->blobArr);
+      return REDISMODULE_ERR;
+    }
+    size_t len;
+    if ((REDISMODULE_OK != japi->getLen(element, &len)) || (len != dim)) {
+      rm_free(df->blobArr);
+      return REDISMODULE_ERR;
+    }
+    if (REDISMODULE_OK != JSON_StoreVectorAt(element, len, getElement, df->blobArr + df->blobSize * count, step)) {
+      rm_free(df->blobArr);
+      return REDISMODULE_ERR;
+    }
+    count++;
+  }
+  df->blobArrLen = count;
+  df->unionType = FLD_VAR_T_BLOB_ARRAY;
+  return REDISMODULE_OK;
+}
+
+int JSON_StoreMultiVectorInDocFieldFromIter(FieldSpec *fs, JSONResultsIterator jsonIter, size_t len, struct DocumentField *df) {
+  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
+                                      .iter = jsonIter};
+  return JSON_StoreMultiVectorInDocField(fs, &iter, len, df);
+}
+
+int JSON_StoreMultiVectorInDocFieldFromArr(FieldSpec *fs, RedisJSON arr, size_t len, struct DocumentField *df) {
+  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
+                                      .array.arr = arr,
+                                      .array.index = 0};
+  return JSON_StoreMultiVectorInDocField(fs, &iter, len, df);
+}
+
+int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df) {
+  size_t len;
+  japi->getLen(arr, &len);
+  if (len == 0)
+    return REDISMODULE_ERR;
+
+  RedisJSON el = japi->getAt(arr, 0); // We know there is at least one element in the array.
+  switch (japi->getType(el)) {
+    case JSONType_Int:
+    case JSONType_Double:
+      return JSON_StoreSingleVectorInDocField(fs, arr, df);
+    case JSONType_Array:
+      return JSON_StoreMultiVectorInDocFieldFromArr(fs, arr, len, df);
+    default: return REDISMODULE_ERR;
+  }
+}
 
 RedisJSON JSONIterable_Next(JSONIterable *iterable) {
   switch (iterable->type) {
     case ITERABLE_ITER:
       return japi->next(iterable->iter);
-    
+
     case ITERABLE_ARRAY:
       return japi->getAt(iterable->array.arr, iterable->array.index++);
 
@@ -396,7 +476,7 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
         default:
           rv = REDISMODULE_ERR;
           break;
-      }      
+      }
       break;
     case JSONType_Object:
       rv = REDISMODULE_ERR;
@@ -461,6 +541,10 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
       case INDEXFLD_T_NUMERIC:
         // Handling multiple values as Numeric
         rv = JSON_StoreNumericInDocFieldFromIter(len, jsonIter, df);
+        break;
+      case INDEXFLD_T_VECTOR:;
+        // Handling multiple values as Vector
+        rv = JSON_StoreMultiVectorInDocFieldFromIter(fs, jsonIter, len, df);
         break;
       default:
         rv = REDISMODULE_ERR;

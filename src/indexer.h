@@ -20,6 +20,7 @@ typedef struct FieldIndexerData {
     struct {
       const void *vector;
       size_t vecLen;
+      unsigned char numVec;
     };
 
     // Multi value
