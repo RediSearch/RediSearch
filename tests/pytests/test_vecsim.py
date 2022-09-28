@@ -976,25 +976,29 @@ def test_wrong_vector_size():
 def test_hybrid_query_cosine():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
-    dim = 4
-    index_size = 6000 * env.shardsCount
+    dim = 2048
+    index_size = 250000
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
-               'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 't', 'TEXT').ok()
+               'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 't', 'TAG').ok()
 
+    np.random.seed(10)
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
-        first_coordinate = np.float32([float(i)/index_size])
-        vector = np.concatenate((first_coordinate, np.ones(dim-1, dtype='float32')))
-        conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'text value')
+        # first_coordinate = np.float32([float(i)/index_size])
+        # vector = np.concatenate((first_coordinate, np.ones(dim-1, dtype='float32')))
+        vector = np.random.rand(1, dim).astype(np.float32)
+        conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', f'a-b-c{i%10}')
     p.execute()
-
+    x=input("stop!")
     query_data = np.ones(dim, dtype='float32')
 
     expected_res_ids = [str(index_size-i) for i in range(15)]
-    res = env.execute_command('FT.SEARCH', 'idx', '(text value)=>[KNN 10 @v $vec_param]',
+    res = conn.execute_command('FT.SEARCH', 'idx', '@t:{a\-b\-c1}=>[KNN 10 @v $vec_param]',
                               'SORTBY', '__v_score',
                               'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                              'RETURN', 0)
+                              'RETURN', 1, '__v_score')
+    print("res is", res)
+    return
     prefix = "_" if env.isCluster() else ""
     env.assertEqual(env.cmd(prefix + "FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
     # The order of ids is not accurate due to floating point numeric errors, but the top k should be
