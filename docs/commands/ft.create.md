@@ -24,8 +24,18 @@ Create an index with the given specification
     [NOFREQS] 
     [STOPWORDS count [stopword ...]] 
     [SKIPINITIALSCAN]
-    SCHEMA {identifier} AS {attribute} TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
-    [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
+    SCHEMA field_name [AS alias] 
+      TEXT [SORTABLE] [UNF] [NOINDEX] [NOSTEM] [WEIGHT] [PHONETIC] [WITHSUFFIXTRIE] |
+      TAG [SORTABLE] [UNF] [NOINDEX] [SEPARATOR] [CASESENSITIVE] [WITHSUFFIXTRIE] |
+      NUMERIC [SORTABLE] [NOINDEX] |
+      GEO [SORTABLE] [NOINDEX] |
+      VECTOR ... [ SORTABLE [UNF]] 
+
+      [TEXT [SORTABLE] [UNF] [NOINDEX] [NOSTEM] [WEIGHT] [PHONETIC] [WITHSUFFIXTRIE] |
+      TAG [SORTABLE] [UNF] [NOINDEX] [SEPARATOR] [CASESENSITIVE] [WITHSUFFIXTRIE] |
+      NUMERIC [SORTABLE] [NOINDEX] |
+      GEO [SORTABLE] [NOINDEX] |
+      VECTOR ... [ SORTABLE [UNF]] ...] 
 {{< / highlight >}}
 
 [Examples](#examples)
@@ -55,7 +65,9 @@ tells the index which keys it should index. You can add several prefixes to inde
 <details open>
 <summary><code>FILTER {filter}</code></summary> 
 
-is a filter expression with the full RediSearch aggregation expression language. It is possible to use `@__key` to access the key that was just added/changed. A field can be used to set field name by passing `'FILTER @indexName=="myindexname"'`.
+is a filter expression with the full RediSearch aggregation expression language.
+It is possible to use `@__key` to access the key that was just added/changed. 
+A field can be used to set field name by passing `'FILTER @indexName=="myindexname"'`.
 </details>
 
 <details open>
@@ -69,11 +81,12 @@ if set, indicates the default language for documents in the index. Default to En
 
 is document attribute set as the document language.
 
-A stemmer is used for the supplied language during indexing. If an unsupported language is sent, the command returns an error. The supported languages are Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
-Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian,
-Spanish, Swedish, Tamil, Turkish, and Chinese.
+A stemmer is used for the supplied language during indexing. If an unsupported language is sent, the command returns an error. 
+The supported languages are Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian, Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian, Spanish, Swedish, Tamil, Turkish, and Chinese.
 
-When adding Chinese language documents, set `LANGUAGE chinese` for the indexer to properly tokenize the terms. If you use the default language, then search terms are extracted based on punctuation characters and whitespace. The Chinese language tokenizer makes use of a segmentation algorithm (via [Friso](https://github.com/lionsoul2014/friso)), which segments text and checks it against a predefined dictionary. See [Stemming](/redisearch/reference/stemming) for more information.
+When adding Chinese language documents, set `LANGUAGE chinese` for the indexer to properly tokenize the terms. If you use the default language, then search terms are extracted based on punctuation characters and whitespace. 
+The Chinese language tokenizer makes use of a segmentation algorithm (via [Friso](https://github.com/lionsoul2014/friso)), which segments text and checks it against a predefined dictionary. 
+See [Stemming](/redisearch/reference/stemming) for more information.
 </details>
 
 <details open>
@@ -85,7 +98,8 @@ is default score for documents in the index. Default score is 1.0.
 <details open>
 <summary><code>SCORE_FIELD {score_attribute}</code></summary> 
 
-is document attribute that you use as the document rank based on the user ranking. Ranking must be between 0.0 and 1.0. If not set, the default score is 1.
+is document attribute that you use as the document rank based on the user ranking. 
+Ranking must be between 0.0 and 1.0. If not set, the default score is 1.
 </details>
 
 <details open>
@@ -97,21 +111,24 @@ is document attribute that you use as a binary safe payload string to the docume
 <details open>
 <summary><code>MAXTEXTFIELDS</code></summary> 
 
-forces RediSearch to encode indexes as if there were more than 32 text attributes, which allows you to add additional attributes (beyond 32) using `FT.ALTER`. For efficiency, RediSearch encodes indexes differently if they are
-  created with less than 32 text attributes.
+forces RediSearch to encode indexes as if there were more than 32 text attributes, which allows you to add additional attributes (beyond 32) using `FT.ALTER`. 
+For efficiency, RediSearch encodes indexes differently if they are created with less than 32 text attributes.
 </details>
 
 <details open>
 <summary><code>NOOFFSETS</code></summary> 
 
-does not store term offsets for documents. It saves memory, but does not
-  allow exact searches or highlighting. It implies `NOHL`.
+does not store term offsets for documents. 
+It saves memory, but does not allow exact searches or highlighting. 
+It implies `NOHL`.
 </details>
 
 <details open>
 <summary><code>TEMPORARY</code></summary> 
 
-creates a lightweight temporary index that expires after a specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and, therefore, you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
+creates a lightweight temporary index that expires after a specified period of inactivity. 
+The internal idle timer is reset whenever the index is searched or added to. 
+Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and, therefore, you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
 
 When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag deletes the hashes as well.
 </details>
@@ -119,28 +136,29 @@ When dropped, a temporary index does not delete the hashes as they may have been
 <details open>
 <summary><code>NOHL</code></summary> 
 
-conserves storage space and memory by disabling highlighting support. If set, the corresponding byte offsets for term positions are not stored. `NOHL` is also implied by `NOOFFSETS`.
+conserves storage space and memory by disabling highlighting support. 
+If set, the corresponding byte offsets for term positions are not stored. `NOHL` is also implied by `NOOFFSETS`.
 </details>
 
 <details open>
 <summary><code>NOFIELD</code></summary> 
 
-does not store attribute bits for each term. It saves memory, but it does not allow
-  filtering by specific attributes.
+does not store attribute bits for each term. 
+It saves memory, but it does not allow filtering by specific attributes.
 </details>
 
 <details open>
 <summary><code>NOFREQS</code></summary> 
 
-avoids saving the term frequencies in the index. It saves
-  memory, but does not allow sorting based on the frequencies of a given term within the document.
+avoids saving the term frequencies in the index. 
+It saves memory, but does not allow sorting based on the frequencies of a given term within the document.
 </details>
 
 <details open>
 <summary><code>STOPWORDS {count}</code></summary> 
 
-sets the index with a custom stopword list, to be ignored during
-  indexing and search time. `{count}` is the number of stopwords, followed by a list of stopword arguments exactly the length of `{count}`.
+sets the index with a custom stopword list, to be ignored during indexing and search time. 
+`{count}` is the number of stopwords, followed by a list of stopword arguments exactly the length of `{count}`.
 
 If not set, FT.CREATE takes the default list of stopwords. If `{count}` is set to 0, the index does not have stopwords.
 </details>
@@ -202,7 +220,11 @@ after the SCHEMA keyword, declares which fields to index:
         
 <note><b>Notes:</b>
 
- - **Attribute number limits:** RediSearch supports up to 1024 attributes per schema, out of which at most 128 can be TEXT attributes. On 32 bit builds, at most 64 attributes can be TEXT attributes. The more attributes you have, the larger your index, as each additional 8 attributes require one extra byte per index record to encode. You can always use the `NOFIELDS` option and not encode attribute information into the index, for saving space, if you do not need filtering by text attributes. This will still allow filtering by numeric and geo attributes.
+ - **Attribute number limits:** RediSearch supports up to 1024 attributes per schema, out of which at most 128 can be TEXT attributes.
+ On 32 bit builds, at most 64 attributes can be TEXT attributes. 
+ The more attributes you have, the larger your index, as each additional 8 attributes require one extra byte per index record to encode. 
+ You can always use the `NOFIELDS` option and not encode attribute information into the index, for saving space, if you do not need filtering by text attributes. 
+ This will still allow filtering by numeric and geo attributes.
  - **Running in clustered databases:** When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
     
    {{< highlight bash >}}
@@ -210,7 +232,8 @@ after the SCHEMA keyword, declares which fields to index:
    127.0.0.1:6379> FT.CREATE idx ... PREFIX 1 doc: ...
    {{< / highlight >}}
 
-   When Running RediSearch in a clustered database, you can span the index across shards using [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
+   When Running RediSearch in a clustered database, you can span the index across shards using [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). 
+   In such case, the above does not apply.
 
 </note>  
 
