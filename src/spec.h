@@ -496,11 +496,6 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
-/* Get a random term from the index spec using weighted random. Weighted random is done by sampling
- * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
- * enough */
-char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
-
 /*
  * Free an indexSpec.
  */
