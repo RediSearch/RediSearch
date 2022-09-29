@@ -1542,6 +1542,7 @@ def test_index_multi_value_json():
     dim = 4
     n = 100
     per_doc = 5
+    info_type = int if env.isCluster() else str
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
@@ -1553,9 +1554,9 @@ def test_index_multi_value_json():
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
         info = conn.ft('idx').info()
-        env.assertEqual(info['num_docs'], str(n))
-        env.assertEqual(info['num_records'], str(n * per_doc * len(info['attributes'])))
-        env.assertEqual(info['hash_indexing_failures'], '0')
+        env.assertEqual(info['num_docs'], info_type(n))
+        env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
+        env.assertEqual(info['hash_indexing_failures'], info_type(0))
 
         cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', '????' * dim, 'NOCONTENT']
 
@@ -1570,6 +1571,7 @@ def test_index_multi_value_json():
 def test_bad_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
+    info_type = int if env.isCluster() else str
     dim = 4
     per_doc = 5
 
@@ -1581,12 +1583,12 @@ def test_bad_index_multi_value_json():
     # By default, we assume that a static path leads to a single value, so we can't
     conn.json().set(46, '.', {'vecs': [[0.46 for _ in range(dim)] for _ in range(per_doc)]})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # We also don't support an array of length 1 that wraps an array for single value
     conn.json().set(46, '.', {'vecs': [[0.46 for _ in range(dim)]]})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     conn.flushall()
     failures = 0
@@ -1596,27 +1598,27 @@ def test_bad_index_multi_value_json():
     # dynamic path returns a non array type
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), 'not a vector']})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None]})
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
     env.assertEqual(conn.ft('idx').info()['num_records'], '1')
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # some of the vectors are not of the right dimension
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), np.ones(dim + 46).tolist()]})
     failures += 1
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), []]})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # some of the elements in some of vectors are not numerics
     vec = [42 for _ in range(dim)]
     vec[-1] = 'not a number'
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), vec]})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
