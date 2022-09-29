@@ -1550,20 +1550,22 @@ def test_index_multi_value_json():
     for i in range(n):
         conn.json().set(i, '.', {'vecs': [[0.46 for _ in range(dim)] for _ in range(per_doc)]})
 
-    info = conn.ft('idx').info()
-    env.assertEqual(info['num_docs'], str(n))
-    env.assertEqual(info['num_records'], str(n * per_doc * len(info['attributes'])))
-    env.assertEqual(info['hash_indexing_failures'], '0')
+    for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
+        info = conn.ft('idx').info()
+        env.assertEqual(info['num_docs'], str(n))
+        env.assertEqual(info['num_records'], str(n * per_doc * len(info['attributes'])))
+        env.assertEqual(info['hash_indexing_failures'], '0')
 
-    cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', '????' * dim, 'NOCONTENT']
+        cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', '????' * dim, 'NOCONTENT']
 
-    cmd[2] = '*=>[KNN 10 @hnsw $b]'
-    hnsw_res = conn.execute_command(*cmd)[1:]
-    env.assertEqual(len(hnsw_res), len(np.unique(hnsw_res)))
+        cmd[2] = '*=>[KNN 10 @hnsw $b]'
+        hnsw_res = conn.execute_command(*cmd)[1:]
+        env.assertEqual(len(hnsw_res), len(np.unique(hnsw_res)))
 
-    cmd[2] = '*=>[KNN 10 @flat $b]'
-    flat_res = conn.execute_command(*cmd)[1:]
-    env.assertEqual(len(flat_res), len(np.unique(flat_res)))
+        cmd[2] = '*=>[KNN 10 @flat $b]'
+        flat_res = conn.execute_command(*cmd)[1:]
+        env.assertEqual(len(flat_res), len(np.unique(flat_res)))
 
 def test_bad_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
