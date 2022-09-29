@@ -1666,8 +1666,14 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     if (encver >= INDEX_VECSIM_2_VERSION) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
-    if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
-      goto fail;
+    if (encver >= INDEX_VECSIM_MULTI_VERSION) {
+      if (VecSim_RdbLoad2(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+        goto fail;
+      }
+    } else {
+      if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+        goto fail;
+      }
     }
     // Calculate blob size limitation on lower encvers.
     if(encver < INDEX_VECSIM_2_VERSION) {
