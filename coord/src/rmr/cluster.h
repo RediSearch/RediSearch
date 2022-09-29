@@ -141,3 +141,5 @@ typedef struct {
 } MRKey;
 
 void MRKey_Parse(MRKey *key, const char *srckey, size_t srclen);
+
+void MRClust_Free(MRCluster *cl);

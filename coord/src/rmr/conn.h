@@ -75,3 +75,5 @@ int MRConnManager_ConnectAll(MRConnManager *m);
 
 /* Disconnect a node */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id);
+
+void MRConnManager_Free(MRConnManager *m);
