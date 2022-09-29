@@ -179,7 +179,6 @@ def testInitConfig(env):
 
     test_arg_str('GC_POLICY', 'fork')
     test_arg_str('GC_POLICY', 'default', 'fork')
-    test_arg_str('GC_POLICY', 'legacy', 'sync')
     test_arg_str('ON_TIMEOUT', 'fail')
     test_arg_str('TIMEOUT', '0', '0')
     test_arg_str('PARTIAL_INDEXED_DOCS', '0', 'false')

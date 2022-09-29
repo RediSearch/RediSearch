@@ -123,16 +123,6 @@ void testRandomWalk() {
     sprintf(buf, "key%d", i);
     TrieMap_Add(tm, buf, strlen(buf), rm_strdup(buf), NULL);
   }
-  char *sbuf;
-  tm_len_t len;
-  void *ptr;
-  for (int i = 0; i < 100; i++) {
-    int rc = TrieMap_RandomKey(tm, &sbuf, &len, &ptr);
-    mu_check(rc);
-    mu_check(ptr);
-
-    free(sbuf);
-  }
 
   for (int i = 1; i < 9; i++) {
     char prefix[5];
