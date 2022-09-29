@@ -83,7 +83,7 @@ Optional parameters are:
 
 * `BLOCK_SIZE` - Block size to hold `BLOCK_SIZE` amount of vectors in a contiguous array.
         This is useful when the index is dynamic with respect to addition and deletion.
-        Defaults to 1048576 (1024*1024).
+        Defaults to 1024.
 
 **Example**
 
