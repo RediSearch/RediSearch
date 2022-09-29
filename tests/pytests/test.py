@@ -3565,3 +3565,10 @@ def test_emoji(env):
     env.expect('ft.search', 'idx', '%😀😁%').equal([1, 'doc4', ['test', '😀😁🙂']])
     conn.execute_command('HSET', 'doc4', 'test', '')
     '''
+
+def test_mod_4200(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    for i in range(1001):
+        env.expect('ft.add', 'idx', 'doc%i' % i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.search', 'idx', '((~foo) foo) | ((~foo) foo)', 'LIMIT', '0', '0').equal([1001])
+
