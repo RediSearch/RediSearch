@@ -1515,3 +1515,106 @@ def test_timeout_reached():
                 env.assertEqual(res[0], timeout_expected)
 
             conn.flushall()
+
+def test_create_multi_value_json():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    prefix = '_' if env.isCluster() else ''
+    dim = 4
+    algos = ['FLAT', 'HNSW']
+    multi_paths = ['$..vec', '$.vecs[*]', '$.*.vec']
+
+    path = 'not a valid path'
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', 'FLAT',
+               '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().equal(
+                f"Invalid JSONPath '{path}' in attribute 'vec' in index 'idx'")
+
+    for algo in algos:
+        for path in multi_paths:
+            conn.flushall()
+            env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
+                       '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
+            env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
+
+def test_index_multi_value_json():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 4
+    n = 100
+    per_doc = 5
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+               '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+    for i in range(n):
+        conn.json().set(i, '.', {'vecs': [[0.46 for _ in range(dim)] for _ in range(per_doc)]})
+
+    info = conn.ft('idx').info()
+    env.assertEqual(info['num_docs'], str(n))
+    env.assertEqual(info['num_records'], str(n * per_doc * len(info['attributes'])))
+    env.assertEqual(info['hash_indexing_failures'], '0')
+
+    cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', '????' * dim, 'NOCONTENT']
+
+    cmd[2] = '*=>[KNN 10 @hnsw $b]'
+    hnsw_res = conn.execute_command(*cmd)[1:]
+    env.assertEqual(len(hnsw_res), len(np.unique(hnsw_res)))
+
+    cmd[2] = '*=>[KNN 10 @flat $b]'
+    flat_res = conn.execute_command(*cmd)[1:]
+    env.assertEqual(len(flat_res), len(np.unique(flat_res)))
+
+def test_bad_index_multi_value_json():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 4
+    per_doc = 5
+
+    failures = 0
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.vecs', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+    # By default, we assume that a static path leads to a single value, so we can't
+    conn.json().set(46, '.', {'vecs': [[0.46 for _ in range(dim)] for _ in range(per_doc)]})
+    failures += 1
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+
+    # We also don't support an array of length 1 that wraps an array for single value
+    conn.json().set(46, '.', {'vecs': [[0.46 for _ in range(dim)]]})
+    failures += 1
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+
+    conn.flushall()
+    failures = 0
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.vecs[*]', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+    # dynamic path returns a non array type
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), 'not a vector']})
+    failures += 1
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+
+    # we should NOT fail if some of the vectors are NULLs
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None]})
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+    env.assertEqual(conn.ft('idx').info()['num_records'], '1')
+
+    # ...or if the path returns NULL
+    conn.json().set(46, '.', {'vecs': None})
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+
+    # some of the vectors are not of the right dimension
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), np.ones(dim + 46).tolist()]})
+    failures += 1
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), []]})
+    failures += 1
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))
+
+    # some of the elements in some of vectors are not numerics
+    vec = [42 for _ in range(dim)]
+    vec[-1] = 'not a number'
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), vec]})
+    failures += 1
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], str(failures))

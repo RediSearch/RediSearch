@@ -251,13 +251,8 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
     default: return REDISMODULE_ERR;
   }
 
-  if (!multi) {
-    if (len == 1) { // TODO: should we accept?
-      return JSON_StoreSingleVectorInDocField(fs, JSONIterable_Next(itr), df);
-    } else {
-      return REDISMODULE_ERR;
-    }
-  }
+  if (!multi)
+    return REDISMODULE_ERR;
 
   getElement = VecSimGetJSONCallback(type);
   unsigned char step = VecSimType_sizeof(type);
