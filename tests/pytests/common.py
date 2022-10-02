@@ -9,6 +9,7 @@ from functools import wraps
 import signal
 import platform
 import itertools
+from redis.client import NEVER_DECODE
 import RLTest
 from typing import Any, Callable
 from RLTest.env import Query
