@@ -1227,7 +1227,7 @@ def test_system_memory_limits():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    system_memory = int(conn.execute_command('info', 'memory')['total_system_memory'])
+    system_memory = int(env.cmd('info', 'memory')['total_system_memory'])
     currIdx = 0
     dim = 16
     float32_byte_size = 4
@@ -1286,7 +1286,7 @@ def test_redis_memory_limits():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
+    used_memory = int(env.cmd('info', 'memory')['used_memory'])
     currIdx = 0
     dim = 16
     float32_byte_size = 4
