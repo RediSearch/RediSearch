@@ -296,7 +296,10 @@ done:
   if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
     RedisModule_ReplySetArrayLength(outctx, nelem);
   } else {
-    RS_LOG_ASSERT(resultsLen == nelem, "Precalculated number of replies must be equal to actual number");
+    if (resultsLen != nelem) {
+      RedisModule_Log(RSDummyContext, "warning", "Failed predict number of replied, prediction=%ld, actual_number=%ld.", resultsLen, nelem);
+      RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
+    }
   }
 }
 

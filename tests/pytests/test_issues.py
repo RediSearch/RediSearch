@@ -444,6 +444,7 @@ def testOverMaxResults():
 
   res = [20, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal(res)
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([res[0], *[str(i) for i in range(1, 20, 1)]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([20, *res[6:11]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([20])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
@@ -452,6 +453,7 @@ def testOverMaxResults():
   for i in range(20,30):
     conn.execute_command('HSET', i, 't', i)
 
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([30, *[str(i) for i in range(1, 20, 1)]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([30, *res[1:11]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([30, *res[6:11]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([30])
