@@ -938,9 +938,10 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
         ic->testers[j]->Free(ic->testers[j]);
       }
       array_free(ic->testers);
+      ic->testers = NULL;
       return NULL;
     }
-    ic->testers = array_ensure_append(ic->testers, tester, 1, IndexCriteriaTester *);
+    ic->testers = array_ensure_append(ic->testers, &tester, 1, IndexCriteriaTester *);
   }
   IICriteriaTester *ict = rm_malloc(sizeof(*ict));
   ict->children = ic->testers;
