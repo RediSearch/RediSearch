@@ -465,8 +465,6 @@ def testMultiValueTag_Recursive_Decent(env):
 @no_msan
 def testMultiValueErrors(env):
     # Multi-value is unsupported with the following
-    env.execute_command('FT.CREATE', 'idxgeo', 'ON', 'JSON',
-                        'SCHEMA', '$.geo', 'AS', 'geo', 'GEO')
     env.execute_command('FT.CREATE', 'idxvector', 'ON', 'JSON',
                         'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2')
 
@@ -476,7 +474,7 @@ def testMultiValueErrors(env):
                                            "geo":["1.234, 4.321", "0.123, 3.210"]}').ok()
 
     # test non-tag non-text indexes fail to index multivalue
-    indexes = ['idxgeo', 'idxvector']
+    indexes = ['idxvector']
     for index in indexes:
         res_actual = env.cmd('FT.INFO', index)
         res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
