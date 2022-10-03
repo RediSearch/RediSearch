@@ -18,11 +18,9 @@ def assert_knn_results(env, expected_res, actual_res, error_msg='', data_type='F
         # For each result, assert its id and its distance (use float equality)
         env.assertEqual(expected_res[i], actual_res[i], depth=1, message=error_msg)
         if data_type == 'FLOAT32':
-            #env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-6, message=":".join([caller_pos, error_msg]))
-            env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-6, depth=1)
+            env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-6, depth=1, message=error_msg)
         else:  # data type is float64, expect higher precision
-            #env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-9, message=":".join([caller_pos, error_msg]))
-            env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-9, depth=1)
+            env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-9, depth=1, message=error_msg)
 
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32'):
@@ -270,7 +268,7 @@ def test_create():
     conn = getConnectionByEnv(env)
 
     # Test for INT32, INT64 as well when support for these types is added.
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
         conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v_HNSW', 'VECTOR', 'HNSW', '14', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'COSINE', 'INITIAL_CAP', '10', 'M', '16',
                              'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10')
@@ -379,13 +377,17 @@ def test_search_errors():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 's', 'TEXT', 't', 'TAG', 'SORTABLE',
-                        'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'COSINE',
+                        'v', 'VECTOR', 'HNSW', '12', 'TYPE', VECSIM_DATA_TYPES[0], 'DIM', '2', 'DISTANCE_METRIC', 'COSINE',
                         'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200',
-                        'v_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT64', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
-    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa', 'v_flat', 'aaaaaaaaaaaaaaaa', 's', 'hello')
-    conn.execute_command('HSET', 'b', 'v', 'bbbbbbbb', 'v_flat', 'bbbbbbbbbbbbbbbb', 's', "hello")
-    conn.execute_command('HSET', 'c', 'v', 'cccccccc', 'v_flat', 'cccccccccccccccc', 's', "hello")
-    conn.execute_command('HSET', 'd', 'v', 'dddddddd', 'v_flat', 'dddddddddddddddd', 's', "hello")
+                        'v_flat', 'VECTOR', 'FLAT', '6', 'TYPE', VECSIM_DATA_TYPES[1], 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    conn.execute_command('HSET', 'a', 'v', create_np_array_typed([10]*2, VECSIM_DATA_TYPES[0]).tobytes(),
+                         'v_flat', create_np_array_typed([10]*2, VECSIM_DATA_TYPES[1]).tobytes(), 's', 'hello')
+    conn.execute_command('HSET', 'b', 'v', create_np_array_typed([20]*2, VECSIM_DATA_TYPES[0]).tobytes(),
+                         'v_flat', create_np_array_typed([20]*2, VECSIM_DATA_TYPES[1]).tobytes(), 's', "hello")
+    conn.execute_command('HSET', 'c', 'v', create_np_array_typed([30]*2, VECSIM_DATA_TYPES[0]).tobytes(),
+                         'v_flat', create_np_array_typed([30]*2, VECSIM_DATA_TYPES[1]).tobytes(), 's', "hello")
+    conn.execute_command('HSET', 'd', 'v', create_np_array_typed([40]*2, VECSIM_DATA_TYPES[0]).tobytes(),
+                         'v_flat', create_np_array_typed([40]*2, VECSIM_DATA_TYPES[1]).tobytes(), 's', "hello")
 
     env.expect('FT.SEARCH', 'idx', '*=>[REDIS 4 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN str @v $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
@@ -541,8 +543,7 @@ def test_hybrid_query_batches_mode_with_text():
     dim = 2
     index_size = 6000 * env.shardsCount
 
-    data_types = ['FLOAT32', 'FLOAT64']
-    for data_type in data_types:
+    for data_type in VECSIM_DATA_TYPES:
         env.expect('FT.CREATE', f'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
                    'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
         load_vectors_with_texts_into_redis(conn, 'v', dim, index_size, data_type)
@@ -620,7 +621,7 @@ def test_hybrid_query_batches_mode_with_tags():
     dim = 2
     index_size = 6000 * env.shardsCount
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
                             'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
 
@@ -690,7 +691,7 @@ def test_hybrid_query_with_numeric():
     dim = 2
     index_size = 6000 * env.shardsCount
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
                    'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 1000, 'num', 'NUMERIC').ok()
 
@@ -743,7 +744,7 @@ def test_hybrid_query_with_geo():
     conn = getConnectionByEnv(env)
     dim = 2
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
                    'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'coordinate', 'GEO').ok()
 
@@ -778,7 +779,7 @@ def test_hybrid_query_batches_mode_with_complex_queries():
     dimension = 4
     index_size = 6000 * env.shardsCount
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
                             'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'num', 'NUMERIC',
                             't1', 'TEXT', 't2', 'TEXT')
@@ -937,7 +938,7 @@ def test_hybrid_query_adhoc_bf_mode():
     dimension = 128
     qty = 100
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
                    'DIM', dimension, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 't', 'TEXT').ok()
         load_vectors_with_texts_into_redis(conn, 'v', dimension, qty, data_type)
@@ -975,7 +976,7 @@ def test_wrong_vector_size():
     conn = getConnectionByEnv(env)
     dimension = 128
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
         vector = create_np_array_typed(np.random.rand(1+dimension), data_type)
 
         conn.execute_command('HSET', '0', 'v', vector[:dimension-1].tobytes())
@@ -1005,7 +1006,7 @@ def test_hybrid_query_cosine():
     dim = 4
     index_size = 6000 * env.shardsCount
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
                    'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 't', 'TEXT').ok()
 
@@ -1166,7 +1167,7 @@ def test_hybrid_query_change_policy():
     n = 6000 * env.shardsCount
     np.random.seed(10)
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
                    'DIM', dim, 'DISTANCE_METRIC', 'COSINE', 'tag1', 'TAG', 'tag2', 'TAG').ok()
 
@@ -1233,7 +1234,7 @@ def test_system_memory_limits():
     float32_byte_size = 4
     float64_byte_size = 8
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
     # OK parameters
         env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
                                           'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 10000, 'BLOCK_SIZE', 100))
@@ -1296,7 +1297,7 @@ def test_redis_memory_limits():
     maxmemory = used_memory * 5
     conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
+    for data_type in VECSIM_DATA_TYPES:
 
         # Index initial capacity exceeded new limits
         env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
@@ -1354,7 +1355,7 @@ def test_default_block_size():
     float32_byte_size = 4
     float64_byte_size = 8
 
-    for data_type, data_byte_size in zip(['FLOAT32', 'FLOAT64'], [float32_byte_size, float64_byte_size]):
+    for data_type, data_byte_size in zip(VECSIM_DATA_TYPES, [float32_byte_size, float64_byte_size]):
         currIdx = 0
         exp_block_size = maxmemory // 10 // (dim*data_byte_size)
 
@@ -1390,7 +1391,7 @@ def test_redisearch_memory_limit():
     float32_byte_size = 4
     float64_byte_size = 8
 
-    for data_type, data_byte_size in zip(['FLOAT32', 'FLOAT64'], [float32_byte_size, float64_byte_size]):
+    for data_type, data_byte_size in zip(VECSIM_DATA_TYPES, [float32_byte_size, float64_byte_size]):
         currIdx = 0
         block_size = maxmemory // (dim*data_byte_size) // 2  # half of memory limit divided by blob size
 
@@ -1430,7 +1431,7 @@ def test_rdb_memory_limit():
     float32_byte_size = 4
     float64_byte_size = 8
 
-    for data_type, data_byte_size in zip(['FLOAT32', 'FLOAT64'], [float32_byte_size, float64_byte_size]):
+    for data_type, data_byte_size in zip(VECSIM_DATA_TYPES, [float32_byte_size, float64_byte_size]):
         block_size = maxmemory // (dim*data_byte_size) // 2  # half of memory limit divided by blob size
 
         # succeed to create indexes with no limits
@@ -1470,7 +1471,7 @@ def test_timeout_reached():
     dim = 10
 
     for algo, n_vec in vecsim_algorithms_and_sizes:
-        for data_type in ['FLOAT32', 'FLOAT64']:
+        for data_type in VECSIM_DATA_TYPES:
             # succeed to create indexes with no limits
             query_vec = load_vectors_to_redis(env, n_vec, 0, dim, data_type)
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, '8', 'TYPE', data_type,
