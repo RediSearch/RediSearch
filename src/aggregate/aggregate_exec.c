@@ -247,15 +247,9 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
     size_t resultFactor = getResultsFactor(req);
-    
-    size_t reqResults;
-    if (reqLimit + reqOffset <= RSGlobalConfig.maxSearchResults) {
-    	reqResults = req->qiter.totalResults > reqOffset ?
-                   req->qiter.totalResults - reqOffset : 0;
-    } else {
-    	reqResults = RSGlobalConfig.maxSearchResults > reqOffset ?
-                   RSGlobalConfig.maxSearchResults - reqOffset : 0;
-    }
+
+    size_t expected_res = reqLimit + reqOffset <= RSGlobalConfig.maxSearchResults ? req->qiter.totalResults : MIN(RSGlobalConfig.maxSearchResults, req->qiter.totalResults);
+    size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
     resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
   }
@@ -308,7 +302,10 @@ done:
   if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
     RedisModule_ReplySetArrayLength(outctx, nelem);
   } else {
-    RS_LOG_ASSERT(resultsLen == nelem, "Precalculated number of replies must be equal to actual number");
+    if (resultsLen != nelem) {
+      RedisModule_Log(RSDummyContext, "warning", "Failed predict number of replied, prediction=%ld, actual_number=%ld.", resultsLen, nelem);
+      RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
+    }
   }
 }
 
