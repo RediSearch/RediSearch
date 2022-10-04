@@ -442,6 +442,11 @@ def testCustomStopwords(env):
     env.expect('ft.create', 'idx4', 'ON', 'HASH', 'stopwords', 0,
                                     'schema', 'foo', 'text').ok()
 
+    # Index with keyword as stopword - not supported in dialect1
+    env.expect('ft.create', 'idx5', 'ON', 'HASH', 'stopwords', 1, 'true',
+               'schema', 'foo', 'text').ok()
+    env.expect('ft.search', 'idx5', '@foo:title=>{$inorder:true}', 'DIALECT', '2').equal([0])
+
     #for idx in ('idx', 'idx2', 'idx3'):
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields', 'foo', 'hello world').ok()
     env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields', 'foo', 'to be or not to be').ok()
@@ -3566,3 +3571,10 @@ def test_emoji(env):
     env.expect('ft.search', 'idx', '%😀😁%').equal([1, 'doc4', ['test', '😀😁🙂']])
     conn.execute_command('HSET', 'doc4', 'test', '')
     '''
+
+def test_mod_4200(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    for i in range(1001):
+        env.expect('ft.add', 'idx', 'doc%i' % i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.search', 'idx', '((~foo) foo) | ((~foo) foo)', 'LIMIT', '0', '0').equal([1001])
+

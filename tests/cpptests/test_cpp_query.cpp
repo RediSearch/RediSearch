@@ -544,7 +544,7 @@ TEST_F(QueryTest, testParser_v2) {
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;
   ast.setContext(&ctx);
-  ASSERT_TRUE(ast.parse(qt));
+  ASSERT_TRUE(ast.parse(qt, version));
   QueryNode *n = ast.root;
   //QAST_Print(&ast, ctx.spec);
   ASSERT_TRUE(n != NULL);
