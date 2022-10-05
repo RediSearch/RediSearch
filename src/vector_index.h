@@ -22,6 +22,7 @@
 #define VECSIM_M "M"
 #define VECSIM_EFCONSTRUCTION "EF_CONSTRUCTION"
 #define VECSIM_EFRUNTIME "EF_RUNTIME"
+#define VECSIM_EPSILON "EPSILON"
 #define VECSIM_HYBRID_POLICY "HYBRID_POLICY"
 #define VECSIM_BATCH_SIZE "BATCH_SIZE"
 #define VECSIM_TYPE "TYPE"
@@ -33,6 +34,7 @@
 
 typedef enum {
   VECSIM_QT_KNN,
+  VECSIM_QT_RANGE
 } VectorQueryType;
 
 // This struct holds VecSimRawParam array and bool array.
@@ -55,11 +57,19 @@ typedef struct {
   VecSimQueryResult_Order order;  // specify the result order.
 } KNNVectorQuery;
 
+typedef struct {
+  void *vector;                   // query vector data
+  size_t vecLen;                  // vector length
+  double radius;                  // the radius to search in
+  VecSimQueryResult_Order order;  // specify the result order.
+} RangeVectorQuery;
+
 typedef struct VectorQuery {
   char *property;                     // name of field
   char *scoreField;                   // name of score field
   union {
     KNNVectorQuery knn;
+    RangeVectorQuery range;
   };
   VectorQueryType type;               // vector similarity query type
   VectorQueryParams params;           // generic query params array, for the vecsim library to check

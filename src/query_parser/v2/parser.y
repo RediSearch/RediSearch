@@ -184,6 +184,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type vector_command { QueryNode *}
 %destructor vector_command { QueryNode_Free($$); }
 
+%type vector_range_command { QueryNode *}
+%destructor vector_range_command { QueryNode_Free($$); }
+
 %type vector_attribute { SingleVectorQueryParam }
 // This destructor is commented out because it's not reachable: every vector_attribute that created
 // successfuly can successfuly be reduced to vector_attribute_list.
@@ -910,7 +913,6 @@ vector_query(A) ::= vector_command(B). {
 }
 
 as ::= AS_T.
-
 vector_score_field(A) ::= as param_term(B). {
   A = B;
 }
@@ -1003,6 +1005,22 @@ vector_attribute_list(A) ::= vector_attribute(B). {
   A.needResolve = array_new(bool, 1);
   A.params = array_append(A.params, B.param);
   A.needResolve = array_append(A.needResolve, B.needResolve);
+}
+
+/*** Vector range queries ***/
+expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
+    C->vn.vq->property = rm_strndup(B.s, B.len);
+    A = C;
+}
+
+vector_range_command(A) ::= TERM(T) param_num(B) ATTRIBUTE(C). {
+  if (!strncasecmp("VECTOR_RANGE", T.s, T.len)) {
+    C.type = QT_PARAM_VEC;
+    A = NewVectorNode_WithParams(ctx, VECSIM_QT_RANGE, &B, &C);
+  } else {
+    reportSyntaxError(ctx->status, &T, "Syntax error: expecting vector similarity range command");
+    A = NULL;
+  }
 }
 
 /////////////////////////////////////////////////////////////////

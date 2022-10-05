@@ -303,6 +303,11 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
       QueryNode_SetParam(q, &ret->params[0], &vq->knn.vector, &vq->knn.vecLen, vec);
       QueryNode_SetParam(q, &ret->params[1], &vq->knn.k, NULL, value);
       break;
+    case VECSIM_QT_RANGE:
+      QueryNode_InitParams(ret, 2);
+      QueryNode_SetParam(q, &ret->params[0], &vq->range.vector, &vq->range.vecLen, vec);
+      QueryNode_SetParam(q, &ret->params[1], &vq->range.radius, NULL, value);
+      break;
     default:
       QueryNode_Free(ret);
       return NULL;
@@ -1780,6 +1785,7 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
 // down the road. return 0 in case of an unrecognized parameter.
 static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr) {
   if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
+      STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
       STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
       STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),
