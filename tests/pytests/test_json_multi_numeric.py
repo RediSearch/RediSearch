@@ -656,6 +656,9 @@ def testMultiNumericReturn(env):
     env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
                'RETURN', '3', '$.arr', 'AS', 'val', 'DIALECT', 3).equal(res3)
 
+    env.expect('FT.AGGREGATE', 'idx_flat',
+               '@val:[2 3]', 'GROUPBY', '1', '@val', 'DIALECT', 3).equal([1, ['val', res2[2][1]]])
+
     # Array
     env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
                'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', 'DIALECT', 3).equal(res1)
@@ -665,6 +668,9 @@ def testMultiNumericReturn(env):
                'RETURN', '3', '$.arr[*]', 'AS', 'val', 'DIALECT', 3).equal(res2)
     env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
                'RETURN', '3', '$.arr', 'AS', 'val', 'DIALECT', 3).equal(res3)
+
+    env.expect('FT.AGGREGATE', 'idx_arr',
+               '@val:[2 3]', 'GROUPBY', '1', '@val', 'DIALECT', 3).equal([1, ['val', res3[2][1]]])
 
     # RETURN ALL
     res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'DIALECT', 3)
@@ -687,6 +693,9 @@ def testMultiNumericReturn(env):
     env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
                'RETURN', '3', '$.arr', 'AS', 'val').equal(res3_single)
 
+    env.expect('FT.AGGREGATE', 'idx_flat',
+               '@val:[2 3]', 'GROUPBY', '1', '@val').equal([1, ['val', res2_single[2][1]]])
+
     # Array
     env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
                'RETURN', '3', '$.arr[1]', 'AS', 'arr_1').equal(res1_single)
@@ -696,6 +705,9 @@ def testMultiNumericReturn(env):
                'RETURN', '3', '$.arr[*]', 'AS', 'val').equal(res2_single)
     env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
                'RETURN', '3', '$.arr', 'AS', 'val').equal(res3_single)
+
+    env.expect('FT.AGGREGATE', 'idx_arr',
+               '@val:[2 3]', 'GROUPBY', '1', '@val').equal([1, ['val', res3_single[2][1]]])
 
     # RETURN ALL
     res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]')

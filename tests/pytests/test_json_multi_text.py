@@ -249,6 +249,11 @@ def testMultiTextReturn(env):
                '@category:logic', 'RETURN', '1', 'category', 'DIALECT', 3).equal(res2)
     env.expect('FT.SEARCH', 'idx_flat', '@category:logic', 'RETURN',
                '3', '$.category', 'AS', 'category', 'DIALECT', 3).equal(res3)
+
+    env.expect('FT.AGGREGATE', 'idx_flat',
+               '@category:logic', 'GROUPBY', '1', '@category', 'DIALECT', 3).equal([1, ['category', res2[2][1]]])
+    
+
     # Array
     env.expect('FT.SEARCH', 'idx_arr',
                '@category:logic', 'RETURN', '3', '$.category[1]', 'AS', 'category_1', 'DIALECT', 3).equal(res1)
@@ -258,6 +263,10 @@ def testMultiTextReturn(env):
                '@category:logic', 'RETURN', '1', 'category', 'DIALECT', 3).equal(res3)
     env.expect('FT.SEARCH', 'idx_arr', '@category:logic', 'RETURN',
                '3', '$.category', 'AS', 'category', 'DIALECT', 3).equal(res3)
+
+    env.expect('FT.AGGREGATE', 'idx_arr',
+               '@category:logic', 'GROUPBY', '1', '@category', 'DIALECT', 3).equal([1, ['category', res3[2][1]]])
+               
     # RETURN ALL
     res = conn.execute_command('FT.SEARCH', 'idx_flat', '@category:logic', 'DIALECT', 3)
     env.assertEqual(json.loads(res[2][1]), [json.loads(doc1_content)])
@@ -280,6 +289,9 @@ def testMultiTextReturn(env):
                '@category:logic', 'RETURN', '1', 'category').equal(res2_single)
     env.expect('FT.SEARCH', 'idx_flat', '@category:logic', 'RETURN',
                '3', '$.category', 'AS', 'category').equal(res3_single)
+
+    env.expect('FT.AGGREGATE', 'idx_flat', '@category:logic', 'GROUPBY', '1', '@category').equal([1, ['category', res2_single[2][1]]])
+    
     # Array
     env.expect('FT.SEARCH', 'idx_arr',
                '@category:logic', 'RETURN', '3', '$.category[1]', 'AS', 'category_1').equal(res1_single)
@@ -289,6 +301,9 @@ def testMultiTextReturn(env):
                '@category:logic', 'RETURN', '1', 'category').equal(res3_single)
     env.expect('FT.SEARCH', 'idx_arr', '@category:logic', 'RETURN',
                '3', '$.category', 'AS', 'category').equal(res3_single)
+
+    env.expect('FT.AGGREGATE', 'idx_arr', '@category:logic', 'GROUPBY', '1', '@category').equal([1, ['category', res3_single[2][1]]])
+
     # RETURN ALL
     res = conn.execute_command('FT.SEARCH', 'idx_flat', '@category:logic')
     env.assertEqual(json.loads(res[2][1]), json.loads(doc1_content))
