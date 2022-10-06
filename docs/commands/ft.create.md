@@ -29,13 +29,14 @@ Create an index with the given specification
       TAG [SORTABLE] [UNF] [NOINDEX] [SEPARATOR] [CASESENSITIVE] [WITHSUFFIXTRIE] |
       NUMERIC [SORTABLE] [NOINDEX] |
       GEO [SORTABLE] [NOINDEX] |
-      VECTOR {algorithm} {count} [{attribute_name} {attribute_value} ...] ... [ SORTABLE [UNF]] 
+      VECTOR {algorithm} {count} [{attribute_name} {attribute_value} ...] 
 
-      [TEXT [SORTABLE] [UNF] [NOINDEX] [NOSTEM] [WEIGHT] [PHONETIC] [WITHSUFFIXTRIE] |
+      [field_name [AS alias]
+      TEXT [SORTABLE] [UNF] [NOINDEX] [NOSTEM] [WEIGHT] [PHONETIC] [WITHSUFFIXTRIE] |
       TAG [SORTABLE] [UNF] [NOINDEX] [SEPARATOR] [CASESENSITIVE] [WITHSUFFIXTRIE] |
       NUMERIC [SORTABLE] [NOINDEX] |
       GEO [SORTABLE] [NOINDEX] |
-      VECTOR {algorithm} {count} [{attribute_name} {attribute_value} ...] ... [ SORTABLE [UNF]] ...] 
+      VECTOR {algorithm} {count} [{attribute_name} {attribute_value} ...] ...] 
 {{< / highlight >}}
 
 [Examples](#examples)
