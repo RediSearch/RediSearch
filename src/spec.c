@@ -2693,12 +2693,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         continue;
       }
 
-      if (!r) {
-        // load hash only if required
-        r = EvalCtx_Create();
-
-        RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
-      }
+      // load hash only if required
+      if (!r) r = EvalCtx_Create();
+      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
 
       if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
         IndexSpec *spec = rule->spec;
