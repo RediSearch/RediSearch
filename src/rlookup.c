@@ -276,6 +276,7 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
   double dd;
   int i;
 
+  // Currently `getJSON` cannot fail here also the other japi APIs below
   switch (japi->getType(json)) {
     case JSONType_String:
       japi->getString(json, &constStr, &len);
@@ -332,24 +333,19 @@ static int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsign
     
     // Second, get the first JSON value
     RedisJSON json = japi->next(iter);
-    if (!json) {
-      goto cleanup;
+    if (json) {
+      RSValue *val = jsonValToValue(ctx, json);
+      RSValue *otherval = RS_StealRedisStringVal(serialized);
+      *rsv = RS_DuoVal(val, otherval);
+      res = REDISMODULE_OK;
+    } else if (serialized) {
+      RedisModule_FreeString(ctx, serialized);
     }
-    RSValue *val = jsonValToValue(ctx, json);
-    RSValue *otherval = RS_StealRedisStringVal(serialized);
-    *rsv = RS_DuoVal(val, otherval);
-    res = REDISMODULE_OK;
   }
   
 done:
   japi->freeIter(iter);
   return res;
-
-cleanup:
-  if (serialized) {
-    RedisModule_FreeString(ctx, serialized);
-  }
-  goto done;
 }
 
 static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
@@ -514,6 +510,10 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
   GetKeyFunc getKey = (type == DocumentType_Hash) ? (GetKeyFunc)getKeyCommonHash :
                                                     (GetKeyFunc)getKeyCommonJSON;
   int rc = REDISMODULE_ERR;
+  // On error we silently skip the rest
+  // On success we continue
+  // (success could also be when no value is found and nothing is loaded into `dst`,
+  //  for example, with a JSONPath with no matches)
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
       const RLookupKey *kk = options->keys[ii];
