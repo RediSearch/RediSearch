@@ -4,6 +4,7 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "rmutil/rm_assert.h"
+#include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
 
 /*******************************************************************************************************************
@@ -537,9 +538,9 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     if (!v1 || !v2) {
       int rc;
       if (v1) {
-        rc = 1;
+        return 1;
       } else if (v2) {
-        rc = -1;
+        return -1;
       } else {
         rc = h1->docId < h2->docId ? -1 : 1;
       }
@@ -759,16 +760,17 @@ void RP_DumpChain(const ResultProcessor *rp) {
 
 typedef struct {
   ResultProcessor base;
-  clock_t profileTime;
+  double profileTime;
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  clock_t rpStartTime = clock();
+  hires_clock_t t0;
+  hires_clock_get(&t0);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += clock() - rpStartTime;
+  self->profileTime += hires_clock_since_msec(&t0);
   self->profileCount++;
   return rc;
 }
@@ -791,7 +793,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
   return &rpp->base;
 }
 
-clock_t RPProfile_GetClock(ResultProcessor *rp) {
+double RPProfile_GetDurationMSec(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }
@@ -799,6 +801,15 @@ clock_t RPProfile_GetClock(ResultProcessor *rp) {
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileCount;
+}
+
+void Profile_AddRPs(QueryIterator *qiter) {
+  ResultProcessor *cur = qiter->endProc = RPProfile_New(qiter->endProc, qiter);
+  while (cur && cur->upstream && cur->upstream->upstream) {
+    cur = cur->upstream;
+    cur->upstream = RPProfile_New(cur->upstream, qiter);
+    cur = cur->upstream;
+  }
 }
 
 /*******************************************************************************************************************

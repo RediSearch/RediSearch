@@ -24,7 +24,6 @@
 
 %left NUMBER.
 %left SIZE.
-%left STOPWORD.
 %left STAR.
 
 %left TAGLIST.
@@ -37,7 +36,6 @@
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
 // if "as" is not a stop-word, Or be considered as a stop-word if it is a stop-word.
-%fallback STOPWORD AS_S.
 %fallback TERM AS_T.
 
 %token_type {QueryToken}
@@ -572,7 +570,11 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
 }
 
 text_expr(A) ::= param_term(B) . [LOWEST]  {
-  A = NewTokenNode_WithParams(ctx, &B);
+  if (B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len)) {
+    A = NULL;
+  } else {
+    A = NewTokenNode_WithParams(ctx, &B);
+  }
 }
 
 text_expr(A) ::= affix(B) . [PREFIX]  {
@@ -583,10 +585,6 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 A = B;
 }
 
-text_expr(A) ::= STOPWORD . [STOPWORD] {
-  A = NULL;
-}
-
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
@@ -594,13 +592,12 @@ termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
 }
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
-  A = B;
-  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+    A = B;
+    if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
+       QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+    }
 }
 
-termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
-  A = B;
-}
 
 /////////////////////////////////////////////////////////////////
 // Negative Clause
@@ -682,18 +679,6 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
   A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
 
-text_expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParams(ctx, &B, 1);
-}
-
-text_expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParams(ctx, &B, 2);
-}
-
-text_expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParams(ctx, &B, 3);
-}
-
 /////////////////////////////////////////////////////////////////
 // Field Modifiers
 /////////////////////////////////////////////////////////////////
@@ -748,11 +733,6 @@ tag_list(A) ::= param_term(B) . [TAGLIST] {
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
-tag_list(A) ::= STOPWORD(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
-}
-
 tag_list(A) ::= affix(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
@@ -775,11 +755,6 @@ tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
     C.type = QT_PARAM_TERM_CASE;
   QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
   A = B;
-}
-
-tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
-    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
-    A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
@@ -811,25 +786,14 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
   }
 }
 
-numeric_range(A) ::= LSQB param_any(B) param_any(C) RSQB. [NUMBER] {
-  // Update token type to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-  if (B.type == QT_PARAM_ANY)
+numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
     B.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  else if (B.type != QT_NUMERIC)
-    badToken = &B;
-  if (C.type == QT_PARAM_ANY)
-    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
-  else if (!badToken && C.type != QT_NUMERIC)
-    badToken = &C;
-
-  if (!badToken) {
-    A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Expecting numeric or parameter");
-    A = NULL;
   }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -846,34 +810,16 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
   }
 }
 
-geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB. [NUMBER] {
-  // Update token type to be more specific if possible
-  // and detect syntax errors
-  QueryToken *badToken = NULL;
-
-  if (B.type == QT_PARAM_ANY)
+geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB. [NUMBER] {
+  if (B.type == QT_PARAM_NUMERIC)
     B.type = QT_PARAM_GEO_COORD;
-  else if (B.type != QT_NUMERIC)
-    badToken = &B;
-  if (C.type == QT_PARAM_ANY)
+  if (C.type == QT_PARAM_NUMERIC)
     C.type = QT_PARAM_GEO_COORD;
-  else if (!badToken && C.type != QT_NUMERIC)
-    badToken = &C;
-  if (D.type == QT_PARAM_ANY)
-    D.type = QT_PARAM_NUMERIC;
-  else if (!badToken && D.type != QT_NUMERIC)
-    badToken = &D;
-  if (E.type == QT_PARAM_ANY)
-    E.type = QT_PARAM_GEO_UNIT;
-  else if (!badToken && E.type != QT_TERM)
-    badToken = &E;
 
-  if (!badToken) {
-    A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
-  } else {
-    reportSyntaxError(ctx->status, badToken, "Syntax error");
-    A = NULL;
-  }
+  if (E.type == QT_PARAM_TERM)
+    E.type = QT_PARAM_GEO_UNIT;
+
+  A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -964,13 +910,8 @@ vector_query(A) ::= vector_command(B). {
 }
 
 as ::= AS_T.
-as ::= AS_S.
 vector_score_field(A) ::= as param_term(B). {
   A = B;
-}
-vector_score_field(A) ::= as STOPWORD(B). {
-  A = B;
-  A.type = QT_TERM;
 }
 
 // Every vector query will have basic command part. Right now we only have KNN command.
@@ -1051,19 +992,9 @@ term(A) ::= SIZE(B). {
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
 
-param_term(A) ::= TERM(B). {
-  A = B;
-  A.type = QT_TERM;
-}
 
 // Number is treated as a term here
-param_term(A) ::= NUMBER(B). {
-  A = B;
-  A.type = QT_TERM;
-}
-
-// Number is treated as a term here
-param_term(A) ::= SIZE(B). {
+param_term(A) ::= term(B). {
   A = B;
   A.type = QT_TERM;
 }
@@ -1083,28 +1014,20 @@ param_size(A) ::= ATTRIBUTE(B). {
   A.type = QT_PARAM_SIZE;
 }
 
-//For generic parameter (param_any) its `type` could be refined by other rules which may have more accurate semantics,
-// e.g., could know it should be numeric
-
-param_any(A) ::= ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_ANY;
-  A.inclusive = 1;
+param_num(A) ::= ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
 }
 
-param_any(A) ::= LP ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_ANY;
-  A.inclusive = 0; // Could be relevant if type is refined
-}
-
-param_any(A) ::= TERM(B). {
-  A = B;
-  A.type = QT_TERM;
-}
-
-param_any(A) ::= num(B). {
+param_num(A) ::= num(B). {
   A.numval = B.num;
   A.inclusive = B.inclusive;
   A.type = QT_NUMERIC;
+}
+
+param_num(A) ::= LP ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
 }

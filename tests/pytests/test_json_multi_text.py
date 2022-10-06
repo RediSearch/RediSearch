@@ -644,14 +644,11 @@ def testconfigMultiTextOffsetDelta(env):
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
 
-def testconfigMultiTextOffsetDeltaSlop101(env):
+def testconfigMultiTextOffsetDeltaSlop101():
     """ test ft.config `MULTI_TEXT_SLOP` 101 """
-
-    if env.env == 'existing-env':
-        env.skip()
-    
-    # MULTI_TEXT_SLOP = 101
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 101')
+
+    # MULTI_TEXT_SLOP = 101
     conn = getConnectionByEnv(env)
     res = env.execute_command(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '101')
@@ -677,14 +674,11 @@ def testconfigMultiTextOffsetDeltaSlop101(env):
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
 
-def testconfigMultiTextOffsetDeltaSlop0(env):
+def testconfigMultiTextOffsetDeltaSlop0():
     """ test ft.config `MULTI_TEXT_SLOP` 0 """
-
-    if env.env == 'existing-env':
-        env.skip()
-    
-    # MULTI_TEXT_SLOP = 0
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 0')
+
+    # MULTI_TEXT_SLOP = 0
     conn = getConnectionByEnv(env)
     res = env.execute_command(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '0')
@@ -709,25 +703,6 @@ def testconfigMultiTextOffsetDeltaSlop0(env):
     cond.call('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '2') \
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
-
-def testconfigMultiTextOffsetDeltaSlopNeg(env):
-    """ test ft.config `MULTI_TEXT_SLOP` -1 """
-
-    if env.env == 'existing-env':
-        env.skip()
-    
-    # MULTI_TEXT_SLOP = -1
-    err_msg = None
-    try:
-        # Module should fail to load and should prevent redis from launching
-        env = Env(moduleArgs = 'MULTI_TEXT_SLOP -1')
-    except Exception as e:
-        if 'Cannot establish connection' in str(e):
-            err_msg = 'module init should fail due to invalid module configuration'
-
-    env.assertIsNotNone(err_msg)
-    env = Env()
-
 
 def testMultiNoHighlight(env):
     """ highlight is not supported with multiple TEXT """

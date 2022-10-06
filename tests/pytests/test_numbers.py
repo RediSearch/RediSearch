@@ -105,10 +105,13 @@ def testEmptyNumericLeakIncrease(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs)
 
-    num_summery_before = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    num_summery_before = to_dict(env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n'))
     forceInvokeGC(env, 'idx')
-    num_summery_after = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
-    env.assertGreater(num_summery_before[1], num_summery_after[1])
+    num_summery_after = to_dict(env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n'))
+    env.assertGreater(num_summery_before['numRanges'], num_summery_after['numRanges'])
+
+    # test for PR#3018. check `numEntries` is updated after GC
+    env.assertGreater(num_summery_before['numEntries'], num_summery_after['numEntries'])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs)
@@ -143,3 +146,21 @@ def testEmptyNumericLeakCenter(env):
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs / 100 + 100)
+
+def testCardinalityCrash(env):
+    # this test reproduces crash where cardinality array was cleared on the GC
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+    count = 100
+
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
+
+    for i in range(count):
+        conn.execute_command('HSET', 'doc{}'.format(i), 'n', format(i))
+
+    for i in range(count):
+        conn.execute_command('DEL', 'doc{}'.format(i))
+    forceInvokeGC(env, 'idx')
+
+    for i in range(count):
+        conn.execute_command('HSET', 'doc{}'.format(i), 'n', format(i))

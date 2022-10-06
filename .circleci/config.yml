@@ -296,6 +296,7 @@ commands:
             export BENCHMARK_GLOB=<< parameters.benchmark_glob >>
             export PERF_CALLGRAPH_MODE="dwarf"
             export MAX_PROFILERS=3
+            if [[ -n $CIRCLE_BRANCH ]]; then branch="$CIRCLE_BRANCH"; else branch="$CIRCLE_TAG"; fi
             redisbench-admin run-remote \
               --module_path $(cat $ROOT/bin/REJSON_PATH) \
               --module_path $ROOT/<< parameters.module_path >> \
@@ -304,7 +305,7 @@ commands:
               --github_org $CIRCLE_PROJECT_USERNAME \
               --required-module search \
               --github_sha $CIRCLE_SHA1 \
-              --github_branch $CIRCLE_BRANCH \
+              --github_branch $branch \
               --upload_results_s3 \
               --fail_fast \
               --triggering_env << parameters.triggering_env >> \
@@ -485,11 +486,11 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: make SAN=<<parameters.san-type>> build test SHOW=1
           no_output_timeout: 30m
-#      - run:
-#          name: Build & test (OSS Coordinator)
-#          shell: /bin/bash -l -eo pipefail
-#          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
-#          no_output_timeout: 30m
+      - run:
+          name: Build & test (OSS Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
+          no_output_timeout: 30m
       - save-tests-logs
 
   valgrind-memcheck:

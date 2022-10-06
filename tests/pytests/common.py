@@ -219,8 +219,19 @@ def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
         if SANITIZER == 'memory':
-            fname = f.func_name
+            fname = f.__name__
             env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
+            env.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
+
+def no_asan(f):
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if SANITIZER in ['address', 'addr']:
+            fname = f.__name__
+            env.debugPrint("skipping {} due to address sanitizer".format(fname), force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -230,7 +241,7 @@ def unstable(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
         if ONLY_STABLE:
-            fname = f.func_name
+            fname = f.__name__
             env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
             env.skip()
             return
@@ -260,7 +271,7 @@ def module_ver_filter(env, module_name, ver_filter):
     return False
 
 def has_json_api_v2(env):
-    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 else False)
+    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver == 20200 else False)
 
 class ConditionalExpected:
     

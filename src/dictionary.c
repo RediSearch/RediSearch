@@ -80,8 +80,6 @@ int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
-  RedisModule_AutoMemory(ctx);
-
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
   char *error;
@@ -98,7 +96,6 @@ int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  RedisModule_AutoMemory(ctx);
 
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -119,7 +116,6 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  RedisModule_AutoMemory(ctx);
 
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 

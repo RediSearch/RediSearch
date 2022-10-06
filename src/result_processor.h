@@ -248,8 +248,10 @@ ResultProcessor *RPCounter_New();
 
 void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+double RPProfile_GetDurationMSec(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
+
+void Profile_AddRPs(QueryIterator *qiter);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);

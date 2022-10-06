@@ -770,7 +770,7 @@ static IndexIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  return NewWildcardIterator(q->docTable->maxDocId);
+  return NewWildcardIterator(q->docTable->maxDocId, q->sctx->spec->docs.size);
 }
 
 static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -1033,7 +1033,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
       // No matching terms
       rm_free(its);     
       return NULL;
-    } else if (arr == 0xBAAAAAAD) {
+    } else if (arr == BAD_POINTER) {
       // The wildcard pattern does not include tokens that can be used with suffix trie 
       fallbackBruteForce = true;
     } else {
