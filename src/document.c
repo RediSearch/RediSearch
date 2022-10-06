@@ -534,7 +534,7 @@ int Document::AddToIndexes(AddDocumentCtx *aCtx) {
 
   size_t i = 0;
   for (auto ff: doc->fields) {
-    const FieldSpec fs = aCtx->fspecs[i];
+    const FieldSpec &fs = aCtx->fspecs[i];
     FieldIndexerData *fdata = &aCtx->fdatas[i];
     ++i;
 

@@ -36,7 +36,7 @@ const FieldSpec *IndexSpec::getFieldCommon(std::string_view name, bool useCase) 
     if (name.length() != fields[i].name.length()) {
       continue;
     }
-    const FieldSpec fs = fields[i];
+    const FieldSpec &fs = fields[i];
     if (useCase) {
       if (!strcmp(fs.name.c_str(), name.data())) {
         return &fs;

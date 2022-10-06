@@ -67,6 +67,8 @@ struct DocumentField;
 struct FieldIndexerData;
 
 struct FieldSpec {
+  FieldSpec() = delete;
+
   String name;
   Mask(FieldType) types : 8;
   Mask(FieldSpecOptions) options : 8;

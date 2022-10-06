@@ -127,7 +127,7 @@ struct QueryNode : Object {
   size_t NumChildren() const { return children.size(); }
   QueryNode *Child(int i) { return NumChildren() > i ? children[i] : NULL; }
 
-  virtual QueryNode *Expand(QueryExpander &expander);
+  virtual void Expand(QueryExpander &expander);
   virtual bool expandChildren() const { return false; }
 
   typedef bool (*ForEachCallback)(QueryNode *node, void *ctx);
@@ -221,7 +221,7 @@ struct QueryTokenNode : QueryNode {
     if (query) query->numTokens++;
   }
 
-  virtual QueryNode *Expand(QueryExpander &expander);
+  virtual void Expand(QueryExpander &expander);
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
     s = sdscatprintf(s, "%s%s", (char *)tok.str.data(), tok.expanded ? "(expanded)" : "");

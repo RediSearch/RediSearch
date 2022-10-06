@@ -115,20 +115,14 @@ void QueryAST::SetGlobalFilters(Vector<t_docId> &ids) {
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode *QueryNode::Expand(QueryExpander &expander) {
+void QueryNode::Expand(QueryExpander &expander) {
   // Do not expand verbatim nodes
   if (opts.flags & QueryNode_Verbatim) return;
   if (!expandChildren()) return;
 
   for (auto &chi: children) {
-    auto expanded = chi->Expand(expander);
-    if (expanded != chi) {
-      delete chi;
-      chi = expanded;
-    }
+    chi->Expand(expander);
   }
-
-  return this;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -152,13 +146,12 @@ IndexIterator *QueryTokenNode::EvalNode(Query *q) {
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode *QueryTokenNode::Expand(QueryExpander &expander) {
+void QueryTokenNode::Expand(QueryExpander &expander) {
   // Do not expand verbatim nodes
   if (opts.flags & QueryNode_Verbatim) return this;
 
   expander.currentNode = this;
   expander.Expand(&tok);
-  return this;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -604,8 +597,8 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-Query::Query(const QueryAST &ast, const RSSearchOptions *opts, RedisSearchCtx *sctx, ConcurrentSearch *conc) :
-  conc(conc), opts(opts), numTokens(ast.numTokens), docTable(&sctx->spec->docs), sctx(sctx) {}
+Query::Query(size_t numTokens, const RSSearchOptions *opts, RedisSearchCtx *sctx, ConcurrentSearch *conc) :
+  conc(conc), opts(opts), numTokens(numTokens), docTable(&sctx->spec->docs), sctx(sctx), tokenId(0) {}
 
 //---------------------------------------------------------------------------------------------
 
@@ -628,7 +621,7 @@ IndexIterator *Query::Eval(QueryNode *node) {
 
 IndexIterator *QueryAST::Iterate(const RSSearchOptions &opts, RedisSearchCtx &sctx,
                                  ConcurrentSearch *conc) const {
-  Query query{*this, &opts, &sctx, conc};
+  Query query{numTokens, &opts, &sctx, conc};
   IndexIterator *iter = query.Eval(root);
   if (!iter) {
     iter = new EmptyIterator();
@@ -662,11 +655,7 @@ int QueryAST::Expand(const char *expanderName, RSSearchOptions *opts, RedisSearc
   if (factory) {
     QueryExpander *expander = factory(this, sctx, opts->language, status);
     if (expander) {
-      auto expanded = root->Expand(*expander);
-      if (expanded != root) {
-        delete root;
-        root = expanded;
-      }
+      root->Expand(*expander);
       delete expander;
     }
   }

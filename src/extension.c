@@ -111,6 +111,7 @@ void QueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
     // Append current node to the new union node as a child
     union_node->AddChild(node);
     currentNode = union_node;
+    qast->root = currentNode;
   }
 
   QueryTokenNode *expanded = qast->NewExpandedTokenNode(str, flags);
@@ -131,11 +132,11 @@ void QueryExpander::ExpandToken(std::string_view str, RSTokenFlags flags) {
 // it just adds a new token node as a child to it.
 
 void QueryExpander::ExpandTokenWithPhrase(const Vector<String> &tokens, RSTokenFlags flags,
-    bool replace, bool exact) {
+                                          bool replace, bool exact) {
   QueryNode *node = currentNode;
 
   QueryPhraseNode *phrase_node = new QueryPhraseNode(exact);
-  for (auto &token: tokens) {
+  for (auto &token : tokens) {
     phrase_node->AddChild(qast->NewExpandedTokenNode(token, flags));
   }
 
