@@ -253,9 +253,9 @@ typedef struct {
 /* A vector record represents a vector similarity search result which has a specific *distance* from the
  * query vector in the vector index, and associated with *scoreField* */
 typedef struct {
-  double distance;
-  char *scoreField;
-} RSDistanceRecord;
+  double value;
+  const char *metricField;
+} RSMetricRecord;
 
 typedef enum {
   RSResultType_Union = 0x1,
@@ -263,11 +263,11 @@ typedef enum {
   RSResultType_Term = 0x4,
   RSResultType_Virtual = 0x8,
   RSResultType_Numeric = 0x10,
-  RSResultType_Distance = 0x20,
-  RSResultType_HybridDistance = 0x40,
+  RSResultType_Metric = 0x20,
+  RSResultType_HybridMetric = 0x40,
 } RSResultType;
 
-#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridDistance)
+#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
 
 typedef struct {
   /* The number of child records */
@@ -316,8 +316,8 @@ typedef struct RSIndexResult {
     RSVirtualRecord virt;
     // numeric record with float value
     RSNumericRecord num;
-    // vector record with distance and score field name
-    RSDistanceRecord dist;
+    // metric record with value and metric field name
+    RSMetricRecord metric;
   };
 
   RSResultType type;

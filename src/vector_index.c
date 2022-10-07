@@ -1,5 +1,6 @@
 #include "vector_index.h"
 #include "hybrid_reader.h"
+#include "metric_iterator.h"
 #include "query_param.h"
 #include "rdb.h"
 
@@ -60,37 +61,37 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   if (!vecsim) {
     return NULL;
   }
+  VecSimQueryParams qParams = {0};
+  bool hybrid = (child_it != NULL);
+  if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
+                                &qParams, hybrid, q->status) != VecSim_OK)  {
+    return NULL;
+  }
+
+  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
+  size_t dim = 0;
+  VecSimType type = (VecSimType)0;
+  VecSimMetric metric = (VecSimMetric)0;
+  switch (info.algo) {
+    case VecSimAlgo_HNSWLIB:
+      dim = info.hnswInfo.dim;
+      type = info.hnswInfo.type;
+      metric = info.hnswInfo.metric;
+      break;
+    case VecSimAlgo_BF:
+      dim = info.bfInfo.dim;
+      type = info.bfInfo.type;
+      metric = info.bfInfo.metric;
+      break;
+  }
+  if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
+    QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                           "Error parsing vector similarity query: query vector blob size (%zu) does not match index's expected size (%zu).",
+                           vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+    return NULL;
+  }
   switch (vq->type) {
     case VECSIM_QT_KNN: {
-      VecSimQueryParams qParams = {0};
-      bool hybrid = (child_it != NULL);
-      if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
-                                    &qParams, hybrid, q->status) != VecSim_OK)  {
-        return NULL;
-      }
-
-      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-      size_t dim = 0;
-      VecSimType type = (VecSimType)0;
-      VecSimMetric metric = (VecSimMetric)0;
-      switch (info.algo) {
-        case VecSimAlgo_HNSWLIB:
-          dim = info.hnswInfo.dim;
-          type = info.hnswInfo.type;
-          metric = info.hnswInfo.metric;
-          break;
-        case VecSimAlgo_BF:
-          dim = info.bfInfo.dim;
-          type = info.bfInfo.type;
-          metric = info.bfInfo.metric;
-          break;
-      }
-      if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
-        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: query vector blob size (%zu) does not match index's expected size (%zu).",
-                               vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
-        return NULL;
-      }
       HybridIteratorParams hParams = {.index = vecsim,
                                       .dim = dim,
                                       .elementType = type,
@@ -103,6 +104,17 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .timeout = q->sctx->timeout,
       };
       return NewHybridVectorIterator(hParams);
+    }
+    case VECSIM_QT_RANGE: {
+      VecSimQueryResult_List results =
+          VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius, &qParams, vq->range.order);
+      if (results.code == VecSim_QueryResult_TimedOut) {
+        VecSimQueryResult_Free(results);
+        QueryError_SetError(q->status, QUERY_TIMEDOUT, NULL);
+        return NULL;
+      }
+      VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(results);
+      return NewMetricIterator(results.results, iter, vq->scoreField, VECTOR_DISTANCE);
     }
   }
   return NULL;

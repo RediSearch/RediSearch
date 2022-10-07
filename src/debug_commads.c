@@ -852,16 +852,16 @@ DEBUG_COMMAND(VecsimInfo) {
     switch (infoField->fieldType)
     {
     case INFOFIELD_STRING:
-      RedisModule_ReplyWithSimpleString(ctx, infoField->stringValue);
+      RedisModule_ReplyWithSimpleString(ctx, infoField->fieldValue.stringValue);
       break;
     case INFOFIELD_FLOAT64:
-      RedisModule_ReplyWithDouble(ctx, infoField->floatingPointValue);
+      RedisModule_ReplyWithDouble(ctx, infoField->fieldValue.floatingPointValue);
       break;
     case INFOFIELD_INT64:
-      RedisModule_ReplyWithLongLong(ctx, infoField->integerValue);
+      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.integerValue);
       break;
     case INFOFIELD_UINT64:
-      RedisModule_ReplyWithLongLong(ctx, infoField->uintegerValue);
+      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.uintegerValue);
       break;
     default:
       break;

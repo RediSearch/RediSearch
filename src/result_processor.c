@@ -273,12 +273,12 @@ static int rpvecsimNext(ResultProcessor *base, SearchResult *res) {
   RS_LOG_ASSERT(self->nkeys == 1, "Internal error, number of vector fields in a query is at most 1");
   for (size_t i = 0; i < self->nkeys; i++) {
     RSValue *val;
-    if (res->indexResult->type == RSResultType_HybridDistance) {
-      val = RS_NumVal(res->indexResult->agg.children[0]->dist.distance);
+    if (res->indexResult->type == RSResultType_HybridMetric) {
+      val = RS_NumVal(res->indexResult->agg.children[0]->metric.value);
     } else {
       // The entire query is a TOP-K query, or this is hybrid query that doesn't use the doc score,
       // so the distance is saved in the root of indexResult.
-      val = RS_NumVal(res->indexResult->dist.distance);
+      val = RS_NumVal(res->indexResult->metric.value);
     }
     RLookup_WriteOwnKey(self->keys[i], &(res->rowdata), val);
   }

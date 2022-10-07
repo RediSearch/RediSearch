@@ -7,6 +7,7 @@
 #include "src/tokenize.h"
 #include "src/varint.h"
 #include "src/hybrid_reader.h"
+#include "src/metric_iterator.h"
 
 #include "rmutil/alloc.h"
 
@@ -703,7 +704,7 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
   while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
-    ASSERT_EQ(h->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Metric);
     ASSERT_EQ(h->docId, max_id - count);
     count++;
   }
@@ -730,7 +731,7 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
-    ASSERT_EQ(h->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
@@ -748,7 +749,7 @@ TEST_F(IndexTest, testHybridVector) {
   for (size_t i = 0; i < k/2; i++) {
     count++;
     ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
-    ASSERT_EQ(h->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Metric);
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
   }
@@ -762,7 +763,7 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
-    ASSERT_EQ(h->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
@@ -782,10 +783,10 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
-    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
     ASSERT_EQ(h->agg.numChildren, 2);
-    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
@@ -799,10 +800,10 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
-    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
     ASSERT_EQ(h->agg.numChildren, 2);
-    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
@@ -854,6 +855,89 @@ TEST_F(IndexTest, testInvalidHybridVector) {
 
   ii->Free(ii);
   InvertedIndex_Free(w);
+  VecSimIndex_Free(index);
+}
+
+TEST_F(IndexTest, testMetric_VectorRange) {
+
+  size_t n = 100;
+  size_t d = 4;
+  size_t k = 10;
+  VecSimMetric met = VecSimMetric_Cosine;
+  VecSimType t = VecSimType_FLOAT32;
+
+  // Create vector index
+  VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
+                      .hnswParams = HNSWParams{.type = t,
+                                               .dim = d,
+                                               .metric = met,
+                                               .initialCapacity = n,
+                                               .M = 16,
+                                               .efConstruction = 100}};
+  VecSimIndex *index = VecSimIndex_New(&params);
+  for (size_t i = 1; i <= n; i++) {
+    float f[d];
+    f[0] = 1.0f;
+    for (size_t j = 1; j < d; j++) {
+      f[j] = (float)i / n;
+    }
+    VecSimIndex_AddVector(index, (const void *)f, (int)i);
+  }
+  ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+  float query[] = {(float)n, (float)n, (float)n, (float)n};
+  RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
+  VecSimQueryParams queryParams;
+  queryParams.hnswRuntimeParams.efRuntime = n;
+  VecSimQueryResult_List results =
+      VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
+
+  // Run simple range query.
+  VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(results);
+  const char *metric_field_name = "vec_dist";
+  IndexIterator *vecIt = NewMetricIterator(results.results, iter, metric_field_name, VECTOR_DISTANCE);
+  RSIndexResult *h = NULL;
+  size_t count = 0;
+  size_t lowest_id = 25;
+  size_t n_expected_res = n - lowest_id + 1;
+
+  // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100
+  VecSim_Normalize(query, d, t);
+  while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
+    ASSERT_EQ(h->type, RSResultType_Metric);
+    ASSERT_EQ(h->docId, lowest_id + count);
+    double exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
+    ASSERT_EQ(h->metric.value, exp_dist);
+    ASSERT_EQ(h->metric.metricField, metric_field_name);
+    count++;
+  }
+  ASSERT_EQ(count, n_expected_res);
+  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+
+  vecIt->Rewind(vecIt->ctx);
+  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
+  ASSERT_EQ(vecIt->NumEstimated(vecIt->ctx), n_expected_res);
+  ASSERT_EQ(vecIt->Len(vecIt->ctx), n_expected_res);
+
+  // Read one result to verify that we get the minimum id after rewind.
+  ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, lowest_id);
+  vecIt->Rewind(vecIt->ctx);
+
+  // check rerun and abort (go over only half of the results)
+  count = 0;
+  for (size_t i = 0; i < n_expected_res/2; i++) {
+    ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->type, RSResultType_Metric);
+    ASSERT_EQ(h->docId, lowest_id + count);
+    count++;
+  }
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + count - 1);
+  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
+  vecIt->Abort(vecIt->ctx);
+  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+
+  vecIt->Free(vecIt);
   VecSimIndex_Free(index);
 }
 
