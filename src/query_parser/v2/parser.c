@@ -968,12 +968,12 @@ static void yy_destructor(
       break;
     case 34: /* attribute */
 {
- rm_free((char*)(yypminor->yy55).name); rm_free((char*)(yypminor->yy55).value); 
+ rm_free((char*)(yypminor->yy55).value); 
 }
       break;
     case 35: /* attribute_list */
 {
-  array_free_ex((yypminor->yy27), rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy27), rm_free((char*)((QueryAttribute*)ptr )->value)); 
 }
       break;
     case 46: /* geo_filter */
@@ -1684,7 +1684,7 @@ static YYACTIONTYPE yy_reduce(
       value_len = found_value_len;
     }
   }
-  yylhsminor.yy55 = (QueryAttribute){ .name = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len), .namelen = yymsp[-2].minor.yy0.len, .value = value, .vallen = value_len };
+  yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = value, .vallen = value_len };
 }
   yymsp[-2].minor.yy55 = yylhsminor.yy55;
         break;
@@ -1719,7 +1719,7 @@ static YYACTIONTYPE yy_reduce(
     if (yymsp[-4].minor.yy35 && yymsp[-1].minor.yy27) {
         QueryNode_ApplyAttributes(yymsp[-4].minor.yy35, yymsp[-1].minor.yy27, array_len(yymsp[-1].minor.yy27), ctx->status);
     }
-    array_free_ex(yymsp[-1].minor.yy27, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(yymsp[-1].minor.yy27, rm_free((char*)((QueryAttribute*)ptr )->value));
     yylhsminor.yy35 = yymsp[-4].minor.yy35;
 }
   yymsp[-4].minor.yy35 = yylhsminor.yy35;
@@ -2055,13 +2055,14 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
       break;
   }
   ctx->root = yymsp[-5].minor.yy35;
-  if (yymsp[-8].minor.yy35) {
-    QueryNode_AddChild(yymsp[-5].minor.yy35, yymsp[-8].minor.yy35);
-  }
   if (yymsp[-5].minor.yy35 && yymsp[-1].minor.yy27) {
      QueryNode_ApplyAttributes(yymsp[-5].minor.yy35, yymsp[-1].minor.yy27, array_len(yymsp[-1].minor.yy27), ctx->status);
   }
-  array_free_ex(yymsp[-1].minor.yy27, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(yymsp[-1].minor.yy27, rm_free((char*)((QueryAttribute*)ptr )->value));
+
+  if (yymsp[-8].minor.yy35) {
+      QueryNode_AddChild(yymsp[-5].minor.yy35, yymsp[-8].minor.yy35);
+  }
 
 }
         break;
@@ -2074,10 +2075,10 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
       break;
   }
   ctx->root = yymsp[-5].minor.yy35;
-    if (yymsp[-5].minor.yy35 && yymsp[-1].minor.yy27) {
-       QueryNode_ApplyAttributes(yymsp[-5].minor.yy35, yymsp[-1].minor.yy27, array_len(yymsp[-1].minor.yy27), ctx->status);
-    }
-    array_free_ex(yymsp[-1].minor.yy27, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+  if (yymsp[-5].minor.yy35 && yymsp[-1].minor.yy27) {
+     QueryNode_ApplyAttributes(yymsp[-5].minor.yy35, yymsp[-1].minor.yy27, array_len(yymsp[-1].minor.yy27), ctx->status);
+  }
+  array_free_ex(yymsp[-1].minor.yy27, rm_free((char*)((QueryAttribute*)ptr )->value));
 
   if (yymsp[-8].minor.yy35) {
     QueryNode_AddChild(yymsp[-5].minor.yy35, yymsp[-8].minor.yy35);
@@ -2094,10 +2095,10 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
       break;
   }
   ctx->root = yymsp[-5].minor.yy35;
-    if (yymsp[-5].minor.yy35 && yymsp[-1].minor.yy27) {
-       QueryNode_ApplyAttributes(yymsp[-5].minor.yy35, yymsp[-1].minor.yy27, array_len(yymsp[-1].minor.yy27), ctx->status);
-    }
-    array_free_ex(yymsp[-1].minor.yy27, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+  if (yymsp[-5].minor.yy35 && yymsp[-1].minor.yy27) {
+     QueryNode_ApplyAttributes(yymsp[-5].minor.yy35, yymsp[-1].minor.yy27, array_len(yymsp[-1].minor.yy27), ctx->status);
+  }
+  array_free_ex(yymsp[-1].minor.yy27, rm_free((char*)((QueryAttribute*)ptr )->value));
 
 }
 }
