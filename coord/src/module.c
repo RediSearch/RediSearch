@@ -1253,6 +1253,16 @@ cleanup:
     }
     heap_free(rCtx.pq);
   }
+  if (rCtx.reduceSpecialCaseCtx &&
+      rCtx.reduceSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN &&
+      rCtx.reduceSpecialCaseCtx->knn.pq) {
+    heap_t *knn_pq = rCtx.reduceSpecialCaseCtx->knn.pq;
+    scoredSearchResultWrapper *sr;
+    while ((sr = heap_poll(knn_pq))) {
+      rm_free(sr);
+    }
+    heap_free(knn_pq);
+  }
 
   searchRequestCtx_Free(req);
   RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
