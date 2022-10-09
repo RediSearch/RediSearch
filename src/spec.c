@@ -654,7 +654,9 @@ static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryE
     RedisModuleString *err_msg;
     JSONPath jsonPath = pathParse(fs->path, &err_msg);
     if (!jsonPath) {
-      JSONParse_error(status, err_msg, fs->path, fs->name, sp->name);
+      if (err_msg) {
+        JSONParse_error(status, err_msg, fs->path, fs->name, sp->name);
+      }
       return 0;
     }
     multi = !(pathIsSingle(jsonPath));
@@ -1667,7 +1669,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
     if (encver >= INDEX_VECSIM_MULTI_VERSION) {
-      if (VecSim_RdbLoad2(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+      if (VecSim_RdbLoad_v2(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
         goto fail;
       }
     } else {

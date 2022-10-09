@@ -87,4 +87,4 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
-int VecSim_RdbLoad2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag
+int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag

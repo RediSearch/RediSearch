@@ -51,16 +51,11 @@ int pathHasDefinedOrder(JSONPath jsonpath);
 
 #define JSONParse_error(status, err_msg, path, fieldName, indexName)                                    \
     do {                                                                                                \
-    QueryError_SetErrorFmt(status, QUERY_EINVALPATH,                                                    \
-                          "Invalid JSONPath '%s' in attribute '%s' in index '%s'",                      \
-                          path, fieldName, indexName);                                                  \
-    RedisModule_FreeString(RSDummyContext, err_msg);                                                    \
+      QueryError_SetErrorFmt(status, QUERY_EINVALPATH,                                                  \
+                             "Invalid JSONPath '%s' in attribute '%s' in index '%s'",                   \
+                             path, fieldName, indexName);                                               \
+      RedisModule_FreeString(RSDummyContext, err_msg);                                                  \
     } while (0)
-    /* else {
-    RedisModule_Log(RSDummyContext, "info",
-                    "missing RedisJSON API to parse JSONPath '%s' in attribute '%s' in index '%s', assuming undefined ordering",
-                    path, fieldName, indexName);
-    } */
 
 #ifdef __cplusplus
 }

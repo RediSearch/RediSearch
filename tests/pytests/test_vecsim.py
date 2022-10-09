@@ -1523,6 +1523,7 @@ def test_create_multi_value_json():
     dim = 4
     algos = ['FLAT', 'HNSW']
     multi_paths = ['$..vec', '$.vecs[*]', '$.*.vec']
+    single_paths = ['$.path.to.vec', '$.vecs[0]']
 
     path = 'not a valid path'
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', 'FLAT',
@@ -1535,6 +1536,12 @@ def test_create_multi_value_json():
             env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
                        '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
             env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
+
+        for path in single_paths:
+            conn.flushall()
+            env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
+                       '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
+            env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 0, message=f'{algo}, {path}')
 
 def test_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1549,7 +1556,7 @@ def test_index_multi_value_json():
                '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
     for i in range(n):
-        conn.json().set(i, '.', {'vecs': [[0.46 for _ in range(dim)] for _ in range(per_doc)]})
+        conn.json().set(i, '.', {'vecs': [[0.46] * dim] * per_doc})
 
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
@@ -1580,13 +1587,13 @@ def test_bad_index_multi_value_json():
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                '$.vecs', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
-    # By default, we assume that a static path leads to a single value, so we can't
-    conn.json().set(46, '.', {'vecs': [[0.46 for _ in range(dim)] for _ in range(per_doc)]})
+    # By default, we assume that a static path leads to a single value, so we can't index an array of vectors as multi-value
+    conn.json().set(46, '.', {'vecs': [[0.46] * dim] * per_doc})
     failures += 1
     env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # We also don't support an array of length 1 that wraps an array for single value
-    conn.json().set(46, '.', {'vecs': [[0.46 for _ in range(dim)]]})
+    conn.json().set(46, '.', {'vecs': [[0.46] * dim]})
     failures += 1
     env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
@@ -1603,7 +1610,7 @@ def test_bad_index_multi_value_json():
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None]})
     env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
-    env.assertEqual(conn.ft('idx').info()['num_records'], '1')
+    env.assertEqual(conn.ft('idx').info()['num_records'], info_type(1))
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
@@ -1617,7 +1624,7 @@ def test_bad_index_multi_value_json():
     env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # some of the elements in some of vectors are not numerics
-    vec = [42 for _ in range(dim)]
+    vec = [42] * dim
     vec[-1] = 'not a number'
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), vec]})
     failures += 1

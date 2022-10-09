@@ -248,17 +248,17 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
       dim = fs->vectorOpts.vecSimParams.bfParams.dim;
       multi = fs->vectorOpts.vecSimParams.bfParams.multi;
       break;
-    default: return REDISMODULE_ERR;
+    default: goto fail;
   }
 
   if (!multi)
-    return REDISMODULE_ERR;
+    goto fail;
 
   getElement = VecSimGetJSONCallback(type);
   unsigned char step = VecSimType_sizeof(type);
 
   if (!(df->blobArr = rm_malloc(fs->vectorOpts.expBlobSize * len))) {
-    return REDISMODULE_ERR;
+    goto fail;
   }
   df->blobSize = fs->vectorOpts.expBlobSize;
   size_t count = 0;
@@ -268,23 +268,25 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
     if (JSONType_Null == jsonType) {
       continue; // Skips Nulls.
     } else if (JSONType_Array != jsonType) {
-      rm_free(df->blobArr);
-      return REDISMODULE_ERR;
+      goto cleanup;
     }
     size_t cur_dim;
     if ((REDISMODULE_OK != japi->getLen(element, &cur_dim)) || (cur_dim != dim)) {
-      rm_free(df->blobArr);
-      return REDISMODULE_ERR;
+      goto cleanup;
     }
     if (REDISMODULE_OK != JSON_StoreVectorAt(element, cur_dim, getElement, df->blobArr + df->blobSize * count, step)) {
-      rm_free(df->blobArr);
-      return REDISMODULE_ERR;
+      goto cleanup;
     }
     count++;
   }
   df->blobArrLen = count;
   df->unionType = FLD_VAR_T_BLOB_ARRAY;
   return REDISMODULE_OK;
+
+cleanup:
+  rm_free(df->blobArr);
+fail:
+  return REDISMODULE_ERR;
 }
 
 int JSON_StoreMultiVectorInDocFieldFromIter(FieldSpec *fs, JSONResultsIterator jsonIter, size_t len, struct DocumentField *df) {

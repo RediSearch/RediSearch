@@ -268,7 +268,7 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   return rv;
 }
 
-int VecSim_RdbLoad2(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
+int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
 
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
 
