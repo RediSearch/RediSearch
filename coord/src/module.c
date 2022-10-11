@@ -1253,7 +1253,8 @@ cleanup:
     heap_free(rCtx.pq);
   }
   if (rCtx.reduceSpecialCaseCtx &&
-      rCtx.reduceSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN) {
+      rCtx.reduceSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN &&
+      rCtx.reduceSpecialCaseCtx->knn.pq) {
     searchResult *sr;
     while ((sr = heap_poll(rCtx.reduceSpecialCaseCtx->knn.pq))) {
       rm_free(sr);
