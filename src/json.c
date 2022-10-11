@@ -182,7 +182,7 @@ getJSONElementFunc VecSimGetJSONCallback(VecSimType type) {
     default:
     case VecSimType_FLOAT32:
       return (getJSONElementFunc)JSON_getFloat32;
-     case VecSimType_FLOAT64:
+    case VecSimType_FLOAT64:
       return (getJSONElementFunc)JSON_getFloat64;
     // Uncomment when support for more types is added
     // case VecSimType_INT32:
@@ -277,7 +277,7 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
     if (REDISMODULE_OK != JSON_StoreVectorAt(element, cur_dim, getElement, df->blobArr + df->blobSize * count, step)) {
       goto cleanup;
     }
-    count++;
+    count++; // counts only the valid non-null vectors, so we store only valid vectors continuously.
   }
   df->blobArrLen = count;
   df->unionType = FLD_VAR_T_BLOB_ARRAY;

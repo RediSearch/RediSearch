@@ -1556,7 +1556,12 @@ def test_index_multi_value_json():
                '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
     for i in range(n):
-        conn.json().set(i, '.', {'vecs': [[0.46] * dim] * per_doc})
+        conn.json().set(i, '.', {'vecs': [[i + j] * dim for j in range(per_doc)]})
+
+    score_field_name = 'dist'
+    k = min(10, n)
+    cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', '====' * dim, 'NOCONTENT', 'SORTBY', score_field_name]
+    expected_res = [str(i) for i in range(k)]
 
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
@@ -1565,15 +1570,15 @@ def test_index_multi_value_json():
         env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
         env.assertEqual(info['hash_indexing_failures'], info_type(0))
 
-        cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', '????' * dim, 'NOCONTENT']
-
-        cmd[2] = '*=>[KNN 10 @hnsw $b]'
+        cmd[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
         hnsw_res = conn.execute_command(*cmd)[1:]
         env.assertEqual(len(hnsw_res), len(np.unique(hnsw_res)))
+        env.assertEqual(hnsw_res, expected_res)
 
-        cmd[2] = '*=>[KNN 10 @flat $b]'
+        cmd[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
         flat_res = conn.execute_command(*cmd)[1:]
         env.assertEqual(len(flat_res), len(np.unique(flat_res)))
+        env.assertEqual(flat_res, expected_res)
 
 def test_bad_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1608,9 +1613,9 @@ def test_bad_index_multi_value_json():
     env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # we should NOT fail if some of the vectors are NULLs
-    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None]})
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
     env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
-    env.assertEqual(conn.ft('idx').info()['num_records'], info_type(1))
+    env.assertEqual(conn.ft('idx').info()['num_records'], info_type(2))
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
