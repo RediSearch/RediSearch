@@ -27,7 +27,7 @@ FT.DICTDUMP returns an array, where each element is term (string).
 ## Examples
 
 <details open>
-<summary><b>Add terms to a dictionary</b></summary>
+<summary><b>Dump all terms in the dictionary</b></summary>
 
 {{< highlight bash >}}
 127.0.0.1:6379> FT.DICTDUMP dict
