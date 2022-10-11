@@ -1039,7 +1039,6 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         }
       }
     }
-    heap_free(reducerSpecialCaseCtx->knn.pq);
   }
   // We can always get at most K results
   rCtx->totalReplies = heap_count(rCtx->pq);
@@ -1254,14 +1253,12 @@ cleanup:
     heap_free(rCtx.pq);
   }
   if (rCtx.reduceSpecialCaseCtx &&
-      rCtx.reduceSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN &&
-      rCtx.reduceSpecialCaseCtx->knn.pq) {
-    heap_t *knn_pq = rCtx.reduceSpecialCaseCtx->knn.pq;
-    scoredSearchResultWrapper *sr;
-    while ((sr = heap_poll(knn_pq))) {
+      rCtx.reduceSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN) {
+    searchResult *sr;
+    while ((sr = heap_poll(rCtx.reduceSpecialCaseCtx->knn.pq))) {
       rm_free(sr);
     }
-    heap_free(knn_pq);
+    heap_free(rCtx.reduceSpecialCaseCtx->knn.pq);
   }
 
   searchRequestCtx_Free(req);
