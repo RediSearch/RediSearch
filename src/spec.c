@@ -33,10 +33,10 @@ static uint64_t spec_unique_ids = 1;
 
 const FieldSpec *IndexSpec::getFieldCommon(std::string_view name, bool useCase) const {
   for (size_t i = 0; i < fields.size(); i++) {
-    if (name.length() != fields[i].name.length()) {
+    const FieldSpec &fs = fields[i];
+    if (name.length() != fs.name.length()) {
       continue;
     }
-    const FieldSpec &fs = fields[i];
     if (useCase) {
       if (!strcmp(fs.name.c_str(), name.data())) {
         return &fs;
@@ -96,7 +96,7 @@ bool IndexSpec::CheckPhoneticEnabled(t_fieldMask fm) const {
 
   for (size_t ii = 0; ii < fields.size(); ++ii) {
     if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec fs = fields[ii];
+      const FieldSpec &fs = fields[ii];
       if (fs.IsFieldType(INDEXFLD_T_FULLTEXT) && (fs.IsPhonetics())) {
         return true;
       }
@@ -120,7 +120,7 @@ int IndexSpec::GetFieldSortingIndex(std::string_view name) {
 // Get the field spec from the sortable index
 
 const FieldSpec *IndexSpec::GetFieldBySortingIndex(uint16_t idx) const {
-  for (auto field : fields) {
+  for (auto const &field : fields) {
     if (field.options & FieldSpec_Sortable && field.sortIdx == idx) {
       return &field;
     }
@@ -131,9 +131,8 @@ const FieldSpec *IndexSpec::GetFieldBySortingIndex(uint16_t idx) const {
 //---------------------------------------------------------------------------------------------
 
 String IndexSpec::GetFieldNameByBit(t_fieldMask id) const {
-  for (auto field : fields) {
-    if (field.FieldBit() == id && field.IsFieldType(INDEXFLD_T_FULLTEXT) &&
-        field.IsIndexable()) {
+  for (auto const &field : fields) {
+    if (field.FieldBit() == id && field.IsFieldType(INDEXFLD_T_FULLTEXT) && field.IsIndexable()) {
       return field.name;
     }
   }
@@ -166,9 +165,9 @@ void IndexSpec::ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
 
 Vector<FieldSpec> IndexSpec::getFieldsByType(FieldType type) {
   Vector<FieldSpec> res;
-  for (int i = 0; i < fields.size(); ++i) {
-    if (fields[i].IsFieldType(type)) {
-      res.push_back(fields[i]);
+  for (auto const &fs: fields) {
+    if (fs.IsFieldType(type)) {
+      res.emplace_back(fs);
     }
   }
   return res;
@@ -383,8 +382,7 @@ error:
 
 int IndexSpec::CreateTextId() const {
   int maxId = -1;
-  for (size_t ii = 0; ii < fields.size(); ++ii) {
-    const FieldSpec fs = fields[ii];
+  for (auto const &fs : fields) {
     if (fs.IsFieldType(INDEXFLD_T_FULLTEXT)) {
       if (fs.ftId == (t_fieldId)-1) {
         // ignore
@@ -421,6 +419,7 @@ bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew)
       goto reset;
     }
 
+    // @@TODO: place following code inside a FieldSpec ctor
     FieldSpec fs = CreateField(fieldName);
 
     if (!parseFieldSpec(ac, &fs, status)) {
@@ -463,7 +462,7 @@ bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew)
       flags |= Index_HasPhonetic;
     }
 
-    fields.push_back(fs);
+    fields.emplace_back(fs);
   }
 
   return true;
@@ -541,7 +540,7 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
   }
 
   if (!AddFieldsInternal(&ac, status, 1)) {
-    throw Error("");
+    throw Error("Error creating FieldSpec");
   }
 }
 

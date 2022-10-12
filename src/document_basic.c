@@ -96,7 +96,7 @@ void Document::MakeStringsOwner() {
     RedisModule_FreeString(RSDummyContext, oldDocKey);
   }
 
-  for (auto f : fields) {
+  for (auto const &f : fields) {
     if (f->text) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
@@ -218,7 +218,7 @@ void Document::LoadPairwiseArgs(RedisModuleString **args, size_t nargs) {
 
 void Document::Clear() {
   if (flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
-    for (auto f : fields) {
+    for (auto const &f : fields) {
       if (flags & DOCUMENT_F_OWNSTRINGS) {
         //rm_free(f->name);
       }
@@ -285,7 +285,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
 
 int Document::ReplyFields(RedisModuleCtx *ctx) {
   RedisModule_ReplyWithArray(ctx, fields.size() * 2);
-  for (auto f : fields) {
+  for (auto const &f : fields) {
     RedisModule_ReplyWithStringBuffer(ctx, f->name.c_str(), f->name.length());
     if (f->text) {
       RedisModule_ReplyWithString(ctx, f->text);

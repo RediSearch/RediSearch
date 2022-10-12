@@ -21,8 +21,8 @@ size_t TrieMapNode::Sizeof() {
 
 // Create a new trie node. str is a string to be copied into the node, starting from offset up until len.
 
-TrieMapNode::TrieMapNode(std::string_view str, tm_len_t offset, void *value,
-    bool terminal) : str(str.data() + offset, str.length() - offset), value(value) {
+TrieMapNode::TrieMapNode(std::string_view s, tm_len_t offset, void *val,
+    bool terminal) : str(s.data() + offset, s.length() - offset), value(val) {
   flags = terminal ? TM_NODE_TERMINAL : 0;
 }
 
@@ -35,11 +35,11 @@ TrieMap::TrieMap() {
 
 //---------------------------------------------------------------------------------------------
 
-void TrieMapNode::AddChild(std::string_view str_, tm_len_t offset, void *value_) {
+void TrieMapNode::AddChild(std::string_view s, tm_len_t offset, void *val) {
   // a newly added child must be a terminal node
-  TrieMapNode *child = new TrieMapNode(str_, offset, value_, true);
+  TrieMapNode *child = new TrieMapNode(s, offset, val, true);
   _children.push_back(child);
-  _children_keys.push_back(str_[offset]);
+  _children_keys.push_back(s[offset]);
   flags &= ~TM_NODE_SORTED;
 }
 
@@ -55,6 +55,7 @@ void TrieMapNode::Split(tm_len_t offset) {
   // reduce the node to be just one child long with no score
   _children.push_back(newChild);
   _children_keys.push_back(newChild->str[0]);
+  str.resize(offset);
   value = NULL;
   // parent node is now non terminal and non sorted
   flags = 0;  //&= ~(TM_NODE_TERMINAL | TM_NODE_DELETED | TM_NODE_SORTED);
@@ -827,7 +828,7 @@ TrieMapNode *TrieMapNode::RandomWalk(int minSteps, std::string &newstr) {
   res = stack.back();
 
   // build the string by walking the stack and copying all node strings
-  for (auto n1: stack) {
+  for (auto &n1: stack) {
     newstr += n1->str;
   }
 
@@ -869,5 +870,25 @@ bool TrieMap::RandomKey(std::string &str, void **ptr) {
   *ptr = n->value;
   return true;
 }
+
+//---------------------------------------------------------------------------------------------
+
+// void TrieMapNode::Print(int idx, int depth) const {
+//   for (int i = 0; i < depth; ++i) {
+//     printf("  ");
+//   }
+//   printf("%d) '%s' flags %d\n", idx, str.c_str(), flags);
+//   int i = 0;
+//   ++depth;
+//   for (auto const &child: _children) {
+//     child->Print(i++, depth);
+//   }
+// }
+
+// //---------------------------------------------------------------------------------------------
+
+// void TrieMap::Print() const {
+//   root->Print(0, 2);
+// }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -117,9 +117,9 @@ struct Runes {
 
   void copy(const Runes &runes, size_t offset) {
     if (offset > runes._len) {
-	  _runes[0] = 0;
-	  return;
-	}
+      _runes[0] = 0;
+      return;
+    }
     setup_storage(runes._nbytes - offset); // sets _nbytes
     memcpy(_runes, runes._runes + offset, runes._nbytes);
     _runes[_nbytes] = 0;

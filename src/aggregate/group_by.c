@@ -29,7 +29,7 @@ Group::Group(Grouper &grouper, const arrayof(RSValue*) groupvals, size_t ngrpval
 //---------------------------------------------------------------------------------------------
 
 void Grouper::writeGroupValues(const Group *gr, SearchResult &r) const {
-  for (auto dstkey : dstkeys) {
+  for (auto dstkey: dstkeys) {
     RSValue *groupval = gr->rowdata.GetItem(dstkey);
     if (groupval) {
       r.rowdata.WriteKey(dstkey, groupval);

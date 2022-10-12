@@ -16,7 +16,7 @@ void SimpleTokenizer::Start(char *text_, size_t len_, uint32_t options_) {
   text = text_;
   options = options_;
   len = len_;
-  pos = *text;
+  pos = &text;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -102,11 +102,11 @@ uint32_t SimpleTokenizer::Next(Token *t) {
     }
 
     // skip stopwords
-    if (stopwords->Contains(normalized)) {
+    if (stopwords->Contains({normalized, normLen})) {
       continue;
     }
 
-    Token *t = new Token(normalized, normLen, tok, origLen, Token_CopyStem);
+    *t = Token(normalized, normLen, tok, origLen, Token_CopyStem);
     t->pos = ++lastOffset;
 
     // if we support stemming - try to stem the word

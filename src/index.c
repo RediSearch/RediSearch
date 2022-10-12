@@ -545,7 +545,7 @@ int IntersectIterator::ReadUnsorted(IndexResult **hit) {
       return rc;
     }
     bool isMatch = true;
-    for (auto tester: testers) {
+    for (auto &tester: testers) {
       if (!tester->Test(res->docId)) {
         isMatch = false;
         break;

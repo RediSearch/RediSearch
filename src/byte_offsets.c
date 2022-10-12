@@ -39,7 +39,7 @@ void RSByteOffsets::Serialize(Buffer *b) const {
 
   w.WriteU8(fields.size());
 
-  for (auto field : fields) {
+  for (auto const &field : fields) {
     w.WriteU8(field.fieldId);
     w.WriteU32(field.firstTokPos);
     w.WriteU32(field.lastTokPos);

@@ -92,6 +92,7 @@ struct FieldSpec {
 
   FieldSpec(int idx, String name = "") : index(idx), name(name) {
     types = 0;
+    options = 0;
     ftId = (t_fieldId)-1;
     ftWeight = 1.0;
     sortIdx = -1;

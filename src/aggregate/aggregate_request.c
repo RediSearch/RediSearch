@@ -57,7 +57,7 @@ ReturnedField::~ReturnedField() {
 //---------------------------------------------------------------------------------------------
 
 ReturnedField &FieldList::CreateField(const char *name) {
-  for (auto field : fields) {
+  for (auto &field: fields) {
     if (!strcasecmp(field.name.c_str(), name)) {
       return field;
     }

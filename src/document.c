@@ -28,7 +28,7 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *d, size_t oldFieldCoun
   if (oldFieldCount < d->NumFields()) {
     // Pre-allocate the field specs
     fspecs.reserve(d->NumFields());
-    fdatas = rm_realloc(fdatas, sizeof(*fdatas) * d->NumFields());
+    fdatas.reserve(d->NumFields());
   }
 
   for (size_t i = 0; i < d->NumFields(); ++i) {
@@ -317,6 +317,7 @@ void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
 
 AddDocumentCtx::~AddDocumentCtx() {
   // Free preprocessed data; this is the only reliable place to do it
+  // @@TODO: maybe remove
   for (size_t i = 0; i < doc.NumFields(); ++i) {
     if (IsValid(i) && fspecs[i].IsFieldType(INDEXFLD_T_TAG) && !!fdatas[i].tags) {
       fdatas[i].tags.Clear();
@@ -330,8 +331,6 @@ AddDocumentCtx::~AddDocumentCtx() {
   status.ClearError();
 
   delete fwIdx;
-
-  rm_free(fdatas);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -533,7 +532,7 @@ int Document::AddToIndexes(AddDocumentCtx *aCtx) {
   Document *doc = &aCtx->doc;
 
   size_t i = 0;
-  for (auto ff: doc->fields) {
+  for (auto const &ff: doc->fields) {
     const FieldSpec &fs = aCtx->fspecs[i];
     FieldIndexerData *fdata = &aCtx->fdatas[i];
     ++i;
@@ -660,9 +659,9 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
   }
 
   if (stateFlags & ACTX_F_SORTABLES) {
-    FieldSpecDedupeArray dedupes = {0};
+    FieldSpecDedupeArray dedupes;
     // Update sortables if needed
-    for (auto f : doc.fields) {
+    for (auto const &f : doc.fields) {
       const FieldSpec *fs = sctx->spec->GetField(f->name);
       if (fs == NULL || !fs->IsSortable()) {
         continue;
@@ -712,7 +711,7 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
 DocumentField *Document::GetField(const char *fieldName) {
   if (!fieldName) return NULL;
 
-  for (auto f : fields) {
+  for (auto const &f: fields) {
     if (!strcasecmp(f->name.c_str(), fieldName)) {
       return f;
     }

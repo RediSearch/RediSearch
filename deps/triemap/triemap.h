@@ -93,6 +93,8 @@ struct TrieMapNode : public Object {
   static int ComparePrefix(const void *h, const void *e);
 
   static int Cmp(const void *p1, const void *p2);
+
+  // void Print(int idx = 0, int depth = 0) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -152,6 +154,8 @@ struct TrieMap : public Object {
   void IterateRange(const char *min, int minlen, bool includeMin, const char *max, int maxlen,
                     bool includeMax, TrieMapRangeCallback callback, void *ctx);
   TrieMapIterator *Iterate(std::string_view prefix);
+
+  // void Print() const;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

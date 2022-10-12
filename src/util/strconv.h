@@ -14,11 +14,11 @@
 #define STR_EQCASE(str, len, other) (len == strlen(other) && !strncasecmp(str, other, len))
 
 inline int str_casecmp(const std::string_view &ss, const char *s, size_t len) {
-  return len == ss.length() && !strncasecmp(ss.data(), s, len);
+  return strncasecmp(ss.data(), s, len);
 }
 
 inline int str_casecmp(const std::string_view &a, const std::string_view &b) {
-  return a.length() == b.length() && !strncasecmp(a.data(), b.data(), a.length());
+  return strncasecmp(a.data(), b.data(), a.length());
 }
 
 // Case sensitive string equal

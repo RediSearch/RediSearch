@@ -182,7 +182,7 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
   }
 
   // proceed to the next child or add a new child for the current rune
-  for (auto &child: _children) {
+  for (auto child: _children) {
     if (runes[offset] == child->_runes[0]) {
       child = child->Add(runes[offset], payload, score, op);
       return this;
@@ -389,7 +389,7 @@ TrieNode *TrieNode::RandomWalk(int minSteps, Runes &runes) {
   // Return the node at the top of the stack
   res = stack.back();
 
-  for (auto n1: stack) {
+  for (auto &n1: stack) {
     runes.append(n1->_runes);
   }
 

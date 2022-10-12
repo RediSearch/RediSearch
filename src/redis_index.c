@@ -525,7 +525,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
   }
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
-  for (auto fs : ctx->spec->fields) {
+  for (auto const &fs : ctx->spec->fields) {
     if (fs.IsFieldType(INDEXFLD_T_NUMERIC)) {
       Redis_DeleteKey(redisCtx, ctx->spec->GetFormattedKey(fs, INDEXFLD_T_NUMERIC));
     }

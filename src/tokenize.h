@@ -50,7 +50,7 @@ struct Token {
   uint32_t pos;
 
   Token(const char *tok = NULL, uint32_t tokLen = 0, const char *raw = NULL, uint32_t rawLen = 0, uint32_t flags = 0, char *phoneticsPrimary = NULL) :
-    tok(tok), tokLen(tokLen), flags(flags), phoneticsPrimary(phoneticsPrimary), raw(raw), rawLen(rawLen) {}
+    tok(tok), tokLen(tokLen), flags(flags), phoneticsPrimary(phoneticsPrimary), raw(raw), rawLen(rawLen), stem(NULL), stemLen(0) {}
 
   ~Token() {
     rm_free(phoneticsPrimary);

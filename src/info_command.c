@@ -63,11 +63,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_ReplyWithSimpleString(ctx, "fields");
   RedisModule_ReplyWithArray(ctx, sp->fields.size());
-  for (int i = 0; i < sp->fields.size(); i++) {
+  for (auto const &fs: sp->fields) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name.c_str());
+    RedisModule_ReplyWithSimpleString(ctx, fs.name.c_str());
     int nn = 1;
-    const FieldSpec fs = sp->fields[i];
 
     // RediSearch_api - No coverage
     if (fs.options & FieldSpec_Dynamic) {

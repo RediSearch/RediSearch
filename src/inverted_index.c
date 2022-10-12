@@ -827,7 +827,7 @@ bool TermIndexCriteriaTester::Test(t_docId id) {
   size_t len;
   DocTable *td = (DocTable *) &spec->docs;
   const char *externalId = td->GetKey(id, &len);
-  for (auto field : spec->fields) {
+  for (auto const &field : spec->fields) {
     if (!(field.FieldBit() & fieldMask)) {
       // field is not requested, we are not checking this field!!
       continue;

@@ -209,7 +209,7 @@ void DocumentIndexer::writeEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
 static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
   IndexSpec *sp = sctx->spec;
-  for (auto fs : sp->fields) {
+  for (auto const &fs : sp->fields) {
     if (!fs.IsFieldType(INDEXFLD_T_GEO)) {
       continue;
     }
@@ -313,7 +313,7 @@ void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
     const Document *doc = &cur->doc;
     for (size_t i = 0; i < doc->NumFields(); ++i) {
       const FieldSpec &fs = cur->fspecs[i];
-      FieldIndexerData *fdata = cur->fdatas + i;
+      FieldIndexerData *fdata = &cur->fdatas[i];
       if (fs.name == "" || fs.types == INDEXFLD_T_FULLTEXT || !fs.IsIndexable()) {
         continue;
       }

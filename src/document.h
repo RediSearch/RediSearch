@@ -204,7 +204,8 @@ struct AddDocumentCtx : Object { // MemPoolObject<AddDocumentPool> { //@@POOL
   DocumentFlags docFlags;
 
   // Scratch space used by per-type field preprocessors (see the source)
-  struct FieldIndexerData *fdatas;
+  Vector<FieldIndexerData> fdatas;
+
   QueryError status;     // Error message is placed here if there is an error during processing
   uint32_t totalTokens;  // Number of tokens, used for offset vector
   uint8_t options;       // Indexing options - i.e. DOCUMENT_ADD_xxx

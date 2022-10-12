@@ -164,7 +164,7 @@ RSValue *HighligherDoc::summarizeField(IndexSpec *spec, const ReturnedField &fie
 //---------------------------------------------------------------------------------------------
 
 void HighligherDoc::resetIovsArr(size_t newSize) {
-  for (auto arr: iovsArr) {
+  for (auto &arr: iovsArr) {
     arr.clear();
   }
   iovsArr.resize(newSize);

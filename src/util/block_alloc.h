@@ -65,7 +65,7 @@ struct BlkAlloc {
   }
 
   void Clear() {
-    for (auto v: used) {
+    for (auto &v: used) {
       v.clear();
     }
   }

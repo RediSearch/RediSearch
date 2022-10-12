@@ -283,7 +283,7 @@ void PLN_GroupStep::Dump() const {
   for (size_t ii = 0; ii < nproperties; ++ii) {
     printf("    %s\n", properties[ii]);
   }
-  for (auto r : reducers) {
+  for (auto &r : reducers) {
     printf("  REDUCE: %s AS %s\n", r.name, r.alias);
     if (r.args.argc) {
       printf("    ARGS:[");
@@ -382,7 +382,7 @@ static void serializeGroup(myArgArray_t *arr, const PLN_GroupStep *gstp) {
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     append_string(arr, gstp->properties[ii]);
   }
-  for (auto r : gstp->reducers) {
+  for (auto &r : gstp->reducers) {
     append_string(arr, "REDUCE");
     append_string(arr, r.name);
     append_uint(arr, r.args.argc);

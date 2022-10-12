@@ -170,7 +170,7 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
 
   Vector<RS_Suggestion> suggestions = GetSuggestions();
-  for (auto s : suggestions) {
+  for (auto &s : suggestions) {
     if (s.score == -1) {
       s.score = 0;
     } else {
@@ -189,7 +189,7 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
     RedisModule_ReplyWithArray(ctx, 0);
   } else {
     RedisModule_ReplyWithArray(ctx, suggestions.size());
-    for (auto s : suggestions) {
+    for (auto &s : suggestions) {
       RedisModule_ReplyWithArray(ctx, 2);
       RedisModule_ReplyWithDouble(ctx, s.score);
       RedisModule_ReplyWithStringBuffer(ctx, s.suggestion, s.len);

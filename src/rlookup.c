@@ -33,8 +33,8 @@ RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
   }
 
   const FieldSpec *fs = NULL;
-  IndexSpecFields fields = *spcache.get();
-  for (auto field : fields) {
+  IndexSpecFields &fields = *spcache.get();
+  for (auto const &field : fields) {
     if (!strcmp(field.name.c_str(), name)) {
       fs = &field;
       break;

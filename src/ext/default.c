@@ -494,7 +494,7 @@ int SynonymExpander::Expand(RSToken *token) {
     return REDISMODULE_OK;
   }
 
-  for (auto id : t_data->ids) {
+  for (auto &id : t_data->ids) {
     ExpandToken(SynonymMap::IdToStr(id), 0x0);
   }
 

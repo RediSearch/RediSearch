@@ -310,7 +310,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // ID does not exist.
   }
 
-  for (auto fs : sp->fields) {
+  for (auto const &fs : sp->fields) {
     if (!fs.IsFieldType(INDEXFLD_T_GEO)) {
       continue;
     }

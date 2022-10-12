@@ -105,7 +105,11 @@ enum IndexFlags {
  * between one field and another field. For now, the ID is the position in
  * the array of fields - a detail we'll try to hide.
  */
-typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
+struct FieldSpecDedupeArray : Vector<uint16_t> {
+  FieldSpecDedupeArray() {
+    assign(SPEC_MAX_FIELDS, 0);
+  }
+};
 
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
@@ -222,8 +226,10 @@ struct IndexSpec : Object {
   UnorderedMap<RedisModuleString*, BaseIndex*> keysDict;
   long long minPrefix;
   long long maxPrefixExpansions;  // -1 unlimited
-  RSGetValueCallback getValue;
+
+  RSGetValueCallback getValue; //@@TODO: check this out
   void *getValueCtx;
+
   char **aliases; // Aliases to self-remove when the index is deleted
   std::shared_ptr<DocumentIndexer> indexer;
 
@@ -323,9 +329,9 @@ extern RedisModuleType *IndexAliasType;
  */
 
 struct IndexSpecFields : Vector<FieldSpec> {
-  IndexSpecFields(Vector<FieldSpec> fields_) {
+  IndexSpecFields(const Vector<FieldSpec> &fields_) {
     reserve(fields_.size());
-    for (auto f : fields_) {
+    for (auto const &f : fields_) {
       emplace_back(f.index, f.name);
     }
   }
