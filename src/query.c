@@ -1788,10 +1788,13 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr)
       STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
       STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
       STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
+    // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
+    // The name string was not copied by the parser (unlike the value) - so we copy and save it.
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),
                                             .nameLen = attr->namelen,
-                                            .value = rm_strndup(attr->value, attr->vallen),
+                                            .value = attr->value,
                                             .valLen = attr->vallen };
+    attr->value = NULL;
     vq->params.params = array_ensure_append_1(vq->params.params, param);
     bool resolve_required = false;  // at this point, we have the actual value in hand, not the query param.
     vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, resolve_required);
@@ -1856,17 +1859,20 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     //                                          will be enable if field was declared phonetic
 
   } else if (STR_EQCASE(attr->name, attr->namelen, YIELD_DISTANCE_ATTR) && qn->opts.flags & QueryNode_YieldsDistance) {
-    qn->opts.distField = rm_strndup(attr->value, attr->vallen);
+    // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
+    qn->opts.distField = (char *)attr->value;
+    attr->value = NULL;
     res = 1;
 
   } else if (qn->type == QN_VECTOR) {
     res = QueryVectorNode_ApplyAttribute(qn->vn.vq, attr);
   }
 
-  if (res == 1) return res;
-  QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,
-                         attr->name);
-  return 0;
+  if (!res) {
+    QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,
+                           attr->name);
+  }
+  return res;
 }
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len, QueryError *status) {
