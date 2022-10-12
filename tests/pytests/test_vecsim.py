@@ -1551,34 +1551,37 @@ def test_index_multi_value_json():
     per_doc = 5
     info_type = int if env.isCluster() else str
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-               '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-               '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    for data_t in VECSIM_DATA_TYPES:
+        conn.flushall()
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+            '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+            '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
-    for i in range(n):
-        conn.json().set(i, '.', {'vecs': [[i + j] * dim for j in range(per_doc)]})
+        for i in range(n):
+            conn.json().set(i, '.', {'vecs': [[i + j] * dim for j in range(per_doc)]})
 
-    score_field_name = 'dist'
-    k = min(10, n)
-    cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', '====' * dim, 'NOCONTENT', 'SORTBY', score_field_name]
-    expected_res = [str(i) for i in range(k)]
+        score_field_name = 'dist'
+        k = min(10, n)
+        element = {'FLOAT32': '====', 'FLOAT64': '????????'}[data_t]
+        cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element * dim, 'NOCONTENT', 'SORTBY', score_field_name]
+        expected_res = [str(i) for i in range(k)]
 
-    for _ in env.retry_with_rdb_reload():
-        waitForIndex(env, 'idx')
-        info = conn.ft('idx').info()
-        env.assertEqual(info['num_docs'], info_type(n))
-        env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
-        env.assertEqual(info['hash_indexing_failures'], info_type(0))
+        for _ in env.retry_with_rdb_reload():
+            waitForIndex(env, 'idx')
+            info = conn.ft('idx').info()
+            env.assertEqual(info['num_docs'], info_type(n))
+            env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
+            env.assertEqual(info['hash_indexing_failures'], info_type(0))
 
-        cmd[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
-        hnsw_res = conn.execute_command(*cmd)[1:]
-        env.assertEqual(len(hnsw_res), len(np.unique(hnsw_res)))
-        env.assertEqual(hnsw_res, expected_res)
+            cmd[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
+            hnsw_res = conn.execute_command(*cmd)[1:]
+            env.assertEqual(len(hnsw_res), len(np.unique(hnsw_res)))
+            env.assertEqual(hnsw_res, expected_res)
 
-        cmd[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
-        flat_res = conn.execute_command(*cmd)[1:]
-        env.assertEqual(len(flat_res), len(np.unique(flat_res)))
-        env.assertEqual(flat_res, expected_res)
+            cmd[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
+            flat_res = conn.execute_command(*cmd)[1:]
+            env.assertEqual(len(flat_res), len(np.unique(flat_res)))
+            env.assertEqual(flat_res, expected_res)
 
 def test_bad_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
