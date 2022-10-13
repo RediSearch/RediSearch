@@ -287,7 +287,7 @@ struct IndexSpec : Object {
   int AddTerm(const char *term, size_t len);
   char *GetRandomTerm(size_t sampleSize);
 
-  bool AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew);
+  bool AddFieldsInternal(ArgsCursor *ac, QueryError *status, bool isNew);
   bool AddFields(ArgsCursor *ac, QueryError *status);
 
   bool ParseStopWords(RedisModuleString **strs, size_t len);
@@ -367,5 +367,9 @@ extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
+
+//---------------------------------------------------------------------------------------------
+
+bool checkPhoneticAlgorithmAndLang(const char *matcher);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

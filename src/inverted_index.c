@@ -1052,12 +1052,13 @@ size_t IndexReader::NumDocs() const {
 
 IndexReader::IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
     IndexResult *record, double weight) : IndexIterator(this), sp(sp), idx(idx), decoder(decoder),
-    record(record), weight(weight), br(&CurrentBlock().buf) {
+    record(record), weight(weight), br() {
   gcMarker = idx->gcMarker;
   lastId = CurrentBlock().firstId;
 
   currentBlock = 0;
   len = 0;
+  br.Set(&CurrentBlock().buf, 0);
   SetAtEnd(false);
 }
 

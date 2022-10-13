@@ -10,21 +10,16 @@
 
 //---------------------------------------------------------------------------------------------
 
-static const uint64_t calculate_hash(const char* str, size_t len) {
-  return fnv_64a_buf((void*)str, len, 0);
-}
-
-//---------------------------------------------------------------------------------------------
-
-TermData::TermData(char* t) {
-  term = t;
+TermData::TermData(char* t) : term(t) {
   ids.reserve(INITIAL_CAPACITY);
 }
 
 //---------------------------------------------------------------------------------------------
 
-TermData::~TermData() {
-  rm_free(term);
+TermData::TermData(const TermData &data) : term(data.term) {
+  for (auto i : data.ids) {
+    AddId(i);
+  }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -48,18 +43,8 @@ void TermData::AddId(uint32_t id) {
 
 //---------------------------------------------------------------------------------------------
 
-TermData* TermData::Copy() {
-  TermData* copy;
-  for (auto i : ids) {
-    copy->AddId(i);
-  }
-  return copy;
-}
-
-//---------------------------------------------------------------------------------------------
-
 void TermData::RdbSave(RedisModuleIO* rdb) {
-  RedisModule_SaveStringBuffer(rdb, term, strlen(term) + 1);
+  RedisModule_SaveStringBuffer(rdb, term.c_str(), term.length() + 1);
   RedisModule_SaveUnsigned(rdb, ids.size());
   for (auto i : ids) {
     RedisModule_SaveUnsigned(rdb, i);
@@ -69,8 +54,9 @@ void TermData::RdbSave(RedisModuleIO* rdb) {
 //---------------------------------------------------------------------------------------------
 
 TermData::TermData(RedisModuleIO* rdb) {
-  char* term = RedisModule_LoadStringBuffer(rdb, NULL);
-  RedisModule_Free(term);
+  char *term_str = RedisModule_LoadStringBuffer(rdb, NULL);
+  term = term_str;
+  RedisModule_Free(term_str);
   uint64_t ids_len = RedisModule_LoadUnsigned(rdb);
   for (int i = 0; i < ids_len; ++i) {
     uint64_t id = RedisModule_LoadUnsigned(rdb);
@@ -79,6 +65,15 @@ TermData::TermData(RedisModuleIO* rdb) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
+SynonymMap::SynonymMap(const SynonymMap &map, bool read_only) : curr_id(map.curr_id), ref_count(1),
+  is_read_only(read_only), read_only_copy(NULL) {
+  for(const auto& [key, val] : map.h_table) {
+    h_table.insert({key, new TermData{*val}});
+  }
+}
+
+//---------------------------------------------------------------------------------------------
 
 // Creates a new synonym map data structure.
 // If is_read_only is true then it will only be possible to read from
@@ -178,10 +173,9 @@ void SynonymMap::Update(const char** synonyms, size_t size, uint32_t id) {
   RS_LOG_ASSERT(!is_read_only, "SynonymMap should not be read only");
 
   for (size_t i = 0; i < size; i++) {
-    TermData *term = new TermData(rm_strdup(synonyms[i]));
+    TermData *term = new TermData{synonyms[i]};
     term->AddId(id);
-    uint64_t key = calculate_hash(synonyms[i], strlen(synonyms[i]));
-    h_table.insert({key, term});
+    h_table.insert({term->term, term});
   }
 
   if (read_only_copy) {
@@ -199,8 +193,9 @@ void SynonymMap::Update(const char** synonyms, size_t size, uint32_t id) {
 // synonym - the term to search for
 // len - term len
 
-TermData* SynonymMap::GetIdsBySynonym(const char* synonym, size_t len) {
-  return h_table[calculate_hash(synonym, len)];
+TermData* SynonymMap::GetIdsBySynonym(std::string_view synonym) {
+  auto it = h_table.find(String{synonym});
+  return it == h_table.end() ? NULL : it->second;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -208,10 +203,9 @@ TermData* SynonymMap::GetIdsBySynonym(const char* synonym, size_t len) {
 // Return array of all terms and the group ids they belong to
 // size - a pointer to size_t to retrieve the result size
 
-Vector<TermData*> SynonymMap::DumpAllTerms(size_t* size) {
-  *size = h_table.size();
+Vector<TermData*> SynonymMap::DumpAllTerms() {
   Vector<TermData*> dump;
-  dump.reserve(*size);
+  dump.reserve(h_table.size());
   for(const auto& [_, val] : h_table) {
     dump.push_back(val);
   }
@@ -232,25 +226,6 @@ String SynonymMap::IdToStr(uint32_t id) {
 
 //---------------------------------------------------------------------------------------------
 
-void SynonymMap::CopyEntry(uint64_t key, TermData* t_data) {
-  h_table.insert({key, t_data->Copy()});
-}
-
-//---------------------------------------------------------------------------------------------
-
-SynonymMap *SynonymMap::GenerateReadOnlyCopy() {
-  SynonymMap *read_only_smap = new SynonymMap(true);
-  read_only_smap->curr_id = curr_id;
-
-  for( const auto& [key, t_data] : h_table ) {
-    read_only_smap->CopyEntry(key, t_data);
-  }
-
-  return read_only_smap;
-}
-
-//---------------------------------------------------------------------------------------------
-
 // Retun a read only copy of the smap.
 // The read only copy is used in indexing to allow thread safe access to the synonym data structur
 // The read only copy is manage with ref count. The smap contians a reference to its read only copy
@@ -261,8 +236,11 @@ SynonymMap *SynonymMap::GenerateReadOnlyCopy() {
 SynonymMap* SynonymMap::GetReadOnlyCopy() {
   RS_LOG_ASSERT(!is_read_only, "SynonymMap should not be read only");
   if (!read_only_copy) {
-    // create a new read only copy and return it
-    read_only_copy = GenerateReadOnlyCopy();
+    read_only_copy = new SynonymMap{*this, true};
+  }
+
+  for(const auto& [key, val] : read_only_copy->h_table) {
+    printf("%s: %s\n", key.c_str(), val->term.c_str());
   }
 
   ++read_only_copy->ref_count;
@@ -277,9 +255,9 @@ void SynonymMap::RdbSave(RedisModuleIO* rdb) {
   RedisModule_SaveUnsigned(rdb, curr_id);
   RedisModule_SaveUnsigned(rdb, h_table.size());
 
-  for( const auto& [key, t_data] : h_table ) {
-    RedisModule_SaveUnsigned(rdb, key);
-    t_data->RdbSave(rdb);
+  for (const auto& [_, term] : h_table) {
+    RedisModule_SaveUnsigned(rdb, 0);
+    term->RdbSave(rdb);
   }
 }
 
@@ -293,8 +271,17 @@ SynonymMap::SynonymMap(RedisModuleIO* rdb, int encver) {
   uint64_t smap_kh_size = RedisModule_LoadUnsigned(rdb);
   for (int i = 0; i < smap_kh_size; ++i) {
     uint64_t key = RedisModule_LoadUnsigned(rdb);
-    h_table.insert({key, new TermData(rdb)});
+    auto term = new TermData(rdb);
+    h_table.insert({term->term, term});
   }
 }
+
+//---------------------------------------------------------------------------------------------
+
+// void SynonymMap::print_h_table() const {
+//   for(const auto& [key, val] : h_table) {
+//     printf("%s: %s\n", key.c_str(), val->term.c_str());
+//   }
+// }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

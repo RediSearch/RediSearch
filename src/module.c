@@ -654,13 +654,12 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
-  size_t size;
-  Vector<TermData*> terms_data = sp->smap->DumpAllTerms(&size);
+  Vector<TermData*> terms_data = sp->smap->DumpAllTerms();
 
-  RedisModule_ReplyWithArray(ctx, size * 2);
+  RedisModule_ReplyWithArray(ctx, terms_data.size() * 2);
 
   for(auto t_data : terms_data) {
-    RedisModule_ReplyWithStringBuffer(ctx, t_data->term, strlen(t_data->term));
+    RedisModule_ReplyWithStringBuffer(ctx, t_data->term.c_str(), t_data->term.length());
     RedisModule_ReplyWithArray(ctx, t_data->ids.size());
     for (auto id : t_data->ids) {
       RedisModule_ReplyWithLongLong(ctx, id);

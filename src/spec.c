@@ -248,7 +248,7 @@ char *strtolower(char *str) {
 
 //---------------------------------------------------------------------------------------------
 
-static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
+bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   if (strlen(matcher) != 5) {
     return false;
   }
@@ -267,113 +267,6 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   }
 
   return langauge_found;
-}
-
-//---------------------------------------------------------------------------------------------
-
-static bool parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
-  int rc;
-  // this is a text field
-  // init default weight and type
-  while (!ac->IsAtEnd()) {
-    if (ac->AdvanceIfMatch(SPEC_NOSTEM_STR)) {
-      sp->options |= FieldSpec_NoStemming;
-      continue;
-    } else if (ac->AdvanceIfMatch(SPEC_WEIGHT_STR)) {
-      double d;
-      if ((rc = ac->GetDouble(&d, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "weight", rc);
-        return false;
-      }
-      sp->ftWeight = d;
-      continue;
-    } else if (ac->AdvanceIfMatch(SPEC_PHONETIC_STR)) {
-      if (ac->IsAtEnd()) {
-        status->SetError(QUERY_EPARSEARGS, SPEC_PHONETIC_STR " requires an argument");
-        return false;
-      }
-
-      const char *matcher = ac->GetStringNC(NULL);
-      // try and parse the matcher
-      // currently we just make sure algorithm is double metaphone (dm)
-      // and language is one of the following : English (en), French (fr), Portuguese (pt) and
-      // Spanish (es)
-      // in the future we will support more algorithms and more languages
-      if (!checkPhoneticAlgorithmAndLang(matcher)) {
-        status->SetError(QUERY_EINVAL,
-        "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
-        "double metaphone (dm). Supported languages: English (en), French (fr), "
-        "Portuguese (pt) and Spanish (es)");
-
-        return false;
-      }
-      sp->options |= FieldSpec_Phonetics;
-      continue;
-    } else {
-      break;
-    }
-  }
-  return true;
-}
-
-//---------------------------------------------------------------------------------------------
-
-/* Parse a field definition from argv, at *offset. We advance offset as we progress.
- *  Returns 1 on successful parse, 0 otherwise */
-static bool parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
-  if (ac->IsAtEnd()) {
-    status->SetErrorFmt(QUERY_EPARSEARGS, "Field `%s` does not have a type", sp->name);
-    return false;
-  }
-
-  if (ac->AdvanceIfMatch(SPEC_TEXT_STR)) {
-    sp->Initialize(INDEXFLD_T_FULLTEXT);
-    if (!parseTextField(sp, ac, status)) {
-      goto error;
-    }
-  } else if (ac->AdvanceIfMatch(NUMERIC_STR)) {
-    sp->Initialize(INDEXFLD_T_NUMERIC);
-  } else if (ac->AdvanceIfMatch(GEO_STR)) {  // geo field
-    sp->Initialize(INDEXFLD_T_GEO);
-  } else if (ac->AdvanceIfMatch(SPEC_TAG_STR)) {  // tag field
-    sp->Initialize(INDEXFLD_T_TAG);
-    if (ac->AdvanceIfMatch(SPEC_SEPARATOR_STR)) {
-      if (ac->IsAtEnd()) {
-        status->SetError(QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");
-        goto error;
-      }
-      const char *sep = ac->GetStringNC(NULL);
-      if (strlen(sep) != 1) {
-        status->SetErrorFmt(QUERY_EPARSEARGS,
-                               "Tag separator must be a single character. Got `%s`", sep);
-        goto error;
-      }
-      sp->tagSep = *sep;
-    }
-  } else {  // not numeric and not text - nothing more supported currently
-    status->SetErrorFmt(QUERY_EPARSEARGS, "Invalid field type for field `%s`", sp->name);
-    goto error;
-  }
-
-  while (!ac->IsAtEnd()) {
-    if (ac->AdvanceIfMatch(SPEC_SORTABLE_STR)) {
-      sp->SetSortable();
-      continue;
-    } else if (ac->AdvanceIfMatch(SPEC_NOINDEX_STR)) {
-      sp->options |= FieldSpec_NotIndexable;
-      continue;
-    } else {
-      break;
-    }
-  }
-  return true;
-
-error:
-  if (!status->HasError()) {
-    status->SetErrorFmt(QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
-                           sp->name);
-  }
-  return false;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -403,7 +296,7 @@ int IndexSpec::CreateTextId() const {
 
 // Add fields to an existing (or newly created) index.
 
-bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew) {
+bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, bool isNew) {
   if (spcache) {
     // delete spcache;
     spcache.reset();
@@ -419,50 +312,11 @@ bool IndexSpec::AddFieldsInternal(ArgsCursor *ac, QueryError *status, int isNew)
       goto reset;
     }
 
-    // @@TODO: place following code inside a FieldSpec ctor
-    FieldSpec fs = CreateField(fieldName);
-
-    if (!parseFieldSpec(ac, &fs, status)) {
+    try {
+      fields.emplace_back(fieldName, this, ac, status, isNew);
+    } catch (Error &x) {
       goto reset;
     }
-
-    if (fs.IsFieldType(INDEXFLD_T_FULLTEXT) && fs.IsIndexable()) {
-      int textId = CreateTextId();
-      if (textId < 0) {
-        status->SetError(QUERY_ELIMIT, "Too many TEXT fields in schema");
-        goto reset;
-      }
-
-      // If we need to store field flags and we have over 32 fields, we need to switch to wide
-      // schema encoding
-      if (textId >= SPEC_WIDEFIELD_THRESHOLD && (flags & Index_StoreFieldFlags)) {
-        if (isNew) {
-          flags |= Index_WideSchema;
-        } else if ((flags & Index_WideSchema) == 0) {
-              status->SetError(QUERY_ELIMIT,
-              "Cannot add more fields. Declare index with wide fields to allow adding "
-              "unlimited fields");
-          goto reset;
-        }
-      }
-      fs.ftId = textId;
-    }
-
-    if (fs.IsSortable()) {
-      if (fs.options & FieldSpec_Dynamic) {
-        status->SetError(QUERY_EBADOPTION, "Cannot set dynamic field to sortable");
-        goto reset;
-      }
-
-      fs.sortIdx = sortables->Add(fs.name, fieldTypeToValueType(fs.types));
-    } else {
-      fs.sortIdx = -1;
-    }
-    if (fs.IsPhonetics()) {
-      flags |= Index_HasPhonetic;
-    }
-
-    fields.emplace_back(fs);
   }
 
   return true;
@@ -474,7 +328,7 @@ reset:
 
 // Add fields to a redis schema
 bool IndexSpec::AddFields(ArgsCursor *ac, QueryError *status) {
-  return AddFieldsInternal(ac, status, 0);
+  return AddFieldsInternal(ac, status, false);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -539,7 +393,7 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
     throw Error("");
   }
 
-  if (!AddFieldsInternal(&ac, status, 1)) {
+  if (!AddFieldsInternal(&ac, status, true)) {
     throw Error("Error creating FieldSpec");
   }
 }

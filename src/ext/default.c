@@ -489,7 +489,7 @@ int SynonymExpander::Expand(RSToken *token) {
     return REDISMODULE_OK;
   }
 
-  TermData *t_data = spec->smap->GetIdsBySynonym(token->str.data(), token->length());
+  TermData *t_data = spec->smap->GetIdsBySynonym(token->str);
   if (t_data == NULL) {
     return REDISMODULE_OK;
   }

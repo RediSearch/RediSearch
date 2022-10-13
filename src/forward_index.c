@@ -155,7 +155,7 @@ void ForwardIndexTokenizer::tokenize(const Token &tok) {
   }
 
   if (idx->smap) {
-    TermData *t_data = idx->smap->GetIdsBySynonym(tok.tok, tok.tokLen);
+    TermData *t_data = idx->smap->GetIdsBySynonym(std::string_view(tok.tok, tok.tokLen));
     if (t_data) {
       for (auto const &id: t_data->ids) {
         String synonym = SynonymMap::IdToStr(id);
@@ -173,26 +173,29 @@ void ForwardIndexTokenizer::tokenize(const Token &tok) {
 //---------------------------------------------------------------------------------------------
 
 ForwardIndexIterator::ForwardIndexIterator(const ForwardIndex &idx) :
-  hits(&idx.hits), curBucketIdx(0), curVec(NULL) {
+  hitsMap(&idx.hits), hits(NULL) {
 }
 
 //---------------------------------------------------------------------------------------------
 
 ForwardIndexEntry *ForwardIndexIterator::Next() {
-  if (hits->empty()) {
-    return NULL;
-  }
+  if (hitsMap->empty()) return NULL;
 
-  for(auto iter = hits->begin(); iter != hits->end() && curVec == NULL; ++iter) {
-    curVec = &iter->second;
-    if (!curVec->empty()){
-      break;
+  if (!hits || hits->empty()) {
+    for (auto it = hitsMap->begin(); it != hitsMap->end(); ++it) {
+      auto vec = &it->second;
+      if (!vec->empty()) {
+        hits = vec;
+        break;
+      }
     }
   }
 
-  ForwardIndexEntry *ret = curVec->back();
-  curVec->pop_back();
-  return ret;
+  if (!hits || hits->empty()) return NULL;
+
+  ForwardIndexEntry *entry = hits->back();
+  hits->pop_back();
+  return entry;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

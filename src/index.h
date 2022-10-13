@@ -22,7 +22,7 @@ typedef Vector<IndexIterator*> IndexIterators;
 // It will return each document of the underlying iterators, exactly once
 
 struct UnionIterator : public IndexIterator {
-  UnionIterator(IndexIterators its, DocTable *dt, int quickExit, double weight);
+  UnionIterator(IndexIterators &its, DocTable *dt, int quickExit, double weight);
 
   // We maintain two iterator arrays. One is the original iterator list, and
   // the other is the list of currently active iterators. When an iterator

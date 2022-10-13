@@ -69,6 +69,7 @@ struct BufferReader {
   Buffer *buf;
   size_t pos;
 
+  explicit BufferReader() : buf(NULL), pos(0) {}
   BufferReader(Buffer *buf, size_t pos = 0) { Set(buf, pos); }
 
   void Set(Buffer *buf_, size_t pos_ = 0) {

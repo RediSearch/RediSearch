@@ -13,14 +13,12 @@
 // Holding a term data
 
 struct TermData {
-  char *term;            // the term itself
+  String term;            // the term itself
   Vector<uint32_t> ids;  // array of synonyms group ids that the term is belong to
 
   TermData(char *t);
+  TermData(const TermData &data);
   TermData(RedisModuleIO *rdb);
-  ~TermData();
-
-  TermData *Copy();
 
   void RdbSave(RedisModuleIO *rdb);
   bool IdExists(uint32_t id);
@@ -32,14 +30,17 @@ struct TermData {
 // The synonym map data structure
 
 struct SynonymMap : Object {
+private:
+  UnorderedMap<String, TermData*> h_table;
+public:
   uint32_t ref_count;
   uint32_t curr_id;
-  UnorderedMap<uint64_t, TermData*> h_table;
   bool is_read_only;
   struct SynonymMap* read_only_copy;
 
   void ctor(bool is_read_only_);
   SynonymMap(bool is_read_only_) { ctor(is_read_only_); }
+  SynonymMap(const SynonymMap &map, bool read_only);
   SynonymMap(RedisModuleIO *rdb, int encver);
 
   ~SynonymMap();
@@ -51,12 +52,9 @@ struct SynonymMap : Object {
   void Update(const char **synonyms, size_t size, uint32_t id);
   void UpdateRedisStr(RedisModuleString **synonyms, size_t size, uint32_t id);
 
-  TermData* GetIdsBySynonym(const char *synonym, size_t len);
-  TermData* GetIdsBySynonym(const char *synonym) { return GetIdsBySynonym(synonym, strlen(synonym)); }
-  SynonymMap* GenerateReadOnlyCopy();
-  void CopyEntry(uint64_t key, TermData *t_data); // private
+  TermData* GetIdsBySynonym(std::string_view synonym);
 
-  Vector<TermData*> DumpAllTerms(size_t *size);
+  Vector<TermData*> DumpAllTerms();
 
   SynonymMap* GetReadOnlyCopy();
 
@@ -64,6 +62,8 @@ struct SynonymMap : Object {
 
   static String IdToStr(uint32_t id);
   static const char **RedisStringArrToArr(RedisModuleString **synonyms, size_t size);
+
+  // void print_h_table() const;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

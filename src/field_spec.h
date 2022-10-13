@@ -53,6 +53,22 @@ enum TagFieldFlags {
 
 //---------------------------------------------------------------------------------------------
 
+inline RSValueType fieldTypeToValueType(FieldType ft) {
+  switch (ft) {
+    case INDEXFLD_T_NUMERIC:
+      return RSValue_Number;
+    case INDEXFLD_T_FULLTEXT:
+    case INDEXFLD_T_TAG:
+      return RSValue_String;
+    case INDEXFLD_T_GEO:
+    default:
+      // geo is not sortable so we don't care as of now...
+      return RSValue_Null;
+  }
+}
+
+//---------------------------------------------------------------------------------------------
+
 #define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);
 #define TAG_FIELD_DEFAULT_SEP ','
 
@@ -90,15 +106,10 @@ struct FieldSpec {
 
   // TODO: More options here..
 
-  FieldSpec(int idx, String name = "") : index(idx), name(name) {
-    types = 0;
-    options = 0;
-    ftId = (t_fieldId)-1;
-    ftWeight = 1.0;
-    sortIdx = -1;
-    tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-    tagFlags = TAG_FIELD_DEFAULT_SEP;
-  }
+  void ctor(int idx, String field_name);
+
+  FieldSpec(int idx, String field_name = "");
+  FieldSpec(String field_name, struct IndexSpec *sp, ArgsCursor *ac, QueryError *status, bool isNew);
 
   void SetSortable();
   void Initialize(FieldType type);
@@ -123,10 +134,9 @@ struct FieldSpec {
 
   bool TagPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
     FieldIndexerData *fdata, QueryError *status) const;
+
+  bool parseFieldSpec(ArgsCursor *ac, QueryError *status);
+  bool parseTextField(ArgsCursor *ac, QueryError *status);
 };
-
-//---------------------------------------------------------------------------------------------
-
-RSValueType fieldTypeToValueType(FieldType ft);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

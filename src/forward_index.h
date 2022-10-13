@@ -33,14 +33,15 @@ struct ForwardIndexEntry {
 
 //---------------------------------------------------------------------------------------------
 
-using ForwardIndexHitMap = UnorderedMap<String, Vector<ForwardIndexEntry *>>;
+using ForwardIndexHits = Vector<ForwardIndexEntry*>;
+using ForwardIndexHitMap = UnorderedMap<String, ForwardIndexHits>;
 
 struct ForwardIndexIterator {
+  ForwardIndexIterator() = delete;
   ForwardIndexIterator(const ForwardIndex &idx);
 
-  const ForwardIndexHitMap *hits;
-  Vector<ForwardIndexEntry*> *curVec;
-  uint32_t curBucketIdx;
+  const ForwardIndexHitMap *hitsMap;
+  ForwardIndexHits *hits;
 
   ForwardIndexEntry *Next();
 };

@@ -83,11 +83,11 @@ void UnionIterator::Rewind() {
 
 //---------------------------------------------------------------------------------------------
 
-UnionIterator::UnionIterator(IndexIterators its_, DocTable *dt, int quickExit, double weight_) {
-  origits = its_;
+UnionIterator::UnionIterator(IndexIterators &its_, DocTable *dt, int quickExit, double weight_) {
+  origits.swap(its_);
   weight = weight_;
   IITER_CLEAR_EOF(this);
-  current = new UnionResult(its_.size(), weight);
+  current = new UnionResult(origits.size(), weight);
   len = 0;
   quickExit = quickExit;
   nexpected = 0;
@@ -99,8 +99,8 @@ UnionIterator::UnionIterator(IndexIterators its_, DocTable *dt, int quickExit, d
   SyncIterList();
 
   //@@ caveat here
-  for (size_t i = 0; i < its_.size(); ++i) {
-    nexpected += its_[i]->NumEstimated();
+  for (size_t i = 0; i < origits.size(); ++i) {
+    nexpected += origits[i]->NumEstimated();
     if (its_[i]->mode == IndexIteratorMode::Unsorted) {
       mode = IndexIteratorMode::Unsorted;
       _Read = &UnionIterator::ReadUnsorted;

@@ -406,7 +406,7 @@ IndexIterator *QueryUnionNode::EvalNode(Query *q) {
   }
 
   // recursively eval the children
-  IndexIterators iters(children.size());
+  IndexIterators iters;
   for (auto chi: children) {
     chi->opts.fieldMask &= opts.fieldMask;
     IndexIterator *it = chi->EvalNode(q);
