@@ -1103,60 +1103,6 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
   rm_free(c);
 }
 
-/// given an array of random weights, return the a weighted random selection, as the index in the
-/// array
-size_t weightedRandom(double weights[], size_t len) {
-
-  double totalWeight = 0;
-  for (size_t i = 0; i < len; i++) {
-    totalWeight += weights[i];
-  }
-  double selection = totalWeight * ((double)rand() / (double)(RAND_MAX));
-
-  totalWeight = 0;
-  for (size_t i = 0; i < len; i++) {
-    if (selection >= totalWeight && selection <= (totalWeight + weights[i])) {
-      return i;
-    }
-    totalWeight += weights[i];
-  }
-  // fallback
-  return 0;
-}
-
-/* Get a random term from the index spec using weighted random. Weighted random is done by
- * sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
- * should be enough. Returns NULL if the index is empty */
-char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
-
-  if (sampleSize > sp->terms->size) {
-    sampleSize = sp->terms->size;
-  }
-  if (!sampleSize) return NULL;
-
-  char *samples[sampleSize];
-  double weights[sampleSize];
-  for (int i = 0; i < sampleSize; i++) {
-    char *ret = NULL;
-    t_len len = 0;
-    double d = 0;
-    if (!Trie_RandomKey(sp->terms, &ret, &len, &d) || len == 0) {
-      return NULL;
-    }
-    samples[i] = ret;
-    weights[i] = d;
-  }
-
-  size_t selection = weightedRandom(weights, sampleSize);
-  for (int i = 0; i < sampleSize; i++) {
-    if (i != selection) {
-      rm_free(samples[i]);
-    }
-  }
-  // printf("Selected %s --> %f\n", samples[selection], weights[selection]);
-  return samples[selection];
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static threadpool cleanPool = NULL;
@@ -1511,6 +1457,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
+  sp->nameLen = strlen(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
@@ -1586,7 +1533,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
-    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
+    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, sp->nameLen);
     sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
     GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
@@ -1934,7 +1881,7 @@ void ReindexPool_ThreadPoolDestroy() {
 #ifdef FTINFO_FOR_INFO_MODULES
 void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   char *temp = "info";
-  char name[strlen(sp->name) + strlen(temp) + 2];
+  char name[sp->nameLen + 4 + 2]; // 4 for info and 2 for null termination
   sprintf(name, "%s_%s", temp, sp->name);
   RedisModule_InfoAddSection(ctx, name);
 
@@ -2151,6 +2098,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  sp->nameLen = strlen(sp->name);
   char *tmpName = rm_strdup(sp->name);
   RedisModule_Free(sp->name);
   sp->name = tmpName;
@@ -2276,6 +2224,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = rm_strdup(name);
+  sp->nameLen = strlen(sp->name);
   RedisModule_Free(name);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
@@ -2401,7 +2350,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     IndexSpec *sp = dictGetVal(entry);
     // we save the name plus the null terminator
-    RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name) + 1);
+    RedisModule_SaveStringBuffer(rdb, sp->name, sp->nameLen + 1);
     RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
     RedisModule_SaveUnsigned(rdb, sp->numFields);
     for (int i = 0; i < sp->numFields; i++) {
@@ -2700,12 +2649,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         continue;
       }
 
-      if (!r) {
-        // load hash only if required
-        r = EvalCtx_Create();
-
-        RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
-      }
+      // load hash only if required
+      if (!r) r = EvalCtx_Create();
+      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
 
       if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
         IndexSpec *spec = rule->spec;

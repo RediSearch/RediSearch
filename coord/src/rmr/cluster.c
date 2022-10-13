@@ -312,6 +312,7 @@ size_t MRCluster_NumShards(MRCluster *cl) {
   }
   return 0;
 }
+
 void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
   rm_free((char *)n->id);
@@ -402,4 +403,16 @@ void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh) {
     topo->shards = rm_realloc(topo->shards, topo->capShards * sizeof(MRClusterShard));
   }
   topo->shards[topo->numShards++] = *sh;
+}
+
+void MRClust_Free(MRCluster *cl) {
+  if (cl) {
+    if (cl->topo)
+      MRClusterTopology_Free(cl->topo);
+    if (cl->nodeMap)
+      MRNodeMap_Free(cl->nodeMap);
+    if (cl->mgr.map)
+      MRConnManager_Free(&cl->mgr);
+    rm_free(cl);
+  }
 }

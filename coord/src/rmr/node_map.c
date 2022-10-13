@@ -102,15 +102,3 @@ void MRNodeMap_Add(MRNodeMap *m, MRClusterNode *n) {
   TrieMap_Add(m->nodes, addr, strlen(addr), n, _node_replace);
   rm_free(addr);
 }
-
-MRClusterNode *MRNodeMap_RandomNode(MRNodeMap *m) {
-  char *k;
-  tm_len_t len;
-  void *p;
-  MRClusterNode *ret = NULL;
-  if (TrieMap_RandomKey(m->nodes, &k, &len, &p)) {
-    ret = TrieMap_Find(m->nodes, k, len);
-    rm_free(k);
-  }
-  return ret;
-}

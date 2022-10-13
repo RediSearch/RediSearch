@@ -69,6 +69,9 @@ void QueryNode_Free(QueryNode *n) {
     array_free(n->params);
     n->params = NULL;
   }
+  if (n->opts.distField) {
+    rm_free(n->opts.distField);
+  }
 
   switch (n->type) {
     case QN_TOKEN:
@@ -126,6 +129,7 @@ QueryNode *NewQueryNode(QueryNodeType type) {
       .maxSlop = -1,
       .inOrder = 0,
       .weight = 1,
+      .distField = NULL
   };
   return s;
 }
@@ -292,6 +296,7 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
   VectorQuery *vq = rm_calloc(1, sizeof(*vq));
   ret->vn.vq = vq;
   vq->type = type;
+  ret->opts.flags |= QueryNode_YieldsDistance;
   switch (type) {
     case VECSIM_QT_KNN:
       QueryNode_InitParams(ret, 2);
@@ -770,7 +775,7 @@ static IndexIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  return NewWildcardIterator(q->docTable->maxDocId);
+  return NewWildcardIterator(q->docTable->maxDocId, q->sctx->spec->docs.size);
 }
 
 static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -830,6 +835,24 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     return NULL;
   }
+
+  if (qn->opts.distField) {
+    // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
+    // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
+    char default_score_field[strlen(qn->vn.vq->property) + 9]; // buffer for __<field>_score
+    sprintf(default_score_field, "__%s_score", qn->vn.vq->property);
+    // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
+    if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
+      QueryError_SetErrorFmt(q->status, QUERY_EDUPFIELD, "Distance field was specified twice for vector query: %s and %s",
+                             qn->vn.vq->scoreField, qn->opts.distField);
+      return NULL;
+    }
+    rm_free(qn->vn.vq->scoreField);
+    qn->vn.vq->scoreField = qn->opts.distField; // move ownership
+    qn->opts.distField = NULL;
+  }
+  // Todo: for range queries, recall that score field may still be NULL, need to handle it also.
+
   // Add the score field name to the ast score field names array.
   // This macro creates the array if it's the first name, and ensure its size is sufficient.
   array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
@@ -1753,46 +1776,71 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
   return retVal;
 }
 
+// Convert the query attribute into a raw vector param to be resolved by the vector iterator
+// down the road. return 0 in case of an unrecognized parameter.
+static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr) {
+  if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
+      STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
+      STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
+    // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
+    // The name string was not copied by the parser (unlike the value) - so we copy and save it.
+    VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),
+                                            .nameLen = attr->namelen,
+                                            .value = attr->value,
+                                            .valLen = attr->vallen };
+    attr->value = NULL;
+    vq->params.params = array_ensure_append_1(vq->params.params, param);
+    bool resolve_required = false;  // at this point, we have the actual value in hand, not the query param.
+    vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, resolve_required);
+    return 1;
+  }
+  return 0;
+}
+
 static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryError *status) {
 
 #define MK_INVALID_VALUE()                                                         \
   QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid value (%.*s) for `%.*s`", \
                          (int)attr->vallen, attr->value, (int)attr->namelen, attr->name)
 
+  int res = 0;
   // Apply slop: [-1 ... INF]
-  if (STR_EQCASE(attr->name, attr->namelen, "slop")) {
+  if (STR_EQCASE(attr->name, attr->namelen, SLOP_ATTR)) {
     long long n;
     if (!ParseInteger(attr->value, &n) || n < -1) {
       MK_INVALID_VALUE();
-      return 0;
+      return res;
     }
     qn->opts.maxSlop = n;
+    res = 1;
 
-  } else if (STR_EQCASE(attr->name, attr->namelen, "inorder")) {
+  } else if (STR_EQCASE(attr->name, attr->namelen, INORDER_ATTR)) {
     // Apply inorder: true|false
     int b;
     if (!ParseBoolean(attr->value, &b)) {
       MK_INVALID_VALUE();
-      return 0;
+      return res;
     }
     qn->opts.inOrder = b;
     qn->opts.flags |= QueryNode_OverriddenInOrder;
+    res = 1;
 
-  } else if (STR_EQCASE(attr->name, attr->namelen, "weight")) {
+  } else if (STR_EQCASE(attr->name, attr->namelen, WEIGHT_ATTR)) {
     // Apply weight: [0  ... INF]
     double d;
     if (!ParseDouble(attr->value, &d) || d < 0) {
       MK_INVALID_VALUE();
-      return 0;
+      return res;
     }
     qn->opts.weight = d;
+    res = 1;
 
-  } else if (STR_EQCASE(attr->name, attr->namelen, "phonetic")) {
+  } else if (STR_EQCASE(attr->name, attr->namelen, PHONETIC_ATTR)) {
     // Apply phonetic: true|false
     int b;
     if (!ParseBoolean(attr->value, &b)) {
       MK_INVALID_VALUE();
-      return 0;
+      return res;
     }
     if (b) {
       qn->opts.phonetic = PHONETIC_ENABLED;  // means we specifically asked for phonetic matching
@@ -1800,16 +1848,25 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
       qn->opts.phonetic =
           PHONETIC_DISABLED;  // means we specifically asked no for phonetic matching
     }
+    res = 1;
     // qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
     //                                          will be enable if field was declared phonetic
 
-  } else {
-    QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,
-                           attr->name);
-    return 0;
+  } else if (STR_EQCASE(attr->name, attr->namelen, YIELD_DISTANCE_ATTR) && qn->opts.flags & QueryNode_YieldsDistance) {
+    // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
+    qn->opts.distField = (char *)attr->value;
+    attr->value = NULL;
+    res = 1;
+
+  } else if (qn->type == QN_VECTOR) {
+    res = QueryVectorNode_ApplyAttribute(qn->vn.vq, attr);
   }
 
-  return 1;
+  if (!res) {
+    QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,
+                           attr->name);
+  }
+  return res;
 }
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len, QueryError *status) {
