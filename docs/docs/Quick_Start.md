@@ -113,6 +113,12 @@ To search the index for documents that contain specific words, use the `FT.SEARC
 `FT.SEARCH` expects valid UTF-8 or ASCII as input. The engine cannot handle wide character unicode.
 {{% /alert %}}
 
+{{% alert title="Note" color="info" %}}
+When configuring [ACLs](/docs/manual/security/acl/), search-related commands such as `FT.SEARCH` consider the index name to be the "key". Therefore, if key patterns are used in the ACL rule enabling search, a pattern matching the index name should be included for needed commands. 
+
+For example, to enable use for searching the index `myIdx`, the ACL rule should include a pattern for either this command, or a category which includes it. Such ACL rules could be `+ft.search ~myIdx`, `+ft.search ~myId*`, `+@all ~myIdx` etc.
+{{% /alert %}}
+
 ## Drop the index
 
 To remove the index without deleting the associated hash documents, run `FT.DROPINDEX` without the `DD` option:
