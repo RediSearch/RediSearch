@@ -1103,60 +1103,6 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
   rm_free(c);
 }
 
-/// given an array of random weights, return the a weighted random selection, as the index in the
-/// array
-size_t weightedRandom(double weights[], size_t len) {
-
-  double totalWeight = 0;
-  for (size_t i = 0; i < len; i++) {
-    totalWeight += weights[i];
-  }
-  double selection = totalWeight * ((double)rand() / (double)(RAND_MAX));
-
-  totalWeight = 0;
-  for (size_t i = 0; i < len; i++) {
-    if (selection >= totalWeight && selection <= (totalWeight + weights[i])) {
-      return i;
-    }
-    totalWeight += weights[i];
-  }
-  // fallback
-  return 0;
-}
-
-/* Get a random term from the index spec using weighted random. Weighted random is done by
- * sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
- * should be enough. Returns NULL if the index is empty */
-char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
-
-  if (sampleSize > sp->terms->size) {
-    sampleSize = sp->terms->size;
-  }
-  if (!sampleSize) return NULL;
-
-  char *samples[sampleSize];
-  double weights[sampleSize];
-  for (int i = 0; i < sampleSize; i++) {
-    char *ret = NULL;
-    t_len len = 0;
-    double d = 0;
-    if (!Trie_RandomKey(sp->terms, &ret, &len, &d) || len == 0) {
-      return NULL;
-    }
-    samples[i] = ret;
-    weights[i] = d;
-  }
-
-  size_t selection = weightedRandom(weights, sampleSize);
-  for (int i = 0; i < sampleSize; i++) {
-    if (i != selection) {
-      rm_free(samples[i]);
-    }
-  }
-  // printf("Selected %s --> %f\n", samples[selection], weights[selection]);
-  return samples[selection];
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static threadpool cleanPool = NULL;
@@ -2696,12 +2642,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         continue;
       }
 
-      if (!r) {
-        // load hash only if required
-        r = EvalCtx_Create();
-
-        RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
-      }
+      // load hash only if required
+      if (!r) r = EvalCtx_Create();
+      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
 
       if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
         IndexSpec *spec = rule->spec;
