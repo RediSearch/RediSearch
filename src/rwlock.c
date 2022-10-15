@@ -3,18 +3,32 @@
 #include "util/arr_rm_alloc.h"
 #include <assert.h>
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 pthread_mutex_t rwLockMutex;
 pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_key_t _lockKey;
 
-typedef enum lockType { lockType_None, lockType_Read, lockType_Write } lockType;
+//---------------------------------------------------------------------------------------------
+
+typedef enum lockType {
+  lockType_None,
+  lockType_Read,
+  lockType_Write
+} lockType;
+
+//---------------------------------------------------------------------------------------------
 
 typedef struct rwlockThreadLocal {
   size_t locked;
   lockType type;
 } rwlockThreadLocal;
 
-rwlockThreadLocal** rwlocks;
+//---------------------------------------------------------------------------------------------
+
+rwlockThreadLocal **rwlocks;
+
+//---------------------------------------------------------------------------------------------
 
 int RediSearch_LockInit(RedisModuleCtx* ctx) {
   rwlocks = array_new(rwlockThreadLocal*, 10);
@@ -29,8 +43,10 @@ int RediSearch_LockInit(RedisModuleCtx* ctx) {
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static rwlockThreadLocal* RediSearch_GetLockThreadData() {
-  rwlockThreadLocal* rwData = pthread_getspecific(_lockKey);
+  rwlockThreadLocal *rwData = pthread_getspecific(_lockKey);
   if (!rwData) {
     rwData = rm_malloc(sizeof(*rwData));
     rwData->locked = 0;
@@ -43,8 +59,10 @@ static rwlockThreadLocal* RediSearch_GetLockThreadData() {
   return rwData;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_LockRead() {
-  rwlockThreadLocal* rwData = RediSearch_GetLockThreadData();
+  rwlockThreadLocal *rwData = RediSearch_GetLockThreadData();
   assert(rwData->type != lockType_Write);
   if (rwData->locked == 0) {
     pthread_rwlock_rdlock(&RWLock);
@@ -53,6 +71,8 @@ void RediSearch_LockRead() {
   assert(rwData->type == lockType_Read);
   ++rwData->locked;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void RediSearch_LockWrite() {
   rwlockThreadLocal* rwData = RediSearch_GetLockThreadData();
@@ -65,14 +85,18 @@ void RediSearch_LockWrite() {
   ++rwData->locked;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_LockRelease() {
-  rwlockThreadLocal* rwData = RediSearch_GetLockThreadData();
+  rwlockThreadLocal *rwData = RediSearch_GetLockThreadData();
   assert(rwData->locked > 0);
   if ((--rwData->locked) == 0) {
     pthread_rwlock_unlock(&RWLock);
     rwData->type = lockType_None;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 void RediSearch_LockDestory() {
   pthread_mutex_lock(&rwLockMutex);
@@ -82,3 +106,5 @@ void RediSearch_LockDestory() {
   array_free(rwlocks);
   pthread_mutex_unlock(&rwLockMutex);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
