@@ -3,6 +3,8 @@ import os
 import os.path
 import sys
 from RLTest import Env
+from includes import *
+
 
 if 'EXT_TEST_PATH' in os.environ:
     EXTPATH = os.environ['EXT_TEST_PATH']

@@ -1,4 +1,6 @@
 from includes import *
+from common import *
+import os
 
 
 def testBasicFuzzy(env):
@@ -10,14 +12,14 @@ def testBasicFuzzy(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', '%word%')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'hello world', 'body', 'this is a test']])
+    env.assertEqual(res, [1, 'doc1', ['title', 'hello world', 'body', 'this is a test']])
 
 def testLdLimit(env):
     env.cmd('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world')
-    env.assertEqual([1L, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', '%word%'))  # should be ok
-    env.assertEqual([0L], env.cmd('ft.search', 'idx', r'%sword%'))  # should return nothing
-    env.assertEqual([1L, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', r'%%sword%%'))
+    env.assertEqual([1, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', '%word%'))  # should be ok
+    env.assertEqual([0], env.cmd('ft.search', 'idx', r'%sword%'))  # should return nothing
+    env.assertEqual([1, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', r'%%sword%%'))
 
 def testStopwords(env):
     env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
@@ -54,7 +56,7 @@ def testFuzzyMultipleResults(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', '%word%')
-    env.assertEqual(res, [3L, 'doc3', ['title', 'hello ward', 'body', 'this is a test'], 'doc2', ['title', 'hello word', 'body', 'this is a test'], 'doc1', ['title', 'hello world', 'body', 'this is a test']])
+    env.assertEqual(res, [3, 'doc3', ['title', 'hello ward', 'body', 'this is a test'], 'doc2', ['title', 'hello word', 'body', 'this is a test'], 'doc1', ['title', 'hello world', 'body', 'this is a test']])
 
 def testFuzzySyntaxError(env):
     r = env

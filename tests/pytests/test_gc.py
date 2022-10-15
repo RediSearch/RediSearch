@@ -2,7 +2,9 @@
 import unittest
 from RLTest import Env
 import platform
+from time import sleep
 from includes import *
+from common import *
 
 
 def testBasicGC(env):
@@ -15,9 +17,9 @@ def testBasicGC(env):
                              'id', '5',
                              't', 'tag1'))
 
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [long(i) for i in range(1, 102)])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[long(i) for i in range(1, 102)]])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [long(i) for i in range(1, 102)]]])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [int(i) for i in range(1, 102)])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[int(i) for i in range(1, 102)]])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [int(i) for i in range(1, 102)]]])
 
     env.assertEqual(env.cmd('ft.del', 'idx', 'doc0'), 1)
 
@@ -26,9 +28,9 @@ def testBasicGC(env):
         env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
 
     # check that the gc collected the deleted docs
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [long(i) for i in range(2, 102)])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[long(i) for i in range(2, 102)]])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [long(i) for i in range(2, 102)]]])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [int(i) for i in range(2, 102)])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[int(i) for i in range(2, 102)]])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [int(i) for i in range(2, 102)]]])
 
 def testBasicGCWithEmptyInvIdx(env):
     if env.isCluster():
@@ -106,14 +108,14 @@ def testDeleteEntireBlock(env):
     # delete docs in the midle of the inverted index, make sure the binary search are not braken
     for i in range(400, 501):
         env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
-    env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1L, 'doc250', ['test', 'checking', 'test2', 'checking250']])
+    env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1, 'doc250', ['test', 'checking', 'test2', 'checking250']])
 
     # actually clean the inverted index, make sure the binary search are not braken, check also after rdb reload
     for i in range(100):
         # gc is random so we need to do it long enough times for it to work
         env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
     for _ in env.reloading_iterator():
-        env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1L, 'doc250', ['test', 'checking', 'test2', 'checking250']])
+        env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1, 'doc250', ['test', 'checking', 'test2', 'checking250']])
 
 
 def testDeleteDocWithGoeField(env):

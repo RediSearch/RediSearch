@@ -1,5 +1,6 @@
 import unittest
 from includes import *
+from common import toSortedFlatList
 
 
 def testBasicPoneticCase(env):
@@ -7,10 +8,10 @@ def testBasicPoneticCase(env):
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                            'text', 'morfix'))
 
-    env.assertEquals(env.cmd('ft.search', 'idx', 'morphix'), [1L, 'doc1', ['text', 'morfix']])
-    env.assertEquals(env.cmd('ft.search', 'idx', '@text:morphix'), [1L, 'doc1', ['text', 'morfix']])
-    env.assertEquals(env.cmd('ft.search', 'idx', '@text:morphix=>{$phonetic:true}'), [1L, 'doc1', ['text', 'morfix']])
-    env.assertEquals(env.cmd('ft.search', 'idx', '@text:morphix=>{$phonetic:false}'), [0L])
+    env.assertEquals(env.cmd('ft.search', 'idx', 'morphix'), [1, 'doc1', ['text', 'morfix']])
+    env.assertEquals(env.cmd('ft.search', 'idx', '@text:morphix'), [1, 'doc1', ['text', 'morfix']])
+    env.assertEquals(env.cmd('ft.search', 'idx', '@text:morphix=>{$phonetic:true}'), [1, 'doc1', ['text', 'morfix']])
+    env.assertEquals(env.cmd('ft.search', 'idx', '@text:morphix=>{$phonetic:false}'), [0])
 
 def testBasicPoneticWrongDeclaration(env):
     with env.assertResponseError():
@@ -28,11 +29,11 @@ def testPoneticOnNonePhoneticField(env):
                            'text', 'morfix',
                            'text1', 'phonetic'))
 
-    env.assertEquals(env.cmd('ft.search', 'idx', 'morphix'), [1L, 'doc1', ['text', 'morfix', 'text1', 'phonetic']])
-    env.assertEquals(env.cmd('ft.search', 'idx', '@text:morphix'), [1L, 'doc1', ['text', 'morfix', 'text1', 'phonetic']])
-    env.assertEquals(env.cmd('ft.search', 'idx', 'phonetic'), [1L, 'doc1', ['text', 'morfix', 'text1', 'phonetic']])
-    env.assertEquals(env.cmd('ft.search', 'idx', 'fonetic'), [0L])
-    env.assertEquals(env.cmd('ft.search', 'idx', '@text1:morphix'), [0L])
+    env.assertEquals(toSortedFlatList(env.cmd('ft.search', 'idx', 'morphix')), toSortedFlatList([1, 'doc1', ['text', 'morfix', 'text1', 'phonetic']]))
+    env.assertEquals(toSortedFlatList(env.cmd('ft.search', 'idx', '@text:morphix')), toSortedFlatList([1, 'doc1', ['text', 'morfix', 'text1', 'phonetic']]))
+    env.assertEquals(toSortedFlatList(env.cmd('ft.search', 'idx', 'phonetic')), toSortedFlatList([1, 'doc1', ['text', 'morfix', 'text1', 'phonetic']]))
+    env.assertEquals(env.cmd('ft.search', 'idx', 'fonetic'), [0])
+    env.assertEquals(env.cmd('ft.search', 'idx', '@text1:morphix'), [0])
     with env.assertResponseError():
         env.cmd('ft.search', 'idx', '@text1:morphix=>{$phonetic:true}')
     with env.assertResponseError():
@@ -44,10 +45,10 @@ def testPoneticWithAggregation(env):
                            'text', 'morfix',
                            'text1', 'phonetic'))
 
-    env.assertEquals(env.cmd('ft.aggregate', 'idx', 'morphix', 'LOAD', 2, '@text', '@text1'), [1L, ['text', 'morfix', 'text1', 'phonetic']])
-    env.assertEquals(env.cmd('ft.aggregate', 'idx', '@text:morphix', 'LOAD', 2, '@text', '@text1'), [1L, ['text', 'morfix', 'text1', 'phonetic']])
-    env.assertEquals(env.cmd('ft.aggregate', 'idx', 'phonetic', 'LOAD', 2, '@text', '@text1'), [1L, ['text', 'morfix', 'text1', 'phonetic']])
-    env.assertEquals(env.cmd('ft.aggregate', 'idx', '@text1:morphix', 'LOAD', 2, '@text', '@text1'), [0L])
+    env.assertEquals(env.cmd('ft.aggregate', 'idx', 'morphix', 'LOAD', 2, '@text', '@text1'), [1, ['text', 'morfix', 'text1', 'phonetic']])
+    env.assertEquals(env.cmd('ft.aggregate', 'idx', '@text:morphix', 'LOAD', 2, '@text', '@text1'), [1, ['text', 'morfix', 'text1', 'phonetic']])
+    env.assertEquals(env.cmd('ft.aggregate', 'idx', 'phonetic', 'LOAD', 2, '@text', '@text1'), [1, ['text', 'morfix', 'text1', 'phonetic']])
+    env.assertEquals(env.cmd('ft.aggregate', 'idx', '@text1:morphix', 'LOAD', 2, '@text', '@text1'), [0])
     if not env.is_cluster():
         with env.assertResponseError():
             env.cmd('ft.aggregate', 'idx', '@text1:morphix=>{$phonetic:true}')
@@ -65,11 +66,11 @@ def testPoneticWithSchemaAlter(env):
                            'text1', 'check',
                            'text2', 'phonetic'))
 
-    env.assertEquals(env.cmd('ft.search', 'idx', 'fonetic'), [1L, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
-    env.assertEquals(env.cmd('ft.search', 'idx', '@text2:fonetic'), [1L, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
-    env.assertEquals(env.cmd('ft.search', 'idx', '@text1:fonetic'), [0L])
-    env.assertEquals(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:false}'), [0L])
-    env.assertEquals(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:true}'), [1L, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
+    env.assertEquals(env.cmd('ft.search', 'idx', 'fonetic'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
+    env.assertEquals(env.cmd('ft.search', 'idx', '@text2:fonetic'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
+    env.assertEquals(env.cmd('ft.search', 'idx', '@text1:fonetic'), [0])
+    env.assertEquals(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:false}'), [0])
+    env.assertEquals(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:true}'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
 
 def testPoneticWithSmallTerm(env):
     env.assertOk(env.cmd('ft.create', 'complainants', 'SCHEMA', 'name', 'text', 'PHONETIC', 'dm:en', 'almamater', 'text', 'PHONETIC', 'dm:en'))
@@ -78,14 +79,14 @@ def testPoneticWithSmallTerm(env):
     env.assertOk(env.cmd('ft.add', 'complainants', 'foo65', 1.0, 'FIELDS', 'name', 'john jones', 'almamater', 'Toronto'))
 
     res = env.cmd('ft.search', 'complainants', '@name:(john=>{$phonetic:true})')
-    env.assertEqual(sorted(res), sorted([2L, 'foo64', ['name', 'jon smith', 'almamater', 'Trent'], 'foo65', ['name', 'john jones', 'almamater', 'Toronto']]))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'foo64', ['name', 'jon smith', 'almamater', 'Trent'], 'foo65', ['name', 'john jones', 'almamater', 'Toronto']]))
 
 def testPoneticOnNumbers(env):
     env.assertOk(env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'PHONETIC', 'dm:en'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'test', 'this is 2015 test'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'test', 'this is 04 test'))
     res = env.cmd('ft.search', 'idx', '04')
-    env.assertEqual(res, [1L, 'doc2', ['test', 'this is 04 test']])
+    env.assertEqual(res, [1, 'doc2', ['test', 'this is 04 test']])
 
 def testIssue1313(env):
     env.expect('FT.CREATE test SCHEMA topic2 TEXT NOINDEX topic TEXT PHONETIC dm:en').ok()

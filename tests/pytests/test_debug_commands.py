@@ -18,7 +18,7 @@ class TestDebugCommands(object):
 
     def testDocInfo(self):
         rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1')
-        self.env.assertEqual(['internal_id', 1L, 'flags', '(0xc):HasSortVector,HasOffsetVector,', 'score', '1', 'num_tokens', 1L, 'max_freq', 1L, 'refcount', 1L, 'sortables', [['index', 0L, 'field', 'name', 'value', 'meir'], ['index', 1L, 'field', 'age', 'value', '29'], ['index', 2L, 'field', 't', 'value', 'test']]], rv)
+        self.env.assertEqual(['internal_id', 1, 'flags', '(0xc):HasSortVector,HasOffsetVector,', 'score', '1', 'num_tokens', 1, 'max_freq', 1, 'refcount', 1, 'sortables', [['index', 0, 'field', 'name', 'value', 'meir'], ['index', 1, 'field', 'age', 'value', '29'], ['index', 2, 'field', 't', 'value', 'test']]], rv)
 
     def testDumpInvertedIndex(self):
         self.env.expect('FT.DEBUG', 'dump_invidx', 'idx', 'meir').equal([1])
@@ -34,8 +34,8 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'dump_invidx', 'idx1', 'meir').raiseError()
 
     def testDumpNumericIndex(self):
-        self.env.expect('FT.DEBUG', 'dump_numidx', 'idx', 'age').equal([[1L]])
-        self.env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'age').equal([[1L]])
+        self.env.expect('FT.DEBUG', 'dump_numidx', 'idx', 'age').equal([[1]])
+        self.env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'age').equal([[1]])
 
     def testDumpNumericIndexWrongArity(self):
         self.env.expect('FT.DEBUG', 'dump_numidx', 'idx').raiseError()
@@ -47,8 +47,8 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'dump_numidx', 'idx1', 'age').raiseError()
 
     def testDumpTagIndex(self):
-        self.env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 't').equal([['test', [1L]]])
-        self.env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['test', [1L]]])
+        self.env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 't').equal([['test', [1]]])
+        self.env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['test', [1]]])
 
     def testDumpTagIndexWrongArity(self):
         self.env.expect('FT.DEBUG', 'dump_tagidx', 'idx').raiseError()
@@ -91,13 +91,13 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'dump_terms', 'idx1').raiseError()
 
     def testInvertedIndexSummary(self):
-        self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1L, 'lastId', 1L, 'flags',
-                                                                            83L, 'numberOfBlocks', 1L, 'blocks',
-                                                                            ['firstId', 1L, 'lastId', 1L, 'numDocs', 1L]])
+        self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'lastId', 1, 'flags',
+                                                                            83, 'numberOfBlocks', 1, 'blocks',
+                                                                            ['firstId', 1, 'lastId', 1, 'numDocs', 1]])
 
-        self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1L, 'lastId', 1L, 'flags',
-                                                                            83L, 'numberOfBlocks', 1L, 'blocks',
-                                                                            ['firstId', 1L, 'lastId', 1L, 'numDocs', 1L]])
+        self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'lastId', 1, 'flags',
+                                                                            83, 'numberOfBlocks', 1, 'blocks',
+                                                                            ['firstId', 1, 'lastId', 1, 'numDocs', 1]])
 
     def testUnexistsInvertedIndexSummary(self):
         self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir1').raiseError()
@@ -109,11 +109,11 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'invidx_summary', 'idx1').raiseError()
 
     def testNumericIdxIndexSummary(self):
-        self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age').equal(['numRanges', 1L, 'numEntries', 1L,
-                                                                           'lastDocId', 1L, 'revisionId', 0L])
+        self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
+                                                                           'lastDocId', 1, 'revisionId', 0])
 
-        self.env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'age').equal(['numRanges', 1L, 'numEntries', 1L,
-                                                                           'lastDocId', 1L, 'revisionId', 0L])
+        self.env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
+                                                                           'lastDocId', 1, 'revisionId', 0])
 
     def testUnexistsNumericIndexSummary(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age1').raiseError()

@@ -1,6 +1,7 @@
 from RLTest import Env
 import random
 from includes import *
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList
 
 
 def aofTestCommon(env, reloadfn):
@@ -12,7 +13,7 @@ def aofTestCommon(env, reloadfn):
         for x in range(1, 10):
             env.assertCmdOk('ft.add', 'idx', 'doc{}'.format(x), 1.0 / x, 'fields',
                             'field1', 'myText{}'.format(x), 'field2', 20 * x)
-        exp = [9L, 'doc1', ['field1', 'myText1', 'field2', '20'], 'doc2', ['field1', 'myText2', 'field2', '40'], 'doc3', ['field1', 'myText3', 'field2', '60'], 'doc4', ['field1', 'myText4', 'field2', '80'], 'doc5', ['field1',
+        exp = [9, 'doc1', ['field1', 'myText1', 'field2', '20'], 'doc2', ['field1', 'myText2', 'field2', '40'], 'doc3', ['field1', 'myText3', 'field2', '60'], 'doc4', ['field1', 'myText4', 'field2', '80'], 'doc5', ['field1',
                                                                                                                                                                                                                         'myText5', 'field2', '100'], 'doc6', ['field1', 'myText6', 'field2', '120'], 'doc7', ['field1', 'myText7', 'field2', '140'], 'doc8', ['field1', 'myText8', 'field2', '160'], 'doc9', ['field1', 'myText9', 'field2', '180']]
         reloadfn()
         ret = env.cmd('ft.search', 'idx', 'myt*')
@@ -41,7 +42,7 @@ def testRewriteAofSortables():
     env.broadcast('SAVE')
 
     # Load some documents
-    for x in xrange(100):
+    for x in range(100):
         env.cmd('FT.ADD', 'idx', 'doc{}'.format(x), 1.0, 'FIELDS',
                 'field1', 'txt{}'.format(random.random()),
                 'num1', random.random())
@@ -92,7 +93,7 @@ def testAofRewriteTags():
     env.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
     res = env.cmd('FT.SEARCH', 'idx', '@bar:{1}', 'SORTBY', 'foo', 'ASC',
                   'RETURN', '1', 'foo', 'WITHSORTKEYS')
-    env.assertEqual([2L, '1', '$a', ['foo', 'A'],
+    env.assertEqual([2, '1', '$a', ['foo', 'A'],
                      '2', '$b', ['foo', 'B']], res)
 
 
