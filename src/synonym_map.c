@@ -239,10 +239,6 @@ SynonymMap* SynonymMap::GetReadOnlyCopy() {
     read_only_copy = new SynonymMap{*this, true};
   }
 
-  for(const auto& [key, val] : read_only_copy->h_table) {
-    printf("%s: %s\n", key.c_str(), val->term.c_str());
-  }
-
   ++read_only_copy->ref_count;
   return read_only_copy;
 }
