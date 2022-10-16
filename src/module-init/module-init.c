@@ -47,7 +47,7 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
     return rc;
   }
 
-  // Can't exexcute commands on the loading context, so make a new one
+  // Can't execute commands on the loading context, so make a new one
   RedisModuleCtx *confCtx = RedisModule_GetThreadSafeContext(NULL);
   RedisModuleCallReply *reply =
       RedisModule_Call(confCtx, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
