@@ -1,5 +1,5 @@
 #include "query_error.h"
-#include "rmutil/rm_assert.h"
+#include <assert.h>
 #include "rmalloc.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -37,7 +37,7 @@ QueryError::~QueryError() {
  */
 
 void QueryError::FmtUnknownArg(ArgsCursor *ac, const char *name) {
-  RS_LOG_ASSERT(!ac->IsAtEnd(), "cursor should not be at the end");
+  if (ac->IsAtEnd()) throw Error("cursor should not be at the end");
   const char *s;
   size_t n;
   if (ac->GetString(&s, &n, AC_F_NOADVANCE) != AC_OK) {
@@ -79,7 +79,7 @@ void QueryError::SetError(QueryErrorCode c, const char *err) {
   if (code != QUERY_OK) {
     return;
   }
-  RS_LOG_ASSERT(!detail, "detail of error is missing");
+  if (detail) throw Error("detail of error is already set"); //@@ Fix this - no throw
   code = c;
 
   if (err) {
@@ -151,6 +151,15 @@ void QueryError::MaybeSetCode(QueryErrorCode c) {
 
 const char *QueryError::GetError() const {
   return detail ? detail : Strerror(code);
+}
+
+//---------------------------------------------------------------------------------------------
+// Reply the error string to redis and clear the error code
+
+int QueryError::ReplyAndClear(struct RedisModuleCtx *ctx) {
+  RedisModule_ReplyWithError(ctx, GetError());
+  ClearError();
+  return REDISMODULE_OK;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

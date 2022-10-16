@@ -6,7 +6,7 @@
 #include <ctype.h>
 #include <float.h>
 #include <sys/uio.h>
-#include "rmutil/rm_assert.h"
+#include <assert.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -233,7 +233,8 @@ char *FragmentList::HighlightWholeDocS(const HighlightTags &tags) const {
   }
 
   char *docBuf = rm_malloc(docLen + 1);
-  RS_LOG_ASSERT(docBuf, "failed malloc of docBuf");
+  if (!docBuf) throw Error("failed malloc of docBuf");
+  docBuf[docLen] = '\0';
 
   size_t offset = 0;
   for (auto &iov: iovs) {

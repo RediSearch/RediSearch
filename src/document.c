@@ -13,10 +13,10 @@
 #include "indexer.h"
 #include "tag_index.h"
 #include "aggregate/expr/expression.h"
-#include "rmutil/rm_assert.h"
 
 #include <string.h>
 #include <inttypes.h>
+#include <assert.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -152,7 +152,7 @@ AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) 
   client.bc = NULL;
   next = NULL;
   indexer = sp->indexer;
-  RS_LOG_ASSERT(sp->indexer, "No indexer");
+  if (!sp->indexer) throw Error("No indexer");
 
   // Assign the document:
   if (!SetDocument(sp, b, doc.NumFields())) {
@@ -292,7 +292,7 @@ void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
     client.sctx = sctx;
   }
 
-  RS_LOG_ASSERT(client.bc, "No blocked client");
+  if (!client.bc) throw Error("No blocked client");
   size_t totalSize = 0;
   for (size_t ii = 0; ii < doc.NumFields(); ++ii) {
     const DocumentField *ff = doc.fields[ii];
@@ -680,15 +680,12 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
         md->sortVector = new RSSortingVector(sctx->spec->sortables->len);
       }
 
-      if ((fs->options & FieldSpec_Dynamic) == 0) {
-        throw Error("Dynamic field cannot use PARTIAL");
-      }
+      if (fs->options & FieldSpec_Dynamic) throw Error("Dynamic field cannot use PARTIAL");
 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
-          md->sortVector->Put(idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
-                              RS_SORTABLE_STR);
+          md->sortVector->Put(idx, (void *)RedisModule_StringPtrLen(f->text, NULL), RS_SORTABLE_STR);
           break;
         case INDEXFLD_T_NUMERIC: {
           double numval;

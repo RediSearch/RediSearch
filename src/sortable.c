@@ -210,7 +210,8 @@ size_t RSSortingVector::memsize() const {
 // Adds a field and returns the ID of the newly-inserted field
 
 int RSSortingTable::Add(std::string_view name, RSValueType t) {
-  RS_LOG_ASSERT(len < RS_SORTABLES_MAX, "sorting table is too large");
+  if (len == RS_SORTABLES_MAX) return -1;
+
   fields[len].name = name;
   fields[len].type = t;
   return len++;

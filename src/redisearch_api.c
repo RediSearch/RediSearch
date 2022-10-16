@@ -16,6 +16,8 @@
 #include "rmutil/rm_assert.h"
 
 #include <float.h>
+#include <assert.h>
+#include <float.h>
 
 #if 0
 
@@ -41,8 +43,6 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
 
   spec.getValue = options->gvcb;
   spec.getValueCtx = options->gvcbData;
-  spec.minPrefix = 0;
-  spec.maxPrefixExpansions = -1;
   if (options->flags & RSIDXOPT_DOCTBLSIZE_UNLIMITED) {
     spec.docs.maxSize = DOCID_MAX;
   }
@@ -63,7 +63,7 @@ void RediSearch_DropIndex(IndexSpec* sp) {
 //---------------------------------------------------------------------------------------------
 
 RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types, unsigned options) {
-  RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
+  if (!types) throw Error("types should not be RSFLDTYPE_DEFAULT");
   RWLOCK_ACQUIRE_WRITE();
 
   FieldSpec fs = sp->CreateField(name);
@@ -120,7 +120,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
 
 void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
   FieldSpec* fs = &sp->fields[id];
-  RS_LOG_ASSERT(fs->IsFieldType(INDEXFLD_T_FULLTEXT), "types should be INDEXFLD_T_FULLTEXT");
+  if (!fs->IsFieldType(INDEXFLD_T_FULLTEXT)) throw Error("types should be INDEXFLD_T_FULLTEXT");
   fs->ftWeight = w;
 }
 
@@ -128,7 +128,7 @@ void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
 
 void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
   FieldSpec* fs = &sp->fields[id];
-  RS_LOG_ASSERT(fs->IsFieldType(INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
+  if (!fs->IsFieldType(INDEXFLD_T_TAG)) throw Error("types should be INDEXFLD_T_TAG");
   fs->tagSep = sep;
 }
 
@@ -136,7 +136,7 @@ void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
 
 void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable) {
   FieldSpec* fs = &sp->fields[id];
-  RS_LOG_ASSERT(fs->IsFieldType(INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
+  if (!fs->IsFieldType(INDEXFLD_T_TAG)) throw Error("types should be INDEXFLD_T_TAG");
   if (enable) {
     fs->tagFlags |= TagField_CaseSensitive;
   } else {
@@ -229,6 +229,13 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   RSError err = {.s = errs}; //@@ Can we use here Error insead?
   QueryError status;
   AddDocumentCtx* aCtx = new AddDocumentCtx(sp, d, &status);
+  if (aCtx == NULL) {
+    if (status.detail) {
+      status.ClearError();
+    }
+    RWLOCK_RELEASE();
+    return REDISMODULE_ERR;
+  }
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
   RedisSearchCtx sctx(NULL, sp);
@@ -408,7 +415,8 @@ static RS_ApiIter* handleIterCommon(IndexSpec *sp, QueryInput *input, char **err
   }
 
   it->scargs.indexStats = sp->stats;
-  *it->scorer = g_ext.GetScorer(DEFAULT_SCORER_NAME);
+  it->scorer = g_ext.GetScorer(DEFAULT_SCORER_NAME);
+  if (!it->scorer) throw Error("Invalid default scorer");
   it->minscore = DBL_MAX;
 
   // dummy statement for goto

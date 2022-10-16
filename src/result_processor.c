@@ -3,7 +3,6 @@
 #include "query.h"
 #include "extension.h"
 #include "ext/default.h"
-#include "rmutil/rm_assert.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -427,7 +426,7 @@ void ResultProcessor::DumpChain() const {
   ResultProcessor *rp = this;
   for (; rp; rp = rp->upstream) {
     printf("RP(%s) @%p\n", rp->name, rp);
-    RS_LOG_ASSERT(rp->upstream != rp, "ResultProcessor should be different then upstream");
+    if (rp->upstream == rp) throw Error( "ResultProcessor should be different then upstream");
   }
 }
 

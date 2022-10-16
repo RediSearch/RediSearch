@@ -403,7 +403,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   aCtx = new AddDocumentCtx(sp, doc, &status);
   if (aCtx == NULL) {
-    return QueryError_ReplyAndClear(ctx, &status);
+    return status.ReplyAndClear(ctx);
   }
 
   aCtx->donecb = replyCallback;

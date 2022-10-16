@@ -1,5 +1,6 @@
 #include "synonym_map.h"
 #include "rmalloc.h"
+#include "query_error.h"
 #include "util/fnv.h"
 #include "rmutil/rm_assert.h"
 
@@ -170,7 +171,7 @@ uint32_t SynonymMap::Add(const char** synonyms, size_t size) {
 // id - the synoym group id to update
 
 void SynonymMap::Update(const char** synonyms, size_t size, uint32_t id) {
-  RS_LOG_ASSERT(!is_read_only, "SynonymMap should not be read only");
+  if (is_read_only) throw Error("SynonymMap should not be read only");
 
   for (size_t i = 0; i < size; i++) {
     TermData *term = new TermData{synonyms[i]};
@@ -234,7 +235,7 @@ String SynonymMap::IdToStr(uint32_t id) {
 // indexers will finish using it.
 
 SynonymMap* SynonymMap::GetReadOnlyCopy() {
-  RS_LOG_ASSERT(!is_read_only, "SynonymMap should not be read only");
+  if (is_read_only) throw Error("SynonymMap should not be read only");
   if (!read_only_copy) {
     read_only_copy = new SynonymMap{*this, true};
   }

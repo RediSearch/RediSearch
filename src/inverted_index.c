@@ -9,7 +9,6 @@
 #include "redis_index.h"
 #include "numeric_filter.h"
 #include "redismodule.h"
-#include "rmutil/rm_assert.h"
 
 #include <stdio.h>
 #include <float.h>
@@ -321,7 +320,7 @@ static size_t encodeNumeric(BufferWriter *bw, uint32_t delta, NumericResult *res
   } else {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
-    if (fabs(absVal - f32Num) < 0.01) {
+    if (absVal == f32Num || RSGlobalConfig.numericCompress && fabs(absVal - f32Num) < 0.01) {
       sz += bw->Write((void *)&f32Num, 4);
       encFloat->isDouble = 0;
     } else {
@@ -808,7 +807,7 @@ bool NumericIndexCriteriaTester::Test(t_docId id) {
   const char *externalId = td->GetKey(id, &len);
   double n;
   int ret = spec->getValue(spec->getValueCtx, nf.fieldName, externalId, NULL, &n);
-  RS_LOG_ASSERT(ret == RSVALTYPE_DOUBLE, "RSvalue type should be a double");
+  if (ret != RSVALTYPE_DOUBLE) throw Error("RSvalue type should be a double");
   return (nf.min < n || nf.inclusiveMin && nf.min == n) &&
          (nf.max > n || nf.inclusiveMax && nf.max == n);
 }
@@ -834,9 +833,7 @@ bool TermIndexCriteriaTester::Test(t_docId id) {
     }
     char *s;
     int ret = spec->getValue(spec->getValueCtx, field.name.c_str(), externalId, &s, NULL);
-    if (ret != RSVALTYPE_STRING) {
-      throw Error("RSvalue type should be a string");
-    }
+    if (ret != RSVALTYPE_STRING) throw Error("RSvalue type should be a string");
     if (term == s) {
       return true;
     }

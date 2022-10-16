@@ -76,6 +76,7 @@ struct QueryError {
   void SetErrorFmt(QueryErrorCode code, const char *fmt, ...);
   void SetErrorFmtArgs(QueryErrorCode code, const char *fmt, va_list args);
   void ClearError();
+  int ReplyAndClear(struct RedisModuleCtx *ctx);
 
   void FmtUnknownArg(ArgsCursor *ac, const char *name);
 
@@ -110,21 +111,12 @@ public:
 #define QERR_MKSYNTAXERR(status, ...) \
   (status)->SetErrorFmt(QUERY_ESYNTAX, ##__VA_ARGS__)
 
-// Convenience macro to reply the error string to redis and clear the error code.
-// I'm making this into a macro so I don't need to include redismodule.h
-#define QueryError_ReplyAndClear(rctx, qerr)               \
-  ({                                                       \
-    RedisModule_ReplyWithError(rctx, (qerr)->GetError());  \
-    (qerr)->ClearError();                                  \
-    REDISMODULE_OK;                                        \
-  })
-
 #define QueryError_ReplyNoIndex(rctx, ixname)                           \
-  {                                                                     \
+  do {                                                                     \
     QueryError qidx__tmp;                                               \
     qidx__tmp.SetErrorFmt(QUERY_ENOINDEX, "%s: No such index", ixname); \
     qidx__tmp.ReplyAndClear(rctx, &qidx__tmp);                          \
-  }
+  } while (0)
 
 //---------------------------------------------------------------------------------------------
 

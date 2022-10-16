@@ -68,8 +68,8 @@ struct NumericRange {
 
 struct NRN_AddRv {
   NRN_AddRv() : sz(0), changed(0) {}
-  uint32_t sz;
-  uint32_t changed;
+  int sz;
+  int changed;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -137,7 +137,7 @@ struct NumericRangeTree : public BaseIndex {
   static void Free(NumericRangeTree *p);
 
   // Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes
-  size_t Add(t_docId docId, double value);
+  int Add(t_docId docId, double value);
 
   // Recursively find all the leaves under tree's root, that correspond to a given min-max range.
   // Returns a vector with range node pointers.

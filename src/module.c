@@ -22,6 +22,7 @@
 #include "alias.h"
 #include "module.h"
 #include "info_command.h"
+#include "rwlock.h"
 
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
@@ -34,8 +35,6 @@
 #include <time.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-// pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -243,7 +242,7 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
   QueryError status;
   char *explainRoot = RS_GetExplainOutput(ctx, argv, argc, &status);
   if (!explainRoot) {
-    return QueryError_ReplyAndClear(ctx, &status);
+    return status.ReplyAndClear(ctx);
   }
   if (newlinesAsElements) {
     size_t numElems = 0;
@@ -641,7 +640,7 @@ int SynForceUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
  */
 
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 2) return RedisModule_WrongArity(ctx);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
 
   IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
@@ -697,10 +696,12 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       return RedisModule_ReplyWithError(ctx, "No fields provided");
     }
     sp->AddFields(&ac, &status);
+  } else {
+      return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA");
   }
 
   if (status.HasError()) {
-    return QueryError_ReplyAndClear(ctx, &status);
+    return status.ReplyAndClear(ctx);
   } else {
     RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -733,7 +734,7 @@ static int AliasAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
   QueryError e;
   if (aliasAddCommon(ctx, argv, argc, &e) != REDISMODULE_OK) {
-    return QueryError_ReplyAndClear(ctx, &e);
+    return e.ReplyAndClear(ctx);
   } else {
     RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -757,7 +758,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
   QueryError status;
   if (IndexAlias::Del(RedisModule_StringPtrLen(argv[1], NULL), sp, 0, &status) != REDISMODULE_OK) {
-    return QueryError_ReplyAndClear(ctx, &status);
+    return status.ReplyAndClear(ctx);
   } else {
     RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -777,9 +778,8 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   IndexSpec *spOrig = IndexSpec::LoadEx(ctx, &lOpts);
 
   if (spOrig) {
-    if (IndexAlias::Del(RedisModule_StringPtrLen(argv[1], NULL), spOrig, 0, &status) !=
-        REDISMODULE_OK) {
-      return QueryError_ReplyAndClear(ctx, &status);
+    if (IndexAlias::Del(RedisModule_StringPtrLen(argv[1], NULL), spOrig, 0, &status) != REDISMODULE_OK) {
+      return status.ReplyAndClear(ctx);
     }
   }
 
@@ -791,7 +791,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
       IndexAlias::Add(alias, spOrig, 0, &e2);
       e2.ClearError();
     }
-    return QueryError_ReplyAndClear(ctx, &status);
+    return status.ReplyAndClear(ctx);
   } else {
     RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -819,8 +819,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     size_t offset = 3;  // Might be == argc. SetOption deals with it.
     if (RSGlobalConfig.SetOption(&RSGlobalConfigOptions, name, argv, argc, &offset,
                                  &status) == REDISMODULE_ERR) {
-      RedisModule_ReplyWithSimpleString(ctx, status.GetError());
-      return REDISMODULE_OK;
+      return status.ReplyAndClear(ctx);
     }
     if (offset != argc) {
       RedisModule_ReplyWithSimpleString(ctx, "EXCESSARGS");
@@ -952,21 +951,19 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 //---------------------------------------------------------------------------------------------
 
 void __attribute__((destructor)) RediSearch_CleanupModule() {
-  if (getenv("RS_GLOBAL_DTORS")) {  // used in sanitizer
-    static int invoked = 0;
-    if (invoked || !RS_Initialized) {
-      return;
-    }
-    invoked = 1;
-    delete RSCursors;
-    // Extensions_Free();
-    FunctionRegistry_Free();
-    // mempool_free_global();
-    ConcurrentSearch::ThreadPoolDestroy();
-    GC::ThreadPoolDestroy();
-    // IndexAlias_DestroyGlobal();
-    RedisModule_FreeThreadSafeContext(RSDummyContext);
+  static int invoked = 0;
+  if (invoked || !RS_Initialized) {
+    return;
   }
+  invoked = 1;
+  delete RSCursors;
+  // Extensions_Free();
+  FunctionRegistry_Free();
+  // mempool_free_global();
+  ConcurrentSearch::ThreadPoolDestroy();
+  // IndexAlias_DestroyGlobal();
+  RedisModule_FreeThreadSafeContext(RSDummyContext);
+  RediSearch_LockDestory();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

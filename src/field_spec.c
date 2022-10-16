@@ -1,7 +1,6 @@
 #include "field_spec.h"
 #include "spec.h"
 #include "rmalloc.h"
-#include "rmutil/rm_assert.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -62,6 +61,10 @@ FieldSpec::FieldSpec(String field_name, IndexSpec *sp, ArgsCursor *ac, QueryErro
       throw Error("Cannot set dynamic field to sortable");
     }
     sortIdx = sp->sortables->Add(name, fieldTypeToValueType(types));
+	if (sortIdx == -1) {
+      status->SetError(QUERY_ELIMIT, "Too many SORTABLE fields in schema");
+      throw Error("Too many SORTABLE fields in schema");
+    }
   } else {
     sortIdx = -1;
   }
@@ -74,7 +77,7 @@ FieldSpec::FieldSpec(String field_name, IndexSpec *sp, ArgsCursor *ac, QueryErro
 //---------------------------------------------------------------------------------------------
 
 void FieldSpec::SetSortable() {
-  RS_LOG_ASSERT(!(options & FieldSpec_Dynamic), "dynamic fields cannot be sortable");
+  if (options & FieldSpec_Dynamic) throw Error("dynamic fields cannot be sortable");
   options |= FieldSpec_Sortable;
 }
 
@@ -193,3 +196,5 @@ bool FieldSpec::parseTextField(ArgsCursor *ac, QueryError *status) {
   }
   return true;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

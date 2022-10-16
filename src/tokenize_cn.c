@@ -2,12 +2,13 @@
 #include "tokenize.h"
 #include "toksep.h"
 #include "config.h"
+#include "friso/friso.h"
 #include "cndict_loader.h"
 
 #include "util/minmax.h"
 #include "rmalloc.h"
 
-#include "rmutil/rm_assert.h"
+#include <assert.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -133,7 +134,7 @@ uint32_t ChineseTokenizer::Next(Token *t) {
     friso_token_t tok = config_g->next_token(friso_g, config_g, friso_task);
     if (tok == NULL) {
       if (useEscBuf) {
-        RS_LOG_ASSERT(tokInit, "should not get here");
+        if (!tokInit) throw Error("ChineseTokenizer: unexpected error");
         t->tokLen = nescapebuf;
         t->tok = escapebuf;
         return t->pos;

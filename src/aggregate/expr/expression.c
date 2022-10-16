@@ -146,8 +146,7 @@ int ExprEval::getPredicateBoolean(const RSValue *l, const RSValue *r, RSConditio
       return l->BoolTest() || r->BoolTest();
 
     default:
-      RS_LOG_ASSERT(0, "invalid RSCondition");
-      return 0;
+      throw Error("Unknown predicate received");
   }
 }
 

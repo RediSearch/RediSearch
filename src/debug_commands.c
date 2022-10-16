@@ -417,13 +417,6 @@ DEBUG_COMMAND(GitSha) {
 
 //---------------------------------------------------------------------------------------------
 
-DEBUG_COMMAND(LogAssert) {
-  RS_LOG_ASSERT(7 == 42, "DEBUG");
-  return REDISMODULE_OK;
-}
-
-//---------------------------------------------------------------------------------------------
-
 typedef struct {
   // Whether to enumerate the number of docids per entry
   int countValueEntries;
@@ -464,9 +457,6 @@ DEBUG_COMMAND(InfoTagIndex) {
   ACArgSpec argspecs[] = {{.name = "count_value_entries",
                            .type = AC_ARGTYPE_BOOLFLAG,
                            .target = &options.countValueEntries},
-                          {.name = "dump_id_entries",
-                           .type = AC_ARGTYPE_BOOLFLAG,
-                           .target = &options.dumpIdEntries},
                           {.name = "prefix", .type = AC_ARGTYPE_STRING, .target = &options.prefix},
                           {.name = "offset", .type = AC_ARGTYPE_UINT, .target = &options.offset},
                           {.name = "limit", .type = AC_ARGTYPE_UINT, .target = &options.limit},
@@ -518,13 +508,14 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto reply_done;
   }
 
-  limit = options.limit ? options.limit : 0;
+  limit = options.limit ? options.limit : -1;
   iter = idx->values->Iterate("");
   nelem += 2;
   RedisModule_ReplyWithSimpleString(ctx, "values");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   seekTagIterator(iter, options.offset);
+  nvalues = 0;
   while (nvalues++ < limit && iter->Next(&tag, &len, (void **)&iv)) {
     size_t nsubelem = 8;
     if (!options.dumpIdEntries) {
@@ -534,17 +525,21 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     RedisModule_ReplyWithSimpleString(ctx, "value");
     RedisModule_ReplyWithStringBuffer(ctx, tag, len);
+    nsubelem += 2;
 
     RedisModule_ReplyWithSimpleString(ctx, "num_entries");
     RedisModule_ReplyWithLongLong(ctx, iv->numDocs);
+    nsubelem += 2;
 
     RedisModule_ReplyWithSimpleString(ctx, "num_blocks");
     RedisModule_ReplyWithLongLong(ctx, iv->size);
+    nsubelem += 2;
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithSimpleString(ctx, "entries");
       IndexReader *reader = new TermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
       ReplyReaderResults(reader, sctx->redisCtx);
+      nsubelem += 2;
     }
 
     RedisModule_ReplySetArrayLength(ctx, nsubelem);
@@ -671,7 +666,6 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GIT_SHA", GitSha},
-                               {"LOGASSERT", LogAssert},
                                {NULL, NULL}};
 
 //---------------------------------------------------------------------------------------------

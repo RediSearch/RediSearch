@@ -6,7 +6,8 @@
 #include "rmutil/util.h"
 #include "util/misc.h"
 #include "util/arr.h"
-#include "rmutil/rm_assert.h"
+
+#include <assert.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -290,7 +291,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     size_t slen;
     char *s = RedisModule_LoadStringBuffer(rdb, &slen);
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
-    RS_LOG_ASSERT(inv, "loading inverted index from rdb failed");
+    if (!inv) throw Error("loading inverted index from rdb failed");
     idx->values->Add(std::string_view{s, MIN(slen, MAX_TAG_LEN)}, inv, NULL);
     RedisModule_Free(s);
   }
@@ -314,7 +315,7 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
     InvertedIndex *inv = ptr;
     InvertedIndex_RdbSave(rdb, inv);
   }
-  RS_LOG_ASSERT(count == idx->values->cardinality, "not all inverted indexes save to rdb");
+  if (count != idx->values->cardinality) throw Error("not all inverted indexes save to rdb");
 }
 
 //---------------------------------------------------------------------------------------------

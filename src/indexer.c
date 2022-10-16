@@ -5,9 +5,9 @@
 #include "geo_index.h"
 #include "index.h"
 #include "redis_index.h"
-
 #include "rmutil/rm_assert.h"
 
+#include <assert.h>
 #include <unistd.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -176,8 +176,6 @@ int DocumentIndexer::writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sc
 // nothing to merge.
 
 void DocumentIndexer::writeEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  RS_LOG_ASSERT(sctx, "ctx shound not be NULL");
-
   IndexSpec *spec = sctx->spec;
   ForwardIndexIterator it = aCtx->fwIdx->Iterate();
   ForwardIndexEntry *entry = it.Next();
@@ -187,10 +185,12 @@ void DocumentIndexer::writeEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     RedisModuleKey *idxKey = NULL;
     spec->AddTerm(entry->term, entry->len);
 
+    if (!sctx) throw Error("No search context");
+
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
       entry->docId = aCtx->doc.docId;
-      RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+      if (!entry->docId) throw Error("docId should not be 0");
       spec->writeIndexEntry(invidx, *entry);
     }
     if (idxKey) {
@@ -273,7 +273,7 @@ void AddDocumentCtx::doAssignIds(RedisSearchCtx *ctx) {
       continue;
     }
 
-    RS_LOG_ASSERT(!cur->doc.docId, "docId must be 0");
+    if (cur->doc.docId) throw Error("docId must be 0");
     bool rv = cur->makeDocumentId(ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
     if (!rv) {
       cur->stateFlags |= ACTX_F_ERRORED;

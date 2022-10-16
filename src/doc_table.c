@@ -175,7 +175,7 @@ bool DocTable::SetSortingVector(t_docId docId, RSSortingVector *v) {
     return 1;
   }*/
   //LCOV_EXCL_STOP
-  RS_LOG_ASSERT(v, "Sorting vector does not exist"); // tested in doAssignIds()
+  if (!v) throw Error("Sorting vector does not exist"); // tested in doAssignIds()
 
   // Set th new vector and the flags accordingly
   dmd->sortVector = v;
@@ -360,7 +360,7 @@ void DocTable::RdbSave(RedisModuleIO *rdb) {
     }
   }
 
-  RS_LOG_ASSERT((elements_written + 1 == size), "Wrong number of written elements");
+  if (elements_written + 1 != size) throw Error("Wrong number of written elements");
 }
 
 //---------------------------------------------------------------------------------------------

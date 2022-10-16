@@ -499,11 +499,11 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
 
 tag_list(A) ::= LB term(B) . [TAGLIST] {
     A = new QueryPhraseNode(0);
-    A->AddChild(new QueryTokenNode(ctx, str_unescape_lcase(B.s, B.len)));
+    A->AddChild(new QueryTokenNode(ctx, strdupcase(B.s, B.len), -1));
 }
 
 tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
+    A = new QueryPhraseNode(0);
     A->AddChild(new QueryTokenNode(ctx, strdupcase(B.s, B.len), -1));
 }
 

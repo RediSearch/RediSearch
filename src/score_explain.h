@@ -15,7 +15,7 @@ struct ScoreExplain {
 
   void explain(char *fmt, ...);
 
-  void RMReply(RedisModuleCtx *ctx);
+  void RMReply(RedisModuleCtx *ctx, int depth = 1);
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

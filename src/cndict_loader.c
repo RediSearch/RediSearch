@@ -4,7 +4,6 @@
 
 #include "miniz/miniz.h"
 #include "rmalloc.h"
-#include "rmutil/rm_assert.h"
 
 #include <arpa/inet.h>  // htonl, etc.
 #include <stdint.h>
@@ -103,6 +102,7 @@ int ChineseDictLoad(friso_dic_t d) {
     printf("SrcLen|DstLen: 0%lx\n", dstLen | ChineseDictCompressedLength);
     abort();
   }
+  if (rv != MZ_OK) throw Error("Error loading Chinese dictionary");
 
   // Now, let's see if we can read the records...
   Buffer tmpBuf;

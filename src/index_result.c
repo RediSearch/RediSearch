@@ -159,7 +159,6 @@ int AggregateResult::MinOffsetDelta() const {
       continue;
     }
     if (i == num) {
-      dist = dist ? dist : 100;
       break;
     }
     v2 = children[i]->IterateOffsets();

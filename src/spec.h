@@ -224,8 +224,6 @@ struct IndexSpec : Object {
   std::shared_ptr<struct IndexSpecFields> spcache;
   long long timeout;
   UnorderedMap<RedisModuleString*, BaseIndex*> keysDict;
-  long long minPrefix;
-  long long maxPrefixExpansions;  // -1 unlimited
 
   RSGetValueCallback getValue; //@@TODO: check this out
   void *getValueCtx;

@@ -7,9 +7,6 @@
 #include "tag_index.h"
 #include "time_sample.h"
 #include "rwlock.h"
-#include "module.h"
-
-#include "rmutil/rm_assert.h"
 
 #include "rmalloc.h"
 #include "util/map.h"
@@ -83,14 +80,14 @@ void ForkGC::updateStats(RedisSearchCtx *sctx, size_t recordsRemoved,
 //---------------------------------------------------------------------------------------------
 
 void ForkGC::sendFixed(const void *buff, size_t len) {
-  RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
+  if (!len) throw Error("buffer length cannot be 0");
   ssize_t size = write(pipefd[GC_WRITERFD], buff, len);
   if (size != len) {
     if (size == -1) {
       perror("write()");
       abort();
     } else {
-      RS_LOG_ASSERT(size == len, "buffer failed to write");
+      if (size != len) throw Error("buffer failed to write");
     }
   }
 }
@@ -287,7 +284,7 @@ NumericIndexBlockRepair::NumericIndexBlockRepair(const InvertedIndex &idx) {
 
 void NumericIndexBlockRepair::countDeleted(const NumericResult *r, const IndexBlock *blk) {
   UnorderedMap<uint64_t, size_t> &ht = blk == lastblk ? delLast : delRest;
-  // RS_LOG_ASSERT(ht, "cardvals should not be NULL");
+
   double u = r->value;
   if (ht.contains(u)) {
     ht[u]++; // i.e. already existed
@@ -339,7 +336,7 @@ void ForkGC::sendKht(const UnorderedMap<uint64_t, size_t> &kh) {
     sendVar(cu);
     nsent++;
   }
-  RS_LOG_ASSERT(nsent == n, "Not all hashes has been sent");
+  if (nsent != n) throw Error("Not all hashes has been sent");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -569,7 +566,7 @@ void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inv
   rm_free(idxData->delBlocks);
 
   // Ensure the old index is at least as big as the new index' size
-  RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Old index should be larger or equal to new index");
+  if (idx->size < info->nblocksOrig) throw Error("Old index should be larger or equal to new index");
 
   if (idxData->newBlocklist) {
     // At this point, we check if the last block has had new data added to it, but was _not_ repaired.
@@ -902,7 +899,7 @@ FGCError ForkGC::parentHandleTags(RedisModuleCtx *rctx) {
     }
 
     if (value == NULL) {
-      RS_LOG_ASSERT(status == FGC_COLLECTED, "GC status is COLLECTED");
+      if (status != FGC_COLLECTED) throw Error("GC status is COLLECTED");
       break;
     }
 
@@ -1047,6 +1044,9 @@ bool ForkGC::PeriodicCallback(RedisModuleCtx *ctx) {
       RedisModule_ThreadSafeContextUnlock(ctx);
     }
 
+    close(pipefd[GC_READERFD]);
+    close(pipefd[GC_WRITERFD]);
+
     return false;
   }
 
@@ -1172,7 +1172,7 @@ bool ForkGC::PeriodicCallback(RedisModuleCtx *ctx) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void ForkGC::WaitAtFork() NO_TSAN_CHECK {
-  RS_LOG_ASSERT(pauseState == 0, "FGC pause state should be 0");
+  if (pauseState != 0) throw Error("FGC pause state should be 0");
   pauseState = FGC_PAUSED_CHILD;
 
   while (execState != FGC_STATE_WAIT_FORK) {
@@ -1184,8 +1184,8 @@ void ForkGC::WaitAtFork() NO_TSAN_CHECK {
 
 void ForkGC::WaitAtApply() NO_TSAN_CHECK {
   // Ensure that we're waiting for the child to begin
-  RS_LOG_ASSERT(pauseState == FGC_PAUSED_CHILD, "FGC pause state should be CHILD");
-  RS_LOG_ASSERT(execState == FGC_STATE_WAIT_FORK, "FGC exec state should be WAIT_FORK");
+  if (pauseState != FGC_PAUSED_CHILD) throw Error("FGC pause state should be CHILD");
+  if (execState != FGC_STATE_WAIT_FORK) throw Error("FGC exec state should be WAIT_FORK");
 
   pauseState = FGC_PAUSED_PARENT;
   while (execState != FGC_STATE_WAIT_APPLY) {
@@ -1196,7 +1196,7 @@ void ForkGC::WaitAtApply() NO_TSAN_CHECK {
 //---------------------------------------------------------------------------------------------
 
 void ForkGC::WaitClear() NO_TSAN_CHECK {
-  pauseState = FGC_PAUSED_UNPAUSED;
+  pauseState = 0;
   while (execState != FGC_STATE_IDLE) {
     usleep(500);
   }
@@ -1206,7 +1206,9 @@ void ForkGC::WaitClear() NO_TSAN_CHECK {
 
 void ForkGC::OnTerm() {
   if (keyName && type == FGC_TYPE_INKEYSPACE) {
+    RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_FreeString(ctx, (RedisModuleString *)keyName);
+    RedisModule_ThreadSafeContextUnlock(ctx);
   }
 
   RedisModule_FreeThreadSafeContext(ctx);

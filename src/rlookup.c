@@ -1,8 +1,9 @@
 #include "rlookup.h"
 #include "module.h"
-#include <document.h>
-#include "rmutil/rm_assert.h"
-#include <util/arr.h>
+#include "document.h"
+#include "util/arr.h"
+
+#include <assert.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -207,7 +208,7 @@ void RLookupRow::WriteKey(const RLookupKey *key, RSValue *v) {
 void RLookup::WriteKeyByName(const char *name, RLookupRow *dst, RSValue *v) {
   // Get the key first
   RLookupKey *k = GetKey(name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
-  RS_LOG_ASSERT(k, "failed to get key");
+  if (!k) throw Error("failed to get key");
   dst->WriteKey(k, v);
 }
 

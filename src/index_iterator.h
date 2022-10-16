@@ -66,8 +66,6 @@ public:
 
   //-------------------------------------------------------------------------------------------
 
-  virtual IndexResult *GetCurrent() { return NULL; }
-
   virtual size_t NumEstimated() const = 0;
 
   virtual IndexCriteriaTester *GetCriteriaTester() = 0;
@@ -99,9 +97,7 @@ public:
 //---------------------------------------------------------------------------------------------
 
 #define IITER_HAS_NEXT(ii)             ((ii)->isValid ? 1 : (ii)->HasNext())
-#define IITER_CURRENT_RECORD(ii)       ((ii)->current ? (ii)->current : (ii)->GetCurrent())
-// #define IITER_NUM_ESTIMATED(ii)        (ii)->NumEstimated()
-// #define IITER_GET_CRITERIA_TESTER(ii)  (ii)->GetCriteriaTester()
+#define IITER_CURRENT_RECORD(ii) ((ii)->current ? (ii)->current : 0)
 
 #define IITER_SET_EOF(ii)   (ii)->isValid = 0
 #define IITER_CLEAR_EOF(ii) (ii)->isValid = 1

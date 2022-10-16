@@ -5,6 +5,7 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <math.h>
+#include <assert.h>
 
 #include "rmutil/sds.h"
 #include "redisearch.h"
@@ -12,7 +13,6 @@
 #include "rmutil/args.h"
 #include "rmalloc.h"
 #include "query_error.h"
-#include "rmutil/rm_assert.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -181,7 +181,7 @@ static RSValue RS_StaticValue(RSValueType t) {
 }
 
 inline void RSValue::MakeReference(RSValue *src) {
-  RS_LOG_ASSERT(src, "RSvalue is missing");
+  if (!src) throw Error("RSvalue is missing");
   Clear();
   t = RSValue_Reference;
   ref = src->IncrRef();

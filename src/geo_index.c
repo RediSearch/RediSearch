@@ -4,7 +4,6 @@
 
 #include "rmutil/util.h"
 #include "rmalloc.h"
-#include "rmutil/rm_assert.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -99,7 +98,7 @@ GeoFilter::GeoFilter(ArgsCursor *ac, QueryError *status) {
 
 Vector<t_docId> GeoIndex::RangeLoad(const GeoFilter &gf) const {
   RedisModuleString *s = ctx->spec->GetFormattedKey(fs, INDEXFLD_T_GEO);
-  RS_LOG_ASSERT(s, "failed to retrive key");
+  if (!s) throw Error("failed to retrive key");
   // GEORADIUS key longitude latitude radius m|km|ft|mi
   RedisModuleCtx *rctx = ctx->redisCtx;
   RedisModuleString *slon = RedisModule_CreateStringPrintf(rctx, "%f", gf.lon);

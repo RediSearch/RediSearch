@@ -167,8 +167,7 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, std::string_vi
   RSPayload payload;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-  size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
-  while (it.Next(runes, payload, score, &dist) && (its.size() < maxExpansions || maxExpansions == -1)) {
+  while (it.Next(runes, payload, score, &dist) && (its.size() < RSGlobalConfig.maxPrefixExpansions)) {
     // Create a token for the reader
     RSToken tok(runes);
     if (q->sctx && q->sctx->redisCtx) {
@@ -451,7 +450,7 @@ IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexItera
 
 IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (tok.length() < q->sctx->spec->minPrefix) {
+  if (tok.length() < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
@@ -467,8 +466,7 @@ IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIterato
   void *ptr;
 
   // Find all completions of the prefix
-  size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
-  while (it->Next(&s, &sl, &ptr) && (its.size() < maxExpansions || maxExpansions == -1)) {
+  while (it->Next(&s, &sl, &ptr) && (its.size() < RSGlobalConfig.maxPrefixExpansions)) {
     IndexIterator *ret = idx->OpenReader(q->sctx->spec, std::string_view{s, sl}, true);
     if (!ret) continue;
 

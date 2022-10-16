@@ -159,7 +159,7 @@ int AREQ::sendChunk(RedisModuleCtx *outctx, size_t limit) {
     nelem += serializeResult(outctx, &r, cv);
   } else if (rc == RS_RESULT_ERROR) {
     RedisModule_ReplyWithArray(outctx, 1);
-    QueryError_ReplyAndClear(outctx, qiter->err);
+    qiter->err->ReplyAndClear(outctx);
     ++nelem;
   }
 
@@ -265,14 +265,14 @@ static int execCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
     if (r.reqflags & QEXEC_F_IS_CURSOR) {
       int rc = r.StartCursor(ctx, r.sctx->spec->name, &status);
       if (rc != REDISMODULE_OK) {
-        return QueryError_ReplyAndClear(ctx, &status);
+        return status.ReplyAndClear(ctx);
       }
     } else {
       r.Execute(ctx);
     }
     return REDISMODULE_OK;
   } catch (Error &x) {
-    return QueryError_ReplyAndClear(ctx, &status);
+    return status.ReplyAndClear(ctx);
   }
 }
 

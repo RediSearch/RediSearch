@@ -153,7 +153,7 @@ NRN_AddRv NumericRangeNode::Add(t_docId docId, double newval) {
   }
 
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
-  rv.sz = (uint32_t) range->Add(docId, newval, 1);
+  rv.sz = range->Add(docId, newval, 1);
   int card = range->card;
   if (card >= range->splitCard || (range->entries.numDocs > NR_MAXRANGE_SIZE && card > 1)) {
     // split this node but don't delete its range
@@ -232,7 +232,7 @@ NumericRangeTree::NumericRangeTree() {
 
 //---------------------------------------------------------------------------------------------
 
-size_t NumericRangeTree::Add(t_docId docId, double value) {
+int NumericRangeTree::Add(t_docId docId, double value) {
 
   // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
   // from it

@@ -9,10 +9,8 @@
 #include "numeric_index.h"
 #include "tag_index.h"
 #include "config.h"
-#include "module.h"
 
 #include "rmutil/util.h"
-#include "rmutil/rm_assert.h"
 #include "time_sample.h"
 
 #include <math.h>
@@ -20,6 +18,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <stdbool.h>
+#include <assert.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -140,7 +139,7 @@ NumericRangeNode *NextGcNode(NumericFieldGC *numericGc) {
         return node;
       }
     }
-    RS_LOG_ASSERT(!runFromStart, "Second iterator should return result");
+    if (runFromStart) throw Error("Second iterator should return result");
     delete numericGc->gcIterator;
     numericGc->gcIterator = new NumericRangeTreeIterator(numericGc->rt);
     runFromStart = true;
@@ -292,15 +291,14 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
 
   if (numericFields.size() != array_len(numericGC)) {
     // add all numeric fields to our gc
-    RS_LOG_ASSERT(numericFields.size() > array_len(numericGC),
-                  "it is not possible to remove fields");
+    if (numericFields.size() <= array_len(numericGC)) throw Error("it is not possible to remove fields");
     FreeNumericGCArray();
     for (int i = 0; i < numericFields.size(); ++i) {
       RedisModuleString *keyName = spec->GetFormattedKey(numericFields[i], INDEXFLD_T_NUMERIC);
       NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
       // if we could not open the numeric field we probably have a
       // corruption in our data, better to know it now.
-      RS_LOG_ASSERT(rt, "numeric index failed to open");
+      if (!rt) throw Error("numeric index failed to open");
       numericGC = array_append(numericGC, new NumericFieldGC(rt));
       if (idxKey) RedisModule_CloseKey(idxKey);
     }
@@ -317,8 +315,9 @@ size_t GarbageCollector::CollectNumericIndex(RedisModuleCtx *ctx, int *status) {
 
   if (num_gc->rt != rt || num_gc->revisionId != num_gc->rt->revisionId) {
     // memory or revision changed, recreating our numeric gc ctx
-    RS_LOG_ASSERT(num_gc->rt != rt || num_gc->revisionId < num_gc->rt->revisionId,
-                  "NumericRangeTree or revisionId are inncorrect");
+    if (num_gc->rt == rt && num_gc->revisionId >= num_gc->rt->revisionId) {
+      throw Error("NumericRangeTree or revisionId are inncorrect");
+    }
     numericGC[randomIndex] = new NumericFieldGC(rt);
     delete num_gc;
     num_gc = numericGC[randomIndex];
@@ -391,7 +390,7 @@ bool GarbageCollector::PeriodicCallback(RedisModuleCtx *ctx) {
   if (totalRemoved > 0) {
     hz = MIN(hz * 1.2, GC_MAX_HZ);
   } else {
-    hz = MAX(hz * 0.99, GC_MIN_HZ); // why not lower value? we increase in two different places
+    hz = MAX(hz * 0.99, GC_MIN_HZ);
   }
 
 end:
@@ -405,12 +404,15 @@ end:
 // Termination callback for the GC. Called after we stop, and frees up all the resources
 
 void GarbageCollector::OnTerm() {
-  RedisModuleCtx *ctx = RSDummyContext;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModule_ThreadSafeContextLock(ctx);
   RedisModule_FreeString(ctx, (RedisModuleString *)keyName);
   for (int i = 0; i < array_len(numericGC); ++i) {
     delete numericGC[i];
   }
   array_free(numericGC);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
   //@@ delete this; // GC::~GC does this
 }
 

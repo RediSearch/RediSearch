@@ -2,7 +2,6 @@
 #include "stemmer.h"
 #include "rmalloc.h"
 #include "module.h"
-#include "rmutil/rm_assert.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -53,7 +52,7 @@ void Document::AddField(const char *fieldname, RedisModuleString *fieldval,
 // This creates an RMString internally, so this must be used with F_OWNSTRINGS.
 
 void Document::AddFieldC(const char *fieldname, const char *val, size_t vallen, uint32_t typemask) {
-  RS_LOG_ASSERT(flags & DOCUMENT_F_OWNSTRINGS, "Document should own strings");
+  if (!(flags & DOCUMENT_F_OWNSTRINGS)) throw Error("Document should own strings");
   DocumentField *f = addFieldCommon(fieldname, typemask);
   f->text = RedisModule_CreateString(RSDummyContext, val, vallen);
 }
@@ -264,11 +263,6 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
     if (k) {
       RedisModule_CloseKey(k);
     }
-    return REDISMODULE_ERR;
-  }
-  if ((options & REDIS_SAVEDOC_NOCREATE) && RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
-    RedisModule_CloseKey(k);
-    status->SetError(QUERY_ENODOC, "Document does not exist");
     return REDISMODULE_ERR;
   }
 

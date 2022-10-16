@@ -5,9 +5,9 @@
 #include "object.h"
 
 #include "rmalloc.h"
-#include "rmutil/rm_assert.h"
 
 #include <math.h>
+#include <assert.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -195,7 +195,7 @@ int UnionIterator::ReadSorted(IndexResult **hit) {
 
   do {
     // find the minimal iterator
-    t_docId minDocId = t_docId{UINT32_MAX};
+    t_docId minDocId = t_docId{UINT64_MAX};
     IndexIterator *minIt = NULL;
     numActive = 0;
     int rc = INDEXREAD_EOF;
@@ -256,9 +256,7 @@ int UnionIterator::ReadSorted(IndexResult **hit) {
 // @return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF if at EOF
 
 int UnionIterator::SkipTo(t_docId docId, IndexResult **hit) {
-  if (mode != IndexIteratorMode::Sorted) {
-    throw Error("union iterator mode is not MODE_SORTED");
-  }
+  if (mode != IndexIteratorMode::Sorted) throw Error("union iterator mode is not MODE_SORTED");
 
   if (docId == 0) {
     return ReadSorted(hit);
@@ -912,7 +910,7 @@ NotIterator::NotIterator(IndexIterator *it, t_docId maxDocId_, double weight_) {
 
   if (child && child->mode == IndexIteratorMode::Unsorted) {
     childCT = child->GetCriteriaTester();
-    RS_LOG_ASSERT(childCT, "childCT should not be NULL");
+    if (!childCT) throw Error("childCT should not be NULL");
     _Read = &NotIterator::ReadUnsorted;
   }
 }
@@ -936,12 +934,13 @@ int OptionalIterator::SkipTo(t_docId docId, IndexResult **hit) {
   //  maxDocId, lastDocId);
 
   int found = 0;
-  if (lastDocId > maxDocId) {
-    return INDEXREAD_EOF;
-  }
 
   // Set the current ID
   lastDocId = docId;
+
+  if (lastDocId > maxDocId) {
+    return INDEXREAD_EOF;
+  }
 
   if (!child) {
     virt->docId = docId;
@@ -1098,7 +1097,7 @@ OptionalIterator::OptionalIterator(IndexIterator *it, t_docId maxDocId_, double 
 
   if (child && child->mode == IndexIteratorMode::Unsorted) {
     childCT = child->GetCriteriaTester();
-    RS_LOG_ASSERT(childCT, "childCT should not be NULL");
+    if (!childCT) throw Error("childCT should not be NULL");
     _Read = &OptionalIterator::ReadUnsorted;
   }
   if (!child) {
