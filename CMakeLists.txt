@@ -134,44 +134,56 @@ elseif (RS_BUILD_STATIC)
     set_target_properties(redisearchS PROPERTIES OUTPUT_NAME "redisearch")
 
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    target_link_libraries(redisearch dl m)
+    target_link_libraries(redisearch VectorSimilarity dl m)
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     set_target_properties(redisearch PROPERTIES PREFIX "")
     set_target_properties(redisearch PROPERTIES SUFFIX ".so")
-    add_ldflags(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
+    if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        if (CCVER LESS 1100)
+            add_ldflags(redisearch "-Wl,--enable-new-dtags")
+        endif()
+        add_ldflags(redisearch "-Wl,-rpath,\$ORIGIN")
+    endif()
+
+    add_dependencies(redisearch VectorSimilarity)
 
     set(RS_TEST_MODULE redisearchS)
     set(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch>)
-
+	
 else() # OSS RediSearch
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_link_libraries(redisearch VectorSimilarity dl m)
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     set_target_properties(redisearch PROPERTIES PREFIX "")
     set_target_properties(redisearch PROPERTIES SUFFIX ".so")
-    add_ldflags(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
+    if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        if (CCVER LESS 1100)
+            add_ldflags(redisearch "-Wl,--enable-new-dtags")
+        endif()
+        add_ldflags(redisearch "-Wl,-rpath,\$ORIGIN")
+    endif()
 
     if (APPLE)
         set_target_properties(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
     endif()
 
-	if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG)
-		if (NOT APPLE)
-			add_custom_command(TARGET redisearch POST_BUILD
-				COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
-				COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
-				COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
-		else()
-			add_custom_command(TARGET redisearch POST_BUILD
-				COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug)
-		endif()
+    if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG)
+        if (NOT APPLE)
+            add_custom_command(TARGET redisearch POST_BUILD
+                COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+                COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
+                COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
+        else()
+            add_custom_command(TARGET redisearch POST_BUILD
+                COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug)
+        endif()
 #        add_custom_command(TARGET redisearch POST_BUILD
 #            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
 #            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
 #            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
     endif()
 	
-	add_dependencies(redisearch VectorSimilarity)
+    add_dependencies(redisearch VectorSimilarity)
 endif()
 
 #----------------------------------------------------------------------------------------------
