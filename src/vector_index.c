@@ -63,9 +63,9 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       VecSimQueryParams qParams = {0};
-      bool hybrid = (child_it != NULL);
+      VecsimQueryType query_type = child_it ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
       if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
-                                    &qParams, hybrid, q->status) != VecSim_OK)  {
+                                    &qParams, query_type, q->status) != VecSim_OK)  {
         return NULL;
       }
 
@@ -290,9 +290,9 @@ fail:
 }
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
-                          VecSimQueryParams *qParams, bool hybrid, QueryError *status) {
+                          VecSimQueryParams *qParams, VecsimQueryType query_type, QueryError *status) {
 
-  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, hybrid);
+  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, query_type);
   if (vecSimCode == VecSim_OK) {
     return vecSimCode;
   }
