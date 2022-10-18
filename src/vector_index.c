@@ -84,14 +84,15 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       metric = info.bfInfo.metric;
       break;
   }
-  if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
-    QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                           "Error parsing vector similarity query: query vector blob size (%zu) does not match index's expected size (%zu).",
-                           vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
-    return NULL;
-  }
   switch (vq->type) {
     case VECSIM_QT_KNN: {
+      if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: query vector blob size"
+                               " (%zu) does not match index's expected size (%zu).",
+                               vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+        return NULL;
+      }
       HybridIteratorParams hParams = {.index = vecsim,
                                       .dim = dim,
                                       .elementType = type,
@@ -106,6 +107,20 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       return NewHybridVectorIterator(hParams);
     }
     case VECSIM_QT_RANGE: {
+      if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: query vector blob size"
+                               " (%zu) does not match index's expected size (%zu).",
+                               vq->range.vecLen, (dim * VecSimType_sizeof(type)));
+        return NULL;
+      }
+      if (vq->range.radius < 0) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: negative radius (%zu) "
+                               "given in a range query",
+                               vq->range.radius);
+        return NULL;
+      }
       VecSimQueryResult_List results =
           VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius, &qParams, vq->range.order);
       if (results.code == VecSim_QueryResult_TimedOut) {
@@ -114,7 +129,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
         return NULL;
       }
       VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(results);
-      return NewMetricIterator(results.results, iter, vq->scoreField, VECTOR_DISTANCE);
+      VecSimQueryResult *result_array = VecSimQueryResult_GetArray(results);
+      return NewMetricIterator(result_array, iter, vq->scoreField, VECTOR_DISTANCE);
     }
   }
   return NULL;
