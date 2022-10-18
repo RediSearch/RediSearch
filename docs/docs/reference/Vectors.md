@@ -71,7 +71,7 @@ Here, three parameters are passed for the index (`TYPE`, `DIM`, `DISTANCE_METRIC
 
 Mandatory parameters are:
 
-* `TYPE` - Vector type. Current supported type is `FLOAT32`.
+* `TYPE` - Vector type. Current supported types are `FLOAT32` and `FLOAT64`.
     
 * `DIM` - Vector dimension specified as a positive integer.
     
@@ -103,7 +103,7 @@ BLOCK_SIZE 1000
 
 Mandatory parameters are:
 
-* `TYPE` - Vector type. Current supported type is `FLOAT32`.
+* `TYPE` - Vector type. Current supported types are `FLOAT32` and `FLOAT64`.
     
 * `DIM` - Vector dimension, specified as a positive integer.
     
@@ -127,7 +127,7 @@ FT.CREATE my_index2
 SCHEMA vector_field VECTOR 
 HNSW 
 14 
-TYPE FLOAT32 
+TYPE FLOAT64 
 DIM 128 
 DISTANCE_METRIC L2 
 INITIAL_CAP 1000000 

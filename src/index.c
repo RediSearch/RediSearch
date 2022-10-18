@@ -2038,6 +2038,7 @@ void Profile_AddIters(IndexIterator **root) {
     case READ_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
+    case METRIC_ITERATOR:
       break;
     case PROFILE_ITERATOR:
     case MAX_ITERATOR:

@@ -193,10 +193,10 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
     case VecSimType_FLOAT32:
       getElement = (getJSONElementFunc)JSON_getFloat32;
       break;
+     case VecSimType_FLOAT64:
+       getElement = (getJSONElementFunc)JSON_getFloat64;
+       break;
     // Uncomment when support for more types is added
-    // case VecSimType_FLOAT64:
-    //   getElement = (getJSONElementFunc)JSON_getFloat64;
-    //   break;
     // case VecSimType_INT32:
     //   getElement = (getJSONElementFunc)JSON_getInt32;
     //   break;

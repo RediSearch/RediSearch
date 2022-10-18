@@ -61,12 +61,6 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   if (!vecsim) {
     return NULL;
   }
-  VecSimQueryParams qParams = {0};
-  bool hybrid = (child_it != NULL);
-  if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
-                                &qParams, hybrid, q->status) != VecSim_OK)  {
-    return NULL;
-  }
 
   VecSimIndexInfo info = VecSimIndex_Info(vecsim);
   size_t dim = 0;
@@ -84,6 +78,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       metric = info.bfInfo.metric;
       break;
   }
+
+  VecSimQueryParams qParams = {0};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
@@ -91,6 +87,11 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                "Error parsing vector similarity query: query vector blob size"
                                " (%zu) does not match index's expected size (%zu).",
                                vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+        return NULL;
+      }
+      VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
+      if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
+                                    &qParams, queryType, q->status) != VecSim_OK)  {
         return NULL;
       }
       HybridIteratorParams hParams = {.index = vecsim,
@@ -119,6 +120,10 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                "Error parsing vector similarity query: negative radius (%zu) "
                                "given in a range query",
                                vq->range.radius);
+        return NULL;
+      }
+      if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
+                                    &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
         return NULL;
       }
       VecSimQueryResult_List results =
@@ -318,9 +323,9 @@ fail:
 }
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
-                          VecSimQueryParams *qParams, bool hybrid, QueryError *status) {
+                          VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status) {
 
-  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, hybrid);
+  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, queryType);
   if (vecSimCode == VecSim_OK) {
     return vecSimCode;
   }
