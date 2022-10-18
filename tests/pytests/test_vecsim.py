@@ -87,49 +87,51 @@ def test_sanity_cosine():
 
     index_types = ['FLAT', 'HNSW']
     data_types = ['FLOAT32', 'FLOAT64']
+    score_field_syntaxs = ['AS dist]', ']=>{$yield_distance_as:dist}']
     for index_type in index_types:
         for data_type in data_types:
-            env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
-                       'DIM', '2', 'DISTANCE_METRIC', 'COSINE').ok()
-            conn.execute_command('HSET', 'a', 'v', create_np_array_typed([0.1, 0.1], data_type).tobytes())
-            conn.execute_command('HSET', 'b', 'v', create_np_array_typed([0.1, 0.2], data_type).tobytes())
-            conn.execute_command('HSET', 'c', 'v', create_np_array_typed([0.1, 0.3], data_type).tobytes())
-            conn.execute_command('HSET', 'd', 'v', create_np_array_typed([0.1, 0.4], data_type).tobytes())
+            for score_field_syntax in score_field_syntaxs:
+                env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
+                           'DIM', '2', 'DISTANCE_METRIC', 'COSINE').ok()
+                conn.execute_command('HSET', 'a', 'v', create_np_array_typed([0.1, 0.1], data_type).tobytes())
+                conn.execute_command('HSET', 'b', 'v', create_np_array_typed([0.1, 0.2], data_type).tobytes())
+                conn.execute_command('HSET', 'c', 'v', create_np_array_typed([0.1, 0.3], data_type).tobytes())
+                conn.execute_command('HSET', 'd', 'v', create_np_array_typed([0.1, 0.4], data_type).tobytes())
 
-            query_vec = create_np_array_typed([0.1, 0.1], data_type)
+                query_vec = create_np_array_typed([0.1, 0.1], data_type)
 
-            # Compute the expected distances from the query vector using scipy.spatial
-            expected_res = [4, 'a', ['dist', spatial.distance.cosine(np.array([0.1, 0.1]), query_vec)],
-                      'b', ['dist', spatial.distance.cosine(np.array([0.1, 0.2]), query_vec)],
-                      'c', ['dist', spatial.distance.cosine(np.array([0.1, 0.3]), query_vec)],
-                      'd', ['dist', spatial.distance.cosine(np.array([0.1, 0.4]), query_vec)]]
+                # Compute the expected distances from the query vector using scipy.spatial
+                expected_res = [4, 'a', ['dist', spatial.distance.cosine(np.array([0.1, 0.1]), query_vec)],
+                          'b', ['dist', spatial.distance.cosine(np.array([0.1, 0.2]), query_vec)],
+                          'c', ['dist', spatial.distance.cosine(np.array([0.1, 0.3]), query_vec)],
+                          'd', ['dist', spatial.distance.cosine(np.array([0.1, 0.4]), query_vec)]]
 
-            actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS dist]', 'PARAMS', '2',
-                                    'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
-            assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+                actual_res = env.expect('FT.SEARCH', 'idx', f'*=>[KNN 4 @v $blob {score_field_syntax}', 'PARAMS', '2',
+                                        'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
+                assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
-            # Rerun with a different query vector
-            query_vec = create_np_array_typed([0.1, 0.2], data_type)
-            expected_res = [4, 'b', ['dist', spatial.distance.cosine(np.array([0.1, 0.2]), query_vec)],
-                            'c', ['dist', spatial.distance.cosine(np.array([0.1, 0.3]), query_vec)],
-                            'd', ['dist', spatial.distance.cosine(np.array([0.1, 0.4]), query_vec)],
-                            'a', ['dist', spatial.distance.cosine(np.array([0.1, 0.1]), query_vec)]]
+                # Rerun with a different query vector
+                query_vec = create_np_array_typed([0.1, 0.2], data_type)
+                expected_res = [4, 'b', ['dist', spatial.distance.cosine(np.array([0.1, 0.2]), query_vec)],
+                                'c', ['dist', spatial.distance.cosine(np.array([0.1, 0.3]), query_vec)],
+                                'd', ['dist', spatial.distance.cosine(np.array([0.1, 0.4]), query_vec)],
+                                'a', ['dist', spatial.distance.cosine(np.array([0.1, 0.1]), query_vec)]]
 
-            actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS dist]', 'PARAMS', '2',
-                                    'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
-            assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+                actual_res = env.expect('FT.SEARCH', 'idx', f'*=>[KNN 4 @v $blob  {score_field_syntax}', 'PARAMS', '2',
+                                        'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
+                assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
-            # Delete one vector and search again
-            conn.execute_command('DEL', 'b')
-            # Expect to get only 3 results (the same as before but without 'b')
-            expected_res = [3, 'c', ['dist', spatial.distance.cosine(np.array([0.1, 0.3]), query_vec)],
-                            'd', ['dist', spatial.distance.cosine(np.array([0.1, 0.4]), query_vec)],
-                            'a', ['dist', spatial.distance.cosine(np.array([0.1, 0.1]), query_vec)]]
-            actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS dist]', 'PARAMS', '2',
-                                    'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
-            assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+                # Delete one vector and search again
+                conn.execute_command('DEL', 'b')
+                # Expect to get only 3 results (the same as before but without 'b')
+                expected_res = [3, 'c', ['dist', spatial.distance.cosine(np.array([0.1, 0.3]), query_vec)],
+                                'd', ['dist', spatial.distance.cosine(np.array([0.1, 0.4]), query_vec)],
+                                'a', ['dist', spatial.distance.cosine(np.array([0.1, 0.1]), query_vec)]]
+                actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS dist]', 'PARAMS', '2',
+                                        'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
+                assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
-            conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+                conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 def test_sanity_l2():
@@ -402,11 +404,13 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS s]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `s` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS t]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS $score]', 'PARAMS', '4', 'score', 't', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `v` already exists in schema')
 
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME -42]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 5 EF_RUNTIME 6]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_FUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EF_RUNTIME: 5; $EF_RUNTIME: 6;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
 
     # ef_runtime is invalid for FLAT index.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v_flat $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
@@ -423,10 +427,18 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 34_not_a_number]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 8 BATCH_SIZE 0]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY bad_policy]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('invalid hybrid policy was given')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY: bad_policy;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('invalid hybrid policy was given')
 
     # Invalid hybrid attributes combinations.
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for 'ADHOC_BF' policy")
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF EF_RUNTIME 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")
+
+    # Invalid query combination with query attributes syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score2;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score2')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 100]=>{$EF_RUNTIME:200;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS $score_1]=>{$yield_distance_as:$score_2;}', 'PARAMS', '6', 'b', 'abcdefgh', 'score_1', 'score_1_val', 'score_2', 'score_2_val').error().contains('Distance field was specified twice for vector query: score_1_val and score_2_val')
+    env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:__v_score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and __v_score')
+    env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score')
 
 
 def test_with_fields():
@@ -1210,7 +1222,7 @@ def test_hybrid_query_change_policy():
         execute_hybrid_query(env, query_string, query_vec, 'tag2',
                              hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal([0])
         # Ask explicitly to use AD-HOC policy.
-        query_string_adhoc_bf = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param HYBRID_POLICY ADHOC_BF]'
+        query_string_adhoc_bf = '(@tag1:{0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9} @tag2:{word2})=>[KNN 10 @v $vec_param]=>{$HYBRID_POLICY: ADHOC_BF}'
         execute_hybrid_query(env, query_string_adhoc_bf, query_vec, 'tag2', hybrid_mode='HYBRID_ADHOC_BF').equal([0])
 
         # Add one valid document and re-run the query (still expect to change to AD-HOC BF)
