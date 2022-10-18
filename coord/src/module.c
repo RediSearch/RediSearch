@@ -1246,20 +1246,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
 cleanup:
   if (rCtx.pq) {
-    searchResult *sr;
-    while ((sr = heap_poll(rCtx.pq))) {
-      rm_free(sr);
-    }
-    heap_free(rCtx.pq);
+    heap_destroy(rCtx.pq);
   }
   if (rCtx.reduceSpecialCaseCtx &&
       rCtx.reduceSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN &&
       rCtx.reduceSpecialCaseCtx->knn.pq) {
-    searchResult *sr;
-    while ((sr = heap_poll(rCtx.reduceSpecialCaseCtx->knn.pq))) {
-      rm_free(sr);
-    }
-    heap_free(rCtx.reduceSpecialCaseCtx->knn.pq);
+    heap_destroy(rCtx.reduceSpecialCaseCtx->knn.pq);
   }
 
   searchRequestCtx_Free(req);
