@@ -1684,15 +1684,26 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
               break;
             }
           }
-          s = sdscatprintf(s, "in @%s", qs->vn.vq->property);
-          for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
-            s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
-            s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
-          }
-          if (qs->vn.vq->scoreField) {
-            s = sdscatprintf(s, ", AS `%s`", qs->vn.vq->scoreField);
+          break;
+        }
+        case VECSIM_QT_RANGE: {
+          s = sdscatprintf(s, "Vectors that are within %f radius of", qs->vn.vq->range.radius);
+          // This loop finds the vector param name.
+          for (size_t i = 0; i < array_len(qs->params); i++) {
+            if (qs->params[i].type != PARAM_NONE && qs->params[i].target == &qs->vn.vq->range.vector) {
+              s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
+              break;
+            }
           }
           break;
+        }
+        s = sdscatprintf(s, "in vector index associated with field @%s", qs->vn.vq->property);
+        for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
+          s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
+          s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
+        }
+        if (qs->vn.vq->scoreField) {
+          s = sdscatprintf(s, ", yields distance as `%s`", qs->vn.vq->scoreField);
         }
       }
       break;
