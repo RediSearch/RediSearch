@@ -229,10 +229,20 @@ def testCreate():
     for _ in env.retry_with_rdb_reload():
         info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR']]
         assertInfoField(env, 'idx1', 'attributes', info)
-        info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx1", "v")
-        env.assertEqual(info_data[:-3], ['ALGORITHM', 'HNSW', 'TYPE', 'FLOAT32', 'DIMENSION', 1024, 'METRIC', 'IP', 'INDEX_SIZE', 0, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'MEMORY'])
-        # skip the memory value
-        env.assertEqual(info_data[-2:], ['LAST_SEARCH_MODE', 'EMPTY_MODE'])
+        info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx1", "v"))
+        env.assertEqual(info_data['ALGORITHM'], 'HNSW')
+        env.assertEqual(info_data['TYPE'], 'FLOAT32')
+        env.assertEqual(info_data['DIMENSION'], 1024)
+        env.assertEqual(info_data['METRIC'], 'IP')
+        env.assertEqual(info_data['INDEX_SIZE'], 0)
+        env.assertEqual(info_data['M'], 16)
+        env.assertEqual(info_data['EF_CONSTRUCTION'], 200)
+        env.assertEqual(info_data['EF_RUNTIME'], 10)
+        env.assertEqual(info_data['MAX_LEVEL'], -1)
+        env.assertEqual(info_data['ENTRYPOINT'], -1)
+        env.assertEqual(info_data['IS_MULTI_VALUE'], 0)
+        env.assertEqual(info_data['LAST_SEARCH_MODE'], 'EMPTY_MODE')
+        env.assertEqual(info_data['EPSILON'], '0.01')
 
     # Uncomment these tests when support for FLOAT64, INT32, INT64, is added.
     # Trying to run these tests right now will cause 'Bad arguments for vector similarity HNSW index type' error
@@ -271,23 +281,23 @@ def test_create_multiple_vector_fields():
 
     # Insert one vector only to each index, validate it was inserted only to the right index.
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
-    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
-    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 1])
-    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
-    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 0])
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+    env.assertEqual(info_data['INDEX_SIZE'], 1)
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
+    env.assertEqual(info_data['INDEX_SIZE'], 0)
 
     conn.execute_command('HSET', 'b', 'v_flat', 'bbbbbbbb')
-    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
-    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 1])
-    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
-    env.assertEqual(info_data[8:10], ['INDEX_SIZE', 1])
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+    env.assertEqual(info_data['INDEX_SIZE'], 1)
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
+    env.assertEqual(info_data ['INDEX_SIZE'], 1)
 
     # Search in every index once, validate it was performed only to the right index.
     env.cmd('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh')
-    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")
-    env.assertEqual(info_data[-2:], ['LAST_SEARCH_MODE', 'STANDARD_KNN'])
-    info_data = env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat")
-    env.assertEqual(info_data[-2:], ['LAST_SEARCH_MODE', 'EMPTY_MODE'])
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+    env.assertEqual(info_data['LAST_SEARCH_MODE'], 'STANDARD_KNN')
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
+    env.assertEqual(info_data['LAST_SEARCH_MODE'], 'EMPTY_MODE')
 
 
 def testCreateErrors():
@@ -544,7 +554,7 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
     prefix = '_' if env.isCluster() else ''
     # returns the test name and line number from called this helper function.
     caller_pos = f'{sys._getframe(1).f_code.co_filename.split("/")[-1]}:{sys._getframe(1).f_lineno}'
-    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], hybrid_mode, message=caller_pos)
+    env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v"))["LAST_SEARCH_MODE"], hybrid_mode, message=caller_pos)
     return ret
 
 
@@ -737,7 +747,7 @@ def test_hybrid_query_with_numeric():
     env.expect('FT.SEARCH', 'idx', '(@num:[45 (50])=>[KNN 10 @v $vec_param]',
                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 0).equal(expected_res)
     prefix = "_" if env.isCluster() else ""
-    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+    env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v"))["LAST_SEARCH_MODE"], 'HYBRID_ADHOC_BF')
 
 
 def test_hybrid_query_with_geo():
@@ -803,7 +813,7 @@ def test_hybrid_query_batches_mode_with_complex_queries():
                'PARAMS', 2, 'vec_param', close_vector.tobytes(),
                'RETURN', 0).equal(expected_res_1)
     prefix = "_" if env.isCluster() else ""
-    env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+    env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v"))["LAST_SEARCH_MODE"], 'HYBRID_BATCHES')
 
     # test modifier list
     expected_res_2 = [10, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
