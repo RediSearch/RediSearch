@@ -1562,9 +1562,13 @@ def test_index_multi_value_json():
 
         score_field_name = 'dist'
         k = min(10, n)
-        element = {'FLOAT32': '====', 'FLOAT64': '????????'}[data_t]
-        cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element * dim, 'NOCONTENT', 'SORTBY', score_field_name]
-        expected_res = [str(i) for i in range(k)]
+        element = {'FLOAT32': '\0\0\0\0', 'FLOAT64': '\0\0\0\0\0\0\0\0'}[data_t]
+        cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element * dim, 'RETURN', '1', score_field_name, 'SORTBY', score_field_name]
+
+        expected_res = [] # the expected ids are going to be unique
+        for i in range(k):
+            expected_res.append(str(i))                                 # Expected id
+            expected_res.append([score_field_name, str(i * i * dim)])   # Expected score
 
         for _ in env.retry_with_rdb_reload():
             waitForIndex(env, 'idx')
@@ -1575,12 +1579,10 @@ def test_index_multi_value_json():
 
             cmd[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
             hnsw_res = conn.execute_command(*cmd)[1:]
-            env.assertEqual(len(hnsw_res), len(np.unique(hnsw_res)))
             env.assertEqual(hnsw_res, expected_res)
 
             cmd[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
             flat_res = conn.execute_command(*cmd)[1:]
-            env.assertEqual(len(flat_res), len(np.unique(flat_res)))
             env.assertEqual(flat_res, expected_res)
 
 def test_bad_index_multi_value_json():
