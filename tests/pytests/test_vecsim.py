@@ -311,22 +311,22 @@ def test_create_multiple_vector_fields():
 
     # Insert one vector only to each index, validate it was inserted only to the right index.
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
-    info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
     env.assertEqual(info_data['INDEX_SIZE'], 1)
-    info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
     env.assertEqual(info_data['INDEX_SIZE'], 0)
 
     conn.execute_command('HSET', 'b', 'v_flat', 'bbbbbbbb')
-    info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
     env.assertEqual(info_data['INDEX_SIZE'], 1)
-    info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
-    env.assertEqual(info_data['INDEX_SIZE'], 1)
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
+    env.assertEqual(info_data ['INDEX_SIZE'], 1)
 
     # Search in every index once, validate it was performed only to the right index.
-    conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh')
-    info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+    env.cmd('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh')
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
     env.assertEqual(info_data['LAST_SEARCH_MODE'], 'STANDARD_KNN')
-    info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
+    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
     env.assertEqual(info_data['LAST_SEARCH_MODE'], 'EMPTY_MODE')
 
 
