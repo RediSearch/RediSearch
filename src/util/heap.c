@@ -63,7 +63,7 @@ void heap_destroy(heap_t *h) {
   for (size_t i = 0; i < h->count; i++) {
     rm_free(h->array[i]);
   }
-  rm_free(h);
+  heap_free(h);
 }
 
 /**
