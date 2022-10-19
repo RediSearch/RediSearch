@@ -842,7 +842,7 @@ DEBUG_COMMAND(VecsimInfo) {
   VecSimIndex *vecsimIndex = OpenVectorIndex(sctx, argv[1]);
   if (!vecsimIndex) {
     SearchCtx_Free(sctx);
-    return RedisModule_ReplyWithError(ctx, "Vector index ins not found");
+    return RedisModule_ReplyWithError(ctx, "Vector index not found");
   }
   VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
   RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
