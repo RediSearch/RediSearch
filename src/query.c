@@ -856,11 +856,13 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     qn->vn.vq->scoreField = qn->opts.distField; // move ownership
     qn->opts.distField = NULL;
   }
-  // Todo: for range queries, recall that score field may still be NULL, need to handle it also.
 
   // Add the score field name to the ast score field names array.
   // This macro creates the array if it's the first name, and ensure its size is sufficient.
-  array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
+  // For range queries, recall that score field may still be NULL, so no need to append it then.
+  if (qn->vn.vq->scoreField) {
+    array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
+  }
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
     RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
@@ -1679,7 +1681,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           s = sdscatprintf(s, "K=%zu nearest vectors to ", qs->vn.vq->knn.k);
           // This loop finds the vector param name.
           for (size_t i = 0; i < array_len(qs->params); i++) {
-            if (qs->params[i].type != PARAM_NONE && qs->params[i].target == &qs->vn.vq->knn.vector) {
+            if (qs->params[i].type != PARAM_NONE &&
+                qs->params[i].target == &qs->vn.vq->knn.vector) {
               s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
               break;
             }
@@ -1687,24 +1690,26 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           break;
         }
         case VECSIM_QT_RANGE: {
-          s = sdscatprintf(s, "Vectors that are within %f radius of", qs->vn.vq->range.radius);
+          s = sdscatprintf(s, "Vectors that are within %.3f distance radius from",
+                           qs->vn.vq->range.radius);
           // This loop finds the vector param name.
           for (size_t i = 0; i < array_len(qs->params); i++) {
-            if (qs->params[i].type != PARAM_NONE && qs->params[i].target == &qs->vn.vq->range.vector) {
-              s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
+            if (qs->params[i].type != PARAM_NONE &&
+                qs->params[i].target == &qs->vn.vq->range.vector) {
+              s = sdscatprintf(s, " `$%s` ", qs->params[i].name);
               break;
             }
           }
           break;
         }
-        s = sdscatprintf(s, "in vector index associated with field @%s", qs->vn.vq->property);
-        for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
-          s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
-          s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
-        }
-        if (qs->vn.vq->scoreField) {
-          s = sdscatprintf(s, ", yields distance as `%s`", qs->vn.vq->scoreField);
-        }
+      } // switch (qs->vn.vq->type). Next is a common part for both types.
+      s = sdscatprintf(s, "in vector index associated with field @%s", qs->vn.vq->property);
+      for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
+        s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
+        s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
+      }
+      if (qs->vn.vq->scoreField) {
+        s = sdscatprintf(s, ", yields distance as `%s`", qs->vn.vq->scoreField);
       }
       break;
     case QN_WILDCARD:

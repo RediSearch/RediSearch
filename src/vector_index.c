@@ -126,8 +126,10 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                     &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
         return NULL;
       }
+      qParams.timeoutCtx = &(TimeoutCtx){ .timeout = q->sctx->timeout, .counter = 0 };
       VecSimQueryResult_List results =
-          VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius, &qParams, vq->range.order);
+          VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius,
+                                 &qParams, vq->range.order);
       if (results.code == VecSim_QueryResult_TimedOut) {
         VecSimQueryResult_Free(results);
         QueryError_SetError(q->status, QUERY_TIMEDOUT, NULL);
