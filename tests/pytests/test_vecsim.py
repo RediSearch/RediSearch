@@ -440,6 +440,8 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:__v_score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and __v_score')
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score')
 
+    # Range queries
+
 
 def test_with_fields():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1501,6 +1503,19 @@ def test_timeout_reached():
                                        'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
                                        'TIMEOUT', 1)
             env.assertEqual(res[0], timeout_expected)
+
+            # RANGE QUERY
+            # run query with no timeout. should succeed.
+            res = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                       'PARAMS', 2,  'vec_param', query_vec.tobytes(),
+                                       'TIMEOUT', 0)
+            env.assertEqual(res[0], n_vec)
+            # run query with 1 millisecond timeout. should fail.
+            res = env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                       'PARAMS', 2, 'vec_param', query_vec.tobytes(),
+                       'TIMEOUT', 1)
+            env.assertTrue(res.raiseError)
+            env.assertEqual(res.res, timeout_expected)
 
             # HYBRID MODES
             for mode in hybrid_modes:
