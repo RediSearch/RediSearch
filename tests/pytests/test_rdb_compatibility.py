@@ -18,10 +18,11 @@ RDBS = [
     'redisearch_2.0.9.rdb'
 ]
 
-def downloadFiles():
+def downloadFiles(rdbs = None):
+    rdbs = RDBS if rdbs is None else rdbs
     if not os.path.exists(REDISEARCH_CACHE_DIR):
         os.makedirs(REDISEARCH_CACHE_DIR)
-    for f in RDBS:
+    for f in rdbs:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
             dpath = paella.wget(BASE_RDBS_URL + f, dest=path)
@@ -70,6 +71,42 @@ def testRDBCompatibility(env):
             res = env.cmd('FT.SYNDUMP idx')
             res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
             env.assertEqual(res, {'term2': ['0'], 'term1': ['0']})
+        env.cmd('flushall')
+        env.assertTrue(env.checkExitCode())
+
+def testRDBCompatibility_vecsim():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
+    skipOnExistingEnv(env)
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+
+    rdbs = ['redisearch_2.4.14_with_vecsim.rdb']
+    if not downloadFiles(rdbs):
+        if CI:
+            env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
+        else:
+            env.skip()
+            return
+
+    for fileName in rdbs:
+        env.stop()
+        filePath = os.path.join(REDISEARCH_CACHE_DIR, fileName)
+        try:
+            os.unlink(rdbFilePath)
+        except OSError:
+            pass
+        os.symlink(filePath, rdbFilePath)
+        env.start()
+        waitForIndex(env, 'idx')
+        env.expect('FT.SEARCH idx * LIMIT 0 0').equal([100])
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1000 @vec $b]', 'PARAMS', '2', 'b', '<<????>>', 'LIMIT', '0', '0').equal([100])
+        env.expect('DBSIZE').equal(100)
+        res = to_dict(env.cmd('FT.INFO idx'))
+        env.assertEqual(res['num_docs'], '100')
+        env.assertEqual(res['hash_indexing_failures'], '0')
+
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
 

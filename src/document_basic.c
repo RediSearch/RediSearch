@@ -361,6 +361,10 @@ void Document_Clear(Document *d) {
             array_free(field->arrNumval);
           }
           break;
+        case FLD_VAR_T_BLOB_ARRAY:
+          rm_free(field->blobArr);
+          field->blobArrLen = 0;
+          break;
         case FLD_VAR_T_GEO:
         case FLD_VAR_T_NUM:
         case FLD_VAR_T_NULL:
