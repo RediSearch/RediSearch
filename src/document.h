@@ -43,7 +43,8 @@ typedef enum {
   FLD_VAR_T_NUM = 0x04,
   FLD_VAR_T_GEO = 0x08,
   FLD_VAR_T_ARRAY = 0x10,
-  FLD_VAR_T_NULL = 0x20,
+  FLD_VAR_T_BLOB_ARRAY = 0x20,
+  FLD_VAR_T_NULL = 0x40,
 } FieldVarType;
 
 typedef struct DocumentField{
@@ -55,6 +56,11 @@ typedef struct DocumentField{
     struct {
       char *strval;
       size_t strlen;
+    };
+    struct {
+      char *blobArr;
+      size_t blobSize;
+      size_t blobArrLen;
     };
     double numval;
     arrayof(double) arrNumval;
