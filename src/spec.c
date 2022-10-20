@@ -386,8 +386,8 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
   // Uncomment these when support for other type is added.
   if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len))
     *type = VecSimType_FLOAT32;
-  // else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
-  //   *type = VecSimType_FLOAT64;
+   else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
+     *type = VecSimType_FLOAT64;
   // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len))
   //   *type = VecSimType_INT32;
   // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len))
