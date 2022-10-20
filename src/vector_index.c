@@ -117,7 +117,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       }
       if (vq->range.radius < 0) {
         QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: negative radius (%zu) "
+                               "Error parsing vector similarity query: negative radius (%f) "
                                "given in a range query",
                                vq->range.radius);
         return NULL;
@@ -360,6 +360,10 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_EfRuntime: {
       RSErrorCode = QUERY_EADHOCWEFRUNTIME;
+      break;
+    }
+    case VecSimParamResolverErr_InvalidPolicy_NRange: {
+      RSErrorCode = QUERY_ENRANGE;
       break;
     }
     default: {

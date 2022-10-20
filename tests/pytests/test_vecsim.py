@@ -440,7 +440,27 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:__v_score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and __v_score')
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score')
 
-    # Range queries
+    # Invalid range queries
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('Error parsing vector similarity query: query vector blob size (7) does not match index\'s expected size (8).')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('Error parsing vector similarity query: query vector blob size (9) does not match index\'s expected size (8).')
+    env.expect('FT.SEARCH', 'idx', '@bad:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0])  # wrong field
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:t}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:$dist}', 'PARAMS', '4', 'b', 'abcdefgh', 'dist', 't').error().contains('Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EF_RUNTIME:10}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$HYBRID_POLICY:BATCHES}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
+
+    # Invalid epsilon param for range queries
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: -1}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: not_a_num}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0.1; $EPSILON: 0.2}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0.1; $EF_RUNTIME: 20}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+
+    # epsilon is invalid for non-range queries, and also for flat index.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EPSILON 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: range query attributes were sent for a non-range query')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EPSILON: 2.71828}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: range query attributes were sent for a non-range query')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$EPSILON: 0.1}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: range query attributes were sent for a non-range query')
+    env.expect('FT.SEARCH', 'idx', '@v_flat:[vector_range 0.1 $b]=>{$epsilon:0.1}', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').equal('Error parsing vector similarity parameters: Invalid option')
 
 
 def test_with_fields():
@@ -461,8 +481,13 @@ def test_with_fields():
         res_nocontent = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
                         'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                         'NOCONTENT')
+        dist_range = dimension * qty**2  # distance from query vector to the furthest vector in the index.
+        res_range = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:score}',
+                                         'SORTBY', 'score', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', dist_range,
+                                         'RETURN', 2, 'score', 't')
         env.assertEqual(res[1::2], res_nocontent[1:])
         env.assertEqual('t', res[2][2])
+        env.assertEqual(res, res_range)
 
 
 def test_memory_info():

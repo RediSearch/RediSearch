@@ -842,20 +842,24 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   if (qn->opts.distField) {
-    // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
-    // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
-    char default_score_field[strlen(qn->vn.vq->property) + 9]; // buffer for __<field>_score
-    sprintf(default_score_field, "__%s_score", qn->vn.vq->property);
-    // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
-    if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
-      QueryError_SetErrorFmt(q->status, QUERY_EDUPFIELD, "Distance field was specified twice for vector query: %s and %s",
-                             qn->vn.vq->scoreField, qn->opts.distField);
-      return NULL;
+    if (qn->vn.vq->scoreField) {
+      // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
+      // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
+      char default_score_field[strlen(qn->vn.vq->property) + 9];  // buffer for __<field>_score
+      sprintf(default_score_field, "__%s_score", qn->vn.vq->property);
+      // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
+      if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
+        QueryError_SetErrorFmt(q->status, QUERY_EDUPFIELD,
+                               "Distance field was specified twice for vector query: %s and %s",
+                               qn->vn.vq->scoreField, qn->opts.distField);
+        return NULL;
+      }
+      rm_free(qn->vn.vq->scoreField);
     }
-    rm_free(qn->vn.vq->scoreField);
     qn->vn.vq->scoreField = qn->opts.distField; // move ownership
     qn->opts.distField = NULL;
   }
+
 
   // Add the score field name to the ast score field names array.
   // This macro creates the array if it's the first name, and ensure its size is sufficient.
