@@ -53,6 +53,24 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   return openVectorKeysDict(ctx, keyName, 1);
 }
 
+IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
+                                                          const char *field_name) {
+  size_t res_num = VecSimQueryResult_Len(results);
+  t_docId *docIdsList = array_new(t_docId, res_num);
+  double *metricList = array_new(double, res_num);
+
+  // Collect the results' id and distance and set it in the arrays.
+  VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(results);
+  while (VecSimQueryResult_IteratorHasNext(iter)) {
+    VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
+    docIdsList = array_append(docIdsList, VecSimQueryResult_GetId(res));
+    metricList = array_append(metricList, VecSimQueryResult_GetScore(res));
+  }
+  // Move ownership on the arrays to the MetricIterator.
+  return NewMetricIterator(docIdsList, metricList, field_name, VECTOR_DISTANCE);
+
+}
+
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
@@ -135,9 +153,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
         QueryError_SetError(q->status, QUERY_TIMEDOUT, NULL);
         return NULL;
       }
-      VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(results);
-      VecSimQueryResult *result_array = VecSimQueryResult_GetArray(results);
-      return NewMetricIterator(result_array, iter, vq->scoreField, VECTOR_DISTANCE);
+      return createMetricIteratorFromVectorQueryResults(results, vq->scoreField);
     }
   }
   return NULL;

@@ -893,9 +893,8 @@ TEST_F(IndexTest, testMetric_VectorRange) {
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
   // Run simple range query.
-  VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(results);
   const char *metric_field_name = "vec_dist";
-  IndexIterator *vecIt = NewMetricIterator(results.results, iter, metric_field_name, VECTOR_DISTANCE);
+  IndexIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, metric_field_name);
   RSIndexResult *h = NULL;
   size_t count = 0;
   size_t lowest_id = 25;
@@ -922,10 +921,32 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // Read one result to verify that we get the minimum id after rewind.
   ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, lowest_id);
+
+  // Test valid combinations of SkipTo
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, lowest_id + 10);
+  double exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
+  ASSERT_EQ(h->metric.value, exp_dist);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + 10);
+
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, n);
+  exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
+  ASSERT_EQ(h->metric.value, exp_dist);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n);
+
+  // Invalid SkipTo
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n, &h), INDEXREAD_EOF);
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_EOF);
+
+  // Rewind and test skipping to the first id.
   vecIt->Rewind(vecIt->ctx);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), 0);
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id, &h), INDEXREAD_OK);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id);
 
   // check rerun and abort (go over only half of the results)
-  count = 0;
+  count = 1;
   for (size_t i = 0; i < n_expected_res/2; i++) {
     ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
     ASSERT_EQ(h->type, RSResultType_Metric);
