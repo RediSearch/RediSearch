@@ -229,7 +229,7 @@ void InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *idx) {
   REPLY_WITH_LONG_LONG("numDocs", idx->numDocs, len);
   REPLY_WITH_LONG_LONG("lastId", idx->lastId, len);
   REPLY_WITH_LONG_LONG("size", idx->size, len);
-  
+
   RedisModule_ReplyWithStringBuffer(ctx, "values", strlen("values"));
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   len += 2;
@@ -239,10 +239,10 @@ void InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *idx) {
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     REPLY_WITH_LONG_LONG("value", res->num.value, len_values);
     REPLY_WITH_LONG_LONG("docId", res->docId, len_values);
-  }  
+  }
   IR_Free(ir);
   RedisModule_ReplySetArrayLength(ctx, len_values);
-  
+
   RedisModule_ReplySetArrayLength(ctx, len);
 }
 
@@ -260,7 +260,7 @@ void NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r) {
 
     RedisModule_ReplyWithStringBuffer(ctx, "entries", strlen("entries"));
     InvertedIndex_DebugReply(ctx, r->entries);
-    
+
     len += 2;
   }
 
@@ -268,17 +268,17 @@ void NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r) {
 }
 
 void NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRangeNode *n) {
-  
+
   size_t len = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   if (n) {
     REPLY_WITH_LONG_LONG("value", n->value, len);
     REPLY_WITH_LONG_LONG("maxDepth", n->maxDepth, len);
-    
+
     RedisModule_ReplyWithStringBuffer(ctx, "range", strlen("range"));
     NumericRange_DebugReply(ctx, n->range);
     len += 2;
-    
+
     RedisModule_ReplyWithStringBuffer(ctx, "left", strlen("left"));
     NumericRangeNode_DebugReply(ctx, n->left);
     len += 2;
@@ -287,10 +287,10 @@ void NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRangeNode *n) {
     NumericRangeNode_DebugReply(ctx, n->right);
     len += 2;
   }
-  
+
   RedisModule_ReplySetArrayLength(ctx, len);
 }
-  
+
 void NumericRangeTree_DebugReply(RedisModuleCtx *ctx, NumericRangeTree *rt) {
 
   size_t len = 0;
@@ -384,7 +384,7 @@ DEBUG_COMMAND(DumpSuffix) {
   }
   GET_SEARCH_CTX(argv[0]);
   if (argc == 1) { // suffix trie of global text field
-    Trie *suffix = sctx->spec->suffix; 
+    Trie *suffix = sctx->spec->suffix;
     if (!suffix) {
       RedisModule_ReplyWithError(ctx, "Index does not have suffix trie");
       goto end;
@@ -426,7 +426,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "tag field does have suffix trie");
       goto end;
     }
-  
+
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     long resultSize = 0;
 
@@ -442,7 +442,7 @@ DEBUG_COMMAND(DumpSuffix) {
 
     TrieMapIterator_Free(it);
 
-    RedisModule_ReplySetArrayLength(ctx, resultSize);  
+    RedisModule_ReplySetArrayLength(ctx, resultSize);
   }
 end:
   SearchCtx_Free(sctx);
@@ -842,7 +842,7 @@ DEBUG_COMMAND(VecsimInfo) {
   VecSimIndex *vecsimIndex = OpenVectorIndex(sctx, argv[1]);
   if (!vecsimIndex) {
     SearchCtx_Free(sctx);
-    return RedisModule_ReplyWithError(ctx, "Vector index ins not found");
+    return RedisModule_ReplyWithError(ctx, "Vector index not found");
   }
   VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
   RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
@@ -852,16 +852,16 @@ DEBUG_COMMAND(VecsimInfo) {
     switch (infoField->fieldType)
     {
     case INFOFIELD_STRING:
-      RedisModule_ReplyWithSimpleString(ctx, infoField->stringValue);
+      RedisModule_ReplyWithSimpleString(ctx, infoField->fieldValue.stringValue);
       break;
     case INFOFIELD_FLOAT64:
-      RedisModule_ReplyWithDouble(ctx, infoField->floatingPointValue);
+      RedisModule_ReplyWithDouble(ctx, infoField->fieldValue.floatingPointValue);
       break;
     case INFOFIELD_INT64:
-      RedisModule_ReplyWithLongLong(ctx, infoField->integerValue);
+      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.integerValue);
       break;
     case INFOFIELD_UINT64:
-      RedisModule_ReplyWithLongLong(ctx, infoField->uintegerValue);
+      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.uintegerValue);
       break;
     default:
       break;

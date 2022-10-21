@@ -3457,8 +3457,8 @@ def test_mod1548(env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-               '$["prod:id"]', 'AS', 'prod:id', 'TEXT',
-               '$.prod:id', 'AS', 'prod:id_unsupported', 'TEXT',
+               '$["prod:id"]', 'AS', 'prod:id_bracketnotation', 'TEXT',
+               '$.prod:id', 'AS', 'prod:id_dotnotation', 'TEXT',
                '$.name', 'AS', 'name', 'TEXT',
                '$.categories', 'AS', 'categories', 'TAG', 'SEPARATOR' ,',').ok()
     waitForIndex(env, 'idx')
@@ -3473,12 +3473,12 @@ def test_mod1548(env):
     env.assertEqual(res,  [2, 'prod:1', ['name', 'foo'], 'prod:2', ['name', 'bar']])
 
     # Supported jsonpath (actual path contains a colon using the bracket notation)
-    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id')
-    env.assertEqual(res,  [2, 'prod:1', ['prod:id', '35114964'], 'prod:2', ['prod:id', '35114965']])
+    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_bracketnotation')
+    env.assertEqual(res,  [2, 'prod:1', ['prod:id_bracketnotation', '35114964'], 'prod:2', ['prod:id_bracketnotation', '35114965']])
 
-    # Currently unsupported jsonpath (actual path contains a colon using the dot notation)
-    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
-    env.assertEqual(res, [2, 'prod:1', [], 'prod:2', []])
+    # Supported jsonpath (actual path contains a colon using the dot notation)
+    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_dotnotation')
+    env.assertEqual(res,  [2, 'prod:1', ['prod:id_dotnotation', '35114964'], 'prod:2', ['prod:id_dotnotation', '35114965']])
 
 def test_empty_field_name(env):
     conn = getConnectionByEnv(env)
