@@ -703,7 +703,7 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
   while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
-    ASSERT_EQ(h->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Metric);
     ASSERT_EQ(h->docId, max_id - count);
     count++;
   }
@@ -730,7 +730,7 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
-    ASSERT_EQ(h->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
@@ -748,7 +748,7 @@ TEST_F(IndexTest, testHybridVector) {
   for (size_t i = 0; i < k/2; i++) {
     count++;
     ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
-    ASSERT_EQ(h->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Metric);
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
   }
@@ -762,7 +762,7 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
-    ASSERT_EQ(h->type, RSResultType_Distance);
+    ASSERT_EQ(h->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
@@ -782,10 +782,10 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
-    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
     ASSERT_EQ(h->agg.numChildren, 2);
-    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);
@@ -799,10 +799,10 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     count++;
-    ASSERT_EQ(h->type, RSResultType_HybridDistance);
+    ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
     ASSERT_EQ(h->agg.numChildren, 2);
-    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Distance);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(k - count);
     ASSERT_EQ(h->docId, expected_id);

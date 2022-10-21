@@ -34,7 +34,7 @@ RSIndexResult *NewVirtualResult(double weight);
 
 RSIndexResult *NewNumericResult();
 
-RSIndexResult *NewDistanceResult();
+RSIndexResult *NewMetricResult();
 
 RSIndexResult *NewHybridResult();
 
