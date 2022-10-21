@@ -910,11 +910,65 @@ vector_query(A) ::= vector_command(B). {
 }
 
 as ::= AS_T.
+
 vector_score_field(A) ::= as param_term(B). {
   A = B;
 }
 
-// Every vector query will have basic command part. Right now we only have KNN command.
+// Use query attributes syntax
+query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+  if (B && C) {
+     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+  }
+  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+
+  if (A) {
+      QueryNode_AddChild(B, A);
+  }
+
+}
+
+query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+  if (B && C) {
+     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+  }
+  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+
+  if (A) {
+    QueryNode_AddChild(B, A);
+  }
+}
+
+query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
+  setup_trace(ctx);
+  switch (B->vn.vq->type) {
+    case VECSIM_QT_KNN:
+      B->vn.vq->knn.order = BY_SCORE;
+      break;
+  }
+  ctx->root = B;
+  if (B && C) {
+     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+  }
+  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+
+}
+
+// Every vector query will have basic command part.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
   if (!strncasecmp("KNN", T.s, T.len)) {

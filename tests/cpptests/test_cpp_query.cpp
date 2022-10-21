@@ -466,6 +466,10 @@ TEST_F(QueryTest, testParser_v2) {
   assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
+  // Vector attributes are invalid for non-vector queries.
+  assertInvalidQuery("@title:(foo bar) => {$ef_runtime: 100;}", ctx);
+  assertInvalidQuery("@title:(foo bar) => {$yield_distance_as:my_dist;}", ctx);
+  assertInvalidQuery("@title:(foo bar) => {$weight: 2.0; $ef_runtime: 100;}", ctx);
 
   // Test basic vector similarity query
   assertValidQuery("*=>[KNN 10 @vec_field $BLOB]", ctx);
@@ -475,10 +479,16 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("*=>[KNN $K @vec_field $BLOB AS score]", ctx);
   assertValidQuery("*=>[KNN $K @vec_field $BLOB EF $ef foo bar x 5 AS score]", ctx);
   assertValidQuery("*=>[KNN $K @vec_field $BLOB foo bar x 5]", ctx);
+  // Using query attributes syntax is also allowed.
+  assertValidQuery("*=>[knn $K @vec_field $BLOB]=>{$yield_distance_as: vec_dist;}", ctx);
+  assertValidQuery("*=>[knn $K @vec_field $BLOB]=>{$yield_distance_as: as;}", ctx); // using stop-word as the attribute value
+  assertValidQuery("*=>[KNN $KNN @KNN $KNN KNN $KNN]=>{$yield_distance_as: VECTOR_RANGE;}", ctx); // using reserved word as an attribute or field
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB] =>{$yield_distance_as: vec_dist; $ef_runtime: 100;}", ctx);
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB] =>{$weight: 2.0; $ef_runtime: 100;}", ctx); // weight is valid, but ignored
 
   // Test basic vector similarity query combined with other expressions
   // This should fail for now because right now we only allow KNN query to be the root node.
-  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB]=>{$weight: 0.5; $slop: 2}", ctx);
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB] title=>{$weight: 0.5; $slop: 2}", ctx);
   assertInvalidQuery("*=>[KNN $K1 @vec_field $BLOB1] OR *=>[KNN $K2 @vec_field $BLOB2]", ctx);
 
   // Test basic vector similarity query errors
@@ -491,15 +501,19 @@ TEST_F(QueryTest, testParser_v2) {
   assertInvalidQuery("*=>[KNN $K @vec_field $BLOB $EF ef foo bar x 5 AS score]", ctx); // parameter as attribute
   assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF ef foo bar x 5 AS ]", ctx); // not specifying score field name
   assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB => {$yield:dist}]", ctx); // invalid attributes syntax
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF_RUNTIME 100 => {$yield_distance_as:dist;}]", ctx); // invalid combined syntax
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF_RUNTIME 100] => {$bad_attr:dist;}", ctx); // invalid vector attribute
 
   // Test simple hybrid vector query
-  assertValidQuery("(KNN)=>[KNN 10 @vec_field $BLOB]", ctx); // using KNN command in other context
-
-  assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
-  assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("KNN=>[KNN 10 @vec_field $BLOB]", ctx); // using KNN command in other context
   assertValidQuery("(hello world)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(@title:hello)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB EF_RUNTIME 100 HYBRID_POLICY BATCHES]", ctx);
+  assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB AS score]", ctx);
+  assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB] => {$yield_distance_as:score;}", ctx);
+  assertValidQuery("hello=>[KNN 10 @vec_field $BLOB] => {$yield_distance_as:score; $hybrid_policy:batches; $BATCH_SIZE:100}", ctx);
 
   assertValidQuery("hello=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(hello|world)=>[KNN 10 @vec_field $BLOB]", ctx);
@@ -508,6 +522,10 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("(-hello ~world ~war)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@tags:{bar* | foo}=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(no -as) => {$weight: 0.5} => [KNN 10 @vec_field $BLOB]", ctx);
+
+  // Invalid complex queries with hybrid vector
+  assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
   assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) other phrase", ctx);
   assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) @title:other", ctx);
   assertInvalidQuery("hello world => [KNN 10 @vec_field $BLOB] OR other => [KNN 10 @vec_field $BLOB]", ctx);

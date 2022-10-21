@@ -22,6 +22,8 @@
 #define VECSIM_M "M"
 #define VECSIM_EFCONSTRUCTION "EF_CONSTRUCTION"
 #define VECSIM_EFRUNTIME "EF_RUNTIME"
+#define VECSIM_HYBRID_POLICY "HYBRID_POLICY"
+#define VECSIM_BATCH_SIZE "BATCH_SIZE"
 #define VECSIM_TYPE "TYPE"
 #define VECSIM_DIM "DIM"
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
@@ -77,7 +79,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 void VectorQuery_Free(VectorQuery *vq);
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
-                                            VecSimQueryParams *qParams, bool hybrid, QueryError *status);
+                                            VecSimQueryParams *qParams, VecsimQueryType query_type, QueryError *status);
 size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
@@ -85,3 +87,4 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
+int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag
