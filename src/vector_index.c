@@ -56,6 +56,10 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
                                                           const char *field_name) {
   size_t res_num = VecSimQueryResult_Len(results);
+  if (res_num == 0) {
+    VecSimQueryResult_Free(results);
+    return NULL;
+  }
   t_docId *docIdsList = array_new(t_docId, res_num);
   double *metricList = array_new(double, res_num);
 
@@ -66,6 +70,9 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List
     docIdsList = array_append(docIdsList, VecSimQueryResult_GetId(res));
     metricList = array_append(metricList, VecSimQueryResult_GetScore(res));
   }
+  VecSimQueryResult_IteratorFree(iter);
+  VecSimQueryResult_Free(results);
+
   // Move ownership on the arrays to the MetricIterator.
   return NewMetricIterator(docIdsList, metricList, field_name, VECTOR_DISTANCE);
 
