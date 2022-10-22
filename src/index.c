@@ -1906,7 +1906,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
 
   switch (mi->type) {
     case VECTOR_DISTANCE: {
-      printProfileType("VECTOR RANGE");
+      printProfileType("METRIC - VECTOR DISTANCE");
       nlen += 2;
       break;
     }
