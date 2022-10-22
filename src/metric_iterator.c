@@ -65,6 +65,9 @@ static int MR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     (*hit)->metric.value = mr->metricList[mr->curIndex];
     (*hit)->metric.metricField = mr->fieldName;
     mr->curIndex++;
+    if (mr->curIndex == mr->resultsNum) {
+      mr->base.isValid = 0;
+    }
     return INDEXREAD_OK;
   }
   mr->base.isValid = 0;
