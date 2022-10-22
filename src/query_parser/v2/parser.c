@@ -1993,11 +1993,7 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
       case 63: /* query ::= text_expr ARROW LSQB vector_query RSQB */ yytestcase(yyruleno==63);
 { // main parse, hybrid query as entire query case.
   setup_trace(ctx);
-  switch (yymsp[-1].minor.yy51->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-1].minor.yy51->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RedisModule_Assert(yymsp[-1].minor.yy51->vn.vq->type == VECSIM_QT_KNN);
   ctx->root = yymsp[-1].minor.yy51;
   if (yymsp[-4].minor.yy51) {
     QueryNode_AddChild(yymsp[-1].minor.yy51, yymsp[-4].minor.yy51);
@@ -2008,11 +2004,9 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
 {  yy_destructor(yypParser,56,&yymsp[-4].minor);
 { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
-  switch (yymsp[-1].minor.yy51->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-1].minor.yy51->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RedisModule_Assert(yymsp[-1].minor.yy51->vn.vq->type == VECSIM_QT_KNN);
+  yymsp[-1].minor.yy51->vn.vq->knn.order = BY_SCORE;
+
   ctx->root = yymsp[-1].minor.yy51;
 }
 }
@@ -2061,11 +2055,7 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
       case 70: /* query ::= expr ARROW LSQB vector_query RSQB ARROW LB attribute_list RB */
 {
   setup_trace(ctx);
-  switch (yymsp[-5].minor.yy51->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-5].minor.yy51->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RedisModule_Assert(yymsp[-5].minor.yy51->vn.vq->type == VECSIM_QT_KNN);
   ctx->root = yymsp[-5].minor.yy51;
   if (yymsp[-5].minor.yy51 && yymsp[-1].minor.yy33) {
      QueryNode_ApplyAttributes(yymsp[-5].minor.yy51, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);
@@ -2081,11 +2071,7 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
       case 71: /* query ::= text_expr ARROW LSQB vector_query RSQB ARROW LB attribute_list RB */
 {
   setup_trace(ctx);
-  switch (yymsp[-5].minor.yy51->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-5].minor.yy51->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RedisModule_Assert(yymsp[-5].minor.yy51->vn.vq->type == VECSIM_QT_KNN);
   ctx->root = yymsp[-5].minor.yy51;
   if (yymsp[-5].minor.yy51 && yymsp[-1].minor.yy33) {
      QueryNode_ApplyAttributes(yymsp[-5].minor.yy51, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);
@@ -2101,11 +2087,7 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
 {  yy_destructor(yypParser,56,&yymsp[-8].minor);
 {
   setup_trace(ctx);
-  switch (yymsp[-5].minor.yy51->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-5].minor.yy51->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RedisModule_Assert(yymsp[-5].minor.yy51->vn.vq->type == VECSIM_QT_KNN);
   ctx->root = yymsp[-5].minor.yy51;
   if (yymsp[-5].minor.yy51 && yymsp[-1].minor.yy33) {
      QueryNode_ApplyAttributes(yymsp[-5].minor.yy51, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);

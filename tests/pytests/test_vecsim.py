@@ -1604,22 +1604,29 @@ def test_range_query_basic():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     dim = 4
-    n = 1000
+    n = 999
 
     for data_type in VECSIM_DATA_TYPES:
         for index in ['FLAT', 'HNSW']:
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index, '6', 'TYPE', data_type, 'DIM',
                        dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+
+            # search in an empty index
+            query_data = create_np_array_typed([1]*dim, data_type)
+            env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 0.1 $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
+                                   'SORTBY', 'score', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'score_field', 'score',
+                                   'RETURN', 1, 'score', 'LIMIT', 0, n).equal([0])
+
             # load vectors, where vector with id i is [i, i, ..., i]
             load_vectors_with_texts_into_redis(conn, 'v', dim, n, data_type)
 
-            # Expect to get the 500 docs with the highest ids.
-            dist_range = dim * 500**2
+            # Expect to get the 499 docs with the highest ids.
+            dist_range = dim * 499**2
             query_data = create_np_array_typed([n+1]*dim, data_type)
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
             'SORTBY', 'score', 'PARAMS', 6, 'vec_param', query_data.tobytes(), 'r', dist_range, 'score_field', 'score',
             'RETURN', 1, 'score', 'LIMIT', 0, n)
-            env.assertEqual(res[0], 500)
+            env.assertEqual(res[0], 499)
             for i, doc_id in enumerate(res[1::2]):
                 env.assertEqual(str(n-i), doc_id)
             for i, score in enumerate(res[2::2]):
@@ -1629,7 +1636,7 @@ def test_range_query_basic():
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]',
                                        'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', dist_range,
                                        'RETURN', 0, 'LIMIT', 0, n)
-            env.assertEqual(res[0], 500)
+            env.assertEqual(res[0], 499)
             for i, doc_id in enumerate(res[1:]):
                 env.assertEqual(str(500 + i + 1), doc_id)  # results should be sorted by id (by default)
 
@@ -1646,21 +1653,24 @@ def test_range_query_basic_random_vectors():
                dim, 'DISTANCE_METRIC', 'COSINE', 'M', '4', 'EF_CONSTRUCTION', '4', 'EPSILON', '0.001').ok()
 
     query_data = load_vectors_to_redis(env, n, 0, dim)
-    env.assertEqual(get_vecsim_index_size(env, 'idx', 'vector'), n)
 
     radius = 0.23
     res_default_epsilon = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
                                'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
-                               'RETURN', 1, 'dist', 'LIMIT', 0, 1500)
+                               'RETURN', 1, 'dist', 'LIMIT', 0, n)
 
     res_higher_epsilon = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist; $EPSILON: 0.1}',
                                'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
-                               'RETURN', 1, 'dist', 'LIMIT', 0, 1500)
+                               'RETURN', 1, 'dist', 'LIMIT', 0, n)
 
     # Expect getting better results when epsilon is higher
     env.assertGreater(res_higher_epsilon[0], res_default_epsilon[0])
     for dist in res_higher_epsilon[2::2]:
         env.assertGreaterEqual(radius, float(dist[1]))
     docs_higher_epsilon = [doc for doc in res_higher_epsilon[1::2]]
+    ids_found = 0
     for doc_id in res_default_epsilon[1::2]:
-        env.assertContains(doc_id, docs_higher_epsilon)
+        if doc_id in docs_higher_epsilon:
+            ids_found += 1
+    # Results found with lower epsilon are subset of the results found with higher epsilon.
+    env.assertEqual(ids_found, len(res_default_epsilon[1::2]))
