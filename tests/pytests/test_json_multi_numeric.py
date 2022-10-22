@@ -632,84 +632,74 @@ def testUpdateNumRecordsHash(env):
     """ Test update of `num_records` when using Hashes """
     checkUpdateNumRecords(env, False)
 
-def testMultiNumericReturn(env):
-    """ test RETURN with multiple NUMERIC values """
+def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
+    """ Helper function for RETURN with multiple NUMERIC values """
 
     conn = getConnectionByEnv(env)
 
-    env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.arr[*]', 'AS', 'val', 'NUMERIC').ok()
-    env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'val', 'NUMERIC').ok()
+    dialect_param = ['DIALECT', 3] if not default_dialect else []
+    sortable_param = ['SORTABLE'] if is_sortable else []
+    env.assertEqual(len(expected), 3, message='dialect {}, sortable {}'.format(dialect_param, is_sortable))
+
+    env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.arr[*]', 'AS', 'val', 'NUMERIC', *sortable_param).ok()
+    env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'val', 'NUMERIC', *sortable_param).ok()
     doc1_content = {"arr":[1, 2, 3]}
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
+
+    # Multi flat
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '1', 'val', *dialect_param).equal(expected[1])
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param).equal(expected[1])
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
+
+    env.expect('FT.AGGREGATE', 'idx_flat',
+               '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+
+    env.expect('FT.AGGREGATE', 'idx_flat',
+               '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+
+    # Array
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '1', 'val', *dialect_param).equal(expected[2])
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param).equal(expected[1])
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
+
+    env.expect('FT.AGGREGATE', 'idx_arr',
+               '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param).equal([1, ['val', expected[2][2][1]]])
+
+    env.expect('FT.AGGREGATE', 'idx_arr',
+               '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[2][2][1]]])
+
+    # RETURN ALL
+    res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', *dialect_param)
+    env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
+
+
+def testMultiNumericReturn(env):
+    """ test RETURN with multiple NUMERIC values """
 
     res1 = [1, 'doc:1', ['arr_1', '[2]']]
     res2 = [1, 'doc:1', ['val', '[1,2,3]']]
     res3 = [1, 'doc:1', ['val', '[[1,2,3]]']]
 
-    # Multi flat
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', 'DIALECT', 3).equal(res1)
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '1', 'val', 'DIALECT', 3).equal(res2)
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr[*]', 'AS', 'val', 'DIALECT', 3).equal(res2)
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr', 'AS', 'val', 'DIALECT', 3).equal(res3)
+    checkMultiNumericReturn(env, [res1, res2, res3], False, False)
+    env.flush()
+    checkMultiNumericReturn(env, [res1, res2, res3], False, True)
 
-    env.expect('FT.AGGREGATE', 'idx_flat',
-               '@val:[2 3]', 'GROUPBY', '1', '@val', 'DIALECT', 3).equal([1, ['val', res2[2][1]]])
+def testMultiNumericReturnBWC(env):
+    """ test backward compatibility of RETURN with multiple NUMERIC values """
+    res1 = [1, 'doc:1', ['arr_1', '2']]
+    res2 = [1, 'doc:1', ['val', '1']]
+    res3 = [1, 'doc:1', ['val', '[1,2,3]']]
 
-    # Array
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', 'DIALECT', 3).equal(res1)
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '1', 'val', 'DIALECT', 3).equal(res3)
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr[*]', 'AS', 'val', 'DIALECT', 3).equal(res2)
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr', 'AS', 'val', 'DIALECT', 3).equal(res3)
-
-    env.expect('FT.AGGREGATE', 'idx_arr',
-               '@val:[2 3]', 'GROUPBY', '1', '@val', 'DIALECT', 3).equal([1, ['val', res3[2][1]]])
-
-    # RETURN ALL
-    res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'DIALECT', 3)
-    env.assertEqual(json.loads(res[2][1]), [doc1_content])
-    
-    #
-    # Test backward compatibility (before DIALECT 3)
-    #
-    res1_single = [1, 'doc:1', ['arr_1', '2']]
-    res2_single = [1, 'doc:1', ['val', '1']]
-    res3_single = [1, 'doc:1', ['val', '[1,2,3]']]
-
-    # Multi flat
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1').equal(res1_single)
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '1', 'val').equal(res2_single)
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr[*]', 'AS', 'val').equal(res2_single)
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr', 'AS', 'val').equal(res3_single)
-
-    env.expect('FT.AGGREGATE', 'idx_flat',
-               '@val:[2 3]', 'GROUPBY', '1', '@val').equal([1, ['val', res2_single[2][1]]])
-
-    # Array
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1').equal(res1_single)
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '1', 'val').equal(res3_single)
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr[*]', 'AS', 'val').equal(res2_single)
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr', 'AS', 'val').equal(res3_single)
-
-    env.expect('FT.AGGREGATE', 'idx_arr',
-               '@val:[2 3]', 'GROUPBY', '1', '@val').equal([1, ['val', res3_single[2][1]]])
-
-    # RETURN ALL
-    res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]')
-    env.assertEqual(json.loads(res[2][1]), doc1_content)
-    
+    checkMultiNumericReturn(env, [res1, res2, res3], True, False)
+    env.flush()
+    checkMultiNumericReturn(env, [res1, res2, res3], True, True)

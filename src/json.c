@@ -434,7 +434,7 @@ int JSON_StoreTagsInDocField(size_t len, JSONResultsIterator jsonIter, struct Do
 }
 
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
-                              FieldSpec *fs, struct DocumentField *df) {
+                              FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx) {
   int rv = REDISMODULE_OK;
 
   if (len == 1) {
@@ -468,5 +468,15 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     }
   }
 
+  df->multisv = NULL;
+  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY) {
+    RSValue *rsv = NULL;
+    japi->resetIter(jsonIter);
+    if (jsonIterToValue(ctx, jsonIter, APIVERSION_RETURN_MULTI_CMP_FIRST, &rsv, false) == REDISMODULE_OK) {
+      df->multisv = rsv;
+    } else {
+      rv = REDISMODULE_ERR;
+    }
+  }
   return rv;
 }

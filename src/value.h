@@ -122,6 +122,7 @@ typedef struct RSValue {
 
 #define RS_DUOVAL_VAL(v) ((v).duoval.vals[0])
 #define RS_DUOVAL_OTHERVAL(v) ((v).duoval.vals[1])
+#define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
 /**
  * Clears the underlying storage of the value, and makes it

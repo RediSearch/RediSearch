@@ -231,8 +231,14 @@ static int replyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   return REDISMODULE_OK;
 }
 
+typedef struct DocumentAddCtx {
+  RSAddDocumentCtx *aCtx;
+  RedisSearchCtx *sctx;
+} DocumentAddCtx;
+
 static void threadCallback(void *p) {
-  Document_AddToIndexes(p);
+  DocumentAddCtx *ctx = p;
+  Document_AddToIndexes(ctx->aCtx, ctx->sctx);
 }
 
 void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
@@ -344,7 +350,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   }
   
   if (!concurrentSearch) {
-    Document_AddToIndexes(aCtx);    
+    Document_AddToIndexes(aCtx, sctx);
   } else {
     ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
   }
@@ -396,7 +402,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 }
 
 #define FIELD_HANDLER(name)                                                                \
-  static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
+  static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, DocumentField *field, const FieldSpec *fs, \
                   FieldIndexerData *fdata, QueryError *status)
 
 #define FIELD_BULK_INDEXER(name)                                                            \
@@ -526,8 +532,9 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
       RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
-    } else if (array_len(fdata->arrNumeric) > 0) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->arrNumeric[0], RS_SORTABLE_NUM, 0);
+    } else if (field->multisv) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
+      field->multisv = NULL;
     }
   }
   return 0;
@@ -720,7 +727,7 @@ void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
   }
 }
 
-int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
+int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   Document *doc = aCtx->doc;
   int ourRv = REDISMODULE_OK;
 
@@ -735,7 +742,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
       }
 
       PreprocessorFunc pp = preprocessorMap[ii];
-      if (pp(aCtx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
+      if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
         if (!AddDocumentCtx_IsBlockable(aCtx)) {
           ++aCtx->spec->stats.indexingFailures;
         } else {
