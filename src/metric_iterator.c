@@ -13,7 +13,7 @@ static size_t MR_Len(void *ctx) {
 
 static void MR_Abort(void *ctx) {
   MetricIterator *mr = ctx;
-  mr->base.isValid = 0;
+  IITER_SET_EOF(&mr->base);
 }
 
 static t_docId MR_LastDocId(void *ctx) {
@@ -25,7 +25,7 @@ static void MR_Rewind(void *ctx) {
   MetricIterator *mr = ctx;
   mr->lastDocId = 0;
   mr->curIndex = 0;
-  mr->base.isValid = 1;
+  IITER_CLEAR_EOF(&mr->base);
 }
 
 static int MR_Read(void *ctx, RSIndexResult **hit) {
@@ -40,9 +40,11 @@ static int MR_Read(void *ctx, RSIndexResult **hit) {
   (*hit)->metric.value = mr->metricList[mr->curIndex];
   (*hit)->metric.metricField = mr->fieldName;
 
+  // Advance the current index in the doc ids array, so it will point to the next id to be returned.
+  // If we reached the total number of results, iterator is depleted.
   mr->curIndex++;
   if (mr->curIndex == mr->resultsNum) {
-    mr->base.isValid = 0;
+    IITER_SET_EOF(&mr->base);
   }
   return INDEXREAD_OK;
 }
@@ -53,25 +55,26 @@ static int MR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
   MetricIterator *mr = ctx;
   t_docId cur_id = mr->idsList[mr->curIndex];
-  while(mr->curIndex < mr->resultsNum) {
-    if (docId > cur_id) {
-      // consider binary search for next value
-      cur_id = mr->idsList[++mr->curIndex];
-      continue;
-    }
-    // Set the item that we skipped to it in hit.
-    *hit = mr->base.current;
-    (*hit)->docId = mr->lastDocId = cur_id;
-    (*hit)->metric.value = mr->metricList[mr->curIndex];
-    (*hit)->metric.metricField = mr->fieldName;
+  while(cur_id < docId) {
+    // consider binary search for next value (skip exponentially to 2,4,8,...).
     mr->curIndex++;
     if (mr->curIndex == mr->resultsNum) {
-      mr->base.isValid = 0;
+      mr->lastDocId = cur_id;
+      IITER_SET_EOF(&mr->base);
+      return INDEXREAD_EOF;
     }
-    return INDEXREAD_OK;
+    cur_id = mr->idsList[mr->curIndex];
   }
-  mr->lastDocId = cur_id;  // this is the last valid doc id for this iterator.
-  return INDEXREAD_EOF;
+  // Set the item that we skipped to it in hit.
+  *hit = mr->base.current;
+  (*hit)->docId = mr->lastDocId = cur_id;
+  (*hit)->metric.value = mr->metricList[mr->curIndex];
+  (*hit)->metric.metricField = mr->fieldName;
+  mr->curIndex++;
+  if (mr->curIndex == mr->resultsNum) {
+    IITER_SET_EOF(&mr->base);
+  }
+  return INDEXREAD_OK;
 }
 
 static void MR_Free(IndexIterator *self) {

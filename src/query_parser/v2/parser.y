@@ -842,7 +842,7 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 
 query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid query as entire query case.
   setup_trace(ctx);
-  RedisModule_Assert(B->vn.vq->type == VECSIM_QT_KNN);
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = B;
   if (A) {
     QueryNode_AddChild(B, A);
@@ -851,7 +851,7 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid quer
 
 query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid query as entire query case.
   setup_trace(ctx);
-  RedisModule_Assert(B->vn.vq->type == VECSIM_QT_KNN);
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = B;
   if (A) {
     QueryNode_AddChild(B, A);
@@ -860,7 +860,7 @@ query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid
 
 query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
-  RedisModule_Assert(B->vn.vq->type == VECSIM_QT_KNN);
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   B->vn.vq->knn.order = BY_SCORE;
 
   ctx->root = B;
@@ -911,7 +911,7 @@ vector_score_field(A) ::= as param_term(B). {
 // Use query attributes syntax
 query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
   setup_trace(ctx);
-  RedisModule_Assert(B->vn.vq->type == VECSIM_QT_KNN);
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = B;
   if (B && C) {
      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
@@ -926,7 +926,7 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB.
 
 query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
   setup_trace(ctx);
-  RedisModule_Assert(B->vn.vq->type == VECSIM_QT_KNN);
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = B;
   if (B && C) {
      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
@@ -940,7 +940,7 @@ query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C
 
 query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
   setup_trace(ctx);
-  RedisModule_Assert(B->vn.vq->type == VECSIM_QT_KNN);
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = B;
   if (B && C) {
      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);

@@ -2,6 +2,7 @@
 
 #include "index_iterator.h"
 
+// The metric type that this iterator yields.
 typedef enum {
   VECTOR_DISTANCE,
 } Metric;
