@@ -1602,6 +1602,129 @@ def test_timeout_reached():
 
             conn.flushall()
 
+def test_create_multi_value_json():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    prefix = '_' if env.isCluster() else ''
+    dim = 4
+    algos = ['FLAT', 'HNSW']
+    multi_paths = ['$..vec', '$.vecs[*]', '$.*.vec']
+    single_paths = ['$.path.to.vec', '$.vecs[0]']
+
+    path = 'not a valid path'
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', 'FLAT',
+               '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().equal(
+                f"Invalid JSONPath '{path}' in attribute 'vec' in index 'idx'")
+
+    for algo in algos:
+        for path in multi_paths:
+            conn.flushall()
+            env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
+                       '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
+            env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
+
+        for path in single_paths:
+            conn.flushall()
+            env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
+                       '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
+            env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 0, message=f'{algo}, {path}')
+
+def test_index_multi_value_json():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 4
+    n = 100
+    per_doc = 5
+    info_type = int if env.isCluster() else str
+
+    for data_t in VECSIM_DATA_TYPES:
+        conn.flushall()
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+            '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+            '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+        for i in range(n):
+            conn.json().set(i, '.', {'vecs': [[i + j] * dim for j in range(per_doc)]})
+
+        score_field_name = 'dist'
+        k = min(10, n)
+        element = {'FLOAT32': '\0\0\0\0', 'FLOAT64': '\0\0\0\0\0\0\0\0'}[data_t]
+        cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element * dim, 'RETURN', '1', score_field_name, 'SORTBY', score_field_name]
+
+        expected_res = [] # the expected ids are going to be unique
+        for i in range(k):
+            expected_res.append(str(i))                                 # Expected id
+            expected_res.append([score_field_name, str(i * i * dim)])   # Expected score
+
+        for _ in env.retry_with_rdb_reload():
+            waitForIndex(env, 'idx')
+            info = conn.ft('idx').info()
+            env.assertEqual(info['num_docs'], info_type(n))
+            env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
+            env.assertEqual(info['hash_indexing_failures'], info_type(0))
+
+            cmd[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
+            hnsw_res = conn.execute_command(*cmd)[1:]
+            env.assertEqual(hnsw_res, expected_res)
+
+            cmd[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
+            flat_res = conn.execute_command(*cmd)[1:]
+            env.assertEqual(flat_res, expected_res)
+
+def test_bad_index_multi_value_json():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    info_type = int if env.isCluster() else str
+    dim = 4
+    per_doc = 5
+
+    failures = 0
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.vecs', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+    # By default, we assume that a static path leads to a single value, so we can't index an array of vectors as multi-value
+    conn.json().set(46, '.', {'vecs': [[0.46] * dim] * per_doc})
+    failures += 1
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+
+    # We also don't support an array of length 1 that wraps an array for single value
+    conn.json().set(46, '.', {'vecs': [[0.46] * dim]})
+    failures += 1
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+
+    conn.flushall()
+    failures = 0
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.vecs[*]', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+    # dynamic path returns a non array type
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), 'not a vector']})
+    failures += 1
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+
+    # we should NOT fail if some of the vectors are NULLs
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(conn.ft('idx').info()['num_records'], info_type(2))
+
+    # ...or if the path returns NULL
+    conn.json().set(46, '.', {'vecs': None})
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+
+    # some of the vectors are not of the right dimension
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), np.ones(dim + 46).tolist()]})
+    failures += 1
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), []]})
+    failures += 1
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+
+    # some of the elements in some of vectors are not numerics
+    vec = [42] * dim
+    vec[-1] = 'not a number'
+    conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), vec]})
+    failures += 1
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
 def test_range_query_basic():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')

@@ -259,6 +259,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
     RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.type);
     RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.dim);
     RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.metric);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.multi);
     RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.initialCapacity);
     RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.blockSize);
     break;
@@ -266,6 +267,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
     RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.type);
     RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.dim);
     RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.metric);
+    RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.multi);
     RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.initialCapacity);
     RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.M);
     RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.efConstruction);
@@ -274,31 +276,11 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   }
 }
 
-int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
+static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = {0};
   int rv;
-  
-  vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
 
-  switch (vecsimParams->algo) {
-  case VecSimAlgo_BF:
-    vecsimParams->bfParams.type = LoadUnsigned_IOError(rdb, goto fail);
-    vecsimParams->bfParams.dim = LoadUnsigned_IOError(rdb, goto fail);
-    vecsimParams->bfParams.metric = LoadUnsigned_IOError(rdb, goto fail);
-    vecsimParams->bfParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
-    vecsimParams->bfParams.blockSize = LoadUnsigned_IOError(rdb, goto fail);
-    break;
-  case VecSimAlgo_HNSWLIB:
-    vecsimParams->hnswParams.type = LoadUnsigned_IOError(rdb, goto fail);
-    vecsimParams->hnswParams.dim = LoadUnsigned_IOError(rdb, goto fail);
-    vecsimParams->hnswParams.metric = LoadUnsigned_IOError(rdb, goto fail);
-    vecsimParams->hnswParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
-    vecsimParams->hnswParams.M = LoadUnsigned_IOError(rdb, goto fail);
-    vecsimParams->hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
-    vecsimParams->hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
-    break;
-  }
   // Checking if the loaded parameters fits the current server limits.
   rv = VecSimIndex_validate_params(ctx, vecsimParams, &status);
   if (REDISMODULE_OK != rv) {
@@ -306,7 +288,7 @@ int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
     size_t old_initial_cap = 0;
     RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: %s", QueryError_GetError(&status));
     // We change the initial size to 0 and block size to default and try again.
-    // setting block size to 0 will later set it to default. 
+    // setting block size to 0 will later set it to default.
     switch (vecsimParams->algo) {
       case VecSimAlgo_BF:
         old_block_size = vecsimParams->bfParams.blockSize;
@@ -342,6 +324,66 @@ int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   }
   QueryError_ClearError(&status);
   return rv;
+}
+
+int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
+
+  vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
+
+  switch (vecsimParams->algo) {
+  case VecSimAlgo_BF:
+    vecsimParams->bfParams.type = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.multi = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.blockSize = LoadUnsigned_IOError(rdb, goto fail);
+    break;
+  case VecSimAlgo_HNSWLIB:
+    vecsimParams->hnswParams.type = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.multi = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.M = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
+    break;
+  }
+
+  return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);
+
+fail:
+  return REDISMODULE_ERR;
+}
+
+// load for before multi-value vector field was supported
+int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
+
+  vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
+
+  switch (vecsimParams->algo) {
+  case VecSimAlgo_BF:
+    vecsimParams->bfParams.type = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.multi = false;
+    vecsimParams->bfParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.blockSize = LoadUnsigned_IOError(rdb, goto fail);
+    break;
+  case VecSimAlgo_HNSWLIB:
+    vecsimParams->hnswParams.type = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.multi = false;
+    vecsimParams->hnswParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.M = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
+    break;
+  }
+
+  return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);
 
 fail:
   return REDISMODULE_ERR;
