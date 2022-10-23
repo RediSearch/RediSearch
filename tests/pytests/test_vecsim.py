@@ -1602,7 +1602,7 @@ def test_timeout_reached():
 
 
 def test_range_query_basic():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 4
     n = 999
@@ -1645,7 +1645,7 @@ def test_range_query_basic():
 
 
 def test_range_query_basic_random_vectors():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 128
     n = 10000
