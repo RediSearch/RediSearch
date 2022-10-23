@@ -327,7 +327,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   }
 
   RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
-  
+
   bool concurrentSearch = false;
   if (AddDocumentCtx_IsBlockable(aCtx)) {
     size_t totalSize = 0;
@@ -335,7 +335,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
       const DocumentField *ff = aCtx->doc->fields + ii;
       if ((ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
         size_t n;
-        if (ff->unionType == FLD_VAR_T_CSTR || ff->unionType == FLD_VAR_T_RMS) {          
+        if (ff->unionType == FLD_VAR_T_CSTR || ff->unionType == FLD_VAR_T_RMS) {
           DocumentField_GetValueCStr(&aCtx->doc->fields[ii], &n);
           totalSize += n;
         } else if (ff->unionType == FLD_VAR_T_ARRAY) {
@@ -346,9 +346,9 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
         }
       }
     }
-    concurrentSearch = (totalSize >= SELF_EXEC_THRESHOLD); 
+    concurrentSearch = (totalSize >= SELF_EXEC_THRESHOLD);
   }
-  
+
   if (!concurrentSearch) {
     Document_AddToIndexes(aCtx, sctx);
   } else {
@@ -422,8 +422,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     case FLD_VAR_T_NULL:
       return 0;
     // Unsupported type retrun an error
+    case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
-    case FLD_VAR_T_GEO:    
+    case FLD_VAR_T_GEO:
       return -1;
     case FLD_VAR_T_ARRAY:
     case FLD_VAR_T_CSTR:
@@ -451,7 +452,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     if (aCtx->byteOffsets) {
       curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
       curOffsetWriter = &aCtx->offsetsWriter;
-    }    
+    }
 
     uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
     if (FieldSpec_IsNoStem(fs)) {
@@ -469,14 +470,14 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     }
 
     for (size_t i = 0; i < valueCount; ++i) {
-    
+
       // Already got the first value
-      if (i) {        
+      if (i) {
         c = DocumentField_GetArrayValueCStr(field, &fl, i);
       }
       ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
       aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
-      
+
       Token tok = {0};
       uint32_t newTokPos;
       while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
@@ -498,7 +499,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   return 0;
 }
 
-FIELD_PREPROCESSOR(numericPreprocessor) {  
+FIELD_PREPROCESSOR(numericPreprocessor) {
   switch (field->unionType) {
     case FLD_VAR_T_RMS:
       fdata->isMulti = 0;
@@ -515,7 +516,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
         if (*end) {
           QueryError_SetCode(status, QUERY_ENOTNUMERIC);
           return -1;
-        }        
+        }
       }
       break;
     case FLD_VAR_T_NUM:
@@ -556,7 +557,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  
+
   if (!fdata->isMulti) {
     NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
     ctx->spec->stats.invertedSize += rv.sz;
@@ -567,18 +568,24 @@ FIELD_BULK_INDEXER(numericIndexer) {
       NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
       ctx->spec->stats.invertedSize += rv.sz;
       ctx->spec->stats.numRecords += rv.numRecords;
-    }    
-  }  
+    }
+  }
   return 0;
 }
 
 FIELD_PREPROCESSOR(vectorPreprocessor) {
-  fdata->vecLen = 0;
+  fdata->numVec = 0;
   if (field->unionType == FLD_VAR_T_RMS) {
     fdata->vector = RedisModule_StringPtrLen(field->text, &fdata->vecLen);
+    fdata->numVec = 1; // In this case we can only have a single value
   } else if (field->unionType == FLD_VAR_T_CSTR) {
     fdata->vector = field->strval;
     fdata->vecLen = field->strlen;
+    fdata->numVec = 1; // In this case we can only have a single value
+  } else if (field->unionType == FLD_VAR_T_BLOB_ARRAY) {
+    fdata->vector = field->blobArr;
+    fdata->vecLen = field->blobSize;
+    fdata->numVec = field->blobArrLen;
   } else if (field->unionType == FLD_VAR_T_NULL) {
     return 0; // Skipping indexing missing vector
   }
@@ -602,10 +609,12 @@ FIELD_BULK_INDEXER(vectorIndexer) {
       return -1;
     }
   }
-  if (fdata->vecLen) { // If document is loaded with null vector (on JSON), skip.
-    ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);;
-    ctx->spec->stats.numRecords++;
+  char *curr_vec = (char *)fdata->vector;
+  for (size_t i = 0; i < fdata->numVec; i++) {
+    ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
+    curr_vec += fdata->vecLen;
   }
+  ctx->spec->stats.numRecords += fdata->numVec;
   return 0;
 }
 
@@ -628,6 +637,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_NULL:
       return 0;
+    case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_ARRAY:
     case FLD_VAR_T_NUM:
       RS_LOG_ASSERT(0, "Oops");
@@ -646,7 +656,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
     }
   }
-  
+
   return 0;
 }
 
@@ -774,7 +784,7 @@ cleanup:
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
     IndexSpec_DeleteDoc(aCtx->spec, RSDummyContext, doc->docKey);
-  
+
     QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
     AddDocumentCtx_Finish(aCtx);
   }
@@ -895,7 +905,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
-        case INDEXFLD_T_GEO:         
+        case INDEXFLD_T_GEO:
           RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
                               RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
           break;
@@ -949,8 +959,9 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
       break;
     case FLD_VAR_T_NULL:
       break;
+    case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
-    case FLD_VAR_T_GEO:    
+    case FLD_VAR_T_GEO:
       RS_LOG_ASSERT(0, "invalid types");
   }
   return NULL;

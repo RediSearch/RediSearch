@@ -442,6 +442,11 @@ def testCustomStopwords(env):
     env.expect('ft.create', 'idx4', 'ON', 'HASH', 'stopwords', 0,
                                     'schema', 'foo', 'text').ok()
 
+    # Index with keyword as stopword - not supported in dialect1
+    env.expect('ft.create', 'idx5', 'ON', 'HASH', 'stopwords', 1, 'true',
+               'schema', 'foo', 'text').ok()
+    env.expect('ft.search', 'idx5', '@foo:title=>{$inorder:true}', 'DIALECT', '2').equal([0])
+
     #for idx in ('idx', 'idx2', 'idx3'):
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields', 'foo', 'hello world').ok()
     env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields', 'foo', 'to be or not to be').ok()
@@ -3452,8 +3457,8 @@ def test_mod1548(env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-               '$["prod:id"]', 'AS', 'prod:id', 'TEXT',
-               '$.prod:id', 'AS', 'prod:id_unsupported', 'TEXT',
+               '$["prod:id"]', 'AS', 'prod:id_bracketnotation', 'TEXT',
+               '$.prod:id', 'AS', 'prod:id_dotnotation', 'TEXT',
                '$.name', 'AS', 'name', 'TEXT',
                '$.categories', 'AS', 'categories', 'TAG', 'SEPARATOR' ,',').ok()
     waitForIndex(env, 'idx')
@@ -3468,12 +3473,12 @@ def test_mod1548(env):
     env.assertEqual(res,  [2, 'prod:1', ['name', 'foo'], 'prod:2', ['name', 'bar']])
 
     # Supported jsonpath (actual path contains a colon using the bracket notation)
-    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id')
-    env.assertEqual(res,  [2, 'prod:1', ['prod:id', '35114964'], 'prod:2', ['prod:id', '35114965']])
+    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_bracketnotation')
+    env.assertEqual(res,  [2, 'prod:1', ['prod:id_bracketnotation', '35114964'], 'prod:2', ['prod:id_bracketnotation', '35114965']])
 
-    # Currently unsupported jsonpath (actual path contains a colon using the dot notation)
-    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
-    env.assertEqual(res, [2, 'prod:1', [], 'prod:2', []])
+    # Supported jsonpath (actual path contains a colon using the dot notation)
+    res = env.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_dotnotation')
+    env.assertEqual(res,  [2, 'prod:1', ['prod:id_dotnotation', '35114964'], 'prod:2', ['prod:id_dotnotation', '35114965']])
 
 def test_empty_field_name(env):
     conn = getConnectionByEnv(env)
@@ -3573,3 +3578,12 @@ def test_mod_4200(env):
         env.expect('ft.add', 'idx', 'doc%i' % i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '((~foo) foo) | ((~foo) foo)', 'LIMIT', '0', '0').equal([1001])
 
+def test_RED_86036(env):
+    env.skipOnCluster()
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    for i in range(1000):
+        env.execute_command('hset', 'doc%d' % i, 't', 'foo')
+    res = env.execute_command('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
+    res = res[1][3][1][7] # get the list iterator profile
+    env.assertEqual(res[1], 'ID-LIST')
+    env.assertLess(res[5], 3)
