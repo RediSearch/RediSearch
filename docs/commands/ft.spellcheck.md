@@ -9,7 +9,7 @@ Perform spelling correction on a query, returning suggestions for misspelled ter
 {{< highlight bash >}}
 FT.SPELLCHECK index query 
           [DISTANCE distance] 
-          [TERMS INCLUDE | EXCLUDE dictionary [terms [terms ...]]] 
+          [TERMS INCLUDE | EXCLUDE dictionary [TERMS ...]] 
           [DIALECT dialect]
 {{< / highlight >}}
 
@@ -36,7 +36,9 @@ See [Spellchecking](/redisearch/reference/spellcheck) for more details.
 <details open>
 <summary><code>TERMS</code></summary> 
 
-specifies an inclusion (`INCLUDE`) or exclusion (`EXCLUDE`) of a custom dictionary named `{dict}`. Refer to `FT.DICTADD`, `FT.DICTDEL` and `FT.DICTDUMP` about managing custom dictionaries.
+specifies an inclusion (`INCLUDE`) or exclusion (`EXCLUDE`) of a custom dictionary. Refer to `FT.DICTADD`, `FT.DICTDEL` and `FT.DICTDUMP` about managing custom dictionaries.
+
+Multiple inclusion and/or exclusion `TERMS` can be specified.
 </details>
 
 <details open>
