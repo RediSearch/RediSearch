@@ -3584,3 +3584,12 @@ def test_mod_4200(env):
         env.expect('ft.add', 'idx', 'doc%i' % i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '((~foo) foo) | ((~foo) foo)', 'LIMIT', '0', '0').equal([1001])
 
+def test_RED_86036(env):
+    env.skipOnCluster()
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    for i in range(1000):
+        env.execute_command('hset', 'doc%d' % i, 't', 'foo')
+    res = env.execute_command('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
+    res = res[1][3][1][7] # get the list iterator profile
+    env.assertEqual(res[1], 'ID-LIST')
+    env.assertLess(res[5], 3)
