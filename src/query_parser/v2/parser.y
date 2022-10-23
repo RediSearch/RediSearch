@@ -921,7 +921,6 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB.
   if (A) {
       QueryNode_AddChild(B, A);
   }
-
 }
 
 query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
@@ -941,6 +940,8 @@ query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C
 query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
   setup_trace(ctx);
   RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
+  B->vn.vq->knn.order = BY_SCORE;
+
   ctx->root = B;
   if (B && C) {
      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);

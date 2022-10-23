@@ -307,6 +307,7 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
       QueryNode_InitParams(ret, 2);
       QueryNode_SetParam(q, &ret->params[0], &vq->range.vector, &vq->range.vecLen, vec);
       QueryNode_SetParam(q, &ret->params[1], &vq->range.radius, NULL, value);
+      vq->range.order = BY_ID;
       break;
     default:
       QueryNode_Free(ret);
@@ -323,8 +324,8 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
     // we usually want the numeric range as the "leader" iterator.
     q->root->children = array_ensure_prepend(q->root->children, &n, 1, QueryNode *);
     q->numTokens++;
-  // vector node should always be in the root, so we have a special case here.
-  } else if (q->root->type == QN_VECTOR) {
+  // vector node of type KNN should always be in the root, so we have a special case here.
+  } else if (q->root->type == QN_VECTOR && q->root->vn.vq->type == VECSIM_QT_KNN) {
     // for non-hybrid - add the filter node as the child of the vector node.
     if (QueryNode_NumChildren(q->root) == 0) {
       QueryNode_AddChild(q->root, n);

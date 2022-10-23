@@ -2065,7 +2065,6 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
   if (yymsp[-8].minor.yy51) {
       QueryNode_AddChild(yymsp[-5].minor.yy51, yymsp[-8].minor.yy51);
   }
-
 }
         break;
       case 71: /* query ::= text_expr ARROW LSQB vector_query RSQB ARROW LB attribute_list RB */
@@ -2088,6 +2087,8 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
 {
   setup_trace(ctx);
   RS_LOG_ASSERT(yymsp[-5].minor.yy51->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
+  yymsp[-5].minor.yy51->vn.vq->knn.order = BY_SCORE;
+
   ctx->root = yymsp[-5].minor.yy51;
   if (yymsp[-5].minor.yy51 && yymsp[-1].minor.yy33) {
      QueryNode_ApplyAttributes(yymsp[-5].minor.yy51, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);

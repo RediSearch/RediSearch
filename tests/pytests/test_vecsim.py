@@ -1604,7 +1604,7 @@ def test_timeout_reached():
 
 
 def test_range_query_basic():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 4
     n = 999
@@ -1626,6 +1626,7 @@ def test_range_query_basic():
             # Expect to get the 499 docs with the highest ids.
             dist_range = dim * 499**2
             query_data = create_np_array_typed([n+1]*dim, data_type)
+            x=input("now")
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
             'SORTBY', 'score', 'PARAMS', 6, 'vec_param', query_data.tobytes(), 'r', dist_range, 'score_field', 'score',
             'RETURN', 1, 'score', 'LIMIT', 0, n)
@@ -1647,7 +1648,7 @@ def test_range_query_basic():
 
 
 def test_range_query_basic_random_vectors():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 128
     n = 10000
@@ -1680,7 +1681,7 @@ def test_range_query_basic_random_vectors():
 
 
 def test_range_query_complex_queries():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 128
     index_size = 1000
@@ -1701,19 +1702,82 @@ def test_range_query_complex_queries():
         # Change the text value to 'other' for 20% of the vectors (with id 5, 10, ..., index_size)
         for i in range(5, index_size + 1, 5):
             vector = create_np_array_typed([i]*dim, data_type)
-            conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'other', 'num', i**2, 'coordinate',
+            conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'other', 'num', -i, 'coordinate',
                                  str(i/100)+","+str(i/100))
-        x=input("now")
-        #todo: fix order of results from query to BY_ID
+
         query_data = create_np_array_typed([index_size]*dim, data_type)
+        radius = dim * 9**2
+
+        # Expect to get the results whose ids are in [index_size-9, index_size] and don't multiply by 5.
         expected_res = [8]
         for i in range(1, 10):
             if i == 5:
                 continue
-            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2)], ['t', 'text']])
-        radius = dim * 9**2
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2)], ['t', 'text'], ['num', 'i']])
         env.expect('FT.SEARCH', 'idx', '@t:text @v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
                     'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
-                    'RETURN', 2, 'dist', 't', 'LIMIT', 0, index_size).equal(expected_res)
+                    'RETURN', 3, 'dist', 't', 'num', 'LIMIT', 0, index_size).equal(expected_res)
+
+        # Expect to get 10 results whose ids are a multiplication of 5 whose distance within the range.
+        radius = dim * 49**2
+        expected_res = [10]
+        for i in range(1, 51, 5):
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2)], ['t', 'other'], ['num', str(-i)]])
+        env.expect('FT.SEARCH', 'idx', 'other @v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
+                   'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
+                   'RETURN', 3, 'dist', 't', 'num' ,'LIMIT', 0, index_size).equal(expected_res)
+
+        # Expect to get 20 results whose ids are a multiplication of 5 OR has a value in 'num' field
+        # which are in the range [950, 960), and whose corresponding vector distance within the range. These are ids
+        # [index_size, index_size-5, ... , index_size-50] U [index_size-51, index_size-52, ..., index_size-59]
+        radius = dim * 59**2
+        expected_res = [20]
+        for i in range(5, 51, 5):
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2)], ['t', 'other'], ['num', str(-i)]])
+        for i in range(51, 60):
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2)], ['t', 'other'],
+                                 ['num', str(-i if i % 5 == 0 else i)]])
+        env.expect('FT.SEARCH', 'idx',
+                   f'(@t:other | @num:[{index_size-60} ({index_size-50}]) @v:[VECTOR_RANGE $r $vec_param]=>{{$YIELD_DISTANCE_AS:dist}}',
+                   'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
+                   'RETURN', 3, 'dist', 't', 'num', 'LIMIT', 0, index_size).equal(expected_res)
+
+        # Test again with NOT operator - expect to get the same result, sinCe NOT 'text' means that @t contains 'other'
+        env.expect('FT.SEARCH', 'idx',
+                   f'(-text | @num:[{index_size-60} ({index_size-50}]) @v:[VECTOR_RANGE $r $vec_param]=>{{$YIELD_DISTANCE_AS:dist}}',
+                   'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
+                   'RETURN', 3, 'dist', 't', 'num', 'LIMIT', 0, index_size).equal(expected_res)
+
+        # Test with global filters. Use range query with all types of global filters exists
+        radius = dim * 100**2  # ids in range [index_size-100, index_size] are within the radius.
+        inkeys = [i for i in range(3, index_size+1, 3)]
+        numeric_range = (index_size-100, index_size-20)
+        ids_in_numeric_range = {i for i in range(numeric_range[0], numeric_range[1]) if i % 5 != 0}
+        ids_in_geo_range = {900 + i*sign for i in range(32) for sign in {1, -1}}  # in 50 km radius around (9.0, 9.0)
+        expected_res = [str(i) for i in range(index_size-100, index_size)
+                        if i in inkeys and i in ids_in_numeric_range and i in ids_in_geo_range]
+        expected_res.insert(0, len(expected_res))
+        env.expect('FT.SEARCH', 'idx', 'text @v:[VECTOR_RANGE $r $vec_param]=>{$yield_distance_as:dist}',
+                   'INKEYS', len(inkeys), *inkeys,
+                   'filter', 'num', numeric_range[0], numeric_range[1]-1, 'geofilter', 'coordinate', 9.0, 9.0, 50,
+                   'km', 'SORTBY', 'dist', 'NOCONTENT', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius).equal(expected_res)
+
+        # Rerun with global filters, put the range query in the root this time (expect the same result set)
+        env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$yield_distance_as:dist}',
+                   'INKEYS', len(inkeys), *inkeys,
+                   'filter', 'num', numeric_range[0], numeric_range[1]-1, 'geofilter', 'coordinate', 9.0, 9.0, 50,
+                   'km', 'SORTBY', 'dist', 'NOCONTENT', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius).equal(expected_res)
+
+        # Test with tf-idf scores. for ids that are a multiplication of 5, tf_idf score is 2, while for other
+        # ids the tf-idf score is 1 (note that the range query doesn't affect the score).
+        radius = dim * 10**2
+        expected_res = [11]
+        for i in range(index_size-10, index_size+1, 5):
+            expected_res.extend([str(i), '2'])
+        for i in sorted(set(range(index_size-10, index_size+1))-set(range(index_size-10, index_size+1, 5))):
+            expected_res.extend([str(i), '1'])
+        env.expect('FT.SEARCH', 'idx', '(text|other) @v:[VECTOR_RANGE $r $vec_param]', 'WITHSCORES',
+                   'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
+                   'RETURN', 0, 'LIMIT', 0, 11).equal(expected_res)
 
         conn.flushall()
