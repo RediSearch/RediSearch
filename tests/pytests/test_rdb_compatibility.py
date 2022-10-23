@@ -83,6 +83,7 @@ def testRDBCompatibility_vecsim():
     rdbFilePath = os.path.join(dbDir, dbFileName)
 
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb']
+    algorithms = ['FLAT', 'HNSW']
     if not downloadFiles(rdbs):
         if CI:
             env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
@@ -101,7 +102,8 @@ def testRDBCompatibility_vecsim():
         env.start()
         waitForIndex(env, 'idx')
         env.expect('FT.SEARCH idx * LIMIT 0 0').equal([100])
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1000 @vec $b]', 'PARAMS', '2', 'b', '<<????>>', 'LIMIT', '0', '0').equal([100])
+        for vec_field in [alg.lower() + '_vec' for alg in algorithms]:
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1000 @{vec_field} $b]', 'PARAMS', '2', 'b', '<<????>>', 'LIMIT', '0', '0').equal([100])
         env.expect('DBSIZE').equal(100)
         res = to_dict(env.cmd('FT.INFO idx'))
         env.assertEqual(res['num_docs'], '100')
