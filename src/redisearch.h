@@ -281,6 +281,15 @@ typedef struct {
   uint32_t typeMask;
 } RSAggregateResult;
 
+// Forward declaration of needed structs
+struct RLookupKey;
+struct RSValue;
+
+typedef struct RSAdditionalValue{
+  struct RLookupKey *key;
+  struct RSValue *value;
+} RSAdditionalValue;
+
 #pragma pack(16)
 
 typedef struct RSIndexResult {
@@ -321,6 +330,9 @@ typedef struct RSIndexResult {
   };
 
   RSResultType type;
+
+  RSAdditionalValue *additional;
+
   // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
   // want
   int isCopy;

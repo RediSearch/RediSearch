@@ -33,6 +33,8 @@ static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata
 // Simulate the logic of "SkipTo", but it is limited to the results in a specific batch.
 static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
+  array_free_ex((*hit)->additional, RSValue_Decref(((RSAdditionalValue *)ptr)->value));
+  (*hit)->additional = NULL;
   while(VecSimQueryResult_IteratorHasNext(hr->iter)) {
     VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
     t_docId id = VecSimQueryResult_GetId(res);
@@ -44,6 +46,9 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
     (*hit)->docId = id;
     (*hit)->metric.value = VecSimQueryResult_GetScore(res);
     (*hit)->metric.metricField = hr->scoreField;
+    RSValue *val = RS_NumVal(VecSimQueryResult_GetScore(res));
+    RSAdditionalValue pair = {.key = hr->base.ownKey, .value = val};
+    array_ensure_append_1((*hit)->additional, pair);
     return INDEXREAD_OK;
   }
   return INDEXREAD_EOF;
@@ -52,6 +57,8 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
 // Simulate the logic of "Read", but it is limited to the results in a specific batch.
 static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
+  array_free_ex((*hit)->additional, RSValue_Decref(((RSAdditionalValue *)ptr)->value));
+  (*hit)->additional = NULL;
   if (!VecSimQueryResult_IteratorHasNext(hr->iter)) {
     return INDEXREAD_EOF;
   }
@@ -60,6 +67,9 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   (*hit)->docId = VecSimQueryResult_GetId(res);
   (*hit)->metric.value = VecSimQueryResult_GetScore(res);
   (*hit)->metric.metricField = hr->scoreField;
+  RSValue *val = RS_NumVal(VecSimQueryResult_GetScore(res));
+  RSAdditionalValue pair = {.key = hr->base.ownKey, .value = val};
+  array_ensure_append_1((*hit)->additional, pair);
   return INDEXREAD_OK;
 }
 
@@ -104,6 +114,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
   hr->child->Read(hr->child->ctx, &cur_child_res);
   HR_ReadInBatch(hr, &cur_vec_res);
   while (IITER_HAS_NEXT(hr->child)) {
+    cur_child_res->additional = NULL;
     if (cur_vec_res->docId == cur_child_res->docId) {
       // Found a match - check if it should be added to the results heap.
       if (heap_count(hr->topResults) < hr->query.k || cur_vec_res->metric.value < *upper_bound) {
@@ -451,6 +462,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
 
   IndexIterator *ri = &hi->base;
   ri->ctx = hi;
+  ri->ownKey = NULL;
   ri->type = HYBRID_ITERATOR;
   ri->mode = MODE_SORTED;  // Since this iterator is always the root, we currently don't return the
                            // results sorted by id as an optimization (this can be modified in the future).

@@ -3,6 +3,8 @@
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
+#include "src/util/arr.h"
+#include "value.h"
 
 /* Allocate a new aggregate result of a given type with a given capacity*/
 RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
@@ -217,6 +219,7 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
 
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;
+  array_free_ex(r->additional, RSValue_Decref(((RSAdditionalValue *)ptr)->value));
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridMetric) {
     // for deep-copy results we also free the children
     if (r->isCopy && r->agg.children) {

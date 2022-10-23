@@ -555,7 +555,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
 */
 static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_WILDCARD_QUERY, "query node type should be wildcard query");
-  
+
   IndexSpec *spec = q->sctx->spec;
   Trie *t = spec->terms;
   ContainsCtx ctx = {.q = q, .opts = &qn->opts};
@@ -818,7 +818,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   if (!GeoFilter_Validate(node->gn.gf, q->status)) {
     return NULL;
   }
-  
+
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->gn.gf->property, strlen(node->gn.gf->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
@@ -860,13 +860,16 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     qn->opts.distField = NULL;
   }
 
-
   // Add the score field name to the ast score field names array.
   // This macro creates the array if it's the first name, and ensure its size is sufficient.
-  // For range queries, recall that score field may still be NULL, so no need to append it then.
-  if (qn->vn.vq->scoreField) {
-    array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
-  }
+  // if (qn->vn.vq->scoreField) {
+  //   qn->vn.vq->rlkey = QueryNode_getOwnRLookupKey(q, qn->vn.vq->scoreField);
+  //   if (!qn->vn.vq->rlkey) {
+  //     return NULL;
+  //   }
+  //   q->foundMetricField = true;
+  // }
+
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
     RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
@@ -877,6 +880,10 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
   IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
+  if (it && qn->vn.vq->scoreField) {
+    MetricRequest mr = {qn->vn.vq->scoreField, &it->ownKey};
+    array_ensure_append_1(*q->metricRequestsP, mr);
+  }
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
   }
@@ -1065,10 +1072,10 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
                                                         q->sctx->timeout);
     if (!arr) {
       // No matching terms
-      rm_free(its);     
+      rm_free(its);
       return NULL;
     } else if (arr == BAD_POINTER) {
-      // The wildcard pattern does not include tokens that can be used with suffix trie 
+      // The wildcard pattern does not include tokens that can be used with suffix trie
       fallbackBruteForce = true;
     } else {
       for (int i = 0; i < array_len(arr); ++i) {
@@ -1090,7 +1097,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   }
 
   if (!idx->suffix || fallbackBruteForce) {
-    // brute force wildcard query 
+    // brute force wildcard query
     TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
     TrieMapIterator_SetTimeout(it, q->sctx->timeout);
     // If there is no '*`, the length is known which can be used for optimization
@@ -1114,7 +1121,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
       }
     }
     TrieMapIterator_Free(it);
-  } else 
+  } else
 
   if (itsSz == 0) {
     rm_free(its);
@@ -1364,7 +1371,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
       .status = status,
-      .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
+      .metricRequestsP = &qast->metricRequests,
       .reqFlags = reqflags,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
@@ -1378,8 +1385,8 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
-  array_free(q->vecScoreFieldNames);
-  q->vecScoreFieldNames = NULL;
+  array_free(q->metricRequests);
+  q->metricRequests = NULL;
   q->numTokens = 0;
   q->numParams = 0;
   rm_free(q->query);
@@ -1912,5 +1919,5 @@ int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, boo
   } else {
     return 1;
   }
-  
+
 }

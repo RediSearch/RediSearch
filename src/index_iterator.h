@@ -5,6 +5,8 @@
 #include "redisearch.h"
 #include "index_result.h"
 
+struct RLookupKey; // Forward declaration
+
 #define INDEXREAD_EOF 0
 #define INDEXREAD_OK 1
 #define INDEXREAD_NOTFOUND 2
@@ -51,6 +53,9 @@ typedef struct indexIterator {
   int mode;
 
   enum iteratorType type;
+
+  // Used if the iterator yields some value
+  struct RLookupKey *ownKey;
 
   size_t (*NumEstimated)(void *ctx);
 
