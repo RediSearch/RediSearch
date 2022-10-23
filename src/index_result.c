@@ -105,6 +105,13 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
   *ret = *src;
   ret->isCopy = 1;
 
+  if (src->additional) {
+    ret->additional = NULL;
+    ret->additional = array_ensure_append_n(ret->additional, src->additional, array_len(src->additional));
+    for (size_t i = 0; i < array_len(ret->additional); i++)
+      RSValue_IncrRef(ret->additional[i].value);
+  }
+
   switch (src->type) {
     // copy aggregate types
     case RSResultType_Intersection:
@@ -193,6 +200,7 @@ void IndexResult_Init(RSIndexResult *h) {
   h->docId = 0;
   h->fieldMask = 0;
   h->freq = 0;
+  h->additional = NULL;
 
   if (h->type == RSResultType_Intersection || h->type == RSResultType_Union) {
     h->agg.numChildren = 0;
@@ -219,7 +227,7 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
 
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;
-  array_free_ex(r->additional, RSValue_Decref(((RSAdditionalValue *)ptr)->value));
+  IndexResult_Additional_Free(r);
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridMetric) {
     // for deep-copy results we also free the children
     if (r->isCopy && r->agg.children) {

@@ -33,8 +33,7 @@ static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata
 // Simulate the logic of "SkipTo", but it is limited to the results in a specific batch.
 static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
-  array_free_ex((*hit)->additional, RSValue_Decref(((RSAdditionalValue *)ptr)->value));
-  (*hit)->additional = NULL;
+  IndexResult_Additional_Free(*hit);
   while(VecSimQueryResult_IteratorHasNext(hr->iter)) {
     VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
     t_docId id = VecSimQueryResult_GetId(res);
@@ -48,7 +47,7 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
     (*hit)->metric.metricField = hr->scoreField;
     RSValue *val = RS_NumVal(VecSimQueryResult_GetScore(res));
     RSAdditionalValue pair = {.key = hr->base.ownKey, .value = val};
-    array_ensure_append_1((*hit)->additional, pair);
+    (*hit)->additional = array_ensure_append_1((*hit)->additional, pair);
     return INDEXREAD_OK;
   }
   return INDEXREAD_EOF;
@@ -57,8 +56,7 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
 // Simulate the logic of "Read", but it is limited to the results in a specific batch.
 static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
-  array_free_ex((*hit)->additional, RSValue_Decref(((RSAdditionalValue *)ptr)->value));
-  (*hit)->additional = NULL;
+  IndexResult_Additional_Free(*hit);
   if (!VecSimQueryResult_IteratorHasNext(hr->iter)) {
     return INDEXREAD_EOF;
   }
@@ -69,7 +67,7 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   (*hit)->metric.metricField = hr->scoreField;
   RSValue *val = RS_NumVal(VecSimQueryResult_GetScore(res));
   RSAdditionalValue pair = {.key = hr->base.ownKey, .value = val};
-  array_ensure_append_1((*hit)->additional, pair);
+  (*hit)->additional = array_ensure_append_1((*hit)->additional, pair);
   return INDEXREAD_OK;
 }
 
@@ -393,10 +391,7 @@ void HybridIterator_Free(struct indexIterator *self) {
     heap_free(it->topResults);
   }
   if (it->returnedResults) {   // Iterator is in one of the hybrid modes.
-    for (int i = 0; i < (int)array_len(it->returnedResults); i++) {
-      IndexResult_Free(it->returnedResults[i]);
-    }
-    array_free(it->returnedResults);
+    array_free_ex(it->returnedResults, IndexResult_Free(*(RSIndexResult **)ptr));
   }
   IndexResult_Free(it->base.current);
   VecSimQueryResult_Free(it->list);
