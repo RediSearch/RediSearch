@@ -88,7 +88,7 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
       IndexResult_Free(top_res);
     }
   }
-  RSValue *val = RS_NumVal(vec_res->dist.distance);
+  RSValue *val = RS_NumVal(vec_res->metric.value);
   RSAdditionalValue pair = {.key = hr->base.ownKey, .value = val};
   hit->additional = array_ensure_append_1(hit->additional, pair);
   // Insert to heap, update the distance upper bound.
@@ -332,7 +332,7 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   hr->lastDocId = (*hit)->docId;
-  (*hit)->additional[0].value = RS_NumVal((*hit)->dist.distance);
+  (*hit)->additional[0].value = RS_NumVal((*hit)->metric.value);
   return INDEXREAD_OK;
 }
 
