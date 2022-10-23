@@ -976,12 +976,12 @@ static void yy_destructor(
       break;
     case 34: /* attribute */
 {
- rm_free((char*)(yypminor->yy7).name); rm_free((char*)(yypminor->yy7).value); 
+ rm_free((char*)(yypminor->yy7).value); 
 }
       break;
     case 35: /* attribute_list */
 {
-  array_free_ex((yypminor->yy33), rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy33), rm_free((char*)((QueryAttribute*)ptr )->value)); 
 }
       break;
     case 46: /* geo_filter */
@@ -1696,7 +1696,7 @@ static YYACTIONTYPE yy_reduce(
       value_len = found_value_len;
     }
   }
-  yylhsminor.yy7 = (QueryAttribute){ .name = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len), .namelen = yymsp[-2].minor.yy0.len, .value = value, .vallen = value_len };
+  yylhsminor.yy7 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = value, .vallen = value_len };
 }
   yymsp[-2].minor.yy7 = yylhsminor.yy7;
         break;
@@ -1731,7 +1731,7 @@ static YYACTIONTYPE yy_reduce(
     if (yymsp[-4].minor.yy51 && yymsp[-1].minor.yy33) {
         QueryNode_ApplyAttributes(yymsp[-4].minor.yy51, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);
     }
-    array_free_ex(yymsp[-1].minor.yy33, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(yymsp[-1].minor.yy33, rm_free((char*)((QueryAttribute*)ptr )->value));
     yylhsminor.yy51 = yymsp[-4].minor.yy51;
 }
   yymsp[-4].minor.yy51 = yylhsminor.yy51;
@@ -1993,11 +1993,7 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
       case 63: /* query ::= text_expr ARROW LSQB vector_query RSQB */ yytestcase(yyruleno==63);
 { // main parse, hybrid query as entire query case.
   setup_trace(ctx);
-  switch (yymsp[-1].minor.yy51->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-1].minor.yy51->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RS_LOG_ASSERT(yymsp[-1].minor.yy51->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = yymsp[-1].minor.yy51;
   if (yymsp[-4].minor.yy51) {
     QueryNode_AddChild(yymsp[-1].minor.yy51, yymsp[-4].minor.yy51);
@@ -2008,11 +2004,9 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
 {  yy_destructor(yypParser,56,&yymsp[-4].minor);
 { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
-  switch (yymsp[-1].minor.yy51->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-1].minor.yy51->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RS_LOG_ASSERT(yymsp[-1].minor.yy51->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
+  yymsp[-1].minor.yy51->vn.vq->knn.order = BY_SCORE;
+
   ctx->root = yymsp[-1].minor.yy51;
 }
 }
@@ -2061,35 +2055,28 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
       case 70: /* query ::= expr ARROW LSQB vector_query RSQB ARROW LB attribute_list RB */
 {
   setup_trace(ctx);
-  switch (yymsp[-5].minor.yy51->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-5].minor.yy51->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RS_LOG_ASSERT(yymsp[-5].minor.yy51->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = yymsp[-5].minor.yy51;
-  if (yymsp[-8].minor.yy51) {
-    QueryNode_AddChild(yymsp[-5].minor.yy51, yymsp[-8].minor.yy51);
-  }
   if (yymsp[-5].minor.yy51 && yymsp[-1].minor.yy33) {
      QueryNode_ApplyAttributes(yymsp[-5].minor.yy51, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);
   }
-  array_free_ex(yymsp[-1].minor.yy33, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(yymsp[-1].minor.yy33, rm_free((char*)((QueryAttribute*)ptr )->value));
+
+  if (yymsp[-8].minor.yy51) {
+      QueryNode_AddChild(yymsp[-5].minor.yy51, yymsp[-8].minor.yy51);
+  }
 
 }
         break;
       case 71: /* query ::= text_expr ARROW LSQB vector_query RSQB ARROW LB attribute_list RB */
 {
   setup_trace(ctx);
-  switch (yymsp[-5].minor.yy51->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-5].minor.yy51->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RS_LOG_ASSERT(yymsp[-5].minor.yy51->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = yymsp[-5].minor.yy51;
-    if (yymsp[-5].minor.yy51 && yymsp[-1].minor.yy33) {
-       QueryNode_ApplyAttributes(yymsp[-5].minor.yy51, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);
-    }
-    array_free_ex(yymsp[-1].minor.yy33, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+  if (yymsp[-5].minor.yy51 && yymsp[-1].minor.yy33) {
+     QueryNode_ApplyAttributes(yymsp[-5].minor.yy51, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);
+  }
+  array_free_ex(yymsp[-1].minor.yy33, rm_free((char*)((QueryAttribute*)ptr )->value));
 
   if (yymsp[-8].minor.yy51) {
     QueryNode_AddChild(yymsp[-5].minor.yy51, yymsp[-8].minor.yy51);
@@ -2100,16 +2087,12 @@ yylhsminor.yy51 = yymsp[0].minor.yy51;
 {  yy_destructor(yypParser,56,&yymsp[-8].minor);
 {
   setup_trace(ctx);
-  switch (yymsp[-5].minor.yy51->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      yymsp[-5].minor.yy51->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RS_LOG_ASSERT(yymsp[-5].minor.yy51->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = yymsp[-5].minor.yy51;
-    if (yymsp[-5].minor.yy51 && yymsp[-1].minor.yy33) {
-       QueryNode_ApplyAttributes(yymsp[-5].minor.yy51, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);
-    }
-    array_free_ex(yymsp[-1].minor.yy33, rm_free((char*)((QueryAttribute*)ptr )->name); rm_free((char*)((QueryAttribute*)ptr )->value));
+  if (yymsp[-5].minor.yy51 && yymsp[-1].minor.yy33) {
+     QueryNode_ApplyAttributes(yymsp[-5].minor.yy51, yymsp[-1].minor.yy33, array_len(yymsp[-1].minor.yy33), ctx->status);
+  }
+  array_free_ex(yymsp[-1].minor.yy33, rm_free((char*)((QueryAttribute*)ptr )->value));
 
 }
 }

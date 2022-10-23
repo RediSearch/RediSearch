@@ -537,6 +537,11 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
+      if ((rc = AC_GetDouble(ac, &fs->vectorOpts.vecSimParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index epsilon", rc);
+        return 0;
+      }
     } else {
       QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
       return 0;

@@ -111,3 +111,13 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
+                                                          const char *field_name);
+#ifdef __cplusplus
+}
+#endif

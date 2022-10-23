@@ -8,10 +8,11 @@ from random import randrange
 
 
 '''************* Helper methods for vecsim tests ************'''
+EPSILON = 1e-8
 
 # Helper method for comparing expected vs. results of KNN query, where the only
 # returned field except for the doc id is the vector distance
-def assert_knn_results(env, expected_res, actual_res, error_msg='', data_type='FLOAT32'):
+def assert_query_results(env, expected_res, actual_res, error_msg='', data_type='FLOAT32'):
     # Assert that number of returned results from the query is as expected
     env.assertEqual(expected_res[0], actual_res[0], depth=1, message=error_msg)
     for i in range(1, len(expected_res), 2):
@@ -25,6 +26,7 @@ def assert_knn_results(env, expected_res, actual_res, error_msg='', data_type='F
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32'):
     conn = getConnectionByEnv(env)
+    np.random.seed(10)
     for i in range(n_vec):
         vector = create_np_array_typed(np.random.rand(vec_size), data_type)
         if i == query_vec_index:
@@ -90,7 +92,7 @@ def test_sanity_cosine():
     score_field_syntaxs = ['AS dist]', ']=>{$yield_distance_as:dist}']
     for index_type in index_types:
         for data_type in data_types:
-            for score_field_syntax in score_field_syntaxs:
+            for i, score_field_syntax in enumerate(score_field_syntaxs):
                 env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                            'DIM', '2', 'DISTANCE_METRIC', 'COSINE').ok()
                 conn.execute_command('HSET', 'a', 'v', create_np_array_typed([0.1, 0.1], data_type).tobytes())
@@ -108,7 +110,12 @@ def test_sanity_cosine():
 
                 actual_res = env.expect('FT.SEARCH', 'idx', f'*=>[KNN 4 @v $blob {score_field_syntax}', 'PARAMS', '2',
                                         'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
-                assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+                assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+                if i==1:  # range query can use only query attributes as score field syntax
+                    range_dist = spatial.distance.cosine(np.array([0.1, 0.4]), query_vec) + EPSILON
+                    actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob {score_field_syntax}', 'PARAMS', '2',
+                                            'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
+                    assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
                 # Rerun with a different query vector
                 query_vec = create_np_array_typed([0.1, 0.2], data_type)
@@ -119,7 +126,12 @@ def test_sanity_cosine():
 
                 actual_res = env.expect('FT.SEARCH', 'idx', f'*=>[KNN 4 @v $blob  {score_field_syntax}', 'PARAMS', '2',
                                         'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
-                assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+                assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+                if i==1:  # range query can use only query attributes as score field syntax
+                    range_dist = spatial.distance.cosine(np.array([0.1, 0.1]), query_vec) + EPSILON
+                    actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob {score_field_syntax}', 'PARAMS', '2',
+                                            'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
+                    assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
                 # Delete one vector and search again
                 conn.execute_command('DEL', 'b')
@@ -129,7 +141,14 @@ def test_sanity_cosine():
                                 'a', ['dist', spatial.distance.cosine(np.array([0.1, 0.1]), query_vec)]]
                 actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS dist]', 'PARAMS', '2',
                                         'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
-                assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+                assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+
+                if i==1:
+                    # Test range query
+                    range_dist = spatial.distance.cosine(np.array([0.1, 0.1]), query_vec) + EPSILON
+                    actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob]=>{{$yield_distance_as: dist}}',
+                                            'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
+                    assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
                 conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
@@ -157,10 +176,15 @@ def test_sanity_l2():
                             'c', ['dist', spatial.distance.sqeuclidean(np.array([0.1, 0.3]), query_vec)],
                             'd', ['dist', spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec)]]
 
-            actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS dist]', 'PARAMS', '2',
+            actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob]=>{$yield_distance_as: dist}', 'PARAMS', '2',
                                     'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
-            assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+            assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
+            # Test range query
+            range_dist = spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec) + EPSILON
+            actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob]=>{{$yield_distance_as: dist}}',
+                                    'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
+            assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
             # Rerun with a different query vector
             query_vec = create_np_array_typed([0.1, 0.19], data_type)
             expected_res = [4, 'b', ['dist', spatial.distance.sqeuclidean(np.array([0.1, 0.2]), query_vec)],
@@ -170,7 +194,12 @@ def test_sanity_l2():
 
             actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS dist]', 'PARAMS', '2',
                                     'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
-            assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+            assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+            # Test range query
+            range_dist = spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec) + EPSILON
+            actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob]=>{{$yield_distance_as: dist}}',
+                                    'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
+            assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
             # Delete one vector and search again
             conn.execute_command('DEL', 'b')
@@ -180,7 +209,13 @@ def test_sanity_l2():
                             'd', ['dist', spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec)]]
             actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @v $blob AS dist]', 'PARAMS', '2',
                                     'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
-            assert_knn_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+            assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
+
+            # Test range query
+            range_dist = spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec) + EPSILON
+            actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob]=>{{$yield_distance_as: dist}}',
+                                    'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
+            assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
             conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
@@ -373,6 +408,14 @@ def test_create_errors():
         .error().contains('Bad arguments for vector similarity HNSW index efConstruction')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EF_RUNTIME', 'str') \
         .error().contains('Bad arguments for vector similarity HNSW index efRuntime')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EF_RUNTIME', '14.3') \
+        .error().contains('Bad arguments for vector similarity HNSW index efRuntime')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EF_RUNTIME', '-10') \
+        .error().contains('Bad arguments for vector similarity HNSW index efRuntime')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EPSILON', 'str') \
+        .error().contains('Bad arguments for vector similarity HNSW index epsilon')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EPSILON', '-1') \
+        .error().contains('Bad arguments for vector similarity HNSW index epsilon')
 
 
 def test_search_errors():
@@ -413,7 +456,7 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EF_RUNTIME: 5; $EF_RUNTIME: 6;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
 
     # ef_runtime is invalid for FLAT index.
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v_flat $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v_flat $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
 
     # Hybrid attributes with non-hybrid query is invalid.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
@@ -440,6 +483,29 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:__v_score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and __v_score')
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score')
 
+    # Invalid range queries
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('Error parsing vector similarity query: query vector blob size (7) does not match index\'s expected size (8).')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('Error parsing vector similarity query: query vector blob size (9) does not match index\'s expected size (8).')
+    env.expect('FT.SEARCH', 'idx', '@bad:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0])  # wrong field
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range -1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('Error parsing vector similarity query: negative radius (-1) given in a range query')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:t}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:$dist}', 'PARAMS', '4', 'b', 'abcdefgh', 'dist', 't').error().contains('Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EF_RUNTIME:10}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$HYBRID_POLICY:BATCHES}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
+
+    # Invalid epsilon param for range queries
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: -1}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: not_a_num}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0.1; $EPSILON: 0.2}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0.1; $EF_RUNTIME: 20}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+
+    # epsilon is invalid for non-range queries, and also for flat index.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EPSILON 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: range query attributes were sent for a non-range query')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EPSILON: 2.71828}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: range query attributes were sent for a non-range query')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$EPSILON: 0.1}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: range query attributes were sent for a non-range query')
+    env.expect('FT.SEARCH', 'idx', '@v_flat:[vector_range 0.1 $b]=>{$epsilon:0.1}', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').equal('Error parsing vector similarity parameters: Invalid option')
+
 
 def test_with_fields():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -459,8 +525,15 @@ def test_with_fields():
         res_nocontent = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
                         'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                         'NOCONTENT')
+        dist_range = dimension * qty**2  # distance from query vector to the furthest vector in the index.
+        res_range = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:score}',
+                                         'SORTBY', 'score', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', dist_range,
+                                         'RETURN', 2, 'score', 't')
         env.assertEqual(res[1::2], res_nocontent[1:])
         env.assertEqual('t', res[2][2])
+        # TODO: in coordinator, the first field that indicates the number of total results in 10 when running
+        #  KNN query instead of 100 (but not for range) - should be fixed
+        env.assertEqual(res[1:], res_range[1:])
 
 
 def test_memory_info():
@@ -1502,6 +1575,17 @@ def test_timeout_reached():
                                        'TIMEOUT', 1)
             env.assertEqual(res[0], timeout_expected)
 
+            # RANGE QUERY
+            # run query with no timeout. should succeed.
+            res = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                       'PARAMS', 2,  'vec_param', query_vec.tobytes(),
+                                       'TIMEOUT', 0)
+            env.assertEqual(res[0], n_vec)
+            # run query with 1 millisecond timeout. should fail.
+            env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                       'PARAMS', 2, 'vec_param', query_vec.tobytes(),
+                       'TIMEOUT', 1).error().equal('Timeout limit was reached')
+
             # HYBRID MODES
             for mode in hybrid_modes:
                 res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
@@ -1515,3 +1599,79 @@ def test_timeout_reached():
                 env.assertEqual(res[0], timeout_expected)
 
             conn.flushall()
+
+
+def test_range_query_basic():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 4
+    n = 999
+
+    for data_type in VECSIM_DATA_TYPES:
+        for index in ['FLAT', 'HNSW']:
+            env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index, '6', 'TYPE', data_type, 'DIM',
+                       dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+
+            # search in an empty index
+            query_data = create_np_array_typed([1]*dim, data_type)
+            env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 0.1 $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
+                                   'SORTBY', 'score', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'score_field', 'score',
+                                   'RETURN', 1, 'score', 'LIMIT', 0, n).equal([0])
+
+            # load vectors, where vector with id i is [i, i, ..., i]
+            load_vectors_with_texts_into_redis(conn, 'v', dim, n, data_type)
+
+            # Expect to get the 499 docs with the highest ids.
+            dist_range = dim * 499**2
+            query_data = create_np_array_typed([n+1]*dim, data_type)
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
+            'SORTBY', 'score', 'PARAMS', 6, 'vec_param', query_data.tobytes(), 'r', dist_range, 'score_field', 'score',
+            'RETURN', 1, 'score', 'LIMIT', 0, n)
+            env.assertEqual(res[0], 499)
+            for i, doc_id in enumerate(res[1::2]):
+                env.assertEqual(str(n-i), doc_id)
+            for i, score in enumerate(res[2::2]):
+                env.assertEqual(['score', str(dim * (i+1)**2)], score)
+
+            # Run again without score field
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]',
+                                       'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', dist_range,
+                                       'RETURN', 0, 'LIMIT', 0, n)
+            env.assertEqual(res[0], 499)
+            for i, doc_id in enumerate(res[1:]):
+                env.assertEqual(str(500 + i + 1), doc_id)  # results should be sorted by id (by default)
+
+            conn.flushall()
+
+
+def test_range_query_basic_random_vectors():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 128
+    n = 10000
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM',
+               dim, 'DISTANCE_METRIC', 'COSINE', 'M', '4', 'EF_CONSTRUCTION', '4', 'EPSILON', '0.001').ok()
+
+    query_data = load_vectors_to_redis(env, n, 0, dim)
+
+    radius = 0.23
+    res_default_epsilon = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
+                               'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
+                               'RETURN', 1, 'dist', 'LIMIT', 0, n)
+
+    res_higher_epsilon = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist; $EPSILON: 0.1}',
+                               'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
+                               'RETURN', 1, 'dist', 'LIMIT', 0, n)
+
+    # Expect getting better results when epsilon is higher
+    env.assertGreater(res_higher_epsilon[0], res_default_epsilon[0])
+    for dist in res_higher_epsilon[2::2]:
+        env.assertGreaterEqual(radius, float(dist[1]))
+    docs_higher_epsilon = [doc for doc in res_higher_epsilon[1::2]]
+    ids_found = 0
+    for doc_id in res_default_epsilon[1::2]:
+        if doc_id in docs_higher_epsilon:
+            ids_found += 1
+    # Results found with lower epsilon are subset of the results found with higher epsilon.
+    env.assertEqual(ids_found, len(res_default_epsilon[1::2]))

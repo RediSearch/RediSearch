@@ -7,6 +7,7 @@
 #include "src/tokenize.h"
 #include "src/varint.h"
 #include "src/hybrid_reader.h"
+#include "src/metric_iterator.h"
 
 #include "rmutil/alloc.h"
 
@@ -854,6 +855,112 @@ TEST_F(IndexTest, testInvalidHybridVector) {
 
   ii->Free(ii);
   InvertedIndex_Free(w);
+  VecSimIndex_Free(index);
+}
+
+TEST_F(IndexTest, testMetric_VectorRange) {
+
+  size_t n = 100;
+  size_t d = 4;
+  size_t k = 10;
+  VecSimMetric met = VecSimMetric_Cosine;
+  VecSimType t = VecSimType_FLOAT32;
+
+  // Create vector index
+  VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
+                      .hnswParams = HNSWParams{.type = t,
+                                               .dim = d,
+                                               .metric = met,
+                                               .initialCapacity = n,
+                                               .M = 16,
+                                               .efConstruction = 100}};
+  VecSimIndex *index = VecSimIndex_New(&params);
+  for (size_t i = 1; i <= n; i++) {
+    float f[d];
+    f[0] = 1.0f;
+    for (size_t j = 1; j < d; j++) {
+      f[j] = (float)i / n;
+    }
+    VecSimIndex_AddVector(index, (const void *)f, (int)i);
+  }
+  ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+  float query[] = {(float)n, (float)n, (float)n, (float)n};
+  RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
+  VecSimQueryParams queryParams;
+  queryParams.hnswRuntimeParams.efRuntime = n;
+  VecSimQueryResult_List results =
+      VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
+
+  // Run simple range query.
+  const char *metric_field_name = "vec_dist";
+  IndexIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, metric_field_name);
+  RSIndexResult *h = NULL;
+  size_t count = 0;
+  size_t lowest_id = 25;
+  size_t n_expected_res = n - lowest_id + 1;
+
+  // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100
+  VecSim_Normalize(query, d, t);
+  while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
+    ASSERT_EQ(h->type, RSResultType_Metric);
+    ASSERT_EQ(h->docId, lowest_id + count);
+    double exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
+    ASSERT_EQ(h->metric.value, exp_dist);
+    ASSERT_EQ(h->metric.metricField, metric_field_name);
+    count++;
+  }
+  ASSERT_EQ(count, n_expected_res);
+  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+
+  vecIt->Rewind(vecIt->ctx);
+  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
+  ASSERT_EQ(vecIt->NumEstimated(vecIt->ctx), n_expected_res);
+  ASSERT_EQ(vecIt->Len(vecIt->ctx), n_expected_res);
+
+  // Read one result to verify that we get the minimum id after rewind.
+  ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, lowest_id);
+
+  // Test valid combinations of SkipTo
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, lowest_id + 10);
+  double exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
+  ASSERT_EQ(h->metric.value, exp_dist);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + 10);
+
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n-1, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, n-1);
+  exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
+  ASSERT_EQ(h->metric.value, exp_dist);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n-1);
+
+  // Invalid SkipTo
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n+1, &h), INDEXREAD_EOF);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n);
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n, &h), INDEXREAD_EOF);
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_EOF);
+
+  // Rewind and test skipping to the first id.
+  vecIt->Rewind(vecIt->ctx);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), 0);
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id, &h), INDEXREAD_OK);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id);
+
+  // check rerun and abort (go over only half of the results)
+  count = 1;
+  for (size_t i = 0; i < n_expected_res/2; i++) {
+    ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(h->type, RSResultType_Metric);
+    ASSERT_EQ(h->docId, lowest_id + count);
+    count++;
+  }
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + count - 1);
+  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
+  vecIt->Abort(vecIt->ctx);
+  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+
+  vecIt->Free(vecIt);
   VecSimIndex_Free(index);
 }
 
