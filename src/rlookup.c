@@ -313,7 +313,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
   int res = REDISMODULE_ERR;
   RedisModuleString *serialized = NULL;
   
-  if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) {
+  if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST || japi_ver < 2) {
     // Preserve single value behavior for backward compatibility
     RedisJSON json = japi->next(iter);
     if (!json) {

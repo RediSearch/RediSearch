@@ -469,7 +469,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   }
 
   df->multisv = NULL;
-  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY) {
+  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY && japi_ver >= 2) {
     RSValue *rsv = NULL;
     japi->resetIter(jsonIter);
     if (jsonIterToValue(ctx, jsonIter, APIVERSION_RETURN_MULTI_CMP_FIRST, &rsv, false) == REDISMODULE_OK) {
