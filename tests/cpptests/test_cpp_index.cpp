@@ -929,13 +929,15 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(h->metric.value, exp_dist);
   ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + 10);
 
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, n);
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n-1, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
   ASSERT_EQ(h->metric.value, exp_dist);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n-1);
 
   // Invalid SkipTo
+  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n+1, &h), INDEXREAD_EOF);
+  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n);
   ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n, &h), INDEXREAD_EOF);
   ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_EOF);
 

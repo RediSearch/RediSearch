@@ -70,7 +70,7 @@ static int MR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
     return INDEXREAD_OK;
   }
-  mr->base.isValid = 0;
+  mr->lastDocId = cur_id;  // this is the last valid doc id for this iterator.
   return INDEXREAD_EOF;
 }
 

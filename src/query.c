@@ -1694,7 +1694,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           break;
         }
         case VECSIM_QT_RANGE: {
-          s = sdscatprintf(s, "Vectors that are within %.3f distance radius from",
+          s = sdscatprintf(s, "Vectors that are within %g distance radius from",
                            qs->vn.vq->range.radius);
           // This loop finds the vector param name.
           for (size_t i = 0; i < array_len(qs->params); i++) {
