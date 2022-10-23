@@ -3,7 +3,8 @@
 [[ $IGNERR == 1 ]] || set -e
 # [[ $VERBOSE == 1 ]] && set -x
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+PROGNAME="${BASH_SOURCE[0]}"
+HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/../.. && pwd)
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
@@ -238,10 +239,9 @@ setup_redisjson() {
 			RLTEST_REJSON_ARGS="--module $REJSON_MODULE"
 			XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE"
 		fi
-		if [[ -n $REJSON_MODARGS ]]; then
-			RLTEST_REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
-			XREDIS_REJSON_ARGS+=" $REJSON_MODARGS"
-		fi
+
+		RLTEST_REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
+		XREDIS_REJSON_ARGS+=" $REJSON_MODARGS"
 	fi
 }
 
