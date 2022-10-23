@@ -33,7 +33,6 @@ static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata
 // Simulate the logic of "SkipTo", but it is limited to the results in a specific batch.
 static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
-  IndexResult_Additional_Free(*hit);
   while(VecSimQueryResult_IteratorHasNext(hr->iter)) {
     VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
     t_docId id = VecSimQueryResult_GetId(res);
@@ -45,9 +44,6 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
     (*hit)->docId = id;
     (*hit)->metric.value = VecSimQueryResult_GetScore(res);
     (*hit)->metric.metricField = hr->scoreField;
-    RSValue *val = RS_NumVal(VecSimQueryResult_GetScore(res));
-    RSAdditionalValue pair = {.key = hr->base.ownKey, .value = val};
-    (*hit)->additional = array_ensure_append_1((*hit)->additional, pair);
     return INDEXREAD_OK;
   }
   return INDEXREAD_EOF;
@@ -56,7 +52,6 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
 // Simulate the logic of "Read", but it is limited to the results in a specific batch.
 static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
-  IndexResult_Additional_Free(*hit);
   if (!VecSimQueryResult_IteratorHasNext(hr->iter)) {
     return INDEXREAD_EOF;
   }
@@ -65,9 +60,6 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   (*hit)->docId = VecSimQueryResult_GetId(res);
   (*hit)->metric.value = VecSimQueryResult_GetScore(res);
   (*hit)->metric.metricField = hr->scoreField;
-  RSValue *val = RS_NumVal(VecSimQueryResult_GetScore(res));
-  RSAdditionalValue pair = {.key = hr->base.ownKey, .value = val};
-  (*hit)->additional = array_ensure_append_1((*hit)->additional, pair);
   return INDEXREAD_OK;
 }
 
@@ -81,6 +73,7 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
       hit = NewMetricResult();
     } else {
       hit = heap_poll(hr->topResults); // Reuse the memory of the worst result and replace it.
+      IndexResult_Additional_Free(hit); // TODO: replace with generic clear function
     }
     *hit = *vec_res; // Shallow copy.
   } else {
@@ -95,6 +88,9 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
       IndexResult_Free(top_res);
     }
   }
+  RSValue *val = RS_NumVal(vec_res->dist.distance);
+  RSAdditionalValue pair = {.key = hr->base.ownKey, .value = val};
+  hit->additional = array_ensure_append_1(hit->additional, pair);
   // Insert to heap, update the distance upper bound.
   heap_offerx(hr->topResults, hit);
   RSIndexResult *top = heap_peek(hr->topResults);
@@ -319,6 +315,10 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
     if (hr->list.code == VecSim_QueryResult_TimedOut) {
       return INDEXREAD_TIMEOUT;
     }
+    hr->base.current->additional = array_newlen(RSAdditionalValue, 1);
+    hr->base.current->additional[0].key = hr->base.ownKey;
+  } else {
+    RSValue_Decref(hr->base.current->additional[0].value);
   }
   if (!HR_HasNext(ctx)) {
     return INDEXREAD_EOF;
@@ -326,9 +326,13 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
   *hit = hr->base.current;
   if (HR_ReadInBatch(hr, hit) == INDEXREAD_EOF) {
     hr->base.isValid = false;
+    // Regular array free, we called `RSValue_Decref` before.
+    array_free(hr->base.current->additional);
+    hr->base.current->additional = NULL;
     return INDEXREAD_EOF;
   }
   hr->lastDocId = (*hit)->docId;
+  (*hit)->additional[0].value = RS_NumVal((*hit)->dist.distance);
   return INDEXREAD_OK;
 }
 
@@ -402,7 +406,7 @@ void HybridIterator_Free(struct indexIterator *self) {
   rm_free(it);
 }
 
-IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
+IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, RLookupKey ***key_pp) {
   HybridIterator *hi = rm_new(HybridIterator);
   hi->lastDocId = 0;
   hi->child = hParams.childIt;
@@ -458,6 +462,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   IndexIterator *ri = &hi->base;
   ri->ctx = hi;
   ri->ownKey = NULL;
+  *key_pp = &ri->ownKey;
   ri->type = HYBRID_ITERATOR;
   ri->mode = MODE_SORTED;  // Since this iterator is always the root, we currently don't return the
                            // results sorted by id as an optimization (this can be modified in the future).

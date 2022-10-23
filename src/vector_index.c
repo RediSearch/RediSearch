@@ -78,7 +78,7 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List
 
 }
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, RLookupKey ***kpp) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
@@ -130,7 +130,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .childIt = child_it,
                                       .timeout = q->sctx->timeout,
       };
-      return NewHybridVectorIterator(hParams);
+      return NewHybridVectorIterator(hParams, kpp);
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {

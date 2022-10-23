@@ -66,9 +66,11 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;
-  parent->additional = array_ensure_append_n(parent->additional, child->additional, array_len(child->additional));
-  array_free(child->additional);
-  child->additional = NULL;
+  if (child->additional) {
+    parent->additional = array_ensure_append_n(parent->additional, child->additional, array_len(child->additional));
+    array_free(child->additional); // SHOULD not free maybe?
+    child->additional = NULL;
+  }
 }
 /* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
  * caution */

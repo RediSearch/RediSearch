@@ -80,7 +80,8 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
                                       .ignoreDocScore = true,
                                       .childIt = ui
       };
-      IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
+      RLookupKey **dummy_pp;
+      IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &dummy_pp);
 
       // Run in batches mode.
       HybridIterator *hr = (HybridIterator *)hybridIt->ctx;

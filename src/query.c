@@ -862,14 +862,12 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // Add the score field name to the ast score field names array.
   // This macro creates the array if it's the first name, and ensure its size is sufficient.
-  // if (qn->vn.vq->scoreField) {
-  //   qn->vn.vq->rlkey = QueryNode_getOwnRLookupKey(q, qn->vn.vq->scoreField);
-  //   if (!qn->vn.vq->rlkey) {
-  //     return NULL;
-  //   }
-  //   q->foundMetricField = true;
-  // }
-
+  RLookupKey ***key_ptr_ptr = NULL;
+  if (qn->vn.vq->scoreField) {
+    MetricRequest mr = {qn->vn.vq->scoreField, NULL};
+    array_ensure_append_1(*q->metricRequestsP, mr);
+    key_ptr_ptr = &array_tail(*q->metricRequestsP).key_ptr;
+  }
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
     RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
@@ -879,11 +877,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       return NULL;
     }
   }
-  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
-  if (it && qn->vn.vq->scoreField) {
-    MetricRequest mr = {qn->vn.vq->scoreField, &it->ownKey};
-    array_ensure_append_1(*q->metricRequestsP, mr);
-  }
+  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it, key_ptr_ptr);
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
   }

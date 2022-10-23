@@ -529,7 +529,7 @@ static const encodingInfo infos[] = {
 void testNumericEncodingHelper(bool isMulti) {
   static const size_t numInfos = sizeof(infos) / sizeof(infos[0]);
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
-  
+
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
@@ -698,7 +698,8 @@ TEST_F(IndexTest, testHybridVector) {
                                   .ignoreDocScore = true,
                                   .childIt = NULL
   };
-  IndexIterator *vecIt = NewHybridVectorIterator(hParams);
+  RLookupKey **dummy_pp;
+  IndexIterator *vecIt = NewHybridVectorIterator(hParams, &dummy_pp);
   RSIndexResult *h = NULL;
   size_t count = 0;
 
@@ -723,7 +724,7 @@ TEST_F(IndexTest, testHybridVector) {
   // Test in hybrid mode.
   IndexIterator *ir = NewReadIterator(r);
   hParams.childIt = ir;
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &dummy_pp);
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -775,7 +776,7 @@ TEST_F(IndexTest, testHybridVector) {
   ir = NewReadIterator(r);
   hParams.ignoreDocScore = false;
   hParams.childIt = ir;
-  hybridIt = NewHybridVectorIterator(hParams);
+  hybridIt = NewHybridVectorIterator(hParams, &dummy_pp);
   hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -850,7 +851,8 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .vectorScoreField = (char *)"__v_score",
                                   .ignoreDocScore = true,
                                   .childIt = ii};
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
+  RLookupKey **dummy_pp;
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &dummy_pp);
   ASSERT_FALSE(hybridIt);
 
   ii->Free(ii);

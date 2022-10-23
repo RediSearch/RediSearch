@@ -997,9 +997,14 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
       QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", name);
       return NULL;
     }
-    *requests[i].key_ptr = key;
+    // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
+    // that it has no results), but we still want the rest of the pipline to know about the additional field name,
+    // because there is no syntax error and the sorter should be able to "sort" by this field.
+    // If there is a pointer to the node's RLookupKey, write the address.
+    if (requests[i].key_ptr)
+      *requests[i].key_ptr = key;
   }
-  RedisModule_Log(NULL, "warning", "key is %p", *requests[0].key_ptr);
+  // RedisModule_Log(NULL, "warning", "key is %p", (requests[0].key_ptr) ? *requests[0].key_ptr : NULL);
   return RPMetricsLoader_New();
 }
 

@@ -95,7 +95,7 @@ RSIndexResult *NewMetricResult() {
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 0,
                          .weight = 1,
-
+                         .additional = NULL,
                          .metric = (RSMetricRecord){.value = 0, .metricField = NULL}};
   return res;
 }
