@@ -1151,12 +1151,13 @@ def test_fail_ft_aggregate():
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
     conn.execute_command("HSET", "i", "v", one_vector.tobytes())
-    res = env.expect("FT.AGGREGATE", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes())
-    if not env.isCluster():
-        res.error().contains("VSS is not yet supported on FT.AGGREGATE")
-    else:
-        # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
-        res.equal([0])
+    for query in ["*=>[KNN 10 @v $BLOB]", "@v:[VECTOR_RANGE 10 $BLOB]"]:
+        res = env.expect("FT.AGGREGATE", "idx", query, "PARAMS", 2, "BLOB", one_vector.tobytes())
+        if not env.isCluster():
+            res.error().contains("VSS is not yet supported on FT.AGGREGATE")
+        else:
+            # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
+            res.equal([0])
 
 
 def test_fail_on_v1_dialect():
@@ -1167,8 +1168,9 @@ def test_fail_on_v1_dialect():
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
     conn.execute_command("HSET", "i", "v", one_vector.tobytes())
-    res = env.expect("FT.SEARCH", "idx", "*=>[KNN 10 @v $BLOB]", "PARAMS", 2, "BLOB", one_vector.tobytes())
-    res.error().contains("Syntax error")
+    for query in ["*=>[KNN 10 @v $BLOB]", "@v:[VECTOR_RANGE 10 $BLOB"]:
+        res = env.expect("FT.SEARCH", "idx", query, "PARAMS", 2, "BLOB", one_vector.tobytes())
+        res.error().contains("Syntax error")
 
 
 def test_hybrid_query_with_global_filters():
@@ -1675,3 +1677,43 @@ def test_range_query_basic_random_vectors():
             ids_found += 1
     # Results found with lower epsilon are subset of the results found with higher epsilon.
     env.assertEqual(ids_found, len(res_default_epsilon[1::2]))
+
+
+def test_range_query_complex_queries():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    conn = getConnectionByEnv(env)
+    dim = 128
+    index_size = 1000
+
+    for data_type in VECSIM_DATA_TYPES:
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
+                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT', 'num', 'NUMERIC', 'coordinate', 'GEO').ok()
+
+        p = conn.pipeline(transaction=False)
+        for i in range(1, index_size+1):
+            vector = create_np_array_typed([i]*dim, data_type)
+            p.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'text', 'num', i, 'coordinate',
+                              str(i/100)+","+str(i/100))
+        p.execute()
+        if not env.isCluster():
+            env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
+
+        # Change the text value to 'other' for 20% of the vectors (with id 5, 10, ..., index_size)
+        for i in range(5, index_size + 1, 5):
+            vector = create_np_array_typed([i]*dim, data_type)
+            conn.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'other', 'num', i**2, 'coordinate',
+                                 str(i/100)+","+str(i/100))
+        x=input("now")
+        #todo: fix order of results from query to BY_ID
+        query_data = create_np_array_typed([index_size]*dim, data_type)
+        expected_res = [8]
+        for i in range(1, 10):
+            if i == 5:
+                continue
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2)], ['t', 'text']])
+        radius = dim * 9**2
+        env.expect('FT.SEARCH', 'idx', '@t:text @v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
+                    'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
+                    'RETURN', 2, 'dist', 't', 'LIMIT', 0, index_size).equal(expected_res)
+
+        conn.flushall()
