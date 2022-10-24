@@ -69,3 +69,17 @@ def test_spell_check_dialect_errors(env):
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT').error().contains("Need an argument for DIALECT")
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', 0).error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', "{}".format(MAX_DIALECT + 1)).error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
+
+def test_dialect_aggregate(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect("FT.CREATE idx SCHEMA t1 TEXT t2 TEXT").ok()
+    conn.execute_command("HSET", "h1", "t1", "James Brown", "t2", "Jimi Hendrix")
+    conn.execute_command("HSET", "h2", "t1", "James", "t2", "Brown")
+    
+    # In dialect 2, both documents are returned ("James" in t1 and "Brown" in any field)
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '@t1:James Brown', 'GROUPBY', '2', '@t1', '@t2', 'DIALECT', 1)
+    env.assertEqual(res[0], 1)
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '@t1:James Brown', 'GROUPBY', '2', '@t1', '@t2', 'DIALECT', 2)
+    env.assertEqual(res[0], 2)
+    
