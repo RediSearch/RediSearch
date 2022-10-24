@@ -123,21 +123,15 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   ri->ctx = mi;
   ri->type = METRIC_ITERATOR;
   ri->mode = MODE_SORTED;
-
-  // If we interested in yielding score
-  if (key_pp) {
-    ri->current = NewMetricResult();
-    // ResultMetrics_Add(ri->current, NULL, RS_NewValue(RSValue_Undef));
-    *key_pp = &ri->ownKey; // export own key address
-  } else {
-    ri->current = NewMetricResult();
-  }
+  ri->current = NewMetricResult();
 
   mi->type = metric_type;
 
+  // If we interested in yielding score
   if (key_pp) {
     ri->Read = MR_Read_With_Yield;
     ri->SkipTo = MR_SkipTo_With_Yield;
+    *key_pp = &ri->ownKey; // export own key address
   } else {
     ri->Read = MR_Read;
     ri->SkipTo = MR_SkipTo;
