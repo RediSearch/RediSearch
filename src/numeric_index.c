@@ -22,6 +22,7 @@ typedef struct {
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
 void NumericRangeIterator_OnReopen(void *privdata) {
+  RS_LOG_ASSERT(0, "NumericRangeIterator_OnReopen not implemented");
 }
 
 #ifdef _DEBUG
@@ -380,6 +381,7 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   // will abort the next time they get execution context
   if (rv.changed) {
     t->revisionId++;
+
   }
   t->numRanges += rv.numRanges;
   t->numEntries++;
