@@ -480,5 +480,5 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, RLookupKey 
       ri->current = NewHybridResult();
     }
   }
-  return ri;;
+  return ri;
 }

@@ -1004,7 +1004,6 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
     if (requests[i].key_ptr)
       *requests[i].key_ptr = key;
   }
-  // RedisModule_Log(NULL, "warning", "key is %p", (requests[0].key_ptr) ? *requests[0].key_ptr : NULL);
   return RPMetricsLoader_New();
 }
 
