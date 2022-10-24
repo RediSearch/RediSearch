@@ -1602,6 +1602,7 @@ def test_timeout_reached():
 
             conn.flushall()
 
+
 def test_create_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -1629,6 +1630,7 @@ def test_create_multi_value_json():
                        '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
             env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 0, message=f'{algo}, {path}')
 
+
 def test_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -1648,13 +1650,25 @@ def test_index_multi_value_json():
 
         score_field_name = 'dist'
         k = min(10, n)
-        element = {'FLOAT32': '\0\0\0\0', 'FLOAT64': '\0\0\0\0\0\0\0\0'}[data_t]
-        cmd = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element * dim, 'RETURN', '1', score_field_name, 'SORTBY', score_field_name]
+        element = create_np_array_typed([0]*dim, data_t)
+        cmd_knn = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'SORTBY', score_field_name]
 
-        expected_res = [] # the expected ids are going to be unique
+        expected_res_knn = []  # the expected ids are going to be unique
         for i in range(k):
-            expected_res.append(str(i))                                 # Expected id
-            expected_res.append([score_field_name, str(i * i * dim)])   # Expected score
+            expected_res_knn.append(str(i))                                 # Expected id
+            expected_res_knn.append([score_field_name, str(i * i * dim)])   # Expected score
+
+        radius = dim * k**2
+        element = create_np_array_typed([n]*dim, data_t)
+        cmd_range = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'LIMIT', 0, n]
+        expected_res_range = []
+        for i in range(n-k-per_doc+1, n-per_doc+1):
+            expected_res_range.append(str(i))
+            expected_res_range.append([score_field_name, str(dim * (n-per_doc-i+1)**2)])
+        for i in range(n-per_doc+1, n):        # Ids for which there is a vector whose distance to the query vec is zero.
+            expected_res_range.append(str(i))
+            expected_res_range.append([score_field_name, '0'])
+        expected_res_range.insert(0, int(len(expected_res_range)/2))
 
         for _ in env.retry_with_rdb_reload():
             waitForIndex(env, 'idx')
@@ -1663,13 +1677,22 @@ def test_index_multi_value_json():
             env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
             env.assertEqual(info['hash_indexing_failures'], info_type(0))
 
-            cmd[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
-            hnsw_res = conn.execute_command(*cmd)[1:]
-            env.assertEqual(hnsw_res, expected_res)
+            cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
+            hnsw_res = conn.execute_command(*cmd_knn)[1:]
+            env.assertEqual(hnsw_res, expected_res_knn)
 
-            cmd[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
-            flat_res = conn.execute_command(*cmd)[1:]
-            env.assertEqual(flat_res, expected_res)
+            cmd_knn[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
+            flat_res = conn.execute_command(*cmd_knn)[1:]
+            env.assertEqual(flat_res, expected_res_knn)
+
+            cmd_range[2] = f'@hnsw:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+            hnsw_res = conn.execute_command(*cmd_range)
+            env.assertEqual(sortedResults(hnsw_res), expected_res_range)
+
+            cmd_range[2] = f'@flat:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+            flat_res = conn.execute_command(*cmd_range)
+            env.assertEqual(sortedResults(flat_res), expected_res_range)
+
 
 def test_bad_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1725,6 +1748,7 @@ def test_bad_index_multi_value_json():
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), vec]})
     failures += 1
     env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+
 
 def test_range_query_basic():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1904,3 +1928,64 @@ def test_range_query_complex_queries():
                    'RETURN', 0, 'LIMIT', 0, 11).equal(expected_res)
 
         conn.flushall()
+
+
+def test_multiple_range_queries():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 16
+    n = 1000
+
+    for data_type in VECSIM_DATA_TYPES:
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v_flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
+                   'DIM', dim, 'DISTANCE_METRIC', 'L2',
+                   't', 'TEXT', 'num', 'NUMERIC',
+                   'v_hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
+                   'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+        # Run queries over an empty index
+        query_vec_flat = create_np_array_typed([n/4]*dim)
+        query_vec_hnsw = create_np_array_typed([n/2]*dim)
+        intersect_query = '@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_DISTANCE_AS:dist_flat} @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_DISTANCE_AS:dist_hnsw}'
+        union_query = '@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_DISTANCE_AS:dist_flat} | @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_DISTANCE_AS:dist_hnsw}'
+        for query in [intersect_query, union_query]:
+            env.expect('FT.SEARCH', 'idx', query, 'SORTBY', 'dist_flat', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
+                       'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', 1,
+                       'RETURN', 2, 'dist_flat', 'dist_hnsw').equal([0])
+
+        p = conn.pipeline(transaction=False)
+        for i in range(1, n+1):
+            vector = create_np_array_typed([i]*dim, data_type)
+            p.execute_command('HSET', i, 'v_flat', vector.tobytes(), 'v_hnsw', vector.tobytes(),
+                              't', 'text' if i % 5 else 'other', 'num', i)
+        p.execute()
+
+        # vectors with ids [0, index_size/2] are within the radius of query_vec_flat, while
+        # vectors with ids [index_size/4, index_size*3/4] are within the radius of query_vec_hnsw.
+        # Expected res is the intersection of both (we return 10 results that are closest to query_vec_flat)
+        radius = dim * (n/4)**2
+        expected_res = [n/4]
+        for i in range(int(n/4), int(n/4) + 10):
+            expected_res.extend([str(i), ['dist_flat', str(dim * i**2)], ['dist_hnsw', str(dim * (n/2-n/4+i)**2)]])
+
+        env.expect('FT.SEARCH', 'idx', intersect_query, 'SORTBY', 'dist_flat', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
+                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,
+                   'RETURN', 2, 'dist_flat', 'dist_hnsw').equal(expected_res)
+
+        # Run again, sort by results that are closest to query_vec_hnsw
+        expected_res = [n/4]
+        for i in range(int(n/2), int(n/2)-10, -1):
+            expected_res.extend([str(i), ['dist_flat', str(dim * (n/2-n/4+i)**2)], ['dist_hnsw', str(dim * i**2)]])
+        env.expect('FT.SEARCH', 'idx', intersect_query, 'SORTBY', 'dist_hnsw', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
+                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,
+                   'RETURN', 2, 'dist_flat', 'dist_hnsw').equal(expected_res)
+
+        # Run union query - expect to get a union of both ranges, sorted by distance from query_vec_hnsw.
+        expected_res = [n*3/4 + 1]
+        for i in range(int(n*3/4), -1, -1):
+            expected_res.extend([str(i), ['dist_flat', str(dim * abs(n/4-i)**2)], ['dist_hnsw', str(dim * i**2)]])
+        env.expect('FT.SEARCH', 'idx', union_query, 'SORTBY', 'dist_hnsw', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
+                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,
+                   'RETURN', 2, 'dist_flat', 'dist_hnsw').equal(expected_res)
+
+        # Run union query with other fields
