@@ -70,8 +70,9 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
     if (heap_count(hr->topResults) < hr->query.k) {
       hit = NewMetricResult();
     } else {
-      hit = heap_poll(hr->topResults); // Reuse the memory of the worst result and replace it.
-      IndexResult_Additional_Free(hit); // TODO: replace with generic clear function
+      // Reuse the memory of the worst result and replace it.
+      hit = heap_poll(hr->topResults);
+      IndexResult_Clear(hit);
     }
     *hit = *vec_res; // Shallow copy.
   } else {
@@ -86,9 +87,7 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
       IndexResult_Free(top_res);
     }
   }
-  RSValue *val = RS_NumVal(vec_res->num.value);
-  RSAdditionalValue pair = {.key = hr->base.ownKey, .value = val};
-  hit->additional = array_ensure_append_1(hit->additional, pair);
+  ResultMetrics_Add(hit, hr->base.ownKey, RS_NumVal(vec_res->num.value));
   // Insert to heap, update the distance upper bound.
   heap_offerx(hr->topResults, hit);
   RSIndexResult *top = heap_peek(hr->topResults);
@@ -106,7 +105,6 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
   hr->child->Read(hr->child->ctx, &cur_child_res);
   HR_ReadInBatch(hr, &cur_vec_res);
   while (IITER_HAS_NEXT(hr->child)) {
-    cur_child_res->additional = NULL;
     if (cur_vec_res->docId == cur_child_res->docId) {
       // Found a match - check if it should be added to the results heap.
       if (heap_count(hr->topResults) < hr->query.k || cur_vec_res->num.value < *upper_bound) {
@@ -312,10 +310,6 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
     if (hr->list.code == VecSim_QueryResult_TimedOut) {
       return INDEXREAD_TIMEOUT;
     }
-    hr->base.current->additional = array_newlen(RSAdditionalValue, 1);
-    hr->base.current->additional[0].key = hr->base.ownKey;
-  } else {
-    RSValue_Decref(hr->base.current->additional[0].value);
   }
   if (!HR_HasNext(ctx)) {
     return INDEXREAD_EOF;
@@ -323,13 +317,11 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
   *hit = hr->base.current;
   if (HR_ReadInBatch(hr, hit) == INDEXREAD_EOF) {
     hr->base.isValid = false;
-    // Regular array free, we called `RSValue_Decref` before.
-    array_free(hr->base.current->additional);
-    hr->base.current->additional = NULL;
     return INDEXREAD_EOF;
   }
   hr->lastDocId = (*hit)->docId;
-  (*hit)->additional[0].value = RS_NumVal((*hit)->num.value);
+  ResultMetrics_Reset(*hit);
+  ResultMetrics_Add(*hit, hr->base.ownKey, RS_NumVal((*hit)->num.value));
   return INDEXREAD_OK;
 }
 
@@ -458,9 +450,11 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, RLookupKey 
 
   IndexIterator *ri = &hi->base;
   ri->ctx = hi;
+  // This will be changed later to a valid RLookupKey if there is no syntax error in the query,
+  // by the creation of the metrics loader results processor.
   ri->ownKey = NULL;
   if (key_pp) {
-    *key_pp = &ri->ownKey;
+    *key_pp = &ri->ownKey; // passing the key address to the yield metric request
   }
   ri->type = HYBRID_ITERATOR;
   ri->mode = MODE_SORTED;  // Since this iterator is always the root, we currently don't return the
@@ -486,5 +480,5 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, RLookupKey 
       ri->current = NewHybridResult();
     }
   }
-  return ri;
+  return ri;;
 }

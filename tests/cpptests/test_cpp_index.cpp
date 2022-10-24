@@ -910,7 +910,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
     ASSERT_EQ(h->num.value, exp_dist);
-    ASSERT_EQ(h->additional[0].value->numval, exp_dist);
+    ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
     count++;
   }
   ASSERT_EQ(count, n_expected_res);
@@ -930,14 +930,14 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(h->docId, lowest_id + 10);
   double exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
   ASSERT_EQ(h->num.value, exp_dist);
-  ASSERT_EQ(h->additional[0].value->numval, exp_dist);
+  ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
   ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + 10);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n-1, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
   ASSERT_EQ(h->num.value, exp_dist);
-  ASSERT_EQ(h->additional[0].value->numval, exp_dist);
+  ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
   ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n-1);
 
   // Invalid SkipTo

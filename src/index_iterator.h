@@ -54,7 +54,8 @@ typedef struct indexIterator {
 
   enum iteratorType type;
 
-  // Used if the iterator yields some value
+  // Used if the iterator yields some value.
+  // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
   struct RLookupKey *ownKey;
 
   size_t (*NumEstimated)(void *ctx);

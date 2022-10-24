@@ -77,10 +77,8 @@ static int MR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
 static void SetYield(void *ctx, RSIndexResult **hit) {
   MetricIterator *mr = ctx;
-  (*hit)->additional[0].key = mr->base.ownKey;
-  RSValue_Decref(mr->curValue);
-  mr->curValue = RS_NumVal((*hit)->num.value);
-  (*hit)->additional[0].value = mr->curValue;
+  ResultMetrics_Reset(*hit);
+  ResultMetrics_Add(*hit, mr->base.ownKey, RS_NumVal((*hit)->num.value));
 }
 
 static int MR_Read_With_Yield(void *ctx, RSIndexResult **hit) {
@@ -115,7 +113,6 @@ static void MR_Free(IndexIterator *self) {
 IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric metric_type, RLookupKey ***key_pp) {
   MetricIterator *mi = rm_new(MetricIterator);
   mi->lastDocId = 0;
-  mi->curValue = NULL;
   mi->base.isValid = 1;
   mi->idsList = ids_list;
   mi->metricList = metric_list;
@@ -126,13 +123,14 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   ri->ctx = mi;
   ri->type = METRIC_ITERATOR;
   ri->mode = MODE_SORTED;
-  ri->current = NewMetricResult();
 
   // If we interested in yielding score
   if (key_pp) {
-    mi->curValue = RS_NullVal(); // first dummy value
-    ri->current->additional = array_newlen(RSAdditionalValue, 1);
+    ri->current = NewMetricResult();
+    // ResultMetrics_Add(ri->current, NULL, RS_NewValue(RSValue_Undef));
     *key_pp = &ri->ownKey; // export own key address
+  } else {
+    ri->current = NewMetricResult();
   }
 
   mi->type = metric_type;

@@ -278,10 +278,12 @@ typedef struct {
 struct RLookupKey;
 struct RSValue;
 
-typedef struct RSAdditionalValue{
+// Holds a key-value pair of an `RSValue` and the `RLookupKey` to add it into.
+// A result processor will write the value into the key if the result passed the AST.
+typedef struct RSYieldableMetric{
   struct RLookupKey *key;
   struct RSValue *value;
-} RSAdditionalValue;
+} RSYieldableMetric;
 
 #pragma pack(16)
 
@@ -322,7 +324,8 @@ typedef struct RSIndexResult {
 
   RSResultType type;
 
-  RSAdditionalValue *additional;
+  // Holds an array of metrics yielded by the different iterators in the AST
+  RSYieldableMetric *metrics;
 
   // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
   // want

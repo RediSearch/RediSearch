@@ -17,6 +17,7 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
       .fieldMask = 0,
       .isCopy = 0,
       .weight = weight,
+      .metrics = NULL,
       .agg = (RSAggregateResult){.numChildren = 0,
                                  .childrenCap = cap,
                                  .typeMask = 0x0000,
@@ -50,6 +51,7 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
                          .isCopy = 0,
                          .freq = 0,
                          .weight = weight,
+                         .metrics = NULL,
                          .term = (RSTermRecord){
                              .term = term,
                              .offsets = (RSOffsetVector){},
@@ -66,7 +68,7 @@ RSIndexResult *NewNumericResult() {
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 1,
                          .weight = 1,
-
+                         .metrics = NULL,
                          .num = (RSNumericRecord){.value = 0}};
   return res;
 }
@@ -80,7 +82,7 @@ RSIndexResult *NewVirtualResult(double weight) {
       .fieldMask = 0,
       .freq = 0,
       .weight = weight,
-
+      .metrics = NULL,
       .isCopy = 0,
   };
   return res;
@@ -95,7 +97,7 @@ RSIndexResult *NewMetricResult() {
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 0,
                          .weight = 1,
-                         .additional = NULL,
+                         .metrics = NULL,
                          .num = (RSNumericRecord){.value = 0}};
   return res;
 }
@@ -105,11 +107,12 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
   *ret = *src;
   ret->isCopy = 1;
 
-  if (src->additional) {
-    ret->additional = NULL;
-    ret->additional = array_ensure_append_n(ret->additional, src->additional, array_len(src->additional));
-    for (size_t i = 0; i < array_len(ret->additional); i++)
-      RSValue_IncrRef(ret->additional[i].value);
+  if (src->metrics) {
+    // Create a copy of the array and increase the refcount for each element's value
+    ret->metrics = NULL;
+    ret->metrics = array_ensure_append_n(ret->metrics, src->metrics, array_len(src->metrics));
+    for (size_t i = 0; i < array_len(ret->metrics); i++)
+      RSValue_IncrRef(ret->metrics[i].value);
   }
 
   switch (src->type) {
@@ -200,7 +203,7 @@ void IndexResult_Init(RSIndexResult *h) {
   h->docId = 0;
   h->fieldMask = 0;
   h->freq = 0;
-  h->additional = NULL;
+  h->metrics = NULL;
 
   if (h->type == RSResultType_Intersection || h->type == RSResultType_Union) {
     h->agg.numChildren = 0;
@@ -227,7 +230,7 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
 
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;
-  IndexResult_Additional_Free(r);
+  ResultMetrics_Free(r);
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridMetric) {
     // for deep-copy results we also free the children
     if (r->isCopy && r->agg.children) {
