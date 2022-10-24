@@ -2021,3 +2021,30 @@ def test_multiple_range_queries():
         #     expected_res.extend([str(i), ['dist_flat', str(dim * abs(n/4-i)**2), 'dist_hnsw', str(dim * i**2)]])
 
         conn.flushall()
+
+
+def test_range_query_bad_queries():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    info_type = int if env.isCluster() else str
+    dim = 4
+    n = 1000
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+                    'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+                    'text', 'TEXT', 'num', 'NUMERIC').ok()
+    for i in range(n):
+        conn.execute_command('HSET', i, 'num', i, 'text',
+                            f'{i} is my favorite number' if (i % 4) == 0 else f'I hate the value {i} I got',
+                            'vec', np.float32([i]*dim).tobytes())
+
+    info = conn.ft('idx').info()
+    env.assertEqual(info['num_docs'], info_type(n))
+
+    query = '(@vec:[VECTOR_RANGE $r $b]=>{$YIELD_DISTANCE_AS:dist} and another thing | @vec:[VECTOR_RANGE $r $b]=>{$YIELD_DISTANCE_AS:dist})'
+    env.expect('FT.SEARCH', 'idx', query, 'PARAMS', '4', 'r', '100', 'b', np.ones(dim, np.float32).tobytes()).error(
+              ).contains('Property `dist` specified more than once')
+
+    query = '(@vec:[VECTOR_RANGE $r $b]=>{$YIELD_DISTANCE_AS:num} and another thing | @vec:[VECTOR_RANGE $r $b]=>{$YIELD_DISTANCE_AS:dist})'
+    env.expect('FT.SEARCH', 'idx', query, 'PARAMS', '4', 'r', '100', 'b', np.ones(dim, np.float32).tobytes()).error(
+              ).contains('Property `num` already exists in schema')
