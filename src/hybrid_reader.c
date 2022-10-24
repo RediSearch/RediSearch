@@ -75,6 +75,7 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
       IndexResult_Clear(hit);
     }
     *hit = *vec_res; // Shallow copy.
+    ResultMetrics_Concat(hit, child_res); // Pass child metrics, if there are any
   } else {
     // Otherwise, first child is the vector distance, and the second contains a subtree with
     // the terms that the scorer will use later on in the pipeline.

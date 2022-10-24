@@ -20,6 +20,14 @@ void Term_Free(RSQueryTerm *t);
 recycle index hits during reads */
 void IndexResult_Init(RSIndexResult *h);
 
+static inline void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child) {
+  if (child->metrics) {
+    // Passing ownership over the RSValues in the child metrics, but not on the array itself
+    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
+    array_clear(child->metrics);
+  }
+}
+
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
   r->metrics = array_ensure_append_1(r->metrics, new_element);
@@ -82,11 +90,7 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;
-  if (child->metrics) {
-    // Passing ownership over the RSValues in the child metrics, but not on the array itself
-    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
-    array_clear(child->metrics);
-  }
+  ResultMetrics_Concat(parent, child);
 }
 /* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
  * caution */
