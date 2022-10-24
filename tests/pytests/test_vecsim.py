@@ -425,6 +425,7 @@ def test_search_errors():
                         'v', 'VECTOR', 'HNSW', '12', 'TYPE', VECSIM_DATA_TYPES[0], 'DIM', '2', 'DISTANCE_METRIC', 'COSINE',
                         'INITIAL_CAP', '10', 'M', '16', 'EF_CONSTRUCTION', '200',
                         'v_flat', 'VECTOR', 'FLAT', '6', 'TYPE', VECSIM_DATA_TYPES[1], 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+
     conn.execute_command('HSET', 'a', 'v', create_np_array_typed([10]*2, VECSIM_DATA_TYPES[0]).tobytes(),
                          'v_flat', create_np_array_typed([10]*2, VECSIM_DATA_TYPES[1]).tobytes(), 's', 'hello')
     conn.execute_command('HSET', 'b', 'v', create_np_array_typed([20]*2, VECSIM_DATA_TYPES[0]).tobytes(),
@@ -489,6 +490,7 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '@bad:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').equal([0])  # wrong field
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range -1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('Error parsing vector similarity query: negative radius (-1) given in a range query')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:t}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:dist} @v:[vector_range 0.2 $b]=>{$yield_distance_as:dist}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `dist` specified more than once')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:$dist}', 'PARAMS', '4', 'b', 'abcdefgh', 'dist', 't').error().contains('Property `t` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EF_RUNTIME:10}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$HYBRID_POLICY:BATCHES}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
@@ -1869,7 +1871,7 @@ def test_range_query_complex_queries():
         radius = dim * 49**2
         expected_res = [10]
         for i in range(1, 51, 5):
-            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2)], ['t', 'other'], ['num', str(-i)]])
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other', 'num', str(-i)]])
         env.expect('FT.SEARCH', 'idx', 'other @v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
                    'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                    'RETURN', 3, 'dist', 't', 'num' ,'LIMIT', 0, index_size).equal(expected_res)
@@ -1880,10 +1882,10 @@ def test_range_query_complex_queries():
         radius = dim * 59**2
         expected_res = [20]
         for i in range(5, 51, 5):
-            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2)], ['t', 'other'], ['num', str(-i)]])
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other', 'num', str(-i)]])
         for i in range(51, 60):
-            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2)], ['t', 'other'],
-                                 ['num', str(-i if i % 5 == 0 else i)]])
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other',
+                                 'num', str(-i if i % 5 == 0 else i)]])
         env.expect('FT.SEARCH', 'idx',
                    f'(@t:other | @num:[{index_size-60} ({index_size-50}]) @v:[VECTOR_RANGE $r $vec_param]=>{{$YIELD_DISTANCE_AS:dist}}',
                    'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
@@ -1942,12 +1944,11 @@ def test_multiple_range_queries():
                    't', 'TEXT', 'num', 'NUMERIC',
                    'v_hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
                    'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-
         # Run queries over an empty index
         query_vec_flat = create_np_array_typed([n/4]*dim)
         query_vec_hnsw = create_np_array_typed([n/2]*dim)
-        intersect_query = '@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_DISTANCE_AS:dist_flat} @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_DISTANCE_AS:dist_hnsw}'
-        union_query = '@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_DISTANCE_AS:dist_flat} | @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_DISTANCE_AS:dist_hnsw}'
+        intersect_query = '(@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_DISTANCE_AS:dist_flat} @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_DISTANCE_AS:dist_hnsw})'
+        union_query = '(@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_DISTANCE_AS:dist_flat} | @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_DISTANCE_AS:dist_hnsw})'
         for query in [intersect_query, union_query]:
             env.expect('FT.SEARCH', 'idx', query, 'SORTBY', 'dist_flat', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
                        'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', 1,
@@ -1966,7 +1967,7 @@ def test_multiple_range_queries():
         radius = dim * (n/4)**2
         expected_res = [n/4]
         for i in range(int(n/4), int(n/4) + 10):
-            expected_res.extend([str(i), ['dist_flat', str(dim * i**2)], ['dist_hnsw', str(dim * (n/2-n/4+i)**2)]])
+            expected_res.extend([str(i), ['dist_flat', str(dim * i**2), 'dist_hnsw', str(dim * (n/2-n/4+i)**2)]])
 
         env.expect('FT.SEARCH', 'idx', intersect_query, 'SORTBY', 'dist_flat', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
                    'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,
@@ -1975,17 +1976,49 @@ def test_multiple_range_queries():
         # Run again, sort by results that are closest to query_vec_hnsw
         expected_res = [n/4]
         for i in range(int(n/2), int(n/2)-10, -1):
-            expected_res.extend([str(i), ['dist_flat', str(dim * (n/2-n/4+i)**2)], ['dist_hnsw', str(dim * i**2)]])
+            expected_res.extend([str(i), ['dist_flat', str(dim * (n/2-n/4+i)**2), 'dist_hnsw', str(dim * i**2)]])
         env.expect('FT.SEARCH', 'idx', intersect_query, 'SORTBY', 'dist_hnsw', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
                    'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,
                    'RETURN', 2, 'dist_flat', 'dist_hnsw').equal(expected_res)
 
         # Run union query - expect to get a union of both ranges, sorted by distance from query_vec_hnsw.
         expected_res = [n*3/4 + 1]
-        for i in range(int(n*3/4), -1, -1):
-            expected_res.extend([str(i), ['dist_flat', str(dim * abs(n/4-i)**2)], ['dist_hnsw', str(dim * i**2)]])
+        for i in range(int(n*3/4), int(n/2)-1, -1):
+            expected_res.extend([str(i), ['dist_hnsw', str(dim * i**2)]])
+        for i in range(int(n/2)-1, -1, -1):
+            expected_res.extend([str(i), ['dist_flat', str(dim * abs(n/4-i)**2), 'dist_hnsw', str(dim * i**2)]])
         env.expect('FT.SEARCH', 'idx', union_query, 'SORTBY', 'dist_hnsw', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
-                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,
+                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius, 'LIMIT', 0, n,
                    'RETURN', 2, 'dist_flat', 'dist_hnsw').equal(expected_res)
 
-        # Run union query with other fields
+        # Run union query with another field - expect to get the results from before, followed by the results
+        # that are within the numeric range without the distance field.
+        extended_union_query = union_query + f' @n:[{n/2} {n*7/8}]'
+        for i in range(int(n*3/4)+1, int(n*7/8)):
+            expected_res.extend([str(i)])
+        env.expect('FT.SEARCH', 'idx', extended_union_query, 'SORTBY', 'dist_hnsw', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
+                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,  'LIMIT', 0, n,
+                   'RETURN', 2, 'dist_flat', 'dist_hnsw').equal(expected_res)
+
+        intersect_over_union_q = union_query + f' @t:text'
+        # result set should be every doc in the union of the ranges that is multiply by 5.
+        expected_res = [int((n*3/4) / 5) + 1]
+        for i in range(int(n*3/4), int(n/2)-1, -5):
+            expected_res.extend([str(i), ['dist_hnsw', str(dim * i**2)]])
+        for i in range(int(n/2)-1, -1, -5):
+            expected_res.extend([str(i), ['dist_flat', str(dim * abs(n/4-i)**2), 'dist_hnsw', str(dim * i**2)]])
+
+        env.expect('FT.SEARCH', 'idx', intersect_over_union_q, 'SORTBY', 'dist_hnsw', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
+                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,  'LIMIT', 0, n,
+                   'RETURN', 2, 'dist_flat', 'dist_hnsw').equal(expected_res)
+
+        union_over_intersection_q = intersect_query + f' | @n:[{n/3} {n*3/4}]'
+        # result set should be every doc in the intersection of both ranges OR in the numeric range.
+        # That is every id between n/4 and n/8
+        expected_res = [int(n/2)]
+        for i in range(int(n*3/4), int(n/4)-1, -1):
+        #     expected_res.extend([str(i), ['dist_hnsw', str(dim * i**2)]])
+        # for i in range(int(n/2)-1, -1, -5):
+        #     expected_res.extend([str(i), ['dist_flat', str(dim * abs(n/4-i)**2), 'dist_hnsw', str(dim * i**2)]])
+
+    conn.flushall()
