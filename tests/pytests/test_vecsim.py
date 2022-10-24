@@ -1944,8 +1944,8 @@ def test_multiple_range_queries():
                    'v_hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
                    'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
         # Run queries over an empty index
-        query_vec_flat = create_np_array_typed([n/4]*dim)
-        query_vec_hnsw = create_np_array_typed([n/2]*dim)
+        query_vec_flat = create_np_array_typed([n/4]*dim, data_type)
+        query_vec_hnsw = create_np_array_typed([n/2]*dim, data_type)
         intersect_query = '(@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_DISTANCE_AS:dist_flat} @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_DISTANCE_AS:dist_hnsw})'
         union_query = '(@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_DISTANCE_AS:dist_flat} | @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_DISTANCE_AS:dist_hnsw})'
         for query in [intersect_query, union_query]:
@@ -2019,6 +2019,13 @@ def test_multiple_range_queries():
              expected_res.extend([str(i), ['dist_hnsw', str(dim * i**2)]])
         # for i in range(int(n/2)-1, -1, -5):
         #     expected_res.extend([str(i), ['dist_flat', str(dim * abs(n/4-i)**2), 'dist_hnsw', str(dim * i**2)]])
+
+        # TODO: calculate expected. should have all 3 scores
+        filtered_q = intersect_query + '=>[KNN 10 @v_hnsw $knn_vec AS knn_dist]'
+        query_vec_knn = create_np_array_typed([1]*dim, data_type)
+        env.expect('FT.SEARCH', 'idx', filtered_q, 'SORTBY', 'knn_dist', 'PARAMS', 8, 'vec_param_flat', query_vec_flat.tobytes(),
+                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'knn_vec', query_vec_knn.tobytes(), 'r', radius,  'LIMIT', 0, n,
+                   'RETURN', 3, 'dist_flat', 'dist_hnsw', 'knn_dist').equal([0])
 
         conn.flushall()
 
