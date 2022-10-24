@@ -10,7 +10,7 @@ setups:
 dbconfig:
   - dataset_name: "ftsb-1K-enwiki_abstract-hashes-withsuffixtrie"
   - init_commands:
-    - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "WITHSUFFIXTRIE" "url" "text" "SORTABLE" "WITHSUFFIXTRIE" "abstract" "text" "SORTABLE" "WITHSUFFIXTRIE"'
+    - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "WITHSUFFIXTRIE" "SORTABLE" "url" "text" "WITHSUFFIXTRIE" "SORTABLE" "abstract" "text" "WITHSUFFIXTRIE" "SORTABLE"'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
