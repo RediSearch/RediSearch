@@ -263,7 +263,7 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  arrayof(RSAdditionalValue) arr = res->indexResult->additional;
+  arrayof(RSYieldableMetric) arr = res->indexResult->metrics;
   for (size_t i = 0; i < array_len(arr); i++) {
     // TODO: delete me
     // RedisModule_Log(NULL, "warning", "score is %lf, of the %s type. key is %p", arr[i].value->numval, (arr[i].value->t == RSValue_Number) ? "right" : "wrong", arr[i].key);

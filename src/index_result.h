@@ -6,6 +6,7 @@
 #include "rmalloc.h"
 #include "util/arr.h"
 #include "value.h"
+#include "rlookup.h"
 #define DEFAULT_RECORDLIST_SIZE 4
 
 #ifdef __cplusplus
@@ -19,9 +20,24 @@ void Term_Free(RSQueryTerm *t);
 recycle index hits during reads */
 void IndexResult_Init(RSIndexResult *h);
 
-static inline void IndexResult_Additional_Free(RSIndexResult *r) {
-  array_free_ex(r->additional, RSValue_Decref(((RSAdditionalValue *)ptr)->value));
-  r->additional = NULL;
+static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
+  RSYieldableMetric new_element = {.key = key, .value = val};
+  r->metrics = array_ensure_append_1(r->metrics, new_element);
+}
+
+static inline void ResultMetrics_Reset(RSIndexResult *r) {
+  array_foreach(r->metrics, adtnl, RSValue_Decref(adtnl.value));
+  array_clear(r->metrics);
+}
+
+static inline void ResultMetrics_Free(RSIndexResult *r) {
+  array_free_ex(r->metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
+  r->metrics = NULL;
+}
+
+/* Prepare an Index Result to be reused. Add here any relevant cleanup function */
+static inline void IndexResult_Clear(RSIndexResult *r) {
+  ResultMetrics_Free(r);
 }
 
 /* Reset the aggregate result's child vector */
@@ -30,7 +46,7 @@ static inline void AggregateResult_Reset(RSIndexResult *r) {
   r->docId = 0;
   r->agg.numChildren = 0;
   r->agg.typeMask = (RSResultType)0;
-  IndexResult_Additional_Free(r);
+  IndexResult_Clear(r);
 }
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight);
@@ -66,10 +82,10 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;
-  if (child->additional) {
-    parent->additional = array_ensure_append_n(parent->additional, child->additional, array_len(child->additional));
-    array_free(child->additional); // SHOULD not free maybe?
-    child->additional = NULL;
+  if (child->metrics) {
+    // Passing ownership over the RSValues in the child metrics, but not on the array itself
+    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
+    array_clear(child->metrics);
   }
 }
 /* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
