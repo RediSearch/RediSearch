@@ -374,7 +374,7 @@ static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f
 int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, SchemaRule *rule, const char *keyptr);
 
 
-int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv, bool freeIter);
+int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
 #ifdef __cplusplus
 }

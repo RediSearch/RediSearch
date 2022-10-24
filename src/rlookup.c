@@ -308,7 +308,7 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
 // Return REDISMODULE_ERR otherwise
 //
 // Multi value is supported with apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST
-int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv, bool freeIter) {
+int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv) {
 
   int res = REDISMODULE_ERR;
   RedisModuleString *serialized = NULL;
@@ -344,9 +344,6 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
   }
   
 done:
-  if (freeIter) {
-    japi->freeIter(iter);
-  }
   return res;
 }
 
@@ -490,7 +487,9 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
       return REDISMODULE_OK;
     }
   } else {
-    if (jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &rsv, true) == REDISMODULE_ERR) {
+    int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &rsv);
+    japi->freeIter(jsonIter);
+    if (res == REDISMODULE_ERR) {
       return REDISMODULE_OK;
     }
   }
@@ -664,9 +663,11 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   }
 
   RSValue *vptr;
-  if (jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr, true) == REDISMODULE_ERR) {
-      goto done;
-    }
+  int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr);
+  japi->freeIter(jsonIter);
+  if (res == REDISMODULE_ERR) {
+    goto done;
+  }
   RLookupKey *rlk = RLookup_GetKeyEx(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
   RLookup_WriteOwnKey(rlk, dst, vptr);
 
