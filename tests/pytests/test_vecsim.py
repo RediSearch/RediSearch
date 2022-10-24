@@ -1775,7 +1775,6 @@ def test_range_query_basic():
             # Expect to get the 499 docs with the highest ids.
             dist_range = dim * 499**2
             query_data = create_np_array_typed([n+1]*dim, data_type)
-            x=input("now")
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
             'SORTBY', 'score', 'PARAMS', 6, 'vec_param', query_data.tobytes(), 'r', dist_range, 'score_field', 'score',
             'RETURN', 1, 'score', 'LIMIT', 0, n)
@@ -1862,7 +1861,7 @@ def test_range_query_complex_queries():
         for i in range(1, 10):
             if i == 5:
                 continue
-            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2)], ['t', 'text'], ['num', 'i']])
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'text', 'num', str(index_size-i)]])
         env.expect('FT.SEARCH', 'idx', '@t:text @v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
                     'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                     'RETURN', 3, 'dist', 't', 'num', 'LIMIT', 0, index_size).equal(expected_res)
@@ -1870,8 +1869,8 @@ def test_range_query_complex_queries():
         # Expect to get 10 results whose ids are a multiplication of 5 whose distance within the range.
         radius = dim * 49**2
         expected_res = [10]
-        for i in range(1, 51, 5):
-            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other', 'num', str(-i)]])
+        for i in range(0, 50, 5):
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other', 'num', str(i-index_size)]])
         env.expect('FT.SEARCH', 'idx', 'other @v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
                    'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                    'RETURN', 3, 'dist', 't', 'num' ,'LIMIT', 0, index_size).equal(expected_res)
@@ -1881,11 +1880,11 @@ def test_range_query_complex_queries():
         # [index_size, index_size-5, ... , index_size-50] U [index_size-51, index_size-52, ..., index_size-59]
         radius = dim * 59**2
         expected_res = [20]
-        for i in range(5, 51, 5):
-            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other', 'num', str(-i)]])
-        for i in range(51, 60):
-            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other',
-                                 'num', str(-i if i % 5 == 0 else i)]])
+        for i in range(0, 50, 5):
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other', 'num', str(i-index_size)]])
+        for i in range(50, 60):
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'text' if (index_size-i) % 5 == 0 else 'other',
+                                 'num', str(i-index_size if (index_size-i % 5) == 0 else index_size-i)]])
         env.expect('FT.SEARCH', 'idx',
                    f'(@t:other | @num:[{index_size-60} ({index_size-50}]) @v:[VECTOR_RANGE $r $vec_param]=>{{$YIELD_DISTANCE_AS:dist}}',
                    'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
@@ -1936,7 +1935,7 @@ def test_multiple_range_queries():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 16
-    n = 1000
+    n = 100
 
     for data_type in VECSIM_DATA_TYPES:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v_flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
@@ -2017,7 +2016,7 @@ def test_multiple_range_queries():
         # That is every id between n/4 and n/8
         expected_res = [int(n/2)]
         for i in range(int(n*3/4), int(n/4)-1, -1):
-        #     expected_res.extend([str(i), ['dist_hnsw', str(dim * i**2)]])
+             expected_res.extend([str(i), ['dist_hnsw', str(dim * i**2)]])
         # for i in range(int(n/2)-1, -1, -5):
         #     expected_res.extend([str(i), ['dist_flat', str(dim * abs(n/4-i)**2), 'dist_hnsw', str(dim * i**2)]])
 
