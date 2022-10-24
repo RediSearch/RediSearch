@@ -4,6 +4,8 @@
 #include "varint.h"
 #include "redisearch.h"
 #include "rmalloc.h"
+#include "util/arr.h"
+#include "value.h"
 #define DEFAULT_RECORDLIST_SIZE 4
 
 #ifdef __cplusplus
@@ -17,12 +19,18 @@ void Term_Free(RSQueryTerm *t);
 recycle index hits during reads */
 void IndexResult_Init(RSIndexResult *h);
 
+static inline void IndexResult_Additional_Free(RSIndexResult *r) {
+  array_free_ex(r->additional, RSValue_Decref(((RSAdditionalValue *)ptr)->value));
+  r->additional = NULL;
+}
+
 /* Reset the aggregate result's child vector */
 static inline void AggregateResult_Reset(RSIndexResult *r) {
 
   r->docId = 0;
   r->agg.numChildren = 0;
   r->agg.typeMask = (RSResultType)0;
+  IndexResult_Additional_Free(r);
 }
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight);
@@ -58,8 +66,13 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;
+  if (child->additional) {
+    parent->additional = array_ensure_append_n(parent->additional, child->additional, array_len(child->additional));
+    array_free(child->additional); // SHOULD not free maybe?
+    child->additional = NULL;
+  }
 }
-/* Create a deep copy of the results that is totall thread safe. This is very slow so use it with
+/* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
  * caution */
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
 

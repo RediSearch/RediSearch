@@ -150,13 +150,13 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
 }
 
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
-  if (AC_NumRemaining(ac) < 1) {	
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");	
-      return REDISMODULE_ERR;	
-    }	
-    if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {	
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
-      return REDISMODULE_ERR;	
+  if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");
+      return REDISMODULE_ERR;
+    }
+    if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);
+      return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
 }
@@ -210,14 +210,14 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (req->reqflags & QEXEC_F_IS_SEARCH && !(QEXEC_F_SEND_SCORES & req->reqflags)) {
       req->searchopts.flags |= Search_IgnoreScores;
     }
-  } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
-    if (AC_NumRemaining(ac) < 1) {	
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
-      return ARG_ERROR;	
-    }	
-    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {	
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");	
-      return ARG_ERROR;	
+  } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
+      return ARG_ERROR;
+    }
+    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
+      return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
     if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
@@ -696,7 +696,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
     rc = AC_GetString(ac, &s, NULL, 0);
     if (rc != AC_OK || strcmp(s, "*")) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
-      return REDISMODULE_ERR;  
+      return REDISMODULE_ERR;
     }
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
   }
@@ -872,7 +872,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QAST_EvalParams(ast, opts, status);
   applyGlobalFilters(opts, ast, sctx);
-  
+
   if (QAST_CheckIsValid(ast, req->sctx->spec, opts, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -984,27 +984,28 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
   return pushRP(req, groupRP, rpUpstream);
 }
 
-static ResultProcessor *getVecSimRP(AREQ *req, AGGPlan *pln, ResultProcessor *up, QueryError *status) {
-  RLookup *lk = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
-  char **scoreFields = req->ast.vecScoreFieldNames;
-  size_t nScoreFields = array_len(scoreFields);
-  RLookupKey **keys = rm_calloc(nScoreFields, sizeof(*keys));
-  for (size_t i = 0; i < nScoreFields; i++) {
-    if (IndexSpec_GetField(req->sctx->spec, scoreFields[i], strlen(scoreFields[i]))) {
-      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", scoreFields[i]);
-      rm_free(keys);
+static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryError *status) {
+  MetricRequest *requests = req->ast.metricRequests;
+  for (size_t i = 0; i < array_len(requests); i++) {
+    char *name = requests[i].metric_name;
+    if (IndexSpec_GetField(req->sctx->spec, name, strlen(name))) {
+      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", name);
       return NULL;
     }
-    keys[i] = RLookup_GetKey(lk, scoreFields[i], RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
-    if (!keys[i]) {
-      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", scoreFields[i]);
-      rm_free(keys);
+    RLookupKey *key = RLookup_GetKey(rl, name, RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+    if (!key) {
+      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", name);
       return NULL;
     }
+    // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
+    // that it has no results), but we still want the rest of the pipline to know about the additional field name,
+    // because there is no syntax error and the sorter should be able to "sort" by this field.
+    // If there is a pointer to the node's RLookupKey, write the address.
+    if (requests[i].key_ptr)
+      *requests[i].key_ptr = key;
   }
-
-  ResultProcessor *rp = RPVecSim_New((const RLookupKey **)keys, array_len(req->ast.vecScoreFieldNames));
-  return pushRP(req, rp, up);
+  // RedisModule_Log(NULL, "warning", "key is %p", (requests[0].key_ptr) ? *requests[0].key_ptr : NULL);
+  return RPMetricsLoader_New();
 }
 
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
@@ -1122,6 +1123,16 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
 
+  // Load results metrics according to their RLookup key.
+  // We need this RP only if metricRequests is not empty.
+  if (req->ast.metricRequests) {
+    rp = getAdditionalMetricsRP(req, first, Status);
+    if (!rp) {
+      return;
+    }
+    PUSH_RP();
+  }
+
   /** Create a scorer if:
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
@@ -1196,19 +1207,13 @@ error:
 int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   if (!(options & AREQ_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
+    if (status->code != QUERY_OK) {
+      goto error;
+    }
   }
 
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
-
-  // Load vecsim results according to their score fields.
-  // We need this RP only if vecScoreFieldNames is not empty.
-  if (req->ast.vecScoreFieldNames) {
-    rpUpstream = getVecSimRP(req, pln, rpUpstream, status);
-    if (!rpUpstream) {
-      goto error;
-    }
-  }
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
@@ -1295,7 +1300,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
             }
           }
           // set lookupkey name to name.
-          // by defualt "name = path" 
+          // by defualt "name = path"
           kk->name = name;
           kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
