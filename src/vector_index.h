@@ -118,7 +118,7 @@ extern "C" {
 #endif
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
-                                                          const char *field_name);
+                                                          RLookupKey ***key_pp);
 #ifdef __cplusplus
 }
 #endif

@@ -96,7 +96,7 @@ RSIndexResult *NewMetricResult() {
                          .freq = 0,
                          .weight = 1,
                          .additional = NULL,
-                         .metric = (RSMetricRecord){.value = 0, .metricField = NULL}};
+                         .num = (RSNumericRecord){.value = 0}};
   return res;
 }
 

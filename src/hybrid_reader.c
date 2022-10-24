@@ -9,7 +9,7 @@ static void prepareResults(HybridIterator *hr); // forward declaration
 
 static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata) {
   const RSIndexResult *e1 = p1, *e2 = p2;
-  double score1 = VECTOR_RESULT(e1)->metric.value, score2 = VECTOR_RESULT(e2)->metric.value;
+  double score1 = VECTOR_RESULT(e1)->num.value, score2 = VECTOR_RESULT(e2)->num.value;
   if (score1 < score2) {
     return -1;
   } else if (score1 > score2) {
@@ -42,8 +42,7 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
     // Set the item that we skipped to it in hit.
     (*hit)->docId = id;
-    (*hit)->metric.value = VecSimQueryResult_GetScore(res);
-    (*hit)->metric.metricField = hr->scoreField;
+    (*hit)->num.value = VecSimQueryResult_GetScore(res);
     return INDEXREAD_OK;
   }
   return INDEXREAD_EOF;
@@ -58,8 +57,7 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
   // Set the item that we read in the current RSIndexResult
   (*hit)->docId = VecSimQueryResult_GetId(res);
-  (*hit)->metric.value = VecSimQueryResult_GetScore(res);
-  (*hit)->metric.metricField = hr->scoreField;
+  (*hit)->num.value = VecSimQueryResult_GetScore(res);
   return INDEXREAD_OK;
 }
 
@@ -88,13 +86,13 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
       IndexResult_Free(top_res);
     }
   }
-  RSValue *val = RS_NumVal(vec_res->metric.value);
+  RSValue *val = RS_NumVal(vec_res->num.value);
   RSAdditionalValue pair = {.key = hr->base.ownKey, .value = val};
   hit->additional = array_ensure_append_1(hit->additional, pair);
   // Insert to heap, update the distance upper bound.
   heap_offerx(hr->topResults, hit);
   RSIndexResult *top = heap_peek(hr->topResults);
-  *upper_bound = VECTOR_RESULT(top)->metric.value;
+  *upper_bound = VECTOR_RESULT(top)->num.value;
   // Reset the current result.
   AggregateResult_Reset(res);
 }
@@ -111,7 +109,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
     cur_child_res->additional = NULL;
     if (cur_vec_res->docId == cur_child_res->docId) {
       // Found a match - check if it should be added to the results heap.
-      if (heap_count(hr->topResults) < hr->query.k || cur_vec_res->metric.value < *upper_bound) {
+      if (heap_count(hr->topResults) < hr->query.k || cur_vec_res->num.value < *upper_bound) {
         // Otherwise, set the vector and child results as the children the res
         // and insert result to the heap.
         insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, upper_bound);
@@ -167,8 +165,7 @@ void computeDistances(HybridIterator *hr) {
     if (heap_count(hr->topResults) < hr->query.k || metric < upper_bound) {
       // Populate the vector result.
       cur_vec_res->docId = cur_child_res->docId;
-      cur_vec_res->metric.value = metric;
-      cur_vec_res->metric.metricField = hr->scoreField;
+      cur_vec_res->num.value = metric;
       insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, &upper_bound);
     }
   }
@@ -332,7 +329,7 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   hr->lastDocId = (*hit)->docId;
-  (*hit)->additional[0].value = RS_NumVal((*hit)->metric.value);
+  (*hit)->additional[0].value = RS_NumVal((*hit)->num.value);
   return INDEXREAD_OK;
 }
 
@@ -462,7 +459,9 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, RLookupKey 
   IndexIterator *ri = &hi->base;
   ri->ctx = hi;
   ri->ownKey = NULL;
-  *key_pp = &ri->ownKey;
+  if (key_pp) {
+    *key_pp = &ri->ownKey;
+  }
   ri->type = HYBRID_ITERATOR;
   ri->mode = MODE_SORTED;  // Since this iterator is always the root, we currently don't return the
                            // results sorted by id as an optimization (this can be modified in the future).

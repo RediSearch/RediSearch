@@ -250,13 +250,6 @@ typedef struct {
   double value;
 } RSNumericRecord;
 
-/* A vector record represents a vector similarity search result which has a specific *distance* from the
- * query vector in the vector index, and associated with *scoreField* */
-typedef struct {
-  double value;
-  const char *metricField;
-} RSMetricRecord;
-
 typedef enum {
   RSResultType_Union = 0x1,
   RSResultType_Intersection = 0x2,
@@ -325,8 +318,6 @@ typedef struct RSIndexResult {
     RSVirtualRecord virt;
     // numeric record with float value
     RSNumericRecord num;
-    // metric record with value and metric field name
-    RSMetricRecord metric;
   };
 
   RSResultType type;

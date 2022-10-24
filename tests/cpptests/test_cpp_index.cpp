@@ -895,8 +895,9 @@ TEST_F(IndexTest, testMetric_VectorRange) {
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
   // Run simple range query.
-  const char *metric_field_name = "vec_dist";
-  IndexIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, metric_field_name);
+  RLookupKey **key_pp = NULL;
+  IndexIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, &key_pp);
+  ASSERT_EQ(&vecIt->ownKey, key_pp);
   RSIndexResult *h = NULL;
   size_t count = 0;
   size_t lowest_id = 25;
@@ -908,8 +909,8 @@ TEST_F(IndexTest, testMetric_VectorRange) {
     ASSERT_EQ(h->type, RSResultType_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
-    ASSERT_EQ(h->metric.value, exp_dist);
-    ASSERT_EQ(h->metric.metricField, metric_field_name);
+    ASSERT_EQ(h->num.value, exp_dist);
+    ASSERT_EQ(h->additional[0].value->numval, exp_dist);
     count++;
   }
   ASSERT_EQ(count, n_expected_res);
@@ -928,13 +929,15 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, lowest_id + 10);
   double exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
-  ASSERT_EQ(h->metric.value, exp_dist);
+  ASSERT_EQ(h->num.value, exp_dist);
+  ASSERT_EQ(h->additional[0].value->numval, exp_dist);
   ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + 10);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n-1, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom(index, h->docId, query);
-  ASSERT_EQ(h->metric.value, exp_dist);
+  ASSERT_EQ(h->num.value, exp_dist);
+  ASSERT_EQ(h->additional[0].value->numval, exp_dist);
   ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n-1);
 
   // Invalid SkipTo
