@@ -1883,8 +1883,8 @@ def test_range_query_complex_queries():
         for i in range(0, 50, 5):
             expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other', 'num', str(i-index_size)]])
         for i in range(50, 60):
-            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'text' if (index_size-i) % 5 == 0 else 'other',
-                                 'num', str(i-index_size if (index_size-i % 5) == 0 else index_size-i)]])
+            expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other' if (index_size-i) % 5 == 0 else 'text',
+                                 'num', str(i-index_size if (index_size-i) % 5 == 0 else index_size-i)]])
         env.expect('FT.SEARCH', 'idx',
                    f'(@t:other | @num:[{index_size-60} ({index_size-50}]) @v:[VECTOR_RANGE $r $vec_param]=>{{$YIELD_DISTANCE_AS:dist}}',
                    'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
@@ -1902,7 +1902,7 @@ def test_range_query_complex_queries():
         numeric_range = (index_size-100, index_size-20)
         ids_in_numeric_range = {i for i in range(numeric_range[0], numeric_range[1]) if i % 5 != 0}
         ids_in_geo_range = {900 + i*sign for i in range(32) for sign in {1, -1}}  # in 50 km radius around (9.0, 9.0)
-        expected_res = [str(i) for i in range(index_size-100, index_size)
+        expected_res = [str(i) for i in range(index_size, index_size-100, -1)
                         if i in inkeys and i in ids_in_numeric_range and i in ids_in_geo_range]
         expected_res.insert(0, len(expected_res))
         env.expect('FT.SEARCH', 'idx', 'text @v:[VECTOR_RANGE $r $vec_param]=>{$yield_distance_as:dist}',
@@ -2020,4 +2020,4 @@ def test_multiple_range_queries():
         # for i in range(int(n/2)-1, -1, -5):
         #     expected_res.extend([str(i), ['dist_flat', str(dim * abs(n/4-i)**2), 'dist_hnsw', str(dim * i**2)]])
 
-    conn.flushall()
+        conn.flushall()
