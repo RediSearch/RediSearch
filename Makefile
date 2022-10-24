@@ -55,7 +55,6 @@ ifeq ($(wildcard $(ROOT)/deps/readies/*),)
 ___:=$(shell git submodule update --init --recursive &> /dev/null)
 endif
 
-MK.pyver:=3
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
