@@ -72,7 +72,7 @@ static int MR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   if (mr->curIndex == mr->resultsNum) {
     IITER_SET_EOF(&mr->base);
   }
-  return INDEXREAD_OK;
+  return (cur_id == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
 }
 
 static void SetYield(void *ctx, RSIndexResult **hit) {
@@ -91,7 +91,7 @@ static int MR_Read_With_Yield(void *ctx, RSIndexResult **hit) {
 
 static int MR_SkipTo_With_Yield(void *ctx, t_docId docId, RSIndexResult **hit) {
   int rc = MR_SkipTo(ctx, docId, hit);
-  if (INDEXREAD_OK == rc) {
+  if (INDEXREAD_OK == rc || INDEXREAD_NOTFOUND == rc) {
     SetYield(ctx, hit);
   }
   return rc;
