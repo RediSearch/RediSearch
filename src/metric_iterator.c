@@ -37,8 +37,7 @@ static int MR_Read(void *ctx, RSIndexResult **hit) {
   // Set the item that we read in the current RSIndexResult
   *hit = mr->base.current;
   (*hit)->docId = mr->lastDocId = mr->idsList[mr->curIndex];
-  (*hit)->metric.value = mr->metricList[mr->curIndex];
-  (*hit)->metric.metricField = mr->fieldName;
+  (*hit)->num.value = mr->metricList[mr->curIndex];
 
   // Advance the current index in the doc ids array, so it will point to the next id to be returned.
   // If we reached the total number of results, iterator is depleted.
@@ -68,13 +67,34 @@ static int MR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   // Set the item that we skipped to it in hit.
   *hit = mr->base.current;
   (*hit)->docId = mr->lastDocId = cur_id;
-  (*hit)->metric.value = mr->metricList[mr->curIndex];
-  (*hit)->metric.metricField = mr->fieldName;
+  (*hit)->num.value = mr->metricList[mr->curIndex];
   mr->curIndex++;
   if (mr->curIndex == mr->resultsNum) {
     IITER_SET_EOF(&mr->base);
   }
   return INDEXREAD_OK;
+}
+
+static void SetYield(void *ctx, RSIndexResult **hit) {
+  MetricIterator *mr = ctx;
+  ResultMetrics_Reset(*hit);
+  ResultMetrics_Add(*hit, mr->base.ownKey, RS_NumVal((*hit)->num.value));
+}
+
+static int MR_Read_With_Yield(void *ctx, RSIndexResult **hit) {
+  int rc = MR_Read(ctx, hit);
+  if (INDEXREAD_OK == rc) {
+    SetYield(ctx, hit);
+  }
+  return rc;
+}
+
+static int MR_SkipTo_With_Yield(void *ctx, t_docId docId, RSIndexResult **hit) {
+  int rc = MR_SkipTo(ctx, docId, hit);
+  if (INDEXREAD_OK == rc) {
+    SetYield(ctx, hit);
+  }
+  return rc;
 }
 
 static void MR_Free(IndexIterator *self) {
@@ -90,11 +110,9 @@ static void MR_Free(IndexIterator *self) {
   rm_free(mr);
 }
 
-IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list,
-                                 const char *field_name, Metric metric_type) {
+IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric metric_type, RLookupKey ***key_pp) {
   MetricIterator *mi = rm_new(MetricIterator);
   mi->lastDocId = 0;
-  mi->fieldName = field_name;
   mi->base.isValid = 1;
   mi->idsList = ids_list;
   mi->metricList = metric_list;
@@ -109,8 +127,15 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list,
 
   mi->type = metric_type;
 
-  ri->Read = MR_Read;
-  ri->SkipTo = MR_SkipTo;
+  // If we interested in yielding score
+  if (key_pp) {
+    ri->Read = MR_Read_With_Yield;
+    ri->SkipTo = MR_SkipTo_With_Yield;
+    *key_pp = &ri->ownKey; // export own key address
+  } else {
+    ri->Read = MR_Read;
+    ri->SkipTo = MR_SkipTo;
+  }
   ri->Rewind = MR_Rewind;
   ri->Free = MR_Free;
   ri->HasNext = MR_HasNext;

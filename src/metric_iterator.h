@@ -13,7 +13,6 @@ typedef struct {
   t_docId *idsList;
   double *metricList;    // metric_list[i] is the metric that ids_list[i] yields.
   t_docId lastDocId;
-  const char *fieldName; // The field name that corresponds to the metric in the results.
   size_t resultsNum;
   size_t curIndex;       // Index of the next doc_id to return.
 } MetricIterator;
@@ -22,8 +21,8 @@ typedef struct {
 extern "C" {
 #endif
 
-IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list,
-                                 const char *field_name, Metric metric_type);
+struct RLookupKey; // Forward declaration
+IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric metric_type, struct RLookupKey ***key_pp);
 
 #ifdef __cplusplus
 }

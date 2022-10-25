@@ -54,7 +54,7 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
 }
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
-                                                          const char *field_name) {
+                                                          RLookupKey ***key_pp) {
   size_t res_num = VecSimQueryResult_Len(results);
   if (res_num == 0) {
     VecSimQueryResult_Free(results);
@@ -74,11 +74,10 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List
   VecSimQueryResult_Free(results);
 
   // Move ownership on the arrays to the MetricIterator.
-  return NewMetricIterator(docIdsList, metricList, field_name, VECTOR_DISTANCE);
-
+  return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, key_pp);
 }
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, RLookupKey ***kpp) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
@@ -130,7 +129,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .childIt = child_it,
                                       .timeout = q->sctx->timeout,
       };
-      return NewHybridVectorIterator(hParams);
+      return NewHybridVectorIterator(hParams, kpp);
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
@@ -160,7 +159,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
         QueryError_SetError(q->status, QUERY_TIMEDOUT, NULL);
         return NULL;
       }
-      return createMetricIteratorFromVectorQueryResults(results, vq->scoreField);
+      return createMetricIteratorFromVectorQueryResults(results, kpp);
     }
   }
   return NULL;

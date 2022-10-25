@@ -48,7 +48,7 @@ typedef struct {
 extern "C" {
 #endif
 
-IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams);
+IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, RLookupKey ***key_pp);
 
 #ifdef __cplusplus
 }
