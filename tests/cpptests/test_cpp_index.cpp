@@ -834,7 +834,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
   KNNVectorQuery top_k_query = {.vector = vec, .vecLen = d, .k = 10, .order = BY_SCORE};
-  VecSimQueryParams queryParams = {0};
+  VecSimQueryParams queryParams = {};
 
   // Create invalid intersection iterator (with a child iterator which is NULL).
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -974,7 +974,7 @@ TEST_F(IndexTest, testMetric_SkipTo) {
   array_ensure_append_n(ids_arr, ids , results_num);
 
   double *metrics_arr = array_new(double, results_num);
-  double metrics[results_num] = {1.0};
+  double metrics[7] = {1.0};
   array_ensure_append_n(metrics_arr, metrics, results_num);
 
   IndexIterator *metric_it = NewMetricIterator(ids_arr, metrics_arr, VECTOR_DISTANCE, false);
