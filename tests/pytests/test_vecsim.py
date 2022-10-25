@@ -2006,11 +2006,13 @@ def test_multiple_range_queries():
 
         intersect_over_union_q = union_query + f' @t:other'
         # result set should be every doc in the union of the ranges that is multiply by 5.
-        expected_res = [int((n*3/4) / 5) + 1]
-        for i in range(int(n*3/4), int(n/2)-1, -5):
-            expected_res.extend([str(i), ['dist_hnsw', str(dim * (n/2-i)**2)]])
-        for i in range(int(n/2)-1, -1, -5):
+        expected_res = [int((n*3/4) / 5)]
+        for i in range(int(n*3/4), int(n/2), -5):
+            expected_res.extend([str(i), ['dist_hnsw', str(int(dim * (n/2-i)**2))]])
+        for i in range(int(n/2), int(n/4)-5, -5):
             expected_res.extend([str(i), ['dist_flat', str(int(dim * abs(n/4-i)**2)), 'dist_hnsw', str(int(dim * (n/2-i)**2))]])
+        for i in range(int(n/4)-5, 0, -5):
+            expected_res.extend([str(i), ['dist_flat', str(int(dim * abs(n/4-i)**2))]])
         x=input("now")
         env.expect('FT.SEARCH', 'idx', intersect_over_union_q, 'SORTBY', 'num', 'DESC', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
                    'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,  'LIMIT', 0, n,
