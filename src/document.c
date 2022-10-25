@@ -987,11 +987,3 @@ size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df) {
   }
   return len;
 }
-
-void DocumentField_multiVal_Free(DocumentField *df) {
-  for (size_t i = 0; i < df->arrayLen; ++i) {
-    rm_free(df->multiVal[i]);
-  }
-  rm_free(df->multiVal);
-  df->arrayLen = 0;
-}
