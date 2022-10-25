@@ -123,7 +123,7 @@ void RangeNumber_Free(RangeNumber *r) {
 // Add a new metric request to the metricRequests array. Returns the index of the request
 static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr) {
     MetricRequest mr = {metric_name, key_addr};
-    array_ensure_append_1(*q->metricRequestsP, mr);
+    *q->metricRequestsP = array_ensure_append_1(*q->metricRequestsP, mr);
     return array_len(*q->metricRequestsP) - 1;
 }
 
@@ -314,6 +314,7 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
       QueryNode_InitParams(ret, 2);
       QueryNode_SetParam(q, &ret->params[0], &vq->range.vector, &vq->range.vecLen, vec);
       QueryNode_SetParam(q, &ret->params[1], &vq->range.radius, NULL, value);
+      vq->range.order = BY_ID;
       break;
     default:
       QueryNode_Free(ret);
@@ -330,8 +331,8 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
     // we usually want the numeric range as the "leader" iterator.
     q->root->children = array_ensure_prepend(q->root->children, &n, 1, QueryNode *);
     q->numTokens++;
-  // vector node should always be in the root, so we have a special case here.
-  } else if (q->root->type == QN_VECTOR) {
+  // vector node of type KNN should always be in the root, so we have a special case here.
+  } else if (q->root->type == QN_VECTOR && q->root->vn.vq->type == VECSIM_QT_KNN) {
     // for non-hybrid - add the filter node as the child of the vector node.
     if (QueryNode_NumChildren(q->root) == 0) {
       QueryNode_AddChild(q->root, n);
@@ -882,10 +883,11 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       return NULL;
     }
   }
-  RLookupKey **key_pp = NULL;
-  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it, &key_pp);
-  if (key_pp && idx != -1) {
-    array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = key_pp;
+  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
+  // If iterator was created successfully, and we have a metric to yield, update the
+  // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
+  if (it && qn->vn.vq->scoreField) {
+    array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &it->ownKey;
   }
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);

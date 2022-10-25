@@ -21,8 +21,7 @@ typedef struct {
 extern "C" {
 #endif
 
-struct RLookupKey; // Forward declaration
-IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric metric_type, struct RLookupKey ***key_pp);
+IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric metric_type, bool yields_metric);
 
 #ifdef __cplusplus
 }
