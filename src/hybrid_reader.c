@@ -396,7 +396,7 @@ void HybridIterator_Free(struct indexIterator *self) {
   rm_free(it);
 }
 
-IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, RLookupKey ***key_pp) {
+IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   HybridIterator *hi = rm_new(HybridIterator);
   hi->lastDocId = 0;
   hi->child = hParams.childIt;
@@ -454,9 +454,6 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, RLookupKey 
   // This will be changed later to a valid RLookupKey if there is no syntax error in the query,
   // by the creation of the metrics loader results processor.
   ri->ownKey = NULL;
-  if (key_pp) {
-    *key_pp = &ri->ownKey; // passing the key address to the yield metric request
-  }
   ri->type = HYBRID_ITERATOR;
   ri->mode = MODE_SORTED;  // Since this iterator is always the root, we currently don't return the
                            // results sorted by id as an optimization (this can be modified in the future).

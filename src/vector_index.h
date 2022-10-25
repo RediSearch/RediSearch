@@ -96,7 +96,7 @@ typedef enum {
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, RLookupKey ***key_pp);
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
@@ -118,7 +118,7 @@ extern "C" {
 #endif
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
-                                                          RLookupKey ***key_pp);
+                                                          bool yields_metric);
 #ifdef __cplusplus
 }
 #endif

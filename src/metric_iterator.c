@@ -110,7 +110,7 @@ static void MR_Free(IndexIterator *self) {
   rm_free(mr);
 }
 
-IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric metric_type, RLookupKey ***key_pp) {
+IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric metric_type, bool yields_metric) {
   MetricIterator *mi = rm_new(MetricIterator);
   mi->lastDocId = 0;
   mi->base.isValid = 1;
@@ -124,14 +124,14 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   ri->type = METRIC_ITERATOR;
   ri->mode = MODE_SORTED;
   ri->current = NewMetricResult();
+  ri->ownKey = NULL;
 
   mi->type = metric_type;
 
   // If we interested in yielding score
-  if (key_pp) {
+  if (yields_metric) {
     ri->Read = MR_Read_With_Yield;
     ri->SkipTo = MR_SkipTo_With_Yield;
-    *key_pp = &ri->ownKey; // export own key address
   } else {
     ri->Read = MR_Read;
     ri->SkipTo = MR_SkipTo;
@@ -142,6 +142,7 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   ri->NumEstimated = ri->Len = MR_Len;
   ri->Abort = MR_Abort;
   ri->LastDocId = MR_LastDocId;
+  ri->GetCriteriaTester = NULL; // TODO:remove from all project
 
   return ri;
 }

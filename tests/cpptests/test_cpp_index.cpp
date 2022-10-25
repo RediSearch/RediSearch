@@ -8,6 +8,7 @@
 #include "src/varint.h"
 #include "src/hybrid_reader.h"
 #include "src/metric_iterator.h"
+#include "src/util/arr.h"
 
 #include "rmutil/alloc.h"
 
@@ -698,8 +699,7 @@ TEST_F(IndexTest, testHybridVector) {
                                   .ignoreDocScore = true,
                                   .childIt = NULL
   };
-  RLookupKey **dummy_pp;
-  IndexIterator *vecIt = NewHybridVectorIterator(hParams, &dummy_pp);
+  IndexIterator *vecIt = NewHybridVectorIterator(hParams);
   RSIndexResult *h = NULL;
   size_t count = 0;
 
@@ -724,7 +724,7 @@ TEST_F(IndexTest, testHybridVector) {
   // Test in hybrid mode.
   IndexIterator *ir = NewReadIterator(r);
   hParams.childIt = ir;
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &dummy_pp);
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -776,7 +776,7 @@ TEST_F(IndexTest, testHybridVector) {
   ir = NewReadIterator(r);
   hParams.ignoreDocScore = false;
   hParams.childIt = ir;
-  hybridIt = NewHybridVectorIterator(hParams, &dummy_pp);
+  hybridIt = NewHybridVectorIterator(hParams);
   hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -851,8 +851,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .vectorScoreField = (char *)"__v_score",
                                   .ignoreDocScore = true,
                                   .childIt = ii};
-  RLookupKey **dummy_pp;
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &dummy_pp);
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
   ASSERT_FALSE(hybridIt);
 
   ii->Free(ii);
@@ -895,9 +894,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
   // Run simple range query.
-  RLookupKey **key_pp = NULL;
-  IndexIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, &key_pp);
-  ASSERT_EQ(&vecIt->ownKey, key_pp);
+  IndexIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true);
   RSIndexResult *h = NULL;
   size_t count = 0;
   size_t lowest_id = 25;
@@ -967,6 +964,46 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   vecIt->Free(vecIt);
   VecSimIndex_Free(index);
+}
+
+TEST_F(IndexTest, testMetric_SkipTo) {
+  size_t results_num = 7;
+
+  t_docId *ids_arr = array_new(t_docId, results_num);
+  t_docId ids[] = {2, 4, 6, 8, 10, 15, 20};
+  array_ensure_append_n(ids_arr, ids , results_num);
+
+  double *metrics_arr = array_new(double, results_num);
+  double metrics[results_num] = {1.0};
+  array_ensure_append_n(metrics_arr, metrics, results_num);
+
+  IndexIterator *metric_it = NewMetricIterator(ids_arr, metrics_arr, VECTOR_DISTANCE, false);
+  RSIndexResult *h = NULL;
+
+  // Copy the behaviour of READ_ITERATOR in terms of SkipTo. That is, the iterator will return the
+  // next docId whose id is equal or greater than the given id, as if we call Read and returned
+  // that id (hence the iterator will advance its pointer).
+  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 1, &h), INDEXREAD_NOTFOUND);
+  ASSERT_EQ(h->docId, 2);
+
+  // This situation should not occur in practice, but this is READ_ITERATOR's behavior.
+  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 2, &h), INDEXREAD_NOTFOUND);
+  ASSERT_EQ(h->docId, 4);
+
+  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 8, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 8);
+
+  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 9, &h), INDEXREAD_NOTFOUND);
+  ASSERT_EQ(h->docId, 10);
+
+  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 12, &h), INDEXREAD_NOTFOUND);
+  ASSERT_EQ(h->docId, 15);
+
+  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 20, &h), INDEXREAD_OK);
+  ASSERT_EQ(h->docId, 20);
+
+  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 21, &h), INDEXREAD_EOF);
+  ASSERT_EQ(h->docId, 20);
 }
 
 TEST_F(IndexTest, testBuffer) {

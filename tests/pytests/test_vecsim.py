@@ -1890,7 +1890,7 @@ def test_range_query_complex_queries():
                    'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                    'RETURN', 3, 'dist', 't', 'num', 'LIMIT', 0, index_size).equal(expected_res)
 
-        # Test again with NOT operator - expect to get the same result, sinCe NOT 'text' means that @t contains 'other'
+        # Test again with NOT operator - expect to get the same result, since NOT 'text' means that @t contains 'other'
         env.expect('FT.SEARCH', 'idx',
                    f'(-text | @num:[{index_size-60} ({index_size-50}]) @v:[VECTOR_RANGE $r $vec_param]=>{{$YIELD_DISTANCE_AS:dist}}',
                    'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
@@ -2013,52 +2013,58 @@ def test_multiple_range_queries():
             expected_res.extend([str(i), ['dist_flat', str(int(dim * abs(n/4-i)**2)), 'dist_hnsw', str(int(dim * (n/2-i)**2))]])
         for i in range(int(n/4)-5, 0, -5):
             expected_res.extend([str(i), ['dist_flat', str(int(dim * abs(n/4-i)**2))]])
-        x=input("now")
         env.expect('FT.SEARCH', 'idx', intersect_over_union_q, 'SORTBY', 'num', 'DESC', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
                    'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,  'LIMIT', 0, n,
                    'RETURN', 2, 'dist_flat', 'dist_hnsw').equal(expected_res)
 
-        union_over_intersection_q = intersect_query + f' | @n:[{n/3} {n*3/4}]'
-        # result set should be every doc in the intersection of both ranges OR in the numeric range.
-        # That is every id between n/4 and n/8
-        expected_res = [int(n/2)]
-        for i in range(int(n*3/4), int(n/4)-1, -1):
-             expected_res.extend([str(i), ['dist_hnsw', str(dim * i**2)]])
-        # for i in range(int(n/2)-1, -1, -5):
-        #     expected_res.extend([str(i), ['dist_flat', str(dim * abs(n/4-i)**2), 'dist_hnsw', str(dim * i**2)]])
+        union_over_intersection_q = intersect_query + f' | (@num:[{n/3} {n*3/4}] @t:other)'
+        # result set should be every doc in the intersection of both ranges OR in the numeric range that is multiply by 5.
+        expected_res = [int(n/4) + int(n/4 / 5) + 1]
+        for i in range(int(n/4), int(n/2)+1):
+             expected_res.extend([str(i), ['dist_flat', str(int(dim * (n/4-i)**2)), 'dist_hnsw', str(int(dim * (n/2-i)**2))]])
+        for i in range(int(n/2)+5, int(n*3/4)+1, 5):
+            expected_res.extend([str(i), []])
+        env.expect('FT.SEARCH', 'idx', union_over_intersection_q, 'SORTBY', 'num', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
+                    'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius,  'LIMIT', 0, n,
+                    'RETURN', 2, 'dist_flat', 'dist_hnsw').equal(expected_res)
 
-        # TODO: calculate expected. should have all 3 scores
+        # Range + KNN queries #
+        # Range query should have 0 results, and so does the entire query.
+        query_vec_knn = create_np_array_typed([0]*dim, data_type)
+        env.expect('FT.SEARCH', 'idx', '@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>[KNN 10 @v_hnsw $knn_vec AS knn_dist]',
+                   'SORTBY', 'knn_dist', 'PARAMS', 6, 'vec_param_flat', create_np_array_typed([2*n]*dim, data_type).tobytes(),
+                   'knn_vec', query_vec_knn.tobytes(),
+                   'r', dim, 'LIMIT', 0, n, 'RETURN', 2, 'dist_hnsw', 'knn_dist').equal([0])
+
+        # Range query should have 2 results, and so does the entire query. range query doesn't yield scores.
+        query_vec_knn = create_np_array_typed([0]*dim, data_type)
+        expected_res = [2, '99', ['knn_dist', '156816'], '100', ['knn_dist', '160000']]
+        env.expect('FT.SEARCH', 'idx', '@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>[KNN 10 @v_hnsw $knn_vec AS knn_dist]',
+                   'SORTBY', 'knn_dist', 'PARAMS', 6, 'vec_param_flat', create_np_array_typed([n]*dim, data_type).tobytes(),
+                   'knn_vec', query_vec_knn.tobytes(),
+                   'r', dim, 'LIMIT', 0, n, 'RETURN', 2, 'dist_hnsw', 'knn_dist').equal(expected_res)
+
+        # This query should return the TOP 10 results closest to query_vec_knn that are in both ranges -
+        # These are the lower ids that are >= n/4
+        expected_res = [10]
+        for i in range(int(n/4), int(n/4)+10):
+            expected_res.extend([str(i), ['knn_dist', str(dim * i**2), 'dist_flat', str(int(dim * (n/4-i)**2)),
+                                          'dist_hnsw', str(int(dim * (n/2-i)**2))]])
         filtered_q = intersect_query + '=>[KNN 10 @v_hnsw $knn_vec AS knn_dist]'
-        query_vec_knn = create_np_array_typed([1]*dim, data_type)
         env.expect('FT.SEARCH', 'idx', filtered_q, 'SORTBY', 'knn_dist', 'PARAMS', 8, 'vec_param_flat', query_vec_flat.tobytes(),
-                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'knn_vec', query_vec_knn.tobytes(), 'r', radius,  'LIMIT', 0, n,
-                   'RETURN', 3, 'dist_flat', 'dist_hnsw', 'knn_dist').equal([0])
+                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'knn_vec', query_vec_knn.tobytes(), 'r', radius,
+                   'RETURN', 3, 'dist_flat', 'dist_hnsw', 'knn_dist').equal(expected_res)
+
+        # This query should return the TOP 20 results closest to query_vec_knn that are in at least one of the ranges,
+        # AND has 'other' in their text field. These are ids 5, 10, ..., n*3/4.
+        expected_res = [min(20, int(n*3/4 /5))]
+        for i in range(5, int(n/4), 5):
+            expected_res.extend([str(i), ['knn_dist', str(dim * i**2)]])
+        for i in range(int(n/4), int(n*3/4) + 1, 5):
+            expected_res.extend([str(i), ['knn_dist', str(dim * i**2), 'dist_hnsw', str(int(dim * (n/2-i)**2))]])
+        filtered_q = '(' + union_query + ' @t:other)=>[KNN 20 @v_hnsw $knn_vec AS knn_dist]'
+        env.expect('FT.SEARCH', 'idx', filtered_q, 'SORTBY', 'knn_dist', 'PARAMS', 8, 'vec_param_flat', query_vec_flat.tobytes(),
+                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'knn_vec', query_vec_knn.tobytes(), 'r', radius,
+                   'RETURN', 2, 'dist_hnsw', 'knn_dist', 'LIMIT', 0, 20).equal(expected_res)
 
         conn.flushall()
-
-
-def test_range_query_bad_queries():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
-    info_type = int if env.isCluster() else str
-    dim = 4
-    n = 1000
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA',
-                    'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-                    'text', 'TEXT', 'num', 'NUMERIC').ok()
-    for i in range(n):
-        conn.execute_command('HSET', i, 'num', i, 'text',
-                            f'{i} is my favorite number' if (i % 4) == 0 else f'I hate the value {i} I got',
-                            'vec', np.float32([i]*dim).tobytes())
-
-    info = conn.ft('idx').info()
-    env.assertEqual(info['num_docs'], info_type(n))
-
-    query = '(@vec:[VECTOR_RANGE $r $b]=>{$YIELD_DISTANCE_AS:dist} and another thing | @vec:[VECTOR_RANGE $r $b]=>{$YIELD_DISTANCE_AS:dist})'
-    env.expect('FT.SEARCH', 'idx', query, 'PARAMS', '4', 'r', '100', 'b', np.ones(dim, np.float32).tobytes()).error(
-              ).contains('Property `dist` specified more than once')
-
-    query = '(@vec:[VECTOR_RANGE $r $b]=>{$YIELD_DISTANCE_AS:num} and another thing | @vec:[VECTOR_RANGE $r $b]=>{$YIELD_DISTANCE_AS:dist})'
-    env.expect('FT.SEARCH', 'idx', query, 'PARAMS', '4', 'r', '100', 'b', np.ones(dim, np.float32).tobytes()).error(
-              ).contains('Property `num` already exists in schema')

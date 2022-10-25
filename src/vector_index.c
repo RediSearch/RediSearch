@@ -54,7 +54,7 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
 }
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
-                                                          RLookupKey ***key_pp) {
+                                                          bool yields_metric) {
   size_t res_num = VecSimQueryResult_Len(results);
   if (res_num == 0) {
     VecSimQueryResult_Free(results);
@@ -74,10 +74,10 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List
   VecSimQueryResult_Free(results);
 
   // Move ownership on the arrays to the MetricIterator.
-  return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, key_pp);
+  return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, yields_metric);
 }
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, RLookupKey ***kpp) {
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
@@ -129,7 +129,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .childIt = child_it,
                                       .timeout = q->sctx->timeout,
       };
-      return NewHybridVectorIterator(hParams, kpp);
+      return NewHybridVectorIterator(hParams);
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
@@ -159,7 +159,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
         QueryError_SetError(q->status, QUERY_TIMEDOUT, NULL);
         return NULL;
       }
-      return createMetricIteratorFromVectorQueryResults(results, kpp);
+      bool yields_metric = vq->scoreField != NULL;
+      return createMetricIteratorFromVectorQueryResults(results, yields_metric);
     }
   }
   return NULL;

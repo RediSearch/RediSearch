@@ -123,7 +123,7 @@ void RangeNumber_Free(RangeNumber *r) {
 // Add a new metric request to the metricRequests array. Returns the index of the request
 static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr) {
     MetricRequest mr = {metric_name, key_addr};
-    array_ensure_append_1(*q->metricRequestsP, mr);
+    *q->metricRequestsP = array_ensure_append_1(*q->metricRequestsP, mr);
     return array_len(*q->metricRequestsP) - 1;
 }
 
@@ -883,10 +883,11 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       return NULL;
     }
   }
-  RLookupKey **key_pp = NULL;
-  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it, &key_pp);
-  if (key_pp && idx != -1) {
-    array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = key_pp;
+  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
+  // If iterator was created successfully, and we have a metric to yield, update the
+  // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
+  if (it && qn->vn.vq->scoreField) {
+    array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &it->ownKey;
   }
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
