@@ -685,13 +685,13 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, rocky8, bullseye, jammy]
+              platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              platform: [bionic]
+              platform: [jammy, focal, bionic]
       - build-macos:
           context: common
           <<: *on-integ-and-version-tags
