@@ -61,3 +61,17 @@ def test_v1_vs_v2(env):
     env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).contains("Syntax error")
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 4, 'K', 10, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
+
+def test_dialect_aggregate(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect("FT.CREATE idx SCHEMA t1 TEXT t2 TEXT").ok()
+    conn.execute_command("HSET", "h1", "t1", "James Brown", "t2", "Jimi Hendrix")
+    conn.execute_command("HSET", "h2", "t1", "James", "t2", "Brown")
+    
+    # In dialect 2, both documents are returned ("James" in t1 and "Brown" in any field)
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '@t1:James Brown', 'GROUPBY', '2', '@t1', '@t2', 'DIALECT', 1)
+    env.assertEqual(res[0], 1)
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '@t1:James Brown', 'GROUPBY', '2', '@t1', '@t2', 'DIALECT', 2)
+    env.assertEqual(res[0], 2)
+    
