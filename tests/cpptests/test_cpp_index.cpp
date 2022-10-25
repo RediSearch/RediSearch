@@ -1004,6 +1004,8 @@ TEST_F(IndexTest, testMetric_SkipTo) {
 
   ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 21, &h), INDEXREAD_EOF);
   ASSERT_EQ(h->docId, 20);
+
+  metric_it->Free(metric_it);
 }
 
 TEST_F(IndexTest, testBuffer) {
