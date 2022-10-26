@@ -376,14 +376,18 @@ def testInfoAndGC(env):
     env.expect('FT.CREATE', 'idx_hash', 'ON', 'HASH', 'SCHEMA', 'top', 'NUMERIC').ok()
     checkInfoAndGC(env, 'idx_hash', doc_num, create_hash_docs, delete_hash_docs)
 
-def testSortBy(env):
-    """ Test sort of multi numeric values """
-    
+
+def prepareSortBy(env, is_flat_arr, default_dialect):
+    """ Helper function for testing sort of multi numeric values """
+
     printSeed(env)
 
-    conn = getConnectionByEnv(env)
+    dialect_param = ['DIALECT', 3] if not default_dialect else []
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.top[*]', 'AS', 'val', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    jsonpath = '$.top[*]' if is_flat_arr else '$.top'
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', jsonpath, 'AS', 'val', 'NUMERIC').ok()
+
     doc_num = 200
     for doc in range(1, doc_num + 1):
             val_count = random.randint(0, 10)
@@ -398,17 +402,58 @@ def testSortBy(env):
     # Make sure there are at least 2 result
     query = ['FT.SEARCH', 'idx',
         '@val:[3000 8000] | @val:[{} {}] | @val:[{} {}]'.format(int(doc_num/2), int(doc_num/2), doc_num, doc_num),
-        'NOCONTENT', 'LIMIT', 0, doc_num]
-    
+        'NOCONTENT', 'LIMIT', 0, doc_num, *dialect_param]
+    return query
+
+def checkSortBy(env, is_flat_arr, default_dialect):
+    """ Helper function for testing of sorting multi numeric values """
+        
+    env.assertEqual(1, 1, message='flat {}, default dialect {}'.format(is_flat_arr, default_dialect))
+    query = prepareSortBy(env, is_flat_arr, default_dialect)
+    conn = getConnectionByEnv(env)
+
+    # Path leading to an array was loading a JSON string representation of the array,
+    # Comparing values lexicographically
+    #
+    # Path leading to multi value was loading the first element (in this case it is numeric),
+    # Comparing values according to type of first element
+    def checkGreater(a, b):
+        if is_flat_arr:
+            env.assertGreater(int(a), int(b))
+        else:
+            env.assertGreater(str(a), str(b))
+
+    def checkLess(a, b):
+        if is_flat_arr:
+            env.assertLess(int(a), int(b))
+        else:
+            env.assertLess(str(a), str(b))
+
     # Results should be ascending
     res = conn.execute_command(*query, 'SORTBY', 'val')
     for i in range(2, len(res)):
-        env.assertGreater(int(res[i]), int(res[i - 1]))
+        checkGreater(int(res[i]), int(res[i - 1]))
 
     # Results should be descending
     res = conn.execute_command(*query, 'SORTBY', 'val', 'DESC')    
     for i in range(2, len(res)):
-        env.assertLess(int(res[i]), int(res[i - 1]))
+        checkLess(int(res[i]), int(res[i - 1]))
+
+def testSortByBWC(env):
+    """ Test sorting multi numeric values with flat array """
+    checkSortBy(env, True, True)
+
+def testSortByArrBWC(env):
+    """ Test backward compatibility of sorting multi numeric values with array """
+    checkSortBy(env, False, True)
+
+def testSortBy(env):
+    """ Test sorting multi numeric values with flat array """
+    checkSortBy(env, True, False)
+
+def testSortByArr(env):
+    """ Test sorting multi numeric values with array """
+    checkSortBy(env, False, False)
 
 def keep_dict_keys(dict, keys):
         return {k:v for k,v in dict.items() if k in keys}
