@@ -911,7 +911,10 @@ def checkMultiTextReturn(env, expected, default_dialect, is_sortable, is_sortabl
 
     res = conn.execute_command('FT.AGGREGATE', 'idx_arr',
         expr, 'GROUPBY', '1', '@val', *dialect_param)
-    env.assertEqual(res[1][1].lower(), expected[2][2][1].lower())
+    # Ignore the result with older dialect
+    #  Schema attribute with path to an array was not supported (lead to indexing failure)
+    if not default_dialect:
+        env.assertEqual(res[1][1].lower(), expected[2][2][1].lower())
 
     res = conn.execute_command('FT.AGGREGATE', 'idx_arr',
         expr, 'LOAD', '1', '@val', *dialect_param)

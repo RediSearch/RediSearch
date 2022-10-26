@@ -333,6 +333,13 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
     
     // Second, get the first JSON value
     RedisJSON json = japi->next(iter);
+    // If the value is an array, we currently try using the first element
+    JSONType type = japi->getType(json);
+    if (type == JSONType_Array) {
+      // Empty array will return NULL
+      json = japi->getAt(json, 0);
+    }
+
     if (json) {
       RSValue *val = jsonValToValue(ctx, json);
       RSValue *otherval = RS_StealRedisStringVal(serialized);

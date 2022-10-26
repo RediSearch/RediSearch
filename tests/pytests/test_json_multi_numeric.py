@@ -405,9 +405,10 @@ def prepareSortBy(env, is_flat_arr, default_dialect):
         'NOCONTENT', 'LIMIT', 0, doc_num, *dialect_param]
     return query
 
-def checkSortBy(env, is_flat_arr, default_dialect):
-    """ Helper function for testing of sorting multi numeric values """
-        
+def checkSortByBWC(env, is_flat_arr):
+    """ Helper function for backward compatibility of sorting multi numeric values """
+    
+    default_dialect = True
     env.assertEqual(1, 1, message='flat {}, default dialect {}'.format(is_flat_arr, default_dialect))
     query = prepareSortBy(env, is_flat_arr, default_dialect)
     conn = getConnectionByEnv(env)
@@ -441,19 +442,37 @@ def checkSortBy(env, is_flat_arr, default_dialect):
 
 def testSortByBWC(env):
     """ Test sorting multi numeric values with flat array """
-    checkSortBy(env, True, True)
+    checkSortByBWC(env, True)
 
 def testSortByArrBWC(env):
     """ Test backward compatibility of sorting multi numeric values with array """
-    checkSortBy(env, False, True)
+    checkSortByBWC(env, False)
+
+def checkSortBy(env, is_flat_arr):
+    """ Helper function for testing of sorting multi numeric values """
+    
+    default_dialect = False
+    env.assertEqual(1, 1, message='flat {}, default dialect {}'.format(is_flat_arr, default_dialect))
+    query = prepareSortBy(env, is_flat_arr, default_dialect)
+    conn = getConnectionByEnv(env)
+
+    # Results should be ascending
+    res = conn.execute_command(*query, 'SORTBY', 'val')
+    for i in range(2, len(res)):
+        env.assertGreater(int(res[i]), int(res[i - 1]))
+
+    # Results should be descending
+    res = conn.execute_command(*query, 'SORTBY', 'val', 'DESC')    
+    for i in range(2, len(res)):
+        env.assertLess(int(res[i]), int(res[i - 1]))
 
 def testSortBy(env):
     """ Test sorting multi numeric values with flat array """
-    checkSortBy(env, True, False)
+    checkSortBy(env, True)
 
 def testSortByArr(env):
     """ Test sorting multi numeric values with array """
-    checkSortBy(env, False, False)
+    checkSortBy(env, False)
 
 def keep_dict_keys(dict, keys):
         return {k:v for k,v in dict.items() if k in keys}
@@ -717,8 +736,13 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
     env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
                'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
 
-    env.expect('FT.AGGREGATE', 'idx_arr',
-               '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param).equal([1, ['val', expected[2][2][1]]])
+    res = conn.execute_command('FT.AGGREGATE', 'idx_arr',
+        '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param)
+    # Ignore the result with older dialect
+    #  Schema attribute with path to an array was not supported (lead to indexing failure)
+    if not default_dialect:
+        env.assertEqual(res, [1, ['val', expected[2][2][1]]])
+    
 
     env.expect('FT.AGGREGATE', 'idx_arr',
                '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[2][2][1]]])
