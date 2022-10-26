@@ -692,10 +692,8 @@ workflows:
   default-flow:
     jobs:
       - build-linux-debian:
-          name: build
           <<: *not-on-integ-branch
       - build-linux-arm-ubuntu:
-          name: build
           <<: *always
       - build-platforms:
           <<: *on-integ-and-version-tags
@@ -704,7 +702,8 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-arm-platforms:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
