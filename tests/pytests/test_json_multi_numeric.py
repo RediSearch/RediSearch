@@ -217,7 +217,8 @@ def testRange(env):
         conn.execute_command('JSON.SET', 'doc:{}'.format(doc + 1), '$', json.dumps({'top': top}))
 
     env.expect('FT.CREATE', 'idx:all', 'ON', 'JSON', 'SCHEMA', '$..value[*]', 'AS', 'val', 'NUMERIC').ok()
-    
+    waitForIndex(env, 'idx:all')
+
     max_val = (doc_num - 1) * 100 + arr_len
     env.expect('FT.SEARCH', 'idx:all', '@val:[-inf (-{}]'.format(max_val), 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx:all', '@val:[({} +inf]'.format(max_val), 'NOCONTENT').equal([0])
