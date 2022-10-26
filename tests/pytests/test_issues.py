@@ -563,15 +563,20 @@ def test_mod_4207(env):
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
 
 
-def test_mod_4374(env):
+def test_mod_4375(env):
   conn = getConnectionByEnv(env)
 
-  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
 
   for i in range(10):
-    conn.execute_command('HSET', i, 't', 'val')
+    if i%2==0:
+      conn.execute_command('HSET', i, 't', 'even', 'n', i)
+    else:
+      conn.execute_command('HSET', i, 't', 'odd', 'n', i)
 
-  conn.execute_command('HSET', 10, 't', 'unique')
+  # Expected results are: ['0', '2', '4', '1', '3', '5', '6', '8']
+  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
 
-  # the score of doc 10 is 6 without coordinator, and it is 4 with coordinator (3 shards)
-  print(conn.execute_command('FT.SEARCH', 'idx', 'val|unique', 'withscores', 'nocontent'))
+  # After setting this configuration, we're getting: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+  conn.execute_command('FT.CONFIG', 'set', 'union_iterator_heap', '1')
+  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
