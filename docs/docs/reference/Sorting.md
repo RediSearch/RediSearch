@@ -12,7 +12,7 @@ As of RediSearch 0.15, it is possible to bypass the scoring function mechanism, 
 
 ## Declaring Sortable Fields
 
-When creating the index with `FT.CREATE`, you can declare `TEXT` and `NUMERIC` properties to be `SORTABLE`. When a property is sortable, we can later decide to order the results by its values. For example, in the following schema:
+When creating the index with `FT.CREATE`, you can declare `TEXT`, `TAG` and `NUMERIC` properties to be `SORTABLE`. When a property is sortable, we can later decide to order the results by its values. For example, in the following schema:
 
 ```
 > FT.CREATE users SCHEMA first_name TEXT last_name TEXT SORTABLE age NUMERIC SORTABLE
@@ -20,9 +20,9 @@ When creating the index with `FT.CREATE`, you can declare `TEXT` and `NUMERIC` p
 
 The fields `last_name` and `age` are sortable, but `first_name` isn't. This means we can search by either first and/or last name, and sort by last name or age.
 
-### Note on sortable TEXT fields
+### Note on sortable fields
 
-In the current implementation, when declaring a sortable field, its content gets copied into a special location in the index, for fast access on sorting. This means that making long text fields sortable is very expensive, and you should be careful with it.
+In the current implementation, when declaring a sortable field, its content gets copied into a special location in the index, for fast access on sorting. This means that making long fields sortable is very expensive, and you should be careful with it.
 
 ### Normalization (UNF option)
 

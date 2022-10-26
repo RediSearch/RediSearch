@@ -113,9 +113,8 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   case JSONType_Null:
     rv = REDISMODULE_OK;
     break;
-  // TEXT and VECTOR fields can be represented as array
   case JSONType_Array:
-    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC) {
+    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC || INDEXFLD_T_TAG) {
       rv = REDISMODULE_OK;
     }
     break;
@@ -365,6 +364,31 @@ error:
   return REDISMODULE_ERR;
 }
 
+int JSON_StoreTagsInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df) {
+    df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
+    df->arrayLen = len;
+
+    int i = 0;
+    size_t strlen;
+    RedisJSON json;
+    const char *str;
+    while ((json = JSONIterable_Next(iterable))) {
+      if (japi->getType(json) != JSONType_String) {
+        // TAG fields can index only strings
+        for (int j = 0; j < i; ++j) {
+          rm_free(df->multiVal[j]);
+        }
+        rm_free(df->multiVal);
+        return REDISMODULE_ERR;
+      }
+      japi->getString(json, &str, &strlen);
+      df->multiVal[i++] = rm_strndup(str, strlen);
+    }
+    RS_LOG_ASSERT (i == len, "TAG iterator count and len must be equal");
+    df->unionType = FLD_VAR_T_ARRAY;
+    return REDISMODULE_OK;
+}
+
 int JSON_StoreTextInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
   JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
                                       .iter = jsonIter};
@@ -379,6 +403,23 @@ int JSON_StoreTextInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
                                       .array.index = 0};
   return JSON_StoreTextInDocField(len, &iter, df);
 }
+
+
+int JSON_StoreTagInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
+  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
+                                      .iter = jsonIter};
+  return JSON_StoreTagsInDocField(len, &iter, df);
+}
+
+int JSON_StoreTagsInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
+  size_t len;
+  japi->getLen(arr, &len);
+  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
+                                      .array.arr = arr,
+                                      .array.index = 0};
+  return JSON_StoreTagsInDocField(len, &iter, df);
+}
+
 
 int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df) {
   arrayof(double) arr = array_new(double, len);
@@ -470,6 +511,9 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
         case INDEXFLD_T_NUMERIC:
           rv = JSON_StoreNumericInDocFieldFromArr(json, df);
           break;
+        case INDEXFLD_T_TAG:
+          rv = JSON_StoreTagsInDocFieldFromArr(json, df);
+          break;
         default:
           rv = REDISMODULE_ERR;
           break;
@@ -483,31 +527,6 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
   }
 
   return rv;
-}
-
-int JSON_StoreTagsInDocField(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
-    df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
-    df->arrayLen = len;
-
-    int i = 0;
-    size_t strlen;
-    RedisJSON json;
-    const char *str;
-    while ((json = japi->next(jsonIter))) {
-      if (japi->getType(json) != JSONType_String) {
-        // TAG fields can index only strings
-        for (int j = 0; j < i; ++j) {
-          rm_free(df->multiVal[j]);
-        }
-        rm_free(df->multiVal);
-        return REDISMODULE_ERR;
-      }
-      japi->getString(json, &str, &strlen);
-      df->multiVal[i++] = rm_strndup(str, strlen);
-    }
-    RS_LOG_ASSERT (i == len, "TAG iterator count and len must be equal");
-    df->unionType = FLD_VAR_T_ARRAY;
-    return REDISMODULE_OK;
 }
 
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
@@ -529,7 +548,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     switch (fs->types) {
       case INDEXFLD_T_TAG:
         // Handling multiple values as a Tag list
-        rv = JSON_StoreTagsInDocField(len, jsonIter, df);
+        rv = JSON_StoreTagInDocFieldFromIter(len, jsonIter, df);
         break;
       case INDEXFLD_T_FULLTEXT:
         // Handling multiple values as Text
