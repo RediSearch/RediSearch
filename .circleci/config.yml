@@ -109,8 +109,6 @@ commands:
 
   build-steps:
     parameters:
-      platform:
-        type: string
       redis_version:
         type: string
         default: "6"
@@ -327,7 +325,6 @@ jobs:
         default: "yes"
     steps:
       - build-steps:
-          platform: bullseye
           redis_version: <<parameters.redis_version>>
       - test-steps
       - run:
@@ -337,6 +334,22 @@ jobs:
               circleci step halt
             fi
       - persist-artifacts
+
+  build-linux-arm-ubuntu:
+    machine:
+      image: ubuntu-2004:202101-01
+    resource_class: arm.medium
+    parameters:
+      redis_version:
+        type: string
+        default: "6"
+      persist:
+        type: string
+        default: "no"
+    steps:
+      - build-steps:
+          redis_version: <<parameters.redis_version>>
+      - test-steps
 
   build-platforms:
     parameters:
@@ -379,8 +392,7 @@ jobs:
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
-      - build-steps:
-          platform: catalina
+      - build-steps
       - test-steps
       - run:
           name: Upload artifacts to S3
@@ -395,7 +407,6 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           run_pack: false
       - benchmark-automation:
           platform: bionic
@@ -406,7 +417,6 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           run_pack: false
       - benchmark-automation:
           platform: bionic
@@ -417,7 +427,6 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           run_pack: false
       - benchmark-automation:
           platform: bionic
@@ -430,7 +439,6 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           build_params: PROFILE=1
           run_pack: false
       - benchmark-automation:
@@ -445,7 +453,6 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           build_params: PROFILE=1
           run_pack: false
       - benchmark-automation:
@@ -608,6 +615,13 @@ on-any-branch: &on-any-branch
     tags:
       only: /.*/
 
+always: &always
+  filters:
+    branches:
+      only: /.*/
+    tags:
+      only: /.*/
+
 never: &never
   filters:
     branches:
@@ -680,6 +694,9 @@ workflows:
       - build-linux-debian:
           name: build
           <<: *not-on-integ-branch
+      - build-linux-arm-ubuntu:
+          name: build
+          <<: *always
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
