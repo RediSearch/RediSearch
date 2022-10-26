@@ -1998,7 +1998,7 @@ def test_multiple_range_queries():
         for i in range(int(n/2) + 1, int(n*3/4) + 1):
             expected_res.extend([str(i), ['dist_hnsw', str(int(dim * (n/2-i)**2))]])
         env.expect('FT.SEARCH', 'idx', union_query, 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
-                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius, 'LIMIT', 0, n,
+                   'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', radius, 'SORTBY', 'num', 'LIMIT', 0, n,
                    'RETURN', 2, 'dist_flat', 'dist_hnsw').equal(expected_res)
 
         # Run union query with another field - expect to get the results from before, followed by the results
