@@ -561,3 +561,17 @@ def test_mod_4207(env):
 
   env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
+
+
+def test_mod_4374(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+
+  for i in range(10):
+    conn.execute_command('HSET', i, 't', 'val')
+
+  conn.execute_command('HSET', 10, 't', 'unique')
+
+  # the score of doc 10 is 6 without coordinator, and it is 4 with coordinator (3 shards)
+  print(conn.execute_command('FT.SEARCH', 'idx', 'val|unique', 'withscores', 'nocontent'))
