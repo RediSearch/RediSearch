@@ -20,6 +20,8 @@ We support a simple syntax for complex queries with the following rules:
 * Selection of specific fields using the syntax `hello @field:world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`.
+* Range queries on vectors fields (as of v2.6) with the syntax `@field:[VECTOR_RANGE {radius} $query_vec]`, where `query_vec` is given as a query param.
+* KNN queries on vector queries with or without pre-filtering (as of v2.4) with the syntax `{filter_query}=>[KNN {num} @field $query_vec]`
 * Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tag fields|/Tags].
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher.
 * Fuzzy matching on terms (as of v1.2.0): `%hello%` means all terms with Levenshtein distance of 1 from it.
@@ -109,21 +111,22 @@ Radius filters can be added into the query just like numeric filters. For exampl
 
 ## Vector Similarity search in query
 
-It is possible to add vector similarity queries directly into the query language.
-The basic syntax is `"*=>[ KNN {num|$num} @vector $query_vec ]"` for running K nearest neighbors query on @vector field.
-It is also possilbe to run a Hybrid Query on filtered results.
+It is possible to add vector similarity queries directly into the query language. There are two ways of performing vector similarity search:
+1. Using a *range* query (as of v2.6) with the syntax of `@vector:[VECTOR_RANGE {radius} $query_vec]`, which filters the results to a given radius from a given query vector. The distance metric derives from the definition of @vector field in the index schema (e.g., Cosine, L2).
 
-A Hybrid query allows the user to specify a filter criteria that ALL results in a KNN query must satisfy. The filter criteria can only include fields with non-vector indexes (e.g. indexes created on scalar values such as TEXT, PHONETIC, NUMERIC, GEO, etc)
 
-The General syntax is `{some filter query}=>[ KNN {num|$num} @vector $query_vec]`. For example:
+2. By running a *KNN* (K Nearest Neighbors) query on @vector field. The basic syntax is `"*=>[ KNN {num|$num} @vector $query_vec ]"`.
+It is also possible to run a Hybrid Query on filtered results. A Hybrid query allows the user to specify a filter criteria that ALL results in a KNN query must satisfy. The filter criteria can only include any type of field (e.g., indexes created on both vectors and other values such as TEXT, PHONETIC, NUMERIC, GEO, etc)
+The general syntax for hybrid query is `{some filter query}=>[ KNN {num|$num} @vector $query_vec]`, where `=>` separates filter query from vector KNN query. 
 
-* `@published_year:[2020 2021]` - Only entities published between 2020 and 2021.
 
-* `=>` - Separates filter query from vector query.
+Examples:
+* `*=>[KNN 10 @vector_field $query_vec]` - Return 10 "nearest neighbors" entities in which `query_vec` is most similar to the vector stored in `@vector_field`
+* `@published_year:[2020 2022]=>[KNN 10 @vector_field $query_vec]` - Among entities published between 2020 and 2022, Return 10 "nearest neighbors" entities in which `query_vec` is most similar to the vector stored in `@vector_field`
+* `@vector_field:[VECTOR_RANGE 0.5 $query_vec]` - Return every entity for which the distance between the vector stored under its @vector_field and `query_vec` is at most 0.5, in terms of @vector_field distance metric.
 
-* `[KNN {num|$num} @vector_field $query_vec]` - Return `num` nearest neighbors entities where `query_vec` is similar to the vector stored in `@vector_field`.
 
-As of version 2.4, we allow vector similarity to be used **once** in the query. For more information on vector smilarity syntax, see [Vector Fields](/redisearch/reference/vectors/#querying-vector-fields), "Querying vector fields" section.
+As of version 2.4, we allow KNN vector search to be used **once** in the query, while vector range filter can be used multiple times in a query (as of version 2.6). For more information on vector smilarity syntax, see [Vector Fields](/redisearch/reference/vectors/#querying-vector-fields), "Querying vector fields" section.
 
 ## Prefix matching
 

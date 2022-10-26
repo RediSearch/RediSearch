@@ -37,6 +37,7 @@ RediSearch supports the following features:
 * Support for custom functions for query expansion and scoring (see [Extensions](/docs/stack/search/reference/extensions))
 * [Numeric filters](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query) and ranges
 * [Geofiltering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) using Redis [geo commands](/commands/?group=geo)
+* [Vector similarity search](/docs/stack/search/reference/query_syntax/#Vector-Similarity-search-in-query) for sematic search using exact and approximate algorithms
 * Unicode support (UTF-8 input required)
 * Retrieval of full document contents or only their IDs
 * Document deletion and updating with index garbage collection
