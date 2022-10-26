@@ -3,6 +3,8 @@
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
+#include "src/util/arr.h"
+#include "value.h"
 
 /* Allocate a new aggregate result of a given type with a given capacity*/
 RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
@@ -15,6 +17,7 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
       .fieldMask = 0,
       .isCopy = 0,
       .weight = weight,
+      .metrics = NULL,
       .agg = (RSAggregateResult){.numChildren = 0,
                                  .childrenCap = cap,
                                  .typeMask = 0x0000,
@@ -35,7 +38,7 @@ RSIndexResult *NewUnionResult(size_t cap, double weight) {
 /* Allocate a new hybrid result with a given capacity (currently relevant for
  * hybrid vector similarity queries)*/
 RSIndexResult *NewHybridResult() {
-  return __newAggregateResult(2, RSResultType_HybridDistance, 1);
+  return __newAggregateResult(2, RSResultType_HybridMetric, 1);
 }
 
 /* Allocate a new token record result for a given term */
@@ -48,6 +51,7 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
                          .isCopy = 0,
                          .freq = 0,
                          .weight = weight,
+                         .metrics = NULL,
                          .term = (RSTermRecord){
                              .term = term,
                              .offsets = (RSOffsetVector){},
@@ -64,7 +68,7 @@ RSIndexResult *NewNumericResult() {
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 1,
                          .weight = 1,
-
+                         .metrics = NULL,
                          .num = (RSNumericRecord){.value = 0}};
   return res;
 }
@@ -78,23 +82,23 @@ RSIndexResult *NewVirtualResult(double weight) {
       .fieldMask = 0,
       .freq = 0,
       .weight = weight,
-
+      .metrics = NULL,
       .isCopy = 0,
   };
   return res;
 }
 
-RSIndexResult *NewDistanceResult() {
+RSIndexResult *NewMetricResult() {
   RSIndexResult *res = rm_new(RSIndexResult);
 
-  *res = (RSIndexResult){.type = RSResultType_Distance,
+  *res = (RSIndexResult){.type = RSResultType_Metric,
                          .docId = 0,
                          .isCopy = 0,
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 0,
                          .weight = 1,
-
-                         .dist = (RSDistanceRecord){.distance = 0}};
+                         .metrics = NULL,
+                         .num = (RSNumericRecord){.value = 0}};
   return res;
 }
 
@@ -103,11 +107,19 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
   *ret = *src;
   ret->isCopy = 1;
 
+  if (src->metrics) {
+    // Create a copy of the array and increase the refcount for each element's value
+    ret->metrics = NULL;
+    ret->metrics = array_ensure_append_n(ret->metrics, src->metrics, array_len(src->metrics));
+    for (size_t i = 0; i < array_len(ret->metrics); i++)
+      RSValue_IncrRef(ret->metrics[i].value);
+  }
+
   switch (src->type) {
     // copy aggregate types
     case RSResultType_Intersection:
     case RSResultType_Union:
-    case RSResultType_HybridDistance:
+    case RSResultType_HybridMetric:
       // allocate a new child pointer array
       ret->agg.children = rm_malloc(src->agg.numChildren * sizeof(RSIndexResult *));
       ret->agg.childrenCap = src->agg.numChildren;
@@ -191,6 +203,7 @@ void IndexResult_Init(RSIndexResult *h) {
   h->docId = 0;
   h->fieldMask = 0;
   h->freq = 0;
+  h->metrics = NULL;
 
   if (h->type == RSResultType_Intersection || h->type == RSResultType_Union) {
     h->agg.numChildren = 0;
@@ -217,7 +230,8 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
 
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;
-  if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridDistance) {
+  ResultMetrics_Free(r);
+  if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridMetric) {
     // for deep-copy results we also free the children
     if (r->isCopy && r->agg.children) {
       for (int i = 0; i < r->agg.numChildren; i++) {
