@@ -820,6 +820,27 @@ def testSortableTagError(env):
                .contains('On JSON, cannot set tag field to sortable - idxtag')
 
 @no_msan
+def testImplicitUNF(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx_json', 'ON', 'JSON', 'SCHEMA',  \
+        '$.a', 'AS', 'a', 'TEXT', 'SORTABLE',               \
+        '$.b', 'AS', 'b', 'TEXT', 'SORTABLE', 'UNF',        \
+        '$.c', 'AS', 'c', 'TEXT').ok()
+    info_res = index_info(env, 'idx_json')
+    env.assertEqual(info_res['attributes'][0][-1], 'UNF') # UNF is implicit with SORTABLE on JSON
+    env.assertEqual(info_res['attributes'][1][-1], 'UNF')
+    env.assertNotEqual(info_res['attributes'][2][-1], 'UNF')
+
+    env.expect('FT.CREATE', 'idx_hash', 'ON', 'HASH', 'SCHEMA',  \
+        '$.a', 'AS', 'a', 'TEXT', 'SORTABLE',               \
+        '$.b', 'AS', 'b', 'TEXT', 'SORTABLE', 'UNF',        \
+        '$.c', 'AS', 'c', 'TEXT').ok()
+    info_res = index_info(env, 'idx_hash')
+    env.assertNotEqual(info_res['attributes'][0][-1], 'UNF')
+    env.assertEqual(info_res['attributes'][1][-1], 'UNF')
+    env.assertNotEqual(info_res['attributes'][2][-1], 'UNF')
+
+@no_msan
 def testNotExistField(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
