@@ -563,10 +563,12 @@ def test_mod_4207(env):
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
 
 def test_mod_4255(env):
+  conn = getConnectionByEnv(env)
+
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
 
-  env.expect('HSET', 'doc1', 'test', '1').equal(1)
-  env.expect('HSET', 'doc2', 'test', '2').equal(1)
+  conn.execute_command('HSET', 'doc1', 'test', '1').equal(1)
+  conn.execute_command('HSET', 'doc2', 'test', '2').equal(1)
 
   # test normal case
   # get first result
@@ -587,7 +589,7 @@ def test_mod_4255(env):
   res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
   cursor = res[1]
   for i in range(3, 1001, 1):
-      env.cmd('HSET', 'doc%i' % i, 'test', str(i))
+      conn.execute_command('HSET', 'doc%i' % i, 'test', str(i))
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
   env.assertEqual(res[0] ,[1, ['test', '2']])
   env.assertNotEqual(cursor ,0)
