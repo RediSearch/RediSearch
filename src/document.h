@@ -72,6 +72,7 @@ typedef struct DocumentField{
       size_t arrayLen; // for multiVal TODO: use arr.h
     };
   };
+  RSValue *multisv; // sortable value for multi value (pre-calculated during ingestion)
   FieldVarType unionType;
   FieldType indexAs;
 } DocumentField;
@@ -338,7 +339,7 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx);
  * When this function completes, it will send the reply to the client and
  * unblock the client passed when the context was first created.
  */
-int Document_AddToIndexes(RSAddDocumentCtx *ctx);
+int Document_AddToIndexes(RSAddDocumentCtx *ctx, RedisSearchCtx *sctx);
 
 /**
  * Free the AddDocumentCtx. Should be done once AddToIndexes() completes; or
