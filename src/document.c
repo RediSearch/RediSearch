@@ -677,8 +677,13 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   }
 
   if (str && FieldSpec_IsSortable(fs)) {
+    if (field->unionType != FLD_VAR_T_ARRAY) {
       RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+    } else if (field->multisv) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
+      field->multisv = NULL;
     }
+  }
 
   return REDISMODULE_OK;
 }

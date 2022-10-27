@@ -216,7 +216,7 @@ def testMultiNonGeoNested(env):
 
 
 def testDebugDump(env):
-    """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi numeric values """
+    """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi GEO values """
 
     env.skipOnCluster()
 
@@ -228,3 +228,82 @@ def testDebugDump(env):
     env.expect('FT.DEBUG', 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
     env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
                                                                       'lastDocId', 2, 'revisionId', 0])
+
+def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
+    """ Helper function for RETURN with multiple GEO values """
+
+    conn = getConnectionByEnv(env)
+
+    dialect_param = ['DIALECT', 3] if not default_dialect else []
+    sortable_param = ['SORTABLE'] if is_sortable else []
+    env.assertEqual(len(expected), 3, message='dialect {}, sortable {}'.format(dialect_param, is_sortable))
+
+    env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.arr[*]', 'AS', 'val', 'GEO', *sortable_param).ok()
+    env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'val', 'GEO', *sortable_param).ok()
+    doc1_content = {"arr":["40.6,70.35", "29.7,34.9", "21,22"]}
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
+
+    expr = '@val:[29.7 34.8 15 km]'
+    
+    # Multi flat
+    env.expect('FT.SEARCH', 'idx_flat', expr,
+               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
+    env.expect('FT.SEARCH', 'idx_flat', expr,
+               'RETURN', '1', 'val', *dialect_param).equal(expected[1])
+    env.expect('FT.SEARCH', 'idx_flat', expr,
+               'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param).equal(expected[1])
+    env.expect('FT.SEARCH', 'idx_flat', expr,
+               'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
+
+    env.expect('FT.AGGREGATE', 'idx_flat',
+               expr, 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+
+    env.expect('FT.AGGREGATE', 'idx_flat',
+               expr, 'GROUPBY', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+
+    # Array
+    env.expect('FT.SEARCH', 'idx_arr', expr,
+               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
+    env.expect('FT.SEARCH', 'idx_arr', expr,
+               'RETURN', '1', 'val', *dialect_param).equal(expected[2])
+    env.expect('FT.SEARCH', 'idx_arr', expr,
+               'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param).equal(expected[1])
+    env.expect('FT.SEARCH', 'idx_arr', expr,
+               'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
+
+    res = conn.execute_command('FT.AGGREGATE', 'idx_arr',
+        expr, 'GROUPBY', '1', '@val', *dialect_param)
+    # Ignore the result with older dialect
+    #  Schema attribute with path to an array was not supported (lead to indexing failure)
+    if not default_dialect:
+        env.assertEqual(res, [1, ['val', expected[2][2][1]]])
+    
+
+    env.expect('FT.AGGREGATE', 'idx_arr',
+               expr, 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[2][2][1]]])
+
+    # RETURN ALL
+    res = conn.execute_command('FT.SEARCH', 'idx_flat', expr, *dialect_param)
+    env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
+
+
+def testMultiGeoReturn(env):
+    """ test RETURN with multiple GEO values """
+
+    res1 = [1, 'doc:1', ['arr_1', '["29.7,34.9"]']]
+    res2 = [1, 'doc:1', ['val', '["40.6,70.35","29.7,34.9","21,22"]']]
+    res3 = [1, 'doc:1', ['val', '[["40.6,70.35","29.7,34.9","21,22"]]']]
+
+    checkMultiGeoReturn(env, [res1, res2, res3], False, False)
+    env.flush()
+    checkMultiGeoReturn(env, [res1, res2, res3], False, True)
+
+def testMultiGeoReturnBWC(env):
+    """ test backward compatibility of RETURN with multiple GEO values """
+    res1 = [1, 'doc:1', ['arr_1', '29.7,34.9']]
+    res2 = [1, 'doc:1', ['val', '40.6,70.35']]
+    res3 = [1, 'doc:1', ['val', '["40.6,70.35","29.7,34.9","21,22"]']]
+
+    checkMultiGeoReturn(env, [res1, res2, res3], True, False)
+    env.flush()
+    checkMultiGeoReturn(env, [res1, res2, res3], True, True)
