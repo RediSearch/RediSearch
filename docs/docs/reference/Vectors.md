@@ -8,7 +8,7 @@ description: >
 ---
 
 *Vector fields* allow you to use vector similarity queries in the `FT.SEARCH` command.
-*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes. 
+*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in Json documents (via integration with [RedisJson module] (https://redis.io/docs/stack/json/))
 
 Vector similarity provides these functionalities:
 
@@ -20,7 +20,7 @@ Vector similarity provides these functionalities:
 
 * Realtime vector update/delete, triggering an update of the index.
 
-* K-nearest neighbors queries supporting three distance metrics to measure the degree of similarity between two vectors $u$, $v$ $\in \mathbb{R}^n$ where $n$ is the length of the vectors:
+* K-nearest neighbors (KNN) search and range filter (from v2.6) supporting three distance metrics to measure the degree of similarity between two vectors $u$, $v$ $\in \mathbb{R}^n$ where $n$ is the length of the vectors:
 
     - L2 - Euclidean distance between two vectors
 
@@ -118,7 +118,9 @@ Optional parameters are:
 * `EF_CONSTRUCTION` - Number of maximum allowed potential outgoing edges candidates for each node in the graph, during the graph building. Default is 200.
 
 * `EF_RUNTIME` - Number of maximum top candidates to hold during the KNN search. 
-Higher values of `EF_RUNTIME` lead to more accurate results at the expense of a longer runtime. Defaul is 10.
+Higher values of `EF_RUNTIME` lead to more accurate results at the expense of a longer runtime. Default is 10.
+
+* `EPSILON` - Relative factor that sets the boundaries in which a range query may search for candidates. That is, vector candidates whose distance from the query vector is `radius*(1 + EPSILON)` are potentially scanned, allowing more extensive search and more accurate results (on the expense of runtime). Default is 0.01.   
 
 **Example**
 
@@ -126,7 +128,7 @@ Higher values of `EF_RUNTIME` lead to more accurate results at the expense of a 
 FT.CREATE my_index2 
 SCHEMA vector_field VECTOR 
 HNSW 
-14 
+16 
 TYPE FLOAT64 
 DIM 128 
 DISTANCE_METRIC L2 
@@ -134,13 +136,53 @@ INITIAL_CAP 1000000
 M 40 
 EF_CONSTRUCTION 250 
 EF_RUNTIME 20
+EPSILON 0.8
+```
+
+## Indexing vectors
+
+Storing vectors in Redis Hash is done by sending a binary blob of the vector data. A common way of doing so is by using numpy with redis-py client:
+```py
+import numpy as np
+from redis import Redis
+
+redis_conn = Redis(host = 'localhost', port = 6379)
+vector_field = "vector"
+dim = 128
+
+# Store a blob of a random vector of type float32 under a field named 'vector' in Redis hash.
+np_vector = np.random.rand(dim).astype(np.float32)
+redis_conn.hset('key', mapping = {vector_field: np_vector.tobytes()})
+```
+Note that vector blob size must match the vector field dimension and type specified in the schema, otherwise the indexing will fail in the background.  
+### Storing vectors in JSON
+Vector fields are supported upon indexing fields of JSON documents as well:
+
+```
+FT.CREATE my_index ON JSON SCHEMA $.vec as vector VECTOR FLAT 6 TYPE FLOAT32 DIM 4 DISTANCE_METRIC L2 
+```
+
+Unlike in hashes, vectors are stored in JSON documents as arrays (not as blobs).
+
+**Example**
+```
+JSON.SET 1 $ '{"vec":[1,2,3,4]}'
+```
+
+As of v2.6, RedisJson supports multi value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath.
+
+**Example**
+```
+JSON.SET 1 $ '{"vec":[[1,2,3,4], [5,6,7,8]]}'
+JSON.SET 1 $ '{"foo":{"vec":[1,2,3,4]}, "bar":{"vec":[5,6,7,8]}}'
 ```
 
 ## Querying vector fields
 
-You can use vector similarity queries in the `FT.SEARCH` query parameter. 
-The syntax for vector similarity queries is `*=>[{vector similarity query}]` for running the query on an entire vector field, or `{primary filter query}=>[{vector similarity query}]` for running similarity query on the result of the primary filter query. 
-To use a vector similarity query, you must specify the option `DIALECT 2` in the command itself, or set the `DEFAULT_DIALECT` option to `2`, either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`.
+You can use vector similarity queries in `FT.SEARCH` query command. To use a vector similarity query, you must specify the option `DIALECT 2` in the command itself, or set the `DEFAULT_DIALECT` option to `2` or higher, either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`. There are two types of vector queries: KNN and range
+
+### KNN search
+The syntax for vector similarity KNN queries is `*=>[{vector similarity query}]` for running the query on an entire vector field, or `{primary filter query}=>[{vector similarity query}]` for running similarity query on the result of the primary filter query. 
 
 As of version 2.4, you can use vector similarity *once* in the query, and over the entire query filter.
 
@@ -169,6 +211,11 @@ Every `*_attribute` parameter should refer to an attribute in the [`PARAMS`](/co
 * `[{vector query param name} {value|$value_attribute} [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. See which [runtime parameters](/redisearch/reference/vectors#specific-runtime-attributes-per-algorithm) are valid for each algorithm.
 
 * `[ AS {score field name | $score_field_name_attribute}]` - An optional part for specifying a score field name, for later sorting by the similarity score. By default the score field name is "`__{vector field}_score`" and it can be used for sorting without using `AS {score field name}` in the query.
+
+As of v2.6, vector query params and distance field can be specified in [query attributes]() like syntax as well. Thus, the following format is supported as well:
+```
+[KNN { number | $number_attribute } @{vector field} $blob_attribute] => { $<vector query param name> <value|$value_attribute>; [...] $yield_distance_as:<dist field name | $dist_field_name_attribute>}
+```
 
 ## Hybrid queries
 

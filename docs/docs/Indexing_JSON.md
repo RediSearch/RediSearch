@@ -35,10 +35,10 @@ Use the following syntax to create a JSON index:
 FT.CREATE {index_name} ON JSON SCHEMA {json_path} AS {attribute} {type}
 ```
 
-For example, this command creates an index that indexes the name, description, and price of each JSON document that represents an inventory item:
+For example, this command creates an index that indexes the name, description, price and image vector embedding of each JSON document that represents an inventory item:
 
 ```sql
-127.0.0.1:6379> FT.CREATE itemIdx ON JSON PREFIX 1 item: SCHEMA $.name AS name TEXT $.description as description TEXT $.price AS price NUMERIC
+127.0.0.1:6379> FT.CREATE itemIdx ON JSON PREFIX 1 item: SCHEMA $.name AS name TEXT $.description as description TEXT $.price AS price NUMERIC $.embedding AS embedding VECTOR FLAT 6 DIM 4 DISTNACE_METRIC L2 TYPE FLOAT32
 ```
 
 See [Index limitations](#index-limitations) for more details about JSON index `SCHEMA` restrictions.
@@ -66,7 +66,8 @@ Item 1 JSON document:
   "colors": [
     "black",
     "silver"
-  ]
+  ],
+  "embedding": [0.87, -0.15, 0.55, 0.03]
 }
 ```
 
@@ -85,16 +86,17 @@ Item 2 JSON document:
   "colors": [
     "black",
     "white"
-  ]
+  ],
+  "embedding": [-0.7, -0.51, 0.88, 0.14]
 }
 ```
 
 Use `JSON.SET` to store these documents in the database:
 
 ```sql
-127.0.0.1:6379> JSON.SET item:1 $ '{"name":"Noise-cancelling Bluetooth headphones","description":"Wireless Bluetooth headphones with noise-cancelling technology","connection":{"wireless":true,"type":"Bluetooth"},"price":99.98,"stock":25,"colors":["black","silver"]}'
+127.0.0.1:6379> JSON.SET item:1 $ '{"name":"Noise-cancelling Bluetooth headphones","description":"Wireless Bluetooth headphones with noise-cancelling technology","connection":{"wireless":true,"type":"Bluetooth"},"price":99.98,"stock":25,"colors":["black","silver"],"embedding":[0.87,-0.15,0.55,0.03]}'
 "OK"
-127.0.0.1:6379> JSON.SET item:2 $ '{"name":"Wireless earbuds","description":"Wireless Bluetooth in-ear headphones","connection":{"wireless":true,"type":"Bluetooth"},"price":64.99,"stock":17,"colors":["black","white"]}'
+127.0.0.1:6379> JSON.SET item:2 $ '{"name":"Wireless earbuds","description":"Wireless Bluetooth in-ear headphones","connection":{"wireless":true,"type":"Bluetooth"},"price":64.99,"stock":17,"colors":["black","white"],"embedding":[-0.7,-0.51,0.88,0.14]}'
 "OK"
 ```
 
@@ -113,7 +115,7 @@ For example, use this query to search for items with the word "earbuds" in the n
 1) "1"
 2) "item:2"
 3) 1) "$"
-   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"]}"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[-0.7,-0.51,0.88,0.14]}"
 ```
 
 This query searches for all items that include "bluetooth" and "headphones" in the description:
@@ -123,10 +125,10 @@ This query searches for all items that include "bluetooth" and "headphones" in t
 1) "2"
 2) "item:1"
 3) 1) "$"
-   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"]}"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],[0.87,-0.15,0.55,0.03]}"
 4) "item:2"
 5) 1) "$"
-   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"]}"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[-0.7,-0.51,0.88,0.14]}"
 ```
 
 Now search for Bluetooth headphones with a price less than 70:
@@ -136,7 +138,24 @@ Now search for Bluetooth headphones with a price less than 70:
 1) "1"
 2) "item:2"
 3) 1) "$"
-   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"]}"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[-0.7,-0.51,0.88,0.14]}"
+```
+
+And lastly, search for the Bluetooth headphones which are the most similar to an image whose embedding is [1.0, 1.0, 1.0, 1.0]:
+
+```sql
+127.0.0.1:6379> FT.SEARCH itemIdx '@description:(bluetooth headphones)=>[KNN 2 @embedding $blob]' PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2  
+1) "2"
+2) "item:1"
+3) 1) "__embedding_score"
+   2) "1.08280003071"
+   1) "$"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],[0.87,-0.15,0.55,0.03]}"
+2) "item:2"
+3) 1) "__embedding_score"
+   2) "1.54409992695"
+   3) "$"
+   4) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[-0.7,-0.51,0.88,0.14]}"
 ```
 
 For more information about search queries, see [Search query syntax](/docs/stack/search/reference/query_syntax).
@@ -279,6 +298,47 @@ When JSONPath leads to multiple numerical values:
   - Numerical values are indexed
   - `null` values are skipped
   - Any other value type is causing an indexing failure
+
+## Index JSON arrays as VECTOR
+
+Starting with RediSearch 2.6.0, a JSONPath leading to an array of numerical values may be indexed as VECTOR type in the index schema.
+
+If you want to index *multiple* numerical arrays as VECTOR, use a JSONPath leading to multiple numerical arrays using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
+
+For example, to index a vector embeddings list that correspond images of the same product, specify the JSONPath `$.embeddings[*]` in the schema definition during index creation:
+
+```sql
+127.0.0.1:6379> FT.CREATE itemIdx5 ON JSON PREFIX 1 item: SCHEMA $.embedding[*] AS embedding VECTOR FLAT 6 DIM 4 DISTNACE_METRIC L2 TYPE FLOAT32
+OK
+```
+```sql
+127.0.0.1:6379> JSON.SET item:1 $ '{"name":"Noise-cancelling Bluetooth headphones","description":"Wireless Bluetooth headphones with noise-cancelling technology","price":99.98,"stock":25,"colors":["black","silver"],"embeddings":[[0.87,-0.15,0.55,0.03]]}'
+OK
+
+127.0.0.1:6379> JSON.SET item:2 $ '{"name":"Wireless earbuds","description":"Wireless Bluetooth in-ear headphones","price":64.99,"stock":17,"colors":["black","white"],"embeddings":[[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]]}'
+OK
+```
+
+Note than unlike NUMERIC type, using `$.embeddings` in the schema for VECTOR will NOT treat the field as array of vectors, so it would not trigger the vector in the array.
+
+Now, we can search for the two headphones that are most similar to an image embedding, using vector similarity search KNN query (note that vector queries are supported as of dialect 2). The distance between a document to the query vector is defined as the **minimum** distance between the query vector to a vector that match the JSONPath specified in the schema. For example:
+```sql
+127.0.0.1:6379> FT.SEARCH itemIdx5 '*=>[KNN 2 @embeddings $blob]' PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2
+1) "2"
+2) "item:1"
+3) 1) "__embedding_score"
+   2) "1.08280003071"
+   1) "$"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],[0.87,-0.15,0.55,0.03]}"
+2) "item:2"
+3) 1) "__embedding_score"
+   2) "0.771500051022"
+   3) "$"
+   4) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]}"
+```
+Note that `0.771500051022` is the L2 distance between the query vector and `[-0.8,-0.15,0.33,-0.01]`, and it is lower than the L2 distance between the query vector and `[-0.7,-0.51,0.88,0.14]`.
+
+For more information on vector similarity syntax, see [Vector Fields](/redisearch/reference/vectors/#querying-vector-fields).
 
 ## Index JSON objects
 
