@@ -16,6 +16,7 @@ typedef struct FieldIndexerData {
     struct {
       const void *vector;
       size_t vecLen;
+      size_t numVec;
     };
 
     // Multi value
@@ -70,7 +71,7 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
  *
  * This function is called with the GIL released.
  */
-typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, const DocumentField *field,
+typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, DocumentField *field,
                                 const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
 /**

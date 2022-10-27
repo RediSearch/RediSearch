@@ -103,6 +103,11 @@ void RSValue_Clear(RSValue *v) {
       break;
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
+    case RSValue_Duo:
+      RSValue_Decref(RS_DUOVAL_VAL(*v));
+      RSValue_Decref(RS_DUOVAL_OTHERVAL(*v));
+      rm_free(v->duoval.vals);
+      break;
     default:   // no free
       break;
   }
@@ -242,6 +247,9 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     case RSValue_Reference:
       return RSValue_ToString(dst, v->ref);
 
+    case RSValue_Duo:
+      return RSValue_ToString(dst, RS_DUOVAL_VAL(*v));
+
     case RSValue_Null:
     default:
       return RSValue_SetConstString(dst, "", 0);
@@ -285,6 +293,9 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
       // Redis strings - take the number and len
       p = RedisModule_StringPtrLen(v->rstrval, &l);
       break;
+
+    case RSValue_Duo:
+      return RSValue_ToNumber(RS_DUOVAL_VAL(*v), d);
 
     case RSValue_Null:
     case RSValue_Array:
@@ -345,6 +356,8 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
     case RSValue_RedisString:
     case RSValue_OwnRstring:
       return RedisModule_StringPtrLen(value->rstrval, lenp);
+    case RSValue_Duo:
+      return RSValue_StringPtrLen(RS_DUOVAL_VAL(*value), lenp);
     default:
       return NULL;
   }
@@ -459,6 +472,14 @@ inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
 
+RSValue *RS_DuoVal(RSValue *val, RSValue *otherval) {
+  RSValue *duo = RS_NewValue(RSValue_Duo);
+  duo->duoval.vals = rm_calloc(2, sizeof(*duo->duoval.vals));
+  duo->duoval.vals[0] = val;
+  duo->duoval.vals[1] = otherval;
+  return duo;
+}
+
 static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
   int cmp = strncmp(s1, s2, MIN(l1, l2));
   if (l1 == l2) {
@@ -505,6 +526,8 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
       const char *s2 = RedisModule_StringPtrLen(v2->rstrval, &l2);
       return cmp_strings(s1, s2, l1, l2);
     }
+    case RSValue_Duo:
+      return RSValue_CmpNC(RS_DUOVAL_VAL(*v1), RS_DUOVAL_VAL(*v2));
     case RSValue_Null:
       return 0;
     case RSValue_Array:  // can't compare arrays ATM
@@ -618,6 +641,8 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
         RSValue_SendReply(ctx, v->arrval.vals[i], isTyped);
       }
       return REDISMODULE_OK;
+    case RSValue_Duo:
+      return RSValue_SendReply(ctx, RS_DUOVAL_OTHERVAL(*v), isTyped);
     default:
       RedisModule_ReplyWithNull(ctx);
   }
@@ -658,6 +683,10 @@ void RSValue_Print(const RSValue *v) {
       break;
     case RSValue_Reference:
       RSValue_Print(v->ref);
+      break;
+
+    case RSValue_Duo:
+      RSValue_Print(RS_DUOVAL_VAL(*v));
       break;
   }
 }
@@ -749,6 +778,8 @@ const char *RSValue_TypeName(RSValueType t) {
       return "redis-string";
     case RSValue_Reference:
       return "reference";
+    case RSValue_Duo:
+      return "duo";
     default:
       return "!!UNKNOWN TYPE!!";
   }
