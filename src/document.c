@@ -569,6 +569,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
       ctx->spec->stats.invertedSize += rv.sz;
       ctx->spec->stats.numRecords += rv.numRecords;
     }
+    array_free(fdata->arrNumeric);
   }
   return 0;
 }
