@@ -561,3 +561,13 @@ def test_mod_4207(env):
 
   env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
+
+def test_mod_4255(env):
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+  env.expect('hset', 'doc1', 'test', '1').equal(1)
+  env.expect('hset', 'doc2', 'test', '2').equal(1)
+  res = env.execute_command('ft.aggregate', 'idx', '@test:[1 2]', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
+  cursor = res[1]
+  for i in range(3, 1001, 1):
+      env.expect('hset', 'doc%i' % i, 'test', str(i)).equal(1)
+  env.expect('ft.cursor', 'read', 'idx', cursor).equal([[0], 0])
