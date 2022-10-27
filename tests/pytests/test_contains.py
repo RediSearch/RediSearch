@@ -364,3 +364,27 @@ def test_params(env):
   env.expect('ft.search', 'idx', '$prefix*', 'PARAMS', 2, 'prefix', 'wor').equal([1, 'doc1', ['t', 'world']])
   env.expect('ft.search', 'idx', '*$contains*', 'PARAMS', 2, 'contains', 'orl').equal([1, 'doc1', ['t', 'world']])
   env.expect('ft.search', 'idx', '*$suffix', 'PARAMS', 2, 'suffix', 'rld').equal([1, 'doc1', ['t', 'world']])
+
+
+def test_issue_3124(env):
+  # test prefix query on field with suffix trie
+  env.skipOnCluster()
+  index_list = ['idx_txt', 'idx_txt_suffix', 'idx_tag', 'idx_tag_suffix']
+  env.cmd('ft.create', 'idx_txt', 'SCHEMA', 't', 'TEXT')
+  env.cmd('ft.create', 'idx_txt_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+  env.cmd('ft.create', 'idx_tag', 'SCHEMA', 't', 'TAG')
+  env.cmd('ft.create', 'idx_tag_suffix', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
+  conn = getConnectionByEnv(env)
+
+  # insert a single document with value 'hello' in field 't'
+  conn.execute_command('HSET', 'doc', 't', 'hello')
+
+  # test prefix query on field with existing prefix query
+  res_exist1 = env.cmd('ft.search', 'idx_txt', '@t:hell*')
+  res_exist2 = env.cmd('ft.search', 'idx_txt_suffix', '@t:hell*')
+  env.assertEqual(res_exist1, res_exist2)
+
+  # test prefix query on field with non-existing prefix query
+  res_not_exist1 = env.cmd('ft.search', 'idx_txt', '@t:ell*')
+  res_not_exist2 = env.cmd('ft.search', 'idx_txt_suffix', '@t:ell*')
+  env.assertEqual(res_not_exist1, res_not_exist2)

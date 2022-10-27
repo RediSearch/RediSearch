@@ -66,7 +66,7 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
     EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
     return res;
   }
-  if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridDistance)) {
+  if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     double ret = 0;
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
@@ -153,7 +153,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
     EXPLAIN(scrExp,
             "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
             ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
-  } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridDistance)) {
+  } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
       for (int i = 0; i < numChildren; i++) {
@@ -226,7 +226,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
   double ret = 0;
   switch (r->type) {
     case RSResultType_Term:
-    case RSResultType_Distance:
+    case RSResultType_Metric:
     case RSResultType_Numeric:
     case RSResultType_Virtual:
       ret = r->freq;
@@ -266,7 +266,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
       }
       break;
     // for hybrid - just take the non-vector child score (the second one).
-    case RSResultType_HybridDistance:
+    case RSResultType_HybridMetric:
       return dismaxRecursive(ctx, r->agg.children[1], scrExp);
   }
   return r->weight * ret;
