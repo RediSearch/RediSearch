@@ -569,7 +569,6 @@ FIELD_BULK_INDEXER(numericIndexer) {
       ctx->spec->stats.invertedSize += rv.sz;
       ctx->spec->stats.numRecords += rv.numRecords;
     }
-    array_free(fdata->arrNumeric);
   }
   return 0;
 }
@@ -646,6 +645,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     case FLD_VAR_T_ARRAY:
       str_count = field->arrayLen;
       break;
+    case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
       RS_LOG_ASSERT(0, "Oops");
   }
