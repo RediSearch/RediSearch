@@ -11,55 +11,6 @@ from json_multi_text_content import *
 def expect_undef_order(query : Query):
     query.error().contains("has undefined ordering")
 
-
-def testMultiTagString(env):
-    """ test multiple TAG values (array of strings) """
-    conn = getConnectionByEnv(env)
-    conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
-    conn.execute_command('JSON.SET', 'doc:2', '$', doc2_content)
-    conn.execute_command('JSON.SET', 'doc:3', '$', doc3_content)
-    conn.execute_command('JSON.SET', 'doc:4', '$', doc4_content)
-
-    # Index multi flat values
-    env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.category[*]', 'AS', 'category', 'TAG').ok()
-    # Index an array
-    env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TAG').ok()
-    
-    waitForIndex(env, 'idx1')
-    waitForIndex(env, 'idx2')
-    
-    res1 = [1, 'doc:1', ['category', 'mathematics and computer science']]
-    res2 = [1, 'doc:1', ['category_arr', '["mathematics and computer science","logic","programming","database"]']]
-    
-    # Currently return a single value (only the first value)
-    env.expect('FT.SEARCH', 'idx1', '@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res1)
-    env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '1', 'category').equal(res1)
-    env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '3', '$.category', 'AS', 'category_arr').equal(res2)
-
-
-def testMultiTagBool(env):
-    """ test multiple TAG values (array of Boolean) """
-
-    conn = getConnectionByEnv(env)
-    # Index single and multi bool values
-    conn.execute_command('JSON.SET', 'doc:1', '$', '{"foo": {"bar": [true, true]}, "fu": {"bar": [false, true]}}')
-    conn.execute_command('JSON.SET', 'doc:2', '$', '{"foo": {"bar": [true, true]}, "fu": {"bar": [true, true]}}')
-    conn.execute_command('JSON.SET', 'doc:3', '$', '{"foo": {"bar": [false, false]}, "fu": {"bar": [false, false]}}')
-    env.expect('FT.CREATE', 'idx_multi', 'ON', 'JSON', 'SCHEMA', '$..bar[*]', 'AS', 'bar', 'TAG').ok()
-    env.expect('FT.CREATE', 'idx_single', 'ON', 'JSON', 'SCHEMA', '$.foo.bar[0]', 'AS', 'bar', 'TAG').ok()
-    waitForIndex(env, 'idx_multi')
-    waitForIndex(env, 'idx_single')
-
-    # FIXME:    
-    # res = env.execute_command('FT.SEARCH', 'idx_multi', '@bar:{true}', 'NOCONTENT')
-    # env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))    
-    # res = env.execute_command('FT.SEARCH', 'idx_multi', '@bar:{false}', 'NOCONTENT')
-    # env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']))
-
-    res = env.execute_command('FT.SEARCH', 'idx_single', '@bar:{true}', 'NOCONTENT')
-    env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
-    env.expect('FT.SEARCH', 'idx_single', '@bar:{false}', 'NOCONTENT').equal([1, 'doc:3'])
-
 def testMultiText(env):
     """ test multiple TEXT values at root level (array of strings) """
     

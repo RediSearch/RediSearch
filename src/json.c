@@ -114,7 +114,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
     rv = REDISMODULE_OK;
     break;
   case JSONType_Array:
-    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC || INDEXFLD_T_TAG) {
+    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC || fieldType == INDEXFLD_T_TAG) {
       rv = REDISMODULE_OK;
     }
     break;
