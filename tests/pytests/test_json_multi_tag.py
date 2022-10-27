@@ -7,7 +7,7 @@ from includes import *
 
 from json_multi_text_content import *
 
-def testMultiTagReturnSןimple(env):
+def testMultiTagReturnSimple(env):
     """ test multiple TAG values (array of strings) """
     conn = getConnectionByEnv(env)
     conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)

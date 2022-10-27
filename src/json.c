@@ -507,7 +507,7 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
 }
 
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
-                              FieldSpec *fs, struct DocumentField *df) {
+                              FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx) {
   int rv = REDISMODULE_OK;
 
   if (len == 1) {
@@ -545,5 +545,21 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     }
   }
 
+  df->multisv = NULL;
+  // If all is successful up til here,
+  // we check whether a multi value is needed to be calculated for SORTABLE (avoiding re-opening the key and re-parsing the path)
+  // (requires some API V2 functions to be available)
+  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY && japi_ver >= 2) {
+    RSValue *rsv = NULL;
+    japi->resetIter(jsonIter);
+    // There is no api version (DIALECT) specified during ingestion,
+    // So we need to prepare a value using newer api version,
+    // in order to be able to handle a query later on with either old or new api version
+    if (jsonIterToValue(ctx, jsonIter, APIVERSION_RETURN_MULTI_CMP_FIRST, &rsv) == REDISMODULE_OK) {
+      df->multisv = rsv;
+    } else {
+      rv = REDISMODULE_ERR;
+    }
+  }
   return rv;
 }

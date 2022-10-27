@@ -389,15 +389,15 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
         # Multi TEXT with single TEXT
         env.assertEqual(trim_in_list('multi:', env.execute_command('FT.SEARCH', 'idx1_multi_text', *text_arg)),
                         trim_in_list('single:', env.execute_command('FT.SEARCH', 'idx1_single_text', *text_arg)),
-                        message = '{} arg {}'.format(1, i))
+                        message = '{} with arg `{}`'.format('multi TEXT with single TEXT', text_arg))
         # Multi TAG with single TAG
         env.assertEqual(trim_in_list('multi:', env.execute_command('FT.SEARCH', 'idx2_multi_tag', *tag_arg)),
                         trim_in_list('single:', env.execute_command('FT.SEARCH', 'idx2_single_tag', *tag_arg)),
-                        message = '{} arg {}'.format(2, i))
+                        message = '{} arg `{}`'.format('multi TAG with single TAG', tag_arg))
         # Multi TEXT with multi TAG
         env.assertEqual(env.execute_command('FT.SEARCH', 'idx1_multi_text', *text_arg),
                         env.execute_command('FT.SEARCH', 'idx2_multi_tag', *tag_arg),
-                        message = '{} arg {}'.format(3, i))
+                        message = '{} text arg `{}` tag arg `{}`'.format('multi TEXT with multi TAG', text_arg, tag_arg))
 
     if not env.isCluster():
         # (skip this comparison in cluster since score is affected by the numer of shards/distribution of keys across shards)
@@ -407,7 +407,7 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
             # Multi TEXT with single TEXT
             env.assertEqual(trim_in_list('multi:', env.execute_command('FT.SEARCH', 'idx1_multi_text', *text_arg)),
                             trim_in_list('single:', env.execute_command('FT.SEARCH', 'idx1_single_text', *text_arg)),
-                            message = '{} arg {}'.format(1, i))
+                            message = '{} arg {}'.format('multi TEXT with single TEXT', text_arg))
 
 
 def testMultiEmptyBlankOrNone(env):
@@ -533,3 +533,113 @@ def testconfigMultiTextOffsetDeltaSlop0():
 def testMultiNoHighlight(env):
     """ highlight is not supported with multiple TEXT """
     pass
+
+def checkMultiTextReturn(env, expected, default_dialect, is_sortable, is_sortable_unf):
+    """ Helper function for RETURN with multiple TEXT values """
+
+    conn = getConnectionByEnv(env)
+
+    dialect_param = ['DIALECT', 3] if not default_dialect else []
+    env.assertTrue(not is_sortable_unf or is_sortable)
+    sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
+    env.assertEqual(len(expected), 4, message='dialect {}, sortable {}, unf {}'.format(dialect_param, is_sortable, is_sortable_unf))
+
+    doc1_content = {
+        "Name": "Product1",
+        "Sellers": [
+            {
+                "Name": "Seller1",
+                "Locations": ["FL", "AL"]
+            },
+            {
+                "Name": "Seller2",
+                "Locations": ["MS", "GA"]
+            }
+        ]
+    }
+
+    env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.Sellers[*].Locations[*]', 'AS', 'val', 'TEXT', *sortable_param).ok()
+    env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.Sellers[0].Locations', 'AS', 'val', 'TEXT', *sortable_param).ok()
+    
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
+
+    def expect_case(val):
+        return val.lower() if (is_sortable and not is_sortable_unf) and isinstance(val,str) else val
+
+    expr = '@val:(al)'
+    
+    # Multi flat
+    env.expect('FT.SEARCH', 'idx_flat', expr,
+               'RETURN', '3', '$.Sellers[0].Locations[1]', 'AS', 'arr_1', *dialect_param).equal(expect_case(expected[0]))
+    env.expect('FT.SEARCH', 'idx_flat', expr,
+               'RETURN', '1', 'val', *dialect_param).equal(expect_case(expected[3]))
+    env.expect('FT.SEARCH', 'idx_flat', expr,
+               'RETURN', '3', '$.Sellers[*].Locations[*]', 'AS', 'val', *dialect_param).equal(expect_case(expected[3]))
+    env.expect('FT.SEARCH', 'idx_flat', expr,
+               'RETURN', '3', '$.Sellers[0].Locations[*]', 'AS', 'val', *dialect_param).equal(expect_case(expected[1]))
+    env.expect('FT.SEARCH', 'idx_flat', expr,
+        'RETURN', '3', '$.Sellers[0].Locations', 'AS', 'val', *dialect_param).equal(expect_case(expected[2]))
+
+    # Currently not considering `UNF` with multi value (MOD-4345)
+    res = conn.execute_command('FT.AGGREGATE', 'idx_flat',
+        expr, 'LOAD', '1', '@val', *dialect_param)
+    env.assertEqual(res[1][1].lower(), expected[3][2][1].lower())
+
+    res = conn.execute_command('FT.AGGREGATE', 'idx_flat',
+        expr, 'GROUPBY', '1', '@val', *dialect_param)
+    env.assertEqual(res[1][1].lower(), expected[3][2][1].lower())
+
+    # Array
+    env.expect('FT.SEARCH', 'idx_arr', expr,
+               'RETURN', '3', '$.Sellers[0].Locations[1]', 'AS', 'arr_1', *dialect_param).equal(expect_case(expected[0]))
+    env.expect('FT.SEARCH', 'idx_arr', expr,
+               'RETURN', '1', 'val', *dialect_param).equal(expect_case(expected[2]))
+    env.expect('FT.SEARCH', 'idx_arr', expr,
+               'RETURN', '3', '$.Sellers[*].Locations[*]', 'AS', 'val', *dialect_param).equal(expect_case(expected[3]))
+    env.expect('FT.SEARCH', 'idx_arr', expr,
+               'RETURN', '3', '$.Sellers[0].Locations[*]', 'AS', 'val', *dialect_param).equal(expect_case(expected[1]))
+    env.expect('FT.SEARCH', 'idx_arr', expr,
+               'RETURN', '3', '$.Sellers[0].Locations', 'AS', 'val', *dialect_param).equal(expect_case(expected[2]))
+
+    res = conn.execute_command('FT.AGGREGATE', 'idx_arr',
+        expr, 'GROUPBY', '1', '@val', *dialect_param)
+    # Ignore the result with older dialect
+    #  Schema attribute with path to an array was not supported (lead to indexing failure)
+    if not default_dialect:
+        env.assertEqual(res[1][1].lower(), expected[2][2][1].lower())
+
+    res = conn.execute_command('FT.AGGREGATE', 'idx_arr',
+        expr, 'LOAD', '1', '@val', *dialect_param)
+    env.assertEqual(res[1][1].lower(), expected[2][2][1].lower())
+
+    # RETURN ALL
+    res = conn.execute_command('FT.SEARCH', 'idx_flat', expr, *dialect_param)
+    env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
+
+
+def testMultiTextReturn(env):
+    """ test RETURN with multiple TEXT values """
+
+    res1 = [1, 'doc:1', ['arr_1', '["AL"]']]
+    res2 = [1, 'doc:1', ['val', '["FL","AL"]']]
+    res3 = [1, 'doc:1', ['val', '[["FL","AL"]]']]
+    res4 = [1, 'doc:1', ['val', '["FL","AL","MS","GA"]']]
+    
+
+    checkMultiTextReturn(env, [res1, res2, res3, res4], False, False, False)
+    env.flush()
+    checkMultiTextReturn(env, [res1, res2, res3, res4], False, True, False)
+    env.flush()
+    checkMultiTextReturn(env, [res1, res2, res3, res4], False, True, True)
+
+def testMultiTextReturnBWC(env):
+    """ test backward compatibility of RETURN with multiple TEXT values """
+    res1 = [1, 'doc:1', ['arr_1', 'AL']]
+    res2 = [1, 'doc:1', ['val', 'FL']]
+    res3 = [1, 'doc:1', ['val', '["FL","AL"]']]
+
+    checkMultiTextReturn(env, [res1, res2, res3, res2], True, False, False)
+    env.flush()
+    checkMultiTextReturn(env, [res1, res2, res3, res2], True, True, False)
+    env.flush()
+    checkMultiTextReturn(env, [res1, res2, res3, res2], True, True, True)

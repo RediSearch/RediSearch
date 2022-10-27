@@ -120,6 +120,13 @@ void RangeNumber_Free(RangeNumber *r) {
   rm_free(r);
 }
 
+// Add a new metric request to the metricRequests array. Returns the index of the request
+static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr) {
+    MetricRequest mr = {metric_name, key_addr};
+    *q->metricRequestsP = array_ensure_append_1(*q->metricRequestsP, mr);
+    return array_len(*q->metricRequestsP) - 1;
+}
+
 QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = rm_calloc(1, sizeof(QueryNode));
   s->type = type;
@@ -303,6 +310,12 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
       QueryNode_SetParam(q, &ret->params[0], &vq->knn.vector, &vq->knn.vecLen, vec);
       QueryNode_SetParam(q, &ret->params[1], &vq->knn.k, NULL, value);
       break;
+    case VECSIM_QT_RANGE:
+      QueryNode_InitParams(ret, 2);
+      QueryNode_SetParam(q, &ret->params[0], &vq->range.vector, &vq->range.vecLen, vec);
+      QueryNode_SetParam(q, &ret->params[1], &vq->range.radius, NULL, value);
+      vq->range.order = BY_ID;
+      break;
     default:
       QueryNode_Free(ret);
       return NULL;
@@ -318,8 +331,8 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
     // we usually want the numeric range as the "leader" iterator.
     q->root->children = array_ensure_prepend(q->root->children, &n, 1, QueryNode *);
     q->numTokens++;
-  // vector node should always be in the root, so we have a special case here.
-  } else if (q->root->type == QN_VECTOR) {
+  // vector node of type KNN should always be in the root, so we have a special case here.
+  } else if (q->root->type == QN_VECTOR && q->root->vn.vq->type == VECSIM_QT_KNN) {
     // for non-hybrid - add the filter node as the child of the vector node.
     if (QueryNode_NumChildren(q->root) == 0) {
       QueryNode_AddChild(q->root, n);
@@ -550,7 +563,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
 */
 static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_WILDCARD_QUERY, "query node type should be wildcard query");
-  
+
   IndexSpec *spec = q->sctx->spec;
   Trie *t = spec->terms;
   ContainsCtx ctx = {.q = q, .opts = &qn->opts};
@@ -813,7 +826,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   if (!GeoFilter_Validate(node->gn.gf, q->status)) {
     return NULL;
   }
-  
+
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->gn.gf->property, strlen(node->gn.gf->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
@@ -837,25 +850,30 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   if (qn->opts.distField) {
-    // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
-    // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
-    char default_score_field[strlen(qn->vn.vq->property) + 9]; // buffer for __<field>_score
-    sprintf(default_score_field, "__%s_score", qn->vn.vq->property);
-    // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
-    if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
-      QueryError_SetErrorFmt(q->status, QUERY_EDUPFIELD, "Distance field was specified twice for vector query: %s and %s",
-                             qn->vn.vq->scoreField, qn->opts.distField);
-      return NULL;
+    if (qn->vn.vq->scoreField) {
+      // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
+      // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
+      char default_score_field[strlen(qn->vn.vq->property) + 9];  // buffer for __<field>_score
+      sprintf(default_score_field, "__%s_score", qn->vn.vq->property);
+      // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
+      if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
+        QueryError_SetErrorFmt(q->status, QUERY_EDUPFIELD,
+                               "Distance field was specified twice for vector query: %s and %s",
+                               qn->vn.vq->scoreField, qn->opts.distField);
+        return NULL;
+      }
+      rm_free(qn->vn.vq->scoreField);
     }
-    rm_free(qn->vn.vq->scoreField);
     qn->vn.vq->scoreField = qn->opts.distField; // move ownership
     qn->opts.distField = NULL;
   }
-  // Todo: for range queries, recall that score field may still be NULL, need to handle it also.
 
   // Add the score field name to the ast score field names array.
-  // This macro creates the array if it's the first name, and ensure its size is sufficient.
-  array_ensure_append_1(*q->vecScoreFieldNamesP, qn->vn.vq->scoreField);
+  // This function creates the array if it's the first name, and ensure its size is sufficient.
+  size_t idx = -1;
+  if (qn->vn.vq->scoreField) {
+    idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL);
+  }
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
     RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
@@ -866,6 +884,11 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
   IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
+  // If iterator was created successfully, and we have a metric to yield, update the
+  // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
+  if (it && qn->vn.vq->scoreField) {
+    array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &it->ownKey;
+  }
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);
   }
@@ -1054,10 +1077,10 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
                                                         q->sctx->timeout);
     if (!arr) {
       // No matching terms
-      rm_free(its);     
+      rm_free(its);
       return NULL;
     } else if (arr == BAD_POINTER) {
-      // The wildcard pattern does not include tokens that can be used with suffix trie 
+      // The wildcard pattern does not include tokens that can be used with suffix trie
       fallbackBruteForce = true;
     } else {
       for (int i = 0; i < array_len(arr); ++i) {
@@ -1079,7 +1102,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   }
 
   if (!idx->suffix || fallbackBruteForce) {
-    // brute force wildcard query 
+    // brute force wildcard query
     TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
     TrieMapIterator_SetTimeout(it, q->sctx->timeout);
     // If there is no '*`, the length is known which can be used for optimization
@@ -1103,7 +1126,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
       }
     }
     TrieMapIterator_Free(it);
-  } else 
+  } else
 
   if (itsSz == 0) {
     rm_free(its);
@@ -1353,7 +1376,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
       .status = status,
-      .vecScoreFieldNamesP = &qast->vecScoreFieldNames,
+      .metricRequestsP = &qast->metricRequests,
       .reqFlags = reqflags,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
@@ -1367,8 +1390,8 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
-  array_free(q->vecScoreFieldNames);
-  q->vecScoreFieldNames = NULL;
+  array_free(q->metricRequests);
+  q->metricRequests = NULL;
   q->numTokens = 0;
   q->numParams = 0;
   rm_free(q->query);
@@ -1674,21 +1697,35 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           s = sdscatprintf(s, "K=%zu nearest vectors to ", qs->vn.vq->knn.k);
           // This loop finds the vector param name.
           for (size_t i = 0; i < array_len(qs->params); i++) {
-            if (qs->params[i].type != PARAM_NONE && qs->params[i].target == &qs->vn.vq->knn.vector) {
+            if (qs->params[i].type != PARAM_NONE &&
+                qs->params[i].target == &qs->vn.vq->knn.vector) {
               s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
               break;
             }
           }
-          s = sdscatprintf(s, "in @%s", qs->vn.vq->property);
-          for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
-            s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
-            s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
-          }
-          if (qs->vn.vq->scoreField) {
-            s = sdscatprintf(s, ", AS `%s`", qs->vn.vq->scoreField);
+          break;
+        }
+        case VECSIM_QT_RANGE: {
+          s = sdscatprintf(s, "Vectors that are within %g distance radius from",
+                           qs->vn.vq->range.radius);
+          // This loop finds the vector param name.
+          for (size_t i = 0; i < array_len(qs->params); i++) {
+            if (qs->params[i].type != PARAM_NONE &&
+                qs->params[i].target == &qs->vn.vq->range.vector) {
+              s = sdscatprintf(s, " `$%s` ", qs->params[i].name);
+              break;
+            }
           }
           break;
         }
+      } // switch (qs->vn.vq->type). Next is a common part for both types.
+      s = sdscatprintf(s, "in vector index associated with field @%s", qs->vn.vq->property);
+      for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
+        s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
+        s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
+      }
+      if (qs->vn.vq->scoreField) {
+        s = sdscatprintf(s, ", yields distance as `%s`", qs->vn.vq->scoreField);
       }
       break;
     case QN_WILDCARD:
@@ -1780,6 +1817,7 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
 // down the road. return 0 in case of an unrecognized parameter.
 static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr) {
   if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
+      STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
       STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
       STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
@@ -1886,5 +1924,5 @@ int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, boo
   } else {
     return 1;
   }
-  
+
 }
