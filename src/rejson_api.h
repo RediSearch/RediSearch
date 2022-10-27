@@ -29,7 +29,7 @@ typedef struct RedisJSONAPI {
 
   /* RedisJSON functions */
   RedisJSON (*openKey)(RedisModuleCtx *ctx, RedisModuleString *key_name);
-  RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *path);
+  RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *key_name);
 
   JSONResultsIterator (*get)(RedisJSON json, const char *path);
   
@@ -84,6 +84,13 @@ typedef struct RedisJSONAPI {
   // Query a parsed JSONPath
   int (*pathIsSingle)(JSONPath);
   int (*pathHasDefinedOrder)(JSONPath);
+
+  // Return JSON String representation from an iterator (without consuming the iterator)
+  // The caller gains ownership of `str`
+  int (*getJSONFromIter)(JSONResultsIterator iter, RedisModuleCtx *ctx, RedisModuleString **str);
+
+  // Reset the iterator to the beginning
+  void (*resetIter)(JSONResultsIterator iter);
 
 } RedisJSONAPI;
 
