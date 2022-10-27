@@ -111,3 +111,56 @@ def searchMultiTagAuthor(env):
 
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:{programming}', 'NOCONTENT').equal([1, 'doc:1'])
     
+def testMultiNonText(env):
+    """
+    test multiple TAG values which include some non-text values at root level (null, number, bool, array, object)
+    Skip nulls without failing
+    Fail on number, bool, object, arr of strings, arr with mixed types
+    """
+    conn = getConnectionByEnv(env)
+    
+    non_text_dict = json.loads(doc_non_text_content)
+    
+    # Create indices and a key per index, e.g.,
+    #   FT.CREATE idx1 ON JSON PREFIX 1 doc:1: SCHEMA $ AS root TAG
+    #   JSON.SET doc:1: $ '["first", "second", null, "third", null, "null", null]'
+    #
+    # First 5 indices are OK (nulls are skipped)
+    for (i,v) in enumerate(non_text_dict.values()):
+        doc = 'doc:{}:'.format(i+1)
+        idx = 'idx{}'.format(i+1)
+        env.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'TAG')
+        waitForIndex(env, idx)
+        conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
+        res_failures = 0 if i+1 <= 5 else 1
+        env.assertEqual(int(index_info(env, idx)['hash_indexing_failures']), res_failures, message=str(i))
+    
+    # Search good indices with content
+    env.expect('FT.SEARCH', 'idx1', '@root:{third}', 'NOCONTENT').equal([1, 'doc:1:'])
+    env.expect('FT.SEARCH', 'idx2', '@root:{third}', 'NOCONTENT').equal([1, 'doc:2:'])
+
+def testMultiNonTextNested(env):
+    """
+    test multiple TAG values which include some non-text values at inner level (null, number, bool, array, object)
+    Skip nulls without failing
+    Fail on number, bool, object, arr of strings, arr with mixed types
+    """
+
+    conn = getConnectionByEnv(env)
+
+    non_text_dict = json.loads(doc_non_text_content)
+    
+    # Create indices, e.g.,
+    #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr TEXT
+    for (i,v) in enumerate(non_text_dict.values()):
+        env.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'TAG')
+    conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_text_content)
+    
+    # First 5 indices are OK (nulls are skipped)
+    for (i,v) in enumerate(non_text_dict.values()):
+        res_failures = 0 if i+1 <= 5 else 1
+        env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
+    
+    # Search good indices with content
+    env.expect('FT.SEARCH', 'idx1', '@attr:{third}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx2', '@attr:{third}', 'NOCONTENT').equal([1, 'doc:1'])

@@ -345,11 +345,11 @@ int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct Document
     } else if (jsonType == JSONType_Null) {
       nulls++; // Skip Nulls
     } else {
-      // Text fields can handle only strings or Nulls
+      // Text/Tag fields can handle only strings or Nulls
       goto error;
     }
   }
-  RS_LOG_ASSERT ((i + nulls) == len, "TEXT iterator count and len must be equal");
+  RS_LOG_ASSERT ((i + nulls) == len, "TEXT/TAG iterator count and len must be equal");
   // Remain with surplus unused array entries from skipped null values until `Document_Clear` is called
   df->arrayLen = i;
   df->unionType = FLD_VAR_T_ARRAY;
@@ -362,31 +362,6 @@ error:
   rm_free(df->multiVal);
   df->arrayLen = 0;
   return REDISMODULE_ERR;
-}
-
-int JSON_StoreTagsInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df) {
-    df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
-    df->arrayLen = len;
-
-    int i = 0;
-    size_t strlen;
-    RedisJSON json;
-    const char *str;
-    while ((json = JSONIterable_Next(iterable))) {
-      if (japi->getType(json) != JSONType_String) {
-        // TAG fields can index only strings
-        for (int j = 0; j < i; ++j) {
-          rm_free(df->multiVal[j]);
-        }
-        rm_free(df->multiVal);
-        return REDISMODULE_ERR;
-      }
-      japi->getString(json, &str, &strlen);
-      df->multiVal[i++] = rm_strndup(str, strlen);
-    }
-    RS_LOG_ASSERT (i == len, "TAG iterator count and len must be equal");
-    df->unionType = FLD_VAR_T_ARRAY;
-    return REDISMODULE_OK;
 }
 
 int JSON_StoreTextInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
@@ -408,7 +383,8 @@ int JSON_StoreTextInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
 int JSON_StoreTagInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
   JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
                                       .iter = jsonIter};
-  return JSON_StoreTagsInDocField(len, &iter, df);
+  // Use same function as TEXT
+  return JSON_StoreTextInDocField(len, &iter, df);
 }
 
 int JSON_StoreTagsInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
@@ -417,7 +393,8 @@ int JSON_StoreTagsInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
   JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
                                       .array.arr = arr,
                                       .array.index = 0};
-  return JSON_StoreTagsInDocField(len, &iter, df);
+  // Use same function as TEXT
+  return JSON_StoreTextInDocField(len, &iter, df);
 }
 
 
