@@ -379,25 +379,6 @@ int JSON_StoreTextInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
   return JSON_StoreTextInDocField(len, &iter, df);
 }
 
-
-int JSON_StoreTagInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
-                                      .iter = jsonIter};
-  // Use same function as TEXT
-  return JSON_StoreTextInDocField(len, &iter, df);
-}
-
-int JSON_StoreTagsInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
-  size_t len;
-  japi->getLen(arr, &len);
-  JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
-                                      .array.arr = arr,
-                                      .array.index = 0};
-  // Use same function as TEXT
-  return JSON_StoreTextInDocField(len, &iter, df);
-}
-
-
 int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df) {
   arrayof(double) arr = array_new(double, len);
   int nulls = 0;
@@ -480,6 +461,7 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
     case JSONType_Array:
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
+        case INDEXFLD_T_TAG:
           rv = JSON_StoreTextInDocFieldFromArr(json, df);
           break;
         case INDEXFLD_T_VECTOR:
@@ -487,9 +469,6 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
           break;
         case INDEXFLD_T_NUMERIC:
           rv = JSON_StoreNumericInDocFieldFromArr(json, df);
-          break;
-        case INDEXFLD_T_TAG:
-          rv = JSON_StoreTagsInDocFieldFromArr(json, df);
           break;
         default:
           rv = REDISMODULE_ERR;
@@ -524,9 +503,6 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   } else {
     switch (fs->types) {
       case INDEXFLD_T_TAG:
-        // Handling multiple values as a Tag list
-        rv = JSON_StoreTagInDocFieldFromIter(len, jsonIter, df);
-        break;
       case INDEXFLD_T_FULLTEXT:
         // Handling multiple values as Text
         rv = JSON_StoreTextInDocFieldFromIter(len, jsonIter, df);
