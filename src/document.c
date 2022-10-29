@@ -366,7 +366,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
       if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) && aCtx->fdatas[ii].tags) {
         TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
         aCtx->fdatas[ii].tags = NULL;
-      } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_GEO) && aCtx->fdatas[ii].arrNumeric) {
+      } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_GEO) && aCtx->fdatas[ii].isMulti &&
+                 aCtx->fdatas[ii].arrNumeric) {
         array_free(aCtx->fdatas[ii].arrNumeric);
         aCtx->fdatas[ii].arrNumeric = NULL;
       }
