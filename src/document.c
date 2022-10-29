@@ -362,10 +362,14 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
    * to do it
    */
   for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
-    if (FIELD_IS_VALID(aCtx, ii) && FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) &&
-        aCtx->fdatas[ii].tags) {
-      TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
-      aCtx->fdatas[ii].tags = NULL;
+    if (FIELD_IS_VALID(aCtx, ii)) {
+      if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) && aCtx->fdatas[ii].tags) {
+        TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
+        aCtx->fdatas[ii].tags = NULL;
+      } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_GEO) && aCtx->fdatas[ii].arrNumeric) {
+        array_free(aCtx->fdatas[ii].arrNumeric);
+        aCtx->fdatas[ii].arrNumeric = NULL;
+      }
     }
   }
 
