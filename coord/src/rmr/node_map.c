@@ -69,7 +69,7 @@ void _nodemap_free(void *ptr) {
 void MRNodeMap_Free(MRNodeMap *m) {
   TrieMap_Free(m->hosts, NULL);
   TrieMap_Free(m->nodes, _nodemap_free);
-  free(m);
+  rm_free(m);
 }
 
 /* Return 1 both nodes have the same host */
@@ -87,7 +87,7 @@ size_t MRNodeMap_NumNodes(MRNodeMap *m) {
 }
 
 MRNodeMap *MR_NewNodeMap() {
-  MRNodeMap *m = malloc(sizeof(*m));
+  MRNodeMap *m = rm_malloc(sizeof(*m));
   m->hosts = NewTrieMap();
   m->nodes = NewTrieMap();
   return m;
@@ -98,19 +98,7 @@ void MRNodeMap_Add(MRNodeMap *m, MRClusterNode *n) {
   TrieMap_Add(m->hosts, n->endpoint.host, strlen(n->endpoint.host), NULL, NULL);
 
   char *addr;
-  __ignore__(asprintf(&addr, "%s:%d", n->endpoint.host, n->endpoint.port));
+  __ignore__(rm_asprintf(&addr, "%s:%d", n->endpoint.host, n->endpoint.port));
   TrieMap_Add(m->nodes, addr, strlen(addr), n, _node_replace);
-  free(addr);
-}
-
-MRClusterNode *MRNodeMap_RandomNode(MRNodeMap *m) {
-  char *k;
-  tm_len_t len;
-  void *p;
-  MRClusterNode *ret = NULL;
-  if (TrieMap_RandomKey(m->nodes, &k, &len, &p)) {
-    ret = TrieMap_Find(m->nodes, k, len);
-    free(k);
-  }
-  return ret;
+  rm_free(addr);
 }

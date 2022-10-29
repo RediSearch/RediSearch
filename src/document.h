@@ -43,7 +43,8 @@ typedef enum {
   FLD_VAR_T_NUM = 0x04,
   FLD_VAR_T_GEO = 0x08,
   FLD_VAR_T_ARRAY = 0x10,
-  FLD_VAR_T_NULL = 0x20,
+  FLD_VAR_T_BLOB_ARRAY = 0x20,
+  FLD_VAR_T_NULL = 0x40,
 } FieldVarType;
 
 typedef struct DocumentField{
@@ -56,7 +57,13 @@ typedef struct DocumentField{
       char *strval;
       size_t strlen;
     };
+    struct {
+      char *blobArr;
+      size_t blobSize;
+      size_t blobArrLen;
+    };
     double numval;
+    arrayof(double) arrNumval;
     struct {
       double lon, lat;
     };
@@ -65,6 +72,7 @@ typedef struct DocumentField{
       size_t arrayLen; // for multiVal TODO: use arr.h
     };
   };
+  RSValue *multisv; // sortable value for multi value (pre-calculated during ingestion)
   FieldVarType unionType;
   FieldType indexAs;
 } DocumentField;
@@ -331,7 +339,7 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx);
  * When this function completes, it will send the reply to the client and
  * unblock the client passed when the context was first created.
  */
-int Document_AddToIndexes(RSAddDocumentCtx *ctx);
+int Document_AddToIndexes(RSAddDocumentCtx *ctx, RedisSearchCtx *sctx);
 
 /**
  * Free the AddDocumentCtx. Should be done once AddToIndexes() completes; or

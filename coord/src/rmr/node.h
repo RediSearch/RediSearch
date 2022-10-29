@@ -39,6 +39,5 @@ void MRNodeMapIterator_Free(MRNodeMapIterator *it);
 MRNodeMap *MR_NewNodeMap();
 void MRNodeMap_Free(MRNodeMap *m);
 void MRNodeMap_Add(MRNodeMap *m, MRClusterNode *n);
-MRClusterNode *MRNodeMap_RandomNode(MRNodeMap *m);
 size_t MRNodeMap_NumHosts(MRNodeMap *m);
 size_t MRNodeMap_NumNodes(MRNodeMap *m);

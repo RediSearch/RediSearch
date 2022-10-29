@@ -287,6 +287,7 @@ commands:
             export BENCHMARK_GLOB=<< parameters.benchmark_glob >>
             export PERF_CALLGRAPH_MODE="dwarf"
             export MAX_PROFILERS=3
+            if [[ -n $CIRCLE_BRANCH ]]; then branch="$CIRCLE_BRANCH"; else branch="$CIRCLE_TAG"; fi
             redisbench-admin run-remote \
               --module_path $(cat $ROOT/bin/REJSON_PATH) \
               --module_path $ROOT/<< parameters.module_path >> \
@@ -295,7 +296,7 @@ commands:
               --github_org $CIRCLE_PROJECT_USERNAME \
               --required-module search \
               --github_sha $CIRCLE_SHA1 \
-              --github_branch $CIRCLE_BRANCH \
+              --github_branch $branch \
               --upload_results_s3 \
               --fail_fast \
               --triggering_env << parameters.triggering_env >> \
@@ -326,6 +327,22 @@ jobs:
               circleci step halt
             fi
       - persist-artifacts
+
+  build-linux-arm-ubuntu:
+    machine:
+      image: ubuntu-2004:202101-01
+    resource_class: arm.medium
+    parameters:
+      redis_version:
+        type: string
+        default: "6"
+      persist:
+        type: string
+        default: "no"
+    steps:
+      - build-steps:
+          redis_version: <<parameters.redis_version>>
+      - test-steps
 
   build-platforms:
     parameters:
@@ -470,11 +487,11 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: make SAN=<<parameters.san-type>> build test SHOW=1
           no_output_timeout: 30m
-#      - run:
-#          name: Build & test (OSS Coordinator)
-#          shell: /bin/bash -l -eo pipefail
-#          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
-#          no_output_timeout: 30m
+      - run:
+          name: Build & test (OSS Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
+          no_output_timeout: 30m
       - save-tests-logs
 
   valgrind-memcheck:
@@ -592,6 +609,13 @@ on-any-branch: &on-any-branch
     tags:
       only: /.*/
 
+always: &always
+  filters:
+    branches:
+      only: /.*/
+    tags:
+      only: /.*/
+
 never: &never
   filters:
     branches:
@@ -663,8 +687,9 @@ workflows:
   default-flow:
     jobs:
       - build-linux-debian:
-          name: build
           <<: *not-on-integ-branch
+      - build-linux-arm-ubuntu:
+          <<: *never
       - build-platforms:
           #@@<<: *on-integ-and-version-tags
           <<: *on-any-branch
@@ -678,7 +703,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [bionic]
+              platform: [jammy, focal, bionic]
       - build-macos:
           <<: *on-integ-and-version-tags
           context: common

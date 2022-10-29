@@ -24,12 +24,69 @@ typedef struct {
 void NumericRangeIterator_OnReopen(void *privdata) {
 }
 
+#ifdef _DEBUG
+void NumericRangeTree_Dump(NumericRangeTree *t, int indent) {
+  PRINT_INDENT(indent);
+  printf("NumericRangeTree {\n");
+  ++indent;
+
+  PRINT_INDENT(indent);
+  printf("numEntries %lu,  numRanges %lu, lastDocId %ld\n", t->numEntries, t->numRanges, t->lastDocId);
+  NumericRangeNode_Dump(t->root, indent + 1);
+
+  --indent;
+  PRINT_INDENT(indent);
+  printf("}\n");
+}
+void NumericRangeNode_Dump(NumericRangeNode *n, int indent) {
+  PRINT_INDENT(indent);
+  printf("NumericRangeNode {\n");
+  ++indent;
+  
+  PRINT_INDENT(indent);
+  printf("value %f, maxDepath %i\n", n->value, n->maxDepth);
+
+  if (n->range) {
+    PRINT_INDENT(indent);
+    printf("range:\n");
+    NumericRange_Dump(n->range, indent + 1);
+  }
+
+  if (n->left) {
+    PRINT_INDENT(indent);
+    printf("left:\n");
+    NumericRangeNode_Dump(n->left, indent + 1);
+  }
+  if (n->right) {
+    PRINT_INDENT(indent);
+    printf("right:\n");
+    NumericRangeNode_Dump(n->right, indent + 1);
+  }
+
+  --indent;
+  PRINT_INDENT(indent);
+  printf("}\n");
+}
+
+void NumericRange_Dump(NumericRange *r, int indent) {
+  PRINT_INDENT(indent);
+  printf("NumericRange {\n");
+  ++indent;
+  PRINT_INDENT(indent);
+  printf("minVal %f, maxVal %f, unique_sum %f, invertedIndexSize %zu, card %hu, cardCheck %hu, splitCard %u\n", r->minVal, r->maxVal, r->unique_sum, r->invertedIndexSize, r->card, r->cardCheck, r->splitCard);
+  InvertedIndex_Dump(r->entries, indent + 1);
+  --indent;
+  PRINT_INDENT(indent);
+  printf("}\n");
+}
+
+#endif // #ifdef _DEBUG
+
 /* Returns 1 if the entire numeric range is contained between min and max */
 static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (n->minVal >= min && n->maxVal <= max);
 
-  // printf("range %f..%f, min %f max %f, WITHIN? %d\n", n->minVal, n->maxVal, min, max, rc);
   return rc;
 }
 
@@ -37,7 +94,7 @@ static inline int NumericRange_Contained(NumericRange *n, double min, double max
 static inline int NumericRange_Contains(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (n->minVal <= min && n->maxVal > max);
-  // printf("range %f..%f, min %f max %f, contains? %d\n", n->minVal, n->maxVal, min, max, rc);
+  
   return rc;
 }
 
@@ -45,7 +102,7 @@ static inline int NumericRange_Contains(NumericRange *n, double min, double max)
 int NumericRange_Overlaps(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (min >= n->minVal && min <= n->maxVal) || (max >= n->minVal && max <= n->maxVal);
-  // printf("range %f..%f, min %f max %f, overlaps? %d\n", n->minVal, n->maxVal, min, max, rc);
+  
   return rc;
 }
 
@@ -91,14 +148,13 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
 
   double split = (n->unique_sum) / (double)n->card;
 
-  // printf("split point :%f\n", split);
   *lp = NewLeafNode(n->entries->numDocs / 2 + 1, 
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
   *rp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewNumericReader(NULL, n->entries, NULL ,0, 0);
+  IndexReader *ir = NewNumericReader(NULL, n->entries, NULL ,0, 0, false);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     rv->sz += NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
                                res->num.value, 1);
@@ -106,10 +162,6 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
   }
   IR_Free(ir);
 
-  // printf("Splitting node %p %f..%f, card %d size %d\n", n, n->minVal, n->maxVal, n->card,
-  //        n->entries->numDocs);
-  // printf("left node: %d, right: %d\n", (*lp)->range->entries->numDocs,
-  //        (*rp)->range->entries->numDocs);
   return split;
 }
 
@@ -149,7 +201,7 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
 
   // free resources
   rv->sz -= temp->invertedIndexSize;
-  rv->numRecords -= temp->entries->numDocs;
+  rv->numRecords -= temp->entries->numEntries;
   InvertedIndex_Free(temp->entries);
   array_free(temp->values);
   rm_free(temp);
@@ -217,11 +269,9 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1);
   ++rv.numRecords;
   int card = n->range->card;
-  // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
-  // n->range->minVal,
-  //        n->range->maxVal, card, n->range->entries->numDocs);
+  
   if (card * NR_CARD_CHECK >= n->range->splitCard || 
-      (n->range->entries->numDocs > NR_MAXRANGE_SIZE && card > 1)) {
+      (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
@@ -242,9 +292,6 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max)
   if (!n) return;
 
   if (n->range) {
-    // printf("min %f, max %f, range %f..%f, contained? %d, overlaps? %d, leaf? %d\n", min, max,
-    //        n->range->minVal, n->range->maxVal, NumericRange_Contained(n->range, min, max),
-    //        NumericRange_Overlaps(n->range, min, max), __isLeaf(n));
     // if the range is completely contained in the search, we can just add it and not inspect any
     // downwards
     if (NumericRange_Contained(n->range, min, max)) {
@@ -282,14 +329,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
 
   Vector *leaves = NewVector(NumericRange *, 8);
   __recursiveAddRange(leaves, n, min, max);
-  // printf("Found %zd ranges for %f...%f\n", leaves->top, min, max);
-  // for (int i = 0; i < leaves->top; i++) {
-  //   NumericRange *rng;
-  //   Vector_Get(leaves, i, &rng);
-  //   printf("%f...%f (%f). %d card, %d splitCard\n", rng->minVal, rng->maxVal,
-  //          rng->maxVal - rng->minVal, rng->entries->numDocs, rng->splitCard);
-  // }
-
+  
   return leaves;
 }
 
@@ -325,11 +365,11 @@ NumericRangeTree *NewNumericRangeTree() {
   return ret;
 }
 
-NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
+NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti) {
 
-  // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
-  // from it
-  if (docId <= t->lastDocId) {
+  if (docId <= t->lastDocId && !isMulti) {
+    // When not handling multi values - do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
+    // from it
     return (NRN_AddRv){0, 0, 0};
   }
   t->lastDocId = docId;
@@ -443,15 +483,17 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
 }
 
 IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
-                                       const NumericFilter *f) {
+                                       const NumericFilter *f, int skipMulti) {
 
-  // if this range is at either end of the filter, we need to check each record
-  if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal) &&
-      f->geoFilter == NULL) {
+  // for numeric, if this range is at either end of the filter, we need
+  // to check each record.
+  // for geo, we always keep the filter to check the distance
+  if (NumericFilter_IsNumeric(f) &&
+      NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal)) {
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
-  IndexReader *ir = NewNumericReader(sp, nr->entries, f, nr->minVal, nr->maxVal);
+  IndexReader *ir = NewNumericReader(sp, nr->entries, f, nr->minVal, nr->maxVal, skipMulti);
 
   return NewReadIterator(ir);
 }
@@ -474,7 +516,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   if (n == 1) {
     NumericRange *rng;
     Vector_Get(v, 0, &rng);
-    IndexIterator *it = NewNumericRangeIterator(sp, rng, f);
+    IndexIterator *it = NewNumericRangeIterator(sp, rng, f, true);
     Vector_Free(v);
     return it;
   }
@@ -490,11 +532,11 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
       continue;
     }
 
-    its[i] = NewNumericRangeIterator(sp, rng, f);
+    its[i] = NewNumericRangeIterator(sp, rng, f, true);
   }
   Vector_Free(v);
 
-  QueryNodeType type = (!f || !f->geoFilter) ? QN_NUMERIC : QN_GEO;
+  QueryNodeType type = (!f || NumericFilter_IsNumeric(f)) ? QN_NUMERIC : QN_GEO;
   IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1, type, NULL);
 
   return it;
@@ -700,7 +742,7 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   // now push them in order into the tree
   for (size_t i = 0; i < numEntries; i++) {
-    NumericRangeTree_Add(t, entries[i].docId, entries[i].value);
+    NumericRangeTree_Add(t, entries[i].docId, entries[i].value, true);
   }
   array_free(entries);
   return t;
@@ -716,7 +758,7 @@ static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
   if (NumericRangeNode_IsLeaf(n) && n->range) {
     NumericRange *rng = n->range;
     RSIndexResult *res = NULL;
-    IndexReader *ir = NewNumericReader(NULL, rng->entries, NULL, 0, 0);
+    IndexReader *ir = NewNumericReader(NULL, rng->entries, NULL, 0, 0, false);
 
     while (INDEXREAD_OK == IR_Read(ir, &res)) {
       RedisModule_SaveUnsigned(rctx->rdb, res->docId);

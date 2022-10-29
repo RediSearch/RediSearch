@@ -73,7 +73,7 @@ void MR_SetCoordinationStrategy(MRCtx *ctx, MRCoordinationStrategy strategy) {
 static int totalAllocd = 0;
 /* Create a new MapReduce context */
 MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, void *privdata) {
-  MRCtx *ret = malloc(sizeof(MRCtx));
+  MRCtx *ret = rm_malloc(sizeof(MRCtx));
   clock_gettime(CLOCK_REALTIME, &ret->startTime);
   ret->endTime = ret->startTime;
   ret->firstRespTime = ret->startTime;
@@ -81,7 +81,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, void *privdata) {
   ret->numErrored = 0;
   ret->numExpected = 0;
   ret->repliesCap = MAX(1, MRCluster_NumShards(cluster_g));
-  ret->replies = calloc(ret->repliesCap, sizeof(redisReply *));
+  ret->replies = rm_calloc(ret->repliesCap, sizeof(redisReply *));
   ret->reducer = NULL;
   ret->privdata = privdata;
   ret->strategy = MRCluster_FlatCoordination;
@@ -97,7 +97,7 @@ void MRCtx_Free(MRCtx *ctx) {
   for (int i = 0; i < ctx->numCmds; i++) {
     MRCommand_Free(&ctx->cmds[i]);
   }
-  free(ctx->cmds);
+  rm_free(ctx->cmds);
 
   for (int i = 0; i < ctx->numReplied; i++) {
     if (ctx->replies[i] != NULL) {
@@ -105,10 +105,10 @@ void MRCtx_Free(MRCtx *ctx) {
       ctx->replies[i] = NULL;
     }
   }
-  free(ctx->replies);
+  rm_free(ctx->replies);
 
   // free the context
-  free(ctx);
+  rm_free(ctx);
 }
 
 /* Get the user stored private data from the context */
@@ -156,7 +156,7 @@ static int timeoutHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 /* handler for unblocking redis commands, that calls the actual reducer */
 static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
   MRCtx *mc = RedisModule_GetBlockedClientPrivateData(ctx);
   clock_gettime(CLOCK_REALTIME, &mc->endTime);
 
@@ -181,7 +181,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     /* If needed - double the capacity for replies */
     if (ctx->numReplied == ctx->repliesCap) {
       ctx->repliesCap *= 2;
-      ctx->replies = realloc(ctx->replies, ctx->repliesCap * sizeof(MRReply *));
+      ctx->replies = rm_realloc(ctx->replies, ctx->repliesCap * sizeof(MRReply *));
     }
     ctx->replies[ctx->numReplied++] = r;
   }
@@ -245,6 +245,16 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   }
   printf("Thread created\n");
 }
+void MR_Destroy() {
+  if (rq_g) {
+    RQ_Free(rq_g);
+    rq_g = NULL;
+  }
+  if (cluster_g) {
+    MRClust_Free(cluster_g);
+    cluster_g = NULL;
+  }
+}
 
 MRClusterTopology *MR_GetCurrentTopology() {
   return cluster_g ? cluster_g->topo : NULL;
@@ -263,7 +273,7 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
   mrctx->numExpected = 0;
 
   mrctx->numCmds = mc->numCmds;
-  mrctx->cmds = calloc(mrctx->numCmds, sizeof(MRCommand));
+  mrctx->cmds = rm_calloc(mrctx->numCmds, sizeof(MRCommand));
 
   if (cluster_g->topo) {
     MRCommand *cmd = &mc->cmds[0];
@@ -282,8 +292,8 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
     // printf("could not send single command. hande fail please\n");
   }
 
-  free(mc->cmds);
-  free(mc);
+  rm_free(mc->cmds);
+  rm_free(mc);
 }
 
 static void uvMapRequest(struct MRRequestCtx *mc) {
@@ -292,7 +302,7 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
   mrctx->reducer = mc->f;
   mrctx->numExpected = 0;
   mrctx->numCmds = mc->numCmds;
-  mrctx->cmds = calloc(mrctx->numCmds, sizeof(MRCommand));
+  mrctx->cmds = rm_calloc(mrctx->numCmds, sizeof(MRCommand));
 
   for (int i = 0; i < mc->numCmds; i++) {
 
@@ -313,8 +323,8 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
     // printf("could not send single command. hande fail please\n");
   }
 
-  free(mc->cmds);
-  free(mc);
+  rm_free(mc->cmds);
+  rm_free(mc);
 
   // return REDIS_OK;
 }
@@ -327,7 +337,7 @@ void MR_requestCompleted() {
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
 
-  struct MRRequestCtx *rc = malloc(sizeof(struct MRRequestCtx));
+  struct MRRequestCtx *rc = rm_malloc(sizeof(struct MRRequestCtx));
   if (block) {
     ctx->redisCtx = RedisModule_BlockClient(
         ctx->redisCtx, unblockHandler, timeoutHandler,
@@ -337,7 +347,7 @@ int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block
   }
   rc->ctx = ctx;
   rc->f = reducer;
-  rc->cmds = calloc(1, sizeof(MRCommand));
+  rc->cmds = rm_calloc(1, sizeof(MRCommand));
   rc->numCmds = 1;
   rc->cmds[0] = cmd;
   rc->cb = uvFanoutRequest;
@@ -346,10 +356,10 @@ int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block
 }
 
 int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, bool block) {
-  struct MRRequestCtx *rc = malloc(sizeof(struct MRRequestCtx));
+  struct MRRequestCtx *rc = rm_malloc(sizeof(struct MRRequestCtx));
   rc->ctx = ctx;
   rc->f = reducer;
-  rc->cmds = calloc(cmds.Len(cmds.ctx), sizeof(MRCommand));
+  rc->cmds = rm_calloc(cmds.Len(cmds.ctx), sizeof(MRCommand));
   rc->numCmds = cmds.Len(cmds.ctx);
 
   // copy the commands from the iterator to the conext's array
@@ -377,10 +387,10 @@ int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, boo
 
 int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
 
-  struct MRRequestCtx *rc = malloc(sizeof(struct MRRequestCtx));
+  struct MRRequestCtx *rc = rm_malloc(sizeof(struct MRRequestCtx));
   rc->ctx = ctx;
   rc->f = reducer;
-  rc->cmds = calloc(1, sizeof(MRCommand));
+  rc->cmds = rm_calloc(1, sizeof(MRCommand));
   rc->numCmds = 1;
   rc->cmds[0] = cmd;
   ctx->redisCtx = RedisModule_BlockClient(
@@ -406,7 +416,7 @@ static void uvUpdateTopologyRequest(struct MRRequestCtx *mc) {
   SetMyPartition((MRClusterTopology *)mc->ctx, cluster_g->myshard);
   RQ_Done(rq_g);
   // fprintf(stderr, "topo update: conc requests: %d\n", concurrentRequests_g);
-  free(mc);
+  rm_free(mc);
 }
 
 /* Set a new topology for the cluster */
@@ -417,7 +427,7 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
 
 
   // enqueue a request on the io thread, this can't be done from the main thread
-  struct MRRequestCtx *rc = calloc(1, sizeof(*rc));
+  struct MRRequestCtx *rc = rm_calloc(1, sizeof(*rc));
   rc->ctx = newTopo;
   rc->cb = uvUpdateTopologyRequest;
   RQ_Push(rq_g, requestCb, rc);
@@ -499,7 +509,7 @@ void iterStartCb(void *p) {
 
 MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privdata) {
 
-  MRIterator *ret = malloc(sizeof(*ret));
+  MRIterator *ret = rm_malloc(sizeof(*ret));
   size_t len = cg.Len(cg.ctx);
   *ret = (MRIterator){
       .ctx =
@@ -510,7 +520,7 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privd
               .cb = cb,
               .pending = 0,
           },
-      .cbxs = calloc(len, sizeof(MRIteratorCallbackCtx)),
+      .cbxs = rm_calloc(len, sizeof(MRIteratorCallbackCtx)),
       .len = len,
 
   };
@@ -557,6 +567,6 @@ void MRIterator_Free(MRIterator *it) {
       MRReply_Free(reply);
   }
   MRChannel_Free(it->ctx.chan);
-  free(it->cbxs);
-  free(it);
+  rm_free(it->cbxs);
+  rm_free(it);
 }

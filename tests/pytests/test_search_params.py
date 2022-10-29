@@ -76,9 +76,11 @@ def test_param_errors(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
 
     # Test errors in param usage: missing param, wrong param value
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius 100]', 'NOCONTENT').raiseError().contains('No such parameter `radius`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').raiseError().equal('No such parameter `rapido`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT').raiseError().equal('No such parameter `rapido`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').raiseError().equal('Invalid numeric value (bad) for parameter `rapido`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').raiseError().contains('Invalid GeoFilter unit')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').raiseError().contains('Invalid GeoFilter unit')
     env.expect('FT.SEARCH', 'idx', '@num:[$min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '-inf').raiseError().contains('Bad upper range')
 
@@ -86,11 +88,9 @@ def test_param_errors(env):
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 badval $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').raiseError().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '@g:[foo bar $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').raiseError().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 badval $units]', 'NOCONTENT').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius 100]', 'NOCONTENT').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').raiseError().contains('Syntax error')
 
-    env.expect('FT.SEARCH', 'idx', '@numval:[-inf max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Expecting numeric or parameter')
-    env.expect('FT.SEARCH', 'idx', '@numval:[min 105]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Expecting numeric or parameter')
+    env.expect('FT.SEARCH', 'idx', '@numval:[-inf max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '@numval:[min 105]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Syntax error')
 
     env.expect('FT.SEARCH', 'idx', '*=>[TKOO 4 @v $B]').raiseError().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN badval @v $B]').raiseError().contains('Syntax error')
@@ -101,7 +101,14 @@ def test_param_errors(env):
     env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').raiseError().contains('Invalid numeric value')
     env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').raiseError().contains('Invalid numeric value')
     env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', 'zzz', 'EF', '10').raiseError().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').raiseError().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').raiseError().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
     env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'ph', 'maybe').raiseError().contains('Invalid value')
+    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph;} => [KNN $k @v $vec]', 'NOCONTENT', 'PARAMS', '2', 'ph', 'maybe').raiseError().contains('Invalid value')
+    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph;} => [KNN $k @v $vec]', 'NOCONTENT', 'PARAMS', '2', 'ph').raiseError().contains('Bad arguments for PARAMS: Expected an argument, but none provided')
+    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph;} => [KNN $k @v $vec]', 'NOCONTENT', 'PARAMS', '1', 'ph').raiseError().contains('Parameters must be specified in PARAM VALUE pairs')
 
     # # Test Attribute names must begin with alphanumeric?
     # env.expect('FT.SEARCH', 'idx', '@g:[$3 $_4 $p_5 $_]', 'NOCONTENT',
@@ -328,13 +335,13 @@ def test_vector(env):
 
     args = ['SORTBY', '__v_score', 'ASC', 'RETURN', 1, '__v_score', 'LIMIT', 0, 2]
 
-    env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
+    env.expect('FT.CREATE idx SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT').ok()
     waitForIndex(env, 'idx')
 
-    conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
-    conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
-    conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
-    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+    conn.execute_command('HSET', 'b', 'v', 'aaaabaaa', 't', 'title')
+    conn.execute_command('HSET', 'c', 'v', 'aaaaabaa', 't', 'title')
+    conn.execute_command('HSET', 'd', 'v', 'aaaaaaba', 't', 'title')
+    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa', 't', 'title')
 
     res1 = ['a', ['__v_score', '0'], 'b', ['__v_score', '3.09485009821e+26']]
     res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa', *args)
@@ -349,7 +356,24 @@ def test_vector(env):
     env.assertEqual(res2[1:], res1)
     res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN $k @v $vec EF_RUNTIME 100]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args)
     env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN $k @v $vec EF_RUNTIME 100]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'runtime', '100', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '@t:$text=>[KNN 2 @v $vec EF_RUNTIME 100]', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'text', 'title', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '@t:$text=>{$weight:$w}=>[KNN 2 @v $vec EF_RUNTIME 100]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'text', 'title', 'w', '2.0', *args)
+    env.assertEqual(res2[1:], res1)
 
+    # with query attributes syntax
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec]=>{$yield_distance_as:$score; $EF_RUNTIME:100;}', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'score', '__v_score', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec]=>{$yield_distance_as:$score; $EF_RUNTIME:$ef;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'ef', '100', 'score', '__v_score', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec]=>{$yield_distance_as:__v_score; $EF_RUNTIME:$ef;}', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'ef', '100', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec AS __v_score]=>{$EF_RUNTIME:$ef;}', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'ef', '100', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*=>[KNN 2 @v $vec EF_RUNTIME $ef]=>{$yield_distance_as:__v_score;}', 'PARAMS', '4', 'vec', 'aaaaaaaa', 'ef', '100', *args)
+    env.assertEqual(res2[1:], res1)
 
 def test_fuzzy(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')

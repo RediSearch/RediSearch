@@ -245,61 +245,43 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 }
 
 /*******************************************************************************************************************
- *  Vector Similarity Result Processor
+ *  Additional Values Loader Result Processor
  *
  * It takes results from upstream (should be Index iterator or close; before any RP that need these field),
- * and add thier vecsim score to the right score field before sending them downstream.
+ * and add their additional value to the right score field before sending them downstream.
  *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;
-  const RLookupKey **keys;
-  size_t nkeys;
-} RPVecSim;
+} RPMetrics;
 
-static int rpvecsimNext(ResultProcessor *base, SearchResult *res) {
+static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
   int rc;
-  RPVecSim *self = (RPVecSim *)base;
 
   rc = base->upstream->Next(base->upstream, res);
   if (rc != RS_RESULT_OK) {
     return rc;
   }
 
-  // Add result to every score field.
-  // TODO: when we'll have a way to hold many results, add each result to its corresponding field
-  //  this will require scanning the entire IndexResult tree and looking for vector nodes whose score field name
-  //  stored in some entry of the self->keys array
-  RS_LOG_ASSERT(self->nkeys == 1, "Internal error, number of vector fields in a query is at most 1");
-  for (size_t i = 0; i < self->nkeys; i++) {
-    RSValue *val;
-    if (res->indexResult->type == RSResultType_HybridDistance) {
-      val = RS_NumVal(res->indexResult->agg.children[0]->dist.distance);
-    } else {
-      // The entire query is a TOP-K query, or this is hybrid query that doesn't use the doc score,
-      // so the distance is saved in the root of indexResult.
-      val = RS_NumVal(res->indexResult->dist.distance);
-    }
-    RLookup_WriteOwnKey(self->keys[i], &(res->rowdata), val);
+  arrayof(RSYieldableMetric) arr = res->indexResult->metrics;
+  for (size_t i = 0; i < array_len(arr); i++) {
+    RLookup_WriteKey(arr[i].key, &(res->rowdata), arr[i].value);
   }
 
   return rc;
 }
 
-/* Free implementation for vecsim */
-static void rpvecsimFree(ResultProcessor *rp) {
-  RPVecSim *self = (RPVecSim *)rp;
-  rm_free(self->keys);
+/* Free implementation for RPMetrics */
+static void rpMetricsFree(ResultProcessor *rp) {
+  RPMetrics *self = (RPMetrics *)rp;
   rm_free(self);
 }
 
-ResultProcessor *RPVecSim_New(const RLookupKey **keys, size_t nkeys) {
-  RPVecSim *ret = rm_calloc(1, sizeof(*ret));
-  ret->keys = keys;
-  ret->nkeys = nkeys;
-  ret->base.Next = rpvecsimNext;
-  ret->base.Free = rpvecsimFree;
-  ret->base.type = RP_VECSIM;
+ResultProcessor *RPMetricsLoader_New() {
+  RPMetrics *ret = rm_calloc(1, sizeof(*ret));
+  ret->base.Next = rpMetricsNext;
+  ret->base.Free = rpMetricsFree;
+  ret->base.type = RP_METRICS;
   return &ret->base;
 }
 
@@ -538,9 +520,9 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     if (!v1 || !v2) {
       int rc;
       if (v1) {
-        rc = 1;
+        return 1;
       } else if (v2) {
-        rc = -1;
+        return -1;
       } else {
         rc = h1->docId < h2->docId ? -1 : 1;
       }
@@ -801,6 +783,15 @@ double RPProfile_GetDurationMSec(ResultProcessor *rp) {
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileCount;
+}
+
+void Profile_AddRPs(QueryIterator *qiter) {
+  ResultProcessor *cur = qiter->endProc = RPProfile_New(qiter->endProc, qiter);
+  while (cur && cur->upstream && cur->upstream->upstream) {
+    cur = cur->upstream;
+    cur->upstream = RPProfile_New(cur->upstream, qiter);
+    cur = cur->upstream;
+  }
 }
 
 /*******************************************************************************************************************

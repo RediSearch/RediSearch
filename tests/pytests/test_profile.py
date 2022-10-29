@@ -2,7 +2,7 @@
 
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, server_version_less_than, server_version_at_least
+from common import *
 from time import sleep
 from RLTest import Env
 
@@ -149,6 +149,13 @@ def testProfileAggregate(env):
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix')
   env.assertEqual(actual_res[1][4], expected_res)
 
+  expected_res = ['Result processors profile',
+                  ['Type', 'Index', 'Counter', 2],
+                  ['Type', 'Sorter', 'Counter', 2],
+                  ['Type', 'Loader', 'Counter', 2]]
+  actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*', 'sortby', 2, '@t', 'asc', 'limit', 0, 10, 'LOAD', 2, '@__key', '@t')
+  env.assertEqual(actual_res[1][4], expected_res)
+
 def testProfileCursor(env):
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
@@ -224,6 +231,16 @@ def testProfileVector(env):
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
   env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'STANDARD_KNN')
+
+  # Range query - uses metric iterator. Radius is set so that the closest 2 vectors will be inthe range
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
+                                    'SORTBY', 'dist', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  expected_iterators_res = ['Iterators profile', ['Type', 'METRIC - VECTOR DISTANCE', 'Counter', 2]]
+  expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 2]
+  env.assertEqual(actual_res[0], [2, '4', '2'])
+  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
+  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'RANGE_QUERY')
 
 # Test with hybrid query variations
   # Expect ad-hoc BF to take place - going over child iterator exactly once (reading 2 results)

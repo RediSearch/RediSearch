@@ -7,7 +7,7 @@ Add a new attribute to the index. Adding an attribute to the index causes any fu
 ## Syntax
 
 {{< highlight bash >}}
-FT.ALTER {index} SCHEMA ADD {attribute} {options} ...
+FT.ALTER {index} [SKIPINITIALSCAN] SCHEMA ADD {attribute} {options} ...
 {{< / highlight >}}
 
 [Examples](#examples)
@@ -18,6 +18,12 @@ FT.ALTER {index} SCHEMA ADD {attribute} {options} ...
 <summary><code>index</code></summary> 
 
 is index name to create. 
+</details>
+
+<details open>
+<summary><code>SKIPINITIALSCAN</code></summary> 
+
+if set, does not scan and index.
 </details>
 
 <details open>

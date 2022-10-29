@@ -177,7 +177,7 @@ To index an item's list of available `colors`, specify the JSONPath `$.colors` i
 ```
 
 ```sql
-JSON.SET item:3 $ '{"name":"True Wireless earbuds","description":"True Wireless Bluetooth in-ear headphones","connection":{"wireless":true,"type":"Bluetooth"},"price":74.99,"stock":20,"colors":["red","light blue"]}'
+127.0.0.1:6379> JSON.SET item:3 $ '{"name":"True Wireless earbuds","description":"True Wireless Bluetooth in-ear headphones","connection":{"wireless":true,"type":"Bluetooth"},"price":74.99,"stock":20,"colors":["red","light blue"]}'
 "OK"
 ```
 
@@ -226,7 +226,59 @@ Now you can do full text search for light colored headphones:
 When indexing, a predefined delta is used to increase positional offsets between array slots for multi text values. This delta controls the level of separation between phrases in different array slots (related to the `SLOP` parameter of `FT.SEARCH`).
 This predefined value is set by `RediSearch` configuration parameter `MULTI_TEXT_SLOP` (at module load-time). The default value is 100.
 
+## Index JSON arrays as NUMERIC
 
+Starting with RediSearch 2.6.1, search can be done on an array of numerical values or on a JSONPath leading to multiple numerical values.
+
+If you want to index multiple numerical values as NUMERIC, either use a JSONPath leading to a single array of numbers, or a JSONPath leading to multiple numbers, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
+
+For example, let's add to the item's list the available `max_level` of volume (in decibels):
+```sql
+127.0.0.1:6379> JSON.SET item:1 $ '{"name":"Noise-cancelling Bluetooth headphones","description":"Wireless Bluetooth headphones with noise-cancelling technology","connection":{"wireless":true,"type":"Bluetooth"},"price":99.98,"stock":25,"colors":["black","silver"], "max_level":[60, 70, 80, 90, 100]}'
+OK
+
+127.0.0.1:6379> JSON.SET item:2 $ '{"name":"Wireless earbuds","description":"Wireless Bluetooth in-ear headphones","connection":{"wireless":true,"type":"Bluetooth"},"price":64.99,"stock":17,"colors":["black","white"], "max_level":[80, 100, 120]}'
+OK
+
+127.0.0.1:6379> JSON.SET item:3 $ '{"name":"True Wireless earbuds","description":"True Wireless Bluetooth in-ear headphones","connection":{"wireless":true,"type":"Bluetooth"},"price":74.99,"stock":20,"colors":["red","light blue"], "max_level":[90, 100, 110, 120]}'
+OK
+```
+To index the `max_level` array, specify the JSONPath `$.max_level` in the `SCHEMA` definition during index creation:
+
+
+```sql
+127.0.0.1:6379> FT.CREATE itemIdx4 ON JSON PREFIX 1 item: SCHEMA $.max_level AS dB NUMERIC
+OK
+```
+Now we can search for headphones with specific max volume levels, for example, between 70 and 80 (inclusive), returning items with at least one value in their `max_level` array, which is in the requested range:
+
+```sql
+127.0.0.1:6379> FT.SEARCH itemIdx4 '@dB:[70 80]'
+1) (integer) 2
+2) "item:1"
+3) 1) "$"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],\"max_level\":[60,70,80,90,100]}"
+4) "item:2"
+5) 1) "$"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],\"max_level\":[80,100,120]}"
+```
+
+We can also search for items with **ALL** values in a specific range, e.g., all values are in the range [90, 120] (inclusive)
+
+```sql
+127.0.0.1:6379> FT.SEARCH itemIdx4 '-@dB:[-inf (90] -@dB:[(120 +inf]'
+1) (integer) 1
+2) "item:3"
+3) 1) "$"
+   2) "{\"name\":\"True Wireless earbuds\",\"description\":\"True Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":74.99,\"stock\":20,\"colors\":[\"red\",\"light blue\"],\"max_level\":[90,100,110,120]}"
+```
+
+### Limitations
+
+When JSONPath leads to multiple numerical values:
+  - Numerical values are indexed
+  - `null` values are skipped
+  - Any other value type is causing an indexing failure
 
 ## Index JSON objects
 

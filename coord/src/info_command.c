@@ -32,7 +32,8 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "offset_bits_per_record_avg", .type = InfoField_DoubleAverage},
     {.name = "indexing", .type = InfoField_WholeSum},
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
-    {.name = "hash_indexing_failures", .type = InfoField_WholeSum}};
+    {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
+    {.name = "number_of_uses", .type = InfoField_Max}};
 
 static InfoFieldSpec gcSpecs[] = {
     {.name = "current_hz", .type = InfoField_DoubleAverage},
@@ -180,7 +181,7 @@ static void processKvArray(InfoFields *ctx, MRReply *array, InfoValue *dsts, Inf
 }
 
 static void cleanInfoReply(InfoFields *fields) {
-  free(fields->errorIndexes);
+  rm_free(fields->errorIndexes);
 }
 
 static size_t replyKvArray(InfoFields *fields, RedisModuleCtx *ctx, InfoValue *values,
@@ -271,7 +272,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   for (size_t ii = 0; ii < count; ++ii) {
     if (MRReply_Type(replies[ii]) == MR_REPLY_ERROR) {
       if (!fields.errorIndexes) {
-        fields.errorIndexes = calloc(count, sizeof(*fields.errorIndexes));
+        fields.errorIndexes = rm_calloc(count, sizeof(*fields.errorIndexes));
       }
       fields.errorIndexes[ii] = 1;
       numErrored++;

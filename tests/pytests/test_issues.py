@@ -432,6 +432,7 @@ def testOverMaxResults():
   res = [10, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal(res)
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '0', '10').equal(res)
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([res[0], *res[2:]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '5', '10').equal([res[0], *res[6:11]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([10])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([10])
@@ -443,6 +444,7 @@ def testOverMaxResults():
 
   res = [20, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal(res)
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([res[0], *[str(i) for i in range(1, 20, 1)]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([20, *res[6:11]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([20])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
@@ -451,6 +453,7 @@ def testOverMaxResults():
   for i in range(20,30):
     conn.execute_command('HSET', i, 't', i)
 
+  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([30, *[str(i) for i in range(1, 20, 1)]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([30, *res[1:11]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([30, *res[6:11]])
   env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([30])
@@ -518,9 +521,23 @@ def test_sortby_Noexist(env):
   env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't', '1')
   conn.execute_command('HSET', 'doc2', 'somethingelse', '2')
+  conn.execute_command('HSET', 'doc3', 't', '3')
+  conn.execute_command('HSET', 'doc4', 'somethingelse', '4')
 
-  # TODO: change behavior so docs which miss sortby field are at the end
-  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't').equal([2, 'doc2', ['somethingelse', '2'], 'doc1', ['t', '1']])
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '2').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '2').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
+
+  # receive a result w/o sortby field at the end. 
+  # remove in test to support test on cluster
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3')
+  env.assertEqual(res[0:5], [4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
+ 
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3')
+  env.assertEqual(res[0:5], [4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
+
+  if not env.isCluster():
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3'], 'doc2', ['somethingelse', '2']])
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1'], 'doc4', ['somethingelse', '4']])
 
 def testDeleteIndexes(env):
   # test cleaning of all specs from a prefix 
@@ -528,3 +545,19 @@ def testDeleteIndexes(env):
   for i in range(10):
     env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
     env.execute_command('FT.DROPINDEX', i)
+
+  # create an additional index
+  env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+
+def test_mod_4207(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx1', 'FILTER', 'EXISTS(@country)', 'SCHEMA', 'business', 'TEXT', 'country', 'TEXT')
+  env.cmd('FT.CREATE', 'idx2', 'FILTER', 'EXISTS(@business)', 'SCHEMA', 'business', 'TEXT', 'country', 'TEXT')
+  conn.execute_command('HSET', 'address:1', 'business', 'foo', 'country', 'USA')
+  conn.execute_command('HSET', 'address:2', 'business', 'bar', 'country', 'Israel')
+  conn.execute_command('HSET', 'address:3', 'business', 'foo')
+  conn.execute_command('HSET', 'address:4', 'country', 'Israel')
+
+  env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
+  env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])

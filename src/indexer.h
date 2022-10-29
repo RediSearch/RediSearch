@@ -8,12 +8,29 @@
 #include "util/arr.h"
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
-  double numeric;  // i.e. the numeric value of the field
-  const char *geoSlon;
-  const char *geoSlat;
-  char **tags;
-  const void *vector;
-  size_t vecLen;
+  int isMulti;
+  union {
+    // Single value
+    double numeric;  // i.e. the numeric value of the field
+    struct {
+      const char *geoSlon;
+      const char *geoSlat;
+    };
+    char **tags;
+    struct {
+      const void *vector;
+      size_t vecLen;
+      size_t numVec;
+    };
+
+    // Multi value
+    arrayof(double) arrNumeric;
+    struct {
+      array_t arrGeoSlon;
+      array_t arrGeoSlat;
+    };
+  };
+
 } FieldIndexerData;
 
 typedef struct DocumentIndexer {
@@ -62,7 +79,7 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
  *
  * This function is called with the GIL released.
  */
-typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, const DocumentField *field,
+typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, DocumentField *field,
                                 const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
 /**
