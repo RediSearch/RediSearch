@@ -303,9 +303,9 @@ When JSONPath leads to multiple numerical values:
 
 Starting with RediSearch 2.6.0, a JSONPath leading to an array of numerical values may be indexed as VECTOR type in the index schema.
 
-If you want to index *multiple* numerical arrays as VECTOR, use a JSONPath leading to multiple numerical arrays using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
+If you want to index *multiple* numerical arrays as VECTOR, use a [JSONPath](https://redis.io/docs/stack/json/path/) leading to multiple numerical arrays using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
-For example, to index a vector embeddings list that correspond images of the same product, specify the JSONPath `$.embeddings[*]` in the schema definition during index creation:
+For example, to index an array of vector embedding that corresponds images of the same product, specify the JSONPath `$.embeddings[*]` in the schema definition during index creation:
 
 ```sql
 127.0.0.1:6379> FT.CREATE itemIdx5 ON JSON PREFIX 1 item: SCHEMA $.embedding[*] AS embedding VECTOR FLAT 6 DIM 4 DISTNACE_METRIC L2 TYPE FLOAT32
@@ -319,9 +319,9 @@ OK
 OK
 ```
 
-Note than unlike NUMERIC type, using `$.embedding` in the schema for VECTOR will NOT treat the field as an array of vectors, so it would not trigger indexing the vectors in the array.
+Note than unlike NUMERIC type, using `$.embedding` in the schema for VECTOR will NOT treat the field as an array of vectors, so it will cause indexing failure.
 
-Now, we can search for the two headphones that are most similar to an image embedding, using vector similarity search KNN query (note that vector queries are supported as of dialect 2). The distance between a document to the query vector is defined as the **minimum** distance between the query vector to a vector that match the JSONPath specified in the schema. For example:
+Now, we can search for the two headphones that are most similar to an image embedding, using vector similarity search KNN query (note that vector queries are supported as of dialect 2). The distance between a document to the query vector is defined as the **minimum** distance between the query vector to a vector that matches the JSONPath specified in the schema. For example:
 ```sql
 127.0.0.1:6379> FT.SEARCH itemIdx5 '*=>[KNN 2 @embeddings $blob]' PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2
 1) "2"
@@ -336,7 +336,7 @@ Now, we can search for the two headphones that are most similar to an image embe
    3) "$"
    4) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]]}"
 ```
-Note that `0.771500051022` is the L2 distance between the query vector and `[-0.8,-0.15,0.33,-0.01]`, and it is lower than the L2 distance between the query vector and `[-0.7,-0.51,0.88,0.14]`.
+Note that `0.771500051022` is the L2 distance between the query vector and `[-0.8,-0.15,0.33,-0.01]`, which is the second element in the embedding array, and it is lower than the L2 distance between the query vector and `[-0.7,-0.51,0.88,0.14]`, which is the first element in the embedding array.
 
 For more information on vector similarity syntax, see [Vector Fields](/redisearch/reference/vectors/#querying-vector-fields).
 

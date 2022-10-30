@@ -20,7 +20,7 @@ Vector similarity provides these functionalities:
 
 * Realtime vector update/delete, triggering an update of the index.
 
-* K-nearest neighbors (KNN) search and range filter (from v2.6) supporting three distance metrics to measure the degree of similarity between two vectors $u$, $v$ $\in \mathbb{R}^n$ where $n$ is the length of the vectors:
+* K-nearest neighbors (KNN) search and range filter (from v2.6.1) supporting three distance metrics to measure the degree of similarity between two vectors $u$, $v$ $\in \mathbb{R}^n$ where $n$ is the length of the vectors:
 
     - L2 - Euclidean distance between two vectors
 
@@ -141,6 +141,7 @@ EPSILON 0.8
 
 ## Indexing vectors
 
+### Storing vectors in Hash
 Storing vectors in Redis Hashes is done by sending a binary blob of the vector data. A common way of doing so is by using python numpy with redis-py client:
 ```py
 import numpy as np
@@ -169,7 +170,7 @@ Unlike in hashes, vectors are stored in JSON documents as arrays (not as blobs).
 JSON.SET 1 $ '{"vec":[1,2,3,4]}'
 ```
 
-As of v2.6, RedisJson supports multi value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available under [Indexing JSON documents](/docs/stack/search/indexing_json) section. 
+As of v2.6.1, RedisJson supports multi value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available under [Indexing JSON documents](https://redis.io/docs/stack/search/indexing_json/#index-json-arrays-as-text) section. 
 
 **Example**
 ```
@@ -202,17 +203,17 @@ The `<vector_similarity_query>` part inside the square brackets needs to be in t
 KNN (<number> | $<number_attribute>) @<vector_field> $<blob_attribute> [<vector_query_param_name> <value>|$<value_attribute>] [...]] [ AS <dist_field_name> | $<dist_field_name_attribute>]
 ```
 
-Every `*_attribute` parameter should refer to an attribute in the [`PARAMS`](/commands/ft.search) section.
+Every `*_attribute` parameter should refer to an attribute in the [`PARAMS`]( https://redis.io/commands/ft.search) section.
 
 * `<number> | $<number_attribute>` - Number of requested results ("K").
 
 * `@<vector_field>` - `vector_field` should be the name of a vector field in the index.
 
-* `$<blob_attribute>` - An attribute that holds the query vector as blob and must be passed through the `PARAMS` section.
+* `$<blob_attribute>` - An attribute that holds the query vector as blob and must be passed through the `PARAMS` section. The blob's byte size should match the vector field dimension and type.
 
-* `[<vector_query_param_name> <value>|$<value_attribute> [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. See which [runtime parameters](/redisearch/reference/vectors#specific-runtime-attributes-per-algorithm) are valid for each algorithm.
+* `[<vector_query_param_name> <value>|$<value_attribute> [...]]` - An optional part for passing one or more vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. See which [runtime parameters](https://redis.io/docs/stack/search/reference/vectors/#runtime-attributes) are valid for each algorithm.
 
-* `[AS <dist_field_name> | $<dist_field_name_attribute>]` - An optional part for specifying a distance field name, for later sorting by the similarity metric. By default, the distance field name is "`__<vector_field>_score`" and it can be used for sorting without using `AS <dist_field_name>` in the query.
+* `[AS <dist_field_name> | $<dist_field_name_attribute>]` - An optional part for specifying a distance field name, for later sorting by the similarity metric and/or returning it. By default, the distance field name is "`__<vector_field>_score`" and it can be used for sorting without using `AS <dist_field_name>` in the query.
 
 **Note:** As of v2.6, vector query params and distance field name can be specified in [query attributes](https://redis.io/docs/stack/search/reference/query_syntax/#query-attributes) like syntax as well. Thus, the following format is also supported:
 
@@ -230,6 +231,8 @@ The syntax for range query is `@<vector_field>: [VECTOR_RANGE (<radius> | $<radi
 * `@<vector_field>` - `vector_field` should be the name of a vector field in the index.
 
 * `<radius> | $<radius_attribute>` - A positive number that indicates the maximum distance allowed between the query vector and the vector field value.
+
+* `$<blob_attribute>` - An attribute that holds the query vector as blob and must be passed through the `PARAMS` section. The blob's byte size should match the vector field dimension and type.
 
 * **Range query params**: range query clause can be followed by a query attributes section as following: `@<vector_field>: [VECTOR_RANGE (<radius> | $<radius_attribute>) $<blob_attribute>]=>{$<param>: (<value> | $<value_attribute>); ... }`, where the relevant params in that case are `$yield_distance_as` and `$epsilon`. Note that there is **no default distance field name** in range queries.
 
@@ -274,7 +277,7 @@ Optional parameters are:
 
 * `EPSILON` - Relative factor that sets the boundaries in which a range query may search for candidates. That is, vector candidates whose distance from the query vector is `radius*(1 + EPSILON)` are potentially scanned, allowing more extensive search and more accurate results (on the expense of runtime). Defaults to the `EPSILON` value passed on creation (which defaults to 0.01).
 
-## Query tips
+{{% alert title="Important notes" color="info" %}}
 
 1. Although specifying `K` requested results in KNN search, the default `LIMIT` in RediSearch is 10, to get all the returned results, specify `LIMIT 0 <K>` in your command.
 
@@ -282,7 +285,9 @@ Optional parameters are:
 
 3. It is recommended to adjust the `<radius>` parameter in range queries to the corresponding vector field distance metric and to the data itself. In particular, recall that the distance between vectors in index whose distance metric is Cosine is bounded by `2`, while L2 distance between vectors is not bounded. Hence, it is better to get a notion of what is the distance between vectors that are considered similar, and choose `<radius>` accordingly.   
 
-**Examples**
+{{% /alert %}}
+
+## Vector search examples
 
 * "Pure" KNN queries:
 ```
