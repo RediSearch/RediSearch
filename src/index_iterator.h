@@ -5,6 +5,8 @@
 #include "redisearch.h"
 #include "index_result.h"
 
+struct RLookupKey; // Forward declaration
+
 #define INDEXREAD_EOF 0
 #define INDEXREAD_OK 1
 #define INDEXREAD_NOTFOUND 2
@@ -23,6 +25,7 @@ enum iteratorType {
   WILDCARD_ITERATOR,
   EMPTY_ITERATOR,
   ID_LIST_ITERATOR,
+  METRIC_ITERATOR,
   PROFILE_ITERATOR,
   OPTIMUS_ITERATOR,
   MAX_ITERATOR,
@@ -51,6 +54,10 @@ typedef struct indexIterator {
   int mode;
 
   enum iteratorType type;
+
+  // Used if the iterator yields some value.
+  // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
+  struct RLookupKey *ownKey;
 
   size_t (*NumEstimated)(void *ctx);
 

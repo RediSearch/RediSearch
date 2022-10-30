@@ -232,6 +232,16 @@ def testProfileVector(env):
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
   env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'STANDARD_KNN')
 
+  # Range query - uses metric iterator. Radius is set so that the closest 2 vectors will be inthe range
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
+                                    'SORTBY', 'dist', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
+  expected_iterators_res = ['Iterators profile', ['Type', 'METRIC - VECTOR DISTANCE', 'Counter', 2]]
+  expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 2]
+  env.assertEqual(actual_res[0], [2, '4', '2'])
+  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
+  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'RANGE_QUERY')
+
 # Test with hybrid query variations
   # Expect ad-hoc BF to take place - going over child iterator exactly once (reading 2 results)
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello world)=>[KNN 3 @v $vec]',

@@ -1220,13 +1220,3 @@ void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen
   }
   return NULL;
 }
-
-int TrieMap_RandomKey(TrieMap *t, char **str, tm_len_t *len, void **ptr) {
-  if (t->cardinality == 0) {
-    return 0;
-  }
-  // TODO: deduce steps from cardinality properly
-  TrieMapNode *n = TrieMapNode_RandomWalk(t->root, (int)round(log2(1 + t->cardinality)), str, len);
-  *ptr = n->value;
-  return 1;
-}

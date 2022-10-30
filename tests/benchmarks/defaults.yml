@@ -17,6 +17,11 @@ exporter:
       - "$.build.vector_index_sz_mb"
       - '$."ALL STATS".*."Ops/sec"'
       - '$."ALL STATS".*."Latency"'
+      - "$.OverallRates.overallOpsRate"
+      - "$.OverallQuantiles.allCommands.q50"
+      - "$.OverallQuantiles.allCommands.q95"
+      - "$.OverallQuantiles.allCommands.q99"
+      - "$.OverallQuantiles.allCommands.q999"
 clusterconfig:
   init_commands:
   - commands:

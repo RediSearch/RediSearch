@@ -20,6 +20,13 @@
 extern "C" {
 #endif
 
+// Holds a yieldable field name, and the address to write the RLookupKey pointer later.
+typedef struct MetricRequest{
+  char *metric_name;
+  RLookupKey **key_ptr;
+} MetricRequest;
+
+
 /**
  * Query AST structure.
  *
@@ -35,8 +42,8 @@ typedef struct QueryAST {
   const void *udata;
   size_t udatalen;
 
-  // vector score field names array in the AST.
-  char **vecScoreFieldNames;
+  // array of additional metrics names in the AST.
+  MetricRequest *metricRequests;
 
   // Copied query and length, because it seems we modify the string
   // in the parser (FIXME). Thus, if the original query is const

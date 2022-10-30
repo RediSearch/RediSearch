@@ -118,6 +118,7 @@ typedef struct FieldSpec {
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
 #define FieldSpec_HasSuffixTrie(fs) ((fs)->options & FieldSpec_WithSuffixTrie)
 #define FieldSpec_IsUndefinedOrder(fs) ((fs)->options & FieldSpec_UndefinedOrder)
+#define FieldSpec_IsUnf(fs) ((fs)->options & FieldSpec_UNF)
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);

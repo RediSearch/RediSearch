@@ -28,6 +28,7 @@ typedef struct NumericFilter {
   size_t offset;            // record number of documents in iterated ranges. used to skip them
 } NumericFilter;
 
+#define NumericFilter_IsNumeric(f) (!(f)->geoFilter)
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
                                 bool asc);

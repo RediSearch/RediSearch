@@ -515,9 +515,11 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
 IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
                                        const NumericFilter *f, int skipMulti) {
 
-  // if this range is at either end of the filter, we need to check each record
-  if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal) &&
-      f->geoFilter == NULL) {
+  // for numeric, if this range is at either end of the filter, we need
+  // to check each record.
+  // for geo, we always keep the filter to check the distance
+  if (NumericFilter_IsNumeric(f) &&
+      NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal)) {
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
@@ -564,7 +566,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   }
   Vector_Free(v);
 
-  QueryNodeType type = (!f || !f->geoFilter) ? QN_NUMERIC : QN_GEO;
+  QueryNodeType type = (!f || NumericFilter_IsNumeric(f)) ? QN_NUMERIC : QN_GEO;
   IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1, type, NULL);
 
   return it;

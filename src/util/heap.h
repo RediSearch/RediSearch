@@ -35,6 +35,15 @@ void heap_init(heap_t* h,
 void heap_free(heap_t * hp);
 
 /**
+ * Empties the heap and frees it.
+ *
+ * NOTE:
+ *  Frees all items.
+ *  Only use if item memory is NOT managed outside of heap.
+ *  If `heap_clear` was invoked, the old data cannot be freed by the heap. */
+void heap_destroy(heap_t * hp);
+
+/**
  * Add item
  *
  * Ensures that the data structure can hold the item.

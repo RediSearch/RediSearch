@@ -12,7 +12,7 @@ typedef enum {
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
-typedef enum { GCPolicy_Fork = 0, GCPolicy_Sync } GCPolicy;
+typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 
@@ -23,8 +23,6 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
 
 static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
-    case GCPolicy_Sync:
-      return "sync";
     case GCPolicy_Fork:
       return "fork";
     default:          // LCOV_EXCL_LINE cannot be reached
@@ -184,7 +182,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
-#define MAX_DIALECT_VERSION 2
+#define MAX_DIALECT_VERSION 3
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -212,5 +210,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 static inline int isFeatureSupported(int feature) {
   return feature <= RSGlobalConfig.serverVersion;
 }
+
+#define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
 
 #endif
