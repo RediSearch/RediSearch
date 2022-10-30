@@ -3593,3 +3593,11 @@ def test_RED_86036(env):
     res = res[1][3][1][7] # get the list iterator profile
     env.assertEqual(res[1], 'ID-LIST')
     env.assertLess(res[5], 3)
+
+def test_MOD_4290(env):
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('hset', 'doc%d' % i, 't', 'foo')
+    env.execute_command('FT.PROFILE', 'idx', 'aggregate', 'query', '*', 'LIMIT', '0', '1')
+    env.expect('ping').equal(True) # make sure environment is still up */
