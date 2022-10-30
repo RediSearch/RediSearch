@@ -37,10 +37,11 @@
 #include <string.h>
 #include <strings.h>
 #include <assert.h>
+
 #include "parse.h"
-#include "../util/arr.h"
-#include "../rmutil/vector.h"
-#include "../query_node.h"
+#include "util/arr.h"
+#include "rmutil/vector.h"
+#include "query_node.h"
 
 // strndup + lowercase in one pass!
 char *strdupcase(const char *s, size_t len) {

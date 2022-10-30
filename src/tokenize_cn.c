@@ -1,7 +1,7 @@
 #include "tokenize.h"
 #include "toksep.h"
 #include "config.h"
-#include "dep/friso/friso.h"
+#include "friso/friso.h"
 #include "cndict_loader.h"
 #include "util/minmax.h"
 #include <assert.h>

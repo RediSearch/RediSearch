@@ -1,4 +1,4 @@
-#include "../dep/libnu/libnu.h"
+#include "libnu/libnu.h"
 #include "rune_util.h"
 #include <stdlib.h>
 #include <string.h>

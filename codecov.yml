@@ -1,0 +1,17 @@
+coverage:
+  status:
+    project:
+      default:
+        # basic
+        #target: 80%
+        #threshold: 1%
+        base: auto 
+        paths: 
+          - "src"
+       # advanced
+       # branches: 
+       #   - master
+        if_not_found: success
+        if_ci_failed: error
+        informational: True
+        only_pulls: false

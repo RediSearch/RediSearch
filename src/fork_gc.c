@@ -5,7 +5,7 @@
 #include "redis_index.h"
 #include "numeric_index.h"
 #include "tag_index.h"
-#include "tests/time_sample.h"
+#include "time_sample.h"
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
