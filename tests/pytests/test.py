@@ -1069,7 +1069,7 @@ def testAddHash(env):
     env.assertEqual(1, res[0])
     env.assertEqual("doc1", res[1])
     env.assertListEqual(
-        ['body', 'lorem ipsum', 'price', '2', 'title', 'hello world'], res[2])
+        ['title', 'hello world', 'body', 'lorem ipsum', 'price', '2'], res[2])
 
     res = r.execute_command(
         'ft.search', 'idx', "hello werld", "nocontent")
@@ -1116,7 +1116,7 @@ def testSafeAddHash(env):
     env.assertEqual(1, res[0])
     env.assertEqual("doc1", res[1])
     env.assertListEqual(
-        ['body', 'lorem ipsum', 'price', '2', 'title', 'hello world'], res[2])
+        ['body', 'lorem ipsum', 'price', '2', 'title', 'hello world'], list(res[2]))
 
     res = r.execute_command(
         'ft.search', 'idx', "hello werld", "nocontent")
@@ -2103,7 +2103,7 @@ def testIssue417(env):
         try:
             env.execute_command('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 't0', '1')
         except redis.ResponseError as e:
-            env.assertTrue('already' in e.message.lower())
+            env.assertTrue('already' in str(e))
 
 # >FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
 # >FT.ADD myIdx doc1 1.0 FIELDS title "hello world" body "lorem ipsum" url "www.google.com"
@@ -2349,7 +2349,7 @@ def testPrefixDeletedExpansions(env):
         if r[0]:
             break
 
-    print 'did {} iterations'.format(iters)
+    print('did {} iterations'.format(iters))
     r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
     env.assertEqual([1, 'doc_XXX', ['txt1', 'termZZZ', 'tag1', 'tagZZZ']], r)
 
@@ -2384,9 +2384,10 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-    res = env.execute_command('ft.search', 'idx', '(hey hello1)|(hello2 hey)')
-    expected = [2, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']]
-    env.assertEqual(sorted(res), sorted(expected))
+
+    expected_res = py2sorted([2, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
+    actual_res = py2sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
+    env.assertEqual(list(expected_res), list(actual_res))
 
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'SCHEMA',
@@ -2906,10 +2907,10 @@ def testIssue1085(env):
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
-    from itertools import izip_longest
+    from itertools import zip_longest
     # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
     args = [iter(iterable)] * n
-    return izip_longest(fillvalue=fillvalue, *args)
+    return zip_longest(fillvalue=fillvalue, *args)
 
 
 def to_dict(r):
