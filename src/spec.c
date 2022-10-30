@@ -895,12 +895,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
 
     if (FieldSpec_IsSortable(fs)) {
-      if (fs->types & INDEXFLD_T_TAG && isSpecJson(sp)) {
-        QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
-                               "On JSON, cannot set tag field to sortable - %s", fieldName);
-        goto reset;
-      }
-
       if (fs->options & FieldSpec_Dynamic) {
         QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
                                "Cannot set dynamic field to sortable - %s", fieldName);

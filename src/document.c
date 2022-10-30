@@ -700,10 +700,15 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
   if (fdata->tags == NULL) {
     return 0;
   }
-  if (FieldSpec_IsSortable(fs) && isSpecHash(aCtx->spec)) {
-    size_t fl;
-    const char *str = DocumentField_GetValueCStr(field, &fl);
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+  if (FieldSpec_IsSortable(fs)) {
+    if (field->unionType != FLD_VAR_T_ARRAY) {
+      size_t fl;
+      const char *str = DocumentField_GetValueCStr(field, &fl);
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+    } else if (field->multisv) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
+      field->multisv = NULL;
+    }
   }
   return 0;
 }

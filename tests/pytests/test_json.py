@@ -812,12 +812,6 @@ def testMixedTagError(env):
     env.expect('FT.SEARCH', 'idx1', '*').equal([0])
 
 @no_msan
-def testSortableTagError(env):
-    env.expect('FT.CREATE', 'idx1', 'ON', 'JSON',                                   \
-               'SCHEMA', '$.tag[*]', 'AS', 'idxtag', 'TAG', 'SORTABLE').error()     \
-               .contains('On JSON, cannot set tag field to sortable - idxtag')
-
-@no_msan
 def testNotExistField(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
