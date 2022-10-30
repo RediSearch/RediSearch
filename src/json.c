@@ -114,9 +114,8 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
     rv = REDISMODULE_OK;
     break;
   case JSONType_Array:
-    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC || fieldType == INDEXFLD_T_TAG || fieldType == INDEXFLD_T_GEO) {
-      rv = REDISMODULE_OK;
-    }
+    // All field types are supported with arrays
+    rv = REDISMODULE_OK;
     break;
   // An object or null type are not supported
   case JSONType_Object:
