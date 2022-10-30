@@ -471,8 +471,6 @@ def testMultiValueTag_Recursive_Decent(env):
 @no_msan
 def testMultiValueErrors(env):
     # Multi-value is unsupported with the following
-    env.execute_command('FT.CREATE', 'idxgeo', 'ON', 'JSON',
-                        'SCHEMA', '$.geo', 'AS', 'geo', 'GEO')
     env.execute_command('FT.CREATE', 'idxvector', 'ON', 'JSON',
                         'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2')
 
@@ -482,7 +480,7 @@ def testMultiValueErrors(env):
                                            "geo":["1.234, 4.321", "0.123, 3.210"]}').ok()
 
     # test non-tag non-text indexes fail to index multivalue
-    indexes = ['idxgeo', 'idxvector']
+    indexes = ['idxvector']
     for index in indexes:
         res_actual = env.cmd('FT.INFO', index)
         res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
@@ -524,10 +522,10 @@ def testAggregate(env):
            'LIMIT', '0', '5'
            ]
     env.expect(*cmd).equal([292, ['$.brand', '', 'count', '1518'],
-                                  ['$.brand', 'mad catz', 'count', '43'],
-                                  ['$.brand', 'generic', 'count', '40'],
-                                  ['$.brand', 'steelseries', 'count', '37'],
-                                  ['$.brand', 'logitech', 'count', '35']])
+                                  ['$.brand', 'Mad Catz', 'count', '43'],
+                                  ['$.brand', 'Generic', 'count', '40'],
+                                  ['$.brand', 'SteelSeries', 'count', '37'],
+                                  ['$.brand', 'Logitech', 'count', '35']])
     # FIXME: Test FT.AGGREGATE params - or alternatively reuse test_aggregate.py to also run on json content
 
 @no_msan
@@ -814,10 +812,25 @@ def testMixedTagError(env):
     env.expect('FT.SEARCH', 'idx1', '*').equal([0])
 
 @no_msan
-def testSortableTagError(env):
-    env.expect('FT.CREATE', 'idx1', 'ON', 'JSON',                                   \
-               'SCHEMA', '$.tag[*]', 'AS', 'idxtag', 'TAG', 'SORTABLE').error()     \
-               .contains('On JSON, cannot set tag field to sortable - idxtag')
+def testImplicitUNF(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx_json', 'ON', 'JSON', 'SCHEMA',  \
+        '$.a', 'AS', 'a', 'TEXT', 'SORTABLE',               \
+        '$.b', 'AS', 'b', 'TEXT', 'SORTABLE', 'UNF',        \
+        '$.c', 'AS', 'c', 'TEXT').ok()
+    info_res = index_info(env, 'idx_json')
+    env.assertEqual(info_res['attributes'][0][-1], 'UNF') # UNF is implicit with SORTABLE on JSON
+    env.assertEqual(info_res['attributes'][1][-1], 'UNF')
+    env.assertNotEqual(info_res['attributes'][2][-1], 'UNF')
+
+    env.expect('FT.CREATE', 'idx_hash', 'ON', 'HASH', 'SCHEMA',  \
+        '$.a', 'AS', 'a', 'TEXT', 'SORTABLE',               \
+        '$.b', 'AS', 'b', 'TEXT', 'SORTABLE', 'UNF',        \
+        '$.c', 'AS', 'c', 'TEXT').ok()
+    info_res = index_info(env, 'idx_hash')
+    env.assertNotEqual(info_res['attributes'][0][-1], 'UNF')
+    env.assertEqual(info_res['attributes'][1][-1], 'UNF')
+    env.assertNotEqual(info_res['attributes'][2][-1], 'UNF')
 
 @no_msan
 def testNotExistField(env):
@@ -883,14 +896,18 @@ def testTagArrayLowerCase(env):
     env.expect('FT.SEARCH', 'idx4', '@attrs:{vivo}', 'NOCONTENT').equal([1, 'json2'])
 
 def check_index_with_null(env, idx):
-    res = [5, 'doc1', ['sort', '1', '$', '{"sort":1,"num":null,"txt":"hello","tag":"world","geo":"1.23,4.56","vec":[0,1]}'],
-              'doc2', ['sort', '2', '$', '{"sort":2,"num":0.8,"txt":null,"tag":"world","geo":"1.23,4.56","vec":[0,1]}'],
-              'doc3', ['sort', '3', '$', '{"sort":3,"num":0.8,"txt":"hello","tag":null,"geo":"1.23,4.56","vec":[0,1]}'],
-              'doc4', ['sort', '4', '$', '{"sort":4,"num":0.8,"txt":"hello","tag":"world","geo":null,"vec":[0,1]}'],
-              'doc5', ['sort', '5', '$', '{"sort":5,"num":0.8,"txt":"hello","tag":"world","geo":"1.23,4.56","vec":null}']]
+    expected = [5, 'doc1', ['sort', '1', '$', '{"sort":1,"num":null,"txt":"hello","tag":"world","geo":"1.23,4.56","vec":[0,1]}'],
+                    'doc2', ['sort', '2', '$', '{"sort":2,"num":0.8,"txt":null,"tag":"world","geo":"1.23,4.56","vec":[0,1]}'],
+                    'doc3', ['sort', '3', '$', '{"sort":3,"num":0.8,"txt":"hello","tag":null,"geo":"1.23,4.56","vec":[0,1]}'],
+                    'doc4', ['sort', '4', '$', '{"sort":4,"num":0.8,"txt":"hello","tag":"world","geo":null,"vec":[0,1]}'],
+                    'doc5', ['sort', '5', '$', '{"sort":5,"num":0.8,"txt":"hello","tag":"world","geo":"1.23,4.56","vec":null}']]
 
-    env.expect('FT.SEARCH', idx, '*', 'SORTBY', "sort").equal(res)
-    env.expect('FT.SEARCH', idx, '@sort:[1 5]', 'SORTBY', "sort").equal(res)
+    res = env.execute_command('FT.SEARCH', idx, '*', 'SORTBY', "sort")
+    env.assertEqual(res, expected, message = '{} * sort'.format(idx))
+    
+    res = env.execute_command('FT.SEARCH', idx, '@sort:[1 5]', 'SORTBY', "sort")
+    env.assertEqual(res, expected, message = '{} [1 5] sort'.format(idx))
+
     info_res = index_info(env, idx)
     env.assertEqual(int(info_res['hash_indexing_failures']), 0)
 
