@@ -567,8 +567,8 @@ def test_mod_4255(env):
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
 
-  conn.execute_command('HSET', 'doc1', 'test', '1').equal(1)
-  conn.execute_command('HSET', 'doc2', 'test', '2').equal(1)
+  conn.execute_command('HSET', 'doc1', 'test', '1')
+  conn.execute_command('HSET', 'doc2', 'test', '2')
 
   # test normal case
   # get first result
