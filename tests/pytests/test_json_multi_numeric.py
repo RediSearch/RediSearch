@@ -377,14 +377,18 @@ def testInfoAndGC(env):
     env.expect('FT.CREATE', 'idx_hash', 'ON', 'HASH', 'SCHEMA', 'top', 'NUMERIC').ok()
     checkInfoAndGC(env, 'idx_hash', doc_num, create_hash_docs, delete_hash_docs)
 
-def testSortBy(env):
-    """ Test sort of multi numeric values """
-    
+
+def prepareSortBy(env, is_flat_arr, default_dialect):
+    """ Helper function for testing sort of multi numeric values """
+
     printSeed(env)
 
-    conn = getConnectionByEnv(env)
+    dialect_param = ['DIALECT', 3] if not default_dialect else []
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.top[*]', 'AS', 'val', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    jsonpath = '$.top[*]' if is_flat_arr else '$.top'
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', jsonpath, 'AS', 'val', 'NUMERIC').ok()
+
     doc_num = 200
     for doc in range(1, doc_num + 1):
             val_count = random.randint(0, 10)
@@ -399,8 +403,60 @@ def testSortBy(env):
     # Make sure there are at least 2 result
     query = ['FT.SEARCH', 'idx',
         '@val:[3000 8000] | @val:[{} {}] | @val:[{} {}]'.format(int(doc_num/2), int(doc_num/2), doc_num, doc_num),
-        'NOCONTENT', 'LIMIT', 0, doc_num]
+        'NOCONTENT', 'LIMIT', 0, doc_num, *dialect_param]
+    return query
+
+def checkSortByBWC(env, is_flat_arr):
+    """ Helper function for backward compatibility of sorting multi numeric values """
     
+    default_dialect = True
+    env.assertEqual(1, 1, message='flat {}, default dialect {}'.format(is_flat_arr, default_dialect))
+    query = prepareSortBy(env, is_flat_arr, default_dialect)
+    conn = getConnectionByEnv(env)
+
+    # Path leading to an array was loading a JSON string representation of the array,
+    # Comparing values lexicographically
+    #
+    # Path leading to multi value was loading the first element (in this case it is numeric),
+    # Comparing values according to type of first element
+    def checkGreater(a, b):
+        if is_flat_arr:
+            env.assertGreater(int(a), int(b))
+        else:
+            env.assertGreater(str(a), str(b))
+
+    def checkLess(a, b):
+        if is_flat_arr:
+            env.assertLess(int(a), int(b))
+        else:
+            env.assertLess(str(a), str(b))
+
+    # Results should be ascending
+    res = conn.execute_command(*query, 'SORTBY', 'val')
+    for i in range(2, len(res)):
+        checkGreater(int(res[i]), int(res[i - 1]))
+
+    # Results should be descending
+    res = conn.execute_command(*query, 'SORTBY', 'val', 'DESC')    
+    for i in range(2, len(res)):
+        checkLess(int(res[i]), int(res[i - 1]))
+
+def testSortByBWC(env):
+    """ Test sorting multi numeric values with flat array """
+    checkSortByBWC(env, True)
+
+def testSortByArrBWC(env):
+    """ Test backward compatibility of sorting multi numeric values with array """
+    checkSortByBWC(env, False)
+
+def checkSortBy(env, is_flat_arr):
+    """ Helper function for testing of sorting multi numeric values """
+    
+    default_dialect = False
+    env.assertEqual(1, 1, message='flat {}, default dialect {}'.format(is_flat_arr, default_dialect))
+    query = prepareSortBy(env, is_flat_arr, default_dialect)
+    conn = getConnectionByEnv(env)
+
     # Results should be ascending
     res = conn.execute_command(*query, 'SORTBY', 'val')
     for i in range(2, len(res)):
@@ -410,6 +466,14 @@ def testSortBy(env):
     res = conn.execute_command(*query, 'SORTBY', 'val', 'DESC')    
     for i in range(2, len(res)):
         env.assertLess(int(res[i]), int(res[i - 1]))
+
+def testSortBy(env):
+    """ Test sorting multi numeric values with flat array """
+    checkSortBy(env, True)
+
+def testSortByArr(env):
+    """ Test sorting multi numeric values with array """
+    checkSortBy(env, False)
 
 def keep_dict_keys(dict, keys):
         return {k:v for k,v in dict.items() if k in keys}
@@ -632,3 +696,80 @@ def testUpdateNumRecordsJson(env):
 def testUpdateNumRecordsHash(env):
     """ Test update of `num_records` when using Hashes """
     checkUpdateNumRecords(env, False)
+
+def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
+    """ Helper function for RETURN with multiple NUMERIC values """
+
+    conn = getConnectionByEnv(env)
+
+    dialect_param = ['DIALECT', 3] if not default_dialect else []
+    sortable_param = ['SORTABLE'] if is_sortable else []
+    env.assertEqual(len(expected), 3, message='dialect {}, sortable {}'.format(dialect_param, is_sortable))
+
+    env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.arr[*]', 'AS', 'val', 'NUMERIC', *sortable_param).ok()
+    env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'val', 'NUMERIC', *sortable_param).ok()
+    doc1_content = {"arr":[1, 2, 3]}
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
+
+    # Multi flat
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '1', 'val', *dialect_param).equal(expected[1])
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param).equal(expected[1])
+    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
+               'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
+
+    env.expect('FT.AGGREGATE', 'idx_flat',
+               '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+
+    env.expect('FT.AGGREGATE', 'idx_flat',
+               '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+
+    # Array
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '1', 'val', *dialect_param).equal(expected[2])
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param).equal(expected[1])
+    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
+               'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
+
+    res = conn.execute_command('FT.AGGREGATE', 'idx_arr',
+        '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param)
+    # Ignore the result with older dialect
+    #  Schema attribute with path to an array was not supported (lead to indexing failure)
+    if not default_dialect:
+        env.assertEqual(res, [1, ['val', expected[2][2][1]]])
+    
+
+    env.expect('FT.AGGREGATE', 'idx_arr',
+               '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[2][2][1]]])
+
+    # RETURN ALL
+    res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', *dialect_param)
+    env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
+
+
+def testMultiNumericReturn(env):
+    """ test RETURN with multiple NUMERIC values """
+
+    res1 = [1, 'doc:1', ['arr_1', '[2]']]
+    res2 = [1, 'doc:1', ['val', '[1,2,3]']]
+    res3 = [1, 'doc:1', ['val', '[[1,2,3]]']]
+
+    checkMultiNumericReturn(env, [res1, res2, res3], False, False)
+    env.flush()
+    checkMultiNumericReturn(env, [res1, res2, res3], False, True)
+
+def testMultiNumericReturnBWC(env):
+    """ test backward compatibility of RETURN with multiple NUMERIC values """
+    res1 = [1, 'doc:1', ['arr_1', '2']]
+    res2 = [1, 'doc:1', ['val', '1']]
+    res3 = [1, 'doc:1', ['val', '[1,2,3]']]
+
+    checkMultiNumericReturn(env, [res1, res2, res3], True, False)
+    env.flush()
+    checkMultiNumericReturn(env, [res1, res2, res3], True, True)

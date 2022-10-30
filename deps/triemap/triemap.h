@@ -169,6 +169,8 @@ void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool inclu
                           const char *max, int maxlen, bool includeMax,
                           TrieMapRangeCallback callback, void *ctx);
 
+void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen);
+
 #ifdef __cplusplus
 }
 #endif
