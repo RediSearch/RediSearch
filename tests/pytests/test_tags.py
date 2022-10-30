@@ -1,9 +1,8 @@
 from includes import *
-
+from common import *
 
 def search(env, r, *args):
     return r.execute_command('ft.search', *args)
-
 
 def testTagIndex(env):
     r = env
@@ -49,7 +48,6 @@ def testTagIndex(env):
             env.assertEqual(1, res[0])
             env.assertEqual('doc%d' % n, res[1])
 
-
 def testSeparator(env):
     r = env
     env.assertOk(r.execute_command(
@@ -63,7 +61,6 @@ def testSeparator(env):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(1, res[0])
 
-
 def testTagPrefix(env):
     r = env
     env.assertOk(r.execute_command(
@@ -76,7 +73,6 @@ def testTagPrefix(env):
         for q in ('@tags:{hello world}', '@tags:{hel*}', '@tags:{hello\\-*}', '@tags:{he*}'):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(res[0], 1)
-
 
 def testTagFieldCase(env):
     r = env
@@ -96,7 +92,6 @@ def testTagFieldCase(env):
         env.assertListEqual([0], r.execute_command(
             'FT.SEARCH', 'idx', '@TAGS:{foo bar}', 'NOCONTENT'))
 
-
 def testInvalidSyntax(env):
     r = env
     # invalid syntax
@@ -109,7 +104,6 @@ def testInvalidSyntax(env):
     with env.assertResponseError():
         r.execute_command(
             'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', "")
-
 
 def testTagVals(env):
     r = env
@@ -145,4 +139,43 @@ def testSearchNotExistsTagValue(env):
     # this test basically make sure we are not leaking
     env.expect('FT.CREATE idx SCHEMA t TAG SORTABLE').ok()
     env.expect('FT.SEARCH idx @t:{val}').equal([0])
-        
+
+def testIssue1305(env):
+    env.expect('FT.CREATE myIdx SCHEMA title TAG').ok()
+    env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "work"').ok()
+    env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "hello"').error()
+    env.expect('FT.ADD myIdx doc3 1.0 FIELDS title "hello"').ok()
+    env.expect('FT.ADD myIdx doc1 1.0 FIELDS title "hello,work"').ok()
+    expectedRes = {'doc1' : ['inf', ['title', '"hello,work"']], 'doc3' : ['inf', ['title', '"hello"']], 'doc2' : ['inf', ['title', '"work"']]}
+    res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]
+    res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
+    env.assertEqual(res, expectedRes)
+
+def test_1667(env):
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT')
+  env.expect('ft.search idx @tag:{a}').equal([0])
+  env.expect('ft.search idx @tag:{b}').equal([0])
+
+  env.expect('FT.ADD idx doc 1.0 FIELDS tag a,b').ok()
+  env.expect('FT.ADD idx doc1 1.0 FIELDS tag abc').ok()
+
+  # test single stopword
+  env.expect('ft.search idx @tag:{a}').equal([1, 'doc', ['tag', 'a,b']])
+  env.expect('ft.search idx @tag:{b}').equal([1, 'doc', ['tag', 'a,b']])
+  env.expect('ft.search idx @tag:{c}').equal([0])
+
+  # test stopword in list
+  env.expect('ft.search idx @tag:{a|c}').equal([1, 'doc', ['tag', 'a,b']])
+  env.expect('ft.search idx @tag:{c|a}').equal([1, 'doc', ['tag', 'a,b']])
+  env.expect('ft.search idx @tag:{c|a|c}').equal([1, 'doc', ['tag', 'a,b']])
+
+  # test stopword with prefix
+  env.expect('ft.search idx @tag:{ab*}').equal([1, 'doc1', ['tag', 'abc']])
+  env.expect('ft.search idx @tag:{abc*}').equal([1, 'doc1', ['tag', 'abc']])
+
+  # ensure regular text field
+  env.expect('FT.ADD idx doc_a 1.0 FIELDS text a').ok()
+  env.expect('FT.ADD idx doc_b 1.0 FIELDS text b').ok()
+
+  env.expect('ft.search idx a').equal([0])
+  env.expect('ft.search idx b').equal([1, 'doc_b', ['text', 'b']])

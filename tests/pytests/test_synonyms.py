@@ -1,4 +1,5 @@
 from includes import *
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
 
 
 def testBasicSynonymsUseCase(env):
@@ -12,7 +13,7 @@ def testBasicSynonymsUseCase(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res, [1, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
 
 def testTermOnTwoSynonymsGroup(env):
     r = env
@@ -26,9 +27,9 @@ def testTermOnTwoSynonymsGroup(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res, [1, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res, [1, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
 
 def testSynonymGroupWithThreeSynonyms(env):
     r = env
@@ -41,9 +42,9 @@ def testSynonymGroupWithThreeSynonyms(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res, [1, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res, [1, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
 
 def testSynonymWithMultipleDocs(env):
     r = env
@@ -60,7 +61,7 @@ def testSynonymWithMultipleDocs(env):
                                     'body', 'the child sister'))
 
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [2L, 'doc2', ['title', 'she is a girl', 'body', 'the child sister'], 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res, [2, 'doc2', ['title', 'she is a girl', 'body', 'the child sister'], 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
 
 def testSynonymUpdate(env):
     r = env
@@ -79,7 +80,7 @@ def testSynonymUpdate(env):
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
     # synonyms are applied from the moment they were added, previuse docs are not reindexed
-    env.assertEqual(res, [1L, 'doc2', ['title', 'he is another baby', 'body', 'another test']])
+    env.assertEqual(res, [1, 'doc2', ['title', 'he is another baby', 'body', 'another test']])
 
 def testSynonymDump(env):
     r = env
@@ -88,7 +89,7 @@ def testSynonymDump(env):
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'baby', 'child'), 1)
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'tree', 'wood'), 2)
-    env.assertEqual(r.execute_command('ft.syndump', 'idx'), ['baby', [1L], 'offspring', [0L], 'wood', [2L], 'tree', [2L], 'child', [0L, 1L], 'boy', [0L]])
+    env.assertEqual(r.execute_command('ft.syndump', 'idx'), ['baby', [1], 'offspring', [0], 'wood', [2], 'tree', [2], 'child', [0, 1], 'boy', [0]])
 
 def testSynonymAddWorngArity(env):
     r = env
@@ -145,15 +146,10 @@ def testSynonymUpdateOutOfRangeId(env):
 
 def testSynonymDumpWorngArity(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+    env.expect('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text').ok()
     r.execute_command('ft.synadd', 'idx', 'boy', 'child')
-    exceptionStr = None
-    try:
-        r.execute_command('ft.syndump')
-    except Exception as e:
-        exceptionStr = str(e)
-    env.assertEqual(exceptionStr, 'wrong number of arguments for \'ft.syndump\' command')
+    env.expect('ft.syndump').error().contains('wrong number of arguments')
+    env.expect('ft.syndump idx foo').error().contains('wrong number of arguments')
 
 def testSynonymUnknownIndex(env):
     r = env
@@ -170,7 +166,7 @@ def testSynonymsRdb(env):
         'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     for _ in env.reloading_iterator():
-        env.assertEqual(r.execute_command('ft.syndump', 'idx'), ['offspring', [0L], 'child', [0L], 'boy', [0L]])
+        env.assertEqual(r.execute_command('ft.syndump', 'idx'), ['offspring', [0], 'child', [0], 'boy', [0]])
 
 def testTwoSynonymsSearch(env):
     r = env
@@ -183,7 +179,7 @@ def testTwoSynonymsSearch(env):
 
     res = r.execute_command('ft.search', 'idx', 'offspring offspring', 'EXPANDER', 'SYNONYM')
     # synonyms are applied from the moment they were added, previuse docs are not reindexed
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy child boy', 'body', 'another test']])
+    env.assertEqual(res, [1, 'doc1', ['title', 'he is a boy child boy', 'body', 'another test']])
 
 def testSynonymsIntensiveLoad(env):
     iterations = 1000
@@ -199,7 +195,7 @@ def testSynonymsIntensiveLoad(env):
     for _ in env.reloading_iterator():
         for i in range(iterations):
             res = r.execute_command('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYNONYM')
-            env.assertEqual(res, [1L, 'doc%d' % i, ['title', 'he is a boy%d' % i, 'body', 'this is a test']])
+            env.assertEqual(res, [1, 'doc%d' % i, ['title', 'he is a boy%d' % i, 'body', 'this is a test']])
 
 def testSynonymsForceUpdate(env):
     env.expect('ft.synforceupdate', 'idx', '0', 'child').error().contains('Unknown index name')

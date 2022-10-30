@@ -1,6 +1,7 @@
 import random
 import time
 from includes import *
+from functools import reduce
 
 
 _tokens = {}
@@ -34,7 +35,7 @@ def createIndex(env, r):
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'schema', 'txt', 'text'))
 
-    for i in xrange(1000):
+    for i in range(1000):
         did, tokens = generate_random_doc(env)
 
         r.execute_command('ft.add', 'idx', did,

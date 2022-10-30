@@ -6,6 +6,8 @@ from RLTest import Env
 import time
 import random
 from includes import *
+from common import *
+
 
 class TimeoutException(Exception):
   pass

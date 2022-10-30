@@ -368,7 +368,7 @@ $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 ifneq ($(DRY_RUN),1)
 	$(SHOW)$(MAKE) -C $(MAKE_BINDIR) $(MAKE_J) $(CMAKE_FILE_FLAGS)
 else
-	make -C $(MAKE_BINDIR) $(MAKE_J) $(CMAKE_FILE_FLAGS)
+	$(SHOW)make -C $(MAKE_BINDIR) $(MAKE_J) $(CMAKE_FILE_FLAGS)
 endif
 
 .PHONY: build clean run
@@ -633,10 +633,10 @@ COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
 coverage:
 	$(SHOW)$(MAKE) build COV=1
-	$(SHOW)$(MAKE) build COORD=oss COV=1
+#	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
 	-$(SHOW)$(MAKE) test COV=1
-	-$(SHOW)$(MAKE) test COORD=oss COV=1
+#	-$(SHOW)$(MAKE) test COORD=oss COV=1
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 show-cov:

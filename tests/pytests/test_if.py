@@ -1,4 +1,5 @@
 from RLTest import Env
+from includes import *
 
 
 def testIfQueries(env):
@@ -61,20 +62,20 @@ def testIfQueries(env):
 
     # Or
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt||@txt FIELDS txt word').equal('OK')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt||@empty FIELDS txt word').equal('OK')                           
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt||@empty FIELDS txt word').equal('OK')
     #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty||@txt FIELDS txt word').equal('OK')       # 1.6 NOADD
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty||@empty FIELDS txt word').equal('NOADD')  # 1.4 OK
     #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty||!@empty FIELDS txt word').equal('OK')    # 1.6 NOADD
-    #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@empty||@empty FIELDS txt word').equal('OK')    # 
-    #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@empty||!@empty FIELDS txt word').equal('OK')   # 
+    #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@empty||@empty FIELDS txt word').equal('OK')    #
+    #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@empty||!@empty FIELDS txt word').equal('OK')   #
 
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt||@empty=="word" FIELDS txt word').equal('OK')
-    #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty=="word"||@txt FIELDS txt word').equal('OK')               # ?? # 1.6 NOADD 
+    #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty=="word"||@txt FIELDS txt word').equal('OK')               # ?? # 1.6 NOADD
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty=="word"||@empty=="word" FIELDS txt word').equal('NOADD')  # ??
 
     # And
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt&&@txt FIELDS txt word').equal('OK')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt&&@empty FIELDS txt word').equal('NOADD')            # 1.4 OK                  
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt&&@empty FIELDS txt word').equal('NOADD')            # 1.4 OK
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty&&@txt FIELDS txt word').equal('NOADD')            # 1.4 OK
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty&&@empty FIELDS txt word').equal('NOADD')          # 1.4 OK
 
@@ -118,4 +119,3 @@ def testExists(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_str(exists(@empty)) FIELDS txt word').equal('OK')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if exists(exists(@empty)) FIELDS txt word').equal('OK')  # ??
 
-    

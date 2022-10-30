@@ -1,4 +1,5 @@
 from RLTest import Env
+from includes import *
 
 def testConfig(env):
     env.skipOnCluster()
@@ -33,6 +34,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_THRESHOLD').res[0][0] =='FORK_GC_CLEAN_THRESHOLD'
     assert env.expect('ft.config', 'get', 'FORK_GC_RETRY_INTERVAL').res[0][0] =='FORK_GC_RETRY_INTERVAL'
     assert env.expect('ft.config', 'get', '_MAX_RESULTS_TO_UNSORTED_MODE').res[0][0] =='_MAX_RESULTS_TO_UNSORTED_MODE'
+    assert env.expect('ft.config', 'get', '_NUMERIC_COMPRESS').res[0][0] =='_NUMERIC_COMPRESS'
 
 '''
 
@@ -71,13 +73,19 @@ def testSetConfigOptionsErrors(env):
 
 def testAllConfig(env):
     env.skipOnCluster()
+    ## on existing env the pre tests might change the config
+    ## so no point of testing it
+    if env.env == 'existing-env':
+        env.skip()
     res_list = env.cmd('ft.config get *')
     res_dict = {d[0]: d[1:] for d in res_list}
     env.assertEqual(res_dict['EXTLOAD'][0], None)
+    env.assertEqual(res_dict['CONCURRENT_WRITE_MODE'][0], 'false')
     env.assertEqual(res_dict['NOGC'][0], 'false')
     env.assertEqual(res_dict['MINPREFIX'][0], '2')
     env.assertEqual(res_dict['FORKGC_SLEEP_BEFORE_EXIT'][0], '0')
     env.assertEqual(res_dict['MAXDOCTABLESIZE'][0], '1000000')
+    env.assertEqual(res_dict['MAXSEARCHRESULTS'][0], '1000000')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['TIMEOUT'][0], '500')
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
@@ -91,6 +99,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['FORK_GC_RETRY_INTERVAL'][0], '5')
     env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
     env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
+    env.assertEqual(res_dict['_NUMERIC_COMPRESS'][0], 'true')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
@@ -101,7 +110,7 @@ def testInitConfig(env):
     # Numeric arguments
     env.skipOnCluster()
     def test_arg_num(arg_name, arg_value):
-        env = Env(moduleArgs=arg_name + ' ' + '%d' % arg_value)
+        env = Env(moduleArgs=arg_name + ' ' + '%d' % arg_value, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
         assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, '%d' % arg_value]])
@@ -123,22 +132,24 @@ def testInitConfig(env):
 
     # True/False arguments
     def test_arg_true(arg_name):
-        env = Env(moduleArgs=arg_name)
+        env = Env(moduleArgs=arg_name, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
         assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, 'true']])
         env.stop()
 
     test_arg_true('NOGC')
+    # if 'CONCURRENT_WRITE_MODE' not in Defaults.module_args[0]:
     test_arg_true('SAFEMODE')
+    # if 'SAFEMODE' not in Defaults.module_args[0]:
     test_arg_true('CONCURRENT_WRITE_MODE')
     test_arg_true('NO_MEM_POOLS')
-    
+
     # String arguments
     def test_arg_str(arg_name, arg_value, ret_value=None):
         if ret_value == None:
-            ret_value = arg_value 
-        env = Env(moduleArgs=arg_name + ' ' + arg_value)
+            ret_value = arg_value
+        env = Env(moduleArgs=arg_name + ' ' + arg_value, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
         assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, ret_value]])
@@ -148,3 +159,5 @@ def testInitConfig(env):
     test_arg_str('GC_POLICY', 'default', 'fork')
     test_arg_str('GC_POLICY', 'legacy', 'sync')
     test_arg_str('ON_TIMEOUT', 'fail')
+    test_arg_str('MAXSEARCHRESULTS', '100', '100')
+    test_arg_str('MAXSEARCHRESULTS', '-1', 'unlimited')

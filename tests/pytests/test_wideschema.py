@@ -1,5 +1,6 @@
 import platform
 from includes import *
+from common import waitForIndex, arch_int_bits
 
 
 def testWideSchema(env):
@@ -36,7 +37,7 @@ def testWideSchema(env):
         res = env.cmd('ft.search', 'idx', ' '.join(
             ('token_%d' % (i) for i in range(FIELDS))))
         env.assertEqual(res[0], N)
-    
+
     if not env.isCluster():
         # todo: make it less specific to pass on cluster
         res = env.cmd('ft.info', 'idx')

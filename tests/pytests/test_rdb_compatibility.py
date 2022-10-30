@@ -1,10 +1,12 @@
 import os
 import subprocess
 from includes import *
+from common import *
+from RLTest import Env
 
 
 REDISEARCH_CACHE_DIR = '/tmp/'
-BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
+BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 
 RDBS = [
     'redisearch_1.2.0.rdb',
@@ -19,7 +21,7 @@ def downloadFiles():
     for f in RDBS:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
-            subprocess.call(['wget', BASE_RDBS_URL + f, '-O', path])
+            subprocess.call(['wget', '-q', BASE_RDBS_URL + f, '-O', path])
         if not os.path.exists(path):
             return False
     return True
