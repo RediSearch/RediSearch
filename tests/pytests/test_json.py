@@ -524,10 +524,10 @@ def testAggregate(env):
            'LIMIT', '0', '5'
            ]
     env.expect(*cmd).equal([292, ['$.brand', '', 'count', '1518'],
-                                  ['$.brand', 'mad catz', 'count', '43'],
-                                  ['$.brand', 'generic', 'count', '40'],
-                                  ['$.brand', 'steelseries', 'count', '37'],
-                                  ['$.brand', 'logitech', 'count', '35']])
+                                  ['$.brand', 'Mad Catz', 'count', '43'],
+                                  ['$.brand', 'Generic', 'count', '40'],
+                                  ['$.brand', 'SteelSeries', 'count', '37'],
+                                  ['$.brand', 'Logitech', 'count', '35']])
     # FIXME: Test FT.AGGREGATE params - or alternatively reuse test_aggregate.py to also run on json content
 
 @no_msan
