@@ -14,9 +14,11 @@ import RLTest
 from typing import Any, Callable
 from RLTest.env import Query
 from includes import *
+import numpy as np
+from scipy import spatial
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
-
+VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
 
 class TimeLimit(object):
     """
@@ -271,7 +273,15 @@ def module_ver_filter(env, module_name, ver_filter):
     return False
 
 def has_json_api_v2(env):
-    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver == 20200 else False)
+    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver >= 20200 else False)
+
+# Helper function to create numpy array vector with a specific type
+def create_np_array_typed(data, data_type='FLOAT32'):
+    if data_type == 'FLOAT32':
+        return np.array(data, dtype=np.float32)
+    if data_type == 'FLOAT64':
+        return np.array(data, dtype=np.float64)
+    return None
 
 class ConditionalExpected:
     

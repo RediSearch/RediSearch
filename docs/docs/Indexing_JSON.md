@@ -461,22 +461,10 @@ During index creation, you need to map the JSON elements to `SCHEMA` fields as f
 - Strings as `TEXT`, `TAG`, or `GEO`.
 - Numbers as `NUMERIC`.
 - Booleans as `TAG`.
-- JSON array of strings in a `TAG` field. Other types (`NUMERIC`, `GEO`, `NULL`) are not supported.
+- JSON array of strings in a `TAG`, `TEXT`, or `NUMERIC` field. Other types (`GEO`) are not supported. `null` values are ignored.
 - You cannot index JSON objects. Index the individual elements as separate attributes instead.
 - `NULL` values are ignored.
 
-### TAG not sortable
+### Sortable TAG 
 
-If you create an index for JSON documents, you cannot sort on a `TAG` field. If you try to set a `TAG` to `SORTABLE`, `FT.CREATE` will return an error:
-
-```sql
-127.0.0.1:6379> FT.CREATE itemIdx4 ON JSON PREFIX 1 item: SCHEMA $.colors.* AS colors TAG SORTABLE
-"On JSON, cannot set tag field to sortable - colors"
-```
-
-With hashes, you can use `SORTABLE` (as a side effect) to improve the performance of `FT.AGGREGATE` on `TAG` fields.
-This is possible because the value in the hash is a string, such as "black,white,silver".
-
-However with JSON, you can index an array of strings.
-Because there is no valid single textual representation of those values,
-RediSearch doesn't know how to sort the result.
+If you create an index for JSON documents with a JSONPath leading to an array or to multi values, only the first value is considered by the sort

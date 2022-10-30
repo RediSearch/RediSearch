@@ -64,6 +64,7 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
 /* Get a random key from the trie, and put the node's score in the score pointer. Returns 0 if the
  * trie is empty and we cannot do that */
 int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score);
+
 /* Commands related to the redis TrieType registration */
 int TrieType_Register(RedisModuleCtx *ctx);
 void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads);

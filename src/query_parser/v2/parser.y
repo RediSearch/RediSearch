@@ -24,7 +24,6 @@
 
 %left NUMBER.
 %left SIZE.
-%left STOPWORD.
 %left STAR.
 
 %left TAGLIST.
@@ -37,7 +36,6 @@
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
 // if "as" is not a stop-word, Or be considered as a stop-word if it is a stop-word.
-%fallback STOPWORD AS_S.
 %fallback TERM AS_T.
 
 %token_type {QueryToken}
@@ -185,6 +183,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type vector_command { QueryNode *}
 %destructor vector_command { QueryNode_Free($$); }
+
+%type vector_range_command { QueryNode *}
+%destructor vector_range_command { QueryNode_Free($$); }
 
 %type vector_attribute { SingleVectorQueryParam }
 // This destructor is commented out because it's not reachable: every vector_attribute that created
@@ -572,7 +573,11 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
 }
 
 text_expr(A) ::= param_term(B) . [LOWEST]  {
-  A = NewTokenNode_WithParams(ctx, &B);
+  if (B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len)) {
+    A = NULL;
+  } else {
+    A = NewTokenNode_WithParams(ctx, &B);
+  }
 }
 
 text_expr(A) ::= affix(B) . [PREFIX]  {
@@ -583,10 +588,6 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 A = B;
 }
 
-text_expr(A) ::= STOPWORD . [STOPWORD] {
-  A = NULL;
-}
-
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
@@ -594,13 +595,12 @@ termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
 }
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
-  A = B;
-  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+    A = B;
+    if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
+       QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+    }
 }
 
-termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
-  A = B;
-}
 
 /////////////////////////////////////////////////////////////////
 // Negative Clause
@@ -682,18 +682,6 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
   A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
 
-text_expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParams(ctx, &B, 1);
-}
-
-text_expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParams(ctx, &B, 2);
-}
-
-text_expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParams(ctx, &B, 3);
-}
-
 /////////////////////////////////////////////////////////////////
 // Field Modifiers
 /////////////////////////////////////////////////////////////////
@@ -748,11 +736,6 @@ tag_list(A) ::= param_term(B) . [TAGLIST] {
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
-tag_list(A) ::= STOPWORD(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
-}
-
 tag_list(A) ::= affix(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
@@ -775,11 +758,6 @@ tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
     C.type = QT_PARAM_TERM_CASE;
   QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
   A = B;
-}
-
-tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
-    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
-    A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
@@ -864,11 +842,7 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 
 query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid query as entire query case.
   setup_trace(ctx);
-  switch (B->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      B->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = B;
   if (A) {
     QueryNode_AddChild(B, A);
@@ -877,11 +851,7 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid quer
 
 query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid query as entire query case.
   setup_trace(ctx);
-  switch (B->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      B->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = B;
   if (A) {
     QueryNode_AddChild(B, A);
@@ -890,11 +860,9 @@ query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB . { // main parse, hybrid
 
 query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim search as entire query case.
   setup_trace(ctx);
-  switch (B->vn.vq->type) {
-    case VECSIM_QT_KNN:
-      B->vn.vq->knn.order = BY_SCORE;
-      break;
-  }
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
+  B->vn.vq->knn.order = BY_SCORE;
+
   ctx->root = B;
 }
 
@@ -935,16 +903,54 @@ vector_query(A) ::= vector_command(B). {
 }
 
 as ::= AS_T.
-as ::= AS_S.
+
 vector_score_field(A) ::= as param_term(B). {
   A = B;
 }
-vector_score_field(A) ::= as STOPWORD(B). {
-  A = B;
-  A.type = QT_TERM;
+
+// Use query attributes syntax
+query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
+  setup_trace(ctx);
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
+  ctx->root = B;
+  if (B && C) {
+     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+  }
+  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+
+  if (A) {
+      QueryNode_AddChild(B, A);
+  }
 }
 
-// Every vector query will have basic command part. Right now we only have KNN command.
+query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
+  setup_trace(ctx);
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
+  ctx->root = B;
+  if (B && C) {
+     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+  }
+  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+
+  if (A) {
+    QueryNode_AddChild(B, A);
+  }
+}
+
+query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
+  setup_trace(ctx);
+  RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
+  B->vn.vq->knn.order = BY_SCORE;
+
+  ctx->root = B;
+  if (B && C) {
+     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+  }
+  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+
+}
+
+// Every vector query will have basic command part.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
   if (!strncasecmp("KNN", T.s, T.len)) {
@@ -980,6 +986,22 @@ vector_attribute_list(A) ::= vector_attribute(B). {
   A.needResolve = array_new(bool, 1);
   A.params = array_append(A.params, B.param);
   A.needResolve = array_append(A.needResolve, B.needResolve);
+}
+
+/*** Vector range queries ***/
+expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
+    C->vn.vq->property = rm_strndup(B.s, B.len);
+    A = C;
+}
+
+vector_range_command(A) ::= TERM(T) param_num(B) ATTRIBUTE(C). {
+  if (!strncasecmp("VECTOR_RANGE", T.s, T.len)) {
+    C.type = QT_PARAM_VEC;
+    A = NewVectorNode_WithParams(ctx, VECSIM_QT_RANGE, &B, &C);
+  } else {
+    reportSyntaxError(ctx->status, &T, "Syntax error: expecting vector similarity range command");
+    A = NULL;
+  }
 }
 
 /////////////////////////////////////////////////////////////////

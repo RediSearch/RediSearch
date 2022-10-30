@@ -57,14 +57,15 @@ OS=$($READIES/bin/platform --os)
 [[ $OS == linux ]] && OS="Linux"
 
 OSNICK=$($READIES/bin/platform --osnick)
-[[ $OSNICK == trusty ]] && OSNICK=ubuntu14.04
-[[ $OSNICK == xenial ]] && OSNICK=ubuntu16.04
-[[ $OSNICK == bionic ]] && OSNICK=ubuntu18.04
+[[ $OSNICK == trusty ]]  && OSNICK=ubuntu14.04
+[[ $OSNICK == xenial ]]  && OSNICK=ubuntu16.04
+[[ $OSNICK == bionic ]]  && OSNICK=ubuntu18.04
 [[ $OSNICK == focal ]]   && OSNICK=ubuntu20.04
+[[ $OSNICK == jammy ]]   && OSNICK=ubuntu22.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
 [[ $OSNICK == ol8 ]]     && OSNICK=rhel8
-[[ $OSNICK == rocky8 ]] && OSNICK=rhel8
+[[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
 
 PLATFORM="$OS-$OSNICK-$ARCH"
 
@@ -297,3 +298,10 @@ if [[ $RAMP == 1 ]]; then
 	
 	echo "Done."
 fi
+
+if [[ $VERBOSE == 1 ]]; then
+	echo "Artifacts:"
+	du -ah --apparent-size $ARTDIR
+fi
+
+exit 0

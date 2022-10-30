@@ -4,6 +4,9 @@
 #include "varint.h"
 #include "redisearch.h"
 #include "rmalloc.h"
+#include "util/arr.h"
+#include "value.h"
+#include "rlookup.h"
 #define DEFAULT_RECORDLIST_SIZE 4
 
 #ifdef __cplusplus
@@ -17,12 +20,41 @@ void Term_Free(RSQueryTerm *t);
 recycle index hits during reads */
 void IndexResult_Init(RSIndexResult *h);
 
+static inline void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child) {
+  if (child->metrics) {
+    // Passing ownership over the RSValues in the child metrics, but not on the array itself
+    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
+    array_clear(child->metrics);
+  }
+}
+
+static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
+  RSYieldableMetric new_element = {.key = key, .value = val};
+  r->metrics = array_ensure_append_1(r->metrics, new_element);
+}
+
+static inline void ResultMetrics_Reset(RSIndexResult *r) {
+  array_foreach(r->metrics, adtnl, RSValue_Decref(adtnl.value));
+  array_clear(r->metrics);
+}
+
+static inline void ResultMetrics_Free(RSIndexResult *r) {
+  array_free_ex(r->metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
+  r->metrics = NULL;
+}
+
+/* Prepare an Index Result to be reused. Add here any relevant cleanup function */
+static inline void IndexResult_Clear(RSIndexResult *r) {
+  ResultMetrics_Free(r);
+}
+
 /* Reset the aggregate result's child vector */
 static inline void AggregateResult_Reset(RSIndexResult *r) {
 
   r->docId = 0;
   r->agg.numChildren = 0;
   r->agg.typeMask = (RSResultType)0;
+  IndexResult_Clear(r);
 }
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight);
@@ -34,7 +66,7 @@ RSIndexResult *NewVirtualResult(double weight);
 
 RSIndexResult *NewNumericResult();
 
-RSIndexResult *NewDistanceResult();
+RSIndexResult *NewMetricResult();
 
 RSIndexResult *NewHybridResult();
 
@@ -58,8 +90,9 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;
+  ResultMetrics_Concat(parent, child);
 }
-/* Create a deep copy of the results that is totall thread safe. This is very slow so use it with
+/* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
  * caution */
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
 

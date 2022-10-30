@@ -81,6 +81,9 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type,
       tbl->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
       break;
     }
+    case RS_SORTABLE_RSVAL:
+      tbl->values[idx] = (RSValue*)p;
+      break;
     case RS_SORTABLE_NIL:
     default:
       tbl->values[idx] = RS_NullVal();
