@@ -522,10 +522,10 @@ def testAggregate(env):
            'LIMIT', '0', '5'
            ]
     env.expect(*cmd).equal([292, ['$.brand', '', 'count', '1518'],
-                                  ['$.brand', 'mad catz', 'count', '43'],
-                                  ['$.brand', 'generic', 'count', '40'],
-                                  ['$.brand', 'steelseries', 'count', '37'],
-                                  ['$.brand', 'logitech', 'count', '35']])
+                                  ['$.brand', 'Mad Catz', 'count', '43'],
+                                  ['$.brand', 'Generic', 'count', '40'],
+                                  ['$.brand', 'SteelSeries', 'count', '37'],
+                                  ['$.brand', 'Logitech', 'count', '35']])
     # FIXME: Test FT.AGGREGATE params - or alternatively reuse test_aggregate.py to also run on json content
 
 @no_msan
@@ -810,6 +810,27 @@ def testMixedTagError(env):
                                                 ["bad result"],         \
                                                 {"another":"bad result"}]}'))
     env.expect('FT.SEARCH', 'idx1', '*').equal([0])
+
+@no_msan
+def testImplicitUNF(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx_json', 'ON', 'JSON', 'SCHEMA',  \
+        '$.a', 'AS', 'a', 'TEXT', 'SORTABLE',               \
+        '$.b', 'AS', 'b', 'TEXT', 'SORTABLE', 'UNF',        \
+        '$.c', 'AS', 'c', 'TEXT').ok()
+    info_res = index_info(env, 'idx_json')
+    env.assertEqual(info_res['attributes'][0][-1], 'UNF') # UNF is implicit with SORTABLE on JSON
+    env.assertEqual(info_res['attributes'][1][-1], 'UNF')
+    env.assertNotEqual(info_res['attributes'][2][-1], 'UNF')
+
+    env.expect('FT.CREATE', 'idx_hash', 'ON', 'HASH', 'SCHEMA',  \
+        '$.a', 'AS', 'a', 'TEXT', 'SORTABLE',               \
+        '$.b', 'AS', 'b', 'TEXT', 'SORTABLE', 'UNF',        \
+        '$.c', 'AS', 'c', 'TEXT').ok()
+    info_res = index_info(env, 'idx_hash')
+    env.assertNotEqual(info_res['attributes'][0][-1], 'UNF')
+    env.assertEqual(info_res['attributes'][1][-1], 'UNF')
+    env.assertNotEqual(info_res['attributes'][2][-1], 'UNF')
 
 @no_msan
 def testNotExistField(env):
