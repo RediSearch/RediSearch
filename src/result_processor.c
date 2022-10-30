@@ -149,7 +149,11 @@ void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout) {
 }
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
-  return ((RPIndexIterator *)it->rootProc)->iiter;
+  /* On coordinator, the root result processor will be a network result processor and we should ignore it */
+  if (it->rootProc->type == RP_INDEX) {
+      return ((RPIndexIterator *)it->rootProc)->iiter;
+  }
+  return NULL;
 }
 
 void QITR_PushRP(QueryIterator *it, ResultProcessor *rp) {
