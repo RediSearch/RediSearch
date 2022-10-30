@@ -2,6 +2,7 @@
 title: "Vector similarity"
 linkTitle: "Vector similarity"
 weight: 15
+math: true
 description: >
     Learn how to use vector fields and vector similarity queries
 ---
@@ -19,11 +20,11 @@ Vector similarity provides these functionalities:
 
 * Realtime vector update/delete, triggering an update of the index.
 
-* K-nearest neighbors queries supporting three distance metrics to measure the degree of similarity between vectors:
+* K-nearest neighbors queries supporting three distance metrics to measure the degree of similarity between two vectors $u$, $v$ $\in \mathbb{R}^n$ where $n$ is the length of the vectors:
 
     - L2 - Euclidean distance between two vectors
 
-         $d(u, v) = \sqrt{ \displaystyle\sum_{ki=1}^n{(u_i - v_i)^2}}$
+         $d(u, v) = \sqrt{ \displaystyle\sum_{i=1}^n{(u_i - v_i)^2}}$
 
     - IP - Internal product of two vectors
 
@@ -70,7 +71,7 @@ Here, three parameters are passed for the index (`TYPE`, `DIM`, `DISTANCE_METRIC
 
 Mandatory parameters are:
 
-* `TYPE` - Vector type. Current supported type is `FLOAT32`.
+* `TYPE` - Vector type. Current supported types are `FLOAT32` and `FLOAT64`.
     
 * `DIM` - Vector dimension specified as a positive integer.
     
@@ -82,7 +83,7 @@ Optional parameters are:
 
 * `BLOCK_SIZE` - Block size to hold `BLOCK_SIZE` amount of vectors in a contiguous array.
         This is useful when the index is dynamic with respect to addition and deletion.
-        Defaults to 1048576 (1024*1024).
+        Defaults to 1024.
 
 **Example**
 
@@ -102,7 +103,7 @@ BLOCK_SIZE 1000
 
 Mandatory parameters are:
 
-* `TYPE` - Vector type. Current supported type is `FLOAT32`.
+* `TYPE` - Vector type. Current supported types are `FLOAT32` and `FLOAT64`.
     
 * `DIM` - Vector dimension, specified as a positive integer.
     
@@ -126,7 +127,7 @@ FT.CREATE my_index2
 SCHEMA vector_field VECTOR 
 HNSW 
 14 
-TYPE FLOAT32 
+TYPE FLOAT64 
 DIM 128 
 DISTANCE_METRIC L2 
 INITIAL_CAP 1000000 

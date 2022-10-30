@@ -110,11 +110,7 @@ main := |*
     tok.pos = ts-q->raw;
     tok.len = te - ts;
     tok.s = ts;
-    if (StopWordList_Contains(q->opts->stopwords, "as", 2)) {
-      RSQuery_Parse_v2(pParser, AS_S, tok, q);
-    } else {
-      RSQuery_Parse_v2(pParser, AS_T, tok, q);
-    }
+    RSQuery_Parse_v2(pParser, AS_T, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -239,11 +235,7 @@ main := |*
     tok.s = ts;
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    if (!StopWordList_Contains(q->opts->stopwords, tok.s, tok.len)) {
-      RSQuery_Parse_v2(pParser, TERM, tok, q);
-    } else {
-      RSQuery_Parse_v2(pParser, STOPWORD, tok, q);
-    }
+    RSQuery_Parse_v2(pParser, TERM, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
