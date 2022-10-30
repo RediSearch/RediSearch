@@ -114,7 +114,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
     rv = REDISMODULE_OK;
     break;
   case JSONType_Array:
-    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC || fieldType == INDEXFLD_T_TAG) {
+    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC || fieldType == INDEXFLD_T_TAG || fieldType == INDEXFLD_T_GEO) {
       rv = REDISMODULE_OK;
     }
     break;
@@ -462,6 +462,8 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
+        case INDEXFLD_T_GEO:
+          // (initially GEO is stored as TEXT)
           rv = JSON_StoreTextInDocFieldFromArr(json, df);
           break;
         case INDEXFLD_T_VECTOR:
@@ -504,7 +506,9 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     switch (fs->types) {
       case INDEXFLD_T_TAG:
       case INDEXFLD_T_FULLTEXT:
+      case INDEXFLD_T_GEO:
         // Handling multiple values as Text
+        // (initially GEO is stored as TEXT)
         rv = JSON_StoreTextInDocFieldFromIter(len, jsonIter, df);
         break;
       case INDEXFLD_T_NUMERIC:

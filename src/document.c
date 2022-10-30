@@ -362,10 +362,15 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
    * to do it
    */
   for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
-    if (FIELD_IS_VALID(aCtx, ii) && FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) &&
-        aCtx->fdatas[ii].tags) {
-      TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
-      aCtx->fdatas[ii].tags = NULL;
+    if (FIELD_IS_VALID(aCtx, ii)) {
+      if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) && aCtx->fdatas[ii].tags) {
+        TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
+        aCtx->fdatas[ii].tags = NULL;
+      } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_GEO) && aCtx->fdatas[ii].isMulti &&
+                 aCtx->fdatas[ii].arrNumeric) {
+        array_free(aCtx->fdatas[ii].arrNumeric);
+        aCtx->fdatas[ii].arrNumeric = NULL;
+      }
     }
   }
 
@@ -620,44 +625,73 @@ FIELD_BULK_INDEXER(vectorIndexer) {
 
 FIELD_PREPROCESSOR(geoPreprocessor) {
   size_t len;
-  const char *str = NULL;
-  double lat = 0, lon = 0;
+  double lon, lat;
+  double geohash;
+  int str_count = 0;
 
   switch (field->unionType) {
     case FLD_VAR_T_GEO:
-      lon = field->lon;
-      lat = field->lat;
-      break;
-    case FLD_VAR_T_CSTR:
-    case FLD_VAR_T_RMS:
-      str = DocumentField_GetValueCStr(field, &len);
-      if (parseGeo(str, len, &lon, &lat) != REDISMODULE_OK) {
+      geohash = calcGeoHash(field->lon, field->lat);
+      if (geohash == INVALID_GEOHASH) {
         return REDISMODULE_ERR;
       }
+      fdata->isMulti = 0;
+      fdata->numeric = geohash;
+      if (FieldSpec_IsSortable(fs)) {
+        RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
+      }
+      return REDISMODULE_OK;
+    case FLD_VAR_T_CSTR:
+    case FLD_VAR_T_RMS:
+      str_count = 1;
       break;
     case FLD_VAR_T_NULL:
-      return 0;
-    case FLD_VAR_T_BLOB_ARRAY:
+      return REDISMODULE_OK;
     case FLD_VAR_T_ARRAY:
+      str_count = field->arrayLen;
+      break;
+    case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
       RS_LOG_ASSERT(0, "Oops");
   }
-  double geohash = calcGeoHash(lon, lat);
-  if (geohash == INVALID_GEOHASH) {
-    return REDISMODULE_ERR;
+  
+  const char *str = NULL;
+  if (str_count == 1) {
+    fdata->isMulti = 0;
+    str = DocumentField_GetValueCStr(field, &len);
+    if (parseGeo(str, len, &lon, &lat) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+    geohash = calcGeoHash(lon, lat);
+    if (geohash == INVALID_GEOHASH) {
+      return REDISMODULE_ERR;
+    }
+    fdata->numeric = geohash;
+  } else if (str_count > 1) {
+    arrayof(double) arr = array_new(double, str_count);
+    for (size_t i = 0; i < str_count; ++i) {
+      const char *cur_str = DocumentField_GetArrayValueCStr(field, &len, i);
+      if ((parseGeo(cur_str, len, &lon, &lat) != REDISMODULE_OK) || ((geohash = calcGeoHash(lon, lat)) == INVALID_GEOHASH)) {
+        array_free(arr);
+        return REDISMODULE_ERR;
+      }
+      array_ensure_append_1(arr, geohash);
+    }
+    str = DocumentField_GetArrayValueCStr(field, &len, 0);
+    fdata->isMulti = 1;
+    fdata->arrNumeric = arr;
   }
-  fdata->isMulti = 0;
-  fdata->numeric = geohash;
 
-  if (FieldSpec_IsSortable(fs)) {
-    if (str) {
+  if (str && FieldSpec_IsSortable(fs)) {
+    if (field->unionType != FLD_VAR_T_ARRAY) {
       RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
-    } else {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
+    } else if (field->multisv) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
+      field->multisv = NULL;
     }
   }
 
-  return 0;
+  return REDISMODULE_OK;
 }
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
