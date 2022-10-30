@@ -12,10 +12,6 @@ typedef struct FieldIndexerData {
   union {
     // Single value
     double numeric;  // i.e. the numeric value of the field
-    struct {
-      const char *geoSlon;
-      const char *geoSlat;
-    };
     char **tags;
     struct {
       const void *vector;
@@ -25,10 +21,6 @@ typedef struct FieldIndexerData {
 
     // Multi value
     arrayof(double) arrNumeric;
-    struct {
-      array_t arrGeoSlon;
-      array_t arrGeoSlat;
-    };
   };
 
 } FieldIndexerData;
@@ -79,7 +71,7 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
  *
  * This function is called with the GIL released.
  */
-typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, const DocumentField *field,
+typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, DocumentField *field,
                                 const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
 /**
