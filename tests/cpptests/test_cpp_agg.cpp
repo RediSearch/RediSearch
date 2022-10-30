@@ -28,7 +28,7 @@ TEST_F(AggTest, testBasic) {
   addDocument(ctx, spec, "doc1", "t1", "value one", (const char *)NULL);
   addDocument(ctx, spec, "doc2", "t1", "value two", (const char *)NULL);
   addDocument(ctx, spec, "doc3", "t1", "value three", (const char *)NULL);
-  RedisModuleKey *kk = RedisModule_OpenKey(ctx, RMCK::RString("doc1"), REDISMODULE_READ);
+  RedisModuleKey *kk = (RedisModuleKey *) RedisModule_OpenKey(ctx, RMCK::RString("doc1"), REDISMODULE_READ);
   ASSERT_FALSE(kk == NULL);
 
   // Ensure the key has the correct properties

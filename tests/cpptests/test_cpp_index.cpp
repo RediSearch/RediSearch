@@ -822,7 +822,7 @@ static void fillSchema(std::vector<char *> &args, size_t nfields) {
   args[0] = strdup("SCHEMA");
   size_t n = 1;
   for (unsigned i = 0; i < nfields; i++) {
-    asprintf(&args[n++], "field%u", i);
+    __ignore__(asprintf(&args[n++], "field%u", i));
     if (i % 2 == 0) {
       args[n++] = strdup("TEXT");
     } else {

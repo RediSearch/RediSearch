@@ -6,6 +6,13 @@
 #include "spec.h"
 #include "document.h"
 
+#define __ignore__(X) \
+    do { \
+        int rc = (X); \
+        if (rc == -1) \
+            ; \
+    } while(0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
