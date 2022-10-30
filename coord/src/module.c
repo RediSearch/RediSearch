@@ -492,10 +492,9 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
   if(queryNode!= NULL && queryNode->type == QN_VECTOR) {
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
-    const char* scoreField = queryVectorNode.vq->scoreField;
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
-    ctx->knn.fieldName = scoreField;
+    ctx->knn.fieldName = queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
     ctx->knn.pq = NULL;
     ctx->knn.queryNode = queryNode;
     ctx->specialCaseType = SPECIAL_CASE_KNN;
@@ -1040,7 +1039,6 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         }
       }
     }
-    heap_free(reducerSpecialCaseCtx->knn.pq);
   }
   // We can always get at most K results
   rCtx->totalReplies = heap_count(rCtx->pq);
@@ -1248,11 +1246,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
 cleanup:
   if (rCtx.pq) {
-    searchResult *sr;
-    while ((sr = heap_poll(rCtx.pq))) {
-      rm_free(sr);
-    }
-    heap_free(rCtx.pq);
+    heap_destroy(rCtx.pq);
+  }
+  if (rCtx.reduceSpecialCaseCtx &&
+      rCtx.reduceSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN &&
+      rCtx.reduceSpecialCaseCtx->knn.pq) {
+    heap_destroy(rCtx.reduceSpecialCaseCtx->knn.pq);
   }
 
   searchRequestCtx_Free(req);
