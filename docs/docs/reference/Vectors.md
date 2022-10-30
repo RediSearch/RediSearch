@@ -50,7 +50,7 @@ Where:
 
     - HNSW - Hierarchical Navigable Small World algorithm.
 
-The `{algorithm}` attribute specifies the algorithm to use when searching for the k most similar vectors in the index.
+The `{algorithm}` attribute specifies the algorithm to use when searching k most similar vectors in the index or filtering vectors by range.
 
 * `{count}` specifies the number of attributes for the index. Must be specified. 
 Notice that `{count}` counts the total number of attributes passed for the index in the   command, although algorithm parameters should be submitted as named arguments. 
@@ -141,7 +141,7 @@ EPSILON 0.8
 
 ## Indexing vectors
 
-Storing vectors in Redis Hash is done by sending a binary blob of the vector data. A common way of doing so is by using numpy with redis-py client:
+Storing vectors in Redis Hashes is done by sending a binary blob of the vector data. A common way of doing so is by using python numpy with redis-py client:
 ```py
 import numpy as np
 from redis import Redis
@@ -169,7 +169,7 @@ Unlike in hashes, vectors are stored in JSON documents as arrays (not as blobs).
 JSON.SET 1 $ '{"vec":[1,2,3,4]}'
 ```
 
-As of v2.6, RedisJson supports multi value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath.
+As of v2.6, RedisJson supports multi value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available under [Indexing JSON documents](/docs/stack/search/indexing_json) section. 
 
 **Example**
 ```
@@ -179,10 +179,12 @@ JSON.SET 1 $ '{"foo":{"vec":[1,2,3,4]}, "bar":{"vec":[5,6,7,8]}}'
 
 ## Querying vector fields
 
-You can use vector similarity queries in `FT.SEARCH` query command. To use a vector similarity query, you must specify the option `DIALECT 2` in the command itself, or set the `DEFAULT_DIALECT` option to `2` or higher, either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`. There are two types of vector queries: KNN and range
+You can use vector similarity queries in `FT.SEARCH` query command. To use a vector similarity query, you must specify the option `DIALECT 2` in the command itself, or set the `DEFAULT_DIALECT` option to `2` or higher, by either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`.
+
+There are two types of vector queries: *KNN* and *range*:
 
 ### KNN search
-The syntax for vector similarity KNN queries is `*=>[{vector similarity query}]` for running the query on an entire vector field, or `{primary filter query}=>[{vector similarity query}]` for running similarity query on the result of the primary filter query. 
+The syntax for vector similarity KNN queries is `*=>[<vector_similarity_query>]` for running the query on an entire vector field, or `<primary_filter_query>=>[<vector_similarity_query>]` for running similarity query on the result of the primary filter query. 
 
 As of version 2.4, you can use vector similarity *once* in the query, and over the entire query filter.
 
@@ -194,40 +196,54 @@ As of version 2.4, you can use vector similarity *once* in the query, and over t
 
 `"(@title:Matrix @year:[2020 2022])=>[KNN 10 @v $B]"`
 
-The `{vector similarity query}` part inside the square brackets needs to be in the following format:
+The `<vector_similarity_query>` part inside the square brackets needs to be in the following format:
 
 ```
-KNN { number | $number_attribute } @{vector field} $blob_attribute [{vector query param name} {value|$value_attribute} [...]] [ AS {score field name | $score_field_name_attribute}]
+KNN (<number> | $<number_attribute>) @<vector_field> $<blob_attribute> [<vector_query_param_name> <value>|$<value_attribute>] [...]] [ AS <dist_field_name> | $<dist_field_name_attribute>]
 ```
 
 Every `*_attribute` parameter should refer to an attribute in the [`PARAMS`](/commands/ft.search) section.
 
-* `{ number | $number_attribute }` - Number of requested results ("K").
+* `<number> | $<number_attribute>` - Number of requested results ("K").
 
-* `@{vector field}` - `vector field` should be the name of a vector field in the index.
+* `@<vector_field>` - `vector_field` should be the name of a vector field in the index.
 
-* `$blob_attribute` - An attribute that holds the query vector as blob and must be passed through the `PARAMS` section.
+* `$<blob_attribute>` - An attribute that holds the query vector as blob and must be passed through the `PARAMS` section.
 
-* `[{vector query param name} {value|$value_attribute} [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. See which [runtime parameters](/redisearch/reference/vectors#specific-runtime-attributes-per-algorithm) are valid for each algorithm.
+* `[<vector_query_param_name> <value>|$<value_attribute> [...]]` - An optional part for passing vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. See which [runtime parameters](/redisearch/reference/vectors#specific-runtime-attributes-per-algorithm) are valid for each algorithm.
 
-* `[ AS {score field name | $score_field_name_attribute}]` - An optional part for specifying a score field name, for later sorting by the similarity score. By default the score field name is "`__{vector field}_score`" and it can be used for sorting without using `AS {score field name}` in the query.
+* `[AS <dist_field_name> | $<dist_field_name_attribute>]` - An optional part for specifying a distance field name, for later sorting by the similarity metric. By default, the distance field name is "`__<vector_field>_score`" and it can be used for sorting without using `AS <dist_field_name>` in the query.
 
-As of v2.6, vector query params and distance field can be specified in [query attributes]() like syntax as well. Thus, the following format is supported as well:
+**Note:** As of v2.6, vector query params and distance field name can be specified in [query attributes](https://redis.io/docs/stack/search/reference/query_syntax/#query-attributes) like syntax as well. Thus, the following format is also supported:
+
 ```
-[KNN { number | $number_attribute } @{vector field} $blob_attribute] => { $<vector query param name> <value|$value_attribute>; [...] $yield_distance_as:<dist field name | $dist_field_name_attribute>}
+<primary_filter_query>=>[<vector_similarity_query>]=>{$<param>: (<value> | $<value_attribute>); ... }
 ```
+
+where every valid `<vector_query_param_name>` can be sent as a `$<param>`, and `$yield_distance_as` is the equivalent for `AS` with respect to specifying the optional `<dist_field_name>` (see examples below). 
+
+### Range query
+
+Range queries is a way of filtering query results by the distance between a vector field value and a query vector, in terms of the relevant vector field distance metric.  
+The syntax for range query is `@<vector_field>: [VECTOR_RANGE (<radius> | $<radius_attribute>) $<blob_attribute>]`. Range queries can appear multiple times in a query, similarly to NUMERIC and GEO clauses, and in particular they can be a part of the `<primary_filter_query>` in KNN search.
+
+* `@<vector_field>` - `vector_field` should be the name of a vector field in the index.
+
+* `<radius> | $<radius_attribute>` - A positive number that indicates the maximum distance allowed between the query vector and the vector field value.
+
+* **Range query params**: range query clause can be followed by a query attributes section as following: `@<vector_field>: [VECTOR_RANGE (<radius> | $<radius_attribute>) $<blob_attribute>]=>{$<param>: (<value> | $<value_attribute>); ... }`, where the relevant params in that case are `$yield_distance_as` and `$epsilon`. Note that there is **no default distance field name** in range queries.
 
 ## Hybrid queries
 
-Vector similarity queries of the form `{primary filter query}=>[{vector similarity query}]` are considered *hybrid queries*. RediSearch has an internal mechanism for optimizing the computation of such queries. Two modes in which hybrid queries are executed are: 
+Vector similarity KNN queries of the form `<primary_filter_query>=>[<vector_similarity_query>]` are considered *hybrid queries*. RediSearch has an internal mechanism for optimizing the computation of such queries. Two modes in which hybrid queries are executed are: 
 
-1. Batches mode - In this mode, a batch of the high-scoring documents from the vector index are retrieved. These documents are returned ONLY if `{primary filter query}` is satisfied. In other words, the document contains a similar vector and meets the filter criteria. The procedure terminates when `k` documents that pass the `{primary filter query}` are returned or after every vector in the index was obtained and processed.
+1. Batches mode - In this mode, a batch of the high-scoring documents from the vector index are retrieved. These documents are returned ONLY if `<primary_filter_query>` is satisfied. In other words, the document contains a similar vector and meets the filter criteria. The procedure terminates when `k` documents that pass the `<primary_filter_query>` are returned or after every vector in the index was obtained and processed.
     
-The *batch size* is determined by a heuristics that is based on `k`, and the ratio between the expected number of documents in the index that pass the `{primary filter query}` and the vector index size. 
+The *batch size* is determined by a heuristics that is based on `k`, and the ratio between the expected number of documents in the index that pass the `<primary_filter_query>` and the vector index size. 
 The goal of the heuristics is to minimize the total number of batches required to get the `k` results, while preserving a small batch size as possible. 
 Note that the batch size may change *dynamically* in each iteration, based on the number of results that passed the filter in previous batches.
 
-2. Ad-hoc brute-force mode - In general, this approach is preferable when the number of documents that pass the `{primary filter query}` part of the query is relatively small. 
+2. Ad-hoc brute-force mode - In general, this approach is preferable when the number of documents that pass the `<primary_filter_query>` part of the query is relatively small. 
 Here, the score of *every* vector which corresponds to a document that passes the filter is computed, and the top `k` results are selected and returned. 
 Note that the results of the KNN query will *always be accurate* in this mode, even if the underline vector index algorithm is an approximate one.
 
@@ -256,14 +272,19 @@ Optional parameters are:
 
 * `EF_RUNTIME` - The number of maximum top candidates to hold during the KNN search. Higher values of `EF_RUNTIME` will lead to a more accurate results on the expense of a longer runtime. Defaults to the `EF_RUNTIME` value passed on creation (which defaults to 10).
 
+* `EPSILON` - Relative factor that sets the boundaries in which a range query may search for candidates. That is, vector candidates whose distance from the query vector is `radius*(1 + EPSILON)` are potentially scanned, allowing more extensive search and more accurate results (on the expense of runtime). Defaults to the `EPSILON` value passed on creation (which defaults to 0.01).
+
 ## Query tips
 
-1. Although specifying `K` requested results, the default `LIMIT` in RediSearch is 10, to get all the returned results, specify `LIMIT 0 {K}` in your command.
+1. Although specifying `K` requested results in KNN search, the default `LIMIT` in RediSearch is 10, to get all the returned results, specify `LIMIT 0 <K>` in your command.
 
-2. By default, the results are sorted by their document's RediSearch score. To sort by vector similarity score, use `SORTBY {score field name}`. See examples below.
+2. By default, the results are sorted by their document's RediSearch score. To sort by some vector similarity score, use `SORTBY <dist_field_name>`. See examples below.
+
+3. It is recommended to adjust the `<radius>` parameter in range queries to the corresponding vector field distance metric and to the data itself. In particular, recall that the distance between vectors in index whose distance metric is Cosine is bounded by `2`, while L2 distance between vectors is not bounded. Hence, it is better to get a notion of what is the distance between vectors that are considered similar, and choose `<radius>` accordingly.   
 
 **Examples**
 
+* "Pure" KNN queries:
 ```
 FT.SEARCH idx "*=>[KNN 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c" DIALECT 2
 ```
@@ -281,6 +302,12 @@ FT.SEARCH idx "*=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c"
 ```
 
 ```
+FT.SEARCH idx "*=>[KNN 10 @vec $BLOB]=>{$EF_RUNTIME: $EF; $YIELD_DISTANCE_AS: my_scores}" PARAMS 4 EF 150 BLOB "\12\a9\f5\6c" SORTBY my_scores DIALECT 2
+```
+
+* Hybrid KNN queries:
+
+```
 FT.SEARCH idx "(@title:Dune @num:[2020 2022])=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores DIALECT 2
 ```
 
@@ -289,9 +316,27 @@ FT.SEARCH idx "(@type:{shirt} ~@color:{blue})=>[KNN $K @vec $BLOB AS my_scores]"
 ```
 
 ```
-FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY ADHOC_BF]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores DIALECT 2
+FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY ADHOC_BF]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY __vec_scores DIALECT 2
 ```
 
 ```
-FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY BATCHES BATCH_SIZE 50]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores DIALECT 2
+FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY BATCHES BATCH_SIZE $B_SIZE]" PARAMS 6 BLOB "\12\a9\f5\6c" K 10 B_SIZE 50 DIALECT 2
+```
+
+```
+FT.SEARCH idx "(@type:{shirt})=>[KNN 10 @vec $BLOB]=>{$HYBRID_POLICY: BATCHES; $BATCH_SIZE: 50}" PARAMS 2 BLOB "\12\a9\f5\6c" DIALECT 2
+```
+
+* Range queries:
+
+```
+FT.SEARCH idx "@vec:[VECTOR_RANGE $r $BLOB]" PARAMS 4 BLOB "\12\a9\f5\6c" r 5 DIALECT 2
+```
+
+```
+FT.SEARCH idx "@vec:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: my_scores" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY my_scores DIALECT 2
+```
+
+```
+FT.SEARCH idx "@type:{shirt} @num:[2020 2022] @vec:[VECTOR_RANGE 0.8 $BLOB]=>{$YIELD_DISTANCE_AS: my_scores}" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY my_scores DIALECT 2
 ```

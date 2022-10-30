@@ -218,10 +218,15 @@ The syntax is `(foo bar) => { $attribute: value; $attribute:value; ...}`, e.g:
 
 The supported attributes are:
 
-* **$weight**: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).
+1. **$weight**: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).
 2. **$slop**: determines the maximum allowed "slop" (space between terms) in the query clause (default: 0).
 3. **$inorder**: whether or not the terms in a query clause must appear in the same order as in the query, usually set alongside with `$slop` (default: false).
 4. **$phonetic**: whether or not to perform phonetic matching (default: true). Note: setting this attribute on for fields which were not creates as `PHONETIC` will produce an error.
+
+As of v2.6.1, the query attributes syntax supports these additional attributes:
+
+* **$yield_distance_as**: specify the distance field name for later sorting by it and/or returning it, for clauses that yield some distance metric, Currently supported for vector queries only (both KNN and range).   
+* **vector query params**: pass optional params for [vector queries](https://redis.io/docs/stack/search/reference/vectors/#querying-vector-fields) in key-value format.
 
 ## A few query examples
 
