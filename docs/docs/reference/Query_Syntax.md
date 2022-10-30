@@ -21,7 +21,7 @@ We support a simple syntax for complex queries with the following rules:
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`.
 * Range queries on vectors fields (as of v2.6) with the syntax `@field:[VECTOR_RANGE {radius} $query_vec]`, where `query_vec` is given as a query param.
-* KNN queries on vector queries with or without pre-filtering (as of v2.4) with the syntax `{filter_query}=>[KNN {num} @field $query_vec]`
+* KNN queries on vector fields with or without pre-filtering (as of v2.4) with the syntax `{filter_query}=>[KNN {num} @field $query_vec]`
 * Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tag fields|/Tags].
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher.
 * Fuzzy matching on terms (as of v1.2.0): `%hello%` means all terms with Levenshtein distance of 1 from it.
@@ -225,7 +225,7 @@ The supported attributes are:
 
 As of v2.6.1, the query attributes syntax supports these additional attributes:
 
-* **$yield_distance_as**: specify the distance field name for later sorting by it and/or returning it, for clauses that yield some distance metric, Currently supported for vector queries only (both KNN and range).   
+* **$yield_distance_as**: specify the distance field name for later sorting by it and/or returning it, for clauses that yield some distance metric. Currently, supported for vector queries only (both KNN and range).   
 * **vector query params**: pass optional params for [vector queries](https://redis.io/docs/stack/search/reference/vectors/#querying-vector-fields) in key-value format.
 
 ## A few query examples

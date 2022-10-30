@@ -115,7 +115,7 @@ For example, use this query to search for items with the word "earbuds" in the n
 1) "1"
 2) "item:2"
 3) 1) "$"
-   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[-0.7,-0.51,0.88,0.14]}"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],\"embedding\":[-0.7,-0.51,0.88,0.14]}"
 ```
 
 This query searches for all items that include "bluetooth" and "headphones" in the description:
@@ -125,10 +125,10 @@ This query searches for all items that include "bluetooth" and "headphones" in t
 1) "2"
 2) "item:1"
 3) 1) "$"
-   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],[0.87,-0.15,0.55,0.03]}"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"], \"embedding\":[0.87,-0.15,0.55,0.03]}"
 4) "item:2"
 5) 1) "$"
-   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[-0.7,-0.51,0.88,0.14]}"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],\"embedding\":[-0.7,-0.51,0.88,0.14]}"
 ```
 
 Now search for Bluetooth headphones with a price less than 70:
@@ -138,7 +138,7 @@ Now search for Bluetooth headphones with a price less than 70:
 1) "1"
 2) "item:2"
 3) 1) "$"
-   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[-0.7,-0.51,0.88,0.14]}"
+   2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],\"embedding\":[-0.7,-0.51,0.88,0.14]}"
 ```
 
 And lastly, search for the Bluetooth headphones which are the most similar to an image whose embedding is [1.0, 1.0, 1.0, 1.0]:
@@ -150,12 +150,12 @@ And lastly, search for the Bluetooth headphones which are the most similar to an
 3) 1) "__embedding_score"
    2) "1.08280003071"
    1) "$"
-   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],[0.87,-0.15,0.55,0.03]}"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"connection\":{\"wireless\":true,\"type\":\"Bluetooth\"},\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],\"embedding\":[0.87,-0.15,0.55,0.03]}"
 2) "item:2"
 3) 1) "__embedding_score"
    2) "1.54409992695"
    3) "$"
-   4) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[-0.7,-0.51,0.88,0.14]}"
+   4) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],\"embedding\":[-0.7,-0.51,0.88,0.14]}"
 ```
 
 For more information about search queries, see [Search query syntax](/docs/stack/search/reference/query_syntax).
@@ -312,14 +312,14 @@ For example, to index a vector embeddings list that correspond images of the sam
 OK
 ```
 ```sql
-127.0.0.1:6379> JSON.SET item:1 $ '{"name":"Noise-cancelling Bluetooth headphones","description":"Wireless Bluetooth headphones with noise-cancelling technology","price":99.98,"stock":25,"colors":["black","silver"],"embeddings":[[0.87,-0.15,0.55,0.03]]}'
+127.0.0.1:6379> JSON.SET item:1 $ '{"name":"Noise-cancelling Bluetooth headphones","description":"Wireless Bluetooth headphones with noise-cancelling technology","price":99.98,"stock":25,"colors":["black","silver"],"embedding":[[0.87,-0.15,0.55,0.03]]}'
 OK
 
-127.0.0.1:6379> JSON.SET item:2 $ '{"name":"Wireless earbuds","description":"Wireless Bluetooth in-ear headphones","price":64.99,"stock":17,"colors":["black","white"],"embeddings":[[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]]}'
+127.0.0.1:6379> JSON.SET item:2 $ '{"name":"Wireless earbuds","description":"Wireless Bluetooth in-ear headphones","price":64.99,"stock":17,"colors":["black","white"],"embedding":[[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]]}'
 OK
 ```
 
-Note than unlike NUMERIC type, using `$.embeddings` in the schema for VECTOR will NOT treat the field as array of vectors, so it would not trigger the vector in the array.
+Note than unlike NUMERIC type, using `$.embedding` in the schema for VECTOR will NOT treat the field as an array of vectors, so it would not trigger indexing the vectors in the array.
 
 Now, we can search for the two headphones that are most similar to an image embedding, using vector similarity search KNN query (note that vector queries are supported as of dialect 2). The distance between a document to the query vector is defined as the **minimum** distance between the query vector to a vector that match the JSONPath specified in the schema. For example:
 ```sql
@@ -329,12 +329,12 @@ Now, we can search for the two headphones that are most similar to an image embe
 3) 1) "__embedding_score"
    2) "1.08280003071"
    1) "$"
-   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],[0.87,-0.15,0.55,0.03]}"
+   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],\"embedding\":[[0.87,-0.15,0.55,0.03]]}"
 2) "item:2"
 3) 1) "__embedding_score"
    2) "0.771500051022"
    3) "$"
-   4) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]}"
+   4) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]]}"
 ```
 Note that `0.771500051022` is the L2 distance between the query vector and `[-0.8,-0.15,0.33,-0.01]`, and it is lower than the L2 distance between the query vector and `[-0.7,-0.51,0.88,0.14]`.
 

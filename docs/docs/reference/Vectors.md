@@ -8,7 +8,7 @@ description: >
 ---
 
 *Vector fields* allow you to use vector similarity queries in the `FT.SEARCH` command.
-*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in Json documents (via integration with [RedisJson module] (https://redis.io/docs/stack/json/))
+*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in JSON documents (via integration with [RedisJson module] (https://redis.io/docs/stack/json/))
 
 Vector similarity provides these functionalities:
 
@@ -225,7 +225,7 @@ where every valid `<vector_query_param_name>` can be sent as a `$<param>`, and `
 ### Range query
 
 Range queries is a way of filtering query results by the distance between a vector field value and a query vector, in terms of the relevant vector field distance metric.  
-The syntax for range query is `@<vector_field>: [VECTOR_RANGE (<radius> | $<radius_attribute>) $<blob_attribute>]`. Range queries can appear multiple times in a query, similarly to NUMERIC and GEO clauses, and in particular they can be a part of the `<primary_filter_query>` in KNN search.
+The syntax for range query is `@<vector_field>: [VECTOR_RANGE (<radius> | $<radius_attribute>) $<blob_attribute>]`. Range queries can appear multiple times in a query, similarly to NUMERIC and GEO clauses, and in particular they can be a part of the `<primary_filter_query>` in KNN Hybrid search.
 
 * `@<vector_field>` - `vector_field` should be the name of a vector field in the index.
 
