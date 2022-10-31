@@ -23,13 +23,16 @@ from RLTest import Env
 
 # transfer query to be a profile query
 def print_profile(env, query, params, optimize=False):
-	isSearch = query[0] == 'ft.search'
-	query[0] = 'ft.profile'
-	query.insert(2, 'search' if isSearch else 'aggregate')
-	query.insert(3, 'QUERY')
+	
+	isSearch = (query[0] == 'ft.search')
+	query_list = ['ft.profile']
+	query_list.append('search' if isSearch else 'aggregate')
+	query_list.append('QUERY')
+	query_list.append(*query)
+	
 	if optimize:
 		params.append('OPTIMIZE')
-	env.debugPrint(env.cmd(*query, *params))
+	env.debugPrint(env.cmd(*query_list, *params))
 
 def compare_optimized_to_not(env, query, params, msg=None):
 	not_res = env.cmd(*query, *params)
