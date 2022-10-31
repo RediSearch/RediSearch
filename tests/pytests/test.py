@@ -1700,11 +1700,11 @@ def testNoStem(env):
 
 def testSortbyMissingField(env):
     # GH Issue 131
-    # 
+    #
     env.cmd('ft.create', 'ix', 'ON', 'HASH', 'schema', 'txt',
              'text', 'num', 'numeric', 'sortable')
     env.cmd('ft.add', 'ix', 'doc1', 1.0, 'fields', 'txt', 'foo', 'noexist', 3.14)
-    
+
     env.expect('ft.search', 'ix', 'foo', 'sortby', 'num')                       \
         .equal([1, 'doc1', ['txt', 'foo', 'noexist', '3.14']])
     env.expect('ft.search', 'ix', 'foo', 'sortby', 'noexist').error()           \
@@ -2130,7 +2130,7 @@ def testTimeout(env):
                 'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
                 'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5')
     env.assertLess(len(res[1:]), num_range)
-    
+
     # test grouper
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
                'LOAD', 1, 't',
@@ -3538,7 +3538,7 @@ def test_free_resources_on_thread(env):
         conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'false')
 
     # ensure freeing resources on a 2nd thread is quicker
-    # than freeing it on the main thread    
+    # than freeing it on the main thread
     # (skip this check point on CI since it is not guaranteed)
     if not CI:
         env.assertLess(results[0], results[1])

@@ -904,7 +904,7 @@ def check_index_with_null(env, idx):
 
     res = env.execute_command('FT.SEARCH', idx, '*', 'SORTBY', "sort")
     env.assertEqual(res, expected, message = '{} * sort'.format(idx))
-    
+
     res = env.execute_command('FT.SEARCH', idx, '@sort:[1 5]', 'SORTBY', "sort")
     env.assertEqual(res, expected, message = '{} [1 5] sort'.format(idx))
 
@@ -1049,7 +1049,7 @@ def testRedisCommands(env):
     else:
         env.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
         env.execute_command('JSON.SET', 'dos:3', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
-    
+
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
 
 
