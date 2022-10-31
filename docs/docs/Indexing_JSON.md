@@ -338,7 +338,7 @@ Now, we can search for the two headphones that are most similar to an image embe
 ```
 Note that `0.771500051022` is the L2 distance between the query vector and `[-0.8,-0.15,0.33,-0.01]`, which is the second element in the embedding array, and it is lower than the L2 distance between the query vector and `[-0.7,-0.51,0.88,0.14]`, which is the first element in the embedding array.
 
-For more information on vector similarity syntax, see [Vector Fields](/redisearch/reference/vectors/#querying-vector-fields).
+For more information on vector similarity syntax, see [Vector Fields](/docs/stack/search/reference/vectors/#querying-vector-fields).
 
 ## Index JSON objects
 
