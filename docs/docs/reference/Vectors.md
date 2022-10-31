@@ -8,7 +8,7 @@ description: >
 ---
 
 *Vector fields* allow you to use vector similarity queries in the `FT.SEARCH` command.
-*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in JSON documents (via integration with [RedisJson module] (https://redis.io/docs/stack/json/))
+*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in JSON documents (via integration with [RedisJson module](https://redis.io/docs/stack/json/))
 
 Vector similarity provides these functionalities:
 
