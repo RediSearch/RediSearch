@@ -47,6 +47,9 @@ commands:
     steps:
       - checkout
       - run:
+          name: Checkout specific version
+          command: git checkout v2.6.1
+      - run:
           name: Checkout submodules
           command: git submodule update --init --recursive
 
@@ -188,12 +191,12 @@ commands:
           command: |
             ROOT=$PWD
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1
-            cd $ROOT
-            mkdir -p tests/pytests/logs
-            tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
+            make build OSNICK=<<parameters.platform>> VERSION="v2.6.1" TEST=0 OFFICIAL=1 SHOW=1
+            # cd $ROOT
+            # mkdir -p tests/pytests/logs
+            # tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
           no_output_timeout: 30m
-      - save-tests-logs
+      # - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
           name: Upload artifacts to S3
@@ -206,7 +209,7 @@ commands:
           command: |
             docker login -u redisfab -p $DOCKER_REDISFAB_PWD
             cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1
+            make publish OSNICK=<<parameters.platform>> VERSION="v2.6.1" OFFICIAL=1 SHOW=1
       - persist-artifacts
 
   vm-build-platforms-steps:
@@ -226,12 +229,12 @@ commands:
           command: |
             ROOT=$PWD
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1
-            cd $ROOT
-            mkdir -p tests/pytests/logs
-            tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
+            make build OSNICK=<<parameters.platform>> VERSION="v2.6.1" TEST=0 OFFICIAL=1 SHOW=1
+            # cd $ROOT
+            # mkdir -p tests/pytests/logs
+            # tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
           no_output_timeout: 30m
-      - save-tests-logs
+      # - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
           name: Upload artifacts to S3
@@ -244,7 +247,7 @@ commands:
           command: |
             docker login -u redisfab -p $DOCKER_REDISFAB_PWD
             cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1
+            make publish OSNICK=<<parameters.platform>> VERSION="v2.6.1" OFFICIAL=1 SHOW=1
       - persist-artifacts
 
   benchmark-automation:
@@ -294,7 +297,7 @@ commands:
             export BENCHMARK_GLOB=<< parameters.benchmark_glob >>
             export PERF_CALLGRAPH_MODE="dwarf"
             export MAX_PROFILERS=3
-            if [[ -n $CIRCLE_BRANCH ]]; then branch="$CIRCLE_BRANCH"; else branch="$CIRCLE_TAG"; fi
+            branch="v2.6.1"
             redisbench-admin run-remote \
               --module_path $(cat $ROOT/bin/REJSON_PATH) \
               --module_path $ROOT/<< parameters.module_path >> \
@@ -393,7 +396,7 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps
-      - test-steps
+      # - test-steps
       - run:
           name: Upload artifacts to S3
           command: |
@@ -539,7 +542,7 @@ jobs:
           name: Build
           shell: /bin/bash -l -eo pipefail
           command: |
-            make -C build/docker build OSNICK=bionic VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH SHOW=1
+            make -C build/docker build OSNICK=bionic VERSION="v2.6.1" SHOW=1
           no_output_timeout: 30m
       - run:
           name: Start RLEC
@@ -578,11 +581,7 @@ jobs:
           command: |
             mkdir -p bin
             ln -s ~/workspace/artifacts bin/artifacts
-            if [[ -n $CIRCLE_TAG && "<<parameters.staging-lab>>" != 1 ]]; then
-                make upload-release SHOW=1
-            else
-                make upload-release SHOW=1 STAGING=1
-            fi
+            make upload-release SHOW=1
 
   release-automation:
     docker:
@@ -594,16 +593,16 @@ jobs:
       - setup-automation
       - run:
           name: Run QA Automation (RediSearch)
-          command: ./tests/qa/qatests -m "$CIRCLE_TAG"
+          command: ./tests/qa/qatests -m "v2.6.1"
       - run:
           name: Run QA Automation (RediSearch Light)
-          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --light
+          command: ./tests/qa/qatests -m "v2.6.1" --light
       - run:
           name: Run QA Automation (RediSearch/VecSim)
-          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim
+          command: ./tests/qa/qatests -m "v2.6.1" --vecsim
       - run:
           name: Run QA Automation (RediSearch Light/VecSim)
-          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim --light
+          command: ./tests/qa/qatests -m "v2.6.1" --vecsim --light
 
 
 #----------------------------------------------------------------------------------------------------------------------------------
@@ -692,54 +691,64 @@ workflows:
   default-flow:
     jobs:
       - build-linux-debian:
-          <<: *not-on-integ-branch
+          <<: *never
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-arm-platforms:
-          <<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - coverage:
-          <<: *on-any-branch
+          <<: *never
       - sanitize:
           name: sanitize-<< matrix.san-type >>
           matrix:
             parameters:
               san-type: [address] # [address, memory]
-          <<: *on-any-branch
+          <<: *never
       - valgrind-memcheck:
           <<: *never
       - benchmark-search-oss-standalone:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *always
+          requires:
+            - upload-release-artifacts
       - benchmark-vecsim-oss-standalone:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *always
+          requires:
+            - upload-release-artifacts
       - benchmark-search-oss-cluster:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *always
+          requires:
+            - upload-release-artifacts
       - benchmark-search-oss-standalone-profiler:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *always
+          requires:
+            - upload-release-artifacts
       - benchmark-vecsim-oss-standalone-profiler:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *always
+          requires:
+            - upload-release-artifacts
       - upload-artifacts:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"
           context: common
-          <<: *on-integ-branch
+          <<: *never
           requires:
             - build-platforms
             - build-arm-platforms
@@ -747,13 +756,13 @@ workflows:
       - upload-artifacts:
           name: upload-release-artifacts
           context: common
-          <<: *on-version-tags
+          <<: *always
           requires:
             - build-platforms
             - build-arm-platforms
             - build-macos
       - release-automation:
-          <<: *on-version-tags
+          <<: *never
           context: common
           requires:
             - upload-release-artifacts
