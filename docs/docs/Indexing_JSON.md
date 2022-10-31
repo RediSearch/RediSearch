@@ -303,7 +303,7 @@ When JSONPath leads to multiple numerical values:
 
 Starting with RediSearch 2.6.0, a JSONPath leading to an array of numerical values may be indexed as VECTOR type in the index schema.
 
-If you want to index *multiple* numerical arrays as VECTOR, use a [JSONPath](https://redis.io/docs/stack/json/path/) leading to multiple numerical arrays using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
+If you want to index *multiple* numerical arrays as VECTOR, use a [JSONPath](/docs/stack/json/path/) leading to multiple numerical arrays using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
 For example, to index an array of vector embedding that corresponds images of the same product, specify the JSONPath `$.embeddings[*]` in the schema definition during index creation:
 

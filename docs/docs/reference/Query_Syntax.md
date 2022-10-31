@@ -126,7 +126,7 @@ The general syntax for hybrid query is `{some filter query}=>[ KNN {num|$num} @v
 * `@vector_field:[VECTOR_RANGE 0.5 $query_vec]` - Return every entity for which the distance between the vector stored under its @vector_field and `query_vec` is at most 0.5, in terms of @vector_field distance metric.
 
 
-As of version 2.4, we allow KNN vector search to be used **once** in the query, while, as of version 2.6, vector range filter can be used **multiple** times in a query. For more information on vector similarity syntax, see [Vector Fields](/docs/stack/search/reference/vectors/#querying-vector-fields), "Querying vector fields" and ["Examples"](https://redis.io/docs/stack/search/reference/reference/vectors/#vector-search-examples) section.
+As of version 2.4, we allow KNN vector search to be used **once** in the query, while, as of version 2.6, vector range filter can be used **multiple** times in a query. For more information on vector similarity syntax, see [Vector Fields](/docs/stack/search/reference/vectors/#querying-vector-fields), "Querying vector fields" and ["Examples"](/docs/stack/search/reference/reference/vectors/#vector-search-examples) section.
 
 ## Prefix matching
 
@@ -226,7 +226,7 @@ The supported attributes are:
 As of v2.6.1, the query attributes syntax supports these additional attributes:
 
 * **$yield_distance_as**: specify the distance field name for later sorting by it and/or returning it, for clauses that yield some distance metric. Currently, supported for vector queries only (both KNN and range).   
-* **vector query params**: pass optional params for [vector queries](https://redis.io/docs/stack/search/reference/vectors/#querying-vector-fields) in key-value format.
+* **vector query params**: pass optional params for [vector queries](/docs/stack/search/reference/vectors/#querying-vector-fields) in key-value format.
 
 ## A few query examples
 
@@ -316,4 +316,4 @@ As of v2.6.1, the query attributes syntax supports these additional attributes:
 
 The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the `dialect 2` grammar definition [at the git repo](https://github.com/RediSearch/RediSearch/blob/master/src/query_parser/v2/parser.y).
 
-You can also see the [DEFAULT_DIALECT](https://redis.io/docs/stack/search/configuring/#default_dialect) configuration parameter.
+You can also see the [DEFAULT_DIALECT](/docs/stack/search/configuring/#default_dialect) configuration parameter.

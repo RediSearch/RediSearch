@@ -8,7 +8,7 @@ description: >
 ---
 
 *Vector fields* allow you to use vector similarity queries in the `FT.SEARCH` command.
-*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in JSON documents (via integration with [RedisJson module](https://redis.io/docs/stack/json/))
+*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in JSON documents (via integration with [RedisJson module](/docs/stack/json/))
 
 Vector similarity provides these functionalities:
 
@@ -170,7 +170,7 @@ Unlike in hashes, vectors are stored in JSON documents as arrays (not as blobs).
 JSON.SET 1 $ '{"vec":[1,2,3,4]}'
 ```
 
-As of v2.6.1, RedisJson supports multi value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available under [Indexing JSON documents](https://redis.io/docs/stack/search/indexing_json/#index-json-arrays-as-text) section. 
+As of v2.6.1, RedisJson supports multi value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available under [Indexing JSON documents](/docs/stack/search/indexing_json/#index-json-arrays-as-text) section. 
 
 **Example**
 ```
@@ -203,7 +203,7 @@ The `<vector_similarity_query>` part inside the square brackets needs to be in t
 KNN (<number> | $<number_attribute>) @<vector_field> $<blob_attribute> [<vector_query_param_name> <value>|$<value_attribute>] [...]] [ AS <dist_field_name> | $<dist_field_name_attribute>]
 ```
 
-Every `*_attribute` parameter should refer to an attribute in the [`PARAMS`]( https://redis.io/commands/ft.search) section.
+Every `*_attribute` parameter should refer to an attribute in the [`PARAMS`](/commands/ft.search) section.
 
 * `<number> | $<number_attribute>` - Number of requested results ("K").
 
@@ -211,11 +211,11 @@ Every `*_attribute` parameter should refer to an attribute in the [`PARAMS`]( ht
 
 * `$<blob_attribute>` - An attribute that holds the query vector as blob and must be passed through the `PARAMS` section. The blob's byte size should match the vector field dimension and type.
 
-* `[<vector_query_param_name> <value>|$<value_attribute> [...]]` - An optional part for passing one or more vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. See which [runtime parameters](https://redis.io/docs/stack/search/reference/vectors/#runtime-attributes) are valid for each algorithm.
+* `[<vector_query_param_name> <value>|$<value_attribute> [...]]` - An optional part for passing one or more vector similarity query parameters. Parameters should come in key-value pairs and should be valid parameters for the query. See which [runtime parameters](/docs/stack/search/reference/vectors/#runtime-attributes) are valid for each algorithm.
 
 * `[AS <dist_field_name> | $<dist_field_name_attribute>]` - An optional part for specifying a distance field name, for later sorting by the similarity metric and/or returning it. By default, the distance field name is "`__<vector_field>_score`" and it can be used for sorting without using `AS <dist_field_name>` in the query.
 
-**Note:** As of v2.6, vector query params and distance field name can be specified in [query attributes](https://redis.io/docs/stack/search/reference/query_syntax/#query-attributes) like syntax as well. Thus, the following format is also supported:
+**Note:** As of v2.6, vector query params and distance field name can be specified in [query attributes](/docs/stack/search/reference/query_syntax/#query-attributes) like syntax as well. Thus, the following format is also supported:
 
 ```
 <primary_filter_query>=>[<vector_similarity_query>]=>{$<param>: (<value> | $<value_attribute>); ... }
