@@ -1066,6 +1066,7 @@ def testRedisCommands(env):
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:2'])
 
     # Test Redis EXPIRE
-    env.execute_command('EXPIRE', 'doc:2', 1)
-    time.sleep(1.1)
+    env.execute_command('PEXPIRE', 'doc:2', 1)
+    time.sleep(0.1)
+    env.expect('JSON.GET', 'doc:1', '$').equal(None)
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([0])
