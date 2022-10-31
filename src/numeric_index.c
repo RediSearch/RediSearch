@@ -378,7 +378,6 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   // will abort the next time they get execution context
   if (rv.changed) {
     t->revisionId++;
-
   }
   t->numRanges += rv.numRanges;
   t->numEntries++;
