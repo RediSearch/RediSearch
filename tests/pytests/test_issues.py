@@ -563,6 +563,7 @@ def test_mod_4207(env):
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
 
 def test_mod_4255(env):
+  env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
