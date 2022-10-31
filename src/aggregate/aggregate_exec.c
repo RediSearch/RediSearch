@@ -429,6 +429,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     goto error;
   }
 
+  RSGlobalConfig.dialects |= r->sctx->spec->dialects |= (1 << (r->dialectVersion - MIN_DIALECT_VERSION));
+
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
     if (rc != REDISMODULE_OK) {

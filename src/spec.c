@@ -1492,6 +1492,7 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
+  sp->dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;

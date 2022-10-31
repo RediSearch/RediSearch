@@ -283,6 +283,9 @@ typedef struct IndexSpec {
 
   // Count the number of times the index was used
   long long counter;
+
+  // bitmap of dialects used by this index
+  unsigned long long dialects;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

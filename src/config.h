@@ -112,6 +112,8 @@ typedef struct {
   // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
   // Default value is 100. 0 will not increment (as if all text is a continus phrase).
   unsigned int multiTextOffsetDelta;
+  // bitmap of dialects used by all indices
+  unsigned long long dialects;
 } RSConfig;
 
 typedef enum {
@@ -171,6 +173,8 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 
 void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
+void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
 #define CONCURRENT_SEARCH_POOL_DEFAULT_SIZE 20
@@ -182,6 +186,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
+#define MIN_DIALECT_VERSION 1
 #define MAX_DIALECT_VERSION 3
 
 // default configuration
@@ -200,7 +205,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
-    .vssMaxResize = 0, .multiTextOffsetDelta = 100,                                               \
+    .vssMaxResize = 0, .multiTextOffsetDelta = 100, .dialects = 0                                 \
   }
 
 #define REDIS_ARRAY_LIMIT 7

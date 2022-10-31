@@ -155,7 +155,11 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
       return REDISMODULE_ERR;
     }
     if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);
+      QueryError_SetErrorFmt(
+        status, QUERY_EPARSEARGS,
+        "DIALECT requires a non negative integer >=%u and <= %u",
+        MIN_DIALECT_VERSION, MAX_DIALECT_VERSION
+      );
       return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
