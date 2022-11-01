@@ -462,7 +462,7 @@ EXT_PORT=${EXT_PORT:-6379}
 
 RLEC_PORT=${RLEC_PORT:-12000}
 
-[[ $EXT == 1 || $EXT == run || $EXISTING_ENV == 1 ]] && PARALLEL=0
+[[ $EXT == 1 || $EXT == run || $EXISTING_ENV == 1 || $BB == 1 ]] && PARALLEL=0
 
 [[ $PARALLEL == 1 ]] && RLTEST_PARALLEL_ARG="--parallelism $($READIES/bin/nproc)"
 
@@ -494,7 +494,28 @@ fi
 E=0
 
 if [[ -z $COORD ]]; then
+	MODARGS="timeout 0;"
+	
 	{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
+
+	if [[ $QUICK != 1 ]]; then
+		{ (MODARGS="${MODARGS}; CONCURRENT_WRITE_MODE;" \
+			run_tests "with Concurrent write mode"); (( E |= $? )); } || true
+
+		{ (MODARGS="${MODARGS}; _MAX_RESULTS_TO_UNSORTED_MODE 1;" \
+			run_tests "MAX_RESULTS_TO_UNSORTED_MODE=1"); (( E |= $? )); } || true
+
+		{ (MODARGS="${MODARGS}; UNION_ITERATOR_HEAP 1;" \
+			run_tests "with Union iterator heap"); (( E |= $? )); } || true
+
+		if [[ $COV != 1 ]]; then
+			{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
+				run_tests "RAW_DOCID_ENCODING"); (( E |= $? )); } || true
+		fi
+
+		{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
+			run_tests "with Dialect v2"); (( E |= $? )); } || true
+	fi
 
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --env-reuse --shards-count $SHARDS"

@@ -1,51 +1,7 @@
 
-ifeq (n,$(findstring n,$(firstword -$(MAKEFLAGS))))
-DRY_RUN:=1
-else
-DRY_RUN:=
-endif
-
 ifneq ($(BB),)
 SLOW:=1
 endif
-
-ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
-COV=1
-endif
-
-ifneq ($(VG),)
-VALGRIND=$(VG)
-endif
-
-ifeq ($(VALGRIND),1)
-override DEBUG ?= 1
-endif
-
-ifneq ($(SAN),)
-override DEBUG ?= 1
-
-ifeq ($(SAN),mem)
-override SAN=memory
-else ifeq ($(SAN),addr)
-override SAN=address
-endif
-
-ifeq ($(SAN),address)
-CMAKE_SAN=-DUSE_ASAN=ON
-export REDIS_SERVER ?= redis-server-asan-6.2
-
-else ifeq ($(SAN),memory)
-CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
-export REDIS_SERVER ?= redis-server-msan-6.2
-
-else ifeq ($(SAN),leak)
-else ifeq ($(SAN),thread)
-else
-$(error SAN=mem|addr|leak|thread)
-endif
-
-export SAN
-endif # SAN
 
 #----------------------------------------------------------------------------------------------
 
@@ -227,6 +183,10 @@ endif
 
 STATIC_LIBSTDCXX ?= 1
 
+export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)
+
+#----------------------------------------------------------------------------------------------
+
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
 endif
@@ -286,7 +246,11 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
-export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)
+ifeq ($(SAN),address)
+CMAKE_SAN=-DUSE_ASAN=ON
+else ifeq ($(SAN),memory)
+CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
+endif
 
 #----------------------------------------------------------------------------------------------
 
@@ -431,8 +395,7 @@ endif # DEPS
 
 setup:
 	@echo Setting up system...
-	$(SHOW)./deps/readies/bin/getpy3
-	$(SHOW)./sbin/system-setup.py 
+	$(SHOW)./sbin/setup
 
 #----------------------------------------------------------------------------------------------
 
@@ -489,22 +452,24 @@ export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 ifeq ($(SLOW),1)
 _RLTEST_PARALLEL=0
 else
-# _RLTEST_PARALLEL=1
-_RLTEST_PARALLEL=8
+_RLTEST_PARALLEL=1
+# _RLTEST_PARALLEL=8
 endif
 
-test: $(REJSON_SO)
-ifneq ($(TEST),)
-	$(SHOW) $(CTEST_DEFS) TEST=$(TEST) $(ROOT)/sbin/ctest
-else
-	$(SHOW)$(CTEST_DEFS) $(ROOT)/sbin/ctest
-ifeq ($(COORD),oss)
-	$(SHOW)$(FLOW_TESTS_DEFS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
-endif
-endif
+#test: $(REJSON_SO)
+#ifneq ($(TEST),)
+#	$(SHOW) $(CTEST_DEFS) TEST=$(TEST) $(ROOT)/sbin/ctest
+#else
+#	$(SHOW)$(CTEST_DEFS) $(ROOT)/sbin/ctest
+#ifeq ($(COORD),oss)
+#	$(SHOW)$(FLOW_TESTS_DEFS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+#endif
+#endif
+
+test: c_tests cpp_tests pytest
 
 pytest: $(REJSON_SO)
-	$(SHOW)REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) \
+	$(SHOW)REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL1=$(_RLTEST_PARALLEL) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
