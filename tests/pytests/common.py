@@ -273,7 +273,7 @@ def module_ver_filter(env, module_name, ver_filter):
     return False
 
 def has_json_api_v2(env):
-    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver == 20200 else False)
+    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver >= 20200 else False)
 
 # Helper function to create numpy array vector with a specific type
 def create_np_array_typed(data, data_type='FLOAT32'):
@@ -284,7 +284,7 @@ def create_np_array_typed(data, data_type='FLOAT32'):
     return None
 
 class ConditionalExpected:
-    
+
     def __init__(self, env, cond):
         self.env = env
         self.cond_val = cond(env)
