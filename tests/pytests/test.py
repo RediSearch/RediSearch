@@ -3601,3 +3601,15 @@ def test_MOD_4290(env):
         conn.execute_command('hset', 'doc%d' % i, 't', 'foo')
     env.execute_command('FT.PROFILE', 'idx', 'aggregate', 'query', '*', 'LIMIT', '0', '1')
     env.expect('ping').equal(True) # make sure environment is still up */
+
+def test_missing_schema(env):
+    # MOD-4388: assert on sp->indexer
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'foo', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx2', 'TEMPORARY', 1000, 'foo', 'bar').error().contains('Unknown argument `foo`')
+    # make sure the index succeecfully index new docs
+    conn.execute_command('HSET', 'doc1', 'foo', 'bar')
+    env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
+    env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
