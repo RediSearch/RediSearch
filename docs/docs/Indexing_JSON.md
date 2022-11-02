@@ -35,7 +35,7 @@ Use the following syntax to create a JSON index:
 FT.CREATE {index_name} ON JSON SCHEMA {json_path} AS {attribute} {type}
 ```
 
-For example, this command creates an index that indexes the name, description, price and image vector embedding of each JSON document that represents an inventory item:
+For example, this command creates an index that indexes the name, description, price, and image vector embedding of each JSON document that represents an inventory item:
 
 ```sql
 127.0.0.1:6379> FT.CREATE itemIdx ON JSON PREFIX 1 item: SCHEMA $.name AS name TEXT $.description as description TEXT $.price AS price NUMERIC $.embedding AS embedding VECTOR FLAT 6 DIM 4 DISTNACE_METRIC L2 TYPE FLOAT32
@@ -141,7 +141,7 @@ Now search for Bluetooth headphones with a price less than 70:
    2) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"connection\":{\"wireless\":true,\"connection\":\"Bluetooth\"},\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],\"embedding\":[-0.7,-0.51,0.88,0.14]}"
 ```
 
-And lastly, search for the Bluetooth headphones which are the most similar to an image whose embedding is [1.0, 1.0, 1.0, 1.0]:
+And lastly, search for the Bluetooth headphones that are most similar to an image whose embedding is [1.0, 1.0, 1.0, 1.0]:
 
 ```sql
 127.0.0.1:6379> FT.SEARCH itemIdx '@description:(bluetooth headphones)=>[KNN 2 @embedding $blob]' PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2  
@@ -321,7 +321,8 @@ OK
 
 Note than unlike NUMERIC type, using `$.embedding` in the schema for VECTOR will NOT treat the field as an array of vectors, so it will cause indexing failure.
 
-Now, we can search for the two headphones that are most similar to an image embedding, using vector similarity search KNN query (note that vector queries are supported as of dialect 2). The distance between a document to the query vector is defined as the **minimum** distance between the query vector to a vector that matches the JSONPath specified in the schema. For example:
+Now you can search for the two headphones that are most similar to an image embedding by using vector similarity search KNN query. (Note that the vector queries are supported as of dialect 2.) The distance between a document to the query vector is defined as the minimum distance between the query vector to a vector that matches the JSONPath specified in the schema. For example:
+
 ```sql
 127.0.0.1:6379> FT.SEARCH itemIdx5 '*=>[KNN 2 @embeddings $blob]' PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2
 1) "2"
@@ -338,7 +339,7 @@ Now, we can search for the two headphones that are most similar to an image embe
 ```
 Note that `0.771500051022` is the L2 distance between the query vector and `[-0.8,-0.15,0.33,-0.01]`, which is the second element in the embedding array, and it is lower than the L2 distance between the query vector and `[-0.7,-0.51,0.88,0.14]`, which is the first element in the embedding array.
 
-For more information on vector similarity syntax, see [Vector Fields](/docs/stack/search/reference/vectors/#querying-vector-fields).
+For more information on vector similarity syntax, see [Vector fields](/docs/stack/search/reference/vectors/#querying-vector-fields).
 
 ## Index JSON objects
 

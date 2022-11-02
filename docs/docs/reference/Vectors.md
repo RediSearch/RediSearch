@@ -8,7 +8,7 @@ description: >
 ---
 
 *Vector fields* allow you to use vector similarity queries in the `FT.SEARCH` command.
-*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in JSON documents (via integration with [RedisJson module](/docs/stack/json/))
+*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in JSON documents (via integration with [RedisJSON module](/docs/stack/json/))
 
 Vector similarity provides these functionalities:
 
@@ -141,8 +141,8 @@ EPSILON 0.8
 
 ## Indexing vectors
 
-### Storing vectors in Hash
-Storing vectors in Redis Hashes is done by sending a binary blob of the vector data. A common way of doing so is by using python numpy with redis-py client:
+### Storing vectors in hashes
+Storing vectors in Redis hashes is done by sending a binary blob of vector data. A common way of doing so is by using python numpy with redis-py client:
 ```py
 import numpy as np
 from redis import Redis
@@ -155,7 +155,8 @@ dim = 128
 np_vector = np.random.rand(dim).astype(np.float32)
 redis_conn.hset('key', mapping = {vector_field: np_vector.tobytes()})
 ```
-Note that vector blob size must match the vector field dimension and type specified in the schema, otherwise the indexing will fail in the background.  
+Note that the vector blob size must match the vector field dimension and type specified in the schema, otherwise the indexing will fail in the background.  
+
 ### Storing vectors in JSON
 Vector fields are supported upon indexing fields of JSON documents as well:
 
@@ -170,7 +171,7 @@ Unlike in hashes, vectors are stored in JSON documents as arrays (not as blobs).
 JSON.SET 1 $ '{"vec":[1,2,3,4]}'
 ```
 
-As of v2.6.1, RedisJson supports multi value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available under [Indexing JSON documents](/docs/stack/search/indexing_json/#index-json-arrays-as-text) section. 
+As of v2.6.1, RedisJSON supports multi-value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available in the [Indexing JSON documents](/docs/stack/search/indexing_json/#index-json-arrays-as-text) section. 
 
 **Example**
 ```
@@ -180,7 +181,7 @@ JSON.SET 1 $ '{"foo":{"vec":[1,2,3,4]}, "bar":{"vec":[5,6,7,8]}}'
 
 ## Querying vector fields
 
-You can use vector similarity queries in `FT.SEARCH` query command. To use a vector similarity query, you must specify the option `DIALECT 2` in the command itself, or set the `DEFAULT_DIALECT` option to `2` or higher, by either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`.
+You can use vector similarity queries in the `FT.SEARCH` query command. To use a vector similarity query, you must specify the option `DIALECT 2` in the command itself, or set the `DEFAULT_DIALECT` option to `2` or higher, by either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`.
 
 There are two types of vector queries: *KNN* and *range*:
 
@@ -283,7 +284,7 @@ Optional parameters are:
 
 2. By default, the results are sorted by their document's RediSearch score. To sort by some vector similarity score, use `SORTBY <dist_field_name>`. See examples below.
 
-3. It is recommended to adjust the `<radius>` parameter in range queries to the corresponding vector field distance metric and to the data itself. In particular, recall that the distance between vectors in index whose distance metric is Cosine is bounded by `2`, while L2 distance between vectors is not bounded. Hence, it is better to get a notion of what is the distance between vectors that are considered similar, and choose `<radius>` accordingly.   
+3. It is recommended to adjust the `<radius>` parameter in range queries to the corresponding vector field distance metric and to the data itself. In particular, recall that the distance between the vectors in an index whose distance metric is Cosine is bounded by `2`, while L2 distance between the vectors is not bounded. Hence, it is better to consider the distance between the vectors that are considered similar and choose `<radius>` accordingly.   
 
 {{% /alert %}}
 

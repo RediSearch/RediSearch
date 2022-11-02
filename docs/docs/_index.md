@@ -9,7 +9,7 @@ type: docs
 [![Github](https://img.shields.io/static/v1?label=&message=repository&color=5961FF&logo=github)](https://github.com/RediSearch/RediSearch/)
 
 
-RediSearch is a [source-available](https://github.com/RediSearch/RediSearch/blob/master/LICENSE) Redis module that enables querying, secondary indexing, and full-text search for Redis. These features enable multi-field queries, [aggregation](/docs/stack/search/reference/aggregations), exact phrase matching, [numeric filtering](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query), [geo filtering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) and [vector similarity sematic search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) on top of text queries.
+RediSearch is a [source-available](https://github.com/RediSearch/RediSearch/blob/master/LICENSE) Redis module that enables querying, secondary indexing, and full-text search for Redis. These features enable multi-field queries, [aggregation](/docs/stack/search/reference/aggregations), exact phrase matching, [numeric filtering](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query), [geo filtering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) and [vector similarity semantic search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) on top of text queries.
 
 ## Quick links
   - [Quick start guide](/redisearch/quick_start)
@@ -37,7 +37,7 @@ RediSearch supports the following features:
 * Support for custom functions for query expansion and scoring (see [Extensions](/docs/stack/search/reference/extensions))
 * [Numeric filters](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query) and ranges
 * [Geofiltering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) using Redis [geo commands](/commands/?group=geo)
-* [Vector similarity search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) for sematic search using exact and approximate algorithms
+* [Vector similarity search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) for semantic search using exact and approximate algorithms
 * Unicode support (UTF-8 input required)
 * Retrieval of full document contents or only their IDs
 * Document deletion and updating with index garbage collection
