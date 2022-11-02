@@ -3572,3 +3572,14 @@ def test_mod_4200(env):
         env.expect('ft.add', 'idx', 'doc%i' % i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '((~foo) foo) | ((~foo) foo)', 'LIMIT', '0', '0').equal([1001])
 
+def test_missing_schema(env):
+    # MOD-4388: assert on sp->indexer
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'foo', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx2', 'TEMPORARY', 1000, 'foo', 'bar').error().contains('Unknown argument `foo`')
+    # make sure the index succeecfully index new docs
+    conn.execute_command('HSET', 'doc1', 'foo', 'bar')
+    env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
+    env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
