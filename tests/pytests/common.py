@@ -284,7 +284,7 @@ def create_np_array_typed(data, data_type='FLOAT32'):
     return None
 
 class ConditionalExpected:
-    
+
     def __init__(self, env, cond):
         self.env = env
         self.cond_val = cond(env)
