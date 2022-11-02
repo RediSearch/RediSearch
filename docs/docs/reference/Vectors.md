@@ -75,7 +75,7 @@ Mandatory parameters are:
     
 * `DIM` - Vector dimension specified as a positive integer.
     
-* `DISTANCE_METRIC` - Supported distance metric, one of `{`L2`, `IP`, `COSINE`}`.
+* `DISTANCE_METRIC` - Supported distance metric, one of {`L2`, `IP`, `COSINE`}.
 
 Optional parameters are:
 
@@ -107,7 +107,7 @@ Mandatory parameters are:
     
 * `DIM` - Vector dimension, specified as a positive integer.
     
-* `DISTANCE_METRIC` - Supported distance metric, one of `{`L2`, `IP`, `COSINE`}.
+* `DISTANCE_METRIC` - Supported distance metric, one of {`L2`, `IP`, `COSINE`}.
 
 Optional parameters are:
 
