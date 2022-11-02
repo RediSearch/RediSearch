@@ -895,10 +895,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
 
     if (FieldSpec_IsSortable(fs)) {
-      if (fs->types & INDEXFLD_T_TAG && isSpecJson(sp)) {
-        QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
-                               "On JSON, cannot set tag field to sortable - %s", fieldName);
-        goto reset;
+      if (isSpecJson(sp)) {
+        // SORTABLE JSON field is always UNF
+        fs->options |= FieldSpec_UNF;
       }
 
       if (fs->options & FieldSpec_Dynamic) {
@@ -1055,6 +1054,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
+  spec->flags &= ~Index_Temporary;
   IndexSpec_Free(spec);
   return NULL;
 }
