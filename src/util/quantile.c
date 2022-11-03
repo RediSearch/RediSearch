@@ -170,7 +170,6 @@ static void QS_Flush(QuantStream *stream) {
   // Both the buffer and the samples are ordered. We use the first sample, and
   // insert
   Sample *pos = stream->firstSample;
-  size_t posNum = 0;
 
   for (size_t ii = 0; ii < stream->bufferLength; ++ii) {
     double curBuf = stream->buffer[ii];
@@ -183,15 +182,12 @@ static void QS_Flush(QuantStream *stream) {
 
       if (pos->v > curBuf) {
         newSample->d = floor(QS_GetMaxVal(stream, r)) - 1;
-        // printf("[Is=%lu, Ip=%lu, R=%lf] Delta: %lf\n", ii, posNum++, r, newSample->d);
         QS_InsertSampleAt(stream, pos, newSample);
         inserted = 1;
         break;
       }
-      // printf("Sample %f: Pos->G: %lf, Pos->Value: %lf\n", curBuf, pos->g, pos->v);
       r += pos->g;
       pos = pos->next;
-      posNum++;
     }
 
     if (!inserted) {
@@ -224,7 +220,6 @@ static void QS_Compress(QuantStream *stream) {
 
   Sample *cur = stream->lastSample->prev;
   double r = stream->n - 1 - stream->lastSample->g;
-  size_t ii = 0;
 
   while (cur) {
     Sample *nextCur = cur->prev;
@@ -236,7 +231,6 @@ static void QS_Compress(QuantStream *stream) {
     }
     r -= gCur;
     cur = nextCur;
-    ii++;
   }
 }
 
