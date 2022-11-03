@@ -2597,6 +2597,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   }
   Indexes_Free(specDict_g);
   Dictionary_Clear();
+  RSGlobalConfig.dialects = 0;
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {

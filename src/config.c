@@ -892,7 +892,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
   for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
     char field[16] = {0};
     snprintf(field, sizeof field, "dialect_%d", dialect);
-    RedisModule_InfoAddFieldULongLong(ctx, field, RSGlobalConfig.dialects & (1 << (dialect - MIN_DIALECT_VERSION)));
+    RedisModule_InfoAddFieldULongLong(ctx, field, !!(RSGlobalConfig.dialects & (1 << (dialect - MIN_DIALECT_VERSION))));
   }
 }
 

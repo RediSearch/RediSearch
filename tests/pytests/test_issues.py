@@ -561,3 +561,38 @@ def test_mod_4207(env):
 
   env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
+
+def test_mod_4232(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'business', 'TEXT')
+  env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')
+  conn.execute_command('HSET', 'addr:1', 'business', 'foo', 'country', 'USA')
+
+  env.cmd('FT.SEARCH', 'idx1', '*', 'NOCONTENT', 'DIALECT', 3)
+  rv = env.cmd('FT.INFO', 'idx1')
+  assert rv[53][0] == 'dialect 1'
+  assert rv[53][1] == False
+  assert rv[53][2] == 'dialect 2'
+  assert rv[53][3] == False
+  assert rv[53][4] == 'dialect 3'
+  assert rv[53][5] == True
+
+  rv = env.cmd('FT.INFO', 'idx2')
+  assert rv[53][0] == 'dialect 1'
+  assert rv[53][1] == False
+  assert rv[53][2] == 'dialect 2'
+  assert rv[53][3] == False
+  assert rv[53][4] == 'dialect 3'
+  assert rv[53][5] == False
+
+  rv = env.cmd('INFO', 'MODULES')
+  assert rv['search_dialect_1'] == False
+  assert rv['search_dialect_2'] == False
+  assert rv['search_dialect_3'] == True
+
+  env.cmd('FLUSHALL')
+  rv = env.cmd('INFO', 'MODULES')
+  assert rv['search_dialect_1'] == False
+  assert rv['search_dialect_2'] == False
+  assert rv['search_dialect_3'] == False
