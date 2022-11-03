@@ -171,18 +171,18 @@ def testMultiNonNumericNested(env):
     conn = getConnectionByEnv(env)
 
     non_numeric_dict = json.loads(doc_non_numeric_content)
-    
+
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr NUMERIC
     for (i,v) in enumerate(non_numeric_dict.values()):
         conn.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'NUMERIC')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_numeric_content)
-    
+
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_numeric_dict.values()):
         res_failures = 0 if i+1 <= 5 else 1
         env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
-    
+
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])

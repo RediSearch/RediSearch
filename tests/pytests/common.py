@@ -242,7 +242,7 @@ def no_asan(f):
 def unstable(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
-        if ONLY_STABLE:
+        if UNSTABLE == True:
             fname = f.__name__
             env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
             env.skip()
@@ -284,7 +284,7 @@ def create_np_array_typed(data, data_type='FLOAT32'):
     return None
 
 class ConditionalExpected:
-    
+
     def __init__(self, env, cond):
         self.env = env
         self.cond_val = cond(env)
