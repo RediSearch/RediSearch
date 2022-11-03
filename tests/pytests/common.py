@@ -11,7 +11,8 @@ import platform
 import itertools
 from redis.client import NEVER_DECODE
 import RLTest
-
+from typing import Any, Callable
+from RLTest.env import Query
 from includes import *
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
@@ -81,11 +82,14 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
-def assertInfoField(env, idx, field, expected):
+def assertInfoField(env, idx, field, expected, delta=0):
     if not env.isCluster():
         res = env.cmd('ft.info', idx)
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-        env.assertEqual(d[field], expected)
+        if delta is 0:
+            env.assertEqual(d[field], expected)
+        else:
+            env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
 
 def sortedResults(res):
     n = res[0]
