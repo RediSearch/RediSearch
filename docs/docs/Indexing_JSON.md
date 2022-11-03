@@ -301,7 +301,7 @@ When JSONPath leads to multiple numerical values:
 
 ## Index JSON arrays as VECTOR
 
-Starting with RediSearch 2.6.0, a JSONPath leading to an array of numerical values may be indexed as VECTOR type in the index schema.
+Starting with RediSearch 2.6.0, a JSONPath leading to an array of numeric values may be indexed as VECTOR type in the index schema.
 
 If you want to index *multiple* numeric arrays as VECTOR, use a [JSONPath](/docs/stack/json/path/) leading to multiple numeric arrays using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
@@ -319,7 +319,11 @@ OK
 OK
 ```
 
-Note than unlike NUMERIC type, using `$.embedding` in the schema for VECTOR will NOT treat the field as an array of vectors, so it will cause indexing failure.
+{{% alert title="Important note" color="info" %}}
+
+Unlike NUMERIC type, using a static path such as `$.embedding` in the schema for VECTOR type will **not allow indexing multiple vectors** stored under that field. Hence, had `$.embedding` was the path given to the index schema, specifying array of vectors under the `embedding` field in the JSON will cause indexing failure.
+
+{{% /alert %}}
 
 Now you can search for the two headphones that are most similar to an image embedding by using vector similarity search KNN query. (Note that the vector queries are supported as of dialect 2.) The distance between a document to the query vector is defined as the minimum distance between the query vector to a vector that matches the JSONPath specified in the schema. For example:
 
