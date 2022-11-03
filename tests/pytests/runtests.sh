@@ -236,7 +236,7 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-REJSON_BRANCH=${REJSON_BRANCH:-2.2}
+REJSON_BRANCH=${REJSON_BRANCH:-master}
 
 if [[ -n $REJSON && $REJSON != 0 ]]; then
 	if [[ -n $REJSON_PATH ]]; then

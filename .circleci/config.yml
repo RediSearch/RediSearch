@@ -696,11 +696,13 @@ workflows:
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
-              platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye]
+              #@@platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye]
+              platform: [focal, centos7]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -709,7 +711,8 @@ workflows:
               platform: [jammy, focal, bionic]
       - build-macos:
           context: common
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *always
       - coverage:
           <<: *on-any-branch
       - sanitize:
