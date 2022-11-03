@@ -19,9 +19,11 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		OSNICK=nick   Operate on packages for given OSNICK (default: host)
 
 		RELEASE=1     Upload release artifacts
+		STAGING=1     Upload into staging area
 
 		FORCE=1       Allow uploading outside of CI
 		NOP=1         No operation
+		VERBOSE=1     Show artifacts details
 		HELP=1        Show help
 
 	END
@@ -41,6 +43,7 @@ OS=$($READIES/bin/platform --os)
 [[ $OSNICK == xenial ]] && OSNICK=ubuntu16.04
 [[ $OSNICK == bionic ]] && OSNICK=ubuntu18.04
 [[ $OSNICK == focal ]] && OSNICK=ubuntu20.04
+[[ $OSNICK == jammy ]] && OSNICK=ubuntu22.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
 [[ $OSNICK == ol8 ]]     && OSNICK=rhel8
@@ -89,14 +92,14 @@ s3_upload_file() {
 	local s3_dir="$2"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
 	
-	$OP python3 -m awscli s3 cp $file $s3_dir --acl public-read --no-progress
+	$OP aws s3 cp $file $s3_dir --acl public-read --no-progress
 }
 
 s3_ls() {
 	local s3_dir="$1"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
 	
-	$OP python3 -m awscli s3 ls $s3_dir
+	$OP aws s3 ls $s3_dir
 }
 
 s3_upload() {
