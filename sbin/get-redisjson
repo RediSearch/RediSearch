@@ -28,7 +28,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 	exit 0
 fi
 
-BRANCH=${BRANCH:-master}
+BRANCH=${BRANCH:-2.2}
 
 OP=""
 [[ $NOP == 1 ]] && OP=echo
@@ -54,9 +54,11 @@ else
 
 	[[ $os == linux ]] && os=Linux
 	[[ $arch == x64 ]] && arch=x86_64
-	
+
 	if [[ $dist == "ubuntu" ]]; then
-		if [[ $nick == "focal" ]]; then
+		if [[ $nick == "jammy" ]]; then
+			nick="ubuntu22.04"
+		elif [[ $nick == "focal" ]]; then
 			nick="ubuntu20.04"
 		elif [[ $nick == "bionic" ]]; then
 			nick="ubuntu18.04"
