@@ -168,7 +168,7 @@ Now you can search for silver headphones:
 ## Index JSON arrays as TEXT
 Starting with RediSearch 2.6.0, full text search can be done on array of strings or on a JSONPath leading to multiple strings.
 
-If you want to index multiple string values as TEXT, either use a JSONPath leading to a single array of strings, or a JSONPath leading to multiple string values, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
+If you want to index multiple string values as TEXT, use either a JSONPath leading to a single array of strings, or a JSONPath leading to multiple string values, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
 To index an item's list of available `colors`, specify the JSONPath `$.colors` in the `SCHEMA` definition during index creation:
 
@@ -230,7 +230,7 @@ This predefined value is set by `RediSearch` configuration parameter `MULTI_TEXT
 
 Starting with RediSearch 2.6.1, search can be done on an array of numerical values or on a JSONPath leading to multiple numerical values.
 
-If you want to index multiple numerical values as NUMERIC, either use a JSONPath leading to a single array of numbers, or a JSONPath leading to multiple numbers, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
+If you want to index multiple numerical values as NUMERIC, use either a JSONPath leading to a single array of numbers, or a JSONPath leading to multiple numbers, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
 For example, let's add to the item's list the available `max_level` of volume (in decibels):
 ```sql
@@ -288,7 +288,7 @@ Prior to RediSearch 2.6.1, only a single geo value was supported per GEO attribu
 
 With RediSearch 2.6.1, a JSON array of such geo values is also supported.
 
-In order to index multiple geo values, either use a JSONPath leading to a single array of geo values, or a JSONPath leading to multiple geo values, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
+In order to index multiple geo values, user either a JSONPath leading to a single array of geo values, or a JSONPath leading to multiple geo values, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
    - `null` values are skipped
    - Other values cause an indexing failure (bool, number, object, array, wrongly formatted GEO string, invalid coordinates)
