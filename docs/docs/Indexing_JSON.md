@@ -335,7 +335,7 @@ To index the `location` geo array, specify the JSONPath `$.location` in the `SCH
 OK
 ```
 
-Now we can search for a vendor which is close by to a specific location. For example, a customer is located at geo coordinates 34.5,31.5 and we want to get the vendors which are within the range of 40 km from our location:
+Now we can search for a vendor close to a specific location. For example, a customer is located at geo coordinates 34.5,31.5 and we want to get the vendors that are within the range of 40 km from our location:
 
 ```sql
 127.0.0.1:6379> FT.SEARCH vendorIdx '@loc:[34.5 31.5 40 km]' return 1 $.id
