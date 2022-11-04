@@ -245,7 +245,7 @@ def no_asan(f):
 def unstable(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
-        if ONLY_STABLE:
+        if UNSTABLE == True:
             fname = f.__name__
             env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
             env.skip()
@@ -322,7 +322,7 @@ def compare_lists_rec(var1, var2, delta):
             if res is False:
                 return False
 
-    elif isinstance(var1, float):   
+    elif isinstance(var1, float):
         diff = var1 - var2
         if diff < 0:
             diff = -diff
@@ -336,13 +336,13 @@ def compare_lists_rec(var1, var2, delta):
                 diff = -diff
         except:
             return var1 == var2
-        
+
         #print("var1 {} var2 {} diff {} delta {}".format(var1, var2, diff, delta))
-        return diff <= delta       
+        return diff <= delta
 
     else: # int() | bool() | None:
         return var1 == var2
-    
+
     return True
 
 def compare_lists(env, list1, list2, delta=0.01, _assert=True):
