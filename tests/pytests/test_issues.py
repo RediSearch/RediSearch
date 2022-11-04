@@ -271,11 +271,11 @@ def testMemAllocated(env):
   # mass
   env.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
   for i in range(1000):
-    conn.execute_command('HSET', 'doc%d' % i, 't', 'text%d' % i)
+    conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
   assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031')
 
   for i in range(1000):
-    conn.execute_command('DEL', 'doc%d' % i)
+    conn.execute_command('DEL', f'doc{i}')
   assertInfoField(env, 'idx2', 'key_table_size_mb', '0')
 
 def testUNF(env):
@@ -554,6 +554,7 @@ def testDeleteIndexes(env):
   env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
 
 def test_mod_4255(env):
+  env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -580,7 +581,7 @@ def test_mod_4255(env):
   res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
   cursor = res[1]
   for i in range(3, 1001, 1):
-      conn.execute_command('HSET', 'doc%i' % i, 'test', str(i))
+      conn.execute_command('HSET', f'doc{i}', 'test', str(i))
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
   env.assertEqual(res[0] ,[1, ['test', '2']])
   env.assertNotEqual(cursor ,0)
@@ -591,7 +592,7 @@ def test_mod_4255(env):
   cursor = res[1]
   env.assertNotEqual(cursor ,0)
   for i in range(3, 1001, 1):
-    env.cmd('DEL', 'doc%i' % i, 'test', str(i))
+    conn.execute_command('DEL', f'doc{i}', 'test', str(i))
   forceInvokeGC(env, 'idx')
 
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
