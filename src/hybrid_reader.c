@@ -207,6 +207,7 @@ static void prepareResults(HybridIterator *hr) {
 
     if (hr->iter) {
       VecSimQueryResult_IteratorFree(hr->iter);
+      hr->iter = NULL;
     }
     // Get the next batch.
     hr->list = VecSimBatchIterator_Next(batch_it, batch_size, BY_ID);
