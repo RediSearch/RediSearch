@@ -7,10 +7,6 @@ endif
 
 ROOT=.
 
-ifeq ($(wildcard $(ROOT)/deps/readies/*),)
-___:=$(shell git submodule update --init --recursive &> /dev/null)
-endif
-
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -41,10 +37,9 @@ make clean         # remove build artifacts
 make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
-make test          # run all tests (via ctest)
+make test          # run all tests
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
-  TEST=regex         # run tests that match regex
-  CTEST_ARGS=...     # pass args to CTest
+  TEST=name          # run specified test
 make pytest        # run python tests (tests/pytests)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
@@ -57,10 +52,11 @@ make pytest        # run python tests (tests/pytests)
   VG_LEAKS=0         # do not search leaks with Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
+make unit-tests    # run unit tests (C and C++)
+  TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
-  TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
-  BENCHMARK=1		 # run micro-benchmark
+make vecsim-bench  # run VecSim micro-benchmark
 
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
@@ -167,9 +163,6 @@ else # COORD
 endif # COORD
 
 export COORD
-
-#----------------------------------------------------------------------------------------------
-
 export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
@@ -397,19 +390,25 @@ setup:
 	@echo Setting up system...
 	$(SHOW)./sbin/setup
 
-#----------------------------------------------------------------------------------------------
-
 fetch:
 	-git submodule update --init --recursive
+
+.PHONY: setup fetch
 
 #----------------------------------------------------------------------------------------------
 
 run:
 ifeq ($(GDB),1)
-	gdb -ex r --args redis-server --loadmodule $(abspath $(TARGET))
+ifeq ($(CLANG),1)
+	$(SHOW)lldb -o run -- redis-server --loadmodule $(abspath $(TARGET))
 else
-	@redis-server --loadmodule $(abspath $(TARGET))
+	$(SHOW)gdb -ex r --args redis-server --loadmodule $(abspath $(TARGET))
 endif
+else
+	$(SHOW)redis-server --loadmodule $(abspath $(TARGET))
+endif
+
+.PHONY: run
 
 #----------------------------------------------------------------------------------------------
 
@@ -453,7 +452,6 @@ ifeq ($(SLOW),1)
 _RLTEST_PARALLEL=0
 else
 _RLTEST_PARALLEL=1
-# _RLTEST_PARALLEL=8
 endif
 
 #test: $(REJSON_SO)
@@ -466,49 +464,27 @@ endif
 #endif
 #endif
 
-test: c_tests cpp_tests pytest
+test: unit-tests pytest
+
+unit-tests:
+	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 pytest: $(REJSON_SO)
-	$(SHOW)REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL1=$(_RLTEST_PARALLEL) \
+	$(SHOW)REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(GDB),1)
-GDB_CMD=gdb -ex r --args
-else
-GDB_CMD=
-endif
+c-tests:
+	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) C_TESTS=1 TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
-c_tests:
-ifeq ($(COORD),)
-ifeq ($(TEST),)
-	$(SHOW)set -e ;\
-	cd tests/ctests ;\
-	find $(abspath $(BINROOT)/search/tests/ctests) -name "test_*" -type f -executable -print0 | xargs -0 -n1 bash -c
-else
-	$(SHOW)set -e ;\
-	cd tests/ctests ;\
-	${GDB_CMD} $(BINROOT)/search/tests/ctests/$(TEST)
-endif
-else ifeq ($(COORD),oss)
-ifeq ($(TEST),)
-	$(SHOW)set -e; find $(abspath $(BINROOT)/coord-oss/tests/unit) -name "test_*" -type f -executable -print0 | xargs -0 -n1 bash -c
-else
-	$(SHOW)${GDB_CMD} $(BINROOT)/coord-oss/tests/unit/$(TEST)
-endif
-endif
+cpp-tests:
+	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) CPP_TESTS=1 BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
-cpp_tests:
-ifeq ($(BENCHMARK), 1)
+vecsim-bench:
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
-else ifeq ($(TEST),)
-	$(SHOW)$(BINROOT)/search/tests/cpptests/rstest
-else
-	$(SHOW)$(GDB_CMD) $(abspath $(BINROOT)/search/tests/cpptests/rstest) --gtest_filter=$(TEST)
-endif
 
-.PHONY: test pytest c_tests cpp_tests
+.PHONY: test unit-tests pytest c_tests cpp_tests vecsim-bench
 
 #----------------------------------------------------------------------------------------------
 
