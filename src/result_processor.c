@@ -148,7 +148,11 @@ void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout) {
 }
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
-  return ((RPIndexIterator *)it->rootProc)->iiter;
+  /* On coordinator, the root result processor will be a network result processor and we should ignore it */
+  if (it->rootProc->type == RP_INDEX) {
+      return ((RPIndexIterator *)it->rootProc)->iiter;
+  }
+  return NULL;
 }
 
 void QITR_PushRP(QueryIterator *it, ResultProcessor *rp) {
@@ -799,6 +803,15 @@ clock_t RPProfile_GetClock(ResultProcessor *rp) {
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileCount;
+}
+
+void Profile_AddRPs(QueryIterator *qiter) {
+  ResultProcessor *cur = qiter->endProc = RPProfile_New(qiter->endProc, qiter);
+  while (cur && cur->upstream && cur->upstream->upstream) {
+    cur = cur->upstream;
+    cur->upstream = RPProfile_New(cur->upstream, qiter);
+    cur = cur->upstream;
+  }
 }
 
 /*******************************************************************************************************************

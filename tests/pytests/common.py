@@ -11,7 +11,8 @@ import platform
 import itertools
 from redis.client import NEVER_DECODE
 import RLTest
-
+from typing import Any, Callable
+from RLTest.env import Query
 from includes import *
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
@@ -81,11 +82,14 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
-def assertInfoField(env, idx, field, expected):
+def assertInfoField(env, idx, field, expected, delta=0):
     if not env.isCluster():
         res = env.cmd('ft.info', idx)
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-        env.assertEqual(d[field], expected)
+        if delta is 0:
+            env.assertEqual(d[field], expected)
+        else:
+            env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
 
 def sortedResults(res):
     n = res[0]
@@ -239,7 +243,7 @@ def no_asan(f):
 def unstable(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
-        if ONLY_STABLE:
+        if UNSTABLE == True:
             fname = f.__name__
             env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
             env.skip()
@@ -260,3 +264,99 @@ def get_redisearch_index_memory(env, index_key):
 
 def get_redisearch_vector_index_memory(env, index_key):
     return float(index_info(env, index_key)["vector_index_sz_mb"])
+
+def module_ver_filter(env, module_name, ver_filter):
+    info = env.getConnection().info()
+    for module in info['modules']:
+        if module['name'] == module_name:
+            ver = int(module['ver'])
+            return ver_filter(ver)
+    return False
+
+def has_json_api_v2(env):
+    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver >= 20200 else False)
+
+def compare_lists_rec(var1, var2, delta):
+    if type(var1) != type(var2):
+        return False
+    try:
+        if type(var1) is not str and len(var1) != len(var2):
+            return False
+    except:
+        pass
+
+    if isinstance(var1, list):
+        #print("compare_lists_rec: list {}".format(var1))
+        for i in range(len(var1)):
+            #print("compare_lists_rec: list: i = {}".format(i))
+            res = compare_lists_rec(var1[i], var2[i], delta)
+            #print("list: var1 = {}, var2 = {}, res = {}".format(var1[i], var2[i], res))
+            if res is False:
+                return False
+
+    elif isinstance(var1, dict):
+        for k in var1:
+            res = compare_lists_rec(var1[k], var2[k], delta)
+            if res is False:
+                return False
+
+    elif isinstance(var1, set):
+        for v in var1:
+            if v not in var2:
+                return False
+
+    elif isinstance(var1, tuple):
+        for i in range(len(var1)):
+            compare_lists_rec(var1[i], var2[i], delta)
+            if res is False:
+                return False
+
+    elif isinstance(var1, float):
+        diff = var1 - var2
+        if diff < 0:
+            diff = -diff
+        #print("diff {} delta {}".format(diff, delta))
+        return diff <= delta
+
+    elif isinstance(var1, str): # float as string
+        try:
+            diff = float(var1) - float(var2)
+            if diff < 0:
+                diff = -diff
+        except:
+            return var1 == var2
+
+        #print("var1 {} var2 {} diff {} delta {}".format(var1, var2, diff, delta))
+        return diff <= delta
+
+    else: # int() | bool() | None:
+        return var1 == var2
+
+    return True
+
+def compare_lists(env, list1, list2, delta=0.01, _assert=True):
+    res = compare_lists_rec(list1, list2, delta + 0.000001)
+    if res:
+        if _assert:
+            env.assertTrue(True, message='%s ~ %s' % (str(list1), str(list2)))
+        return True
+    else:
+        if _assert:
+            env.assertTrue(False, message='%s ~ %s' % (str(list1), str(list2)))
+        return False
+
+class ConditionalExpected:
+
+    def __init__(self, env, cond):
+        self.env = env
+        self.cond_val = cond(env)
+        self.query = None
+
+    def call(self, *query):
+        self.query = query
+        return self
+
+    def expect_when(self, cond_val, func: Callable[[Query], Any]):
+        if cond_val == self.cond_val:
+            func(self.env.expect(*self.query))
+        return self

@@ -22,6 +22,9 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		MODULE=path           Path to RediSearch module .so
 		BINROOT=path          Path to repo binary root dir
 
+		TEST=name             Operate in single-test mode
+		UNSTABLE=1            Do not skip unstable tests (default: 0)
+
 		RLTEST=path|'view'    Take RLTest from repo path or from local view
 		RLTEST_ARGS=args      Extra RLTest args
 		MODARGS=args          RediSearch module arguments

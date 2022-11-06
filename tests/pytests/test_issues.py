@@ -255,16 +255,16 @@ def testMemAllocated(env):
   env.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
   assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
   conn.execute_command('HSET', 'doc1', 't', 'foo bar baz')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
   conn.execute_command('HSET', 'doc2', 't', 'hello world')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05', delta=0.01)
   conn.execute_command('HSET', 'd3', 't', 'help')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '0.00013828277587890625')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '0.00013828277587890625', delta=0.01)
 
   conn.execute_command('DEL', 'd3')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05', delta=0.01)
   conn.execute_command('DEL', 'doc1')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
   conn.execute_command('DEL', 'doc2')
   assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
 
@@ -272,7 +272,7 @@ def testMemAllocated(env):
   env.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
   for i in range(1000):
     conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
-  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031')
+  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031', delta=0.01)
 
   for i in range(1000):
     conn.execute_command('DEL', f'doc{i}')
@@ -488,14 +488,14 @@ def test_MOD_3540(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   for i in range(10):
     conn.execute_command('HSET', i, 't', i)
-  
+
   env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '1').error()  \
                   .contains('SORTBY MAX is not supported by FT.SEARCH')
 
   env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LOAD', '*')  \
                   .equal([10, ['t', '9']])
 
-  # SORTBY MAX followed by LIMIT 
+  # SORTBY MAX followed by LIMIT
   env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LIMIT', '0', '2', 'LOAD', '*')  \
                   .equal([10, ['t', '9'], ['t', '8']])
   env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '2', 'LIMIT', '0', '1', 'LOAD', '*')  \
@@ -505,7 +505,7 @@ def test_MOD_3540(env):
   env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '0', 'LIMIT', '0', '1', 'LOAD', '*')  \
                   .equal([10, ['t', '9']])
 
-  # LIMIT followed by SORTBY MAX 
+  # LIMIT followed by SORTBY MAX
   env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '2', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LOAD', '*')  \
                   .equal([10, ['t', '9']])
   env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '1', 'SORTBY', '2', '@t', 'DESC', 'MAX', '2', 'LOAD', '*')  \
@@ -531,11 +531,11 @@ def test_RED_81612(env):
   env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '2').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
   env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '2').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
 
-  # receive a result w/o sortby field at the end. 
+  # receive a result w/o sortby field at the end.
   # remove in test to support test on cluster
   res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3')
   env.assertEqual(res[0:5], [4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
- 
+
   res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3')
   env.assertEqual(res[0:5], [4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
 
@@ -544,7 +544,7 @@ def test_RED_81612(env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1'], 'doc4', ['somethingelse', '4']])
 
 def testDeleteIndexes(env):
-  # test cleaning of all specs from a prefix 
+  # test cleaning of all specs from a prefix
   conn = getConnectionByEnv(env)
   for i in range(10):
     env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
@@ -602,3 +602,16 @@ def test_mod_4255(env):
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
   cursor = res[1]
   env.assertEqual(cursor ,0)
+
+def test_mod_4207(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx1', 'FILTER', 'EXISTS(@country)', 'SCHEMA', 'business', 'TEXT', 'country', 'TEXT')
+  env.cmd('FT.CREATE', 'idx2', 'FILTER', 'EXISTS(@business)', 'SCHEMA', 'business', 'TEXT', 'country', 'TEXT')
+  conn.execute_command('HSET', 'address:1', 'business', 'foo', 'country', 'USA')
+  conn.execute_command('HSET', 'address:2', 'business', 'bar', 'country', 'Israel')
+  conn.execute_command('HSET', 'address:3', 'business', 'foo')
+  conn.execute_command('HSET', 'address:4', 'country', 'Israel')
+
+  env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
+  env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
