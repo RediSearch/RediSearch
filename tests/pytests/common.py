@@ -276,14 +276,6 @@ def module_ver_filter(env, module_name, ver_filter):
 def has_json_api_v2(env):
     return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver >= 20200 else False)
 
-# Helper function to create numpy array vector with a specific type
-def create_np_array_typed(data, data_type='FLOAT32'):
-    if data_type == 'FLOAT32':
-        return np.array(data, dtype=np.float32)
-    if data_type == 'FLOAT64':
-        return np.array(data, dtype=np.float64)
-    return None
-
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
         return False
@@ -292,7 +284,6 @@ def compare_lists_rec(var1, var2, delta):
             return False
     except:
         pass
-
 
     if isinstance(var1, list):
         #print("compare_lists_rec: list {}".format(var1))
