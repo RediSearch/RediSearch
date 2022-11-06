@@ -68,9 +68,9 @@ mkdir -p $LOGS_DIR
 export EXT_TEST_PATH=${BINROOT}/search/example_extension/libexample_extension.so
 
 if [[ $CLANG == 1 ]]; then
-	GDB_CMD=lldb -o run --
+	GDB_CMD="lldb -o run --"
 else
-	GDB_CMD=gdb -ex r --args
+	GDB_CMD="gdb -ex r --args"
 fi
 
 #----------------------------------------------------------------------------------------------
@@ -84,8 +84,9 @@ if [[ -z $COORD ]]; then
 		if [[ -z $TEST ]]; then
 			if [[ $NOP != 1 ]]; then
 				for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
-					if [[ $TEST_LEAK == 1 || $test != test_leak ]]; then
-						TEST_NAME="$(basename $test)" sanitizer_defs
+					test_name="$(basename $test)"
+					if [[ $TEST_LEAK == 1 || $test_name != test_leak ]]; then
+						TEST_NAME="$test_name" sanitizer_defs
 						{ $test; (( E |= $? )); } || true
 					fi
 				done
