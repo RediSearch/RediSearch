@@ -166,7 +166,7 @@ Now you can search for silver headphones:
 ```
 
 ## Index JSON arrays as TEXT
-Starting with RediSearch 2.6.0, full text search can be done on array of strings or on a JSONPath leading to multiple strings.
+Starting with RediSearch v2.6.0, full text search can be done on array of strings or on a JSONPath leading to multiple strings.
 
 If you want to index multiple string values as TEXT, use either a JSONPath leading to a single array of strings, or a JSONPath leading to multiple string values, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
@@ -228,7 +228,7 @@ This predefined value is set by `RediSearch` configuration parameter `MULTI_TEXT
 
 ## Index JSON arrays as NUMERIC
 
-Starting with RediSearch 2.6.1, search can be done on an array of numerical values or on a JSONPath leading to multiple numerical values.
+Starting with RediSearch v2.6.1, search can be done on an array of numerical values or on a JSONPath leading to multiple numerical values.
 
 If you want to index multiple numerical values as NUMERIC, use either a JSONPath leading to a single array of numbers, or a JSONPath leading to multiple numbers, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
@@ -282,11 +282,11 @@ When JSONPath leads to multiple numerical values:
 
 ## Index JSON arrays as GEO
 
-Starting with RediSearch 2.6.1, search can be done on an array of geo (geographical) values or on a JSONPath leading to multiple geo values.
+Starting with RediSearch v2.6.1, search can be done on an array of geo (geographical) values or on a JSONPath leading to multiple geo values.
 
-Prior to RediSearch 2.6.1, only a single geo value was supported per GEO attribute. The geo value was specified using a comma delimited string in the form "longtitude,latitude", for example, "15.447083,78.238306".
+Prior to RediSearch v2.6.1, only a single geo value was supported per GEO attribute. The geo value was specified using a comma delimited string in the form "longtitude,latitude", for example, "15.447083,78.238306".
 
-With RediSearch 2.6.1, a JSON array of such geo values is also supported.
+With RediSearch v2.6.1, a JSON array of such geo values is also supported.
 
 In order to index multiple geo values, user either a JSONPath leading to a single array of geo values, or a JSONPath leading to multiple geo values, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
