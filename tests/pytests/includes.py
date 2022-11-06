@@ -12,7 +12,7 @@ try:
 except:
     pass
 
-ONLY_STABLE = os.getenv('ONLY_STABLE', '0') == '1'
+UNSTABLE = os.getenv('UNSTABLE', '0') == '1'
 SANITIZER = os.getenv('SANITIZER', '')
 VALGRIND = os.getenv('VALGRIND', '0') == '1'
 CODE_COVERAGE = os.getenv('CODE_COVERAGE', '0') == '1'
