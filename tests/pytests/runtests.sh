@@ -26,7 +26,7 @@ help() {
 		BINROOT=path          Path to repo binary root dir
 
 		TEST=name             Operate in single-test mode
-		ONLY_STABLE=1         Skip unstable tests
+		UNSTABLE=1            Do not skip unstable tests (default: 0)
 
 		RLTEST=path|'view'    Take RLTest from repo path or from local view
 		RLTEST_ARGS=args      Extra RLTest args

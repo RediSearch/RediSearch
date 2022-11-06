@@ -97,7 +97,7 @@ fi
 MOD_S3_URL="https://redismodules.s3.amazonaws.com/${STEM}/snapshots"
 MOD_RAMP="${STEM}.${platform}.${BRANCH}.zip"
 
-if [[ $OSS == 1 ]]; then
+if [[ $OSS == 1 && -z $REPO_PATH ]]; then
 	# fallback to old storage model
 	if ! wget -q --spider $WORK_DIR $MOD_S3_URL/$MOD_RAMP; then
 		STEM=rejson
@@ -137,7 +137,7 @@ if [[ -z $REPO_PATH ]]; then
 		fi
 	fi
 else
-	F_MOD_RAMP="${REPO_PATH}/artifacts/snapshots/${MOD_RAMP}"
+	F_MOD_RAMP="${REPO_PATH}/bin/artifacts/snapshots/${MOD_RAMP}"
 	if [[ ! -f $F_MOD_RAMP ]]; then
 		eprint "$F_MOD_RAMP is missing - build ${MOD_NAME} and set REPO_PATH"
 		exit 1
