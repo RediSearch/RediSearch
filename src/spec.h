@@ -174,7 +174,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 20
+#define INDEX_CURRENT_VERSION 21
+#define INDEX_VECSIM_MULTI_VERSION 21
 #define INDEX_VECSIM_2_VERSION 20
 #define INDEX_VECSIM_VERSION 19
 #define INDEX_JSON_VERSION 18
@@ -235,6 +236,7 @@ typedef struct {
 
 typedef struct IndexSpec {
   char *name;                     // Index name
+  size_t nameLen;                 // Index name length
   uint64_t uniqueId;              // Id of index
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields
@@ -494,11 +496,6 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 //---------------------------------------------------------------------------------------------
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
-
-/* Get a random term from the index spec using weighted random. Weighted random is done by sampling
- * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
- * enough */
-char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
 
 /*
  * Free an indexSpec.

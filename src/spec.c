@@ -386,8 +386,8 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
   // Uncomment these when support for other type is added.
   if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len))
     *type = VecSimType_FLOAT32;
-  // else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
-  //   *type = VecSimType_FLOAT64;
+   else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
+     *type = VecSimType_FLOAT64;
   // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len))
   //   *type = VecSimType_INT32;
   // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len))
@@ -537,6 +537,11 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
+      if ((rc = AC_GetDouble(ac, &fs->vectorOpts.vecSimParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index epsilon", rc);
+        return 0;
+      }
     } else {
       QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
       return 0;
@@ -642,11 +647,26 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
 
-static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   // this is a vector field
   // init default type, size, distance metric and algorithm
 
   memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams));
+
+  // If the index is on JSON and the given path is dynamic, create a multi-value index.
+  bool multi = false;
+  if (isSpecJson(sp)) {
+    RedisModuleString *err_msg;
+    JSONPath jsonPath = pathParse(fs->path, &err_msg);
+    if (!jsonPath) {
+      if (err_msg) {
+        JSONParse_error(status, err_msg, fs->path, fs->name, sp->name);
+      }
+      return 0;
+    }
+    multi = !(pathIsSingle(jsonPath));
+    pathFree(jsonPath);
+  }
 
   // parse algorithm
   const char *algStr;
@@ -660,6 +680,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.bfParams.initialCapacity = 1000;
     fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
+    fs->vectorOpts.vecSimParams.bfParams.multi = multi;
     return parseVectorField_flat(fs, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_HNSWLIB;
@@ -668,6 +689,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     fs->vectorOpts.vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
     fs->vectorOpts.vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     fs->vectorOpts.vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
+    fs->vectorOpts.vecSimParams.hnswParams.multi = multi;
     return parseVectorField_hnsw(fs, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
@@ -695,7 +717,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
     sp->flags |= Index_HasVecSim;
     fs->types |= INDEXFLD_T_VECTOR;
-    if (!parseVectorField(fs, ac, status)) {
+    if (!parseVectorField(sp, fs, ac, status)) {
       goto error;
     }
     return 1;
@@ -860,11 +882,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
           }
           if (jsonPath) {
             pathFree(jsonPath);
-          } else if (err_msg != NULL) {
-            QueryError_SetErrorFmt(status, QUERY_EINVALPATH,
-                               "Invalid JSONPath '%s' in attribute '%s' in index '%s'",
-                            fs->path, fs->name, sp->name);
-            RedisModule_FreeString(RSDummyContext, err_msg);
+          } else if (err_msg) {
+            JSONParse_error(status, err_msg, fs->path, fs->name, sp->name);
             goto reset;
           } /* else {
             RedisModule_Log(RSDummyContext, "info",
@@ -876,10 +895,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
 
     if (FieldSpec_IsSortable(fs)) {
-      if (fs->types & INDEXFLD_T_TAG && isSpecJson(sp)) {
-        QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
-                               "On JSON, cannot set tag field to sortable - %s", fieldName);
-        goto reset;
+      if (isSpecJson(sp)) {
+        // SORTABLE JSON field is always UNF
+        fs->options |= FieldSpec_UNF;
       }
 
       if (fs->options & FieldSpec_Dynamic) {
@@ -1036,6 +1054,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
+  spec->flags &= ~Index_Temporary;
   IndexSpec_Free(spec);
   return NULL;
 }
@@ -1101,60 +1120,6 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
   }
   rm_free(c->fields);
   rm_free(c);
-}
-
-/// given an array of random weights, return the a weighted random selection, as the index in the
-/// array
-size_t weightedRandom(double weights[], size_t len) {
-
-  double totalWeight = 0;
-  for (size_t i = 0; i < len; i++) {
-    totalWeight += weights[i];
-  }
-  double selection = totalWeight * ((double)rand() / (double)(RAND_MAX));
-
-  totalWeight = 0;
-  for (size_t i = 0; i < len; i++) {
-    if (selection >= totalWeight && selection <= (totalWeight + weights[i])) {
-      return i;
-    }
-    totalWeight += weights[i];
-  }
-  // fallback
-  return 0;
-}
-
-/* Get a random term from the index spec using weighted random. Weighted random is done by
- * sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
- * should be enough. Returns NULL if the index is empty */
-char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
-
-  if (sampleSize > sp->terms->size) {
-    sampleSize = sp->terms->size;
-  }
-  if (!sampleSize) return NULL;
-
-  char *samples[sampleSize];
-  double weights[sampleSize];
-  for (int i = 0; i < sampleSize; i++) {
-    char *ret = NULL;
-    t_len len = 0;
-    double d = 0;
-    if (!Trie_RandomKey(sp->terms, &ret, &len, &d) || len == 0) {
-      return NULL;
-    }
-    samples[i] = ret;
-    weights[i] = d;
-  }
-
-  size_t selection = weightedRandom(weights, sampleSize);
-  for (int i = 0; i < sampleSize; i++) {
-    if (i != selection) {
-      rm_free(samples[i]);
-    }
-  }
-  // printf("Selected %s --> %f\n", samples[selection], weights[selection]);
-  return samples[selection];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1390,7 +1355,7 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     }
   }
 
-  // Increament the number of uses. 
+  // Increament the number of uses.
   // When we move to multi readers this counter needs to be atomic.
   ++sp->counter;
 
@@ -1511,6 +1476,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
+  sp->nameLen = strlen(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
@@ -1586,7 +1552,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
-    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
+    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, sp->nameLen);
     sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
     GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
@@ -1707,8 +1673,14 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     if (encver >= INDEX_VECSIM_2_VERSION) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
-    if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
-      goto fail;
+    if (encver >= INDEX_VECSIM_MULTI_VERSION) {
+      if (VecSim_RdbLoad_v2(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+        goto fail;
+      }
+    } else {
+      if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+        goto fail;
+      }
     }
     // Calculate blob size limitation on lower encvers.
     if(encver < INDEX_VECSIM_2_VERSION) {
@@ -1934,7 +1906,7 @@ void ReindexPool_ThreadPoolDestroy() {
 #ifdef FTINFO_FOR_INFO_MODULES
 void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   char *temp = "info";
-  char name[strlen(sp->name) + strlen(temp) + 2];
+  char name[sp->nameLen + 4 + 2]; // 4 for info and 2 for null termination
   sprintf(name, "%s_%s", temp, sp->name);
   RedisModule_InfoAddSection(ctx, name);
 
@@ -2151,6 +2123,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  sp->nameLen = strlen(sp->name);
   char *tmpName = rm_strdup(sp->name);
   RedisModule_Free(sp->name);
   sp->name = tmpName;
@@ -2276,6 +2249,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = rm_strdup(name);
+  sp->nameLen = strlen(sp->name);
   RedisModule_Free(name);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
@@ -2401,7 +2375,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     IndexSpec *sp = dictGetVal(entry);
     // we save the name plus the null terminator
-    RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name) + 1);
+    RedisModule_SaveStringBuffer(rdb, sp->name, sp->nameLen + 1);
     RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
     RedisModule_SaveUnsigned(rdb, sp->numFields);
     for (int i = 0; i < sp->numFields; i++) {

@@ -351,7 +351,8 @@ The policy for the garbage collector (GC). Supported policies are:
               This is the default GC policy since version 1.6.1 and is ideal
               for general purpose workloads.
 * **LEGACY**: Uses a synchronous, in-process fork. This is ideal for read-heavy
-              and append-heavy workloads with very few updates/deletes
+              and append-heavy workloads with very few updates/deletes.
+              Deprecated in v2.6.0.
 
 #### Default
 
@@ -360,7 +361,7 @@ The policy for the garbage collector (GC). Supported policies are:
 #### Example
 
 ```
-$ redis-server --loadmodule ./redisearch.so GC_POLICY LEGACY
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK
 ```
 
 #### Notes
