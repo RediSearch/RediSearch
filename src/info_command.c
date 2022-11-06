@@ -237,7 +237,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithSimpleString(ctx, "dialect_stats");
   RedisModule_ReplyWithArray(ctx, 2 * (MAX_DIALECT_VERSION - MIN_DIALECT_VERSION + 1));
   for (int d = MIN_DIALECT_VERSION; d <= MAX_DIALECT_VERSION; ++d) {
-    RedisModule_ReplyWithPrintf(ctx, "dialect %d", d);
+    RedisModule_ReplyWithPrintf(ctx, "dialect_%d", d);
     RedisModule_ReplyWithLongLong(ctx, !!(sp->dialects & (1 << (d - MIN_DIALECT_VERSION))));
   }
   n += 2;

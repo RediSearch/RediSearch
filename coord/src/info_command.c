@@ -47,9 +47,16 @@ static InfoFieldSpec cursorSpecs[] = {
     {.name = "index_total", .type = InfoField_WholeSum},
 };
 
+static InfoFieldSpec dialectSpecs[] = {
+    {.name = "dialect_1", .type = InfoField_Max},
+    {.name = "dialect_2", .type = InfoField_Max},
+    {.name = "dialect_3", .type = InfoField_Max},
+};
+
 #define NUM_FIELDS_SPEC (sizeof(toplevelSpecs_g) / sizeof(InfoFieldSpec))
 #define NUM_GC_FIELDS_SPEC (sizeof(gcSpecs) / sizeof(InfoFieldSpec))
 #define NUM_CURSOR_FIELDS_SPEC (sizeof(cursorSpecs) / sizeof(InfoFieldSpec))
+#define NUM_DIALECT_FIELDS_SPEC (sizeof(dialectSpecs) / sizeof(InfoFieldSpec))
 
 // Variant value type
 typedef struct {
@@ -75,6 +82,7 @@ typedef struct {
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
   InfoValue gcValues[NUM_GC_FIELDS_SPEC];
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
+  InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
 } InfoFields;
 
 /**
@@ -147,6 +155,8 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
 
   } else if (!strcmp(name, "cursor_stats")) {
     processKvArray(fields, value, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC, 1);
+  } else if (!strcmp(name, "dialect_stats")) {
+    processKvArray(fields, value, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC, 1);
   }
 }
 
@@ -252,6 +262,13 @@ static void generateFieldsReply(InfoFields *fields, RedisModuleCtx *ctx) {
   size_t nCursorStats =
       replyKvArray(fields, ctx, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC);
   RedisModule_ReplySetArrayLength(ctx, nCursorStats);
+  n += 2;
+
+  RedisModule_ReplyWithSimpleString(ctx, "dialect_stats");
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  size_t nDialectStats =
+      replyKvArray(fields, ctx, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC);
+  RedisModule_ReplySetArrayLength(ctx, nDialectStats);
   n += 2;
 
   n += replyKvArray(fields, ctx, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);

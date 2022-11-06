@@ -571,27 +571,16 @@ def test_mod_4232(env):
 
   env.cmd('FT.SEARCH', 'idx1', '*', 'NOCONTENT', 'DIALECT', 3)
   rv = env.cmd('FT.INFO', 'idx1')
-  assert rv[53][0] == 'dialect 1'
-  assert rv[53][1] == False
-  assert rv[53][2] == 'dialect 2'
-  assert rv[53][3] == False
-  assert rv[53][4] == 'dialect 3'
-  assert rv[53][5] == True
-
+  print(rv)
+  assert rv[rv.index('dialect_stats') + 1] == ['dialect_1', False, 'dialect_2', False, 'dialect_3', True]
   rv = env.cmd('FT.INFO', 'idx2')
-  assert rv[53][0] == 'dialect 1'
-  assert rv[53][1] == False
-  assert rv[53][2] == 'dialect 2'
-  assert rv[53][3] == False
-  assert rv[53][4] == 'dialect 3'
-  assert rv[53][5] == False
+  assert rv[rv.index('dialect_stats') + 1] == ['dialect_1', False, 'dialect_2', False, 'dialect_3', False]
 
   rv = env.cmd('INFO', 'MODULES')
   assert rv['search_dialect_1'] == False
   assert rv['search_dialect_2'] == False
   assert rv['search_dialect_3'] == True
-
-  env.cmd('FLUSHALL')
+  env.flush()
   rv = env.cmd('INFO', 'MODULES')
   assert rv['search_dialect_1'] == False
   assert rv['search_dialect_2'] == False
