@@ -51,7 +51,7 @@ also returns the score of each suggestion. This can be used to merge results fro
 </details>
 
 <details open>
-<summary><code>WITHSCORES</code></summary> 
+<summary><code>WITHPAYLOADS</code></summary> 
 
  returns optional payloads saved along with the suggestions. If no payload is present for an entry, it returns a null reply.
 </details>
