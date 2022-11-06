@@ -429,6 +429,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     goto error;
   }
 
+  // set the used dialect bit in both the index->dialects and info->dialects bitfields.
+  // the bitfield begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
   RSGlobalConfig.dialects |= r->sctx->spec->dialects |= (1ULL << (r->dialectVersion - MIN_DIALECT_VERSION));
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {

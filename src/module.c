@@ -183,6 +183,8 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  // set the used dialect bit in both the index->dialects and info->dialects bitfields.
+  // the bitfield begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
   RSGlobalConfig.dialects |= sctx->spec->dialects |= (1ULL << (dialect - MIN_DIALECT_VERSION));
 
   bool fullScoreInfo = false;
