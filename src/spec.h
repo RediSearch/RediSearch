@@ -277,15 +277,15 @@ typedef struct IndexSpec {
   RedisModuleTimerID timerId;
   bool isTimerSet;
 
+  // bitarray of dialects used by this index
+  uint_least8_t used_dialects;
+
   // For criteria tester
   RSGetValueCallback getValue;
   void *getValueCtx;
 
   // Count the number of times the index was used
   long long counter;
-
-  // bitarray of dialects used by this index
-  unsigned long long used_dialects;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

@@ -113,7 +113,7 @@ typedef struct {
   // Default value is 100. 0 will not increment (as if all text is a continus phrase).
   unsigned int multiTextOffsetDelta;
   // bitarray of dialects used by all indices
-  unsigned long long used_dialects;
+  uint_least8_t used_dialects;
 } RSConfig;
 
 typedef enum {
@@ -187,7 +187,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
-#define MAX_DIALECT_VERSION 3 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 63.
+#define MAX_DIALECT_VERSION 3 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 #define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
@@ -208,7 +208,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
-    .vssMaxResize = 0, .multiTextOffsetDelta = 100, .dialects = 0                                 \
+    .vssMaxResize = 0, .multiTextOffsetDelta = 100, .used_dialects = 0                            \
   }
 
 #define REDIS_ARRAY_LIMIT 7
