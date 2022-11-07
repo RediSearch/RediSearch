@@ -570,18 +570,17 @@ def test_mod_4232(env):
   conn.execute_command('HSET', 'addr:1', 'business', 'foo', 'country', 'USA')
 
   env.cmd('FT.SEARCH', 'idx1', '*', 'NOCONTENT', 'DIALECT', 3)
-  rv = env.cmd('FT.INFO', 'idx1')
-  print(rv)
-  assert rv[rv.index('dialect_stats') + 1] == ['dialect_1', False, 'dialect_2', False, 'dialect_3', True]
-  rv = env.cmd('FT.INFO', 'idx2')
-  assert rv[rv.index('dialect_stats') + 1] == ['dialect_1', False, 'dialect_2', False, 'dialect_3', False]
+  info = index_info(env, 'idx1')
+  env.assertEqual(info['dialect_stats'], ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 1])
+  info = index_info(env, 'idx2')
+  env.assertEqual(info['dialect_stats'], ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 0])
 
-  rv = env.cmd('INFO', 'MODULES')
-  assert rv['search_dialect_1'] == False
-  assert rv['search_dialect_2'] == False
-  assert rv['search_dialect_3'] == True
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(int(info['search_dialect_1']), 0)
+  env.assertEqual(int(info['search_dialect_2']), 0)
+  env.assertEqual(int(info['search_dialect_3']), 1)
   env.flush()
-  rv = env.cmd('INFO', 'MODULES')
-  assert rv['search_dialect_1'] == False
-  assert rv['search_dialect_2'] == False
-  assert rv['search_dialect_3'] == False
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(int(info['search_dialect_1']), 0)
+  env.assertEqual(int(info['search_dialect_2']), 0)
+  env.assertEqual(int(info['search_dialect_3']), 0)
