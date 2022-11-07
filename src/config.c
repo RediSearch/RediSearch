@@ -893,7 +893,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
     char field[16] = {0};
     snprintf(field, sizeof field, "dialect_%d", dialect);
     // extract the d'th bit of the dialects bitfield.
-    RedisModule_InfoAddFieldULongLong(ctx, field, !!(RSGlobalConfig.dialects & (1ULL << (dialect - MIN_DIALECT_VERSION))));
+    RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalConfig.used_dialects, dialect));
   }
 }
 

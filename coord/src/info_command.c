@@ -53,10 +53,11 @@ static InfoFieldSpec dialectSpecs[] = {
     {.name = "dialect_3", .type = InfoField_Max},
 };
 
-#define NUM_FIELDS_SPEC (sizeof(toplevelSpecs_g) / sizeof(InfoFieldSpec))
-#define NUM_GC_FIELDS_SPEC (sizeof(gcSpecs) / sizeof(InfoFieldSpec))
-#define NUM_CURSOR_FIELDS_SPEC (sizeof(cursorSpecs) / sizeof(InfoFieldSpec))
-#define NUM_DIALECT_FIELDS_SPEC (sizeof(dialectSpecs) / sizeof(InfoFieldSpec))
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(*arr))
+#define NUM_FIELDS_SPEC (ARRAY_SIZE(toplevelSpecs_g))
+#define NUM_GC_FIELDS_SPEC (ARRAY_SIZE(gcSpecs))
+#define NUM_CURSOR_FIELDS_SPEC (ARRAY_SIZE(cursorSpecs))
+#define NUM_DIALECT_FIELDS_SPEC (ARRAY_SIZE(dialectSpecs))
 
 // Variant value type
 typedef struct {

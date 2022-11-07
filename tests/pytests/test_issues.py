@@ -565,6 +565,7 @@ def test_mod_4207(env):
 def test_mod_4232(env):
   conn = getConnectionByEnv(env)
 
+  env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', 1).ok()
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'business', 'TEXT')
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')
   conn.execute_command('HSET', 'addr:1', 'business', 'foo', 'country', 'USA')

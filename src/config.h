@@ -112,8 +112,8 @@ typedef struct {
   // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
   // Default value is 100. 0 will not increment (as if all text is a continus phrase).
   unsigned int multiTextOffsetDelta;
-  // bitmap of dialects used by all indices
-  unsigned long long dialects;
+  // bitarray of dialects used by all indices
+  unsigned long long used_dialects;
 } RSConfig;
 
 typedef enum {
@@ -188,6 +188,9 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
 #define MAX_DIALECT_VERSION 3 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 63.
+#define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
+#define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
+#define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
