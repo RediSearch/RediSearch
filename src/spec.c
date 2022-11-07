@@ -1492,7 +1492,7 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
-  sp->dialects = 0;
+  sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
@@ -2598,7 +2598,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   }
   Indexes_Free(specDict_g);
   Dictionary_Clear();
-  RSGlobalConfig.dialects = 0;
+  RSGlobalConfig.used_dialects = 0;
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
