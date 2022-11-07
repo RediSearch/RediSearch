@@ -245,7 +245,7 @@ def no_asan(f):
 def unstable(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
-        if ONLY_STABLE:
+        if UNSTABLE == True:
             fname = f.__name__
             env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
             env.skip()
@@ -297,11 +297,11 @@ def compare_lists_rec(var1, var2, delta):
 
 
     if isinstance(var1, list):
-        print("compare_lists_rec: list {}".format(var1))
+        #print("compare_lists_rec: list {}".format(var1))
         for i in range(len(var1)):
-            print("compare_lists_rec: list: i = {}".format(i))
+            #print("compare_lists_rec: list: i = {}".format(i))
             res = compare_lists_rec(var1[i], var2[i], delta)
-            print("list: var1 = {}, var2 = {}, res = {}".format(var1[i], var2[i], res))
+            #print("list: var1 = {}, var2 = {}, res = {}".format(var1[i], var2[i], res))
             if res is False:
                 return False
 
@@ -322,29 +322,27 @@ def compare_lists_rec(var1, var2, delta):
             if res is False:
                 return False
 
-    elif isinstance(var1, float):   
-        print ("compare_lists_rec: float")
+    elif isinstance(var1, float):
         diff = var1 - var2
         if diff < 0:
             diff = -diff
-        print("diff {} delta {}".format(diff, delta))
+        #print("diff {} delta {}".format(diff, delta))
         return diff <= delta
 
     elif isinstance(var1, str): # float as string
-        print ("compare_lists_rec: str")
         try:
             diff = float(var1) - float(var2)
             if diff < 0:
                 diff = -diff
         except:
             return var1 == var2
-        
-        print("var1 {} var2 {} diff {} delta {}".format(var1, var2, diff, delta))
-        return diff <= delta       
+
+        #print("var1 {} var2 {} diff {} delta {}".format(var1, var2, diff, delta))
+        return diff <= delta
 
     else: # int() | bool() | None:
         return var1 == var2
-    
+
     return True
 
 def compare_lists(env, list1, list2, delta=0.01, _assert=True):
