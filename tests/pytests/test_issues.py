@@ -574,11 +574,21 @@ def test_mod_4232(env):
   env.assertEqual(info['dialect_stats'], ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 1])
   info = index_info(env, 'idx2')
   env.assertEqual(info['dialect_stats'], ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 0])
-
   info = env.cmd('INFO', 'MODULES')
   env.assertEqual(int(info['search_dialect_1']), 0)
   env.assertEqual(int(info['search_dialect_2']), 0)
   env.assertEqual(int(info['search_dialect_3']), 1)
+
+  env.cmd('FT.SEARCH', 'idx2', '*', 'NOCONTENT')
+  info = index_info(env, 'idx1')
+  env.assertEqual(info['dialect_stats'], ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 1])
+  info = index_info(env, 'idx2')
+  env.assertEqual(info['dialect_stats'], ['dialect_1', 1, 'dialect_2', 0, 'dialect_3', 0])
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(int(info['search_dialect_1']), 1)
+  env.assertEqual(int(info['search_dialect_2']), 0)
+  env.assertEqual(int(info['search_dialect_3']), 1)
+
   env.flush()
   info = env.cmd('INFO', 'MODULES')
   env.assertEqual(int(info['search_dialect_1']), 0)
