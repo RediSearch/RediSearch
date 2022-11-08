@@ -296,6 +296,7 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     env.assertEqual(True, True, message = 'check {}'.format(idx))
     info = index_info(env, idx)
     env.assertEqual(int(info['num_docs']), 0)
+    env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might already be there
     env.assertEqual(int(info['inverted_sz_mb']), 0)
 
     create(env, doc_num)

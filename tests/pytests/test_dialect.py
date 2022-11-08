@@ -100,8 +100,11 @@ def check_info_module_results(env, module_expect):
   env.assertEqual(int(info['search_dialect_2']), module_expect[1])
   env.assertEqual(int(info['search_dialect_3']), module_expect[2])
 
-def check_info_results(env, command, idx1_expect, idx2_expect):
-  env.cmd(command)
+def check_info_results(env, command, idx1_expect, idx2_expect, should_succeed):
+  if should_succeed:
+    env.cmd(command)
+  else:
+    env.expect(command).error()
   info = index_info(env, 'idx1')
   env.assertEqual(info['dialect_stats'], ['dialect_1', idx1_expect[0], 'dialect_2', idx1_expect[1], 'dialect_3', idx1_expect[2]])
   info = index_info(env, 'idx2')
@@ -109,9 +112,11 @@ def check_info_results(env, command, idx1_expect, idx2_expect):
   check_info_module_results(env, [x or y for x, y in zip(idx1_expect, idx2_expect)])
 
 def test_dialect_info(env):
-  env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
   conn = getConnectionByEnv(env)
-  
+  config = "FT.CONFIG SET DEFAULT_DIALECT 1"
+  if env.isCluster():
+    config = "_" + config
+  env.expect(config).ok()
   info = env.cmd('INFO', 'MODULES')
   env.assertEqual(int(info['search_min_dialect_version']), 1)
   env.assertEqual(int(info['search_max_dialect_version']), 3)
@@ -120,12 +125,13 @@ def test_dialect_info(env):
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')
   conn.execute_command('HSET', 'addr:1', 'business', 'foo', 'country', 'USA')
 
-  check_info_results(env, "FT.SEARCH idx1 * NOCONTENT DIALECT 3", [0,0,1], [0,0,0]) # add dialect 3 to idx 1
-  check_info_results(env, "FT.AGGREGATE idx2 *", [0,0,1], [1,0,0])                  # add default dialect to idx2
-  check_info_results(env, "FT.SPELLCHECK idx1 adr", [1,0,1], [1,0,0])               # add default dialect to idx1
-  check_info_results(env, "FT.EXPLAIN idx2 * DIALECT 2", [1,0,1], [1,0,0])          # not a real query, does not add
-  if not env.isCluster():                                                           # FT.EXPLAINCLI is not supported on cluster
-    check_info_results(env, "FT.EXPLAINCLI idx1 * DIALECT 2", [1,0,1], [1,0,0])     # not a real query, does not add
+  check_info_results(env, "FT.SEARCH idx1 * DIALECT 3", [0,0,1], [0,0,0], True)       # add dialect 3 to idx 1
+  check_info_results(env, "FT.SEARCH idx * DIALECT 1", [0,0,1], [0,0,0], False)       # should fail. don't update dialects.
+  check_info_results(env, "FT.AGGREGATE idx2 *", [0,0,1], [1,0,0], True)              # add default dialect to idx2
+  check_info_results(env, "FT.SPELLCHECK idx1 adr", [1,0,1], [1,0,0], True)           # add default dialect to idx1
+  check_info_results(env, "FT.EXPLAIN idx2 * DIALECT 2", [1,0,1], [1,0,0], True)      # not a real query, does not add
+  if not env.isCluster():                                                             # FT.EXPLAINCLI is not supported on cluster
+    check_info_results(env, "FT.EXPLAINCLI idx1 * DIALECT 2", [1,0,1], [1,0,0], True) # not a real query, does not add
 
   env.flush()
   check_info_module_results(env, [0,0,0])
