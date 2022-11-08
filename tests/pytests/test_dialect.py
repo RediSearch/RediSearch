@@ -93,7 +93,21 @@ def test_dialect_aggregate(env):
     env.assertEqual(res[0], 1)
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t1:James Brown', 'GROUPBY', '2', '@t1', '@t2', 'DIALECT', 2)
     env.assertEqual(res[0], 2)
-    
+
+def check_info_module_results(env, module_expect):
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(int(info['search_dialect_1']), module_expect[0])
+  env.assertEqual(int(info['search_dialect_2']), module_expect[1])
+  env.assertEqual(int(info['search_dialect_3']), module_expect[2])
+
+def check_info_results(env, command, idx1_expect, idx2_expect):
+  env.cmd(command)
+  info = index_info(env, 'idx1')
+  env.assertEqual(info['dialect_stats'], ['dialect_1', idx1_expect[0], 'dialect_2', idx1_expect[1], 'dialect_3', idx1_expect[2]])
+  info = index_info(env, 'idx2')
+  env.assertEqual(info['dialect_stats'], ['dialect_1', idx2_expect[0], 'dialect_2', idx2_expect[1], 'dialect_3', idx2_expect[2]])
+  check_info_module_results(env, [x or y for x, y in zip(idx1_expect, idx2_expect)])
+
 def test_dialect_info(env):
   env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
   conn = getConnectionByEnv(env)
@@ -101,32 +115,14 @@ def test_dialect_info(env):
   info = env.cmd('INFO', 'MODULES')
   env.assertEqual(int(info['search_min_dialect_version']), 1)
   env.assertEqual(int(info['search_max_dialect_version']), 3)
+
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'business', 'TEXT')
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')
   conn.execute_command('HSET', 'addr:1', 'business', 'foo', 'country', 'USA')
 
-  env.cmd('FT.SEARCH', 'idx1', '*', 'NOCONTENT', 'DIALECT', 3)
-  info = index_info(env, 'idx1')
-  env.assertEqual(info['dialect_stats'], ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 1])
-  info = index_info(env, 'idx2')
-  env.assertEqual(info['dialect_stats'], ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 0])
-  info = env.cmd('INFO', 'MODULES')
-  env.assertEqual(int(info['search_dialect_1']), 0)
-  env.assertEqual(int(info['search_dialect_2']), 0)
-  env.assertEqual(int(info['search_dialect_3']), 1)
-
-  env.cmd('FT.SEARCH', 'idx2', '*', 'NOCONTENT')
-  info = index_info(env, 'idx1')
-  env.assertEqual(info['dialect_stats'], ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 1])
-  info = index_info(env, 'idx2')
-  env.assertEqual(info['dialect_stats'], ['dialect_1', 1, 'dialect_2', 0, 'dialect_3', 0])
-  info = env.cmd('INFO', 'MODULES')
-  env.assertEqual(int(info['search_dialect_1']), 1)
-  env.assertEqual(int(info['search_dialect_2']), 0)
-  env.assertEqual(int(info['search_dialect_3']), 1)
+  check_info_results(env, "FT.SEARCH idx1 * NOCONTENT DIALECT 3", [0,0,1], [0,0,0])
+  check_info_results(env, "FT.AGGREGATE idx2 *", [0,0,1], [1,0,0])
+  check_info_results(env, "FT.SPELLCHECK idx1 adr", [1,0,1], [1,0,0])
 
   env.flush()
-  info = env.cmd('INFO', 'MODULES')
-  env.assertEqual(int(info['search_dialect_1']), 0)
-  env.assertEqual(int(info['search_dialect_2']), 0)
-  env.assertEqual(int(info['search_dialect_3']), 0)
+  check_info_module_results(env, [0,0,0])
