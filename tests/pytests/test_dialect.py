@@ -4,16 +4,20 @@ from common import *
 from includes import *
 import numpy as np
 
-MAX_DIALECT = -1
+MAX_DIALECT = 0
+
+def set_max_dialect(env):
+    global MAX_DIALECT
+    if MAX_DIALECT == 0:
+        info = env.cmd('INFO', 'MODULES')
+        MAX_DIALECT = int(info['search_max_dialect_version'])
+
 
 def test_dialect_config_get_set_from_default(env):
     env.skipOnCluster()
     # skip when default MODARGS for pytest is DEFAULT_DIALECT 2. RediSearch>=2.4 is loading with dialect v1 as default.
     skipOnDialect(env, 2)
-    global MAX_DIALECT
-    if MAX_DIALECT == -1:
-        info = env.cmd('INFO', 'MODULES')
-        MAX_DIALECT = int(info['search_max_dialect_version'])
+    set_max_dialect(env)
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 2").ok()
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
@@ -24,10 +28,7 @@ def test_dialect_config_get_set_from_default(env):
 def test_dialect_config_get_set_from_config(env):
     env.skipOnCluster()
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-    global MAX_DIALECT
-    if MAX_DIALECT == -1:
-        info = env.cmd('INFO', 'MODULES')
-        MAX_DIALECT = int(info['search_max_dialect_version'])
+    set_max_dialect(env)
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 1").ok()
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
@@ -37,10 +38,7 @@ def test_dialect_config_get_set_from_config(env):
 
 def test_dialect_query_errors(env):
     conn = getConnectionByEnv(env)
-    global MAX_DIALECT
-    if MAX_DIALECT == -1:
-        info = env.cmd('INFO', 'MODULES')
-        MAX_DIALECT = int(info['search_max_dialect_version'])
+    set_max_dialect(env)
     env.expect("FT.CREATE idx SCHEMA t TEXT").ok()
     conn.execute_command("HSET", "h", "t", "hello")
     env.expect("FT.SEARCH idx 'hello' DIALECT").error().contains("Need an argument for DIALECT")
@@ -78,10 +76,7 @@ def test_v1_vs_v2(env):
 
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
-    global MAX_DIALECT
-    if MAX_DIALECT == -1:
-        info = env.cmd('INFO', 'MODULES')
-        MAX_DIALECT = int(info['search_max_dialect_version'])
+    set_max_dialect(env)
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT').error().contains("Need an argument for DIALECT")
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', 0).error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', "{}".format(MAX_DIALECT + 1)).error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
@@ -100,9 +95,9 @@ def test_dialect_aggregate(env):
     env.assertEqual(res[0], 2)
     
 def test_dialect_info(env):
+  env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
   conn = getConnectionByEnv(env)
-
-  env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', 1).ok()
+  
   info = env.cmd('INFO', 'MODULES')
   env.assertEqual(int(info['search_min_dialect_version']), 1)
   env.assertEqual(int(info['search_max_dialect_version']), 3)
