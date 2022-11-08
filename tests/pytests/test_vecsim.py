@@ -1578,11 +1578,11 @@ def test_timeout_reached():
             # run query with 1 millisecond timeout. should fail.
             try: # TODO: rewrite when cluster behavior is consistent on timeout
                 res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                        'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
-                                        'TIMEOUT', 1)
+                                           'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                           'TIMEOUT', 1)
                 env.assertEqual(res[0], timeout_expected)
             except Exception as error:
-                env.assertContains('Timeout limit was reached', error)
+                env.assertContains('Timeout limit was reached', str(error))
 
             # RANGE QUERY
             # run query with no timeout. should succeed.
@@ -1604,11 +1604,11 @@ def test_timeout_reached():
 
                 try: # TODO: rewrite when cluster behavior is consistent on timeout
                     res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                            'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
-                                            'TIMEOUT', 1)
+                                               'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+                                               'TIMEOUT', 1)
                     env.assertEqual(res[0], timeout_expected)
                 except Exception as error:
-                    env.assertContains('Timeout limit was reached', error)
+                    env.assertContains('Timeout limit was reached', str(error))
 
             conn.flushall()
 
