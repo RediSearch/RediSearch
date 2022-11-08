@@ -79,6 +79,8 @@ E=0
 
 if [[ -z $COORD ]]; then
 	if [[ $C_TESTS == 1 ]]; then
+		$READIES/bin/sep
+		echo "# Running C unit tests"
 		TESTS_DIR="$(cd $BINROOT/search/tests/ctests; pwd)"
 		cd $ROOT/tests/ctests
 		if [[ -z $TEST ]]; then
@@ -99,6 +101,8 @@ if [[ -z $COORD ]]; then
 	fi
 
 	if [[ $CPP_TESTS == 1 ]]; then
+		$READIES/bin/sep
+		echo "# Running C++ unit tests"
 		TESTS_DIR="$(cd $BINROOT/search/tests/cpptests; pwd)"
 		cd $ROOT/tests/cpptests
 		TEST_NAME=rstest sanitizer_defs
@@ -110,6 +114,8 @@ if [[ -z $COORD ]]; then
 	fi
 
 elif [[ $COORD == oss ]]; then
+	$READIES/bin/sep
+	echo "# Running coordinator unit tests"
 	TESTS_DIR="$(cd $BINROOT/coord-oss/tests/unit; pwd)"
 	cd $ROOT/coord/tests/unit
 	if [[ -z $TEST ]]; then
