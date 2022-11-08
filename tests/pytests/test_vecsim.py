@@ -979,7 +979,7 @@ def test_hybrid_query_non_vector_score():
     res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
-    compare_lists(env, res, expected_res_3, delta=0.01)    
+    compare_lists(env, res, expected_res_3, delta=0.01)
 
     # Those scorers are scoring per shard.
     if not env.isCluster():
@@ -1576,10 +1576,13 @@ def test_timeout_reached():
                                        'TIMEOUT', 0)
             env.assertEqual(res[0], n_vec)
             # run query with 1 millisecond timeout. should fail.
-            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                       'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
-                                       'TIMEOUT', 1)
-            env.assertEqual(res[0], timeout_expected)
+            try: # TODO: rewrite when cluster behavior is consistent on timeout
+                res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                        'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                        'TIMEOUT', 1)
+                env.assertEqual(res[0], timeout_expected)
+            except Exception as error:
+                env.assertContains('Timeout limit was reached', error)
 
             # RANGE QUERY
             # run query with no timeout. should succeed.
@@ -1599,10 +1602,13 @@ def test_timeout_reached():
                                            'TIMEOUT', 0)
                 env.assertEqual(res[0], n_vec)
 
-                res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                           'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
-                                           'TIMEOUT', 1)
-                env.assertEqual(res[0], timeout_expected)
+                try: # TODO: rewrite when cluster behavior is consistent on timeout
+                    res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                            'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+                                            'TIMEOUT', 1)
+                    env.assertEqual(res[0], timeout_expected)
+                except Exception as error:
+                    env.assertContains('Timeout limit was reached', error)
 
             conn.flushall()
 
