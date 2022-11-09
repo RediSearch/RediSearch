@@ -143,7 +143,7 @@ The [integer reply](/docs/reference/protocol-spec/#resp-integers) at position `1
 ### Return multiple values
 
 See [Return multiple values](/commands/ft.search#return-multiple-values) in `FT.SEARCH`
-
+The `DIALECT` can be specified as a parameter in the FT.AGGREGATE command. If it is not specified, the `DEFAULT_DIALECT` is used, which can be set using `FT.CONFIG SET` or by passing it as an argument to the `redisearch` module when it is loaded.
 For example, with the following document and index
 
 ```sh
