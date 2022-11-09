@@ -28,7 +28,7 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *d, size_t oldFieldCoun
   if (oldFieldCount < d->NumFields()) {
     // Pre-allocate the field specs
     fspecs.reserve(d->NumFields());
-    fdatas.reserve(d->NumFields());
+    fdatas.resize(d->NumFields());
   }
 
   for (size_t i = 0; i < d->NumFields(); ++i) {
@@ -195,7 +195,7 @@ static int replyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 }
 
 static void threadCallback(void *p) {
-  Document::AddToIndexes(p);
+  (static_cast<AddDocumentCtx*>(p))->AddToIndexes();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -306,7 +306,7 @@ void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
   if (totalSize >= SELF_EXEC_THRESHOLD && IsBlockable()) {
     ConcurrentSearch_ThreadPoolRun(threadCallback, this, CONCURRENT_POOL_INDEX);
   } else {
-    Document::AddToIndexes(this);
+    AddToIndexes();
   }
 }
 
@@ -528,13 +528,11 @@ void IndexBulkData::Cleanup(RedisSearchCtx *sctx) {
  * unblock the client passed when the context was first created.
  */
 
-int Document::AddToIndexes(AddDocumentCtx *aCtx) {
-  Document *doc = &aCtx->doc;
-
+int AddDocumentCtx::AddToIndexes() {
   size_t i = 0;
-  for (auto const &ff: doc->fields) {
-    const FieldSpec &fs = aCtx->fspecs[i];
-    FieldIndexerData *fdata = &aCtx->fdatas[i];
+  for (auto const &ff: doc.fields) {
+    const FieldSpec &fs = fspecs[i];
+    FieldIndexerData *fdata = &fdatas[i];
     ++i;
 
     if (fs.name == "" || ff->indexAs == 0) {
@@ -543,37 +541,37 @@ int Document::AddToIndexes(AddDocumentCtx *aCtx) {
     }
 
     if (ff->CheckIdx(INDEXFLD_T_FULLTEXT)) {
-      if (!fs.FulltextPreprocessor(aCtx, ff, fdata, &aCtx->status)) {
+      if (!fs.FulltextPreprocessor(this, ff, fdata, &status)) {
         goto cleanup;
       }
     }
 
     if (ff->CheckIdx(INDEXFLD_T_NUMERIC)) {
-      if (!fs.NumericPreprocessor(aCtx, ff, fdata, &aCtx->status)) {
+      if (!fs.NumericPreprocessor(this, ff, fdata, &status)) {
         goto cleanup;
       }
     }
 
     if (ff->CheckIdx(INDEXFLD_T_GEO)) {
-      if (!fs.GeoPreprocessor(aCtx, ff, fdata, &aCtx->status)) {
+      if (!fs.GeoPreprocessor(this, ff, fdata, &status)) {
         goto cleanup;
       }
     }
 
     if (ff->CheckIdx(INDEXFLD_T_TAG)) {
-      if (!fs.TagPreprocessor(aCtx, ff, fdata, &aCtx->status)) {
+      if (!fs.TagPreprocessor(this, ff, fdata, &status)) {
         goto cleanup;
       }
     }
   }
 
-  aCtx->indexer->Add(aCtx);
+  indexer->Add(this);
 
   return REDISMODULE_OK;
 
 cleanup:
-  aCtx->status.SetCode(QUERY_EGENERIC);
-  aCtx->Finish();
+  status.SetCode(QUERY_EGENERIC);
+  Finish();
   return REDISMODULE_ERR;
 }
 

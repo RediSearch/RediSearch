@@ -27,7 +27,7 @@
  * document has been prepared, acquire a new AddDocumentCtx() by calling
  * NewAddDocumentCtx().
  *
- * Once the new context has been received, call Document::AddToIndexes(). This
+ * Once the new context has been received, call AddToIndexes(). This
  * will start tokenizing the documents, and should be called in a separate
  * thread. This function will tokenize the document and send a reply back to
  * the client. You may free the AddDocumentCtx structure by calling
@@ -80,7 +80,7 @@ struct Document : Object {
   void Dump() const; //@@ looks like nobody is using this func
 
   static void Move(Document *dst, Document *src);
-  static int AddToIndexes(AddDocumentCtx *aCtx);
+  // static int AddToIndexes(AddDocumentCtx *aCtx);
   static int EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
                             int *result, QueryError *err);
   int LoadSchemaFields(RedisSearchCtx *sctx);
@@ -238,7 +238,8 @@ struct AddDocumentCtx : Object { // MemPoolObject<AddDocumentPool> { //@@POOL
 // Don't create document if it does not exist. Replace only
 #define REDIS_SAVEDOC_NOCREATE 0x01
 
-int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status);
+// @@ moved to RedisSearchCtx::SaveDocument
+// int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status);
 
 //---------------------------------------------------------------------------------------------
 

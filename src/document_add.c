@@ -137,6 +137,29 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
 
 //---------------------------------------------------------------------------------------------
 
+// Save a document in the index. Used for returning contents in search results.
+
+int RedisSearchCtx::SaveDocument(Document *doc, int options, QueryError *status) {
+  RedisModuleKey *k =
+      RedisModule_OpenKey(redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
+  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
+                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
+    status->SetError(QUERY_EREDISKEYTYPE, NULL);
+    if (k) {
+      RedisModule_CloseKey(k);
+    }
+    return REDISMODULE_ERR;
+  }
+
+  for (auto field : doc->fields) {
+    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, field->name, field->text, NULL);
+  }
+  RedisModule_CloseKey(k);
+  return REDISMODULE_OK;
+}
+
+//---------------------------------------------------------------------------------------------
+
 int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOptions &opts,
                                 QueryError *status) {
   int rc = REDISMODULE_ERR;
@@ -183,7 +206,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
     if (opts.options & DOCUMENT_ADD_NOCREATE) {
       saveopts |= REDIS_SAVEDOC_NOCREATE;
     }
-    if (Redis_SaveDocument(this, doc, saveopts, status) != REDISMODULE_OK) {
+    if (SaveDocument(doc, saveopts, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   }
