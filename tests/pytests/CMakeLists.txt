@@ -33,8 +33,6 @@ foreach(n ${PY_TEST_FILES})
 		COMMAND bash -c "MODARGS='UNION_ITERATOR_HEAP 1;' ${baseCommand} -t ${n}"
 		WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
-	endif()
-
 #    add_test(NAME "PY_${test_name}_DIALECT_v1"
 #		COMMAND bash -c "MODARGS='DEFAULT_DIALECT 1;' ${baseCommand} -t ${n}"
 #		WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
