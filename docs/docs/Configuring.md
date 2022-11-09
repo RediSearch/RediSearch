@@ -506,8 +506,11 @@ $ redis-server --loadmodule ./redisearch.so DEFAULT_DIALECT 2
 
 #### Notes
 
-* `DIALECT 2` is required for Vector Similarity Search
+* `DIALECT 2`, or greater than `2`, is required for Vector Similarity Search
 * added in v2.4.3
+
+* `DIALECT 3`, or greater than `3`, is required for returning multi values from `FT.SEARCH` and `FT.AGGREGATE`
+* added in v2.6.1
 
 ---
 

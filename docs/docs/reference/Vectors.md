@@ -181,7 +181,7 @@ JSON.SET 1 $ '{"foo":{"vec":[1,2,3,4]}, "bar":{"vec":[5,6,7,8]}}'
 
 ## Querying vector fields
 
-You can use vector similarity queries in the `FT.SEARCH` query command. To use a vector similarity query, you must specify the option `DIALECT 2` in the command itself, or set the `DEFAULT_DIALECT` option to `2` or higher, by either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`.
+You can use vector similarity queries in the `FT.SEARCH` query command. To use a vector similarity query, you must specify the option `DIALECT 2` or higher, in the command itself, or set the `DEFAULT_DIALECT` option to `2` or higher, by either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`.
 
 There are two types of vector queries: *KNN* and *range*:
 
