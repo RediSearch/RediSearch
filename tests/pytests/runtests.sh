@@ -147,12 +147,19 @@ setup_clang_sanitizer() {
 			if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
 				echo Building RedisJSON ...
 				# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
+				export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
 				$ROOT/sbin/build-redisjson
+				REJSON_MODULE=$(cat $MODULE_FILE)
+				RLTEST_REJSON_ARGS="--module $REJSON_MODULE --module-args '$REJSON_MODARGS'"
+				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
 			fi
 			export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
 		elif [[ ! -f $REJSON_PATH ]]; then
 			eprint "REJSON_PATH is set to '$REJSON_PATH' but does not exist"
 			exit 1
+		else
+			RLTEST_REJSON_ARGS="--module $REJSON_PATH --module-args '$REJSON_MODARGS'"
+			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH $REJSON_MODARGS"
 		fi
 	fi
 
@@ -160,7 +167,8 @@ setup_clang_sanitizer() {
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_VER}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-asan ...
-			$READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
+			$READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
+				--suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 		fi
 
 		export ASAN_OPTIONS=detect_odr_violation=0
@@ -170,7 +178,9 @@ setup_clang_sanitizer() {
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-msan ...
-			$READIES/bin/getredis --force -v $SAN_REDIS_VER  --no-run --own-openssl --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
+			$READIES/bin/getredis --force -v $SAN_REDIS_VER  --no-run --own-openssl \
+				--suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan \
+				--clang-san-blacklist /build/redis.blacklist
 		fi
 	fi
 }
@@ -267,7 +277,7 @@ setup_coverage() {
 setup_redisjson() {
 	REJSON_BRANCH=${REJSON_BRANCH:-master}
 
-	if [[ -n $REJSON && $REJSON != 0 ]]; then
+	if [[ -n $REJSON && $REJSON != 0 && -z $SAN ]]; then
 		if [[ -n $REJSON_PATH ]]; then
 			REJSON_MODULE="$REJSON_PATH"
 			RLTEST_REJSON_ARGS="--module $REJSON_PATH"
@@ -276,7 +286,7 @@ setup_redisjson() {
 			FORCE_GET=
 			[[ $REJSON == get ]] && FORCE_GET=1
 			export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
-			OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
+			OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $ROOT/sbin/get-redisjson
 			REJSON_MODULE=$(cat $MODULE_FILE)
 			RLTEST_REJSON_ARGS="--module $REJSON_MODULE"
 			XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE"
@@ -293,8 +303,12 @@ run_tests() {
 	local title="$1"
 	shift
 	if [[ -n $title ]]; then
-		$READIES/bin/sep -0
-		printf "Running $title:\n\n"
+		if [[ -n $GITHUB_ACTIONS ]]; then
+			echo "::group::$title"
+		else
+			$READIES/bin/sep -0
+			printf "Running $title:\n\n"
+		fi
 	fi
 
 	if [[ $EXISTING_ENV != 1 ]]; then
@@ -390,6 +404,9 @@ run_tests() {
 		kill -TERM $XREDIS_PID
 	fi
 
+	if [[ -n $GITHUB_ACTIONS ]]; then
+		echo "::endgroup::"
+	fi
 	return $E
 }
 
@@ -510,7 +527,7 @@ if [[ -z $COORD ]]; then
 
 		if [[ $COV != 1 ]]; then
 			{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
-				run_tests "RAW_DOCID_ENCODING"); (( E |= $? )); } || true
+				run_tests "with raw DocID encoding"); (( E |= $? )); } || true
 		fi
 
 		{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \

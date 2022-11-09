@@ -44,7 +44,7 @@ make pytest        # run python tests (tests/pytests)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
-  REJSON=1|0         # also load RedisJSON module
+  REJSON=1|0         # also load RedisJSON module (default: 1)
   REJSON_PATH=path   # use RedisJSON module at `path`
   EXT=1              # External (existing) environment
   GDB=1              # RLTest interactive debugging
@@ -426,6 +426,7 @@ export REJSON ?= 1
 ifneq ($(REJSON),0)
 ifneq ($(SAN),)
 REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+REJSON_PATH=$(REJSON_SO)
 
 $(REJSON_SO):
 	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
@@ -433,14 +434,15 @@ else
 REJSON_SO=
 endif
 
-endif
+endif # REJSON=0
 
 #----------------------------------------------------------------------------------------------
 
 FLOW_TESTS_DEFS=\
 	BINROOT=$(BINROOT) \
 	VG=$(VALGRIND) \
-	VG_LEAKS=0
+	VG_LEAKS=0 \
+	SAN=$(SAN)
 
 ifeq ($(EXT),1)
 FLOW_TESTS_DEFS += EXISTING_ENV=1
@@ -470,7 +472,10 @@ unit-tests:
 	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 pytest: $(REJSON_SO)
-	$(SHOW)REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) \
+ifneq ($(REJSON_PATH),)
+	@echo Testing with $(REJSON_PATH)
+endif
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
@@ -510,7 +515,8 @@ callgrind: $(TARGET)
 
 RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 
-RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) \
+	PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
 ifneq ($(RAMP_YAML),)
 
@@ -569,6 +575,7 @@ benchmark:
 #----------------------------------------------------------------------------------------------
 
 COV_EXCLUDE_DIRS += \
+	bin \
 	deps \
 	tests \
 	coord/tests

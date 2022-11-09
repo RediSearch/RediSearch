@@ -1,11 +1,11 @@
-name: Build on Linux
+name: Build/macOS
 
 on:
-  push:
+  workflow_dispatch:
 
 jobs:
-  build-linux-jammy:
-    runs-on: ubuntu-22.04
+  build-macos:
+    runs-on: macos-11
     steps:
     - uses: actions/checkout@v3
       with:
@@ -30,17 +30,3 @@ jobs:
     - name: Flow tests (coordinator)
       run: |
         make COORD=1 pytest
-
-  coverage:
-    runs-on: ubuntu-22.04
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: true
-    - name: Setup
-      run: |
-        ./sbin/setup
-        ./deps/readies/bin/getredis
-    - name: Build and test
-      run: |
-        make coverage
