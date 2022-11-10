@@ -709,9 +709,9 @@ workflows:
               platform: [jammy, focal, bionic]
       - build-macos:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - coverage:
-          <<: *on-any-branch
+          <<: *never
       - sanitize:
           name: sanitize-<< matrix.san-type >>
           matrix:
@@ -721,20 +721,11 @@ workflows:
       - valgrind-memcheck:
           <<: *never
       - benchmark-search-oss-standalone:
-          context: common
-          <<: *on-perf-and-version-tags
-      - benchmark-vecsim-oss-standalone:
-          context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch
       - benchmark-search-oss-cluster:
-          context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch
       - benchmark-search-oss-standalone-profiler:
-          context: common
-          <<: *on-perf-and-version-tags
-      - benchmark-vecsim-oss-standalone-profiler:
-          context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-any-branch
       - upload-artifacts:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"

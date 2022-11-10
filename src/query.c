@@ -446,7 +446,8 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
         .flags = 0,
         .len = 0,
     };
-    tok.str = runesToStr(rstr, slen, &tok.len);
+    char buf[slen * 2 + 1];
+    tok.str = runesToStrBuf(rstr, slen, buf, &tok.len);
     if (q->sctx && q->sctx->redisCtx) {
       RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
     }
@@ -457,7 +458,6 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                        q->opts->fieldmask & opts->fieldMask, q->conc, 1);
 
-    rm_free(tok.str);
     if (!ir) {
       Term_Free(term);
       continue;
@@ -661,11 +661,12 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   }
   QueryEvalCtx *q = ctx->q;
   RSToken tok = {0};
-  tok.str = runesToStr(r, n, &tok.len);
+
+  char buf[n * 2 + 1];
+  tok.str = runesToStrBuf(r, n, buf, &tok.len);
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
-  rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
     return REDISEARCH_OK;

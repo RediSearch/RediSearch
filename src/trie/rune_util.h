@@ -29,6 +29,7 @@ rune runeFold(rune r);
 
 /* Convert a rune string to utf-8 characters */
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
+char *runesToStrBuf(const rune *in, size_t len, char *buf, size_t *utflen);
 
 rune *strToFoldedRunes(const char *str, size_t *len);
 

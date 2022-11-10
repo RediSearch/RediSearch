@@ -24,7 +24,7 @@ rune runeFold(rune r) {
   return __fold((uint32_t)r);
 }
 
-char *runesToStr(const rune *in, size_t len, size_t *utflen) {
+char *runesToStrBuf(const rune *in, size_t len, char *buf, size_t *utflen) {
   if (len > MAX_RUNESTR_LEN) {
     if (utflen) *utflen = 0;
     return NULL;
@@ -36,11 +36,17 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   unicode[len] = 0;
 
   *utflen = nu_bytelen(unicode, nu_utf8_write);
-  char *ret = rm_calloc(1, *utflen + 1);
+  char *ret = buf ? buf : rm_calloc(1, *utflen + 1);
 
   nu_writestr(unicode, ret, nu_utf8_write);
   return ret;
 }
+
+char *runesToStr(const rune *in, size_t len, size_t *utflen) {
+  return runesToStrBuf(in, len, NULL, utflen);
+}
+
+
 
 /* implementation is identical to that of
  * strToRunes except for line where __fold is called */
