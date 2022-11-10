@@ -20,10 +20,10 @@ class RediSearchSetup(paella.Setup):
         self.install_downloaders()
 
         self.run("%s/bin/enable-utf8" % READIES, sudo=self.os != 'macos')
-        self.install("git gawk jq openssl rsync unzip psmisc")
+        self.install("git gawk jq openssl rsync unzip")
 
     def linux_first(self):
-        self.install("patch")
+        self.install("patch psmisc")
 
     def debian_compat(self):
         self.install("libatomic1")
