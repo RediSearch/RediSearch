@@ -121,7 +121,7 @@ rune *strToRunes(const char* str, size_t *len, bool& dynamic, rune* buf) {
     ret = buf;
   }
 
-  strToRunesN(str, strlen(str), ret);
+  strToRunesN(str, strlen(str) + 1, ret);
   ret[rlen] = '\0';
   if (len) *len = rlen;
   return ret;

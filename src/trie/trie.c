@@ -112,8 +112,9 @@ void TrieNode::Print(int idx, int depth) {
 
 // Add a new string to a trie and return the node.
 
-TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, TrieAddOp op) {
+TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, TrieAddOp op, int& rc) {
   if (score == 0 || runes.empty()) {
+    rc = 0;
     return NULL;
   }
 
@@ -150,6 +151,7 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
       AddChild(runes, offset, payload, score);
       _maxChildScore = MAX(_maxChildScore, score);
     }
+    rc = 1;
     return this;
   }
 
@@ -157,6 +159,8 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
 
   // we're inserting in an existing node - just replace the value
   if (offset == runes.len()) {
+    int term = isTerminal();
+    int deleted = isDeleted();
     switch (op) {
       // in increment mode, just add the score to the node's score
       case ADD_INCR:
@@ -178,17 +182,21 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
 
     _flags |= TRIENODE_TERMINAL; // set the node as terminal
     _flags &= ~TRIENODE_DELETED; // if it was deleted, make sure it's not now
+
+    rc = !term || deleted;
     return this;
   }
 
   // proceed to the next child or add a new child for the current rune
   for (auto child: _children) {
     if (runes[offset] == child->_runes[0]) {
-      child = child->Add(runes[offset], payload, score, op);
+      Runes next_rune {runes, offset};
+      child = child->Add(next_rune, payload, score, op, rc);
       return this;
     }
   }
 
+  rc = 1;
   return AddChild(runes, offset, payload, score);
 }
 

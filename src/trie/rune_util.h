@@ -45,7 +45,7 @@ struct Runes {
     } else {
       _runes = strToFoldedRunes(str, &_len, _dynamic, _runes_s);
     }
-	_nbytes = _len + 1;
+	  _nbytes = _len + 1;
   }
 
   Runes(const char *str, size_t len) { copy(str, len); }

@@ -49,7 +49,8 @@ int Trie::InsertStringBuffer(const char *s, size_t len, double score, int incr, 
     return 0;
   }
 
-  int rc = root->Add(runes, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
+  int rc;
+  root->Add(runes, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE, rc);
   size += rc;
 
   return rc;

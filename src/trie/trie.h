@@ -155,7 +155,7 @@ struct TrieNode : public Object {
   ~TrieNode();
 
   void Print(int idx, int depth);
-  TrieNode *Add(const Runes &runes, RSPayload *payload, float score, TrieAddOp op);
+  TrieNode *Add(const Runes &runes, RSPayload *payload, float score, TrieAddOp op, int &rc);
 
   TrieNode *AddChild(const Runes &runes, t_len offset, RSPayload *payload, float score);
   void SplitNode(t_len offset);
