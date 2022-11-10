@@ -138,9 +138,12 @@ EF_RUNTIME 20
 
 ## Querying vector fields
 
-You can use vector similarity queries in the `FT.SEARCH` query parameter. 
-The syntax for vector similarity queries is `*=>[{vector similarity query}]` for running the query on an entire vector field, or `{primary filter query}=>[{vector similarity query}]` for running similarity query on the result of the primary filter query. 
-To use a vector similarity query, you must specify the option `DIALECT 2` in the command itself, or set the `DEFAULT_DIALECT` option to `2`, either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`.
+You can use vector similarity queries in the `FT.SEARCH` query command. To use a vector similarity query, you must specify the option `DIALECT 2` or greater in the command itself, or set the `DEFAULT_DIALECT` option to `2` or greater, by either using the command `FT.CONFIG SET` or when loading the `redisearch` module and passing it the argument `DEFAULT_DIALECT 2`.
+
+There are two types of vector queries: *KNN* and *range*:
+
+### KNN search
+The syntax for vector similarity KNN queries is `*=>[<vector_similarity_query>]` for running the query on an entire vector field, or `<primary_filter_query>=>[<vector_similarity_query>]` for running similarity query on the result of the primary filter query. 
 
 As of version 2.4, you can use vector similarity *once* in the query, and over the entire query filter.
 
