@@ -62,7 +62,7 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
     RedisModule_ReplyWithArray(ctx, (2 + PROFILE_VERBOSE) * 2);
     switch (rp->type) {
       case RP_INDEX:
-      case RP_VECSIM:
+      case RP_METRICS:
       case RP_LOADER:
       case RP_SCORER:
       case RP_SORTER:
@@ -101,7 +101,7 @@ static double printProfileRP(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *a
 
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
   size_t nelem = 0;
-  
+
   hires_clock_t now;
   req->totalTime += hires_clock_since_msec(&req->initClock);
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);

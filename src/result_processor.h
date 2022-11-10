@@ -58,7 +58,7 @@ typedef enum {
   RP_FILTER,
   RP_PROFILE,
   RP_NETWORK,
-  RP_VECSIM,
+  RP_METRICS,
   RP_MAX,
 } ResultProcessorType;
 
@@ -194,7 +194,7 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *itr, struct timespec timeout
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs);
 
-ResultProcessor *RPVecSim_New(const RLookupKey **keys, size_t nkeys);
+ResultProcessor *RPMetricsLoader_New();
 
 /** Functions abstracting the sortmap. Hides the bitwise logic */
 #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
