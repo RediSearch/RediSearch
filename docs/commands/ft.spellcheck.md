@@ -36,9 +36,9 @@ See [Spellchecking](/redisearch/reference/spellcheck) for more details.
 <details open>
 <summary><code>TERMS</code></summary> 
 
-specifies an inclusion (`INCLUDE`) or exclusion (`EXCLUDE`) of a custom dictionary. Refer to `FT.DICTADD`, `FT.DICTDEL` and `FT.DICTDUMP` about managing custom dictionaries.
+specifies an inclusion (`INCLUDE`) or exclusion (`EXCLUDE`) of a custom dictionary. To learn more about managing custom dictionaries, see `FT.DICTADD`, `FT.DICTDEL`, and `FT.DICTDUMP`.
 
-Multiple inclusion and/or exclusion `TERMS` can be specified.
+You can specify multiple inclusion and exclusion `TERMS`.
 </details>
 
 <details open>
