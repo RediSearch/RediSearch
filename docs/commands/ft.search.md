@@ -215,7 +215,15 @@ FT.SEARCH returns an array reply, where the first element is an integer reply of
 
 ### Return multiple values
 
-When the index is defined `ON JSON`, a reply for a single attribute or a single JSONPath may return multiple values when the JSONPath match multiple values, or when the JSONPath match an array. Prior to RediSearch v2.6, only the first of the matched values was returned. Starting with RediSearch v2.6, all values are returned, wrapped with a top-level array. In order to maintain backward compatibility, the default behavior with RediSearch v2.6 is to return only the first value. In order to return all the values `DIALECT 3`, or greater than `3` when available, should be used.
+When the index is defined `ON JSON`, a reply for a single attribute or a single JSONPath may return multiple values when the JSONPath matches multiple values, or when the JSONPath matches an array.
+
+Prior to RediSearch v2.6, only the first of the matched values was returned.
+Starting with RediSearch v2.6, all values are returned, wrapped with a top-level array.
+
+In order to maintain backward compatibility, the default behavior with RediSearch v2.6 is to return only the first value.
+
+To return all the values, use `DIALECT` 3 (or greater, when available).
+
 The `DIALECT` can be specified as a parameter in the FT.SEARCH command. If it is not specified, the `DEFAULT_DIALECT` is used, which can be set using `FT.CONFIG SET` or by passing it as an argument to the `redisearch` module when it is loaded.
 
 For example, with the following document and index:
