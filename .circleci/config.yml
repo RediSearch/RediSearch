@@ -481,8 +481,12 @@ jobs:
       - save-tests-logs
 
   sanitize:
-    docker:
-      - image: redisfab/clang:13-x64-bullseye
+#    docker:
+#      - image: redisfab/clang:13-x64-bullseye
+    machine:
+      enabled: true
+      image: ubuntu-2004:202010-01
+      resource_class: large
     parameters:
       san-type:
         type: string

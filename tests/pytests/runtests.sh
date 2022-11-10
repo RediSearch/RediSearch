@@ -584,6 +584,7 @@ if [[ $COLLECT_LOGS == 1 ]]; then
 	OSNICK=$($READIES/bin/platform --osnick)
 	cd $ROOT
 	mkdir -p bin/artifacts/tests
+	rm -f bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz
 	find tests/pytests/logs -name "*.log" | tar -czf bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz -T -
 fi
 

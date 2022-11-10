@@ -40,12 +40,7 @@ RUN set -e ;\
 {% if TEST == "1" %}
 RUN TEST='' make test PLATFORM_MODE=1
 RUN TEST='' make test COORD=oss PLATFORM_MODE=1
-RUN set -e ;\
-	cd /build/tests/pytest/logs ;\
-    rm -f *.aof *.rdb ;\
-    tar -czf /build/bin/artifacts/pytest-logs-{{ARCH}}-{{OSNICK}}.tgz .
 {% endif %}
-
 
 #----------------------------------------------------------------------------------------------
 FROM redisfab/rejson:{{REJSON_VERSION}}-{{ARCH}}-{{OSNICK}} AS json

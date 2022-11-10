@@ -1,0 +1,21 @@
+name: Coverage analysis
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Setup
+      run: |
+        ./sbin/setup
+        ./deps/readies/bin/getredis
+    - name: Build and test
+      run: |
+        make coverage

@@ -1,12 +1,19 @@
-name: Build on macOS
+name: Build on Linux Platforms
 
 on:
-  push:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Build platforms'
+        default: '["ubuntu:jammy", "ubuntu:bionic", "centos:7", "rockylinux:8", "debian:bullseye"]'
 
 jobs:
-  build-macos:
-    runs-on: macos-11
+  build-linux-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        OS: ${{ fromJson(inputs.platforms) }}
+      fail-fast: false
     steps:
     - uses: actions/checkout@v3
       with:
