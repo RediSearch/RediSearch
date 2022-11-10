@@ -609,4 +609,3 @@ def testCoordinator(env):
 			### (11) wildcard with sort ###
 			# aggregate only minimal number of ranges
 			compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*', 'SORTBY', 2, '@n', 'ASC'], params, 'case 11')
-	input('stop')

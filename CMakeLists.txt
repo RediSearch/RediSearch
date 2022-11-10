@@ -59,6 +59,7 @@ add_definitions(-D_GNU_SOURCE)
 if (USE_REDIS_ALLOCATOR)
     add_definitions(-DREDIS_MODULE_TARGET)
 endif()
+add_definitions(-DRS_OPTIMIZE)
 
 #----------------------------------------------------------------------------------------------
 
