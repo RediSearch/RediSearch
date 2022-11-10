@@ -14,11 +14,7 @@ COPY --from=redis /usr/local/ /usr/local/
 ADD . /build
 
 RUN ./deps/readies/bin/getupdates
-RUN ./deps/readies/bin/getpy3
-RUN ./sbin/system-setup.py
-
-RUN /usr/local/bin/redis-server --version
-RUN make fetch
+RUN ./sbin/setup
 
 RUN make build SHOW=1
 
@@ -34,8 +30,8 @@ RUN make build COORD=oss SHOW=1
 {% if PACK == "1" %}
 RUN mkdir -p bin/artifacts
 RUN make pack
-RUN make pack COORD=rlec
 RUN make pack LITE=1
+RUN make pack COORD=rlec
 RUN set -e ;\
     echo "Artifacts:" ;\
     du -ah --apparent-size /build/bin/artifacts

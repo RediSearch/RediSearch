@@ -7,10 +7,6 @@ on:
 jobs:
   clang-sanitizer:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        OS: ${{ fromJson(inputs.platforms) }}
-      fail-fast: false
     container:
       image: redisfab/clang:13-x64-bullseye
       options: --cpus 2

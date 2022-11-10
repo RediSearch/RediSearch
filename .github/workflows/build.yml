@@ -6,7 +6,7 @@ on:
 jobs:
   build-linux-jammy:
     runs-on: ubuntu-22.04
-    if: ${{ always() }}
+    continue-on-error: true
     steps:
     - uses: actions/checkout@v3
       with:
@@ -34,7 +34,7 @@ jobs:
 
   coverage:
     runs-on: ubuntu-22.04
-    if: ${{ always() }}
+    continue-on-error: true
     steps:
     - uses: actions/checkout@v3
       with:
