@@ -333,7 +333,7 @@ VECTOR {
     @t1:hello
     @t1:world
   }
-} => {K=10 nearest vectors to `$B` in @v, AS `__v_score`}
+} => {K=10 nearest vectors to `$B` in vector index associated with field @v, yields distance as `__v_score`}
 '''[1:])
 
 def test_filters_v1():

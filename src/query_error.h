@@ -54,6 +54,7 @@ extern "C" {
   X(QUERY_EHYBRIDNEXIST, "invalid hybrid policy was given")                               \
   X(QUERY_EADHOCWBATCHSIZE, "'batch size' is irrelevant for 'ADHOC_BF' policy")           \
   X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")           \
+  X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")              \
 
 typedef enum {
   QUERY_OK = 0,
