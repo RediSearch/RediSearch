@@ -42,7 +42,7 @@ def compare_optimized_to_not(env, query, params, msg=None):
 
 	# check length of list to avoid errors
 	if len(not_res) == 1 or len(opt_res) == 1:
-		env.assertEqual(len(not_res), len(opt_res))
+		env.assertEqual(len(not_res), len(opt_res), message=msg)
 		if len(not_res) != len(opt_res):
 			env.debugPrint(str(not_res), force=True)
 			env.debugPrint(str(opt_res), force=True)
@@ -59,7 +59,7 @@ def compare_optimized_to_not(env, query, params, msg=None):
 	msg = cmds[i%2] + ' limit %d %d : ' % (params[1], params[2]) + msg
 
 	# check length and content
-	env.assertEqual(len(not_res), len(opt_res))
+	env.assertEqual(len(not_res), len(opt_res), message=msg)
 	env.assertEqual(not_list, opt_list, message=msg)
 	if not_list != opt_list:
 		print(str(not_res))
@@ -609,3 +609,4 @@ def testCoordinator(env):
 			### (11) wildcard with sort ###
 			# aggregate only minimal number of ranges
 			compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*', 'SORTBY', 2, '@n', 'ASC'], params, 'case 11')
+	input('stop')
