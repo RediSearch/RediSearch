@@ -316,7 +316,6 @@ run_tests() {
 		rm -f $rltest_config
 		if [[ $RLEC != 1 ]]; then
 			cat <<-EOF > $rltest_config
-				--clear-logs
 				--oss-redis-path=$REDIS_SERVER
 				--module $MODULE
 				--module-args '$MODARGS'
@@ -330,7 +329,6 @@ run_tests() {
 				EOF
 		else
 			cat <<-EOF > $rltest_config
-				--clear-logs
 				$RLTEST_ARGS
 				$RLTEST_VALGRIND_ARGS
 
@@ -453,7 +451,9 @@ fi
 
 RLTEST_ARGS+=" $@"
 
-RLTEST_ARGS+=" --clear-logs"
+#if [[ $CLEAR_LOGS != 0 ]]; then
+#	RLTEST_ARGS+=" --clear-logs"
+#fi
 
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
@@ -504,9 +504,9 @@ fi
 
 #----------------------------------------------------------------------------------------------
 
-# if [[ $CLEAR_LOGS != 0 ]]; then
-# 	rm -rf $HERE/logs
-# fi
+if [[ $CLEAR_LOGS != 0 ]]; then
+	rm -rf $HERE/logs
+fi
 
 E=0
 

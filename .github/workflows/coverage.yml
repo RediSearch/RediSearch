@@ -7,7 +7,7 @@ on:
 jobs:
   coverage:
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # continue-on-error: true
     steps:
     - uses: actions/checkout@v3
       with:
