@@ -4,6 +4,7 @@
 #include "rmutil/rm_assert.h"
 #include <util/arr.h>
 #include "doc_types.h"
+#include "value.h"
 
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx) {
@@ -271,11 +272,11 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
   char *str;
   const char *constStr;
   RedisModuleString *rstr;
-  RSValue *rs_val;
   long long ll;
   double dd;
   int i;
 
+  // Currently `getJSON` cannot fail here also the other japi APIs below
   switch (japi->getType(json)) {
     case JSONType_String:
       japi->getString(json, &constStr, &len);
@@ -293,14 +294,64 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType_Array:
     case JSONType_Object:
       japi->getJSON(json, ctx, &rstr);
-      rs_val = RS_StealRedisStringVal(rstr);
-      return rs_val;
+      return RS_StealRedisStringVal(rstr);
     case JSONType_Null:
       return RS_NullVal();
     case JSONType__EOF:
-      RS_LOG_ASSERT(0, "Cannot get here");
+      break;
   }
-  return NULL;
+  RS_LOG_ASSERT(0, "Cannot get here");
+}
+
+// Get the value from an iterator and free the iterator
+// Return REDISMODULE_OK, and set rsv to the value, if value exists
+// Return REDISMODULE_ERR otherwise
+//
+// Multi value is supported with apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST
+int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv) {
+
+  int res = REDISMODULE_ERR;
+  RedisModuleString *serialized = NULL;
+  
+  if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST || japi_ver < 2) {
+    // Preserve single value behavior for backward compatibility
+    RedisJSON json = japi->next(iter);
+    if (!json) {
+      goto done;
+    }
+    *rsv = jsonValToValue(ctx, json);
+    res = REDISMODULE_OK;
+    goto done;
+  }
+
+  size_t len = japi->len(iter);
+  if (len > 0) {
+    // First get the JSON serialized value (since it does not consume the iterator)
+    if (japi->getJSONFromIter(iter, ctx, &serialized) == REDISMODULE_ERR) {
+      goto done;
+    }
+    
+    // Second, get the first JSON value
+    RedisJSON json = japi->next(iter);
+    // If the value is an array, we currently try using the first element
+    JSONType type = japi->getType(json);
+    if (type == JSONType_Array) {
+      // Empty array will return NULL
+      json = japi->getAt(json, 0);
+    }
+
+    if (json) {
+      RSValue *val = jsonValToValue(ctx, json);
+      RSValue *otherval = RS_StealRedisStringVal(serialized);
+      *rsv = RS_DuoVal(val, otherval);
+      res = REDISMODULE_OK;
+    } else if (serialized) {
+      RedisModule_FreeString(ctx, serialized);
+    }
+  }
+  
+done:
+  return res;
 }
 
 static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
@@ -443,12 +494,11 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
       return REDISMODULE_OK;
     }
   } else {
-    RedisJSON jsonValue = japi->next(jsonIter);
+    int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &rsv);
     japi->freeIter(jsonIter);
-    if (!jsonValue) {
+    if (res == REDISMODULE_ERR) {
       return REDISMODULE_OK;
     }
-    rsv = jsonValToValue(ctx, jsonValue);
   }
 
   // Value has a reference count of 1
@@ -468,6 +518,10 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
   GetKeyFunc getKey = (type == DocumentType_Hash) ? (GetKeyFunc)getKeyCommonHash :
                                                     (GetKeyFunc)getKeyCommonJSON;
   int rc = REDISMODULE_ERR;
+  // On error we silently skip the rest
+  // On success we continue
+  // (success could also be when no value is found and nothing is loaded into `dst`,
+  //  for example, with a JSONPath with no matches)
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
       const RLookupKey *kk = options->keys[ii];
@@ -615,25 +669,18 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
     goto done;
   }
 
-  RedisModuleString *value = NULL;
-  RedisJSON jsonValue = japi->next(jsonIter);
-  if (!jsonValue || japi->getJSON(jsonRoot, ctx, &value) != REDISMODULE_OK) {
-    if (value) {
-      RedisModule_FreeString(ctx, value);
-    }
+  RSValue *vptr;
+  int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr);
+  japi->freeIter(jsonIter);
+  if (res == REDISMODULE_ERR) {
     goto done;
   }
-
   RLookupKey *rlk = RLookup_GetKeyEx(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
-  RSValue *vptr = RS_StealRedisStringVal(value);
   RLookup_WriteOwnKey(rlk, dst, vptr);
 
   rc = REDISMODULE_OK;
 
 done:
-  if (jsonIter) {
-    japi->freeIter(jsonIter);
-  }
   return rc;
 }
 

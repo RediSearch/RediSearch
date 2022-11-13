@@ -88,10 +88,10 @@ int IL_SkipTo(void *ctx, t_docId docId, RSIndexResult **r) {
   }
 
   t_offset top = it->size - 1, bottom = it->offset;
-  t_offset i = bottom;
+  t_offset i = 0;
 
   while (bottom <= top) {
-
+    i = (bottom + top) / 2;
     t_docId did = it->docIds[i];
 
     if (did == docId) {
@@ -103,7 +103,6 @@ int IL_SkipTo(void *ctx, t_docId docId, RSIndexResult **r) {
     } else {
       bottom = i + 1;
     }
-    i = (bottom + top) / 2;
   }
   it->offset = i + 1;
   if (it->offset >= it->size) {

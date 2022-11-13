@@ -162,6 +162,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
       ++nn;
     }
+    if (FieldSpec_IsUnf(fs)) {
+      RedisModule_ReplyWithSimpleString(ctx, SPEC_UNF_STR);
+      ++nn;
+    }
     if (FieldSpec_IsNoStem(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOSTEM_STR);
       ++nn;

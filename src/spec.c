@@ -386,8 +386,8 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
   // Uncomment these when support for other type is added.
   if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len))
     *type = VecSimType_FLOAT32;
-  // else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
-  //   *type = VecSimType_FLOAT64;
+   else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
+     *type = VecSimType_FLOAT64;
   // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len))
   //   *type = VecSimType_INT32;
   // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len))
@@ -537,6 +537,11 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
+      if ((rc = AC_GetDouble(ac, &fs->vectorOpts.vecSimParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index epsilon", rc);
+        return 0;
+      }
     } else {
       QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
       return 0;
@@ -642,11 +647,26 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
 
-static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   // this is a vector field
   // init default type, size, distance metric and algorithm
 
   memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams));
+
+  // If the index is on JSON and the given path is dynamic, create a multi-value index.
+  bool multi = false;
+  if (isSpecJson(sp)) {
+    RedisModuleString *err_msg;
+    JSONPath jsonPath = pathParse(fs->path, &err_msg);
+    if (!jsonPath) {
+      if (err_msg) {
+        JSONParse_error(status, err_msg, fs->path, fs->name, sp->name);
+      }
+      return 0;
+    }
+    multi = !(pathIsSingle(jsonPath));
+    pathFree(jsonPath);
+  }
 
   // parse algorithm
   const char *algStr;
@@ -660,6 +680,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.bfParams.initialCapacity = 1000;
     fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
+    fs->vectorOpts.vecSimParams.bfParams.multi = multi;
     return parseVectorField_flat(fs, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_HNSWLIB;
@@ -668,6 +689,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     fs->vectorOpts.vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
     fs->vectorOpts.vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     fs->vectorOpts.vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
+    fs->vectorOpts.vecSimParams.hnswParams.multi = multi;
     return parseVectorField_hnsw(fs, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
@@ -695,7 +717,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
     sp->flags |= Index_HasVecSim;
     fs->types |= INDEXFLD_T_VECTOR;
-    if (!parseVectorField(fs, ac, status)) {
+    if (!parseVectorField(sp, fs, ac, status)) {
       goto error;
     }
     return 1;
@@ -860,11 +882,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
           }
           if (jsonPath) {
             pathFree(jsonPath);
-          } else if (err_msg != NULL) {
-            QueryError_SetErrorFmt(status, QUERY_EINVALPATH,
-                               "Invalid JSONPath '%s' in attribute '%s' in index '%s'",
-                            fs->path, fs->name, sp->name);
-            RedisModule_FreeString(RSDummyContext, err_msg);
+          } else if (err_msg) {
+            JSONParse_error(status, err_msg, fs->path, fs->name, sp->name);
             goto reset;
           } /* else {
             RedisModule_Log(RSDummyContext, "info",
@@ -876,10 +895,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
 
     if (FieldSpec_IsSortable(fs)) {
-      if (fs->types & INDEXFLD_T_TAG && isSpecJson(sp)) {
-        QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
-                               "On JSON, cannot set tag field to sortable - %s", fieldName);
-        goto reset;
+      if (isSpecJson(sp)) {
+        // SORTABLE JSON field is always UNF
+        fs->options |= FieldSpec_UNF;
       }
 
       if (fs->options & FieldSpec_Dynamic) {
@@ -1036,6 +1054,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
+  spec->flags &= ~Index_Temporary;
   IndexSpec_Free(spec);
   return NULL;
 }
@@ -1336,7 +1355,7 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     }
   }
 
-  // Increament the number of uses. 
+  // Increament the number of uses.
   // When we move to multi readers this counter needs to be atomic.
   ++sp->counter;
 
@@ -1654,8 +1673,14 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     if (encver >= INDEX_VECSIM_2_VERSION) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
-    if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
-      goto fail;
+    if (encver >= INDEX_VECSIM_MULTI_VERSION) {
+      if (VecSim_RdbLoad_v2(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+        goto fail;
+      }
+    } else {
+      if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+        goto fail;
+      }
     }
     // Calculate blob size limitation on lower encvers.
     if(encver < INDEX_VECSIM_2_VERSION) {
