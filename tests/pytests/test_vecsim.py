@@ -976,17 +976,19 @@ def test_hybrid_query_non_vector_score():
                       '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'],
                       '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'],
                       '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
-    env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
+    res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
-               'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_3)
+               'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
+    compare_lists(env, res, expected_res_3, delta=0.01)
 
     # Those scorers are scoring per shard.
     if not env.isCluster():
         # use BM25 scorer
         expected_res_4 = [10, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
-        env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
+        res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_4)
+                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
+        compare_lists(env, res, expected_res_4, delta=0.01)
 
         # use DISMAX scorer
         expected_res_5 = [10, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
@@ -1574,10 +1576,13 @@ def test_timeout_reached():
                                        'TIMEOUT', 0)
             env.assertEqual(res[0], n_vec)
             # run query with 1 millisecond timeout. should fail.
-            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                       'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
-                                       'TIMEOUT', 1)
-            env.assertEqual(res[0], timeout_expected)
+            try: # TODO: rewrite when cluster behavior is consistent on timeout
+                res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                           'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                           'TIMEOUT', 1)
+                env.assertEqual(res[0], timeout_expected)
+            except Exception as error:
+                env.assertContains('Timeout limit was reached', str(error))
 
             # RANGE QUERY
             # run query with no timeout. should succeed.
@@ -1597,10 +1602,13 @@ def test_timeout_reached():
                                            'TIMEOUT', 0)
                 env.assertEqual(res[0], n_vec)
 
-                res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                           'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
-                                           'TIMEOUT', 1)
-                env.assertEqual(res[0], timeout_expected)
+                try: # TODO: rewrite when cluster behavior is consistent on timeout
+                    res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                               'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+                                               'TIMEOUT', 1)
+                    env.assertEqual(res[0], timeout_expected)
+                except Exception as error:
+                    env.assertContains('Timeout limit was reached', str(error))
 
             conn.flushall()
 
