@@ -33,7 +33,7 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   idx->lastId = RedisModule_LoadUnsigned(rdb);
   idx->numDocs = RedisModule_LoadUnsigned(rdb);
   idx->size = RedisModule_LoadUnsigned(rdb);
-  idx->blocks = rm_calloc(idx->size, sizeof(IndexBlock));
+  idx->blocks.resize(idx->size);
 
   size_t actualSize = 0;
   for (uint32_t i = 0; i < idx->size; i++) {
@@ -62,7 +62,7 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (idx->size == 0) {
     idx->AddBlock(t_docId{0});
   } else {
-    idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
+    idx->blocks.resize(idx->size);
   }
   return idx;
 }

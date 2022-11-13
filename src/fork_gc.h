@@ -149,12 +149,12 @@ struct TagIndexRepair : NumericAndTagIndexRepair {
 struct IndexBlock;
 
 struct InvIdxBuffers {
-  MSG_DeletedBlock *delBlocks;
+  std::vector<MSG_DeletedBlock> delBlocks;
   size_t numDelBlocks;
 
-  MSG_RepairedBlock *changedBlocks;
+  std::vector<MSG_RepairedBlock> changedBlocks;
 
-  IndexBlock *newBlocklist;
+  std::vector<IndexBlock> newBlocklist;
   size_t newBlocklistSize;
   int lastBlockIgnored;
 };
