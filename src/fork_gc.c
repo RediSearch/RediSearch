@@ -466,13 +466,19 @@ int ForkGC::recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info) {
   if (bufs->newBlocklistSize) {
     bufs->newBlocklistSize /= sizeof(decltype(bufs->newBlocklist)::value_type);
   }
-  if (recvBuffer((void **)&bufs->delBlocks.begin(), &bufs->numDelBlocks) != REDISMODULE_OK) {
+  if (recvBuffer((void **)&bufs->delBlocks.data(), &bufs->numDelBlocks) != REDISMODULE_OK) {
     goto error;
   }
   bufs->numDelBlocks /= sizeof(decltype(bufs->delBlocks)::value_type);
   bufs->changedBlocks.resize(info->nblocksRepaired);
-  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
-    if (recvRepairedBlock(bufs->changedBlocks + i) != REDISMODULE_OK) {
+
+  for (
+    auto changedBlock = bufs->changedBlocks.begin(),
+    lastChangedBlock = std::next(changedBlock, info->nblocksRepaired);
+    changedBlock != lastChangedBlock;
+    changedBlock = std::next(changedBlock)
+  ) {
+    if (recvRepairedBlock(&*changedBlock) != REDISMODULE_OK) {
       goto error;
     }
     nblocksRecvd++;
@@ -530,7 +536,7 @@ void ForkGC::checkLastBlock(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inverte
     // Last block was modified on the child and on the parent.
 
     // we need to remove it from changedBlocks
-    idxData->changedBlocks.erase(std::advance(idxData->changedBlocks.begin(), info->nblocksRepaired - 1));
+    idxData->changedBlocks.erase(std::next(idxData->changedBlocks.begin(), info->nblocksRepaired - 1));
     info->nblocksRepaired--;
 
     // Then add it to newBlocklist if newBlocklist is not NULL.
@@ -554,13 +560,21 @@ void ForkGC::checkLastBlock(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inverte
 
 void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, InvertedIndex *idx) {
   checkLastBlock(idxData, info, idx);
-  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
-    auto blockModified = std::advance(idxData->changedBlocks.begin(), i);
+  for (
+    auto blockModified = idxData->changedBlocks.begin(),
+    lastBlockModified = std::next(idxData->changedBlocks.begin(), info->nblocksRepaired);
+    blockModified != lastBlockModified;
+    blockModified = std::next(blockModified)
+  ) {
     idx->blocks.erase(blockModified->oldix);
   }
-  for (size_t i = 0; i < idxData->numDelBlocks; ++i) {
+  for (
+    auto delinfo = idxData->delBlocks.begin(),
+    lastDelinfo = std::next(idxData->delBlocks.begin(), idxData->numDelBlocks);
+    delinfo != lastDelinfo;
+    delinfo = std::next(delinfo)
+  ) {
     // Blocks that were deleted entirely:
-    auto delinfo = std::advance(idxData->delBlocks.begin(), i);
     rm_free(delinfo->ptr);
   }
   idxData->delBlocks.clear();
@@ -586,11 +600,7 @@ void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inv
     size_t totalLen = idxData->newBlocklistSize + newAddedLen;
 
     // idxData->newBlocklist.reserve(totalLen); // insert range prereserves, no need to call reserve locally.
-    idxData->newBlocklist.insert(
-      idxData->newBlocklist.end(),
-      std::advance(idx->blocks.begin(), info->nblocksOrig),
-      idx->blocks.end()
-    );
+    idxData->newBlocklist.insert(idxData->newBlocklist.end(), std::next(idx->blocks.begin(), info->nblocksOrig), idx->blocks.end());
 
     idx->blocks.clear();
     idxData->newBlocklistSize += newAddedLen;
@@ -609,8 +619,12 @@ void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inv
     }
   }
 
-  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
-    auto blockModified = std::advance(idxData->changedBlocks.begin(), i);
+  for (
+    auto blockModified = idxData->changedBlocks.begin(),
+    lastBlockModified = std::next(idxData->changedBlocks.begin(), info->nblocksRepaired);
+    blockModified != lastBlockModified;
+    blockModified = std::next(blockModified)
+  ) {
     idx->blocks[blockModified->newix] = blockModified->blk;
   }
 
