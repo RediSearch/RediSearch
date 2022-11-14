@@ -245,7 +245,8 @@ struct ForkGC : public Object, public GCAPI {
   void sendTerminator();
 
   int recvFixed(void *buf, size_t len);
-  int recvBuffer(void **buf, size_t *len);
+  template <typename T>
+  int recvBuffer(std::vector<T>& buf, size_t *len);
   int recvRepairedBlock(MSG_RepairedBlock *binfo);
   int recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info);
 

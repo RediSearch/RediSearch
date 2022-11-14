@@ -131,7 +131,8 @@ int ForkGC::recvFixed(void *buf, size_t len) {
 
 static void *RECV_BUFFER_EMPTY = (void *)0x0deadbeef;
 
-int ForkGC::recvBuffer(void **buf, size_t *len) {
+template <typename T>
+int ForkGC::recvBuffer(std::vector<T>& buf, size_t *len) {
   recvFixed(len, sizeof *len);
   if (*len == SIZE_MAX) {
     *buf = RECV_BUFFER_EMPTY;
@@ -459,14 +460,14 @@ int ForkGC::recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info) {
   if (recvFixed(info, sizeof(*info)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  if (recvBuffer((void **)&bufs->newBlocklist.begin(), &bufs->newBlocklistSize) != REDISMODULE_OK) {
+  if (recvBuffer(bufs->newBlocklist, &bufs->newBlocklistSize) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
   if (bufs->newBlocklistSize) {
     bufs->newBlocklistSize /= sizeof(decltype(bufs->newBlocklist)::value_type);
   }
-  if (recvBuffer((void **)&bufs->delBlocks.data(), &bufs->numDelBlocks) != REDISMODULE_OK) {
+  if (recvBuffer(bufs->delBlocks, &bufs->numDelBlocks) != REDISMODULE_OK) {
     goto error;
   }
   bufs->numDelBlocks /= sizeof(decltype(bufs->delBlocks)::value_type);
@@ -566,7 +567,7 @@ void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inv
     blockModified != lastBlockModified;
     blockModified = std::next(blockModified)
   ) {
-    idx->blocks.erase(blockModified->oldix);
+    idx->blocks.erase(std::next(idx->blocks.begin(), blockModified->oldix));
   }
   for (
     auto delinfo = idxData->delBlocks.begin(),
@@ -654,10 +655,12 @@ FGCError ForkGC::parentHandleTerms(RedisModuleCtx *rctx) {
 
   InvIdxBuffers idxbufs;
   MSG_IndexInfo info;
-  if (recvInvIdx(&idxbufs, &info) != REDISMODULE_OK) {
+  void *buf;
+  if (recvInvIdx(&buf, &info.nblocksOrig) != REDISMODULE_OK) {
     rm_free(term);
     return FGC_CHILD_ERROR;
   }
+  idxbufs.delBlocks = {(decltype(idxbufs.delBlocks)::value_type *)buf, (decltype(idxbufs.delBlocks)::value_type *)(buf + info.nblocksOrig)}
 
   if (!lock(rctx)) {
     status = FGC_PARENT_ERROR;
