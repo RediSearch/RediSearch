@@ -321,7 +321,7 @@ OK
 
 {{% alert title="Important note" color="info" %}}
 
-Unlike NUMERIC type, using a static path such as `$.embedding` in the schema for VECTOR type will **not allow indexing multiple vectors** stored under that field. Hence, had `$.embedding` was the path given to the index schema, specifying array of vectors under the `embedding` field in the JSON will cause indexing failure.
+Unlike NUMERIC type, using a static path such as `$.embedding` in the schema for VECTOR type will **not allow indexing multiple vectors** stored under that path. Hence, had `$.embedding` was the path given to the index schema, specifying an array of vectors under the `$.embedding` path in a JSON document would have cause indexing failure.
 
 {{% /alert %}}
 
