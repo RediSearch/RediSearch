@@ -7,7 +7,7 @@ Read next results from an existing cursor
 ## Syntax
 
 {{< highlight bash >}}
-FT.CURSOR READ index cursor_id [COUNT read size]
+FT.CURSOR READ index cursor_id [COUNT read_size]
 {{< / highlight >}}
 
 [Examples](#examples)
@@ -27,7 +27,7 @@ is id of the cursor.
 </details>
 
 <details open>
-<summary><code>[COUNT read size]</code></summary>
+<summary><code>[COUNT read_size]</code></summary>
 
 is number of results to read. This parameter overrides `COUNT` specified in `FT.AGGREGATE`.
 </details>
