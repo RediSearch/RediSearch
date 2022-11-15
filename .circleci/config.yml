@@ -308,7 +308,7 @@ commands:
               --fail_fast \
               --triggering_env << parameters.triggering_env >> \
               --push_results_redistimeseries \
-              --allowed-envs << parameters.allowed_envs >>
+              --allowed-envs << parameters.allowed_envs >> || true
 
 #----------------------------------------------------------------------------------------------------------------------------------
 
@@ -647,6 +647,15 @@ on-integ-branch: &on-integ-branch
     tags:
       ignore: /.*/
 
+on-integ-branch-cron: &on-integ-branch-cron
+  filters:
+    branches:
+      only:
+        - master
+        - /^\d+\.\d+.*$/
+        - /^feature-.*$/
+        - /^perf-.*$/
+
 not-on-integ-branch: &not-on-integ-branch
   filters:
     branches:
@@ -709,9 +718,9 @@ workflows:
               platform: [jammy, focal, bionic]
       - build-macos:
           context: common
-          <<: *never
+          <<: *on-integ-and-version-tags
       - coverage:
-          <<: *never
+          <<: *on-any-branch
       - sanitize:
           name: sanitize-<< matrix.san-type >>
           matrix:
@@ -721,11 +730,20 @@ workflows:
       - valgrind-memcheck:
           <<: *never
       - benchmark-search-oss-standalone:
-          <<: *on-any-branch
+          context: common
+          <<: *on-perf-and-version-tags
+      - benchmark-vecsim-oss-standalone:
+          context: common
+          <<: *on-perf-and-version-tags
       - benchmark-search-oss-cluster:
-          <<: *on-any-branch
+          context: common
+          <<: *on-perf-and-version-tags
       - benchmark-search-oss-standalone-profiler:
-          <<: *on-any-branch
+          context: common
+          <<: *on-perf-and-version-tags
+      - benchmark-vecsim-oss-standalone-profiler:
+          context: common
+          <<: *on-perf-and-version-tags
       - upload-artifacts:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"
@@ -753,9 +771,7 @@ workflows:
     triggers:
       - schedule:
           cron: "20 17 * * 0,3"
-          filters:
-            branches:
-              only: master
+          <<: *on-integ-branch-cron
     jobs:
       - build-macos:
           upload: "no"
@@ -763,18 +779,13 @@ workflows:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
             parameters:
-              redis_version: ["6.0", "7", "unstable"]
+              redis_version: ["6.0", "6.2", "7", "unstable"]
 
   nightly-performance:
     triggers:
       - schedule:
           cron: "20 17 * * *"
-          filters:
-            branches:
-              only:
-                - master
-                - /^\d+\.\d+.*$/
-                - /^feature-.*$/
+          <<: *on-integ-branch-cron
 
     jobs:
       - benchmark-search-oss-standalone:
