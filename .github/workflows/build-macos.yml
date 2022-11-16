@@ -7,6 +7,9 @@ on:
 jobs:
   build-macos:
     runs-on: macos-11
+    defaults:
+      run:
+        shell: bash -l -eo pipefail
     steps:
     - uses: actions/checkout@v3
       with:

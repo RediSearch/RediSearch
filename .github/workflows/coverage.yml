@@ -7,7 +7,9 @@ on:
 jobs:
   coverage:
     runs-on: ubuntu-22.04
-    # continue-on-error: true
+    defaults:
+      run:
+        shell: bash -l -eo pipefail
     steps:
     - uses: actions/checkout@v3
       with:

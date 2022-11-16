@@ -483,7 +483,7 @@ jobs:
   sanitize:
     docker:
       - image: redisfab/clang:13-x64-bullseye
-    resource_class: xlarge
+    resource_class: large
     parameters:
       san-type:
         type: string

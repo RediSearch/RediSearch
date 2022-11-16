@@ -7,6 +7,9 @@ on:
 jobs:
   clang-sanitizer:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l -eo pipefail
     container:
       image: redisfab/clang:13-x64-bullseye
       options: --cpus 2
