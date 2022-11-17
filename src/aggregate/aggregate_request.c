@@ -1041,7 +1041,8 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   }
 
   if (!(req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxSearchResults);
+    limit = MIN(limit, RSGlobalConfig.maxAggregateResults);
+
   }
 
   if (astp->sortKeys) {
