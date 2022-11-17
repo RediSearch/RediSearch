@@ -561,3 +561,53 @@ def test_mod_4207(env):
 
   env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
+
+def test_mod_4255(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
+
+  conn.execute_command('HSET', 'doc1', 'test', '1')
+  conn.execute_command('HSET', 'doc2', 'test', '2')
+
+  # test normal case
+  # get first result
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
+  env.assertEqual(res[0] ,[1, ['test', '1']])
+  cursor = res[1]
+  env.assertNotEqual(cursor ,0)
+  # get second result
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0] ,[1, ['test', '2']])
+  cursor = res[1]
+  env.assertNotEqual(cursor ,0)
+  # get empty results after cursor was exhausted
+  env.expect('FT.CURSOR', 'READ', 'idx', cursor).equal([[0], 0])
+
+
+  # Test cursor after data structure that has changed due to insert
+  res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
+  cursor = res[1]
+  for i in range(3, 1001, 1):
+      conn.execute_command('HSET', 'doc%i' % i, 'test', str(i))
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0] ,[1, ['test', '2']])
+  env.assertNotEqual(cursor ,0)
+
+  # Test cursor after data structure that has changed due to insert
+  res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
+  env.assertEqual(res[0] ,[1, ['test', '1']])
+  cursor = res[1]
+  env.assertNotEqual(cursor ,0)
+  for i in range(3, 1001, 1):
+    env.cmd('DEL', 'doc%i' % i, 'test', str(i))
+  forceInvokeGC(env, 'idx')
+
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0] ,[1, ['test', '2']])
+  cursor = res[1]
+  env.assertNotEqual(cursor ,0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  cursor = res[1]
+  env.assertEqual(cursor ,0)
