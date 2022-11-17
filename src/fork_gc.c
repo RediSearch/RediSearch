@@ -18,8 +18,6 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 
-#include <iterator>
-
 #ifdef __linux__
 #include <sys/prctl.h>
 #endif
@@ -131,8 +129,7 @@ int ForkGC::recvFixed(void *buf, size_t len) {
 
 static void *RECV_BUFFER_EMPTY = (void *)0x0deadbeef;
 
-template <typename T>
-int ForkGC::recvBuffer(std::vector<T>& buf, size_t *len) {
+int ForkGC::recvBuffer(void **buf, size_t *len) {
   recvFixed(len, sizeof *len);
   if (*len == SIZE_MAX) {
     *buf = RECV_BUFFER_EMPTY;
@@ -460,26 +457,20 @@ int ForkGC::recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info) {
   if (recvFixed(info, sizeof(*info)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  if (recvBuffer(bufs->newBlocklist, &bufs->newBlocklistSize) != REDISMODULE_OK) {
+  if (recvBuffer((void **)&bufs->newBlocklist, &bufs->newBlocklistSize) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
   if (bufs->newBlocklistSize) {
-    bufs->newBlocklistSize /= sizeof(decltype(bufs->newBlocklist)::value_type);
+    bufs->newBlocklistSize /= sizeof(*bufs->newBlocklist);
   }
-  if (recvBuffer(bufs->delBlocks, &bufs->numDelBlocks) != REDISMODULE_OK) {
+  if (recvBuffer((void **)&bufs->delBlocks, &bufs->numDelBlocks) != REDISMODULE_OK) {
     goto error;
   }
-  bufs->numDelBlocks /= sizeof(decltype(bufs->delBlocks)::value_type);
-  bufs->changedBlocks.resize(info->nblocksRepaired);
-
-  for (
-    auto changedBlock = bufs->changedBlocks.begin(),
-    lastChangedBlock = std::next(changedBlock, info->nblocksRepaired);
-    changedBlock != lastChangedBlock;
-    changedBlock = std::next(changedBlock)
-  ) {
-    if (recvRepairedBlock(&*changedBlock) != REDISMODULE_OK) {
+  bufs->numDelBlocks /= sizeof(*bufs->delBlocks);
+  bufs->changedBlocks = rm_malloc(sizeof(*bufs->changedBlocks) * info->nblocksRepaired);
+  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
+    if (recvRepairedBlock(bufs->changedBlocks + i) != REDISMODULE_OK) {
       goto error;
     }
     nblocksRecvd++;
@@ -487,39 +478,39 @@ int ForkGC::recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info) {
   return REDISMODULE_OK;
 
 error:
-  bufs->newBlocklist.clear();
-  for (auto const& changedBlock : bufs->changedBlocks) {
-    rm_free(changedBlock.blk.buf.data);
+  rm_free(bufs->newBlocklist);
+  for (size_t ii = 0; ii < nblocksRecvd; ++ii) {
+    rm_free(bufs->changedBlocks[ii].blk.buf.data);
   }
-  bufs->changedBlocks.clear();
-  memset(bufs, 0, sizeof(*bufs)); // @@ TODO: bufs.reset()
+  rm_free(bufs->changedBlocks);
+  memset(bufs, 0, sizeof(*bufs));
   return REDISMODULE_ERR;
 }
 
 //---------------------------------------------------------------------------------------------
 
 static void freeInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info) {
-  bufs->newBlocklist.clear();
-  bufs->delBlocks.clear();
+  rm_free(bufs->newBlocklist);
+  rm_free(bufs->delBlocks);
 
-  if (!bufs->changedBlocks.empty()) {
+  if (bufs->changedBlocks) {
     // could be null because of pipe error
-    for (auto &changedBlock : bufs->changedBlocks) {
-      rm_free(changedBlock.blk.buf.data);
+    for (size_t ii = 0; ii < info->nblocksRepaired; ++ii) {
+      rm_free(bufs->changedBlocks[ii].blk.buf.data);
     }
   }
-  bufs->changedBlocks.clear();
+  rm_free(bufs->changedBlocks);
 }
 
 //---------------------------------------------------------------------------------------------
 
 void ForkGC::checkLastBlock(InvIdxBuffers *idxData, MSG_IndexInfo *info, InvertedIndex *idx) {
-  IndexBlock& lastOld = idx->blocks[info->nblocksOrig - 1];
+  IndexBlock *lastOld = idx->blocks + info->nblocksOrig - 1;
   if (info->lastblkDocsRemoved == 0) {
     // didn't touch last block in child
     return;
   }
-  if (info->lastblkNumDocs == lastOld.numDocs) {
+  if (info->lastblkNumDocs == lastOld->numDocs) {
     // didn't touch last block in parent
     return;
   }
@@ -531,21 +522,23 @@ void ForkGC::checkLastBlock(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inverte
 
     // Then We need add it to the newBlocklist.
     idxData->newBlocklistSize++;
-    idxData->newBlocklist.resize(idxData->newBlocklistSize);
-    idxData->newBlocklist[idxData->newBlocklistSize - 1] = lastOld;
+    idxData->newBlocklist = rm_realloc(idxData->newBlocklist,
+                                       sizeof(*idxData->newBlocklist) * idxData->newBlocklistSize);
+    idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
   } else {
     // Last block was modified on the child and on the parent.
 
     // we need to remove it from changedBlocks
-    idxData->changedBlocks.erase(std::next(idxData->changedBlocks.begin(), info->nblocksRepaired - 1));
+    MSG_RepairedBlock *rb = idxData->changedBlocks + info->nblocksRepaired - 1;
+    delete &rb->blk;
     info->nblocksRepaired--;
 
     // Then add it to newBlocklist if newBlocklist is not NULL.
     // If newBlocklist!=NULL then the last block must be there (it was changed and not deleted)
     // If newBlocklist==NULL then by decreasing the nblocksOrig by one we make sure to keep the last
     // block
-    if (!idxData->newBlocklist.empty()) {
-      idxData->newBlocklist[idxData->newBlocklistSize - 1] = lastOld;
+    if (idxData->newBlocklist) {
+      idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
     } else {
       --info->nblocksOrig;
     }
@@ -561,36 +554,28 @@ void ForkGC::checkLastBlock(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inverte
 
 void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, InvertedIndex *idx) {
   checkLastBlock(idxData, info, idx);
-  for (
-    auto blockModified = idxData->changedBlocks.begin(),
-    lastBlockModified = std::next(idxData->changedBlocks.begin(), info->nblocksRepaired);
-    blockModified != lastBlockModified;
-    blockModified = std::next(blockModified)
-  ) {
-    idx->blocks.erase(std::next(idx->blocks.begin(), blockModified->oldix));
+  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
+    MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
+    delete &idx->blocks[blockModified->oldix];
   }
-  for (
-    auto delinfo = idxData->delBlocks.begin(),
-    lastDelinfo = std::next(idxData->delBlocks.begin(), idxData->numDelBlocks);
-    delinfo != lastDelinfo;
-    delinfo = std::next(delinfo)
-  ) {
+  for (size_t i = 0; i < idxData->numDelBlocks; ++i) {
     // Blocks that were deleted entirely:
+    MSG_DeletedBlock *delinfo = idxData->delBlocks + i;
     rm_free(delinfo->ptr);
   }
-  idxData->delBlocks.clear();
+  rm_free(idxData->delBlocks);
 
   // Ensure the old index is at least as big as the new index' size
   if (idx->size < info->nblocksOrig) throw Error("Old index should be larger or equal to new index");
 
-  if (!idxData->newBlocklist.empty()) {
+  if (idxData->newBlocklist) {
     // At this point, we check if the last block has had new data added to it, but was _not_ repaired.
     // We check for a repaired last block in checkLastBlock().
 
     if (!info->lastblkDocsRemoved) {
       // Last block was unmodified-- let's prefer the last block's pointer over our own (which may be stale).
       // If the last block was repaired, this is handled above.
-      idxData->newBlocklist.back() = idx->blocks[info->nblocksOrig - 1];
+      idxData->newBlocklist[idxData->newBlocklistSize - 1] = idx->blocks[info->nblocksOrig - 1];
     }
 
     // Number of blocks added in the parent process since the last scan
@@ -600,10 +585,12 @@ void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inv
     // which we haven't scanned yet, because they were added in the parent
     size_t totalLen = idxData->newBlocklistSize + newAddedLen;
 
-    // idxData->newBlocklist.reserve(totalLen); // insert range prereserves, no need to call reserve locally.
-    idxData->newBlocklist.insert(idxData->newBlocklist.end(), std::next(idx->blocks.begin(), info->nblocksOrig), idx->blocks.end());
+    idxData->newBlocklist =
+        rm_realloc(idxData->newBlocklist, totalLen * sizeof(*idxData->newBlocklist));
+    memcpy(idxData->newBlocklist + idxData->newBlocklistSize, (idx->blocks + info->nblocksOrig),
+           newAddedLen * sizeof(*idxData->newBlocklist));
 
-    idx->blocks.clear();
+    rm_free(idx->blocks);
     idxData->newBlocklistSize += newAddedLen;
     idx->blocks = idxData->newBlocklist;
     idx->size = idxData->newBlocklistSize;
@@ -612,7 +599,7 @@ void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inv
     // get a new block list, because they are all gone..
     size_t newAddedLen = idx->size - info->nblocksOrig;
     if (newAddedLen) {
-      idx->blocks.erase(idx->blocks.begin(), idx->blocks.begin() + info->nblocksOrig);
+      memmove(idx->blocks, idx->blocks + info->nblocksOrig, sizeof(*idx->blocks) * newAddedLen);
     }
     idx->size = newAddedLen;
     if (idx->size == 0) {
@@ -620,12 +607,8 @@ void ForkGC::applyInvertedIndex(InvIdxBuffers *idxData, MSG_IndexInfo *info, Inv
     }
   }
 
-  for (
-    auto blockModified = idxData->changedBlocks.begin(),
-    lastBlockModified = std::next(idxData->changedBlocks.begin(), info->nblocksRepaired);
-    blockModified != lastBlockModified;
-    blockModified = std::next(blockModified)
-  ) {
+  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
+    MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
     idx->blocks[blockModified->newix] = blockModified->blk;
   }
 
@@ -655,12 +638,10 @@ FGCError ForkGC::parentHandleTerms(RedisModuleCtx *rctx) {
 
   InvIdxBuffers idxbufs;
   MSG_IndexInfo info;
-  void *buf;
-  if (recvInvIdx(&buf, &info.nblocksOrig) != REDISMODULE_OK) {
+  if (recvInvIdx(&idxbufs, &info) != REDISMODULE_OK) {
     rm_free(term);
     return FGC_CHILD_ERROR;
   }
-  idxbufs.delBlocks = {(decltype(idxbufs.delBlocks)::value_type *)buf, (decltype(idxbufs.delBlocks)::value_type *)(buf + info.nblocksOrig)}
 
   if (!lock(rctx)) {
     status = FGC_PARENT_ERROR;
@@ -699,7 +680,7 @@ cleanup:
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);
   } else {
-    idxbufs.changedBlocks.clear();
+    rm_free(idxbufs.changedBlocks);
   }
   return status;
 }
@@ -876,7 +857,7 @@ FGCError ForkGC::parentHandleNumeric(RedisModuleCtx *rctx) {
     if (status != FGC_COLLECTED) {
       freeInvIdx(&ninfo.idxbufs, &ninfo.info);
     } else {
-      ninfo.idxbufs.changedBlocks.clear();
+      rm_free(ninfo.idxbufs.changedBlocks);
     }
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
@@ -963,7 +944,7 @@ FGCError ForkGC::parentHandleTags(RedisModuleCtx *rctx) {
     if (status != FGC_COLLECTED) {
       freeInvIdx(&idxbufs, &info);
     } else {
-      idxbufs.changedBlocks.clear();
+      rm_free(idxbufs.changedBlocks);
     }
   }
 

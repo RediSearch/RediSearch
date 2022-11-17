@@ -111,13 +111,14 @@ DEBUG_COMMAND(InvertedIndexSummary) {
 
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
 
-  for (auto const& block : invidx->blocks) {
+  for (uint32_t i = 0; i < invidx->size; ++i) {
     size_t blockBulkLen = 0;
+    IndexBlock *block = invidx->blocks + i;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-    REPLY_WITH_LONG_LONG("firstId", block.firstId, blockBulkLen);
-    REPLY_WITH_LONG_LONG("lastId", block.lastId, blockBulkLen);
-    REPLY_WITH_LONG_LONG("numDocs", block.numDocs, blockBulkLen);
+    REPLY_WITH_LONG_LONG("firstId", block->firstId, blockBulkLen);
+    REPLY_WITH_LONG_LONG("lastId", block->lastId, blockBulkLen);
+    REPLY_WITH_LONG_LONG("numDocs", block->numDocs, blockBulkLen);
 
     RedisModule_ReplySetArrayLength(ctx, blockBulkLen);
   }

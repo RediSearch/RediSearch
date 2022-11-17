@@ -159,7 +159,7 @@ struct NumericIndexDecoder : IndexDecoder {
 //---------------------------------------------------------------------------------------------
 
 struct InvertedIndex : BaseIndex {
-  std::vector<IndexBlock> blocks;
+  IndexBlock *blocks;
   uint32_t size;
   IndexFlags flags;
   t_docId lastId;
