@@ -1,0 +1,2 @@
+Except as otherwise specified in the source code headers for specific files, the source code in this repository is made available to you under your choice of 
+(i) Redis Source Available License 2.0 (RSALv2) or (ii) the Server Side Public License v1 (SSPLv1)
