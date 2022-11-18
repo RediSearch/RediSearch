@@ -1,7 +1,7 @@
 ---
 syntax: |
   FT.SUGADD key string score 
-    [ INCR] 
+    [INCR] 
     [PAYLOAD payload]
 ---
 
