@@ -104,14 +104,14 @@ does not store term offsets for documents. It saves memory, but does not allow e
 <details open>
 <summary><code>TEMPORARY</code></summary> 
 
-creates a lightweight temporary index that expires after a specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and, therefore, you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
+creates a lightweight temporary index that expires after a specified period of inactivity, in seconds. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and, therefore, you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
 
-{{% alert title="About using FT.DROPINDEX with temporary indexes" color="warning" %}}
+{{% alert title="Warning" color="warning" %}}
  
-Historically, RediSearch used an FT.ADD command, which made a connection between the document and the index. Then, FT.DROP, also a hystoric command, deleted documents by default.
-In version 2.x, RediSearch indexes hashes and JSONs, and the dependency between the index and documents no longer exists. 
 `FT.DROPINDEX` was introduced with a default of not deleting docs and a `DD` flag that enforced deletion.
 However, for temporary indexes, you can expect the previous behavior, where documents are deleted along with the index.
+Historically, RediSearch used an FT.ADD command, which made a connection between the document and the index. Then, FT.DROP, also a hystoric command, deleted documents by default.
+In version 2.x, RediSearch indexes hashes and JSONs, and the dependency between the index and documents no longer exists. 
 
 {{% /alert %}}
 
