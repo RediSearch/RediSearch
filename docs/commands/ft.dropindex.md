@@ -1,7 +1,7 @@
 ---
 syntax: |
   FT.DROPINDEX index 
-    [ DD]
+    [DD]
 ---
 
 Delete an index
