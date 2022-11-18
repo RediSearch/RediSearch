@@ -1,32 +1,27 @@
 
 ---
-syntax: 
+syntax: |
+  FT.AGGREGATE index query 
+    [VERBATIM] 
+    [ LOAD count field [field ...]] 
+    [TIMEOUT timeout] 
+    [LOAD *] 
+    [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] 
+    [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] ...]] 
+    [ SORTBY nargs [ property ASC | DESC [ property ASC | DESC ...]] [MAX num]] 
+    [ APPLY expression AS name [ APPLY expression AS name ...]] 
+    [ LIMIT offset num] 
+    [FILTER filter] 
+    [ WITHCURSOR [COUNT read_size] [MAXIDLE idle_time]] 
+    [ PARAMS nargs name value [ name value ...]] 
+    [DIALECT dialect]
 ---
 
 Run a search query on an index, and perform aggregate transformations on the results, extracting statistics etc from them
 
-## Syntax
-
-{{< highlight bash >}}
-FT.AGGREGATE index query 
-          [VERBATIM] 
-          [ LOAD count field [field ...]] 
-          [TIMEOUT timeout] 
-          [LOAD *] 
-          [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] 
-          [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] ...]] 
-          [ SORTBY nargs [ property ASC | DESC [ property ASC | DESC ...]] [MAX num]] 
-          [ APPLY expression AS name [ APPLY expression AS name ...]] 
-          [ LIMIT offset num] 
-          [FILTER filter] 
-          [ WITHCURSOR [COUNT read_size] [MAXIDLE idle_time]] 
-          [ PARAMS nargs name value [ name value ...]] 
-          [DIALECT dialect]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index_name</code></summary>
@@ -40,7 +35,7 @@ is index against which the query is executed.
 is base filtering query that retrieves the documents. It follows the exact same syntax as the search query, including filters, unions, not, optional, and so on.
 </details>
 
-## Optional requirements
+## Optional arguments
 
 <details open>
 <summary><code>VERBATIM</code></summary>

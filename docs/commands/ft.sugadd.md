@@ -1,21 +1,15 @@
 ---
-syntax: 
+syntax: |
+  FT.SUGADD key string score 
+    [ INCR] 
+    [PAYLOAD payload]
 ---
 
 Add a suggestion string to an auto-complete suggestion dictionary
 
-
-## Syntax
-
-{{< highlight bash >}}
-FT.SUGADD key string score 
-          [ INCR] 
-          [PAYLOAD payload]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>key</code></summary>
@@ -37,7 +31,7 @@ is floating point number of the suggestion string's weight.
 
 The auto-complete suggestion dictionary is disconnected from the index definitions and leaves creating and updating suggestions dictionaries to the user.
 
-## Optional parameters
+## Optional arguments
 
 <details open>
 <summary><code>INCR</code></summary> 

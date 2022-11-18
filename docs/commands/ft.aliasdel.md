@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.ALIASDEL alias
 ---
 
 Remove an alias from an index
 
-## Syntax
-
-{{< highlight bash >}}
-FT.ALIASDEL alias
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>alias</code></summary>

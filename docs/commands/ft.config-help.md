@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.CONFIG HELP option
 ---
 
 Describe configuration options
 
-## Syntax
-
-{{< highlight bash >}}
-FT.CONFIG HELP option
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>option</code></summary> 

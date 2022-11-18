@@ -1,19 +1,14 @@
 ---
-syntax: 
+syntax: |
+  FT.EXPLAINCLI index query 
+    [DIALECT dialect]
 ---
 
 Return the execution plan for a complex query but formatted for easier reading without using `redis-cli --raw`
 
-## Syntax
-
-{{< highlight bash >}}
-FT.EXPLAIN index query 
-          [DIALECT dialect]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>
@@ -27,20 +22,20 @@ is index name. You must first create the index using `FT.CREATE`.
 is query string, as if sent to FT.SEARCH`.
 </details>
 
-## Optional parameters
+## Optional arguments
 
 <details open>
 <summary><code>DIALECT {dialect_version}</code></summary>
 
 is dialect version under which to execute the query. If not specified, the query executes under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
+
+{{% alert title="Note" color="warning" %}}
+ 
+In the returned response, a `+` on a term is an indication of stemming.
+
+{{% /alert %}}
+
 </details>
-
-
-- **DIALECT {dialect_version}**. Choose the dialect version to execute the query under. If not specified, the query will execute under the default dialect version set during module initial loading or via `FT.CONFIG SET` command.
-<note><b>Notes:</b>
-
-- In the returned response, a `+` on a term is an indication of stemming.
-</note>
 
 ## Return
 

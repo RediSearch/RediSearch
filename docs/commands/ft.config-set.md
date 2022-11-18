@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.CONFIG SET option value
 ---
 
 Describe configuration options
 
-## Syntax
-
-{{< highlight bash >}}
-FT.CONFIG SET option value
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>option</code></summary> 

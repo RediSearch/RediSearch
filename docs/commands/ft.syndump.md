@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.SYNDUMP index
 ---
 
 Dump the contents of a synonym group
 
-## Syntax
-
-{{< highlight bash >}}
-FT.SYNDUMP index
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>
