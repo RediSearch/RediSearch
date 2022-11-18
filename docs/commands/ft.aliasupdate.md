@@ -1,19 +1,14 @@
 ---
-syntax: 
+syntax: |
+  FT.ALIASUPDATE alias index
 ---
 
 Add an alias to an index. If the alias is already associated with another
 index, FT.ALIASUPDATE removes the alias association with the previous index.
 
-## Syntax
-
-{{< highlight bash >}}
-FT.ALIASUPDATE alias index
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>alias index</code></summary>

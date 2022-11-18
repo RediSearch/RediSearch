@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.DICTADD dict term [term ...]
 ---
 
 Add terms to a dictionary
 
-## Syntax
-
-{{< highlight bash >}}
-FT.DICTADD dict term [term ...]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>dict</code></summary>

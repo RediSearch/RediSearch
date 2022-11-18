@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.TAGVALS index field_name
 ---
 
 Return a distinct set of values indexed in a Tag field
 
-## Syntax
-
-{{< highlight bash >}}
-FT.TAGVALS index field_name
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>

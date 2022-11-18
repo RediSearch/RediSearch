@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.PROFILE index SEARCH | AGGREGATE [LIMITED] QUERY query
 ---
 
 Perform a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information
 
-## Syntax
-
-{{< highlight bash >}}
-FT.PROFILE index SEARCH | AGGREGATE [LIMITED] QUERY query
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>

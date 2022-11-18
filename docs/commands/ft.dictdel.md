@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.DICTDEL dict term [term ...]
 ---
 
 Delete terms from a dictionary
 
-## Syntax
-
-{{< highlight bash >}}
-FT.DICTDEL dict term [term ...]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>dict</code></summary>
