@@ -110,7 +110,7 @@ creates a lightweight temporary index that expires after a specified period of i
  
 When temporary indexes expire, they drop all the records associated with them.
 `FT.DROPINDEX` was introduced with a default of not deleting docs and a `DD` flag that enforced deletion.
-However, for temporary indexes, you can expect the previous behavior, where documents are deleted along with the index.
+However, for temporary indexes, documents are deleted along with the index.
 Historically, RediSearch used an FT.ADD command, which made a connection between the document and the index. Then, FT.DROP, also a hystoric command, deleted documents by default.
 In version 2.x, RediSearch indexes hashes and JSONs, and the dependency between the index and documents no longer exists. 
 
