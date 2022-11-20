@@ -293,7 +293,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *trie, int savePayloads) {
   //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", trie->size);
   int count = 0;
   if (trie->root) {
-#define DEBUG_TRIE
+#ifdef DEBUG_TRIE
     trie->root->Print();
 #endif
     TrieIterator it = trie->root->Iterate();
