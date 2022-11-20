@@ -33,19 +33,16 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 //---------------------------------------------------------------------------------------------
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
-    japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V2");
-    if (japi) {
-      japi_ver = 2;
-      RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V2 API");
-    } else {
-      japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V1");
+    char ver[128];
+    // Obtain the newest version of JSON API
+    for (int i = 3; i >= 1; --i) {
+      sprintf(ver, "RedisJSON_V%d", i);
+      japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
-        japi_ver = 1;
-        RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V1 API");
+        japi_ver = i;
+        RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V%d API", i);
+        return 1;
       }
-    }
-    if (japi) {
-      return 1;
     }
     if (subscribeToModuleChange) {
       RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ModuleChange,
@@ -535,7 +532,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   // If all is successful up til here,
   // we check whether a multi value is needed to be calculated for SORTABLE (avoiding re-opening the key and re-parsing the path)
   // (requires some API V2 functions to be available)
-  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY && japi_ver >= 2) {
+  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY && japi_ver >= 3) {
     RSValue *rsv = NULL;
     japi->resetIter(jsonIter);
     // There is no api version (DIALECT) specified during ingestion,
