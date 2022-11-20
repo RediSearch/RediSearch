@@ -45,6 +45,7 @@ help() {
 
 		REDIS_SERVER=path     Redis Server command
 		REDIS_VERBOSE=1       (legacy) Verbose ouput
+		REDIS_PORT=n          Redis server port
 		CONFIG_FILE=file      Path to config file
 
 		EXISTING_ENV=1        Test on existing env (like EXT=1)
@@ -416,6 +417,10 @@ OP=
 RLTEST_ARGS+=" $@"
 
 RLTEST_ARGS+=" --clear-logs"
+
+if [[ -n $REDIS_PORT ]]; then
+	RLTEST_ARGS+="--redis-port $REDIS_PORT"
+fi
 
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
