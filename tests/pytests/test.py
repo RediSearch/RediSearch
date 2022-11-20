@@ -1116,7 +1116,7 @@ def testSafeAddHash(env):
     env.assertEqual(1, res[0])
     env.assertEqual("doc1", res[1])
     env.assertListEqual(
-        ['body', 'lorem ipsum', 'price', '2', 'title', 'hello world'], list(res[2]))
+        ['title', 'hello world', 'body', 'lorem ipsum', 'price', '2'], list(res[2]))
 
     res = r.execute_command(
         'ft.search', 'idx', "hello werld", "nocontent")
@@ -2255,7 +2255,8 @@ def testIssue484(env):
         'REDUCE', 'COUNT', '0', 'as', 'value_count',
         'SORTBY', '4', '@value_count', 'DESC', '@value', 'ASC')
     expected = [6, ['value', 'white', 'value_count', '2'], ['value', 'cars', 'value_count', '2'], ['value', 'small cars', 'value_count', '1'], ['value', 'blue', 'value_count', '2'], ['value', 'Big cars', 'value_count', '2'], ['value', 'green', 'value_count', '1']]
-    assertAggrowsEqual(env, expected, res)
+    env.assertEqual(toSortedFlatList(expected), toSortedFlatList(res))
+
     for var in expected:
         env.assertIn(var, res)
 
