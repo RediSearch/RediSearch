@@ -624,7 +624,7 @@ def test_mod_4255(env):
   cursor = res[1]
   env.assertEqual(cursor ,0)
 
-def testIssue4420_nonCluster(env):
+def testIssue4420(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
@@ -637,7 +637,7 @@ def testIssue4420_nonCluster(env):
   conn.execute_command('HSET', 'doc4', 'txt', 'hallo', 'tag', 'fool')
   conn.execute_command('HSET', 'doc5', 'txt', 'hello world', 'tag', 'foo,baz')
   conn.execute_command('HSET', 'doc6', 'txt', 'hello')
-
+  '''
   # EXISTS txt & tag
   env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', "EXISTS(@tag) && EXISTS(@txt) && @txt=='hello'").equal([6])
 
@@ -664,14 +664,95 @@ def testIssue4420_nonCluster(env):
   res = [5, ['split', 'helene', 'count', '1'], ['split', 'hello', 'count', '3'], ['split', 'hallo', 'count', '1'],
             ['split', 'world', 'count', '2'], ['split', 'help', 'count', '1']]
   env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@txt, " ")', 'AS', 'split', 'GROUPBY', '1', '@split', 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(res)
+  '''
 
   # APPLY tag GROUPBY
   res = [1, ['tag', 'foo', 'count', 2, 'tag', 'foo', 'split', ['foo'], 'tag', 'foo', 'split', ['foo']],
             ['tag', 'fooz', 'count', 1, 'tag', 'fooz', 'split', ['fooz']],
             ['tag', 'far', 'count', 1, 'tag', 'far', 'split', ['far']],
             ['tag', 'fool', 'count', 1, 'tag', 'fool', 'split', ['fool']]]
+
+  ### fails ###
   env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@tag, ",")', 'AS', 'split', 'GROUPBY', '1', '@split', 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(res)
 
+  ### test with cursor
+  # EXISTS txt & tag
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@__key', 'FILTER', "EXISTS(@tag) && EXISTS(@txt) && @txt=='hello'", 'WITHCURSOR', 'COUNT', '1')
+  env.assertEqual(res, [[6], 0])
+
+  # APPLY txt
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@txt, " ")', 'AS', 'split', 'WITHCURSOR', 'COUNT', '1')
+  env.assertEqual(res[0], [1, ['txt', 'hello world', 'split', ['hello', 'world']]])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [1, ['txt', 'help', 'split', ['help']]])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [1, ['txt', 'helene', 'split', ['helene']]])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [1, ['txt', 'hallo', 'split', ['hallo']]])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [1, ['txt', 'hello world', 'split', ['hello', 'world']]])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [1, ['txt', 'hello', 'split', ['hello']]])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [0])
+
+  # APPLY tag
+  res = env.cmd('FT.AGGREGATE', 'idx', '@tag:{foo}', 'APPLY', 'SPLIT(@tag, ",")', 'AS', 'split', 'WITHCURSOR', 'COUNT', '1')
+  env.assertEqual(res[0], [1, ['tag', 'foo', 'split', ['foo']]])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [1, ['tag', 'foo,bar', 'split', ['foo', 'bar']]])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [1, ['tag', 'foo,baz', 'split', ['foo', 'baz']]])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [0])
+
+  # APPLY txt GROUPBY
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@txt, " ")', 'AS', 'split', 'GROUPBY', '1', '@split', 'REDUCE', 'COUNT', '0', 'AS', 'count', 'WITHCURSOR', 'COUNT', '1')
+  env.assertEqual(res[0], [5, ['split', 'helene', 'count', '1']])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [0, ['split', 'hello', 'count', '3']])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [0, ['split', 'hallo', 'count', '1']])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [0, ['split', 'world', 'count', '2']])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [0, ['split', 'help', 'count', '1']])
+  cursor = res[1]
+  env.assertNotEqual(cursor, 0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0], [0])
+
+
+  '''
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'FILTER', "EXISTS(@tag) && EXISTS(@txt) && @tag=='foo'", 'WITHCURSOR', 'COUNT', '1')
+  env.assertEqual(res[0],[1, ['tag', 'foo', 'txt', 'hello world']])
+  '''
 
 
 def testIssue4420_Cluster(env):
@@ -689,12 +770,12 @@ def testIssue4420_Cluster(env):
   conn.execute_command('HSET', 'doc6', 'txt', 'hello')
 
   # EXISTS txt & tag
-  env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', "EXISTS(@tag) && EXISTS(@txt) && @txt=='hello'").equal([6])
+  env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', "EXISTS(@tag) && EXISTS(@txt) && @txt=='hello'").equal([3])
 
   # APPLY txt
-  res = [1, ['txt', 'hello world', 'split', ['hello', 'world']], ['txt', 'help', 'split', ['help']],
-            ['txt', 'helene', 'split', ['helene']], ['txt', 'hallo', 'split', ['hallo']],
-            ['txt', 'hello world', 'split', ['hello', 'world']], ['txt', 'hello', 'split', ['hello']]]
+  res = [1, ['split', ['hallo'], 'txt', 'hallo'], ['split', ['hello', 'world'], 'txt', 'hello world'],
+            ['split', ['hello', 'world'], 'txt', 'hello world'], ['split', ['help'], 'txt', 'help'],
+            ['split', ['helene'], 'txt', 'helene'], ['split', ['hello'], 'txt', 'hello']]
   env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@txt, " ")', 'AS', 'split').equal(res)
   
   # APPLY tag
