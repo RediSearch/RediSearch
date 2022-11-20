@@ -53,7 +53,7 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
 }
 
 String runesToStr(const rune *in, size_t len) {
-  if (len > MAX_RUNESTR_LEN) {
+  if (!len || len > MAX_RUNESTR_LEN) {
     return "";
   }
   uint32_t unicode[len + 1];

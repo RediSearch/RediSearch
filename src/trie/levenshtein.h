@@ -25,7 +25,7 @@ struct DFACache;
 */
 
 struct SparseAutomaton : Object {
-  const Runes &runes; //@@ ownership
+  Runes runes;
   int max;
 
   SparseAutomaton(const Runes &runes, int maxEdits) : runes(runes),max(maxEdits) {}
@@ -51,7 +51,7 @@ struct DFAEdge : Object {
 
 struct DFANode : Object {
   int distance;
-  int match;
+  bool match;
   SparseVector v;
   Vector<DFAEdge> edges;
   struct DFANode *fallback;
@@ -79,7 +79,7 @@ struct DFACache : Vector<DFANode*> { // Vector<std::unique_ptr<DFANode>> {
 enum FilterCode { F_CONTINUE = 0, F_STOP = 1 };
 
 struct DFAFilter : Object {
-	DFAFilter(Runes &runes, int maxDist, bool prefixMode);
+	DFAFilter(const Runes &runes, int maxDist, bool prefixMode);
 
   DFACache cache; // cache of DFA states, allowing re-use of states
   Vector<DFANode*> stack; // stack of states leading up to the current state. NOTE: null nodes are allowed.
@@ -89,7 +89,7 @@ struct DFAFilter : Object {
 
   SparseAutomaton a;
 
-  FilterCode Filter(rune b, int *matched, int *match);
+  FilterCode Filter(rune b, bool &matched, int *match);
   void StackPop(int numLevels);
 };
 

@@ -302,6 +302,10 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "cv", sp->name, argv + 2, argc - 2);
   }
 
+  //BB;
+#ifdef DEBUG_TRIE
+  sp->terms->root->Print();
+#endif
   return REDISMODULE_OK;
 }
 

@@ -49,9 +49,13 @@ int Trie::InsertStringBuffer(const char *s, size_t len, double score, int incr, 
     return 0;
   }
 
+  //BB;
   int rc;
   root->Add(runes, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE, rc);
   size += rc;
+#ifdef DEBUG_TRIE
+  root->Print();
+#endif
 
   return rc;
 }
@@ -92,17 +96,17 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 //---------------------------------------------------------------------------------------------
 
 // Iterate the trie, using maxDist edit distance, returning a trie iterator that the
-// caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
+// caller needs to free.
+// If prefixmode is true we treat the string as only a prefix to iterate.
 // Otherwise we return an iterator to all strings within maxDist Levenshtein distance.
 
 TrieIterator Trie::Iterate(const char *prefix, int maxDist, bool prefixMode) {
   Runes runes(prefix);
   if (!runes || runes.len() > TRIE_MAX_PREFIX) {
-    Runes empty;
-    return TrieIterator(new DFAFilter(empty, maxDist, prefixMode));
+    return TrieIterator{new DFAFilter{Runes{}, maxDist, prefixMode}};
   }
 
-  return TrieIterator(new DFAFilter(runes, maxDist, prefixMode));
+  return TrieIterator{new DFAFilter{runes, maxDist, prefixMode}};
 }
 
 //---------------------------------------------------------------------------------------------
@@ -121,7 +125,7 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
   }
 
   Heap<TrieSearchResult*> pq(cmpEntries, num);
-  TrieIterator it{new DFAFilter(runes, maxDist, prefixMode)};
+  TrieIterator it{new DFAFilter{runes, maxDist, prefixMode}};
   Runes it_runes;
   t_len slen;
   float score;
@@ -282,13 +286,17 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {
 
 //---------------------------------------------------------------------------------------------
 
-void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
-  RedisModule_SaveUnsigned(rdb, tree->size);
+void TrieType_GenericSave(RedisModuleIO *rdb, Trie *trie, int savePayloads) {
+  //BB;
+  RedisModule_SaveUnsigned(rdb, trie->size);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
+  //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", trie->size);
   int count = 0;
-  if (tree->root) {
-    TrieIterator it = tree->root->Iterate(NULL, NULL, NULL);
+  if (trie->root) {
+#define DEBUG_TRIE
+    trie->root->Print();
+#endif
+    TrieIterator it = trie->root->Iterate();
     Runes runes;
     float score;
     RSPayload payload;
@@ -310,9 +318,9 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
       // TODO: Save a marker for empty payload!
       count++;
     }
-    if (count != tree->size) {
+    if (count != trie->size) {
       RedisModule_Log(ctx, "warning", "Trie: saving %zd nodes actually iterated only %d nodes",
-                      tree->size, count);
+                      trie->size, count);
     }
   }
 }
