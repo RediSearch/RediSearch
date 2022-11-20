@@ -77,6 +77,9 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
   if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
     rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
     t->size += rc;
+#ifdef DEBUG_TRIE
+    TrieNode_Print(t->root, 0, 0);
+#endif
   } else {
     rc = 0;
   }
@@ -338,6 +341,9 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", tree->size);
   int count = 0;
   if (tree->root) {
+#ifdef DEBUG_TRIE
+    TrieNode_Print(tree->root, 0, 0);
+#endif
     TrieIterator *it = TrieNode_Iterate(tree->root, NULL, NULL, NULL);
     rune *rstr;
     t_len len;

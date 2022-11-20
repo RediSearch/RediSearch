@@ -54,6 +54,10 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
+# add_definitions(-DDEBUG_TRIE)
+
+#----------------------------------------------------------------------------------------------
+
 include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${PROJECT_SOURCE_DIR}/deps)
 include_directories(${PROJECT_SOURCE_DIR})

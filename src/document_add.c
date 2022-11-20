@@ -279,6 +279,10 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "cv", sp->name, argv + 2, argc - 2);
   }
 
+#ifdef DEBUG_TRIE
+  TrieNode_Print(sp->terms->root, 0, 0);
+#endif
+
 cleanup:
   QueryError_ClearError(&status);
   return REDISMODULE_OK;

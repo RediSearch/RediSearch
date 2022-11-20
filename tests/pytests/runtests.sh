@@ -34,6 +34,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 		REDIS_SERVER=path     Redis Server command
 		REDIS_VERBOSE=1       (legacy) Verbose ouput
+		REDIS_PORT=n          Redis server port
 		CONFIG_FILE=file      Path to config file
 		EXT|EXISTING_ENV=1    Run the tests on existing env
 		EXT_PORT=n            Port of existing env
@@ -97,6 +98,11 @@ OP=
 [[ $NOP == 1 ]] && OP=echo
 
 RLTEST_ARGS+=" $@"
+
+if [[ -n $REDIS_PORT ]]; then
+	RLTEST_ARGS+="--redis-port $REDIS_PORT"
+fi
+
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
 	[[ $LOG != 1 ]] && RLTEST_ARGS+=" -v -s"

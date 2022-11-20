@@ -119,7 +119,10 @@ void TrieNode_Print(TrieNode *n, int idx, int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
   }
-  printf("%d) Score %f, max ChildScore %f\n", idx, n->score, n->maxChildScore);
+  size_t s_n;
+  char *s = runesToStr(n->str, n->len, &s_n);
+  printf("%d) \"%s\" Score %f, max ChildScore %f\n", idx, s, n->score, n->maxChildScore);
+  rm_free(s);
   for (int i = 0; i < n->numChildren; i++) {
     TrieNode_Print(__trieNode_children(n)[i], i, depth + 1);
   }
@@ -220,8 +223,9 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
 float TrieNode_Find(TrieNode *n, rune *str, t_len len) {
   t_len offset = 0;
   while (n && offset < len) {
-    // printf("n %.*s offset %d, len %d\n", n->len, n->str, offset,
-    // len);
+#ifdef DEBUG_TRIE
+    printf("n %.*s offset %d, len %d\n", n->len, n->str, offset, len);
+#endif
     t_len localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
       if (str[offset] != n->str[localOffset]) {
@@ -425,12 +429,13 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
   stackNode *current = __ti_current(it);
 
   int matched = 0;
-  // printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child
-  // offset %d/%d\n",
-  //        it->bufOffset, it->buf, current, current->n->len, current->n->str,
-  //        current->n->score, current->state, current->stringOffset,
-  //        current->n->len,
-  //        current->childOffset, current->n->numChildren);
+#ifdef DEBUG_TRIE
+  printf("[%.*s]current %p (%.*s %f), state %d, string offset %d/%d, child offset %d/%d\n",
+         it->bufOffset, it->buf, current, current->n->len, current->n->str,
+         current->n->score, current->state, current->stringOffset,
+         current->n->len,
+         current->childOffset, current->n->numChildren);
+#endif
   switch (current->state) {
     case ITERSTATE_MATCH:
       __ti_Pop(it);
@@ -683,7 +688,9 @@ static void rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
   TrieNode **arr = __trieNode_children(n);
 
   for (size_t ii = 0; ii < n->numChildren; ++ii) {
-    // printf("Descending to index %lu\n", ii);
+#ifdef DEBUG_TRIE
+    printf("Descending to index %lu\n", ii);
+#endif
     rangeIterateSubTree(arr[ii], r);
   }
 
