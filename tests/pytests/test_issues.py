@@ -623,3 +623,103 @@ def test_mod_4255(env):
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
   cursor = res[1]
   env.assertEqual(cursor ,0)
+
+def testIssue4420_nonCluster(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE', 'tag', 'TAG', 'SORTABLE')
+
+  # test with number of documents lesser than MAXSEARCHRESULTS
+  conn.execute_command('HSET', 'doc1', 'txt', 'hello world', 'tag', 'foo')
+  conn.execute_command('HSET', 'doc2', 'txt', 'help', 'tag', 'foo,bar')
+  conn.execute_command('HSET', 'doc3', 'txt', 'helene', 'tag', 'far')
+  conn.execute_command('HSET', 'doc4', 'txt', 'hallo', 'tag', 'fool')
+  conn.execute_command('HSET', 'doc5', 'txt', 'hello world', 'tag', 'foo,baz')
+  conn.execute_command('HSET', 'doc6', 'txt', 'hello')
+
+  # EXISTS txt & tag
+  env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', "EXISTS(@tag) && EXISTS(@txt) && @txt=='hello'").equal([6])
+
+  # APPLY txt
+  res = [1, ['txt', 'hello world', 'split', ['hello', 'world']], ['txt', 'help', 'split', ['help']],
+            ['txt', 'helene', 'split', ['helene']], ['txt', 'hallo', 'split', ['hallo']],
+            ['txt', 'hello world', 'split', ['hello', 'world']], ['txt', 'hello', 'split', ['hello']]]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@txt, " ")', 'AS', 'split').equal(res)
+  
+  # APPLY tag
+  res = [1, ['tag', 'foo', 'split', ['foo']], ['tag', 'foo,bar', 'split', ['foo', 'bar']],
+            ['tag', 'far', 'split', ['far']], ['tag', 'fool', 'split', ['fool']],
+            ['tag', 'foo,baz', 'split', ['foo', 'baz']]]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@tag, ",")', 'AS', 'split').equal(res)
+
+  env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', "EXISTS(@tag) && EXISTS(@txt) && @txt=='hello'").equal([6])
+
+  # GROUPBY tag
+  res = [6, ['tag', 'foo', 'count', '1'], ['tag', 'far', 'count', '1'], ['tag', None, 'count', '1'],
+            ['tag', 'foo,bar', 'count', '1'], ['tag', 'fool', 'count', '1'], ['tag', 'foo,baz', 'count', '1']]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@tag', 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(res)
+
+  # APPLY txt GROUPBY
+  res = [5, ['split', 'helene', 'count', '1'], ['split', 'hello', 'count', '3'], ['split', 'hallo', 'count', '1'],
+            ['split', 'world', 'count', '2'], ['split', 'help', 'count', '1']]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@txt, " ")', 'AS', 'split', 'GROUPBY', '1', '@split', 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(res)
+
+  # APPLY tag GROUPBY
+  res = [1, ['tag', 'foo', 'count', 2, 'tag', 'foo', 'split', ['foo'], 'tag', 'foo', 'split', ['foo']],
+            ['tag', 'fooz', 'count', 1, 'tag', 'fooz', 'split', ['fooz']],
+            ['tag', 'far', 'count', 1, 'tag', 'far', 'split', ['far']],
+            ['tag', 'fool', 'count', 1, 'tag', 'fool', 'split', ['fool']]]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@tag, ",")', 'AS', 'split', 'GROUPBY', '1', '@split', 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(res)
+
+
+
+def testIssue4420_Cluster(env):
+  SkipOnNonCluster(env)
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE', 'tag', 'TAG', 'SORTABLE')
+
+  # test with number of documents lesser than MAXSEARCHRESULTS
+  conn.execute_command('HSET', 'doc1', 'txt', 'hello world', 'tag', 'foo')
+  conn.execute_command('HSET', 'doc2', 'txt', 'help', 'tag', 'foo,bar')
+  conn.execute_command('HSET', 'doc3', 'txt', 'helene', 'tag', 'far')
+  conn.execute_command('HSET', 'doc4', 'txt', 'hallo', 'tag', 'fool')
+  conn.execute_command('HSET', 'doc5', 'txt', 'hello world', 'tag', 'foo,baz')
+  conn.execute_command('HSET', 'doc6', 'txt', 'hello')
+
+  # EXISTS txt & tag
+  env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', "EXISTS(@tag) && EXISTS(@txt) && @txt=='hello'").equal([6])
+
+  # APPLY txt
+  res = [1, ['txt', 'hello world', 'split', ['hello', 'world']], ['txt', 'help', 'split', ['help']],
+            ['txt', 'helene', 'split', ['helene']], ['txt', 'hallo', 'split', ['hallo']],
+            ['txt', 'hello world', 'split', ['hello', 'world']], ['txt', 'hello', 'split', ['hello']]]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@txt, " ")', 'AS', 'split').equal(res)
+  
+  # APPLY tag
+  res = [1, ['tag', 'foo', 'split', ['foo']], ['tag', 'foo,bar', 'split', ['foo', 'bar']],
+            ['tag', 'far', 'split', ['far']], ['tag', 'fool', 'split', ['fool']],
+            ['tag', 'foo,baz', 'split', ['foo', 'baz']]]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@tag, ",")', 'AS', 'split').equal(res)
+
+  env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', "EXISTS(@tag) && EXISTS(@txt) && @txt=='hello'").equal([6])
+
+  # GROUPBY tag
+  res = [6, ['tag', 'foo', 'count', '1'], ['tag', 'far', 'count', '1'], ['tag', None, 'count', '1'],
+            ['tag', 'foo,bar', 'count', '1'], ['tag', 'fool', 'count', '1'], ['tag', 'foo,baz', 'count', '1']]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@tag', 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(res)
+
+  # APPLY txt GROUPBY
+  res = [5, ['split', 'helene', 'count', '1'], ['split', 'hello', 'count', '3'], ['split', 'hallo', 'count', '1'],
+            ['split', 'world', 'count', '2'], ['split', 'help', 'count', '1']]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@txt, " ")', 'AS', 'split', 'GROUPBY', '1', '@split', 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(res)
+
+  # APPLY tag GROUPBY
+  res = [1, ['tag', 'foo', 'count', 2, 'tag', 'foo', 'split', ['foo'], 'tag', 'foo', 'split', ['foo']],
+            ['tag', 'fooz', 'count', 1, 'tag', 'fooz', 'split', ['fooz']],
+            ['tag', 'far', 'count', 1, 'tag', 'far', 'split', ['far']],
+            ['tag', 'fool', 'count', 1, 'tag', 'fool', 'split', ['fool']]]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'SPLIT(@tag, ",")', 'AS', 'split', 'GROUPBY', '1', '@split', 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(res)
+
+
