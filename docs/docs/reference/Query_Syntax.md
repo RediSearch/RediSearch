@@ -126,7 +126,7 @@ The general syntax for hybrid query is `{some filter query}=>[ KNN {num|$num} @v
 * `@vector_field:[VECTOR_RANGE 0.5 $query_vec]` - Return every entity for which the distance between the vector stored under its @vector_field and `query_vec` is at most 0.5, in terms of @vector_field distance metric.
 
 
-As of version 2.4, the KNN vector search can be used **once** in the query, while, as of version 2.6, the vector range filter can be used **multiple** times in a query. For more information on vector similarity syntax, see [Querying vector fields](/docs/stack/search/reference/vectors/#querying-vector-fields), and [Vector search examples](/docs/stack/search/reference/reference/vectors/#vector-search-examples) sections.
+As of version 2.4, the KNN vector search can be used **once** in the query, while, as of version 2.6, the vector range filter can be used **multiple** times in a query. For more information on vector similarity syntax, see [Querying vector fields](/docs/stack/search/reference/vectors/#querying-vector-fields), and [Vector search examples](/docs/stack/search/reference/vectors/#vector-search-examples) sections.
 
 ## Prefix matching
 
