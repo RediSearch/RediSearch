@@ -76,8 +76,9 @@ Atom CPUs are not supported.
 1. [RediSearch & CRDT - Redis Day Tel Aviv 2019](https://youtu.be/OGC6Mx9E3jU)
 
 
-### Course
+### Courses
 * [RU203: Querying, Indexing, and Full-Text Search](https://university.redis.com/courses/ru203/) - An online RediSearch course from [Redis University](https://university.redis.com/).
+* [RU204: Storing, Querying, and Indexing JSON at Speed](https://university.redis.com/courses/ru204/) - An online course from [Redis University](https://university.redis.com/) covering how to store, index and query JSON documents in Redis with RediSearch and RedisJSON.
 
 ### Blog posts
 1. [Introducing RediSearch 2.0](https://redis.com/blog/introducing-redisearch-2-0/)
