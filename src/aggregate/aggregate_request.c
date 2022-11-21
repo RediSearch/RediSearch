@@ -1036,6 +1036,15 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     limit = DEFAULT_LIMIT;
   }
 
+  if ((req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxSearchResults != UINT64_MAX) {
+    limit = MIN(limit, RSGlobalConfig.maxSearchResults);
+  }
+
+  if (!(req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
+    limit = MIN(limit, RSGlobalConfig.maxAggregateResults);
+
+  }
+
   if (astp->sortKeys) {
     size_t nkeys = array_len(astp->sortKeys);
     astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
