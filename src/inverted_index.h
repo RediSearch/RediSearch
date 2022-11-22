@@ -71,11 +71,12 @@ struct IndexDecoder {
 
   t_fieldMask mask;
   decoderType type;
+  const NumericFilter *filter;
 
   IndexDecoder(uint32_t flags, decoderType type = decoderType::Base);
   IndexDecoder(uint32_t flags, t_fieldMask mask, decoderType type = decoderType::Base);
 
-  virtual void ctor(uint32_t flags);
+  void ctor(uint32_t flags);
 
   // Decode a single record from the buffer reader. This function is responsible for:
   // (1) Decoding the record at the given position of br
@@ -139,11 +140,10 @@ struct TermIndexDecoder : IndexDecoder {
 //---------------------------------------------------------------------------------------------
 
 struct NumericIndexDecoder : IndexDecoder {
-  const NumericFilter *filter;
-
   NumericIndexDecoder(uint32_t flags) : IndexDecoder(flags, decoderType::Numeric) { ctor(flags); }
   NumericIndexDecoder(uint32_t flags, t_fieldMask mask) : IndexDecoder(flags, mask, decoderType::Numeric) { ctor(flags); }
-  NumericIndexDecoder(uint32_t flags, const NumericFilter *filter) : IndexDecoder(flags, decoderType::Numeric), filter(filter) {
+  NumericIndexDecoder(uint32_t flags, const NumericFilter *filter) : IndexDecoder(flags, decoderType::Numeric) {
+    IndexDecoder::filter = filter;
     ctor(flags);
   }
 
@@ -205,7 +205,7 @@ struct IndexReader : IndexIterator {
   InvertedIndex *idx;
   t_docId lastId; // last docId, used for delta encoding/decoding
   uint32_t currentBlock;
-  const IndexDecoder* decoder;
+  IndexDecoder decoder;
   size_t len; // number of records read
   TermResult *record; // The record we are decoding into, @@@TODO: ownership
   int atEnd; //@@ bool?
@@ -221,7 +221,7 @@ struct IndexReader : IndexIterator {
 
   //-------------------------------------------------------------------------------------------
 
-  IndexReader(const IndexSpec *sp, InvertedIndex *idx, const IndexDecoder* decoder, IndexResult *record, double weight);
+  IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder, IndexResult *record, double weight);
 
   virtual ~IndexReader();
 

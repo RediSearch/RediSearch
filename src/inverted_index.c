@@ -773,7 +773,7 @@ void NumericIndexDecoder::ctor(uint32_t flags) {
 //---------------------------------------------------------------------------------------------
 
 NumericIndexReader::NumericIndexReader(InvertedIndex *idx, const IndexSpec *sp, const NumericFilter *flt) :
-    IndexReader(sp, idx, new NumericIndexDecoder(Index_StoreNumeric, flt), new NumericResult(), 1.0) {
+    IndexReader(sp, idx, NumericIndexDecoder(Index_StoreNumeric, flt), new NumericResult(), 1.0) {
 }
 
 //---------------------------------------------------------------------------------------------
@@ -817,7 +817,7 @@ bool NumericIndexCriteriaTester::Test(t_docId id) {
 TermIndexCriteriaTester::TermIndexCriteriaTester(IndexReader *ir) {
   spec = ir->sp;
   term = ir->record->term->str;
-  fieldMask = ir->decoder->mask;
+  fieldMask = ir->decoder.mask;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -848,14 +848,14 @@ IndexCriteriaTester *IndexReader::GetCriteriaTester() {
     return NULL;  // CriteriaTester is not supported!!!
   }
 
-  if (decoder->type == decoderType::Term) {
+  if (decoder.type == decoderType::Term) {
     return new TermIndexCriteriaTester(this);
   }
   // for now, if the iterator did not took the numric filter we will avoid using the CT.
   // TODO: save the numeric filter in the numeric iterator to support CT anyway.
-  if (decoder->type == decoderType::Numeric) {
-    auto nr = dynamic_cast<const NumericIndexDecoder*>(decoder);
-    return new NumericIndexCriteriaTester(this, *nr->filter);
+  if (decoder.type == decoderType::Numeric) {
+    // auto nr = dynamic_cast<const NumericIndexDecoder*>(decoder);
+    return new NumericIndexCriteriaTester(this, *decoder.filter);
   }
 
   return NULL;
@@ -884,7 +884,7 @@ int IndexReader::Read(IndexResult **e) {
     }
 
     size_t pos = br.pos;
-    int rv = (decoder->*(decoder->decoder))(&br, record);
+    int rv = (decoder.*(decoder.decoder))(&br, record);
 
     // We write the docid as a 32 bit number when decoding it with qint.
     uint32_t delta = *(uint32_t *)&record->docId;
@@ -998,7 +998,7 @@ int IndexReader::SkipTo(t_docId docId, IndexResult **hit) {
    *    - ID is equal, return OK
    */
 
-  if (decoder->seeker) {
+  if (decoder.seeker) {
     // // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
     while (br.AtEnd()) {
       // We're at the end of the last block...
@@ -1011,7 +1011,7 @@ int IndexReader::SkipTo(t_docId docId, IndexResult **hit) {
     // the seeker will return 1 only when it found a docid which is greater or equals the
     // searched docid and the field mask matches the searched fields mask. We need to continue
     // scanning only when we found such an id or we reached the end of the inverted index.
-    while (! (decoder->*(decoder->seeker))(&br, this, docId, record)) {
+    while (! (decoder.*(decoder.seeker))(&br, this, docId, record)) {
       if (br.AtEnd()) {
         if (currentBlock < idx->size - 1) {
           AdvanceBlock();
@@ -1048,7 +1048,7 @@ size_t IndexReader::NumDocs() const {
 //---------------------------------------------------------------------------------------------
 
 IndexReader::IndexReader(
-  const IndexSpec *sp, InvertedIndex *idx, const IndexDecoder* decoder,
+  const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
   IndexResult *record, double weight
 ) : IndexIterator(this), currentBlock(0), sp(sp), idx(idx)
   , decoder(decoder), record(record), weight(weight), br()
@@ -1067,7 +1067,6 @@ IndexReader::IndexReader(
 
 IndexReader::~IndexReader() {
   delete record;
-  delete decoder;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1091,7 +1090,7 @@ static RSQueryTerm *termWithIDF(RSQueryTerm *term, InvertedIndex *idx, IndexSpec
 TermIndexReader::TermIndexReader(
   InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask, RSQueryTerm *term, double weight
 ) : IndexReader(
-    sp, idx, new TermIndexDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK, fieldMask),
+    sp, idx, TermIndexDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK, fieldMask),
     new TermResult(termWithIDF(term, idx, sp), weight), weight
   )
 {}

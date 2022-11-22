@@ -379,6 +379,7 @@ struct IndexResult : Object {
     isCopy = true;
   }
 
+  virtual ~IndexResult() {}
   virtual IndexResult *Clone() const = 0;
 
   // Reset state of an existing index hit. This can be used to recycle index hits during reads

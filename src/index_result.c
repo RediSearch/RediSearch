@@ -200,7 +200,7 @@ TermResult::~TermResult() {
     rm_free(offsets.data);
   } else {  // non copy result...
     // we only free up terms for non copy results
-    if (term != NULL) {
+    if (term != nullptr) {
       delete term;
     }
   }
