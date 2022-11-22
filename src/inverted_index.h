@@ -85,16 +85,15 @@ struct IndexDecoder {
 
   // If the record should not be processed, it should not be populated and 0 should be returned.
   // Otherwise, the function should return true.
-
-  bool (IndexDecoder::*decoder)(BufferReader *br, IndexResult *res);
+  using decoder_t = bool (IndexDecoder::*)(BufferReader*, IndexResult*);
+  decoder_t decoder;
 
   // Custom implementation of a seeking function. Seek to the specific ID within the index,
   // or at one position after it.
   // The implementation of this function is optional.
   // If this is not used, then the decoder() implementation will be used instead.
-
-  bool (IndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
-    t_docId to, IndexResult *res);
+  using seeker_t = bool (IndexDecoder::*)(BufferReader*, IndexReader*, t_docId, IndexResult*);
+  seeker_t seeker;
 
   // We have 9 distinct ways to decode the index records. Based on the index flags we select the
   // correct decoder for creating an index reader. A decoder both decodes the entry and does initial
@@ -120,10 +119,10 @@ struct TermIndexDecoder : IndexDecoder {
 
   void ctor(uint32_t flags);
 
-  bool (TermIndexDecoder::*decoder)(BufferReader *br, TermResult *res);
+  // bool (TermIndexDecoder::*decoder)(BufferReader *br, TermResult *res);
 
-  bool (TermIndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
-    t_docId to, TermResult *res);
+  // bool (TermIndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
+  //   t_docId to, TermResult *res);
 
   bool readFreqOffsetsFlags(BufferReader *br, TermResult *res);
   bool readFreqOffsetsFlagsWide(BufferReader *br, TermResult *res);
@@ -142,16 +141,18 @@ struct TermIndexDecoder : IndexDecoder {
 struct NumericIndexDecoder : IndexDecoder {
   const NumericFilter *filter;
 
-  NumericIndexDecoder(uint32_t flags) : IndexDecoder(flags, decoderType::Numeric) {}
-  NumericIndexDecoder(uint32_t flags, t_fieldMask mask) : IndexDecoder(flags, mask, decoderType::Numeric) {}
-  NumericIndexDecoder(uint32_t flags, const NumericFilter *filter) : IndexDecoder(flags, decoderType::Numeric), filter(filter) {}
+  NumericIndexDecoder(uint32_t flags) : IndexDecoder(flags, decoderType::Numeric) { ctor(flags); }
+  NumericIndexDecoder(uint32_t flags, t_fieldMask mask) : IndexDecoder(flags, mask, decoderType::Numeric) { ctor(flags); }
+  NumericIndexDecoder(uint32_t flags, const NumericFilter *filter) : IndexDecoder(flags, decoderType::Numeric), filter(filter) {
+    ctor(flags);
+  }
 
   void ctor(uint32_t flags);
 
-  bool (NumericIndexDecoder::*decoder)(BufferReader *br, NumericResult *res);
+  // bool (NumericIndexDecoder::*decoder)(BufferReader *br, NumericResult *res);
 
-  bool (NumericIndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
-    t_docId to, NumericResult *res);
+  // bool (NumericIndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
+  //   t_docId to, NumericResult *res);
 
   bool readNumeric(BufferReader *br, NumericResult *res);
 };
@@ -204,7 +205,7 @@ struct IndexReader : IndexIterator {
   InvertedIndex *idx;
   t_docId lastId; // last docId, used for delta encoding/decoding
   uint32_t currentBlock;
-  IndexDecoder decoder;
+  const IndexDecoder& decoder;
   size_t len; // number of records read
   TermResult *record; // The record we are decoding into, @@@TODO: ownership
   int atEnd; //@@ bool?
@@ -220,8 +221,7 @@ struct IndexReader : IndexIterator {
 
   //-------------------------------------------------------------------------------------------
 
-  IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder, IndexResult *record,
-    double weight);
+  IndexReader(const IndexSpec *sp, InvertedIndex *idx, const IndexDecoder& decoder, IndexResult *record, double weight);
 
   virtual ~IndexReader();
 
@@ -300,7 +300,7 @@ struct TermIndexCriteriaTester : IndexCriteriaTester {
 struct NumericIndexReader : IndexReader {
   // Create a new index reader for numeric records, optionally using a given filter.
   // If the filter is NULL we will return all the records in the index.
-  NumericIndexReader(InvertedIndex *idx, const IndexSpec *sp = 0, const NumericFilter *flt = 0);
+  NumericIndexReader(InvertedIndex *idx, const IndexSpec *sp = nullptr, const NumericFilter *flt = nullptr);
 };
 
 //---------------------------------------------------------------------------------------------

@@ -713,35 +713,35 @@ void TermIndexDecoder::ctor(uint32_t flags) {
   switch (flags & INDEX_STORAGE_MASK) {
     // (freqs, fields, offset)
     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets:
-      decoder = &readFreqOffsetsFlags;
-      seeker = &seekFreqOffsetsFlags;
+      decoder = (decoder_t)&readFreqOffsetsFlags;
+      seeker = (seeker_t)&seekFreqOffsetsFlags;
       break;
 
     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-      decoder = &readFreqOffsetsFlagsWide;
+      decoder = (decoder_t)&readFreqOffsetsFlagsWide;
       seeker = nullptr;
       break;
 
     // (fields, offsets)
     case Index_StoreFieldFlags | Index_StoreTermOffsets:
-      decoder = &readFlagsOffsets;
+      decoder = (decoder_t)&readFlagsOffsets;
       seeker = nullptr;
       break;
 
     case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-      decoder = &readFlagsOffsetsWide;
+      decoder = (decoder_t)&readFlagsOffsetsWide;
       seeker = nullptr;
       break;
 
     // (offsets)
     case Index_StoreTermOffsets:
-      decoder = &readOffsets;
+      decoder = (decoder_t)&readOffsets;
       seeker = nullptr;
       break;
 
     // (freqs, offsets)
     case Index_StoreFreqs | Index_StoreTermOffsets:
-      decoder = &readFreqsOffsets;
+      decoder = (decoder_t)&readFreqsOffsets;
       seeker = nullptr;
       break;
 
@@ -758,7 +758,7 @@ void TermIndexDecoder::ctor(uint32_t flags) {
 void NumericIndexDecoder::ctor(uint32_t flags) {
   switch (flags & INDEX_STORAGE_MASK) {
     case Index_StoreNumeric:
-      decoder = &readNumeric;
+      decoder = (decoder_t)&readNumeric;
       seeker = nullptr;
       break;
 
@@ -1048,7 +1048,7 @@ size_t IndexReader::NumDocs() const {
 //---------------------------------------------------------------------------------------------
 
 IndexReader::IndexReader(
-  const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
+  const IndexSpec *sp, InvertedIndex *idx, const IndexDecoder& decoder,
   IndexResult *record, double weight
 ) : IndexIterator(this), currentBlock(0), sp(sp), idx(idx)
   , decoder(decoder), record(record), weight(weight), br()
@@ -1087,12 +1087,13 @@ static RSQueryTerm *termWithIDF(RSQueryTerm *term, InvertedIndex *idx, IndexSpec
 
 //---------------------------------------------------------------------------------------------
 
-TermIndexReader::TermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
-    RSQueryTerm *term, double weight) : IndexReader(sp, idx,
-      TermIndexDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK, fieldMask),
-      new TermResult(termWithIDF(term, idx, sp), weight),
-      weight) {
-}
+TermIndexReader::TermIndexReader(
+  InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask, RSQueryTerm *term, double weight
+) : IndexReader(
+    sp, idx, TermIndexDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK, fieldMask),
+    new TermResult(termWithIDF(term, idx, sp), weight), weight
+  )
+{}
 
 //---------------------------------------------------------------------------------------------
 

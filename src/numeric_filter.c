@@ -51,25 +51,27 @@ int NumericFilter::parseDoubleRange(const char *s, bool &inclusive, double &targ
  * arguments
  */
 
-NumericFilter::NumericFilter(ArgsCursor *ac, QueryError *status) {
+NumericFilter::NumericFilter(ArgsCursor *ac, QueryError *status) 
+  : min(0)
+  , max(0)
+  , fieldName(nullptr)
+  , inclusiveMax(true)
+  , inclusiveMin(true)
+{
   if (ac->NumRemaining() < 3) {
     QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");
     throw Error("FILTER requires 3 arguments");
   }
 
   // make sure we have an index spec for this filter and it's indeed numeric
-  inclusiveMax = true;
-  inclusiveMin = true;
-  min = 0;
-  max = 0;
-  fieldName = rm_strdup(ac->GetStringNC(NULL));
+  fieldName = rm_strdup(ac->GetStringNC(nullptr));
 
   // Parse the min range
-  const char *s = ac->GetStringNC(NULL);
+  const char *s = ac->GetStringNC(nullptr);
   if (parseDoubleRange(s, inclusiveMin, min, true, status) != REDISMODULE_OK) {
     throw Error(status->detail);
   }
-  s = ac->GetStringNC(NULL);
+  s = ac->GetStringNC(nullptr);
   if (parseDoubleRange(s, inclusiveMax, max, false, status) != REDISMODULE_OK) {
     throw Error(status->detail);
   }
@@ -85,22 +87,26 @@ NumericFilter::~NumericFilter() {
 
 //---------------------------------------------------------------------------------------------
 
-NumericFilter::NumericFilter(double min_, double max_, bool inclusiveMin_, bool inclusiveMax_) {
-  min = min_;
-  max = max_;
-  fieldName = NULL;
-  inclusiveMax = inclusiveMax_;
-  inclusiveMin = inclusiveMin_;
-}
+NumericFilter::NumericFilter(double min_, double max_, bool inclusiveMin_, bool inclusiveMax_) 
+  : min(min_)
+  , max(max_)
+  , fieldName(nullptr)
+  , inclusiveMax(inclusiveMax_)
+  , inclusiveMin(inclusiveMin_)
+{}
 
 //---------------------------------------------------------------------------------------------
 
-NumericFilter::NumericFilter(const NumericFilter &nf) : min(nf.min), max(nf.max),
-    inclusiveMin(nf.inclusiveMin), inclusiveMax(nf.inclusiveMax) {
+NumericFilter::NumericFilter(const NumericFilter &nf)
+  : min(nf.min)
+  , max(nf.max)
+  , inclusiveMin(nf.inclusiveMin)
+  , inclusiveMax(nf.inclusiveMax)
+{
   if (nf.fieldName) {
     fieldName = rm_strdup(nf.fieldName);
   } else {
-    fieldName = NULL;
+    fieldName = nullptr;
   }
 }
 
