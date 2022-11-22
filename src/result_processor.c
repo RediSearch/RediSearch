@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "result_processor.h"
 #include "query.h"
 #include "extension.h"
@@ -149,7 +155,11 @@ void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout) {
 }
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
-  return ((RPIndexIterator *)it->rootProc)->iiter;
+  /* On coordinator, the root result processor will be a network result processor and we should ignore it */
+  if (it->rootProc->type == RP_INDEX) {
+      return ((RPIndexIterator *)it->rootProc)->iiter;
+  }
+  return NULL;
 }
 
 void QITR_PushRP(QueryIterator *it, ResultProcessor *rp) {
@@ -245,61 +255,43 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 }
 
 /*******************************************************************************************************************
- *  Vector Similarity Result Processor
+ *  Additional Values Loader Result Processor
  *
  * It takes results from upstream (should be Index iterator or close; before any RP that need these field),
- * and add thier vecsim score to the right score field before sending them downstream.
+ * and add their additional value to the right score field before sending them downstream.
  *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;
-  const RLookupKey **keys;
-  size_t nkeys;
-} RPVecSim;
+} RPMetrics;
 
-static int rpvecsimNext(ResultProcessor *base, SearchResult *res) {
+static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
   int rc;
-  RPVecSim *self = (RPVecSim *)base;
 
   rc = base->upstream->Next(base->upstream, res);
   if (rc != RS_RESULT_OK) {
     return rc;
   }
 
-  // Add result to every score field.
-  // TODO: when we'll have a way to hold many results, add each result to its corresponding field
-  //  this will require scanning the entire IndexResult tree and looking for vector nodes whose score field name
-  //  stored in some entry of the self->keys array
-  RS_LOG_ASSERT(self->nkeys == 1, "Internal error, number of vector fields in a query is at most 1");
-  for (size_t i = 0; i < self->nkeys; i++) {
-    RSValue *val;
-    if (res->indexResult->type == RSResultType_HybridDistance) {
-      val = RS_NumVal(res->indexResult->agg.children[0]->dist.distance);
-    } else {
-      // The entire query is a TOP-K query, or this is hybrid query that doesn't use the doc score,
-      // so the distance is saved in the root of indexResult.
-      val = RS_NumVal(res->indexResult->dist.distance);
-    }
-    RLookup_WriteOwnKey(self->keys[i], &(res->rowdata), val);
+  arrayof(RSYieldableMetric) arr = res->indexResult->metrics;
+  for (size_t i = 0; i < array_len(arr); i++) {
+    RLookup_WriteKey(arr[i].key, &(res->rowdata), arr[i].value);
   }
 
   return rc;
 }
 
-/* Free implementation for vecsim */
-static void rpvecsimFree(ResultProcessor *rp) {
-  RPVecSim *self = (RPVecSim *)rp;
-  rm_free(self->keys);
+/* Free implementation for RPMetrics */
+static void rpMetricsFree(ResultProcessor *rp) {
+  RPMetrics *self = (RPMetrics *)rp;
   rm_free(self);
 }
 
-ResultProcessor *RPVecSim_New(const RLookupKey **keys, size_t nkeys) {
-  RPVecSim *ret = rm_calloc(1, sizeof(*ret));
-  ret->keys = keys;
-  ret->nkeys = nkeys;
-  ret->base.Next = rpvecsimNext;
-  ret->base.Free = rpvecsimFree;
-  ret->base.type = RP_VECSIM;
+ResultProcessor *RPMetricsLoader_New() {
+  RPMetrics *ret = rm_calloc(1, sizeof(*ret));
+  ret->base.Next = rpMetricsNext;
+  ret->base.Free = rpMetricsFree;
+  ret->base.type = RP_METRICS;
   return &ret->base;
 }
 
@@ -578,12 +570,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.nkeys = nkeys;
   ret->fieldcmp.loadKeys = NULL;
   ret->fieldcmp.nLoadKeys = REDISEARCH_UNINITIALIZED;
-
-  if (RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    maxresults = MIN(maxresults, RSGlobalConfig.maxAggregateResults);
-  } else if (RSGlobalConfig.maxSearchResults != UINT64_MAX) {
-    maxresults = MIN(maxresults, RSGlobalConfig.maxSearchResults);
-  }
 
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;

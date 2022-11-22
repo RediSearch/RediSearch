@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef RS_VALUE_H_
 #define RS_VALUE_H_
 
@@ -38,6 +44,8 @@ typedef enum {
   RSValue_OwnRstring = 7,
   // Reference to another value
   RSValue_Reference = 8,
+  // Duo value
+  RSValue_Duo = 9,
 
 } RSValueType;
 
@@ -84,6 +92,20 @@ typedef struct RSValue {
       uint8_t staticarray : 1;
     } arrval;
 
+    struct {
+      /**
+       * Duo value
+       * 
+       * Allows keeping a value, together with an addition value.
+       * 
+       * For example, keeping a value and, in addition, a different value for serialization, such as a JSON String representation.
+       */ 
+      
+      // An array of 2 RSValue *'s
+      // The first entry is the value, the second entry is the additional value
+      struct RSValue **vals;
+    } duoval;
+
     // redis string value
     struct RedisModuleString *rstrval;
 
@@ -103,6 +125,10 @@ typedef struct RSValue {
 #endif
 } RSValue;
 #pragma pack()
+
+#define RS_DUOVAL_VAL(v) ((v).duoval.vals[0])
+#define RS_DUOVAL_OTHERVAL(v) ((v).duoval.vals[1])
+#define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
 /**
  * Clears the underlying storage of the value, and makes it
@@ -280,6 +306,9 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
     }
     case RSValue_Undef:
       return 0;
+
+    case RSValue_Duo:
+      return RSValue_Hash(RS_DUOVAL_VAL(*v), hval);
   }
 
   return 0;
@@ -325,6 +354,9 @@ RSValue *RS_StringArray(char **strs, uint32_t sz);
 
 /* Initialize all strings in the array with a given string type */
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
+
+/* Wrap a pair of RSValue into an RSValue Duo */
+RSValue *RS_DuoVal(RSValue *val, RSValue *otherval);
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);

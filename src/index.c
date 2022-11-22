@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "forward_index.h"
 #include "index.h"
 #include "varint.h"
@@ -12,6 +18,7 @@
 #include "util/heap.h"
 #include "profile.h"
 #include "hybrid_reader.h"
+#include "metric_iterator.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit);
@@ -1897,6 +1904,35 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
   RedisModule_ReplySetArrayLength(ctx, nlen);
 }
 
+PRINT_PROFILE_FUNC(printMetricIt) {
+  MetricIterator *mi = (MetricIterator *)root;
+
+  size_t nlen = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+  switch (mi->type) {
+    case VECTOR_DISTANCE: {
+      printProfileType("METRIC - VECTOR DISTANCE");
+      nlen += 2;
+      break;
+    }
+    default: {
+      RS_LOG_ASSERT(0, "Invalid type for metric");
+      break;
+    }
+  }
+
+  if (PROFILE_VERBOSE) {
+    printProfileTime(cpuTime);
+    nlen += 2;
+  }
+
+  printProfileCounter(counter);
+  nlen += 2;
+
+  RedisModule_ReplySetArrayLength(ctx, (long)nlen);
+}
+
 #define PRINT_PROFILE_SINGLE(name, iterType, text, hasChild)                        \
 PRINT_PROFILE_FUNC(name) {                                                          \
   size_t nlen = 0;                                                                  \
@@ -1968,6 +2004,7 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
     case HYBRID_ITERATOR:     { printHybridIt(ctx, root, counter, cpuTime, depth, limited);     break; }
+    case METRIC_ITERATOR:     { printMetricIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
@@ -2007,6 +2044,7 @@ void Profile_AddIters(IndexIterator **root) {
     case READ_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
+    case METRIC_ITERATOR:
       break;
     case PROFILE_ITERATOR:
     case MAX_ITERATOR:

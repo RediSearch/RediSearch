@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __RS_DOCUMENT_H__
 #define __RS_DOCUMENT_H__
 #include <pthread.h>
@@ -72,6 +78,7 @@ typedef struct DocumentField{
       size_t arrayLen; // for multiVal TODO: use arr.h
     };
   };
+  RSValue *multisv; // sortable value for multi value (pre-calculated during ingestion)
   FieldVarType unionType;
   FieldType indexAs;
 } DocumentField;
@@ -338,7 +345,7 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx);
  * When this function completes, it will send the reply to the client and
  * unblock the client passed when the context was first created.
  */
-int Document_AddToIndexes(RSAddDocumentCtx *ctx);
+int Document_AddToIndexes(RSAddDocumentCtx *ctx, RedisSearchCtx *sctx);
 
 /**
  * Free the AddDocumentCtx. Should be done once AddToIndexes() completes; or

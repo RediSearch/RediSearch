@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "spec.h"
 
 #include <math.h>
@@ -537,6 +543,11 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
+      if ((rc = AC_GetDouble(ac, &fs->vectorOpts.vecSimParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "vector similarity HNSW index epsilon", rc);
+        return 0;
+      }
     } else {
       QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
       return 0;
@@ -890,10 +901,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
 
     if (FieldSpec_IsSortable(fs)) {
-      if (fs->types & INDEXFLD_T_TAG && isSpecJson(sp)) {
-        QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
-                               "On JSON, cannot set tag field to sortable - %s", fieldName);
-        goto reset;
+      if (isSpecJson(sp)) {
+        // SORTABLE JSON field is always UNF
+        fs->options |= FieldSpec_UNF;
       }
 
       if (fs->options & FieldSpec_Dynamic) {
@@ -1050,6 +1060,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
+  spec->flags &= ~Index_Temporary;
   IndexSpec_Free(spec);
   return NULL;
 }

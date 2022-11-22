@@ -54,9 +54,11 @@ else
 
 	[[ $os == linux ]] && os=Linux
 	[[ $arch == x64 ]] && arch=x86_64
-	
+
 	if [[ $dist == "ubuntu" ]]; then
-		if [[ $nick == "focal" ]]; then
+		if [[ $nick == "jammy" ]]; then
+			nick="ubuntu22.04"
+		elif [[ $nick == "focal" ]]; then
 			nick="ubuntu20.04"
 		elif [[ $nick == "bionic" ]]; then
 			nick="ubuntu18.04"
@@ -94,7 +96,7 @@ fi
 MOD_S3_URL="http://redismodules.s3.amazonaws.com/${STEM}/snapshots"
 MOD_RAMP="${STEM}.${platform}.$BRANCH.zip"
 
-if [[ $OSS == 1 ]]; then
+if [[ $OSS == 1 && -z $REPO_PATH ]]; then
 	# fallback to old storage model
 	if ! wget -q --spider $WORK_DIR $MOD_S3_URL/$MOD_RAMP; then
 		STEM=rejson
@@ -134,7 +136,7 @@ if [[ -z $REPO_PATH ]]; then
 		fi
 	fi
 else
-	F_MOD_RAMP="${REPO_PATH}/artifacts/snapshots/${MOD_RAMP}"
+	F_MOD_RAMP="${REPO_PATH}/bin/artifacts/snapshots/${MOD_RAMP}"
 	if [[ ! -f $F_MOD_RAMP ]]; then
 		eprint "$F_MOD_RAMP is missing - build RedisJSON and set REPO_PATH"
 		exit 1

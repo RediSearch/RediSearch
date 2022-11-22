@@ -1,5 +1,12 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "vector_index.h"
 #include "hybrid_reader.h"
+#include "metric_iterator.h"
 #include "query_param.h"
 #include "rdb.h"
 
@@ -52,6 +59,30 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   return openVectorKeysDict(ctx, keyName, 1);
 }
 
+IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
+                                                          bool yields_metric) {
+  size_t res_num = VecSimQueryResult_Len(results);
+  if (res_num == 0) {
+    VecSimQueryResult_Free(results);
+    return NULL;
+  }
+  t_docId *docIdsList = array_new(t_docId, res_num);
+  double *metricList = array_new(double, res_num);
+
+  // Collect the results' id and distance and set it in the arrays.
+  VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(results);
+  while (VecSimQueryResult_IteratorHasNext(iter)) {
+    VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
+    docIdsList = array_append(docIdsList, VecSimQueryResult_GetId(res));
+    metricList = array_append(metricList, VecSimQueryResult_GetScore(res));
+  }
+  VecSimQueryResult_IteratorFree(iter);
+  VecSimQueryResult_Free(results);
+
+  // Move ownership on the arrays to the MetricIterator.
+  return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, yields_metric);
+}
+
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
@@ -60,35 +91,37 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   if (!vecsim) {
     return NULL;
   }
+
+  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
+  size_t dim = 0;
+  VecSimType type = (VecSimType)0;
+  VecSimMetric metric = (VecSimMetric)0;
+  switch (info.algo) {
+    case VecSimAlgo_HNSWLIB:
+      dim = info.hnswInfo.dim;
+      type = info.hnswInfo.type;
+      metric = info.hnswInfo.metric;
+      break;
+    case VecSimAlgo_BF:
+      dim = info.bfInfo.dim;
+      type = info.bfInfo.type;
+      metric = info.bfInfo.metric;
+      break;
+  }
+
+  VecSimQueryParams qParams = {0};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
-      VecSimQueryParams qParams = {0};
-      VecsimQueryType query_type = child_it ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
-      if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
-                                    &qParams, query_type, q->status) != VecSim_OK)  {
-        return NULL;
-      }
-
-      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-      size_t dim = 0;
-      VecSimType type = (VecSimType)0;
-      VecSimMetric metric = (VecSimMetric)0;
-      switch (info.algo) {
-        case VecSimAlgo_HNSWLIB:
-          dim = info.hnswInfo.dim;
-          type = info.hnswInfo.type;
-          metric = info.hnswInfo.metric;
-          break;
-        case VecSimAlgo_BF:
-          dim = info.bfInfo.dim;
-          type = info.bfInfo.type;
-          metric = info.bfInfo.metric;
-          break;
-      }
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
         QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: query vector blob size (%zu) does not match index's expected size (%zu).",
+                               "Error parsing vector similarity query: query vector blob size"
+                               " (%zu) does not match index's expected size (%zu).",
                                vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+        return NULL;
+      }
+      VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
+      if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
+                                    &qParams, queryType, q->status) != VecSim_OK)  {
         return NULL;
       }
       HybridIteratorParams hParams = {.index = vecsim,
@@ -103,6 +136,37 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .timeout = q->sctx->timeout,
       };
       return NewHybridVectorIterator(hParams);
+    }
+    case VECSIM_QT_RANGE: {
+      if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: query vector blob size"
+                               " (%zu) does not match index's expected size (%zu).",
+                               vq->range.vecLen, (dim * VecSimType_sizeof(type)));
+        return NULL;
+      }
+      if (vq->range.radius < 0) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: negative radius (%g) "
+                               "given in a range query",
+                               vq->range.radius);
+        return NULL;
+      }
+      if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
+                                    &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
+        return NULL;
+      }
+      qParams.timeoutCtx = &(TimeoutCtx){ .timeout = q->sctx->timeout, .counter = 0 };
+      VecSimQueryResult_List results =
+          VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius,
+                                 &qParams, vq->range.order);
+      if (results.code == VecSim_QueryResult_TimedOut) {
+        VecSimQueryResult_Free(results);
+        QueryError_SetError(q->status, QUERY_TIMEDOUT, NULL);
+        return NULL;
+      }
+      bool yields_metric = vq->scoreField != NULL;
+      return createMetricIteratorFromVectorQueryResults(results, yields_metric);
     }
   }
   return NULL;
@@ -332,9 +396,9 @@ fail:
 }
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
-                          VecSimQueryParams *qParams, VecsimQueryType query_type, QueryError *status) {
+                          VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status) {
 
-  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, query_type);
+  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, queryType);
   if (vecSimCode == VecSim_OK) {
     return vecSimCode;
   }
@@ -367,6 +431,10 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
     }
     case VecSimParamResolverErr_InvalidPolicy_AdHoc_With_EfRuntime: {
       RSErrorCode = QUERY_EADHOCWEFRUNTIME;
+      break;
+    }
+    case VecSimParamResolverErr_InvalidPolicy_NRange: {
+      RSErrorCode = QUERY_ENRANGE;
       break;
     }
     default: {

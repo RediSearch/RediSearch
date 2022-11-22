@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #pragma once
 
 #include "rejson_api.h"
@@ -39,7 +45,7 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
 
 /* Creates a Redis Module String from JSONType string, int, double, bool */
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len, FieldSpec *fs,
-                           struct DocumentField *df);
+                           struct DocumentField *df, RedisModuleCtx *ctx);
 
 /* Checks if JSONType fits the FieldType */
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type);

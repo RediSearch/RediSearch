@@ -3,16 +3,20 @@
 [[ $IGNERR == 1 ]] || set -e
 # [[ $VERBOSE == 1 ]] && set -x
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+PROGNAME="${BASH_SOURCE[0]}"
+HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/../.. && pwd)
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
+
+VALGRIND_REDIS_VER=6.2
+SAN_REDIS_VER=6.2
 
 cd $HERE
 
 #----------------------------------------------------------------------------------------------
 
-if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
+help() {
 	cat <<-END
 		Run Python tests using RLTest
 
@@ -22,11 +26,12 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		MODULE=path           Path to RediSearch module .so
 		BINROOT=path          Path to repo binary root dir
 
+		TEST=name             Operate in single-test mode
+		UNSTABLE=1            Do not skip unstable tests (default: 0)
+
 		RLTEST=path|'view'    Take RLTest from repo path or from local view
 		RLTEST_ARGS=args      Extra RLTest args
 		MODARGS=args          RediSearch module arguments
-		TEST=name             Operate in single-test mode
-		ONLY_STABLE=1         Skip unstable tests
 
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
@@ -40,12 +45,16 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 		REDIS_SERVER=path     Redis Server command
 		REDIS_VERBOSE=1       (legacy) Verbose ouput
+		REDIS_PORT=n          Redis server port
 		CONFIG_FILE=file      Path to config file
 
 		EXISTING_ENV=1        Test on existing env (like EXT=1)
 		EXT=1|run             Test on existing env (1=running; run=start redis-server)
 		EXT_HOST=addr         Address if existing env (default: 127.0.0.1)
 		EXT_PORT=n            Port of existing env
+
+		RLEC=0|1              General tests on RLEC
+		DOCKER_HOST=addr      Address of Docker server (default: localhost)
 		RLEC_PORT=n           Port of RLEC database (default: 12000)
 
 		COV=1				  Run with coverage analysis
@@ -57,6 +66,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		LIST=1                List all tests and exit
 		VERBOSE=1             Print commands and Redis output
 		LOG=1                 Send results to log (even on single-test mode)
+		KEEP=1                Do not remove intermediate files
 		IGNERR=1              Do not abort on error
 		NOP=1                 Dry run
 		HELP=1                Show help
@@ -64,81 +74,36 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 	END
 	exit 0
-fi
+}
 
 #---------------------------------------------------------------------------------------------- 
 
-if [[ $RLTEST == view ]]; then
-	if [[ ! -d $ROOT/../RLTest ]]; then
-		eprint "RLTest not found in view $ROOT"
-		exit 1
-	fi
-    RLTEST=$(cd $ROOT/../RLTest; pwd)
-fi
-
-if [[ -n $RLTEST ]]; then
-	if [[ ! -d $RLTEST ]]; then
-		eprint "Invalid RLTest location: $RLTEST"
-		exit 1
+setup_rltest() {
+	if [[ $RLTEST == view ]]; then
+		if [[ ! -d $ROOT/../RLTest ]]; then
+			eprint "RLTest not found in view $ROOT"
+			exit 1
+		fi
+		RLTEST=$(cd $ROOT/../RLTest; pwd)
 	fi
 
-    # Specifically search for it in the specified location
-    export PYTHONPATH="$PYTHONPATH:$RLTEST"
-	[[ $VERBOSE == 1 ]] && echo "PYTHONPATH=$PYTHONPATH"
-fi
+	if [[ -n $RLTEST ]]; then
+		if [[ ! -d $RLTEST ]]; then
+			eprint "Invalid RLTest location: $RLTEST"
+			exit 1
+		fi
 
-#---------------------------------------------------------------------------------------------- 
-
-MODULE="${MODULE:-$1}"
-shift
-
-[[ $EXT == 1 || $EXT == run ]] && EXISTING_ENV=1
-[[ $COORD == 1 ]] && COORD=oss
-
-if [[ -z $MODULE ]]; then
-	if [[ -n $BINROOT ]]; then
-		if [[ -z $COORD ]]; then
-			MODULE=$BINROOT/search/redisearch.so
-		elif [[ $COORD == oss ]]; then
-			MODULE=$BINROOT/oss-coord/module-oss.so
+		# Specifically search for it in the specified location
+		export PYTHONPATH="$PYTHONPATH:$RLTEST"
+		if [[ $VERBOSE == 1 ]]; then
+			echo "PYTHONPATH=$PYTHONPATH"
 		fi
 	fi
-fi
+}
 
-OP=
-[[ $NOP == 1 ]] && OP=echo
+#----------------------------------------------------------------------------------------------
 
-RLTEST_ARGS+=" $@"
-
-RLTEST_ARGS+=" --clear-logs"
-
-if [[ -n $TEST ]]; then
-	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
-	[[ $LOG != 1 ]] && RLTEST_ARGS+=" -v -s"
-	RLTEST_ARGS+=" --test $TEST"
-	export RUST_BACKTRACE=1
-fi
-if [[ $LIST == 1 ]]; then
-	RLTEST_ARGS+=" --collect-only"
-fi
-
-SHARDS=${SHARDS:-3}
-
-[[ $SAN == addr ]] && SAN=address
-[[ $SAN == mem ]] && SAN=memory
-
-EXT_HOST=${EXT_HOST:-127.0.0.1}
-EXT_PORT=${EXT_PORT:-6379}
-
-RLEC_PORT=${RLEC_PORT:-12000}
-
-[[ $EXT == 1 || $EXT == run || $EXISTING_ENV == 1 ]] && PARALLEL=0
-
-[[ $PARALLEL == 1 ]] && RLTEST_PARALLEL_ARG="--parallelism $($READIES/bin/nproc)"
-
-#---------------------------------------------------------------------------------------------- 
-
-if [[ -n $SAN ]]; then
+setup_clang_sanitizer() {
 	if ! grep THPIsEnabled /build/redis.blacklist &> /dev/null; then
 		echo "fun:THPIsEnabled" >> /build/redis.blacklist
 	fi
@@ -151,7 +116,7 @@ if [[ -n $SAN ]]; then
 	export SHORT_READ_BYTES_DELTA=512
 	
 	# --no-output-catch --exit-on-failure --check-exitcode
-	SAN_ARGS="--unix --sanitizer $SAN"
+	RLTEST_SAN_ARGS="--unix --sanitizer $SAN"
 
 	if [[ -n $REJSON && $REJSON != 0 ]]; then
 		if [[ -z $REJSON_PATH ]]; then
@@ -172,88 +137,137 @@ if [[ -n $SAN ]]; then
 	fi
 
 	if [[ $SAN == addr || $SAN == address ]]; then
-		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-6.2}
+		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_VER}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-asan ...
-			$READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
+			$READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 		fi
 
 		export ASAN_OPTIONS=detect_odr_violation=0
 		# :detect_leaks=0
 
 	elif [[ $SAN == mem || $SAN == memory ]]; then
-		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-6.2}
+		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-msan ...
-			$READIES/bin/getredis --force -v 6.2  --no-run --own-openssl --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
+			$READIES/bin/getredis --force -v $SAN_REDIS_VER  --no-run --own-openssl --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 		fi
 	fi
+}
 
-elif [[ $VG == 1 ]]; then
+clang_sanitizer_summary() {
+	if grep -l "leaked in" logs/*.asan.log* &> /dev/null; then
+		echo
+		echo "${LIGHTRED}Sanitizer: leaks detected:${RED}"
+		grep -l "leaked in" logs/*.asan.log*
+		echo "${NOCOLOR}"
+		E=1
+	fi
+}
+
+#----------------------------------------------------------------------------------------------
+
+setup_redis_server() {
+	REDIS_SERVER=${REDIS_SERVER:-redis-server}
+
+	if ! is_command $REDIS_SERVER; then
+		echo "Cannot find $REDIS_SERVER. Aborting."
+		exit 1
+	fi
+}
+
+#----------------------------------------------------------------------------------------------
+
+setup_valgrind() {
 	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg}
 	if ! is_command $REDIS_SERVER; then
 		echo Building Redis for Valgrind ...
-		$READIES/bin/getredis -v 6 --valgrind --suffix vg
+		$READIES/bin/getredis -v $VALGRIND_REDIS_VER --valgrind --suffix vg
 	fi
-	VALGRIND_ARGS=--use-valgrind
+
+	RLTEST_VALGRIND_ARGS=--use-valgrind
 	if [[ $VG_LEAKS == 0 ]]; then
-		export VG_OPTIONS="--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/redis_valgrind.sup"
-		VALGRIND_ARGS+=" --vg-no-leakcheck --vg-options=\"--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/redis_valgrind.sup\" "
+		VALGRIND_SUPRESSIONS=$ROOT/tests/valgrind/redis_valgrind.sup
+		export VG_OPTIONS="\
+			--leak-check=no \
+			--track-origins=yes \
+			--suppressions=$ROOT/tests/valgrind/redis_valgrind.sup"
+		RLTEST_VALGRIND_ARGS+=" --vg-no-leakcheck --vg-options=\"--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/redis_valgrind.sup\" "
 	fi
 
 	# for module
 	export RS_GLOBAL_DTORS=1
 
 	# for RLTest
-	export VALGRIND=1
 	export SHORT_READ_BYTES_DELTA=512
+}
 
-else
-	REDIS_SERVER=${REDIS_SERVER:-redis-server}
-fi
+valgrind_config() {
+	export VG_OPTIONS="\
+		-q \
+		--leak-check=full \
+		--show-reachable=no \
+		--track-origins=yes \
+		--show-possibly-lost=no"
 
-if ! is_command $REDIS_SERVER; then
-	echo "Cannot find $REDIS_SERVER. Aborting."
-	exit 1
-fi
+	VALGRIND_SUPRESSIONS=$ROOT/tests/redis_valgrind.sup
 
-#---------------------------------------------------------------------------------------------- 
+	RLTEST_ARGS+="\
+		--use-valgrind \
+		--vg-suppressions $VALGRIND_SUPRESSIONS"
 
-if [[ $COV == 1 ]]; then
-	COV_ARGS="--unix"
-	
+	export VALGRIND=1
+}
+
+valgrind_summary() {
+	# Collect name of each flow log that contains leaks
+	FILES_WITH_LEAKS=$(grep -l "definitely lost" logs/*.valgrind.log)
+	if [[ ! -z $FILES_WITH_LEAKS ]]; then
+		echo "Memory leaks introduced in flow tests."
+		echo $FILES_WITH_LEAKS
+		# Print the full Valgrind output for each leaking file
+		echo $FILES_WITH_LEAKS | xargs cat
+		exit 1
+	else
+		echo Valgrind test ok
+	fi
+}
+
+#----------------------------------------------------------------------------------------------
+
+setup_coverage() {
+	RLTEST_COV_ARGS="--unix"
+
 	export CODE_COVERAGE=1
 	export RS_GLOBAL_DTORS=1
-fi
+}
 
-#---------------------------------------------------------------------------------------------- 
+#----------------------------------------------------------------------------------------------
 
-if [[ $REDIS_VERBOSE == 1 || $VERBOSE == 1 ]]; then
-	if [[ $LOG != 1 ]]; then
-		RLTEST_ARGS+=" -s -v"
+setup_redisjson() {
+	REJSON_BRANCH=${REJSON_BRANCH:-master}
+
+	if [[ -n $REJSON && $REJSON != 0 ]]; then
+		if [[ -n $REJSON_PATH ]]; then
+			REJSON_MODULE="$REJSON_PATH"
+			RLTEST_REJSON_ARGS="--module $REJSON_PATH"
+			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH"
+		else
+			FORCE_GET=
+			[[ $REJSON == get ]] && FORCE_GET=1
+			export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
+			OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
+			REJSON_MODULE=$(cat $MODULE_FILE)
+			RLTEST_REJSON_ARGS="--module $REJSON_MODULE"
+			XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE"
+		fi
+
+		RLTEST_REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
+		XREDIS_REJSON_ARGS+=" $REJSON_MODARGS"
 	fi
-fi
+}
 
-#---------------------------------------------------------------------------------------------- 
-
-REJSON_BRANCH=${REJSON_BRANCH:-master}
-
-if [[ -n $REJSON && $REJSON != 0 ]]; then
-	if [[ -n $REJSON_PATH ]]; then
-		REJSON_MODULE="$REJSON_PATH"
-		REJSON_ARGS="--module $REJSON_PATH"
-	else
-		FORCE_GET=
-		[[ $REJSON == get ]] && FORCE_GET=1
-		export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
-		OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
-		REJSON_MODULE=$(cat $MODULE_FILE)
-		REJSON_ARGS="--module $REJSON_MODULE"
-	fi
-	REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
-fi
-
-#---------------------------------------------------------------------------------------------- 
+#----------------------------------------------------------------------------------------------
 
 run_tests() {
 	local title="$1"
@@ -266,19 +280,28 @@ run_tests() {
 	if [[ $EXISTING_ENV != 1 ]]; then
 		rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
 		rm -f $rltest_config
-		cat <<-EOF > $rltest_config
-			--oss-redis-path=$REDIS_SERVER
-			--module $MODULE
-			--module-args '$MODARGS'
-			$RLTEST_ARGS
-			$RLTEST_PARALLEL_ARG
-			$REJSON_ARGS
-			$VALGRIND_ARGS
-			$SAN_ARGS
-			$COV_ARGS
+		if [[ $RLEC != 1 ]]; then
+			cat <<-EOF > $rltest_config
+				--clear-logs
+				--oss-redis-path=$REDIS_SERVER
+				--module $MODULE
+				--module-args '$MODARGS'
+				$RLTEST_ARGS
+				$RLTEST_PARALLEL_ARG
+				$RLTEST_REJSON_ARGS
+				$RLTEST_VALGRIND_ARGS
+				$RLTEST_SAN_ARGS
+				$RLTEST_COV_ARGS
 
-			EOF
+				EOF
+		else
+			cat <<-EOF > $rltest_config
+				--clear-logs
+				$RLTEST_ARGS
+				$RLTEST_VALGRIND_ARGS
 
+				EOF
+		fi
 	else # existing env
 		if [[ $EXT == run ]]; then
 			if [[ $REJSON_MODULE ]]; then
@@ -311,7 +334,7 @@ run_tests() {
 
 		else # EXT=1
 			rltest_config=$(mktemp "${TMPDIR:-/tmp}/xredis_rltest.XXXXXXX")
-			rm -f $rltest_config
+			[[ $KEEP != 1 ]] && rm -f $rltest_config
 			cat <<-EOF > $rltest_config
 				--env existing-env
 				--existing-env-addr $EXT_HOST:$EXT_PORT
@@ -331,13 +354,16 @@ run_tests() {
 		cat $rltest_config
 	fi
 
+	[[ $RLEC == 1 ]] && export RLEC_CLUSTER=1
+	
 	local E=0
 	if [[ $NOP != 1 ]]; then
 		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
 	else
 		$OP python3 -m RLTest @$rltest_config
 	fi
-	rm -f $rltest_config
+
+	[[ $KEEP != 1 ]] && rm -f $rltest_config
 
 	if [[ -n $XREDIS_PID ]]; then
 		echo "killing external redis-server: $XREDIS_PID"
@@ -347,7 +373,96 @@ run_tests() {
 	return $E
 }
 
-#---------------------------------------------------------------------------------------------- 
+#----------------------------------------------------------------------------------------------
+
+[[ $1 == --help || $1 == help || $HELP == 1 ]] && { help; exit 0; }
+
+if [[ $RLEC != 1 ]]; then
+	MODULE="${MODULE:-$1}"
+	shift
+	if [[ -z $MODULE || ! -f $MODULE ]]; then
+		echo "Module not found at ${MODULE}. Aborting."
+		exit 1
+	fi
+fi
+
+if [[ $REDIS_VERBOSE == 1 || $VERBOSE == 1 ]]; then
+	if [[ $LOG != 1 ]]; then
+		RLTEST_ARGS+=" -s -v"
+	fi
+fi
+
+if [[ $COV == 1 ]]; then
+	setup_coverage
+fi
+
+setup_redisjson
+
+[[ $EXT == 1 || $EXT == run ]] && EXISTING_ENV=1
+[[ $COORD == 1 ]] && COORD=oss
+
+if [[ -z $MODULE ]]; then
+	if [[ -n $BINROOT ]]; then
+		if [[ -z $COORD ]]; then
+			MODULE=$BINROOT/search/redisearch.so
+		elif [[ $COORD == oss ]]; then
+			MODULE=$BINROOT/oss-coord/module-oss.so
+		fi
+	fi
+fi
+
+OP=
+[[ $NOP == 1 ]] && OP=echo
+
+RLTEST_ARGS+=" $@"
+
+RLTEST_ARGS+=" --clear-logs"
+
+if [[ -n $REDIS_PORT ]]; then
+	RLTEST_ARGS+="--redis-port $REDIS_PORT"
+fi
+
+if [[ -n $TEST ]]; then
+	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
+	[[ $LOG != 1 ]] && RLTEST_ARGS+=" -v -s"
+	RLTEST_ARGS+=" --test $TEST"
+	export RUST_BACKTRACE=1
+fi
+if [[ $LIST == 1 ]]; then
+	RLTEST_ARGS+=" --collect-only"
+fi
+
+SHARDS=${SHARDS:-3}
+
+[[ $SAN == addr ]] && SAN=address
+[[ $SAN == mem ]] && SAN=memory
+
+EXT_HOST=${EXT_HOST:-127.0.0.1}
+EXT_PORT=${EXT_PORT:-6379}
+
+RLEC_PORT=${RLEC_PORT:-12000}
+
+[[ $EXT == 1 || $EXT == run || $EXISTING_ENV == 1 ]] && PARALLEL=0
+
+[[ $PARALLEL == 1 ]] && RLTEST_PARALLEL_ARG="--parallelism $($READIES/bin/nproc)"
+
+#----------------------------------------------------------------------------------------------
+
+setup_rltest
+if [[ -n $SAN ]]; then
+	setup_clang_sanitizer
+fi
+
+if [[ $VG == 1 ]]; then
+	export VALGRIND=1
+	setup_valgrind
+fi
+
+if [[ $RLEC != 1 ]]; then
+	setup_redis_server
+fi
+
+#----------------------------------------------------------------------------------------------
 
 E=0
 
@@ -394,13 +509,7 @@ elif [[ $COORD == rlec ]]; then
 fi
 
 if [[ $NOP != 1 && -n $SAN ]]; then
-	if grep -l "leaked in" logs/*.asan.log* &> /dev/null; then
-		echo
-		echo "${LIGHTRED}Sanitizer: leaks detected:${RED}"
-		grep -l "leaked in" logs/*.asan.log*
-		echo "${NOCOLOR}"
-		E=1
-	fi
+	clang_sanitizer_summary
 fi
 
 exit $E

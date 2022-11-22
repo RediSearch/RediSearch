@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #define REDISMODULE_MAIN
 #include "redismodule.h"
@@ -1039,7 +1045,6 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         }
       }
     }
-    heap_free(reducerSpecialCaseCtx->knn.pq);
   }
   // We can always get at most K results
   rCtx->totalReplies = heap_count(rCtx->pq);
@@ -1247,11 +1252,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
 cleanup:
   if (rCtx.pq) {
-    searchResult *sr;
-    while ((sr = heap_poll(rCtx.pq))) {
-      rm_free(sr);
-    }
-    heap_free(rCtx.pq);
+    heap_destroy(rCtx.pq);
+  }
+  if (rCtx.reduceSpecialCaseCtx &&
+      rCtx.reduceSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN &&
+      rCtx.reduceSpecialCaseCtx->knn.pq) {
+    heap_destroy(rCtx.reduceSpecialCaseCtx->knn.pq);
   }
 
   searchRequestCtx_Free(req);

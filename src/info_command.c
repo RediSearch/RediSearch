@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "redismodule.h"
 #include "spec.h"
 #include "inverted_index.h"
@@ -160,6 +166,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
+      ++nn;
+    }
+    if (FieldSpec_IsUnf(fs)) {
+      RedisModule_ReplyWithSimpleString(ctx, SPEC_UNF_STR);
       ++nn;
     }
     if (FieldSpec_IsNoStem(fs)) {
