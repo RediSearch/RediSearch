@@ -39,19 +39,11 @@ IndexBlock &InvertedIndex::LastBlock() {
 IndexBlock *InvertedIndex::AddBlock(t_docId firstId) {
   TotalIIBlocks++;
   size++;
-  // blocks = rm_realloc(blocks, size * sizeof(IndexBlock));
-  // IndexBlock *last = blocks + (size - 1);
-  // memset(last, 0, sizeof(*last));  // for msan
-  // last->firstId = last->lastId = firstId;
-  // new (&LastBlock().buf) Buffer(INDEX_BLOCK_INITIAL_CAP);
-  blocks.emplace_back(
-    IndexBlock{
-      .firstId = firstId,
-      .lastId = lastId,
-      .buf = new Buffer(INDEX_BLOCK_INITIAL_CAP),
-      .numDocs = 0
-    }
-  );
+  blocks = rm_realloc(blocks, size * sizeof(IndexBlock));
+  IndexBlock *last = blocks + (size - 1);
+  memset(last, 0, sizeof(*last));  // for msan
+  last->firstId = last->lastId = firstId;
+  new (&LastBlock().buf) Buffer(INDEX_BLOCK_INITIAL_CAP);
   return &LastBlock();
 }
 

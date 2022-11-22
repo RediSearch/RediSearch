@@ -20,15 +20,15 @@ void QueryIterator::Cleanup() {
 //---------------------------------------------------------------------------------------------
 
 void SearchResult::Clear() {
-  // This won't affect anything if the result is null
+  // This won't affect anything if the result is nullptr
   score = 0;
   if (scoreExplain) {
     delete scoreExplain;
-    scoreExplain = NULL;
+    scoreExplain = nullptr;
   }
   if (indexResult) {
     delete indexResult;
-    indexResult = NULL;
+    indexResult = nullptr;
   }
 
   rowdata.Wipe();
@@ -48,7 +48,7 @@ int RPIndexIterator::Next(SearchResult *res) {
   IndexIterator *it = iiter;
 
   // No root filter - the query has 0 results
-  if (iiter == NULL) {
+  if (iiter == nullptr) {
     return RS_RESULT_EOF;
   }
 
@@ -102,7 +102,7 @@ void QueryIterator::PushRP(ResultProcessor *rp) {
   rp->parent = this;
   if (!rootProc) {
     endProc = rootProc = rp;
-    rp->upstream = NULL;
+    rp->upstream = nullptr;
     return;
   }
   rp->upstream = endProc;
@@ -187,7 +187,7 @@ int RPSorter::Yield(SearchResult *r) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 RPSorter::~RPSorter() {
-  if (pooledResult) {
+  if (pooledResult != nullptr) {
     delete pooledResult;
   }
 }
@@ -197,7 +197,7 @@ RPSorter::~RPSorter() {
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
 int RPSorter::innerLoop(SearchResult *r) {
-  if (pooledResult == NULL) {
+  if (pooledResult == nullptr) {
     pooledResult = new SearchResult();
   } else {
     pooledResult->rowdata.Wipe();
@@ -218,11 +218,11 @@ int RPSorter::innerLoop(SearchResult *r) {
 
   // If the queue is not full - we just push the result into it
   // If the pool size is 0 we always do that, letting the heap grow dynamically
-  if (pq.empty() || pq.size() + 1 < pq.capacity()) {
+  if (pq.empty() || pq.size() < pq.capacity()) {
     // copy the index result to make it thread safe - but only if it is pushed to the heap
-    h->indexResult = NULL;
+    h->indexResult = nullptr;
     pq.insert(h);
-    pooledResult = NULL;
+    pooledResult = nullptr;
     if (h->score < parent->minScore) {
       parent->minScore = h->score;
     }
@@ -237,8 +237,8 @@ int RPSorter::innerLoop(SearchResult *r) {
     }
 
     // if needed - pop it and insert a new result
-    if (pq.cmp(h, minh, this) > 0) {
-      h->indexResult = NULL;
+    if (pq.cmp(h, minh) > 0) {
+      h->indexResult = nullptr;
       pooledResult = pq.pop_min();
       pq.insert(h);
       pooledResult->Clear();
@@ -264,9 +264,7 @@ int RPSorter::Accum(SearchResult *r) {
 //---------------------------------------------------------------------------------------------
 
 // Compare results for the heap by score
-static inline int cmpByScore(const void *e1, const void *e2, const void *_) {
-  const SearchResult *h1 = e1, *h2 = e2;
-
+static inline int cmpByScore(const SearchResult *h1, const SearchResult *h2) {
   if (h1->score < h2->score) {
     return -1;
   } else if (h1->score > h2->score) {
@@ -278,12 +276,10 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *_) {
 //---------------------------------------------------------------------------------------------
 
 // Compare results for the heap by sorting key
-static int cmpByFields(const void *e1, const void *e2, const void *sorter_) {
-  const RPSorter *sorter = sorter_;
-  const SearchResult *h1 = e1, *h2 = e2;
+static int cmpByFields(const SearchResult *h1, const SearchResult *h2, const RPSorter *sorter) {
   int ascending = 0;
 
-  QueryError *qerr = NULL;
+  QueryError *qerr = nullptr;
   if (sorter && sorter->parent && sorter->parent->err) {
     qerr = sorter->parent->err;
   }
@@ -326,22 +322,15 @@ static void srDtor(void *p) {
 
 //---------------------------------------------------------------------------------------------
 
-RPSorter::RPSorter(size_t maxresults, Vector<RLookupKey *> keys = {}, uint64_t ascmap = 0) :
-  ResultProcessor(""),
-  pq(!keys.empty() ? cmpByFields : cmpByScore, this),
-  size(maxresults),
-  offset(0),
-  accum(true) {
-
-  fieldcmp.ascendMap = ascmap;
-  fieldcmp.keys = keys;  size = maxresults;
-  offset = 0;  size = maxresults;
-  offset = 0;
-
-  pq.reserve(maxresults + 1);
-  pooledResult = NULL;
-  name = "Sorter";
-}
+RPSorter::RPSorter(size_t maxresults, Vector<RLookupKey *> keys = {}, uint64_t ascmap = 0)
+  : ResultProcessor("Sorter")
+  , size(maxresults)
+  , offset(0)
+  , pq(maxresults, keys.empty() ? cmpByScore : (Comparator<SearchResult *>)[this](auto _1, auto _2){ return cmpByFields(_1, _2, this); })
+  , pooledResult(nullptr)
+  , accum(true)
+  , fieldcmp({.keys = keys, .ascendMap = ascmap})
+{ }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -387,7 +376,7 @@ int ResultsLoader::Next(SearchResult *r) {
 
   // Current behavior skips entire result if document does not exist.
   // I'm unusre if that's intentional or an oversight.
-  if (r->dmd == NULL || (r->dmd->flags & Document_Deleted)) {
+  if (r->dmd == nullptr || (r->dmd->flags & Document_Deleted)) {
     return RS_RESULT_OK;
   }
 

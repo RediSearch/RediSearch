@@ -149,12 +149,12 @@ struct TagIndexRepair : NumericAndTagIndexRepair {
 struct IndexBlock;
 
 struct InvIdxBuffers {
-  std::vector<MSG_DeletedBlock> delBlocks;
+  MSG_DeletedBlock *delBlocks;
   size_t numDelBlocks;
 
-  std::vector<MSG_RepairedBlock> changedBlocks;
+  MSG_RepairedBlock *changedBlocks;
 
-  std::vector<IndexBlock> newBlocklist;
+  IndexBlock *newBlocklist;
   size_t newBlocklistSize;
   int lastBlockIgnored;
 };
@@ -245,8 +245,7 @@ struct ForkGC : public Object, public GCAPI {
   void sendTerminator();
 
   int recvFixed(void *buf, size_t len);
-  template <typename T>
-  int recvBuffer(std::vector<T>& buf, size_t *len);
+  int recvBuffer(void **buf, size_t *len);
   int recvRepairedBlock(MSG_RepairedBlock *binfo);
   int recvInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info);
 
