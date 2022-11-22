@@ -49,14 +49,13 @@ IndexBlock *InvertedIndex::AddBlock(t_docId firstId) {
 
 //---------------------------------------------------------------------------------------------
 
-InvertedIndex::InvertedIndex(IndexFlags flags, int initBlock)
-  : blocks {}
-  , size {0}
-  , lastId {0}
-  , gcMarker {0}
-  , flags {flags}
-  , numDocs {0}
-{
+InvertedIndex::InvertedIndex(IndexFlags flags, int initBlock) {
+  blocks = NULL;
+  size = 0;
+  lastId = 0;
+  gcMarker = 0;
+  flags = flags;
+  numDocs = 0;
   if (initBlock) {
     AddBlock(t_docId{0});
   }
@@ -66,6 +65,7 @@ InvertedIndex::InvertedIndex(IndexFlags flags, int initBlock)
 
 InvertedIndex::~InvertedIndex() {
   TotalIIBlocks -= size;
+  delete blocks;
 }
 void InvertedIndex_Free(void *ctx) {
   delete (InvertedIndex *) ctx;
@@ -932,14 +932,14 @@ int IndexReader::SkipToBlock(t_docId docId) {
   uint32_t bottom = currentBlock + 1;
   uint32_t i = bottom;  //(bottom + top) / 2;
   while (bottom <= top) {
-    const IndexBlock& blk = idx->blocks[i];
-    if (blk.Matches(docId)) {
+    const IndexBlock *blk = idx->blocks + i;
+    if (blk->Matches(docId)) {
       currentBlock = i;
       rc = 1;
       goto new_block;
     }
 
-    if (docId < blk.firstId) {
+    if (docId < blk->firstId) {
       top = i - 1;
     } else {
       bottom = i + 1;

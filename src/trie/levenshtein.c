@@ -176,7 +176,7 @@ void DFANode::build(SparseAutomaton &a, DFACache &cache) {
 // Create DFA filter using Levenshtein automaton, for the given string and maximum distance.
 // If prefixMode is true, match prefixes within given distance, then continue onwards to all suffixes.
 
-DFAFilter::DFAFilter(Runes &runes, int maxDist, bool prefixMode) :
+DFAFilter::DFAFilter(const Runes &runes, int maxDist, bool prefixMode) :
     a(runes, maxDist), prefixMode(prefixMode) {
 
   cache.reserve(8);
@@ -196,39 +196,41 @@ DFAFilter::DFAFilter(Runes &runes, int maxDist, bool prefixMode) :
 
 // A callback function for the DFA Filter, passed to the Trie iterator
 
-FilterCode DFAFilter::Filter(rune b, int *matched, int *match) {
-  DFANode *dn = stack.back();
+FilterCode DFAFilter::Filter(rune b, bool &matched, int *match) {
+  DFANode *node = stack.back();
   int minDist = distStack.back();
 
   // a null node means we're in prefix mode, and we're done matching our prefix
-  if (dn == NULL) {
-    *matched = 1;
+  if (node == NULL) {
+    matched = 1;
     stack.push_back(NULL);
     distStack.push_back(minDist);
     return F_CONTINUE;
   }
 
-  *matched = dn->match;
+  matched = node->match;
 
-  if (*matched) {
-    // printf("MATCH %c, dist %d\n", b, dn->distance);
+  if (matched) {
+#ifdef DEBUG_TRIE
+    printf("MATCH %c, dist %d\n", b, node->distance);
+#endif
     int *pdist = match;
     if (pdist) {
-      *pdist = MIN(dn->distance, minDist);
+      *pdist = MIN(node->distance, minDist);
     }
   }
 
   rune foldedRune = runeFold(b);
 
   // get the next state change
-  DFANode *next = dn->getEdgeNode(foldedRune);
-  if (!next) next = dn->fallback;
+  DFANode *next = node->getEdgeNode(foldedRune);
+  if (!next) next = node->fallback;
 
   // we can continue - push the state on the stack
   if (next) {
     if (next->match) {
       // printf("MATCH NEXT %c, dist %d\n", b, next->distance);
-      *matched = 1;
+      matched = true;
       int *pdist = match;
       if (pdist) {
         *pdist = MIN(next->distance, minDist);
@@ -238,7 +240,7 @@ FilterCode DFAFilter::Filter(rune b, int *matched, int *match) {
     stack.push_back(next);
     distStack.push_back(MIN(next->distance, minDist));
     return F_CONTINUE;
-  } else if (prefixMode && *matched) {
+  } else if (prefixMode && matched) {
     stack.push_back(NULL);
     distStack.push_back(minDist);
     return F_CONTINUE;

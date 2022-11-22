@@ -18,8 +18,6 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 
-#include <iterator>
-
 #ifdef __linux__
 #include <sys/prctl.h>
 #endif

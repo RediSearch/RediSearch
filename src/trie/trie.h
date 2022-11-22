@@ -101,15 +101,13 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 struct TrieIterator : public Object {
   Runes runes;
   Vector<StackNode> stack;
-  StepFilter filter;
   float minScore;
   int nodesConsumed;
   int nodesSkipped;
-  StackPopCallback popCallback;
-  DFAFilter dfafilter;
+  std::unique_ptr<DFAFilter> filter;
 
-  TrieIterator(DFAFilter *filter);
-  TrieIterator(TrieNode *node, StepFilter f, StackPopCallback pf, DFAFilter *filter);
+  TrieIterator(DFAFilter *filter = NULL);
+  TrieIterator(TrieNode *node, DFAFilter *filter = NULL);
 
   void Push(TrieNode *node, int skipped);
   void Pop();
@@ -126,7 +124,7 @@ struct TrieIterator : public Object {
   };
 
   StepResult Step(int *match);
-  bool Next(Runes &runes, RSPayload &payload, float &score, void *matchCtx);
+  bool Next(Runes &runes, RSPayload &payload, float &score, int *match);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -154,7 +152,7 @@ struct TrieNode : public Object {
     size_t plen = 0, t_len numChildren = 0, float score = 0, bool terminal = false);
   ~TrieNode();
 
-  void Print(int idx, int depth);
+  void Print(int idx = 0, int depth = 0);
   TrieNode *Add(const Runes &runes, RSPayload *payload, float score, TrieAddOp op, int &rc);
 
   TrieNode *AddChild(const Runes &runes, t_len offset, RSPayload *payload, float score);
@@ -164,7 +162,7 @@ struct TrieNode : public Object {
 
   bool Delete(const Runes &runes);
 
-  TrieIterator Iterate(StepFilter f, StackPopCallback pf, DFAFilter *filter);
+  TrieIterator Iterate(DFAFilter *filter = NULL);
 
   TrieNode *RandomWalk(int minSteps, Runes &runes);
   void MergeWithSingleChild();
