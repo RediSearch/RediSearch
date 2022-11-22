@@ -1047,9 +1047,13 @@ size_t IndexReader::NumDocs() const {
 
 //---------------------------------------------------------------------------------------------
 
-IndexReader::IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
-    IndexResult *record, double weight) : IndexIterator(this), sp(sp), idx(idx), decoder(decoder),
-    record(record), weight(weight), br() {
+IndexReader::IndexReader(
+  const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
+  IndexResult *record, double weight
+) : IndexIterator(this), currentBlock(0), sp(sp), idx(idx)
+  , decoder(decoder), record(record), weight(weight), br()
+  , isValidP(nullptr)
+{
   gcMarker = idx->gcMarker;
   lastId = CurrentBlock().firstId;
 
@@ -1258,23 +1262,26 @@ int InvertedIndex::Repair(DocTable &dt, uint32_t startBlock, IndexBlockRepair &b
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void IndexIterator::init(IndexReader *ir_) {
-  ir = ir_;
-  mode = IndexIteratorMode::Sorted;
-  isValid = !ir_->atEnd;
-  current = ir_->record;
-}
+// void IndexIterator::init(IndexReader *ir_) {
+//   ir = ir_;
+//   mode = IndexIteratorMode::Sorted;
+//   isValid = !ir_->atEnd;
+//   current = ir_->record;
+// }
 
-IndexIterator::IndexIterator() {
-  ir = NULL;
-  mode = IndexIteratorMode::Sorted;
-  isValid = false;
-  current = NULL;
-}
+IndexIterator::IndexIterator()
+  : ir (nullptr)
+  , mode (IndexIteratorMode::Sorted)
+  , isValid (false)
+  , current (nullptr)
+{}
 
-IndexIterator::IndexIterator(IndexReader *ir_) {
-  init(ir_);
-}
+IndexIterator::IndexIterator(IndexReader *ir_)
+  : ir (ir_)
+  , mode (IndexIteratorMode::Sorted)
+  , isValid (!ir_->atEnd)
+  , current (ir_->record)
+{}
 
 IndexIterator::~IndexIterator() {
   delete ir; //@@ ownership?

@@ -150,7 +150,7 @@ T MinMaxHeap<T>::pop_min() {
     T d = at(0);
     at(0) = heap_.back();
     heap_.pop_back();
-    trickledown(1);
+    trickledown(0);
     return d;
   }
 

@@ -75,7 +75,7 @@ size_t RSValue_NumToString(double dd, char *buf) {
 // Return the value itself or its referred value
 
 RSValue *RSValue::Dereference() {
-  return const_cast<RSValue*>(this)->Dereference();
+  return const_cast<RSValue *>(static_cast<const RSValue*>(this)->Dereference());
 }
 
 const RSValue *RSValue::Dereference() const {
