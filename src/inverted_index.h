@@ -205,7 +205,7 @@ struct IndexReader : IndexIterator {
   InvertedIndex *idx;
   t_docId lastId; // last docId, used for delta encoding/decoding
   uint32_t currentBlock;
-  const IndexDecoder& decoder;
+  const IndexDecoder* decoder;
   size_t len; // number of records read
   TermResult *record; // The record we are decoding into, @@@TODO: ownership
   int atEnd; //@@ bool?
@@ -221,7 +221,7 @@ struct IndexReader : IndexIterator {
 
   //-------------------------------------------------------------------------------------------
 
-  IndexReader(const IndexSpec *sp, InvertedIndex *idx, const IndexDecoder& decoder, IndexResult *record, double weight);
+  IndexReader(const IndexSpec *sp, InvertedIndex *idx, const IndexDecoder* decoder, IndexResult *record, double weight);
 
   virtual ~IndexReader();
 
