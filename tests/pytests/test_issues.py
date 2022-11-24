@@ -423,42 +423,53 @@ def testOverMaxResults():
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
-  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  commands = [
+    ['FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '25'],
+    ['FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '20'],
+    ['FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '15'],
+  ]
 
-  # test with number of documents lesser than MAXSEARCHRESULTS
-  for i in range(10):
-    conn.execute_command('HSET', i, 't', i)
+  for c in commands:
+    env.cmd(*c)
 
-  res = [10, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal(res)
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '0', '10').equal(res)
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([res[0], *res[2:]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '5', '10').equal([res[0], *res[6:11]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([10])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([10])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+    env.cmd('flushall')
 
-  # test with number of documents equal to MAXSEARCHRESULTS
-  for i in range(10,20):
-    conn.execute_command('HSET', i, 't', i)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
 
-  res = [20, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal(res)
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([res[0], *[str(i) for i in range(1, 20, 1)]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([20, *res[6:11]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([20])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+    # test with number of documents lesser than MAXSEARCHRESULTS
+    for i in range(10):
+      conn.execute_command('HSET', i, 't', i)
 
-  # test with number of documents greater than MAXSEARCHRESULTS
-  for i in range(20,30):
-    conn.execute_command('HSET', i, 't', i)
+    res = [10, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '0', '10').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([res[0], *res[2:]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '5', '10').equal([res[0], *res[6:11]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([10])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([10])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
 
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([30, *[str(i) for i in range(1, 20, 1)]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([30, *res[1:11]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([30, *res[6:11]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([30])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '25', '10').equal('OFFSET exceeds maximum of 20')
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+    # test with number of documents equal to MAXSEARCHRESULTS
+    for i in range(10,20):
+      conn.execute_command('HSET', i, 't', i)
+
+    res = [20, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([res[0], *[str(i) for i in range(1, 20, 1)]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([20, *res[6:11]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([20])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+
+    # test with number of documents greater than MAXSEARCHRESULTS
+    for i in range(20,30):
+      conn.execute_command('HSET', i, 't', i)
+
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([30, *[str(i) for i in range(1, 20, 1)]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([30, *res[1:11]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([30, *res[6:11]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([30])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '25', '10').equal('OFFSET exceeds maximum of 20')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
 
 
 def test_MOD_3372(env):

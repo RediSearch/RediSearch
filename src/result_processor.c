@@ -582,12 +582,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.loadKeys = NULL;
   ret->fieldcmp.nLoadKeys = REDISEARCH_UNINITIALIZED;
 
-  if (RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    maxresults = MIN(maxresults, RSGlobalConfig.maxAggregateResults);
-  } else if (RSGlobalConfig.maxSearchResults != UINT64_MAX) {
-    maxresults = MIN(maxresults, RSGlobalConfig.maxSearchResults);
-  }
-
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
   ret->offset = 0;
