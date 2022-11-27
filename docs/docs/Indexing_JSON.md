@@ -38,7 +38,7 @@ FT.CREATE {index_name} ON JSON SCHEMA {json_path} AS {attribute} {type}
 For example, this command creates an index that indexes the name, description, price, and image vector embedding of each JSON document that represents an inventory item:
 
 ```sql
-127.0.0.1:6379> FT.CREATE itemIdx ON JSON PREFIX 1 item: SCHEMA $.name AS name TEXT $.description as description TEXT $.price AS price NUMERIC $.embedding AS embedding VECTOR FLAT 6 DIM 4 DISTNACE_METRIC L2 TYPE FLOAT32
+127.0.0.1:6379> FT.CREATE itemIdx ON JSON PREFIX 1 item: SCHEMA $.name AS name TEXT $.description as description TEXT $.price AS price NUMERIC $.embedding AS embedding VECTOR FLAT 6 DIM 4 DISTANCE_METRIC L2 TYPE FLOAT32
 ```
 
 See [Index limitations](#index-limitations) for more details about JSON index `SCHEMA` restrictions.
