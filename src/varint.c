@@ -75,13 +75,13 @@ size_t BufferWriter::WriteVarint(uint32_t value) {
   size_t nw = VARINT_LEN(pos);
 
   if (buf->Reserve(nw)) {
-    pos = buf->data + buf->offset;
+    this->pos = buf->data + buf->offset;
   }
 
-  memcpy(pos, VARINT_BUF(varint, pos), nw);
+  memcpy(this->pos, VARINT_BUF(varint, pos), nw);
 
   buf->offset += nw;
-  pos += nw;
+  this->pos += nw;
 
   return nw;
 }
