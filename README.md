@@ -2,7 +2,6 @@
 [![CircleCI](https://circleci.com/gh/RediSearch/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RediSearch/RediSearch/tree/master)
 [![Dockerhub](https://img.shields.io/badge/dockerhub-redislabs%2Fredisearch-blue)](https://hub.docker.com/r/redislabs/redisearch/tags/)
 [![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
-[![Total alerts](https://img.shields.io/lgtm/alerts/g/RediSearch/RediSearch.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/RediSearch/RediSearch/alerts/)
 
 # RediSearch
 ## Querying, secondary indexing, and full-text search for Redis
