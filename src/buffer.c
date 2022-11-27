@@ -6,14 +6,15 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-Buffer::Buffer(size_t cap_, size_t offset) : cap(cap_), offset(offset) {
-  data = rm_malloc(cap_);
-}
+Buffer::Buffer(size_t cap_, size_t offset)
+  : data(rm_malloc(cap_)), cap(cap_), offset(offset)
+{ }
 
 //---------------------------------------------------------------------------------------------
 
-Buffer::Buffer(char *source, size_t cap_, size_t offset) : cap(cap_), offset(offset) {
-  data = rm_malloc(cap_);
+Buffer::Buffer(char *source, size_t cap_, size_t offset)
+  : Buffer(cap_, offset)
+{
   memcpy(data, source, cap_);
 }
 
@@ -27,7 +28,7 @@ Buffer::~Buffer() {
 
 void Buffer::Reset() {
   rm_free(data);
-  data = NULL;
+  data = nullptr;
   cap = 0;
   offset = 0;
 }

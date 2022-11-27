@@ -96,16 +96,18 @@ using QueryNodes = Vector<struct QueryNode *>;
 // QueryNode reqresents a node in a query tree
 
 struct QueryNode : Object {
-  void ctor(QueryNodeType t);
+  // void ctor(QueryNodeType t);
 
-  QueryNode() { ctor(QN_NULL); }
-  QueryNode(QueryNodeType t) { ctor(t); }
-  QueryNode(QueryNodeType t, QueryNode *node) {
-    ctor(t);
+  QueryNode() : type{QN_NULL} { }
+  QueryNode(QueryNodeType t) : type{t} { }
+  QueryNode(QueryNodeType t, QueryNode *node)
+    : type{t}
+  {
     children.push_back(node);
   }
-  QueryNode(QueryNodeType t, QueryNodes *chi) { //@@ QueryNodes &&chi ?
-    ctor(t);
+  QueryNode(QueryNodeType t, QueryNodes *chi) //@@ QueryNodes &&chi ?
+    : type{t}
+  {
     if (chi) {
       children.swap(*chi);
     }

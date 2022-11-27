@@ -144,40 +144,43 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *d, size_t oldFieldCoun
 //
 // When done, call delete
 
-AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_) {
-  stateFlags = 0;
-  status.ClearError();
-  totalTokens = 0;
-  docFlags = 0;
-  client.bc = NULL;
-  next = NULL;
-  indexer = sp->indexer;
+AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_)
+  : next{nullptr}, doc{}, client{.bc = nullptr}
+  , fwIdx{new ForwardIndex(&doc, sp->flags, sp->smap ? sp->smap->GetReadOnlyCopy() : nullptr)}
+  , indexer{sp->indexer}, sv{}, byteOffsets{}, offsetsWriter{}, fspecs{}
+  , tokenizer{GetTokenizer(b->language, fwIdx->stemmer, sp->stopwords)}
+  , oldMd{nullptr}, docFlags{0}, fdatas{}, status{}, totalTokens{0}
+  , options{}, stateFlags{0}, donecb{}, donecbData{}
+{
+  // status.ClearError(); // @@ why ClearError? default ctor should be enough
   if (!sp->indexer) throw Error("No indexer");
 
   // Assign the document:
   if (!SetDocument(sp, b, doc.NumFields())) {
     *status_ = status;
-    status.detail = NULL;
+    status.detail = nullptr;
     throw Error("AddDocumentCtx::SetDocument failed");
   }
 
+  // @@ irrelevant if we're not retrieving from a mempool
   // try to reuse the forward index on recycled contexts
-  if (fwIdx) {
-    fwIdx->Reset(&doc, sp->flags);
-  } else {
-    fwIdx = new ForwardIndex(&doc, sp->flags);
-  }
+  // if (fwIdx) {
+  //   fwIdx->Reset(&doc, sp->flags);
+  // } else {
+  //   fwIdx = new ForwardIndex(&doc, sp->flags);
+  // }
 
   //@@TODO encapsulate within ForwardIndex
-  if (sp->smap) {
-    // we get a read only copy of the synonym map for accessing in the index thread with out worring
-    // about thready safe issues
-    fwIdx->smap = sp->smap->GetReadOnlyCopy();
-  } else {
-    fwIdx->smap = NULL;
-  }
+  //@@DONE
+  // if (sp->smap) {
+  //   // we get a read only copy of the synonym map for accessing in the index thread with out worring
+  //   // about thready safe issues
+  //   fwIdx->smap = sp->smap->GetReadOnlyCopy();
+  // } else {
+  //   fwIdx->smap = NULL;
+  // }
 
-  tokenizer = GetTokenizer(b->language, fwIdx->stemmer, sp->stopwords);
+  // tokenizer = GetTokenizer(b->language, fwIdx->stemmer, sp->stopwords);
   doc.docId = 0;
 }
 

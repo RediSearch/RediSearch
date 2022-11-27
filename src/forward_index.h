@@ -59,8 +59,8 @@ struct ForwardIndex : Object {
   BlkAlloc<ForwardIndexEntry> entries;
   BlkAlloc<VarintVectorWriter> vvw_pool;
 
-  void ctor(uint32_t idxFlags);
-  ForwardIndex(Document *doc, uint32_t idxFlags);
+  void clear(uint32_t idxFlags);
+  ForwardIndex(Document *doc, uint32_t idxFlags, SynonymMap *smap_ = nullptr);
   ~ForwardIndex();
 
   void Reset(Document *doc, uint32_t idxFlags);

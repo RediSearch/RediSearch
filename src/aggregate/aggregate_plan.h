@@ -8,8 +8,8 @@
 #include "util/dllist.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-typedef struct AGGPlan AGGPlan, AggregatePlan;
+struct AGGPlan;
+using AggregatePlan = AGGPlan;
 
 enum PLN_StepType {
   PLN_T_INVALID = 0,
@@ -54,7 +54,7 @@ struct PLN_BaseStep {
 
   // Called to yield the lookup structure for the given step. If this object
   // does not have a lookup, can be set to NULL.
-  virtual RLookup *getLookup() { return NULL; }
+  virtual RLookup *getLookup() { return nullptr; }
 
   // Determines if the plan is a 'reduce' type. A 'reduce' plan is one which
   // consumes (in entirety) all of its inputs and produces a new output (and thus a new 'Lookup' table)

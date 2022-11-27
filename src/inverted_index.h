@@ -71,7 +71,7 @@ struct IndexDecoder {
 
   t_fieldMask mask;
   decoderType type;
-  const NumericFilter *filter;
+  const NumericFilter *filter = nullptr;
 
   IndexDecoder(uint32_t flags, decoderType type = decoderType::Base);
   IndexDecoder(uint32_t flags, t_fieldMask mask, decoderType type = decoderType::Base);

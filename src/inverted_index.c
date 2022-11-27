@@ -65,7 +65,7 @@ InvertedIndex::InvertedIndex(IndexFlags flags, int initBlock) {
 
 InvertedIndex::~InvertedIndex() {
   TotalIIBlocks -= size;
-  delete blocks;
+  rm_free(blocks);
 }
 void InvertedIndex_Free(void *ctx) {
   delete (InvertedIndex *) ctx;
@@ -1285,7 +1285,7 @@ IndexIterator::IndexIterator(IndexReader *ir_)
 {}
 
 IndexIterator::~IndexIterator() {
-  delete ir; //@@ ownership?
+  // delete ir; //@@ ownership?
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -51,7 +51,7 @@ bool AGGPlan::HasStep(PLN_StepType t) const {
 #if 0
 void AGGPlan::AddBefore(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   if (!(newstp->type > PLN_T_INVALID)) throw Error("Step type connot be PLN_T_INVALID");
-  if (posstp == NULL || steps.front() == posstp) {
+  if (posstp == nullptr || steps.front() == posstp) {
     steps.push_front(posstp);
   } else {
     steps.insert(posstp, newstp); //@@need to insert newstp after posstp
@@ -62,7 +62,7 @@ void AGGPlan::AddBefore(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
 
 void AGGPlan::AddAfter(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   if (!(newstp->type > PLN_T_INVALID)) throw Error("Step type connot be PLN_T_INVALID");
-  if (posstp == NULL || steps.back() == posstp) {
+  if (posstp == nullptr || steps.back() == posstp) {
     AddStep(newstp);
   } else {
     steps.insert(posstp, newstp); //@@need to insert newstp after posstp
@@ -95,17 +95,18 @@ RLookup *PLN_FirstStep::getLookup() {
 
 //---------------------------------------------------------------------------------------------
 
-AGGPlan::AGGPlan() {
-  arrangement = NULL;
-  steptypes = 0;
-}
+AGGPlan::AGGPlan()
+  : steps{}
+  , arrangement{nullptr}
+  , steptypes{0}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
 /**
  * Locate a plan within the given constraints. begin and end are the plan ranges
  * to check. `end` is considered exclusive while `begin` is inclusive. To search
- * the entire plan, set `begin` and `end` to NULL.
+ * the entire plan, set `begin` and `end` to nullptr.
  *
  * @param pln the plan to search
  * @param begin step to start searching from
@@ -119,6 +120,9 @@ const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseS
   if (!begin) {
     begin = steps.front();
   }
+  if (!end) {
+    end = steps.back();
+  }
 
   for (const PLN_BaseStep *bstp = begin; bstp != end; bstp = bstp->NextStep()) {
     if (bstp->type == type) {
@@ -128,12 +132,12 @@ const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseS
       return bstp;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Gets the last arrange step for the current pipeline stage. If no arrange step exists, return NULL.
+// Gets the last arrange step for the current pipeline stage. If no arrange step exists, return nullptr.
 
 PLN_ArrangeStep *AGGPlan::GetArrangeStep() {
   // Go backwards.. and stop at the cutoff
@@ -145,7 +149,7 @@ PLN_ArrangeStep *AGGPlan::GetArrangeStep() {
       return static_cast<PLN_ArrangeStep *>(step);
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -174,25 +178,25 @@ PLN_ArrangeStep *AGGPlan::GetOrCreateArrangeStep() {
  */
 
 RLookup *AGGPlan::GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) const {
-  const PLN_BaseStep *first = NULL, *last = NULL;
+  const PLN_BaseStep *first = nullptr, *last = nullptr;
   bool isReverse = false;
 
   switch (mode) {
     case AGPLN_GETLOOKUP_FIRST:
       first = steps.front();
-      last = bstp ? bstp : NULL;
+      last = bstp ? bstp : steps.back();
       break;
     case AGPLN_GETLOOKUP_PREV:
-      first = NULL;
+      first = steps.front();
       last = bstp->PrevStep();
       isReverse = true;
       break;
     case AGPLN_GETLOOKUP_NEXT:
       first = bstp->NextStep();
-      last = NULL;
+      last = steps.back();
       break;
     case AGPLN_GETLOOKUP_LAST:
-      first = bstp ? bstp : NULL;
+      first = bstp ? bstp : steps.front();
       last = steps.back();
       isReverse = true;
   }
@@ -211,9 +215,9 @@ RLookup *AGGPlan::GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) c
         return lk;
       }
     }
-    return NULL;
+    return nullptr;
   }
-  return NULL;
+  return nullptr;
 }
 
 //---------------------------------------------------------------------------------------------

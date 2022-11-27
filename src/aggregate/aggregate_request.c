@@ -91,10 +91,10 @@ int AREQ::parseCursorSettings(ArgsCursor *ac, QueryError *status) {
                         type: AC_ARGTYPE_UINT,
                         target: &cursorChunkSize,
                         intflags: AC_F_GE1},
-                       {NULL}};
+                       {nullptr}};
 
   int rv;
-  ACArgSpec *errArg = NULL;
+  ACArgSpec *errArg = nullptr;
   if ((rv = ac->ParseArgSpec(specs, &errArg)) != AC_OK && rv != AC_ERR_ENOENT) {
     QERR_MKBADARGS_AC(status, errArg->name, rv);
     return REDISMODULE_ERR;
@@ -147,7 +147,7 @@ int AREQ::handleCommonArgs(ArgsCursor *ac, bool allowLegacy, QueryError *status)
       status->SetError(QUERY_EPARSEARGS, "Need argument for ON_TIMEOUT");
       return ARG_ERROR;
     }
-    const char *policystr = ac->GetStringNC(NULL);
+    const char *policystr = ac->GetStringNC(nullptr);
     tmoPolicy = TimeoutPolicy_Parse(policystr, strlen(policystr));
     if (tmoPolicy == TimeoutPolicy_Invalid) {
       status->SetErrorFmt(QUERY_EPARSEARGS, "'%s' is not a valid timeout policy",
@@ -211,7 +211,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   if (isLegacy) {
     // Legacy demands one field and an optional ASC/DESC parameter. Both
     // of these are handled above, so no need for argument parsing
-    const char *s = subArgs.GetStringNC(NULL);
+    const char *s = subArgs.GetStringNC(nullptr);
     keys.push_back(s);
 
     if (legacyDesc) {
@@ -219,7 +219,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     }
   } else {
     while (!subArgs.IsAtEnd()) {
-      const char *s = subArgs.GetStringNC(NULL);
+      const char *s = subArgs.GetStringNC(nullptr);
       if (*s == '@') {
         if (keys.size() >= SORTASCMAP_MAXFIELDS) {
           QERR_MKBADARGS_FMT(status, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
@@ -288,7 +288,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
 int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregatePlan *plan,
                          QueryError *status) {
   // Parse query-specific arguments..
-  const char *languageStr = NULL;
+  const char *languageStr = nullptr;
   ArgsCursor returnFields;
   ArgsCursor inKeys;
   ArgsCursor inFields;
@@ -312,7 +312,7 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
       {0}};
 
   while (!ac->IsAtEnd()) {
-    ACArgSpec *errSpec = NULL;
+    ACArgSpec *errSpec = nullptr;
     int rv = ac->ParseArgSpec(querySpecs, &errSpec);
     if (rv == AC_OK) {
       continue;
@@ -375,7 +375,7 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
     }
 
     while (!returnFields.IsAtEnd()) {
-      const char *name = returnFields.GetStringNC(NULL);
+      const char *name = returnFields.GetStringNC(nullptr);
       outFields.CreateField(name).explicitReturn = true;
     }
   }
@@ -422,15 +422,15 @@ PLN_Reducer::PLN_Reducer(const char *name_, const ArgsCursor *ac) {
   int rv = ac->GetVarArgs(&args);
   if (rv != AC_OK) throw BadArgsError(rv, name);
 
-  const char *_alias = NULL;
+  const char *_alias = nullptr;
   // See if there is an alias
   if (ac->AdvanceIfMatch("AS")) {
-    rv = ac->GetString(&_alias, NULL, 0);
+    rv = ac->GetString(&_alias, nullptr, 0);
     if (rv != AC_OK) {
       throw BadArgsError(rv, "AS");
     }
   }
-  if (_alias == NULL) {
+  if (_alias == nullptr) {
     alias = getAlias(name);
   } else {
     alias = rm_strdup(_alias);
@@ -484,7 +484,7 @@ PLN_GroupStep::PLN_GroupStep(const char **properties_, size_t nproperties_) : PL
 int AREQ::parseGroupby(ArgsCursor *ac, QueryError *status) {
   ArgsCursor groupArgs;
   const char *s;
-  ac->GetString(&s, NULL, AC_F_NOADVANCE);
+  ac->GetString(&s, nullptr, AC_F_NOADVANCE);
   int rv = ac->GetVarArgs(&groupArgs);
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "GROUPBY", rv);
@@ -497,7 +497,7 @@ int AREQ::parseGroupby(ArgsCursor *ac, QueryError *status) {
 
   while (ac->AdvanceIfMatch("REDUCE")) {
     const char *name;
-    if (ac->GetString(&name, NULL, 0) != AC_OK) {
+    if (ac->GetString(&name, nullptr, 0) != AC_OK) {
       QERR_MKBADARGS_AC(status, "REDUCE", rv);
       return REDISMODULE_ERR;
     }
@@ -530,8 +530,8 @@ PLN_MapFilterStep::PLN_MapFilterStep(const char *expr, int mode) : PLN_BaseStep(
 
 int AREQ::handleApplyOrFilter(ArgsCursor *ac, bool isApply, QueryError *status) {
   // Parse filters!
-  const char *expr = NULL;
-  int rv = ac->GetString(&expr, NULL, 0);
+  const char *expr = nullptr;
+  int rv = ac->GetString(&expr, nullptr, 0);
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "APPLY/FILTER", rv);
     return REDISMODULE_ERR;
@@ -543,7 +543,7 @@ int AREQ::handleApplyOrFilter(ArgsCursor *ac, bool isApply, QueryError *status) 
   if (isApply) {
     if (ac->AdvanceIfMatch("AS")) {
       const char *alias;
-      if (ac->GetString(&alias, NULL, 0) != AC_OK) {
+      if (ac->GetString(&alias, nullptr, 0) != AC_OK) {
         QERR_MKBADARGS_FMT(status, "AS needs argument");
         goto error;
       }
@@ -643,7 +643,7 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  query = ac.GetStringNC(NULL);
+  query = ac.GetStringNC(nullptr);
 
   if (parseQueryArgs(&ac, &searchopts, &ap, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -791,7 +791,7 @@ ResultProcessor *PLN_GroupStep::buildRP(RLookup *srclookup, QueryError *err) {
     srckeys[ii] = srclookup->GetKey(fldname, RLOOKUP_F_NOINCREF);
     if (!srckeys[ii]) {
       err->SetErrorFmt(QUERY_ENOPROPKEY, "No such property `%s`", fldname);
-      return NULL;
+      return nullptr;
     }
     dstkeys[ii] = lookup->GetKey(fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
   }
@@ -806,12 +806,12 @@ ResultProcessor *PLN_GroupStep::buildRP(RLookup *srclookup, QueryError *err) {
       // No such reducer!
       delete grp;
       err->SetErrorFmt(QUERY_ENOREDUCER, "No such reducer: %s", pr.name);
-      return NULL;
+      return nullptr;
     }
     Reducer *rr = ff(&options);
     if (!rr) {
       delete grp;
-      return NULL;
+      return nullptr;
     }
 
     // Set the destination key for the grouper!
@@ -845,7 +845,7 @@ ResultProcessor *AREQ::getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstre
   ResultProcessor *groupRP = gstp->buildRP(lookup, status);
 
   if (!groupRP) {
-    return NULL;
+    return nullptr;
   }
 
   // See if we need a LOADER group here...?
@@ -853,13 +853,13 @@ ResultProcessor *AREQ::getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstre
 
   if (firstLk == lookup) {
     // See if we need a loader step?
-    const RLookupKey **kklist = NULL;
+    const RLookupKey **kklist = nullptr;
     for (RLookupKey *kk = firstLk->head; kk; kk = kk->next) {
       if ((kk->flags & RLOOKUP_F_DOCSRC) && (!(kk->flags & RLOOKUP_F_SVSRC))) {
         *array_ensure_tail(&kklist, const RLookupKey *) = kk;
       }
     }
-    if (kklist != NULL) {
+    if (kklist != nullptr) {
       ResultProcessor *loader = new ResultsLoader(firstLk, kklist, array_len(kklist));
       array_free(kklist);
       if (!loader) throw Error("Failed to create ResultsLoader");
@@ -876,7 +876,7 @@ ResultProcessor *AREQ::getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstre
 
 ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, PLN_ArrangeStep &astp, ResultProcessor *up,
                                     QueryError *status) {
-  ResultProcessor *rp = NULL;
+  ResultProcessor *rp = nullptr;
 
   size_t limit = astp.offset + astp.limit;
   if (!limit) {
@@ -891,7 +891,7 @@ ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, PLN_ArrangeStep &astp, ResultP
       auto rlkey = lk->GetKey(key, RLOOKUP_F_NOINCREF);
       if (!rlkey) {
         status->SetErrorFmt(QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", key.c_str());
-        return NULL;
+        return nullptr;
       }
       astp.sortkeysLK.push_back(rlkey);
     }
@@ -901,7 +901,7 @@ ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, PLN_ArrangeStep &astp, ResultP
   }
 
   // No sort? then it must be sort by score, which is the default.
-  if (rp == NULL && (reqflags & QEXEC_F_IS_SEARCH)) {
+  if (rp == nullptr && (reqflags & QEXEC_F_IS_SEARCH)) {
     rp = new RPSorter(limit);
     up = pushRP(rp, up);
   }
@@ -935,15 +935,15 @@ ResultProcessor *AREQ::getScorerRP() {
 //---------------------------------------------------------------------------------------------
 
 bool AGGPlan::hasQuerySortby() const {
-  const PLN_BaseStep *bstp = FindStep(NULL, NULL, PLN_T_GROUP);
-  if (bstp != NULL) {
-    const PLN_ArrangeStep *arng = FindStep(NULL, bstp, PLN_T_ARRANGE);
+  const PLN_BaseStep *bstp = FindStep(nullptr, nullptr, PLN_T_GROUP);
+  if (bstp != nullptr) {
+    const PLN_ArrangeStep *arng = FindStep(nullptr, bstp, PLN_T_ARRANGE);
     if (arng && !arng->sortKeys.empty()) {
       return true;
     }
   } else {
     // no group... just see if we have an arrange step
-    const PLN_ArrangeStep *arng = FindStep(NULL, NULL, PLN_T_ARRANGE);
+    const PLN_ArrangeStep *arng = FindStep(nullptr, nullptr, PLN_T_ARRANGE);
     return arng && !arng->sortKeys.empty();
   }
   return false;
@@ -954,7 +954,7 @@ bool AGGPlan::hasQuerySortby() const {
 #define PUSH_RP() \
   do { \
     rpUpstream = pushRP(rp, rpUpstream); \
-    rp = NULL; \
+    rp = nullptr; \
   } while(0)
 
 //---------------------------------------------------------------------------------------------
@@ -971,13 +971,13 @@ void AREQ::buildImplicitPipeline(QueryError *status) {
   std::shared_ptr<IndexSpecFields> cache = sctx->spec->GetSpecCache();
   RS_LOG_ASSERT(cache, "IndexSpec::GetSpecCache failed")
 
-  RLookup *first = ap.GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
+  RLookup *first = ap.GetLookup(nullptr, AGPLN_GETLOOKUP_FIRST);
   if (first) {
     first->Reset(cache);
   }
 
   ResultProcessor *rp = new RPIndexIterator(rootiter);
-  ResultProcessor *rpUpstream = NULL;
+  ResultProcessor *rpUpstream = nullptr;
   qiter->rootProc = qiter->endProc = rp;
   PUSH_RP();
 
@@ -995,11 +995,11 @@ void AREQ::buildImplicitPipeline(QueryError *status) {
 
 int AREQ::buildOutputPipeline(QueryError *status) {
   AGGPlan &pln = ap;
-  ResultProcessor *rp = NULL, *rpUpstream = qiter->endProc;
+  ResultProcessor *rp = nullptr, *rpUpstream = qiter->endProc;
 
-  RLookup *lookup = pln.GetLookup(NULL, AGPLN_GETLOOKUP_LAST);
+  RLookup *lookup = pln.GetLookup(nullptr, AGPLN_GETLOOKUP_LAST);
   // Add a LOAD step...
-  const RLookupKey **loadkeys = NULL;
+  const RLookupKey **loadkeys = nullptr;
   if (outFields.explicitReturn) {
     // Go through all the fields and ensure that each one exists in the lookup stage
     for (auto &field: outFields.fields) {
@@ -1021,7 +1021,7 @@ int AREQ::buildOutputPipeline(QueryError *status) {
   PUSH_RP();
 
   if (reqflags & QEXEC_F_SEND_HIGHLIGHT) {
-    RLookup *lookup = pln.GetLookup(NULL, AGPLN_GETLOOKUP_LAST);
+    RLookup *lookup = pln.GetLookup(nullptr, AGPLN_GETLOOKUP_LAST);
     for (auto &field: outFields.fields) {
       RLookupKey *kk = lookup->GetKey(field.name, 0);
       if (!kk) {
@@ -1054,12 +1054,12 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
   }
 
   AGGPlan *pln = &ap;
-  ResultProcessor *rp = NULL, *rpUpstream = qiter->endProc;
+  ResultProcessor *rp = nullptr, *rpUpstream = qiter->endProc;
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
 
-  for (PLN_BaseStep *step = pln->steps.front(); step; step = step->NextStep()) {
+  for (PLN_BaseStep *step = pln->steps.front(); step != pln->steps.back(); step = step->NextStep()) {
     switch (step->type) {
       case PLN_T_GROUP: {
         rpUpstream = getGroupRP((PLN_GroupStep *)step, rpUpstream, status);
@@ -1108,7 +1108,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
       case PLN_T_LOAD: {
         PLN_LoadStep *lstp = (PLN_LoadStep *)step;
         RLookup *curLookup = pln->GetLookup(step, AGPLN_GETLOOKUP_PREV);
-        RLookup *rootLookup = pln->GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
+        RLookup *rootLookup = pln->GetLookup(nullptr, AGPLN_GETLOOKUP_FIRST);
         if (curLookup != rootLookup) {
           status->SetError(QUERY_EINVAL,
                               "LOAD cannot be applied after projectors or reducers");
@@ -1116,13 +1116,13 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
         }
         // Get all the keys for this lookup...
         while (!lstp->args.IsAtEnd()) {
-          const char *s = lstp->args.GetStringNC(NULL);
+          const char *s = lstp->args.GetStringNC(nullptr);
           if (*s == '@') {
             s++;
           }
           const RLookupKey *kk = curLookup->GetKey(s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
           if (!kk) {
-            // We only get a NULL return if the key already exists, which means
+            // We only get a nullptr return if the key already exists, which means
             // that we don't need to retrieve it again.
             continue;
           }
@@ -1188,17 +1188,17 @@ AREQ::~AREQ() {
 
   if (rootiter) {
     delete rootiter;
-    rootiter = NULL;
+    rootiter = nullptr;
   }
 
   // Finally, free the context.
   // If we are a cursor, some more cleanup is required since we also now own the
   // detached ("Thread Safe") context.
-  RedisModuleCtx *thctx = NULL;
+  RedisModuleCtx *thctx = nullptr;
   if (sctx) {
     if (reqflags & QEXEC_F_IS_CURSOR) {
       thctx = sctx->redisCtx;
-      sctx->redisCtx = NULL;
+      sctx->redisCtx = nullptr;
     }
   }
 

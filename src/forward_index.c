@@ -31,7 +31,7 @@ static size_t estimtateTermCount(const Document *doc) {
 
 //---------------------------------------------------------------------------------------------
 
-void ForwardIndex::ctor(uint32_t idxFlags_) {
+void ForwardIndex::clear(uint32_t idxFlags_) {
   idxFlags = idxFlags_;
   maxFreq = 0;
   totalFreq = 0;
@@ -39,15 +39,17 @@ void ForwardIndex::ctor(uint32_t idxFlags_) {
 
 //---------------------------------------------------------------------------------------------
 
-ForwardIndex::ForwardIndex(Document *doc, uint32_t idxFlags_) :
-    entries(ENTRIES_PER_BLOCK),
-    terms(TERM_BLOCK_SIZE),
-    vvw_pool(estimtateTermCount(doc)),
-    stemmer(new SnowballStemmer(doc->language)),
-    smap(NULL) {
-
-  ctor(idxFlags_);
-}
+ForwardIndex::ForwardIndex(Document *doc, uint32_t idxFlags_, SynonymMap *smap_)
+  : hits()
+  , idxFlags(idxFlags_)
+  , maxFreq(0)
+  , totalFreq(0)
+  , stemmer(new SnowballStemmer(doc->language))
+  , smap(smap_)
+  , terms(TERM_BLOCK_SIZE)
+  , entries(ENTRIES_PER_BLOCK)
+  , vvw_pool(estimtateTermCount(doc))
+{ }
 
 //---------------------------------------------------------------------------------------------
 
@@ -69,7 +71,7 @@ void ForwardIndex::Reset(Document *doc, uint32_t idxFlags_) {
     stemmer = new SnowballStemmer(doc->language);
   }
 
-  ctor(idxFlags_);
+  clear(idxFlags_);
 }
 
 //---------------------------------------------------------------------------------------------
