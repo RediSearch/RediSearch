@@ -14,7 +14,7 @@ struct Scorer {
 };
 */
 
-typedef double (*Scorer)(const ScorerArgs *args, const IndexResult *res, const DocumentMetadata *dmd, double minScore);
+typedef double (*Scorer)(const ScorerArgs &args, const IndexResult *res, const DocumentMetadata *dmd, double minScore);
 
 //---------------------------------------------------------------------------------------------
 

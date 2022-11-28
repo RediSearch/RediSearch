@@ -1509,7 +1509,7 @@ static YYACTIONTYPE yy_reduce(
         yylhsminor.yy35->AddChildren(yymsp[0].minor.yy35->children); // we transfer ownership of yymsp[0].minor.yy35->children
 
         // Set the children count on yymsp[0].minor.yy35 to 0 so they won't get recursively free'd
-        // yymsp[0].minor.yy35->ClearChildren(false);
+        yymsp[0].minor.yy35->children.clear();
         delete yymsp[0].minor.yy35;
     }
 }

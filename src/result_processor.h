@@ -201,10 +201,10 @@ struct ResultsLoader : public ResultProcessor {
 // It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
 
 struct RPScorer : public ResultProcessor {
-  Scorer *scorer;
-  ScorerArgs *args;
+  Scorer scorer;
+  ScorerArgs args;
 
-  RPScorer(const Scorer *scorer, const ScorerArgs *args);
+  RPScorer(const Scorer &scorer, const ScorerArgs &args);
   ~RPScorer();
 
   int Next(SearchResult *res);

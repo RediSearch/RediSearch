@@ -33,7 +33,7 @@ enum QueryNodeType {
   QN_TAG,         // Tag node, a list of tags for a specific tag field
   QN_FUZZY,       // Fuzzy term - expand with levenshtein distance
   QN_LEXRANGE,    // Lexical range
-  QN_NULL         // Null term - take no action
+  QN_nullptr         // Null term - take no action
 };
 
 //---------------------------------------------------------------------------------------------
@@ -91,14 +91,14 @@ struct QueryAttributes : Vector<QueryAttribute*> {
 
 //---------------------------------------------------------------------------------------------
 
-using QueryNodes = Vector<struct QueryNode *>;
+using QueryNodes = Vector<QueryNode *>;
 
 // QueryNode reqresents a node in a query tree
 
 struct QueryNode : Object {
   // void ctor(QueryNodeType t);
 
-  QueryNode() : type{QN_NULL} { }
+  QueryNode() : type{QN_nullptr} { }
   QueryNode(QueryNodeType t) : type{t} { }
   QueryNode(QueryNodeType t, QueryNode *node)
     : type{t}
@@ -127,7 +127,7 @@ struct QueryNode : Object {
   void ClearChildren(bool shouldFree);
 
   size_t NumChildren() const { return children.size(); }
-  QueryNode *Child(int i) { return NumChildren() > i ? children[i] : NULL; }
+  QueryNode *Child(int i) { return NumChildren() > i ? children[i] : nullptr; }
 
   virtual void Expand(QueryExpander &expander);
   virtual bool expandChildren() const { return false; }
@@ -143,7 +143,7 @@ struct QueryNode : Object {
 
   virtual IndexIterator *EvalNode(Query *q) { return new EmptyIterator(); }
   virtual IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
-    return NULL;
+    return nullptr;
   }
 
   IndexIterator *EvalSingleTagNode(Query *q, TagIndex *idx, IndexIterators iterout, double weight);
@@ -339,7 +339,7 @@ struct QueryLexRangeNode : QueryNode {
   char *end;
   bool includeEnd;
 
-  QueryLexRangeNode() : QueryNode(QN_LEXRANGE), begin(NULL), includeBegin(false), end(NULL), includeEnd(false) {}
+  QueryLexRangeNode() : QueryNode(QN_LEXRANGE), begin(nullptr), includeBegin(false), end(nullptr), includeEnd(false) {}
   ~QueryLexRangeNode();
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {

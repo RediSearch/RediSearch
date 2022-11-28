@@ -20,12 +20,12 @@
 
 //---------------------------------------------------------------------------------------------
 
-double TFIDFScorer(const ScorerArgs *args, const IndexResult *result, const DocumentMetadata *dmd, double minScore);
-double TFIDFNormDocLenScorer(const ScorerArgs *args, const IndexResult *result, const DocumentMetadata *dmd, double minScore);
-double BM25Scorer(ScorerArgs *args, const IndexResult *r, const DocumentMetadata *dmd, double minScore);
-double DocScoreScorer(const ScorerArgs *args, const IndexResult *r, const DocumentMetadata *dmd, double minScore);
-double DisMaxScorer(const ScorerArgs *args, const IndexResult *h, const DocumentMetadata *dmd, double minScore);
-double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const DocumentMetadata *dmd, double minScore);
+double TFIDFScorer(const ScorerArgs &args, const IndexResult *result, const DocumentMetadata *dmd, double minScore);
+double TFIDFNormDocLenScorer(const ScorerArgs &args, const IndexResult *result, const DocumentMetadata *dmd, double minScore);
+double BM25Scorer(ScorerArgs &args, const IndexResult *r, const DocumentMetadata *dmd, double minScore);
+double DocScoreScorer(const ScorerArgs &args, const IndexResult *r, const DocumentMetadata *dmd, double minScore);
+double DisMaxScorer(const ScorerArgs &args, const IndexResult *h, const DocumentMetadata *dmd, double minScore);
+double HammingDistanceScorer(const ScorerArgs &args, const IndexResult *h, const DocumentMetadata *dmd, double minScore);
 
 //---------------------------------------------------------------------------------------------
 

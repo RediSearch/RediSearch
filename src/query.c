@@ -72,7 +72,7 @@ QueryNode::~QueryNode() {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 QueryTokenNode *QueryAST::NewExpandedTokenNode(std::string_view s, RSTokenFlags flags) {
-  QueryTokenNode *node = new QueryTokenNode{NULL, s, 1, flags};
+  QueryTokenNode *node = new QueryTokenNode{nullptr, s, 1, flags};
   ++numTokens;
   return node;
 }
@@ -80,7 +80,7 @@ QueryTokenNode *QueryAST::NewExpandedTokenNode(std::string_view s, RSTokenFlags 
 //---------------------------------------------------------------------------------------------
 
 void QueryAST::setFilterNode(QueryNode *n) {
-  if (root == NULL || n == NULL) return;
+  if (root == nullptr || n == nullptr) return;
 
   // for a simple phrase node we just add the numeric node
   if (root->type == QN_PHRASE) {
@@ -136,9 +136,9 @@ IndexIterator *QueryTokenNode::EvalNode(Query *q) {
 
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
                                      EFFECTIVE_FIELDMASK(q, this), q->conc, opts.weight);
-  if (ir == NULL) {
+  if (ir == nullptr) {
     delete term;
-    return NULL;
+    return nullptr;
   }
 
   return ir->NewReadIterator();
@@ -200,11 +200,11 @@ static IndexIterator *iterateExpandedTerms(Query *q, Trie *terms, std::string_vi
 IndexIterator *QueryPrefixNode::EvalNode(Query *q) {
   // we allow a minimum of 2 letters in the prefx by default (configurable)
   if (tok.length() < RSGlobalConfig.minTermPrefix) {
-    return NULL;
+    return nullptr;
   }
 
   Trie *terms = q->sctx->spec->terms;
-  if (!terms) return NULL;
+  if (!terms) return nullptr;
 
   return iterateExpandedTerms(q, terms, tok.str, 0, true, &opts);
 }
@@ -253,7 +253,7 @@ static void rangeIterCb(const rune *r, size_t n, void *p)  {
 IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
   Trie *t = q->sctx->spec->terms;
   if (!t) {
-    return NULL;
+    return nullptr;
   }
 
   LexRange range(q, &opts);
@@ -273,7 +273,7 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
       range.rangeItersAddIterator(ir);
     });*/
   if (range.its.empty()) {
-    return NULL;
+    return nullptr;
   }
   return new UnionIterator(range.its, q->docTable, 1, opts.weight);
 }
@@ -283,7 +283,7 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
 IndexIterator *QueryFuzzyNode::EvalNode(Query *q) {
   Trie *terms = q->sctx->spec->terms;
 
-  if (!terms) return NULL;
+  if (!terms) return nullptr;
 
   return iterateExpandedTerms(q, terms, tok.str, maxDist, false, &opts);
 }
@@ -331,7 +331,7 @@ IndexIterator *QueryPhraseNode::EvalNode(Query *q) {
 //---------------------------------------------------------------------------------------------
 
 IndexIterator *QueryWildcardNode::EvalNode(Query *q) {
-  if (!q->docTable) return NULL;
+  if (!q->docTable) return nullptr;
   return new WildcardIterator{q->docTable->maxDocId};
 }
 
@@ -355,14 +355,14 @@ IndexIterator *QueryPhraseNode::EvalSingle(Query *q, TagIndex *idx, IndexIterato
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryNotNode::EvalNode(Query *q) {
-  return new NotIterator(NumChildren() ? children[0]->EvalNode(q) : NULL,
+  return new NotIterator(NumChildren() ? children[0]->EvalNode(q) : nullptr,
                          q->docTable->maxDocId, opts.weight);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryOptionalNode::EvalNode(Query *q) {
-  return new OptionalIterator(NumChildren() ? children[0]->EvalNode(q) : NULL,
+  return new OptionalIterator(NumChildren() ? children[0]->EvalNode(q) : nullptr,
                               q->docTable->maxDocId, opts.weight);
 }
 
@@ -372,7 +372,7 @@ IndexIterator *QueryNumericNode::EvalNode(Query *q) {
   const FieldSpec *fs =
       q->sctx->spec->GetField(nf->fieldName);
   if (!fs || !fs->IsFieldType(INDEXFLD_T_NUMERIC)) {
-    return NULL;
+    return nullptr;
   }
 
   return NewNumericFilterIterator(q->sctx, nf, q->conc);
@@ -383,7 +383,7 @@ IndexIterator *QueryNumericNode::EvalNode(Query *q) {
 IndexIterator *QueryGeofilterNode::Eval(Query *q, double weight) {
   const FieldSpec *fs = q->sctx->spec->GetField(gf->property);
   if (!fs || !fs->IsFieldType(INDEXFLD_T_GEO)) {
-    return NULL;
+    return nullptr;
   }
 
   GeoIndex gi(q->sctx, *fs);
@@ -414,7 +414,7 @@ IndexIterator *QueryUnionNode::EvalNode(Query *q) {
     }
   }
   if (iters.empty()) {
-    return NULL;
+    return nullptr;
   }
 
   if (iters.size() == 1) {
@@ -429,7 +429,7 @@ IndexIterator *QueryUnionNode::EvalNode(Query *q) {
 IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
   TrieMap *t = idx->values;
   if (!t) {
-    return NULL;
+    return nullptr;
   }
 
   LexRange range(q, &opts, weight);
@@ -438,7 +438,7 @@ IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexItera
 
   t->IterateRange(begin_, nbegin, includeBegin, end_, nend, includeEnd, rangeIterCbStrs, &range);
   if (range.its.empty()) {
-    return NULL;
+    return nullptr;
   } else {
     return new UnionIterator(range.its, q->docTable, 1, opts.weight);
   }
@@ -451,12 +451,12 @@ IndexIterator *QueryLexRangeNode::EvalSingle(Query *q, TagIndex *idx, IndexItera
 IndexIterator *QueryPrefixNode::EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
   // we allow a minimum of 2 letters in the prefx by default (configurable)
   if (tok.length() < RSGlobalConfig.minTermPrefix) {
-    return NULL;
+    return nullptr;
   }
-  if (!idx || !idx->values) return NULL;
+  if (!idx || !idx->values) return nullptr;
 
   TrieMapIterator *it = idx->values->Iterate(tok.str);
-  if (!it) return NULL;
+  if (!it) return nullptr;
 
   IndexIterators its;
 
@@ -492,16 +492,16 @@ IndexIterator *QueryNode::EvalSingleTagNode(Query *q, TagIndex *idx, IndexIterat
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *QueryTagNode::EvalNode(Query *q) {
-  RedisModuleKey *k = NULL;
+  RedisModuleKey *k = nullptr;
   size_t n = 0;
   const FieldSpec *fs = q->sctx->spec->GetFieldCase(fieldName);
   if (!fs) {
-    return NULL;
+    return nullptr;
   }
 
   RedisModuleString *kstr = q->sctx->spec->GetFormattedKey(*fs, INDEXFLD_T_TAG);
   TagIndex *idx = TagIndex::Open(q->sctx, kstr, 0, &k);
-  IndexIterator *ret = NULL;
+  IndexIterator *ret = nullptr;
   IndexIterators total_its;
   IndexIterators iters;
 
@@ -514,7 +514,7 @@ IndexIterator *QueryTagNode::EvalNode(Query *q) {
     if (ret) {
       if (q->conc) {
         idx->RegisterConcurrentIterators(q->conc, k, kstr, total_its);
-        k = NULL;  // we passed ownership
+        k = nullptr;  // we passed ownership
       }
     }
     goto done;
@@ -534,7 +534,7 @@ IndexIterator *QueryTagNode::EvalNode(Query *q) {
   if (!total_its.empty()) {
     if (q->conc) {
       idx->RegisterConcurrentIterators(q->conc, k, kstr, total_its);
-      k = NULL;  // we passed ownershit
+      k = nullptr;  // we passed ownershit
     }
   }
 
@@ -551,12 +551,12 @@ done:
 
 QueryParse::QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_,
                        const RSSearchOptions &opts_, QueryError *status_) {
-  parser = NULL;
+  parser = nullptr;
   raw =  query;
   len = nquery;
   numTokens = 0;
   sctx = (RedisSearchCtx *)&sctx_;
-  root = NULL;
+  root = nullptr;
   opts = &opts_;
   status = status_;
 }
@@ -707,7 +707,7 @@ sds QueryNode::DumpSds(sds s, const IndexSpec *spec, int depth) const {
   s = doPad(s, depth);
 
   if (opts.fieldMask == 0) {
-    s = sdscat(s, "@NULL:");
+    s = sdscat(s, "@nullptr:");
   }
 
   if (opts.fieldMask && opts.fieldMask != RS_FIELDMASK_ALL && type != QN_NUMERIC &&
@@ -770,7 +770,7 @@ sds QueryNode::DumpChildren(sds s, const IndexSpec *spec, int depth) const {
 String QueryAST::DumpExplain(const IndexSpec *spec) const {
   // empty query
   if (!root) {
-    return String{"NULL"};
+    return String{"nullptr"};
   }
 
   sds s = root->DumpSds(sdsnew(""), spec, 0);

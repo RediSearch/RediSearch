@@ -106,7 +106,7 @@ struct AggregateResult : IndexResult {
   }
 
   virtual double TFIDFScorer(const DocumentMetadata *dmd, ScoreExplain *explain) const;
-  double BM25Scorer(const ScorerArgs *args, const DocumentMetadata *dmd) const;
+  double BM25Scorer(const ScorerArgs &args, const DocumentMetadata *dmd) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -114,7 +114,7 @@ struct AggregateResult : IndexResult {
 struct IntersectResult : AggregateResult {
   IntersectResult(size_t cap, double weight) : AggregateResult(RSResultType_Intersection, cap, weight) {}
 
-  double DisMaxScorer(const ScorerArgs *args) const;
+  double DisMaxScorer(const ScorerArgs &args) const;
 
   IndexResult *Clone() const override { return new IntersectResult(*this); }
 };
@@ -125,7 +125,7 @@ struct UnionResult : AggregateResult {
   UnionResult(size_t cap, double weight) : AggregateResult(RSResultType_Union, cap, weight) {}
   //UnionResult(const UnionResult &result) : AggregateResult((const AggregateResult &)result) {}
 
-  double DisMaxScorer(const ScorerArgs *args) const;
+  double DisMaxScorer(const ScorerArgs &args) const;
 
   IndexResult *Clone() const override { return new UnionResult(*this); }
 };

@@ -8,7 +8,7 @@ using Comparator = std::function<int(const T&, const T&)>;
 
 template<class T>
 struct MinMaxHeap {
-  MinMaxHeap(size_t reserve, Comparator<T> cmp) : heap_{reserve}, cmp_{cmp} {}
+  MinMaxHeap(size_t reserve, Comparator<T> cmp) : heap_{}, cmp_{cmp} { heap_.reserve(reserve); }
 
   void insert(T value);
   T pop_min();

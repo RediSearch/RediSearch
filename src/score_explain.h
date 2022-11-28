@@ -7,7 +7,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct ScoreExplain {
-  ScoreExplain(ScoreExplain *exp = NULL);
+  ScoreExplain(ScoreExplain *exp = nullptr);
   ~ScoreExplain();
 
   String str;

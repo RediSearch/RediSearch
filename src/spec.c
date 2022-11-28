@@ -402,11 +402,11 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
 
 // Initialize some index stats that might be useful for scoring functions
 
-ScorerArgs::Stats::Stats(const IndexStats &stats) {
-  numDocs = stats.numDocuments;
-  numTerms = stats.numTerms;
-  avgDocLen = stats.numDocuments ? (double)stats.numRecords / (double)stats.numDocuments : 0;
-}
+ScorerArgs::Stats::Stats(const IndexStats &stats)
+  : numDocs{stats.numDocuments}
+  , numTerms{stats.numTerms}
+  , avgDocLen{stats.numDocuments ? (double)stats.numRecords/stats.numDocuments : 0}
+{}
 
 //---------------------------------------------------------------------------------------------
 

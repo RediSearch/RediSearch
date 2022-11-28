@@ -48,10 +48,11 @@ void ScoreExplain::explain(char *fmt, ...) {
 
 //-------------------------------------------------------------------------------------------------------
 
-ScorerArgs::ScorerArgs(const IndexSpec &spec, const SimpleBuff &ast_payload, bool bExplain) : indexStats(spec.stats) {
-  explain = bExplain ? new ScoreExplain : NULL;
-  payload = ast_payload;
-}
+ScorerArgs::ScorerArgs(const IndexSpec &spec, const SimpleBuff &ast_payload, bool bExplain)
+  : payload(ast_payload)
+  , indexStats(spec.stats)
+  , explain(bExplain ? new ScoreExplain() : nullptr)
+{}
 
 //-------------------------------------------------------------------------------------------------------
 
@@ -63,7 +64,7 @@ ScorerArgs::~ScorerArgs() {
 
 ScoreExplain *ScorerArgs::CreateNewExplainParent() {
   if (!explain) {
-    return NULL;
+    return nullptr;
   }
   explain = new ScoreExplain(explain);
   return explain;
@@ -86,7 +87,7 @@ double AggregateResult::TFIDFScorer(const DocumentMetadata *dmd, ScoreExplain *e
   double score = 0;
   if (!explain) {
     for (auto child : children) {
-      score += child->TFIDFScorer(dmd, NULL);
+      score += child->TFIDFScorer(dmd, nullptr);
     }
   } else {
     explain->children.clear();
@@ -111,8 +112,8 @@ double IndexResult::TFIDFScorer(const DocumentMetadata *dmd, ScoreExplain *expla
 
 // internal common tf-idf function, where just the normalization method changes
 
-double IndexResult::TFIDFScorer(const ScorerArgs *args, const DocumentMetadata *dmd, double minScore, int normMode) const {
-  ScoreExplain *explain = args->explain;
+double IndexResult::TFIDFScorer(const ScorerArgs &args, const DocumentMetadata *dmd, double minScore, int normMode) const {
+  ScoreExplain *explain = args.explain;
   if (dmd->score == 0) {
     EXPLAIN("Document score is 0");
     return 0;
@@ -122,7 +123,7 @@ double IndexResult::TFIDFScorer(const ScorerArgs *args, const DocumentMetadata *
   double rawTfidf = TFIDFScorer(dmd, explain);
   double tfidf = dmd->score * rawTfidf / norm;
 
-  explain = args->CreateNewExplainParent();
+  explain = args.CreateNewExplainParent();
 
   // no need to factor the distance if tfidf is already below minimal score
   if (tfidf < minScore) {
@@ -144,7 +145,7 @@ double IndexResult::TFIDFScorer(const ScorerArgs *args, const DocumentMetadata *
 // Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
 // in this document.
 
-double TFIDFScorer(const ScorerArgs *args, const IndexResult *result, const DocumentMetadata *dmd, double minScore) {
+double TFIDFScorer(const ScorerArgs &args, const IndexResult *result, const DocumentMetadata *dmd, double minScore) {
   return result->TFIDFScorer(args, dmd, minScore, NORM_MAXFREQ);
 }
 
@@ -152,7 +153,7 @@ double TFIDFScorer(const ScorerArgs *args, const IndexResult *result, const Docu
 
 // Identical scorer to TFIDFScorer, only the normalization is by total weighted frequency in the doc
 
-double TFIDFNormDocLenScorer(const ScorerArgs *args, const IndexResult *result, const DocumentMetadata *dmd, double minScore) {
+double TFIDFNormDocLenScorer(const ScorerArgs &args, const IndexResult *result, const DocumentMetadata *dmd, double minScore) {
 
   return result->TFIDFScorer(args, dmd, minScore, NORM_DOCLEN);
 }
@@ -179,8 +180,8 @@ double TermResult::BM25Scorer(const ScorerArgs *args, const DocumentMetadata *dm
 
 //-------------------------------------------------------------------------------------------------------
 
-double AggregateResult::BM25Scorer(const ScorerArgs *args, const DocumentMetadata *dmd) const {
-  ScoreExplain *explain = args->explain;
+double AggregateResult::BM25Scorer(const ScorerArgs &args, const DocumentMetadata *dmd) const {
+  ScoreExplain *explain = args.explain;
   static const float b = 0.5;
   static const float k1 = 1.2;
   double f = (double)freq;
@@ -194,7 +195,7 @@ double AggregateResult::BM25Scorer(const ScorerArgs *args, const DocumentMetadat
     explain->children.clear();
     for (auto child : children) {
       score += child->BM25Scorer(args, dmd);
-      explain->children.push_back(args->explain); // @@@ check logic of collecting child explains. double free?
+      explain->children.push_back(args.explain); // @@@ check logic of collecting child explains. double free?
     }
     EXPLAIN("(Weight %.2f * children BM25 %.2f)", weight, score);
   }
@@ -204,17 +205,17 @@ double AggregateResult::BM25Scorer(const ScorerArgs *args, const DocumentMetadat
 
 //-------------------------------------------------------------------------------------------------------
 
-double IndexResult::BM25Scorer(const ScorerArgs *args, const DocumentMetadata *dmd) const {
-  ScoreExplain *explain = args->explain;
+double IndexResult::BM25Scorer(const ScorerArgs &args, const DocumentMetadata *dmd) const {
+  ScoreExplain *explain = args.explain;
   double f = (double)freq;
   double score = 0;
 
   if (f) { // default for virtual type - just disregard the idf
     static const float b = 0.5;
     static const float k1 = 1.2;
-    score = weight * f / (f + k1 * (1.0f - b + b * args->indexStats.avgDocLen));
+    score = weight * f / (f + k1 * (1.0f - b + b * args.indexStats.avgDocLen));
     EXPLAIN("(%.2f = Weight %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
-            score, weight, freq, freq, args->indexStats.avgDocLen);
+            score, weight, freq, freq, args.indexStats.avgDocLen);
   } else {
     EXPLAIN("Frequency 0 -> value 0");
   }
@@ -225,12 +226,12 @@ double IndexResult::BM25Scorer(const ScorerArgs *args, const DocumentMetadata *d
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 // BM25 scoring function
 
-double BM25Scorer(const ScorerArgs *args, const IndexResult *r, const DocumentMetadata *dmd, double minScore) {
-  ScoreExplain *explain = args->explain;
+double BM25Scorer(const ScorerArgs &args, const IndexResult *r, const DocumentMetadata *dmd, double minScore) {
+  ScoreExplain *explain = args.explain;
   double bm25res = r->BM25Scorer(args, dmd);
   double score = dmd->score * bm25res;
 
-  explain = args->CreateNewExplainParent();
+  explain = args.CreateNewExplainParent();
 
   // no need to factor the distance if tfidf is already below minimal score
   if (score < minScore) {
@@ -248,8 +249,8 @@ double BM25Scorer(const ScorerArgs *args, const IndexResult *r, const DocumentMe
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Raw document-score scorer. Just returns the document score
 
-double DocScoreScorer(const ScorerArgs *args, const IndexResult *r, const DocumentMetadata *dmd, double minScore) {
-  ScoreExplain *explain = args->explain;
+double DocScoreScorer(const ScorerArgs &args, const IndexResult *r, const DocumentMetadata *dmd, double minScore) {
+  ScoreExplain *explain = args.explain;
   EXPLAIN("Document's score is %.2f", dmd->score);
   return dmd->score;
 }
@@ -257,8 +258,8 @@ double DocScoreScorer(const ScorerArgs *args, const IndexResult *r, const Docume
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 // DISMAX-style scorer
 
-double IndexResult::DisMaxScorer(const ScorerArgs *args) const {
-  ScoreExplain *explain = args->explain;
+double IndexResult::DisMaxScorer(const ScorerArgs &args) const {
+  ScoreExplain *explain = args.explain;
   // for terms - we return the term frequency
   double score = freq;
   EXPLAIN("DISMAX %.2f = Weight %.2f * Frequency %d", weight * score, weight, freq);
@@ -268,8 +269,8 @@ double IndexResult::DisMaxScorer(const ScorerArgs *args) const {
 
 //-------------------------------------------------------------------------------------------------------
 
-double IntersectResult::DisMaxScorer(const ScorerArgs *args) const {
-  ScoreExplain *explain = args->explain;
+double IntersectResult::DisMaxScorer(const ScorerArgs &args) const {
+  ScoreExplain *explain = args.explain;
   // for terms - we return the term frequency
   double score = 0;
   if (!explain) {
@@ -291,8 +292,8 @@ double IntersectResult::DisMaxScorer(const ScorerArgs *args) const {
 
 //-------------------------------------------------------------------------------------------------------
 
-double UnionResult::DisMaxScorer(const ScorerArgs *args) const {
-  ScoreExplain *explain = args->explain;
+double UnionResult::DisMaxScorer(const ScorerArgs &args) const {
+  ScoreExplain *explain = args.explain;
   double score = 0;
   if (!explain) {
     for (auto child : children) {
@@ -315,7 +316,7 @@ double UnionResult::DisMaxScorer(const ScorerArgs *args) const {
 
 // Calculate sum(TF-IDF)*document score for each result
 
-double DisMaxScorer(const ScorerArgs *args, const IndexResult *h, const DocumentMetadata *dmd, double minScore) {
+double DisMaxScorer(const ScorerArgs &args, const IndexResult *h, const DocumentMetadata *dmd, double minScore) {
   return h->DisMaxScorer(args);
 }
 
@@ -338,18 +339,18 @@ static const unsigned char bitsinbyte[256] = {
 // HAMMING - Scorer using Hamming distance between the query payload and the document payload.
 // Only works if both have the payloads the same length
 
-double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const DocumentMetadata *dmd, double minScore) {
-  ScoreExplain *explain = args->explain;
+double HammingDistanceScorer(const ScorerArgs &args, const IndexResult *h, const DocumentMetadata *dmd, double minScore) {
+  ScoreExplain *explain = args.explain;
 
   // the strings must be of the same length > 0
-  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != args->payload.len) {
+  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != args.payload.len) {
     EXPLAIN("Payloads provided to scorer vary in length");
     return 0; //@@@ TODO: is this a correct score?
   }
 
   size_t nbits = 0;
-  size_t len = args->payload.len;
-  const unsigned char *a = (unsigned char *)args->payload.data;
+  size_t len = args.payload.len;
+  const unsigned char *a = (unsigned char *)args.payload.data;
   const unsigned char *b = (unsigned char *)dmd->payload->data;
   for (size_t i = 0; i < len; ++i) {
     nbits += bitsinbyte[(unsigned char)(a[i] ^ b[i])];
@@ -366,11 +367,11 @@ double HammingDistanceScorer(const ScorerArgs *args, const IndexResult *h, const
 // Stemmer-based query expander
 
 StemmerExpander::StemmerExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status) :
-  QueryExpander(qast, sctx, lang, status), cn_tokenizer(NULL), latin_stemmer(NULL) {
+  QueryExpander(qast, sctx, lang, status), cn_tokenizer(nullptr), latin_stemmer(nullptr) {
   if (lang == RS_LANG_CHINESE) {
-    cn_tokenizer = new ChineseTokenizer(NULL, NULL, 0);
+    cn_tokenizer = new ChineseTokenizer(nullptr, nullptr, 0);
   } else {
-    latin_stemmer = sb_stemmer_new(RSLanguage_ToString(lang), NULL);
+    latin_stemmer = sb_stemmer_new(RSLanguage_ToString(lang), nullptr);
   }
 }
 
@@ -432,8 +433,8 @@ StemmerExpander::~StemmerExpander() {
 // Phonetic-based query expander
 
 int PhoneticExpander::Expand(RSToken *token) {
-  char *primary = NULL;
-  PhoneticManager::ExpandPhonetics(token->str, &primary, NULL);
+  char *primary = nullptr;
+  PhoneticManager::ExpandPhonetics(token->str, &primary, nullptr);
   if (primary) {
     ExpandToken(primary, 0);
   }
@@ -490,7 +491,7 @@ int SynonymExpander::Expand(RSToken *token) {
   }
 
   TermData *t_data = spec->smap->GetIdsBySynonym(token->str);
-  if (t_data == NULL) {
+  if (t_data == nullptr) {
     return REDISMODULE_OK;
   }
 

@@ -924,12 +924,12 @@ ResultProcessor *AREQ::getScorerRP() {
   Scorer scorer = g_ext.GetScorer(scorer_name);
   if (!scorer) throw Error("Invalid scorer: %s", scorer_name);
   ScorerArgs scargs{*sctx->spec, ast->payload, !!(reqflags & QEXEC_F_SEND_SCOREEXPLAIN)};
-  if (reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
-    scargs.explain = new ScoreExplain();
-  }
-  scargs.indexStats = sctx->spec->stats;
-  scargs.payload = ast->payload;
-  return new RPScorer(&scorer, &scargs);
+  // if (reqflags & QEXEC_F_SEND_SCOREEXPLAIN) { // @@ already done in ScorerArgs ctor
+  //   scargs.explain = new ScoreExplain();
+  // }
+  // scargs.indexStats = sctx->spec->stats;
+  // scargs.payload = ast->payload;
+  return new RPScorer(scorer, scargs);
 }
 
 //---------------------------------------------------------------------------------------------

@@ -402,11 +402,11 @@ struct IndexResult : Object {
   bool withinRangeInOrder(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
   bool withinRangeUnordered(RSOffsetIterators &iters, uint32_t *positions, int num, int maxSlop);
 
-  double TFIDFScorer(const ScorerArgs *args, const DocumentMetadata *dmd, double minScore, int normMode) const;
+  double TFIDFScorer(const ScorerArgs &args, const DocumentMetadata *dmd, double minScore, int normMode) const;
   virtual double TFIDFScorer(const DocumentMetadata *dmd, ScoreExplain *explain) const;
 
-  virtual double BM25Scorer(const ScorerArgs *args, const DocumentMetadata *dmd) const;
-  virtual double DisMaxScorer(const ScorerArgs *args) const;
+  virtual double BM25Scorer(const ScorerArgs &args, const DocumentMetadata *dmd) const;
+  virtual double DisMaxScorer(const ScorerArgs &args) const;
 
   // Iterate an offset vector
   virtual std::unique_ptr<OffsetIterator> IterateOffsets() const {
