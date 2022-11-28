@@ -492,7 +492,7 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
         A->AddChildren(C->children); // we transfer ownership of C->children
 
         // Set the children count on C to 0 so they won't get recursively free'd
-        C->children.clear();
+        // C->children.clear();
         delete C;
     }
 }

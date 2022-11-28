@@ -685,6 +685,7 @@ void QueryNode::AddChildren(QueryNodes &children_) {
   } else {
     children.insert(children.begin(), children_.begin(), children_.end());
   }
+  children_.clear();
 }
 
 //---------------------------------------------------------------------------------------------
