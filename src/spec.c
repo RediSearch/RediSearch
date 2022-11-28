@@ -1094,12 +1094,12 @@ void Spec_AddToDict(const IndexSpec *sp) {
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   if (!spec->spcache) {
-    pthread_mutex_lock(&spec->spcache_lock);
+    pthread_mutex_lock(&((IndexSpec *)spec)->spcache_lock);
     // Check again if no one already made the cache
     if (!spec->spcache) {
       ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
     }
-    pthread_mutex_unlock(&spec->spcache_lock);
+    pthread_mutex_unlock(&((IndexSpec *)spec)->spcache_lock);
   }
 
   __atomic_fetch_add(&spec->spcache->refcount, 1, __ATOMIC_RELAXED);

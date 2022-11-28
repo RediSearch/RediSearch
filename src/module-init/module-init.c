@@ -21,6 +21,7 @@
 #include "rwlock.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
+#include "util/workers.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -197,6 +198,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   GC_ThreadPoolStart();
 
   CleanPool_ThreadPoolStart();
+
+  ThreadPool_CreatePool(10); // RSGlobalConfig.searchPoolSize);
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
