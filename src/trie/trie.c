@@ -28,7 +28,7 @@ TrieNode::TrieNode(const Runes &runes, t_len offset, const char *payload, size_t
   _flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
   _maxChildScore = 0;
   _sortmode = TRIENODE_SORTED_NONE;
-  if (payload != NULL && payload_size > 0) {
+  if (payload != nullptr && payload_size > 0) {
     _payload = new TriePayload(payload, payload_size);
   }
 }
@@ -37,7 +37,7 @@ TrieNode::TrieNode(const Runes &runes, t_len offset, const char *payload, size_t
 
 TrieNode *TrieNode::AddChild(const Runes &runes, t_len offset, RSPayload *payload, float score) {
   // a newly added child must be a terminal node
-  _children.emplace_back(new TrieNode(runes, offset, payload ? payload->data : NULL,
+  _children.emplace_back(new TrieNode(runes, offset, payload ? payload->data : nullptr,
     payload ? payload->len : 0, 0, score, true));
   _sortmode = TRIENODE_SORTED_NONE;
   return _children.back();
@@ -50,7 +50,7 @@ TrieNode *TrieNode::AddChild(const Runes &runes, t_len offset, RSPayload *payloa
 
 void TrieNode::SplitNode(t_len offset) {
   // Copy the current node's data and children to a new child node
-  TrieNode *newChild = new TrieNode(_runes, offset, _payload ? _payload->data : NULL,
+  TrieNode *newChild = new TrieNode(_runes, offset, _payload ? _payload->data : nullptr,
     _payload ? _payload->len : 0, _children.size(), _score, isTerminal());
   newChild->_maxChildScore = _maxChildScore;
   newChild->_flags = _flags;
@@ -65,9 +65,9 @@ void TrieNode::SplitNode(t_len offset) {
   _sortmode = TRIENODE_SORTED_NONE;
 
   _maxChildScore = MAX(_maxChildScore, newChild->_score);
-  if (_payload != NULL) {
+  if (_payload != nullptr) {
     delete _payload;
-    _payload = NULL;
+    _payload = nullptr;
   }
 }
 
@@ -86,7 +86,7 @@ void TrieNode::MergeWithSingleChild() {
 
   // copy state from child
   _score = ch->_score;
-  if (_payload != NULL) delete _payload;
+  if (_payload != nullptr) delete _payload;
   _payload = ch->_payload;
   _maxChildScore = ch->_maxChildScore;
   _flags = ch->_flags;
@@ -118,7 +118,7 @@ void TrieNode::Print(int idx, int depth) {
 TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, TrieAddOp op, int& rc) {
   if (score == 0 || runes.empty()) {
     rc = 0;
-    return NULL;
+    return nullptr;
   }
 
   int offset = 0;
@@ -140,11 +140,11 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
       _score = score;
       _flags |= TRIENODE_TERMINAL;
       TrieNode *newChild = _children.back();
-      if (_payload != NULL) {
+      if (_payload != nullptr) {
         delete _payload;
-        _payload = NULL;
+        _payload = nullptr;
       }
-      if (payload != NULL && payload->data != NULL && payload->len > 0) {
+      if (payload != nullptr && payload->data != nullptr && payload->len > 0) {
         _payload = new TriePayload(payload->data, payload->len);
       }
 
@@ -175,11 +175,11 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
       default:
         _score = score;
     }
-    if (_payload != NULL) {
+    if (_payload != nullptr) {
       delete _payload;
-      _payload = NULL;
+      _payload = nullptr;
     }
-    if (payload != NULL && payload->data != NULL && payload->len > 0) {
+    if (payload != nullptr && payload->data != nullptr && payload->len > 0) {
       _payload = new TriePayload(payload->data, payload->len);
     }
 
@@ -227,7 +227,7 @@ float TrieNode::Find(const Runes &runes) const {
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to
       t_len i = 0;
-      TrieNode *nextChild = NULL;
+      TrieNode *nextChild = nullptr;
       for (auto child: n->_children) {
         if (&runes[offset] == child->_runes[0]) {
           nextChild = child;
@@ -317,7 +317,7 @@ bool TrieNode::Delete(const Runes &runes) {
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to
       t_len i = 0;
-      TrieNode *nextChild = NULL;
+      TrieNode *nextChild = nullptr;
       for (auto child: n->_children) {
         if (runes[offset] == child->_runes[0]) {
           nextChild = child;
@@ -484,7 +484,7 @@ next:
 
 // Iterate the tree with a step filter, which tells the iterator whether to continue down the trie
 // or not. This can be a levenshtein automaton, a regex automaton, etc.
-// NULL filter means just continue iterating the entire trie. ctx is the filter's context.
+// nullptr filter means just continue iterating the entire trie. ctx is the filter's context.
 
 TrieIterator TrieNode::Iterate(DFAFilter *filter) {
   return TrieIterator{this, filter};
@@ -515,7 +515,7 @@ bool TrieIterator::Next(Runes &ret_runes, RSPayload &payload, float &score, int 
       if (sn.n->isTerminal() && sn.n->_len == sn.stringOffset && !sn.n->isDeleted()) {
         ret_runes = runes;
         score = sn.n->_score;
-        if (sn.n->_payload != NULL) {
+        if (sn.n->_payload != nullptr) {
           payload = RSPayload(sn.n->_payload);
         } else {
           payload.reset();
@@ -688,14 +688,14 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     int nNextMin = nmin - child->_len;
     if (nNextMin < 0) {
       nNextMin = 0;
-      nextMin = NULL;
+      nextMin = nullptr;
     }
 
     const rune *nextMax = max + child->_len;
     int nNextMax = nmax - child->_len;
     if (nNextMax < 0) {
       nNextMax = 0;
-      nextMax = NULL;
+      nextMax = nullptr;
     }
 
     child->rangeIterate(nextMin, nNextMin, nextMax, nNextMax, r);
@@ -712,10 +712,10 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     int nNextMin = nmin - child->_len;
     if (nNextMin < 0) {
       nNextMin = 0;
-      nextMin = NULL;
+      nextMin = nullptr;
     }
 
-    child->rangeIterate(nextMin, nNextMin, NULL, -1, r);
+    child->rangeIterate(nextMin, nNextMin, nullptr, -1, r);
   }
 
   if (nmin > 0) {
@@ -748,10 +748,10 @@ void TrieNode::rangeIterate(const rune *min, int nmin, const rune *max, int nmax
     int nNextMax = nmax - child->_len;
     if (nNextMax < 0) {
       nNextMax = 0;
-      nextMax = NULL;
+      nextMax = nullptr;
     }
 
-    child->rangeIterate(NULL, -1, nextMax, nNextMax, r);
+    child->rangeIterate(nullptr, -1, nextMax, nNextMax, r);
   }
 
 clean_stack:

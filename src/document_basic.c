@@ -252,6 +252,29 @@ Document::~Document() {
 
 //---------------------------------------------------------------------------------------------
 
+// Save a document in the index. Used for returning contents in search results.
+
+int Document::Save(RedisSearchCtx *ctx, int options, QueryError *status) {
+  RedisModuleKey *k =
+      RedisModule_OpenKey(ctx->redisCtx, docKey, REDISMODULE_WRITE | REDISMODULE_READ);
+  if (k == nullptr || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
+                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
+    status->SetError(QUERY_EREDISKEYTYPE, nullptr);
+    if (k) {
+      RedisModule_CloseKey(k);
+    }
+    return REDISMODULE_ERR;
+  }
+
+  for (auto field : fields) {
+    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, field->name, field->text, nullptr);
+  }
+  RedisModule_CloseKey(k);
+  return REDISMODULE_OK;
+}
+
+//---------------------------------------------------------------------------------------------
+
 // Serialzie the document's fields to a redis client
 
 int Document::ReplyFields(RedisModuleCtx *ctx) {

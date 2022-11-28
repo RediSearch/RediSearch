@@ -83,8 +83,8 @@ struct NumericRangeNode : public Object {
 
   double value;
   int maxDepth;
-  struct NumericRangeNode *left;
-  struct NumericRangeNode *right;
+  NumericRangeNode *left;
+  NumericRangeNode *right;
 
   NumericRange *range;
 
@@ -97,7 +97,7 @@ struct NumericRangeNode : public Object {
   // Returns a vector with range node pointers.
   Vector<NumericRange> FindRange(double min, double max);
 
-  bool IsLeaf() const { return left == NULL && right == NULL; }
+  bool IsLeaf() const { return left == nullptr && right == nullptr; }
 
   template <typename F>
   void Traverse(F fn) {
@@ -164,7 +164,7 @@ struct NumericUnion : Object {
 
   NumericUnion(IndexIterator *it, uint32_t lastRevId) : it(it), lastRevId(lastRevId) {}
   NumericUnion(NumericUnion &&nu) : it(nu.it), lastRevId(nu.lastRevId) {
-    nu.it = NULL;
+    nu.it = nullptr;
   }
 };
 
@@ -180,13 +180,13 @@ struct NumericUnionConcKey : ConcurrentKey {
   void Reopen() override {
     NumericRangeTree *t = RedisModule_ModuleTypeGetValue(key);
 
-    // If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF
+    // If the key has been deleted we'll get a nullptr heere, so we just mark ourselves as EOF
     // We simply abort the root iterator which is either a union of many ranges or a single range.
     // If the numeric range tree has chained (split, nodes deleted, etc) since we last closed it,
     // We cannot continue iterating it, since the underlying pointers might be screwed.
     // For now we will just stop processing this query. This causes the query to return bad results,
     // so in the future we can try an reset the state here.
-    if (key == NULL || t == NULL || t->revisionId != nu.lastRevId) {
+    if (key == nullptr || t == nullptr || t->revisionId != nu.lastRevId) {
       nu.it->Abort();
     }
   }

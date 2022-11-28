@@ -49,10 +49,10 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
 
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
-  const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
+  const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, nullptr);
   const FieldSpec *fieldSpec = spec->GetField(fieldName);
   if (!fieldSpec) {
-    return NULL;
+    return nullptr;
   }
   return spec->GetFormattedKey(*fieldSpec, t);
 }
@@ -92,7 +92,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   }
 
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
+  RedisModuleKey *keyp = nullptr;
   size_t len;
   const char *invIdxName = RedisModule_StringPtrLen(argv[1], &len);
   InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, &keyp);
@@ -142,18 +142,18 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
+  RedisModuleKey *keyp = nullptr;
   size_t len;
   const char *invIdxName = RedisModule_StringPtrLen(argv[1], &len);
   InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, &keyp);
-  IndexReader *reader = NULL;
+  IndexReader *reader = nullptr;
 
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
 
-  reader = new TermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  reader = new TermIndexReader(invidx, nullptr, RS_FIELDMASK_ALL, nullptr, 1);
   ReplyReaderResults(reader, sctx->redisCtx);
 end:
   if (keyp) {
@@ -171,9 +171,9 @@ DEBUG_COMMAND(NumericIndexSummary) {
   }
   GET_SEARCH_CTX(argv[0])
   size_t invIdxBulkLen = 0;
-  RedisModuleKey *keyp = NULL;
+  RedisModuleKey *keyp = nullptr;
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = NULL;
+  NumericRangeTree *rt = nullptr;
 
   if (!keyName) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
@@ -210,12 +210,12 @@ DEBUG_COMMAND(DumpNumericIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
+  RedisModuleKey *keyp = nullptr;
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_NUMERIC);
   size_t resultSize = 0;
   NumericRangeNode *currNode;
-  NumericRangeTreeIterator *iter = NULL;
-  NumericRangeTree *rt = NULL;
+  NumericRangeTreeIterator *iter = nullptr;
+  NumericRangeTree *rt = nullptr;
 
   if (!keyName) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
@@ -256,11 +256,11 @@ DEBUG_COMMAND(DumpTagIndex) {
   tm_len_t len;
   InvertedIndex *iv;
   size_t resultSize = 0;
-  TrieMapIterator *iter = NULL;
-  TagIndex *tagIndex = NULL;
+  TrieMapIterator *iter = nullptr;
+  TagIndex *tagIndex = nullptr;
 
   GET_SEARCH_CTX(argv[0])
-  RedisModuleKey *keyp = NULL;
+  RedisModuleKey *keyp = nullptr;
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_TAG);
   if (!keyName) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
@@ -277,7 +277,7 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (iter->Next(&tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    IndexReader *reader = new TermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
+    IndexReader *reader = new TermIndexReader(iv, nullptr, RS_FIELDMASK_ALL, nullptr, 1);
     ReplyReaderResults(reader, sctx->redisCtx);
     ++resultSize;
   }
@@ -300,7 +300,7 @@ DEBUG_COMMAND(IdToDocId) {
   }
   GET_SEARCH_CTX(argv[0])
   long long id;
-  DocumentMetadata *doc = NULL;
+  DocumentMetadata *doc = nullptr;
   if (RedisModule_StringToLongLong(argv[1], &id) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     goto end;
@@ -340,8 +340,8 @@ DEBUG_COMMAND(DumpPhoneticHash) {
   size_t len;
   const char *term_c = RedisModule_StringPtrLen(argv[0], &len);
 
-  char *primary = NULL;
-  char *secondary = NULL;
+  char *primary = nullptr;
+  char *secondary = nullptr;
 
   PhoneticManager::ExpandPhonetics(std::string_view(term_c, len), &primary, &secondary);
 
@@ -377,13 +377,13 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[0], nullptr), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
   }
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
-      ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
+      ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, nullptr, INVOKATION_TIMEOUT);
   sp->gc->ForceInvoke(bc);
   return REDISMODULE_OK;
 }
@@ -394,7 +394,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[0], nullptr), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
@@ -460,18 +460,18 @@ DEBUG_COMMAND(InfoTagIndex) {
                           {.name = "prefix", .type = AC_ARGTYPE_STRING, .target = &options.prefix},
                           {.name = "offset", .type = AC_ARGTYPE_UINT, .target = &options.offset},
                           {.name = "limit", .type = AC_ARGTYPE_UINT, .target = &options.limit},
-                          {NULL}};
-  RedisModuleKey *keyp = NULL;
-  RedisModuleString *keyName = NULL;
-  const TagIndex *idx = NULL;
+                          {nullptr}};
+  RedisModuleKey *keyp = nullptr;
+  RedisModuleString *keyName = nullptr;
+  const TagIndex *idx = nullptr;
   ArgsCursor ac;
-  ACArgSpec *errSpec = NULL;
+  ACArgSpec *errSpec = nullptr;
   ac.InitRString(argv + 2, argc - 2);
   int rv = ac.ParseArgSpec(argspecs, &errSpec);
   size_t nelem = 0;
   int shouldDescend;
   size_t limit;
-  TrieMapIterator *iter = NULL;
+  TrieMapIterator *iter = nullptr;
   char *tag;
   tm_len_t len;
   InvertedIndex *iv;
@@ -537,7 +537,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithSimpleString(ctx, "entries");
-      IndexReader *reader = new TermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
+      IndexReader *reader = new TermIndexReader(iv, nullptr, RS_FIELDMASK_ALL, nullptr, 1);
       ReplyReaderResults(reader, sctx->redisCtx);
       nsubelem += 2;
     }
@@ -666,7 +666,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GIT_SHA", GitSha},
-                               {NULL, NULL}};
+                               {nullptr, nullptr}};
 
 //---------------------------------------------------------------------------------------------
 
@@ -676,12 +676,12 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  const char *subCommand = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *subCommand = RedisModule_StringPtrLen(argv[1], nullptr);
 
   if (strcasecmp(subCommand, "help") == 0) {
     size_t len = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
+    for (DebugCommandType *c = &commands[0]; c->name != nullptr; c++) {
       RedisModule_ReplyWithStringBuffer(ctx, c->name, strlen(c->name));
       ++len;
     }
@@ -689,7 +689,7 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
-  for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
+  for (DebugCommandType *c = &commands[0]; c->name != nullptr; c++) {
     if (strcasecmp(c->name, subCommand) == 0) {
       return c->callback(ctx, argv + 2, argc - 2);
     }

@@ -61,11 +61,11 @@ true or an error if something went wrong.
 static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryError *status) {
   // Assume argc and argv are at proper indices
   int nosave = 0, replace = 0, partial = 0, foundFields = 0;
-  opts->fieldsArray = NULL;
+  opts->fieldsArray = nullptr;
   opts->numFieldElems = 0;
   opts->options = 0;
 
-  char *languageStr = NULL;
+  char *languageStr = nullptr;
   ACArgSpec argList[] = {{AC_MKBITFLAG("NOSAVE", &opts->options, DOCUMENT_ADD_NOSAVE)},
                          {AC_MKBITFLAG("REPLACE", &opts->options, DOCUMENT_ADD_REPLACE)},
                          {AC_MKBITFLAG("PARTIAL", &opts->options, DOCUMENT_ADD_PARTIAL)},
@@ -73,11 +73,11 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
                          {.name = "PAYLOAD", .type = AC_ARGTYPE_RSTRING, .target = &opts->payload},
                          {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
                          {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
-                         {.name = NULL}};
+                         {.name = nullptr}};
 
   while (!ac->IsAtEnd()) {
     int rv = 0;
-    ACArgSpec *errArg = NULL;
+    ACArgSpec *errArg = nullptr;
 
     if ((rv = ac->ParseArgSpec(argList, &errArg)) == AC_OK) {
       continue;
@@ -137,29 +137,6 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
 
 //---------------------------------------------------------------------------------------------
 
-// Save a document in the index. Used for returning contents in search results.
-
-int RedisSearchCtx::SaveDocument(Document *doc, int options, QueryError *status) {
-  RedisModuleKey *k =
-      RedisModule_OpenKey(redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
-                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
-    status->SetError(QUERY_EREDISKEYTYPE, NULL);
-    if (k) {
-      RedisModule_CloseKey(k);
-    }
-    return REDISMODULE_ERR;
-  }
-
-  for (auto field : doc->fields) {
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, field->name, field->text, NULL);
-  }
-  RedisModule_CloseKey(k);
-  return REDISMODULE_OK;
-}
-
-//---------------------------------------------------------------------------------------------
-
 int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOptions &opts,
                                 QueryError *status) {
   int rc = REDISMODULE_ERR;
@@ -172,7 +149,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
   uint32_t addOptions;
 
   if (exists && !(opts.options & DOCUMENT_ADD_REPLACE)) {
-    status->SetError(QUERY_EDOCEXISTS, NULL);
+    status->SetError(QUERY_EDOCEXISTS, nullptr);
     return REDISMODULE_ERR;
   }
 
@@ -181,7 +158,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
     int res = 0;
     if (Document::EvalExpression(this, name, opts.evalExpr, &res, status) == REDISMODULE_OK) {
       if (res == 0) {
-        status->SetError(QUERY_EDOCNOTADDED, NULL);
+        status->SetError(QUERY_EDOCNOTADDED, nullptr);
         return REDISMODULE_ERR;
       }
     } else {
@@ -194,6 +171,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
     }
   }
 
+  // @@ PAYLOAD is deprecated. this is unreachable in later versions. no point wasting time on it.
   if (opts.payload) {
     size_t npayload = 0;
     const char *payload = RedisModule_StringPtrLen(opts.payload, &npayload);
@@ -206,12 +184,12 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
     if (opts.options & DOCUMENT_ADD_NOCREATE) {
       saveopts |= REDIS_SAVEDOC_NOCREATE;
     }
-    if (SaveDocument(doc, saveopts, status) != REDISMODULE_OK) {
+    if (doc->Save(this, saveopts, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   }
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL), doc->NumFields());
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, nullptr), doc->NumFields());
   AddDocumentCtx *add = new AddDocumentCtx{sp, doc, status};
   addOptions = opts.options;
 
@@ -279,7 +257,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return REDISMODULE_OK;
   }
 
-  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  IndexSpec *sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], nullptr), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
@@ -358,11 +336,11 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   double ds;
   int rv = 0, replace = 0;
   RSLanguage language;
-  const char *languageStr = NULL;
-  IndexSpec *sp = NULL;
-  Document *doc = NULL;
-  AddDocumentCtx *aCtx = NULL;
-  RedisSearchCtx *sctx = NULL;
+  const char *languageStr = nullptr;
+  IndexSpec *sp = nullptr;
+  Document *doc = nullptr;
+  AddDocumentCtx *aCtx = nullptr;
+  RedisSearchCtx *sctx = nullptr;
 
   struct ReportError {
     RedisModuleCtx *ctx;
@@ -382,8 +360,8 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   ACArgSpec specs[] =  // Comment to force newline
       {{name: "LANGUAGE", type: AC_ARGTYPE_STRING, target: &languageStr},
        {name: "REPLACE", type: AC_ARGTYPE_BOOLFLAG, target: &replace},
-       {name: NULL}};
-  ACArgSpec *errArg = NULL;
+       {name: nullptr}};
+  ACArgSpec *errArg = nullptr;
 
   if ((rv = ac.GetDouble(&ds, 0)) != AC_OK) {
     status.SetError(QUERY_EADDARGS, "Could not parse document score");
@@ -397,7 +375,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   if (rv == AC_OK) {
     // OK. No error
   } else if (rv == AC_ERR_ENOENT) {
-    const char *keyword = ac.GetStringNC(NULL);
+    const char *keyword = ac.GetStringNC(nullptr);
     status.SetErrorFmt(QUERY_EADDARGS, "Unknown keyword: `%s`", keyword);
     return REDISMODULE_OK;
   } else {
@@ -412,8 +390,8 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return REDISMODULE_OK;
   }
 
-  sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (sp == NULL) {
+  sp = IndexSpec::Load(ctx, RedisModule_StringPtrLen(argv[1], nullptr), 1);
+  if (sp == nullptr) {
     status.SetErrorFmt(QUERY_EGENERIC, "Unknown Index name");
     return REDISMODULE_OK;
   }
@@ -426,10 +404,10 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, NULL), doc->NumFields());
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, nullptr), doc->NumFields());
 
   aCtx = new AddDocumentCtx(sp, doc, &status);
-  if (aCtx == NULL) {
+  if (aCtx == nullptr) {
     return status.ReplyAndClear(ctx);
   }
 

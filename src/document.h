@@ -68,6 +68,7 @@ struct Document : Object {
   Document() {}
   ~Document();
 
+  int Save(RedisSearchCtx *ctx, int options, QueryError *status);
   int ReplyFields(RedisModuleCtx *ctx);
   DocumentField *GetField(const char *fieldName);
 
@@ -238,7 +239,7 @@ struct AddDocumentCtx : Object { // MemPoolObject<AddDocumentPool> { //@@POOL
 // Don't create document if it does not exist. Replace only
 #define REDIS_SAVEDOC_NOCREATE 0x01
 
-// @@ moved to RedisSearchCtx::SaveDocument
+// @@ moved to Document::Save
 // int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status);
 
 //---------------------------------------------------------------------------------------------

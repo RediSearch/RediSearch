@@ -42,7 +42,6 @@ struct RedisSearchCtx {
   RedisModuleString *NumericIndexKey(String field);
 
   int AddDocument(RedisModuleString *name, const AddDocumentOptions &opts, QueryError *status);
-  int SaveDocument(Document *doc, int options, QueryError *status);
 };
 
 #if 0

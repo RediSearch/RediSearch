@@ -203,15 +203,17 @@ int DocTable::SetByteOffsets(t_docId docId, RSByteOffsets *v) {
 
 //---------------------------------------------------------------------------------------------
 
-RSPayload::RSPayload(const char *payload, size_t payloadSize) {
-  data = rm_calloc(1, payloadSize + 1);
+RSPayload::RSPayload(const char *payload, size_t payloadSize)
+  : data{rm_malloc(payloadSize)}
+  , len{payloadSize}
+{
   memcpy(data, payload, payloadSize);
-  len = payloadSize;
 }
 
 //---------------------------------------------------------------------------------------------
 
-RSPayload::RSPayload(RedisModuleIO *rdb) {
+RSPayload::RSPayload(RedisModuleIO *rdb)
+{
   void *payload_data = RedisModule_LoadStringBuffer(rdb, &len);
   data = rm_malloc(len);
   memcpy(data, payload_data, len);
@@ -221,10 +223,9 @@ RSPayload::RSPayload(RedisModuleIO *rdb) {
 
 //---------------------------------------------------------------------------------------------
 
-RSPayload::RSPayload(TriePayload *payload) {
-  memcpy(data, payload->data, payload->len);
-  len = payload->len;
-}
+RSPayload::RSPayload(TriePayload *payload)
+  : RSPayload(payload->data, payload->len)
+{}
 
 
 //---------------------------------------------------------------------------------------------

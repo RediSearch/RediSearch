@@ -85,7 +85,7 @@ struct IndexSpec;
 // extracted from each result or document.
 
 struct RSPayload : Object {
-  RSPayload() : data(NULL), len(0) {}
+  RSPayload() : data(nullptr), len(0) {}
   RSPayload(const char *payload, size_t payloadSize);
   RSPayload(RedisModuleIO *rdb);
   RSPayload(struct TriePayload *payload);
@@ -99,7 +99,7 @@ struct RSPayload : Object {
   operator SimpleBuff() { return SimpleBuff{data, len}; }
 
   void reset() {
-    data = NULL;
+    data = nullptr;
     len = 0;
   }
 };
@@ -210,7 +210,7 @@ struct RSToken {
 
 struct QueryExpander : virtual Object {
   QueryExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status):
-    qast(qast), sctx(sctx), language(lang), status(status), currentNode(NULL) {}
+    qast(qast), sctx(sctx), language(lang), status(status), currentNode(nullptr) {}
   virtual ~QueryExpander() = default;
 
   QueryAST *qast;
